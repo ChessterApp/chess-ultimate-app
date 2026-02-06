@@ -316,6 +316,71 @@ _lesson_cache = {}
 _cache_ttl = 300  # 5 minutes
 
 
+@puzzles_bp.route('/api/learn/<course_slug>/<lesson_slug>/puzzles/reset', methods=['POST'])
+@verify_clerk_token
+def reset_lesson_progress(course_slug, lesson_slug):
+    """
+    Reset all puzzle progress for a lesson.
+
+    This clears:
+    - All user_puzzle_progress entries for puzzles in this lesson
+    - The user_progress entry for this lesson
+
+    Returns:
+        {
+            "success": true,
+            "puzzles_reset": 12,
+            "message": "Progress reset successfully"
+        }
+    """
+    try:
+        user_id = get_current_user_id()
+
+        # Find lesson
+        lesson = _find_lesson_by_slugs(course_slug, lesson_slug)
+        if not lesson:
+            return jsonify({"error": "Lesson not found"}), 404
+
+        lesson_id = lesson['id']
+
+        # Get all puzzle IDs for this lesson
+        puzzles_result = supabase.table('lesson_puzzles')\
+            .select('id')\
+            .eq('lesson_id', lesson_id)\
+            .execute()
+
+        puzzle_ids = [p['id'] for p in puzzles_result.data]
+        puzzles_reset = 0
+
+        # Delete puzzle progress entries
+        if puzzle_ids:
+            delete_result = supabase.table('user_puzzle_progress')\
+                .delete()\
+                .eq('user_id', user_id)\
+                .in_('puzzle_id', puzzle_ids)\
+                .execute()
+            puzzles_reset = len(delete_result.data) if delete_result.data else 0
+
+        # Reset lesson progress status
+        supabase.table('user_progress')\
+            .delete()\
+            .eq('user_id', user_id)\
+            .eq('lesson_id', lesson_id)\
+            .execute()
+
+        logger.info(f"Reset progress for user {user_id} on lesson {lesson_slug}: {puzzles_reset} puzzles")
+
+        return jsonify({
+            "success": True,
+            "puzzles_reset": puzzles_reset,
+            "message": "Progress reset successfully"
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error resetting progress: {e}", exc_info=True)
+        return jsonify({"error": f"Failed to reset progress: {str(e)}"}), 500
+
+
 def _find_lesson_by_slugs(course_slug: str, lesson_slug: str):
     """
     Helper to find lesson by course and lesson slugs.

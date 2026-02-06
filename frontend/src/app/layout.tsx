@@ -5,7 +5,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
 import "./globals.css";
 import "../styles/chess-animations.css";
-import NavBar from "@/componets/Navbar";
+import NavBar from "@/components/Navbar";
 import { BottomNavigation, BottomNavSpacer } from "@/components/ui/BottomNavigation";
 
 const geistSans = Geist({
@@ -105,8 +105,8 @@ export default async function RootLayout({
 
   return (
     <ClerkProvider localization={clerkLocalization}>
-      <html lang={locale} suppressHydrationWarning>
-        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
+      <html lang={locale}>
+        <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
           <NextIntlClientProvider messages={messages}>
             <NavBar/>
             <main className="pb-16 md:pb-0">

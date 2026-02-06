@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
+import { useTranslations } from "next-intl";
 import {
   Box,
   CircularProgress,
@@ -29,13 +30,13 @@ import {
 import { grey } from "@mui/material/colors";
 import { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";
-import { TabPanel } from "@/componets/tabs/tab";
-import StockfishAnalysisTab from "@/componets/tabs/StockfishTab";
-import ChatTab from "@/componets/tabs/ChatTab";
+import { TabPanel } from "@/components/tabs/tab";
+import StockfishAnalysisTab from "@/components/tabs/StockfishTab";
+import ChatTab from "@/components/tabs/ChatTab";
 import useChesster from "@/hooks/useChesster";
 
-// Dynamic import to avoid SSR issues with chess engine
-const AiChessboardPanel = dynamic(() => import("@/componets/analysis/AiChessboard"), { ssr: false });
+// Dynamic import for code splitting
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"));
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
 import { purpleTheme } from "@/theme/theme";
@@ -49,16 +50,17 @@ import {
   Filter,
 } from "lucide-react";
 import { Refresh, SkipNext } from "@mui/icons-material";
-import Slider from "@/componets/stockfish/Slider";
+import Slider from "@/components/stockfish/Slider";
 import { useLocalStorage } from "usehooks-ts";
 import { PuzzleData, PuzzleQuery, PUZZLE_THEMES, DIFFICULTY_THEMES } from "@/libs/puzzle/helper";
-import Loader from "@/componets/loading/Loader";
-import Warning from "@/componets/loading/SignUpWarning";
+import Loader from "@/components/loading/Loader";
+import Warning from "@/components/loading/SignUpWarning";
 
 export default function PuzzlePage() {
   // const session = useSession();
   // Simulated session for no-auth mode
   const session = { isLoaded: true, isSignedIn: true };
+  const t = useTranslations('puzzle');
 
   // Client-side only flag
   const [mounted, setMounted] = useState(false);
@@ -661,9 +663,9 @@ export default function PuzzlePage() {
                   "& .Mui-selected": { color: "white !important" },
                 }}
               >
-                <Tab label="Puzzle Info" />
-                <Tab label="Stockfish Analysis" />
-                <Tab label="AI Chat" />
+                <Tab label={t('tabs.puzzleInfo')} />
+                <Tab label={t('tabs.stockfishAnalysis')} />
+                <Tab label={t('tabs.aiChat')} />
               </Tabs>
             </Box>
             <TabPanel value={analysisTab} index={0}>
@@ -679,18 +681,18 @@ export default function PuzzlePage() {
                 <Card sx={{ backgroundColor: purpleTheme.background.card }}>
                   <CardContent>
                   <Typography variant="h6" sx={{ mb: 2, color: "wheat" }}>
-                    Puzzle Themes
+                    {t('themes.title')}
                   </Typography>
                   <Stack spacing={2}>
                     {/* Quick Theme Selection */}
                     <FormControl fullWidth>
                     <InputLabel sx={{ color: "wheat" }}>
-                      Quick Select
+                      {t('themes.quickSelect')}
                     </InputLabel>
                     <Select
                       value={quickTheme}
                       onChange={handleQuickThemeChange}
-                      label="Quick Select"
+                      label={t('themes.quickSelect')}
                       sx={{
                       backgroundColor: grey[900],
                       color: "wheat",
@@ -709,7 +711,7 @@ export default function PuzzlePage() {
                       }}
                     >
                       <MenuItem value="">
-                      <em>Random Puzzle</em>
+                      <em>{t('themes.randomPuzzle')}</em>
                       </MenuItem>
                       {DIFFICULTY_THEMES.map((theme) => (
                       <MenuItem key={theme.value} value={theme.value}>
@@ -727,7 +729,7 @@ export default function PuzzlePage() {
                     fullWidth
                     color="info"
                     >
-                    Advanced Theme Selection
+                    {t('themes.advancedSelection')}
                     </Button>
 
                     {/* Current Selected Themes */}
@@ -742,7 +744,7 @@ export default function PuzzlePage() {
                       variant="body2"
                       sx={{ color: "wheat", alignSelf: "center" }}
                       >
-                      Active Themes:
+                      {t('themes.activeThemes')}:
                       </Typography>
                       {selectedThemes.map((theme) => (
                       <Chip
@@ -778,7 +780,7 @@ export default function PuzzlePage() {
                         variant="body2"
                         sx={{ color: "wheat", alignSelf: "center" }}
                       >
-                        This Puzzle:
+                        {t('themes.thisPuzzle')}:
                       </Typography>
                       {puzzleData.themes.map((theme) => (
                         <Chip
@@ -811,7 +813,7 @@ export default function PuzzlePage() {
                       variant="h6"
                       sx={{ textAlign: "center", color: "white" }}
                     >
-                      Solution View ({solutionViewIndex}/
+                      {t('solution.title')} ({solutionViewIndex}/
                       {solutionMoves.length})
                     </Typography>
                     <Stack
@@ -827,7 +829,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="info"
                       >
-                      Previous
+                      {t('solution.previous')}
                       </Button>
                       <Button
                       variant="outlined"
@@ -837,7 +839,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="info"
                       >
-                      Next
+                      {t('solution.next')}
                       </Button>
                       <Button
                       variant="contained"
@@ -845,7 +847,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="warning"
                       >
-                      Exit Solution
+                      {t('solution.exit')}
                       </Button>
                     </Stack>
                     </Stack>
@@ -863,7 +865,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="info"
                     >
-                      Hint
+                      {t('actions.hint')}
                     </Button>
                     {puzzleFailed && (
                       <Button
@@ -873,7 +875,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="secondary"
                       >
-                      Show Solution
+                      {t('actions.showSolution')}
                       </Button>
                     )}
                     <Button
@@ -884,7 +886,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="warning"
                     >
-                      Reset
+                      {t('actions.reset')}
                     </Button>
                     <Button
                       variant="contained"
@@ -900,7 +902,7 @@ export default function PuzzlePage() {
                       fullWidth
                       color="success"
                     >
-                      Next Puzzle
+                      {t('actions.nextPuzzle')}
                     </Button>
                     </Stack>
                   )}
@@ -919,7 +921,7 @@ export default function PuzzlePage() {
                     >
                     <Chip
                       icon={<Star />}
-                      label={`Rating: ${puzzleData?.rating || "N/A"}`}
+                      label={`${t('rating')}: ${puzzleData?.rating || "N/A"}`}
                       color="primary"
                       variant="outlined"
                       sx={{
@@ -945,28 +947,26 @@ export default function PuzzlePage() {
                     <Stack spacing={2}>
                     {puzzleComplete && (
                       <Alert severity="success">
-                      🎉 Puzzle Complete!{" "}
-                      {hintUsed ? "(Hint used)" : "Perfect solve!"}
+                      🎉 {t('status.complete')}{" "}
+                      {hintUsed ? `(${t('status.hintUsed')})` : t('status.perfectSolve')}
                       </Alert>
                     )}
                     {puzzleFailed && !showingSolution && (
                       <Alert severity="error">
-                      ❌ Wrong move! Use the Show Solution button to see
-                      the correct moves.
+                      ❌ {t('status.wrongMove')}
                       </Alert>
                     )}
                     {showHint && (
                       <Alert severity="info">
-                      💡 Hint: The highlighted squares show the best move!
+                      💡 {t('status.hintShown')}
                       </Alert>
                     )}
                     {showingSolution && (
                       <Alert severity="info">
-                      👁️ Viewing solution - use the navigation buttons to
-                      step through the moves.
+                      👁️ {t('status.viewingSolution')}
                       </Alert>
                     )}
-                    {error && <Alert severity="error"> Puzzle combo not present! Please try other puzzle themes</Alert>}
+                    {error && <Alert severity="error">{t('status.notFound')}</Alert>}
                     </Stack>
                   </CardContent>
                   </Card>
@@ -978,7 +978,7 @@ export default function PuzzlePage() {
 
             <TabPanel value={analysisTab} index={1}>
               <Typography variant="h6" gutterBottom>
-                Stockfish 17 NNUE LITE Analysis
+                {t('stockfish.title')}
               </Typography>
               <StockfishAnalysisTab
                 stockfishAnalysisResult={stockfishAnalysisResult}
@@ -1032,14 +1032,13 @@ export default function PuzzlePage() {
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
             <Settings />
-            <Typography variant="h6">Select Puzzle Themes</Typography>
+            <Typography variant="h6">{t('dialog.selectThemes')}</Typography>
           </Stack>
         </DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ mt: 2 }}>
             <Typography variant="body2" color="wheat">
-              Choose one or more themes to focus your puzzle practice. Leave
-              empty for random puzzles.
+              {t('dialog.selectThemesDesc')}
             </Typography>
 
             <Autocomplete
@@ -1055,8 +1054,8 @@ export default function PuzzlePage() {
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Select Themes"
-                  placeholder="Type to search themes..."
+                  label={t('dialog.selectThemesLabel')}
+                  placeholder={t('dialog.searchPlaceholder')}
                 />
               )}
               renderTags={(value, getTagProps) =>
@@ -1091,7 +1090,7 @@ export default function PuzzlePage() {
             {/* Popular Theme Quick Selects */}
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1, color: "wheat" }}>
-                Popular Themes:
+                {t('dialog.popularThemes')}:
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 {[
@@ -1131,7 +1130,7 @@ export default function PuzzlePage() {
 
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 1, color: "wheat" }}>
-                By Difficulty:
+                {t('dialog.byDifficulty')}:
               </Typography>
               <Slider
                 min={1200}
@@ -1146,14 +1145,14 @@ export default function PuzzlePage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setThemeDialogOpen(false)} color="inherit">
-            Cancel
+            {t('dialog.cancel')}
           </Button>
           <Button
             onClick={() => setSelectedThemes([])}
             color="warning"
             variant="outlined"
           >
-            Clear All
+            {t('dialog.clearAll')}
           </Button>
           <Button
             onClick={() => {
@@ -1167,7 +1166,7 @@ export default function PuzzlePage() {
             color="primary"
             variant="contained"
           >
-            Apply & Get Puzzle
+            {t('dialog.applyGetPuzzle')}
           </Button>
         </DialogActions>
       </Dialog>

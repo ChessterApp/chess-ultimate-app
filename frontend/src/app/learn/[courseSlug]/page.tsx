@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { useAuth, useUser, SignInButton } from '@clerk/nextjs'
+import { useAuth, SignInButton } from '@clerk/nextjs'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import useSWR from 'swr'
+import { useTranslations } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
 
 interface Course {
@@ -58,8 +59,8 @@ export default function CoursePage() {
   const params = useParams()
   const courseSlug = params?.courseSlug as string
   const { getToken, isLoaded, isSignedIn } = useAuth()
-  const { user } = useUser()
   const [authError, setAuthError] = useState<string | null>(null)
+  const t = useTranslations()
 
   // SWR fetcher with auth
   const fetcher = useCallback(async (url: string): Promise<CourseData> => {
@@ -124,16 +125,16 @@ export default function CoursePage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="text-xl text-red-500 mb-4">
-            {authError || 'Please sign in to access this course'}
+            {authError || t('course.signInRequired')}
           </div>
           <SignInButton mode="modal">
             <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded transition-colors">
-              Sign In
+              {t('common.signIn')}
             </button>
           </SignInButton>
           <div className="mt-4">
             <Link href="/dashboard" className="text-blue-600 hover:underline">
-              ← Back to Dashboard
+              ← {t('course.backToDashboard')}
             </Link>
           </div>
         </div>
@@ -147,17 +148,17 @@ export default function CoursePage() {
         <div className="text-center">
           <div className="text-xl text-red-500 mb-4">
             {error.message === 'Session expired'
-              ? 'Session expired. Please sign in again.'
-              : 'Failed to load course. Please try again.'}
+              ? t('course.sessionExpired')
+              : t('course.loadError')}
           </div>
           <button
             onClick={() => mutate()}
             className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded transition-colors mr-4"
           >
-            Retry
+            {t('course.retry')}
           </button>
           <Link href="/dashboard" className="text-blue-600 hover:underline">
-            ← Back to Dashboard
+            ← {t('course.backToDashboard')}
           </Link>
         </div>
       </div>
@@ -168,9 +169,9 @@ export default function CoursePage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="text-xl text-red-500 mb-4">Course not found</div>
+          <div className="text-xl text-red-500 mb-4">{t('course.notFound')}</div>
           <Link href="/dashboard" className="text-blue-600 hover:underline">
-            ← Back to Dashboard
+            ← {t('course.backToDashboard')}
           </Link>
         </div>
       </div>
@@ -179,10 +180,28 @@ export default function CoursePage() {
 
   const { course, modules, lessons, progress } = data
 
+  const getLessonTypeLabel = (type: string) => {
+    const types: Record<string, string> = {
+      'theory': t('course.lessonTypes.theory'),
+      'exercise': t('course.lessonTypes.exercise'),
+      'puzzle': t('course.lessonTypes.puzzle')
+    }
+    return types[type] || type
+  }
+
+  const getLevelLabel = (level: string) => {
+    const levels: Record<string, string> = {
+      'beginner': t('dashboard.levels.beginner'),
+      'intermediate': t('dashboard.levels.intermediate'),
+      'advanced': t('dashboard.levels.advanced')
+    }
+    return levels[level] || level
+  }
+
   return (
     <div className="container mx-auto px-4 py-8">
       <Link href="/dashboard" className="text-blue-600 hover:underline mb-4 inline-block">
-        ← Back to Dashboard
+        ← {t('course.backToDashboard')}
       </Link>
 
       <div className="mb-8">
@@ -193,7 +212,7 @@ export default function CoursePage() {
           course.level === 'intermediate' ? 'bg-yellow-100 text-yellow-800' :
           'bg-red-100 text-red-800'
         }`}>
-          {course.level}
+          {getLevelLabel(course.level)}
         </span>
       </div>
 
@@ -236,7 +255,7 @@ export default function CoursePage() {
                             ? 'bg-yellow-100 text-yellow-800'
                             : 'bg-purple-100 text-purple-800'
                         }`}>
-                          {lesson.lesson_type}
+                          {getLessonTypeLabel(lesson.lesson_type)}
                         </span>
                       </div>
                     </div>
@@ -246,11 +265,11 @@ export default function CoursePage() {
                         href={`/learn/${courseSlug}/${lesson.slug || generateSlug(lesson.title)}`}
                         className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded transition-colors"
                       >
-                        {isCompleted ? 'Review' : 'Start'}
+                        {isCompleted ? t('course.review') : t('course.start')}
                       </Link>
                     ) : (
                       <span className="text-gray-500 text-sm">
-                        Complete previous lesson to unlock
+                        {t('course.completePreviousToUnlock')}
                       </span>
                     )}
                   </div>
@@ -263,7 +282,7 @@ export default function CoursePage() {
 
       {modules.length === 0 && (
         <div className="text-center text-gray-500 mt-12">
-          <p className="text-xl">No modules found for this course.</p>
+          <p className="text-xl">{t('course.noModules')}</p>
         </div>
       )}
     </div>

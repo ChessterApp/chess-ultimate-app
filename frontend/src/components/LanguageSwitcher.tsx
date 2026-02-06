@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { locales, localeNames, localeFlags, type Locale } from '@/i18n/config'
+import { setLocale } from '@/app/actions/setLocale'
 
 interface LanguageSwitcherProps {
   currentLocale: string
@@ -32,11 +33,10 @@ export default function LanguageSwitcher({
   }, [])
 
   const handleLocaleChange = async (newLocale: Locale) => {
-    // Set cookie for the new locale
-    document.cookie = `NEXT_LOCALE=${newLocale};path=/;max-age=31536000`
+    // Use server action to ensure cookie is set properly
+    await setLocale(newLocale)
     setIsOpen(false)
-    // Navigate to current page to trigger server-side re-render with new locale
-    router.push(window.location.pathname)
+    // Refresh to apply new locale - cookie is guaranteed to be set
     router.refresh()
   }
 

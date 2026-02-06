@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import { ChessterMascot } from '../mascot/ChessterMascot';
 
 type CelebrationType = 'levelUp' | 'achievement' | 'streak' | 'lessonComplete' | 'courseComplete';
@@ -28,6 +29,7 @@ export function CelebrationOverlay({
 }: CelebrationOverlayProps) {
   const [isVisible, setIsVisible] = useState(false);
   const [confetti, setConfetti] = useState<{ id: number; x: number; delay: number; color: string }[]>([]);
+  const t = useTranslations('gamification');
 
   const generateConfetti = useCallback(() => {
     const colors = ['#8B5CF6', '#22C55E', '#F59E0B', '#EF4444', '#3B82F6', '#EC4899'];
@@ -147,7 +149,7 @@ export function CelebrationOverlay({
             <svg className="w-5 h-5 text-amber-300" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
             </svg>
-            <span className="font-bold">+{xpGained} XP</span>
+            <span className="font-bold">+{xpGained} {t('xp')}</span>
           </div>
         )}
 
@@ -161,7 +163,7 @@ export function CelebrationOverlay({
           onClick={handleClose}
           className="mt-6 w-full bg-white text-gray-900 font-semibold py-3 px-6 rounded-xl hover:bg-gray-100 active:scale-98 transition-all"
         >
-          Continue
+          {t('celebration.keepGoing')}
         </button>
       </div>
     </div>
@@ -216,11 +218,13 @@ interface LevelUpCelebrationProps {
 }
 
 export function LevelUpCelebration({ newLevel, levelIcon, xpGained, onClose }: LevelUpCelebrationProps) {
+  const t = useTranslations('gamification');
+
   return (
     <CelebrationOverlay
       type="levelUp"
-      title="Level Up!"
-      subtitle={`You've reached ${newLevel} level!`}
+      title={t('celebration.levelUp')}
+      subtitle={`${t('celebration.greatJob')} ${newLevel}!`}
       icon={levelIcon}
       xpGained={xpGained}
       onClose={onClose}
@@ -236,17 +240,18 @@ interface StreakCelebrationProps {
 }
 
 export function StreakCelebration({ days, onClose }: StreakCelebrationProps) {
+  const t = useTranslations('gamification');
   const milestones = [7, 30, 100, 365];
   const isMilestone = milestones.includes(days);
 
   return (
     <CelebrationOverlay
       type="streak"
-      title={isMilestone ? `${days} Day Streak!` : 'Streak Extended!'}
+      title={isMilestone ? `${days} ${t('dayStreak')}!` : t('keepItGoing')}
       subtitle={
         isMilestone
-          ? `Amazing dedication! You've practiced for ${days} days straight!`
-          : `You're on a ${days} day streak! Keep it going!`
+          ? `${t('celebration.amazing')} ${days} ${t('dayStreak')}!`
+          : `${days} ${t('dayStreak')}! ${t('keepItGoing')}`
       }
       icon="🔥"
       onClose={onClose}
@@ -272,10 +277,12 @@ export function AchievementCelebration({
   xpReward,
   onClose,
 }: AchievementCelebrationProps) {
+  const t = useTranslations('gamification');
+
   return (
     <CelebrationOverlay
       type="achievement"
-      title="Achievement Unlocked!"
+      title={t('celebration.achievementUnlocked')}
       subtitle={`${name}: ${description}`}
       icon={icon}
       xpGained={xpReward}

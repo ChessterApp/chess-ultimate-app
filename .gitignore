@@ -7,8 +7,14 @@
 .env.*.local
 *.env
 
+# Production secrets - CRITICAL: Never commit!
+.env.production
+.env.prod
+.env.staging
+
 # Keep .env.example for reference
 !.env.example
+!.env.production.example
 
 # ===========================
 # Frontend (Next.js)

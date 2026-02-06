@@ -3,7 +3,7 @@ import { Chess, Move, validateFen } from "chess.js";
 import { UciEngine } from "@/stockfish/engine/UciEngine";
 import { LineEval } from "@/stockfish/engine/engine";
 import { Color } from "chess.js";
-import { CandidateMove } from "../componets/tabs/Chessdb";
+import { CandidateMove } from "../components/tabs/Chessdb";
 import { isFenInAllDatabases } from "../libs/openingdatabase/ecoDatabase";
 
 

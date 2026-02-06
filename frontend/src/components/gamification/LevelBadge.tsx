@@ -1,9 +1,11 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
+
 type ChessLevel = 'pawn' | 'knight' | 'bishop' | 'rook' | 'queen' | 'king';
 
 interface LevelConfig {
-  name: string;
+  nameKey: ChessLevel;
   icon: string;
   minXp: number;
   maxXp: number;
@@ -13,7 +15,7 @@ interface LevelConfig {
 
 const LEVELS: Record<ChessLevel, LevelConfig> = {
   pawn: {
-    name: 'Pawn',
+    nameKey: 'pawn',
     icon: '♟',
     minXp: 0,
     maxXp: 100,
@@ -21,7 +23,7 @@ const LEVELS: Record<ChessLevel, LevelConfig> = {
     bgColor: 'bg-gray-100',
   },
   knight: {
-    name: 'Knight',
+    nameKey: 'knight',
     icon: '♞',
     minXp: 100,
     maxXp: 500,
@@ -29,7 +31,7 @@ const LEVELS: Record<ChessLevel, LevelConfig> = {
     bgColor: 'bg-green-100',
   },
   bishop: {
-    name: 'Bishop',
+    nameKey: 'bishop',
     icon: '♝',
     minXp: 500,
     maxXp: 1500,
@@ -37,7 +39,7 @@ const LEVELS: Record<ChessLevel, LevelConfig> = {
     bgColor: 'bg-blue-100',
   },
   rook: {
-    name: 'Rook',
+    nameKey: 'rook',
     icon: '♜',
     minXp: 1500,
     maxXp: 5000,
@@ -45,7 +47,7 @@ const LEVELS: Record<ChessLevel, LevelConfig> = {
     bgColor: 'bg-purple-100',
   },
   queen: {
-    name: 'Queen',
+    nameKey: 'queen',
     icon: '♛',
     minXp: 5000,
     maxXp: 15000,
@@ -53,7 +55,7 @@ const LEVELS: Record<ChessLevel, LevelConfig> = {
     bgColor: 'bg-amber-100',
   },
   king: {
-    name: 'King',
+    nameKey: 'king',
     icon: '♚',
     minXp: 15000,
     maxXp: Infinity,
@@ -96,6 +98,7 @@ export function LevelBadge({ xp, size = 'md', showName = true, showProgress = fa
   const level = getLevelFromXp(xp);
   const config = LEVELS[level];
   const progress = getLevelProgress(xp);
+  const t = useTranslations('gamification');
 
   const sizeClasses = {
     sm: { badge: 'w-8 h-8 text-lg', text: 'text-xs' },
@@ -112,7 +115,7 @@ export function LevelBadge({ xp, size = 'md', showName = true, showProgress = fa
       </div>
       {showName && (
         <span className={`${sizeClasses[size].text} font-semibold ${config.color}`}>
-          {config.name}
+          {t(`levels.${config.nameKey}`)}
         </span>
       )}
       {showProgress && config.maxXp !== Infinity && (
@@ -124,8 +127,8 @@ export function LevelBadge({ xp, size = 'md', showName = true, showProgress = fa
             />
           </div>
           <div className="flex justify-between text-xs text-gray-500 mt-0.5">
-            <span>{xp.toLocaleString()} XP</span>
-            <span>{config.maxXp.toLocaleString()} XP</span>
+            <span>{xp.toLocaleString()} {t('xp')}</span>
+            <span>{config.maxXp.toLocaleString()} {t('xp')}</span>
           </div>
         </div>
       )}
@@ -143,6 +146,7 @@ export function LevelProgressCard({ xp }: LevelProgressCardProps) {
   const progress = getLevelProgress(xp);
   const nextLevelXp = getNextLevelXp(xp);
   const xpToNext = nextLevelXp - xp;
+  const t = useTranslations('gamification');
 
   const levelOrder: ChessLevel[] = ['pawn', 'knight', 'bishop', 'rook', 'queen', 'king'];
   const currentIndex = levelOrder.indexOf(level);
@@ -154,10 +158,10 @@ export function LevelProgressCard({ xp }: LevelProgressCardProps) {
         <div className="text-5xl">{config.icon}</div>
         <div className="flex-1">
           <div className={`text-xl font-bold ${config.color}`}>
-            {config.name} Level
+            {t(`levels.${config.nameKey}`)} {t('level')}
           </div>
           <div className="text-sm text-gray-600">
-            {xp.toLocaleString()} XP total
+            {xp.toLocaleString()} {t('xp')} total
           </div>
         </div>
       </div>
@@ -165,7 +169,7 @@ export function LevelProgressCard({ xp }: LevelProgressCardProps) {
       {nextLevel && (
         <div className="mt-4">
           <div className="flex justify-between text-sm mb-1">
-            <span className="text-gray-600">{xpToNext.toLocaleString()} XP to {LEVELS[nextLevel].name}</span>
+            <span className="text-gray-600">{xpToNext.toLocaleString()} {t('xpToNextLevel')} {t(`levels.${nextLevel}`)}</span>
             <span className="font-medium">{progress}%</span>
           </div>
           <div className="h-3 bg-white/50 rounded-full overflow-hidden">

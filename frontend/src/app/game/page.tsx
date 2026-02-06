@@ -15,32 +15,32 @@ import {
 import { Refresh as RefreshIcon, Save as SaveIcon, Speed as SpeedIcon } from "@mui/icons-material";
 import { Chess } from "chess.js";
 import useChesster from "@/hooks/useChesster";
-import AiChessboardPanel from "@/componets/analysis/AiChessboard";
+import AiChessboardPanel from "@/components/analysis/AiChessboard";
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
-import UserGameSelect from "@/componets/lichess/UserGameSelect";
-import UserChessDotComGameSelect from "@/componets/chessdotcom/UserChessDotComGameSelect";
-import UserPGNUploader from "@/componets/lichess/UserPGNUpload";
-import GameDownloader from "@/componets/gamedownloader/GameDownloader";
-import PGNView from "@/componets/tabs/PgnView";
-import ResizableChapterSelector from "@/componets/tabs/ChaptersTab";
+import UserGameSelect from "@/components/lichess/UserGameSelect";
+import UserChessDotComGameSelect from "@/components/chessdotcom/UserChessDotComGameSelect";
+import UserPGNUploader from "@/components/lichess/UserPGNUpload";
+import GameDownloader from "@/components/gamedownloader/GameDownloader";
+import PGNView from "@/components/tabs/PgnView";
+import ResizableChapterSelector from "@/components/tabs/ChaptersTab";
 import { extractMovesWithComments, extractGameInfo } from "@/libs/game/helper";
 import { purpleTheme } from "@/theme/theme";
 import { useGameTheme } from "@/hooks/useGameTheme";
-import Loader from "@/componets/loading/Loader";
+import Loader from "@/components/loading/Loader";
 import LoadingScreen from "@/components/LoadingScreen";
-import Warning from "@/componets/loading/SignUpWarning";
+import Warning from "@/components/loading/SignUpWarning";
 import SaveGameReviewDialog, {
   SavedGameReview,
-} from "@/componets/game/SaveGameReviewDialog";
-import GamereviewHistory from "@/componets/game/GameReviewHistory";
-import LoadStudy, { Chapter } from "@/componets/game/LoadStudy";
+} from "@/components/game/SaveGameReviewDialog";
+import GamereviewHistory from "@/components/game/GameReviewHistory";
+import LoadStudy, { Chapter } from "@/components/game/LoadStudy";
 import LoadLichessGameUrl, {
   ParsedComment,
-} from "@/componets/game/LoadLichessGameUrl";
-import LoadPGNGame from "@/componets/game/LoadPGNGame";
-import ChessterAnalysisView from "@/componets/analysis/ChessterAnalysisView";
-import ChatSidebar from "@/componets/ChatSidebar";
+} from "@/components/game/LoadLichessGameUrl";
+import LoadPGNGame from "@/components/game/LoadPGNGame";
+import ChessterAnalysisView from "@/components/analysis/ChessterAnalysisView";
+import ChatSidebar from "@/components/ChatSidebar";
 import { useChatSessions } from "@/hooks/useChatSessions";
 
 export default function PGNUploaderPage() {

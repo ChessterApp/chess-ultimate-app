@@ -2,6 +2,7 @@
 
 import { useUser, useClerk } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { LevelProgressCard, LevelBadge } from '@/components/gamification/LevelBadge'
 import { StreakBanner } from '@/components/gamification/StreakBanner'
 import { XPDisplay } from '@/components/gamification/XPDisplay'
@@ -12,19 +13,20 @@ export default function ProfilePage() {
   const { user, isLoaded } = useUser()
   const { signOut } = useClerk()
   const router = useRouter()
+  const t = useTranslations()
 
   // Mock gamification data (will be from API later)
   const [userXP] = useState(450)
   const [streakDays] = useState(5)
 
-  // Mock achievements
+  // Mock achievements with translation keys
   const achievements = [
-    { id: 1, name: 'First Steps', description: 'Complete your first lesson', icon: '🎯', earned: true, xp: 10 },
-    { id: 2, name: 'Quick Learner', description: 'Complete 5 lessons', icon: '📚', earned: true, xp: 25 },
-    { id: 3, name: 'On Fire', description: 'Maintain a 7-day streak', icon: '🔥', earned: false, xp: 50 },
-    { id: 4, name: 'Puzzle Master', description: 'Solve 50 puzzles', icon: '🧩', earned: false, xp: 100 },
-    { id: 5, name: 'Knight Rank', description: 'Reach Knight level', icon: '♞', earned: true, xp: 50 },
-    { id: 6, name: 'Course Complete', description: 'Complete any course', icon: '🎓', earned: false, xp: 100 },
+    { id: 1, nameKey: 'firstSteps', descKey: 'firstStepsDesc', icon: '🎯', earned: true, xp: 10 },
+    { id: 2, nameKey: 'quickLearner', descKey: 'quickLearnerDesc', icon: '📚', earned: true, xp: 25 },
+    { id: 3, nameKey: 'onFire', descKey: 'onFireDesc', icon: '🔥', earned: false, xp: 50 },
+    { id: 4, nameKey: 'puzzleMaster', descKey: 'puzzleMasterDesc', icon: '🧩', earned: false, xp: 100 },
+    { id: 5, nameKey: 'knightRank', descKey: 'knightRankDesc', icon: '♞', earned: true, xp: 50 },
+    { id: 6, nameKey: 'courseComplete', descKey: 'courseCompleteDesc', icon: '🎓', earned: false, xp: 100 },
   ]
 
   // Mock stats
@@ -70,7 +72,7 @@ export default function ProfilePage() {
                 <span className="text-purple-200">•</span>
                 <span className="flex items-center gap-1">
                   <span className="text-orange-400">🔥</span>
-                  <span>{streakDays} day streak</span>
+                  <span>{streakDays} {t('gamification.dayStreak')}</span>
                 </span>
               </div>
             </div>
@@ -91,30 +93,30 @@ export default function ProfilePage() {
 
         {/* Stats Grid */}
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Your Stats</h2>
+          <h2 className="text-lg font-bold text-gray-900 mb-4">{t('profile.yourStats')}</h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-purple-50 rounded-xl p-4 text-center">
               <div className="text-3xl font-bold text-purple-600">{stats.lessonsCompleted}</div>
-              <div className="text-sm text-gray-600">Lessons Completed</div>
+              <div className="text-sm text-gray-600">{t('profile.lessonsCompleted')}</div>
             </div>
             <div className="bg-amber-50 rounded-xl p-4 text-center">
               <div className="text-3xl font-bold text-amber-600">{stats.puzzlesSolved}</div>
-              <div className="text-sm text-gray-600">Puzzles Solved</div>
+              <div className="text-sm text-gray-600">{t('profile.puzzlesSolved')}</div>
             </div>
             <div className="bg-green-50 rounded-xl p-4 text-center">
               <div className="text-3xl font-bold text-green-600">{stats.coursesCompleted}</div>
-              <div className="text-sm text-gray-600">Courses Completed</div>
+              <div className="text-sm text-gray-600">{t('profile.coursesCompleted')}</div>
             </div>
             <div className="bg-blue-50 rounded-xl p-4 text-center">
               <div className="text-3xl font-bold text-blue-600">{stats.totalPracticeMinutes}</div>
-              <div className="text-sm text-gray-600">Minutes Practiced</div>
+              <div className="text-sm text-gray-600">{t('profile.minutesPracticed')}</div>
             </div>
           </div>
         </div>
 
         {/* Achievements */}
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Achievements</h2>
+          <h2 className="text-lg font-bold text-gray-900 mb-4">{t('profile.achievements')}</h2>
           <div className="grid grid-cols-3 gap-3">
             {achievements.map((achievement) => (
               <div
@@ -129,10 +131,10 @@ export default function ProfilePage() {
                   {achievement.icon}
                 </div>
                 <div className={`text-xs font-medium ${achievement.earned ? 'text-gray-900' : 'text-gray-500'}`}>
-                  {achievement.name}
+                  {t(`profile.achievementsList.${achievement.nameKey}`)}
                 </div>
                 {achievement.earned && (
-                  <div className="text-xs text-amber-600 mt-1">+{achievement.xp} XP</div>
+                  <div className="text-xs text-amber-600 mt-1">+{achievement.xp} {t('gamification.xp')}</div>
                 )}
               </div>
             ))}
@@ -141,7 +143,7 @@ export default function ProfilePage() {
 
         {/* Account Actions */}
         <div className="bg-white rounded-2xl shadow-md p-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-4">Account</h2>
+          <h2 className="text-lg font-bold text-gray-900 mb-4">{t('profile.account')}</h2>
           <div className="space-y-3">
             <button
               onClick={() => router.push('/user-profile')}
@@ -149,7 +151,7 @@ export default function ProfilePage() {
             >
               <div className="flex items-center gap-3">
                 <span className="text-xl">⚙️</span>
-                <span className="font-medium text-gray-900">Account Settings</span>
+                <span className="font-medium text-gray-900">{t('profile.accountSettings')}</span>
               </div>
               <span className="text-gray-400">→</span>
             </button>
@@ -160,7 +162,7 @@ export default function ProfilePage() {
             >
               <div className="flex items-center gap-3">
                 <span className="text-xl">🚪</span>
-                <span className="font-medium text-red-600">Sign Out</span>
+                <span className="font-medium text-red-600">{t('profile.signOut')}</span>
               </div>
               <span className="text-red-400">→</span>
             </button>

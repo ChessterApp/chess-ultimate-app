@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 
 interface XPDisplayProps {
   xp: number;
@@ -12,6 +13,7 @@ interface XPDisplayProps {
 export function XPDisplay({ xp, previousXp, showAnimation = false, size = 'md' }: XPDisplayProps) {
   const [displayXp, setDisplayXp] = useState(previousXp ?? xp);
   const [isAnimating, setIsAnimating] = useState(false);
+  const t = useTranslations('gamification');
 
   useEffect(() => {
     if (showAnimation && previousXp !== undefined && previousXp !== xp) {
@@ -67,7 +69,7 @@ export function XPDisplay({ xp, previousXp, showAnimation = false, size = 'md' }
         <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
       </svg>
       <span className={isAnimating ? 'text-amber-400' : ''}>
-        {displayXp.toLocaleString()} XP
+        {displayXp.toLocaleString()} {t('xp')}
       </span>
     </div>
   );
@@ -80,6 +82,7 @@ interface XPGainProps {
 
 export function XPGain({ amount, onComplete }: XPGainProps) {
   const [visible, setVisible] = useState(true);
+  const t = useTranslations('gamification');
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -97,7 +100,7 @@ export function XPGain({ amount, onComplete }: XPGainProps) {
         <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z" />
         </svg>
-        +{amount} XP
+        +{amount} {t('xp')}
       </div>
     </div>
   );

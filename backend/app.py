@@ -130,20 +130,41 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import puzzles API: {e}")
 
+try:
+    from api.opponent_analysis import opponent_bp
+    app.register_blueprint(opponent_bp)
+    logger.info("✅ Opponent Analysis API registered (TWIC database search)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import opponent analysis API: {e}")
+
+try:
+    from api.photo_to_fen import photo_fen_bp
+    app.register_blueprint(photo_fen_bp)
+    logger.info("✅ Photo-to-FEN API registered (image to FEN conversion)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import photo-to-FEN API: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}
 # session_lock = threading.Lock()
 
-# --- LLM Client Setup (Anthropic/OpenAI/Deepseek Compatible) ---
-# Look for ANTHROPIC_API_KEY first, then OPENAI_API_KEY
+# --- LLM Client Setup (OpenRouter preferred, fallback to Anthropic/OpenAI/Deepseek) ---
+# Check OpenRouter first (supports Gemini and other models), then ANTHROPIC_API_KEY
+openrouter_key = os.getenv("OPENROUTER_API_KEY")
 api_key = os.getenv("ANTHROPIC_API_KEY")
 base_url = None
-model_name = "claude-3-5-sonnet-20241022" # Default Anthropic model
-llm_provider = "anthropic"
+model_name = os.getenv("PRIMARY_MODEL", "google/gemini-3-flash-preview")  # Read from env or default to Gemini
+llm_provider = "openrouter" if openrouter_key else "anthropic"
 
-if api_key:
-    print("INFO: Found ANTHROPIC_API_KEY, attempting to use with Anthropic endpoint and model claude-3-5-sonnet-20241022.")
+if openrouter_key:
+    api_key = openrouter_key  # Use OpenRouter key
+    print(f"INFO: Found OPENROUTER_API_KEY, using model {model_name}.")
+elif api_key:
+    # Fallback to direct Anthropic
+    model_name = os.getenv("FALLBACK_MODEL", "claude-3-5-sonnet-20241022")
+    llm_provider = "anthropic"
+    print(f"INFO: Found ANTHROPIC_API_KEY, attempting to use with Anthropic endpoint and model {model_name}.")
     # base_url remains None (default Anthropic), model_name is already set
 else:
     print("WARNING: ANTHROPIC_API_KEY environment variable not found.")
@@ -170,7 +191,15 @@ else:
 # Import appropriate LLM wrapper based on provider
 if api_key and 'llm_client' not in locals(): # Check if llm_client wasn't set to None already
     try:
-        if llm_provider == "anthropic":
+        if llm_provider == "openrouter":
+            from llm.openrouter_llm import OpenRouterLLM  # Local import
+            llm_client = OpenRouterLLM(
+                api_key=api_key,
+                model_name=model_name,
+                max_tokens=2000,
+                temperature=0.7
+            )
+        elif llm_provider == "anthropic":
             from llm.anthropic_llm import AnthropicLLM  # Local import
             llm_client = AnthropicLLM(
                 api_key=api_key,

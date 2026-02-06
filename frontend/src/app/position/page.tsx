@@ -8,17 +8,17 @@ import useChesster from "@/hooks/useChesster";
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
 import { purpleTheme } from "@/theme/theme";
-import Loader from "@/componets/loading/Loader";
-import Warning from "@/componets/loading/SignUpWarning";
+import Loader from "@/components/loading/Loader";
+import Warning from "@/components/loading/SignUpWarning";
 import { useChatSessions } from "@/hooks/useChatSessions";
 
 import type { EditorState } from "@/components/editor/BoardEditor";
 
-// Dynamic imports to avoid SSR issues with chess engine
-const AiChessboardPanel = dynamic(() => import("@/componets/analysis/AiChessboard"), { ssr: false });
-const ChessterAnalysisView = dynamic(() => import("@/componets/analysis/ChessterAnalysisView"), { ssr: false });
-const ChatSidebar = dynamic(() => import("@/componets/ChatSidebar"), { ssr: false });
-const EditorControls = dynamic(() => import("@/components/editor/EditorControls"), { ssr: false });
+// Dynamic imports for code splitting
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"));
+const ChessterAnalysisView = dynamic(() => import("@/components/analysis/ChessterAnalysisView"));
+const ChatSidebar = dynamic(() => import("@/components/ChatSidebar"));
+const EditorControls = dynamic(() => import("@/components/editor/EditorControls"));
 
 export default function PositionPage() {
   // const session = useSession();

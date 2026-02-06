@@ -72,10 +72,10 @@ class LLMSessionManager:
 
     def __init__(self):
         """Initialize the LLM session manager"""
-        # Shared LLM client (Anthropic via OpenRouter or direct)
+        # Shared LLM client (via OpenRouter or direct Anthropic fallback)
         self.llm_client = None
-        # Use OpenRouter model naming convention
-        self.model_name = "anthropic/claude-3.5-sonnet"
+        # Use OpenRouter model naming convention - read from env or default to Gemini 3 Flash
+        self.model_name = os.getenv("PRIMARY_MODEL", "google/gemini-3-flash-preview")
 
         # Concurrency controls
         self.global_semaphore = asyncio.Semaphore(self.MAX_GLOBAL_CONCURRENT)
@@ -114,13 +114,14 @@ class LLMSessionManager:
                 logger.info(f"LLM client initialized (OpenRouter): model={self.model_name}")
             elif anthropic_key:
                 # Fallback to direct Anthropic API
+                fallback_model = os.getenv("FALLBACK_MODEL", "claude-3-5-sonnet-20241022")
                 self.llm_client = AnthropicLLM(
                     api_key=anthropic_key,
-                    model_name="claude-3-5-sonnet-20241022",  # Direct API uses date format
+                    model_name=fallback_model,
                     max_tokens=2000,
                     temperature=0.7
                 )
-                logger.info(f"LLM client initialized (direct Anthropic): model=claude-3-5-sonnet-20241022")
+                logger.info(f"LLM client initialized (direct Anthropic): model={fallback_model}")
             else:
                 raise ValueError("No LLM API key found (neither OPENROUTER_API_KEY nor ANTHROPIC_API_KEY)")
 

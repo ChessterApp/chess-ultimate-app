@@ -129,13 +129,13 @@ export default function LearnPage() {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
           <div className="text-6xl mb-4">♟️</div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Start Your Chess Journey</h1>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('learn.startJourney')}</h1>
           <p className="text-gray-600 mb-6">
-            Sign in to access our structured learning courses and track your progress.
+            {t('learn.signInPrompt')}
           </p>
           <SignInButton mode="modal">
             <button className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-6 rounded-xl transition-colors">
-              Sign In to Learn
+              {t('learn.signInToLearn')}
             </button>
           </SignInButton>
         </div>
@@ -148,8 +148,8 @@ export default function LearnPage() {
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
         <div className="container mx-auto px-4 py-6">
-          <h1 className="text-2xl font-bold">Learning Path</h1>
-          <p className="text-purple-200 mt-1">Master chess step by step</p>
+          <h1 className="text-2xl font-bold">{t('learn.title')}</h1>
+          <p className="text-purple-200 mt-1">{t('learn.subtitle')}</p>
         </div>
       </div>
 
@@ -157,7 +157,7 @@ export default function LearnPage() {
         {/* Mascot welcome */}
         <div className="mb-6">
           <SpeechBubble mood="encouraging" mascotSize="sm">
-            Follow the path to become a chess master! Complete each course to unlock the next level.
+            {t('mascot.messages.followPath')}
           </SpeechBubble>
         </div>
 
@@ -180,9 +180,9 @@ export default function LearnPage() {
               <div className="bg-white rounded-2xl shadow-md p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-3 h-3 bg-green-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">Beginner</h2>
+                  <h2 className="text-lg font-bold text-gray-900">{t('learn.beginner')}</h2>
                   <span className="text-sm text-gray-500">
-                    ({coursesByLevel.beginner.filter(c => c.progress === 100).length}/{coursesByLevel.beginner.length} complete)
+                    ({coursesByLevel.beginner.filter(c => c.progress === 100).length}/{coursesByLevel.beginner.length} {t('learn.complete')})
                   </span>
                 </div>
                 <LessonPath courses={coursesByLevel.beginner} />
@@ -194,9 +194,9 @@ export default function LearnPage() {
               <div className="bg-white rounded-2xl shadow-md p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-3 h-3 bg-amber-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">Intermediate</h2>
+                  <h2 className="text-lg font-bold text-gray-900">{t('learn.intermediate')}</h2>
                   <span className="text-sm text-gray-500">
-                    ({coursesByLevel.intermediate.filter(c => c.progress === 100).length}/{coursesByLevel.intermediate.length} complete)
+                    ({coursesByLevel.intermediate.filter(c => c.progress === 100).length}/{coursesByLevel.intermediate.length} {t('learn.complete')})
                   </span>
                 </div>
                 <LessonPath courses={coursesByLevel.intermediate} />
@@ -208,9 +208,9 @@ export default function LearnPage() {
               <div className="bg-white rounded-2xl shadow-md p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <span className="w-3 h-3 bg-red-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">Advanced</h2>
+                  <h2 className="text-lg font-bold text-gray-900">{t('learn.advanced')}</h2>
                   <span className="text-sm text-gray-500">
-                    ({coursesByLevel.advanced.filter(c => c.progress === 100).length}/{coursesByLevel.advanced.length} complete)
+                    ({coursesByLevel.advanced.filter(c => c.progress === 100).length}/{coursesByLevel.advanced.length} {t('learn.complete')})
                   </span>
                 </div>
                 <LessonPath courses={coursesByLevel.advanced} />

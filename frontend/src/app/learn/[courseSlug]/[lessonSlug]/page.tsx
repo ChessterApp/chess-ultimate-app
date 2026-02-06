@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { useAuth, SignInButton } from '@clerk/nextjs'
 import { useParams, useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
+import { useTranslations } from 'next-intl'
 import { AnimatedChessBoard, PuzzleSequence } from '@/components/chess'
 import LoadingScreen from '@/components/LoadingScreen'
 import Link from 'next/link'
@@ -53,6 +54,7 @@ export default function LessonPage() {
   const lessonSlug = params?.lessonSlug as string
   const router = useRouter()
   const { getToken, isLoaded, isSignedIn } = useAuth()
+  const t = useTranslations()
   const [lesson, setLesson] = useState<Lesson | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputMessage, setInputMessage] = useState('')
@@ -77,7 +79,7 @@ export default function LessonPage() {
         if (!isLoaded) return
 
         if (!isSignedIn) {
-          setError('Please sign in to access this lesson')
+          setError(t('lesson.signInRequired'))
           setLoading(false)
           return
         }
@@ -85,7 +87,7 @@ export default function LessonPage() {
         const token = await getToken()
 
         if (!token) {
-          setError('Unable to authenticate. Please try signing in again.')
+          setError(t('lesson.authError'))
           setLoading(false)
           return
         }
@@ -100,7 +102,7 @@ export default function LessonPage() {
         ])
 
         if (lessonRes.status === 401) {
-          setError('Session expired. Please sign in again.')
+          setError(t('lesson.sessionExpired'))
           setLoading(false)
           return
         }
@@ -127,7 +129,7 @@ export default function LessonPage() {
 
       } catch (err) {
         console.error('Failed to fetch lesson:', err)
-        setError('Failed to load lesson. Please try again.')
+        setError(t('lesson.loadError'))
       } finally {
         setLoading(false)
       }
@@ -199,7 +201,7 @@ export default function LessonPage() {
 
   // Handle correct move in exercise
   const handleCorrectMove = async () => {
-    setQuickCelebrationMessage('Great move! 🎯')
+    setQuickCelebrationMessage(t('lesson.greatMove'))
     setShowQuickCelebration(true)
     await markLessonComplete()
   }
@@ -233,16 +235,16 @@ export default function LessonPage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="text-xl text-red-500 mb-4">
-            {error || 'Please sign in to access this lesson'}
+            {error || t('lesson.signInRequired')}
           </div>
           <SignInButton mode="modal">
             <button className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-6 rounded transition-colors">
-              Sign In
+              {t('common.signIn')}
             </button>
           </SignInButton>
           <div className="mt-4">
             <Link href={`/learn/${courseSlug}`} className="text-blue-600 hover:underline">
-              ← Back to Course
+              ← {t('lesson.backToCourse')}
             </Link>
           </div>
         </div>
@@ -254,9 +256,9 @@ export default function LessonPage() {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
-          <div className="text-xl text-red-500 mb-4">Lesson not found</div>
+          <div className="text-xl text-red-500 mb-4">{t('lesson.notFound')}</div>
           <Link href={`/learn/${courseSlug}`} className="text-blue-600 hover:underline">
-            ← Back to Course
+            ← {t('lesson.backToCourse')}
           </Link>
         </div>
       </div>
@@ -269,7 +271,7 @@ export default function LessonPage() {
         onClick={() => router.push(`/learn/${courseSlug}`)}
         className="text-blue-600 hover:underline mb-4"
       >
-        ← Back to {lesson.course_title || 'Course'}
+        ← {t('lesson.backTo', { course: lesson.course_title || t('lesson.course') })}
       </button>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -284,7 +286,7 @@ export default function LessonPage() {
               ? 'bg-yellow-100 text-yellow-800'
               : 'bg-purple-100 text-purple-800'
           }`}>
-            {lesson.lesson_type}
+            {t(`course.lessonTypes.${lesson.lesson_type}`)}
           </span>
 
           <div className="prose dark:prose-invert max-w-none mb-6">
@@ -295,7 +297,7 @@ export default function LessonPage() {
           {lesson.has_multiple_puzzles && lesson.puzzle_count && lesson.puzzle_count > 0 && (
             <div className="mb-6">
               <h3 className="font-semibold mb-4">
-                Practice Puzzles ({lesson.puzzle_count} puzzles)
+                {t('lesson.practicePuzzles', { count: lesson.puzzle_count })}
               </h3>
               <PuzzleSequence
                 courseSlug={courseSlug}
@@ -309,7 +311,7 @@ export default function LessonPage() {
           {/* Single puzzle lesson - show AnimatedChessBoard directly */}
           {!lesson.has_multiple_puzzles && lesson.exercise_fen && (lesson.solution_move || lesson.exercise_solution?.targets) && (
             <div className="mb-6">
-              <InlineTip message="Find the best move! Take your time to analyze the position." mood="thinking" variant="compact" />
+              <InlineTip message={t('mascot.messages.findBestMove')} mood="thinking" variant="compact" />
               <div className="mt-4">
                 <AnimatedChessBoard
                   fen={lesson.exercise_fen}
@@ -345,11 +347,11 @@ export default function LessonPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                Completing...
+                {t('lesson.completing')}
               </>
             ) : (
               <>
-                <span>Complete Lesson</span>
+                <span>{t('lesson.completeLesson')}</span>
                 <span className="bg-white/20 px-2 py-0.5 rounded-full text-sm">
                   +{lesson.lesson_type === 'exercise' ? 15 : 10} XP
                 </span>
@@ -367,7 +369,7 @@ export default function LessonPage() {
           >
             <div className="flex items-center gap-2">
               <MessageCircle className="w-5 h-5 text-blue-600" />
-              <h2 className="text-xl font-bold">AI Tutor</h2>
+              <h2 className="text-xl font-bold">{t('lesson.aiTutor')}</h2>
               {!isChatExpanded && messages.length > 0 && (
                 <span className="bg-blue-100 text-blue-600 text-xs font-medium px-2 py-0.5 rounded-full">
                   {messages.length}
@@ -376,7 +378,7 @@ export default function LessonPage() {
             </div>
             <button
               className="p-1.5 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              aria-label={isChatExpanded ? 'Collapse chat' : 'Expand chat'}
+              aria-label={isChatExpanded ? t('lesson.collapseChat') : t('lesson.expandChat')}
             >
               {isChatExpanded ? (
                 <ChevronUp className="w-5 h-5 text-gray-500" />
@@ -395,7 +397,7 @@ export default function LessonPage() {
               >
                 {messages.length === 0 && (
                   <p className="text-gray-500 text-center mt-8">
-                    Ask your AI tutor any questions about this lesson!
+                    {t('lesson.aiTutorPrompt')}
                   </p>
                 )}
 
@@ -409,7 +411,7 @@ export default function LessonPage() {
                     }`}
                   >
                     <div className="font-semibold text-sm mb-1">
-                      {msg.role === 'user' ? 'You' : 'AI Tutor'}
+                      {msg.role === 'user' ? t('lesson.you') : t('lesson.aiTutor')}
                     </div>
                     <div className="text-sm">{msg.content}</div>
                   </div>
@@ -417,8 +419,8 @@ export default function LessonPage() {
 
                 {sendingMessage && (
                   <div className="bg-gray-100 dark:bg-gray-700 mr-8 p-3 rounded-lg">
-                    <div className="font-semibold text-sm mb-1">AI Tutor</div>
-                    <div className="text-sm">Thinking...</div>
+                    <div className="font-semibold text-sm mb-1">{t('lesson.aiTutor')}</div>
+                    <div className="text-sm">{t('lesson.thinking')}</div>
                   </div>
                 )}
               </div>
@@ -432,7 +434,7 @@ export default function LessonPage() {
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Ask a question..."
+              placeholder={t('lesson.askQuestion')}
               className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600"
               disabled={sendingMessage}
             />
@@ -441,7 +443,7 @@ export default function LessonPage() {
               disabled={sendingMessage || !inputMessage.trim()}
               className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors disabled:opacity-50"
             >
-              Send
+              {t('lesson.send')}
             </button>
           </div>
         </div>
@@ -464,8 +466,8 @@ export default function LessonPage() {
       {showCelebration && (
         <CelebrationOverlay
           type="lessonComplete"
-          title="Lesson Complete!"
-          subtitle={`You've completed "${lesson.title}"`}
+          title={t('gamification.celebration.lessonComplete')}
+          subtitle={`${t('lesson.youveCompleted')} "${lesson.title}"`}
           xpGained={xpEarned}
           onClose={handleCelebrationClose}
           autoClose={false}

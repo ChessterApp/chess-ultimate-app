@@ -11,10 +11,10 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // Clerk authentication for server-managed LLM
 import { useAuth } from "@clerk/nextjs";
 import { Chess } from "chess.js";
-import { CandidateMove, getChessDBSpeech, useChessDB } from "../componets/tabs/Chessdb";
+import { CandidateMove, getChessDBSpeech, useChessDB } from "../components/tabs/Chessdb";
 import { useLocalStorage } from "usehooks-ts";
 import useGameReview, { MoveAnalysis, MoveQuality } from "./useGameReview";
-import { ApiSettings } from "../componets/tabs/ModelSetting";
+import { ApiSettings } from "../components/tabs/ModelSetting";
 import { DEFAULT_ENGINE_LINES, DEFAULT_ENGINE_DEPTH, MAX_PV_MOVES, ANALYSIS_DELAY } from "@/libs/setting/helper";
 
 // Types
@@ -1471,25 +1471,18 @@ Be concise but thorough, and use clear chess language.`;
     // Only run on client side (not during SSR)
     if (typeof window === 'undefined') return;
 
-    // Only load conversation history once on mount
+    // Always start with a fresh chat on mount (new session).
+    // Past conversations are accessible via the sidebar.
     if (hasLoadedHistoryRef.current) return;
     hasLoadedHistoryRef.current = true;
 
-    const loadHistory = async () => {
-      try {
-        // Check if we have a saved conversation ID
-        const savedConversationId = localStorage.getItem('current_conversation_id');
-        if (savedConversationId) {
-          console.log(`Restoring conversation ${savedConversationId.substring(0, 8)}... from localStorage`);
-          await loadConversationHistory(savedConversationId);
-        }
-      } catch (error) {
-        console.error('Error loading conversation on mount:', error);
-      }
-    };
-
-    loadHistory();
-  }, [loadConversationHistory]);
+    conversationIdRef.current = null;
+    try {
+      localStorage.removeItem('current_conversation_id');
+    } catch {
+      // ignore
+    }
+  }, []);
 
   // ==================== AUTO ANALYSIS EFFECT ====================
   useEffect(() => {
