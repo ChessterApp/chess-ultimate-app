@@ -3,7 +3,7 @@ import { chessChesster } from "@/server/mastra/agents";
 import { getBoardState } from "@/server/mastra/tools/protocol/state";
 import { RuntimeContext } from "@mastra/core/di";
 import { PositionPrompter } from "@/server/mastra/tools/protocol/positionPrompter";
-import { isClawdbotAvailable } from "@/lib/router";
+import { isClawdbotAvailable, routeRequest, isChessterAvailable } from "@/lib/router";
 import { callGateway } from "@/lib/clawdbot/gateway";
 import { getAuth } from "@clerk/nextjs/server";
 
@@ -55,14 +55,19 @@ export default async function handler(
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
 
-  // Always route to Mastra (has Stockfish + tools).
-  // Clawdbot is fallback only — its main role is long-term memory between sessions.
-  const route = "mastra";
-  console.log(`[chat/stream] route=mastra, query="${query.substring(0, 50)}..."`);
+  // Intelligent routing: use router to decide between Mastra and Chesster
+  const route = routeRequest(query, { fen, hasGameHistory: !!conversation_id });
+  console.log(`[chat/stream] route=${route}, query="${query.substring(0, 50)}..."`);
 
   try {
     let fullResponse = "";
-    fullResponse = await handleMastra(fen, query, context_type, sendEvent);
+
+    // Route based on intelligent decision
+    if (route === 'chesster' && isChessterAvailable()) {
+      fullResponse = await handleClawdbot(userId, fen, query, sendEvent);
+    } else {
+      fullResponse = await handleMastra(fen, query, context_type, sendEvent);
+    }
 
     // Save conversation to Python backend (fire-and-forget)
     saveConversation(authHeader, fen, query, fullResponse, conversation_id, context_type).catch(
@@ -73,7 +78,7 @@ export default async function handler(
     const tokensUsed = Math.ceil(fullResponse.length / 4);
     sendEvent({ done: true, conversation_id: conversation_id || null, tokens_used: tokensUsed });
   } catch (error) {
-    console.error("[chat/stream] Error:", error);
+    console.error(`[chat/stream] ${route} failed:`, error);
 
     // Try fallback chain
     try {
@@ -189,10 +194,10 @@ async function handleClawdbot(
 }
 
 /**
- * Fallback chain: if primary route fails, try the other path, then Python backend
+ * Fallback chain: if primary route fails, try alternative routes
  */
 async function handleFallback(
-  _failedRoute: string,
+  failedRoute: string,
   userId: string,
   fen: string,
   query: string,
@@ -200,17 +205,27 @@ async function handleFallback(
   authHeader: string,
   sendEvent: (data: Record<string, unknown>) => void
 ): Promise<string | null> {
-  // Fallback 1: Clawdbot (long-term memory agent)
-  if (isClawdbotAvailable()) {
+  // If Chesster failed, try Mastra
+  if (failedRoute === 'chesster') {
     try {
-      console.log("[chat/stream] Falling back to Clawdbot...");
-      return await handleClawdbot(userId, fen, query, sendEvent);
+      console.log("[chat/stream] Chesster failed, falling back to Mastra...");
+      return await handleMastra(fen, query, contextType, sendEvent);
     } catch (err) {
-      console.warn("[chat/stream] Clawdbot fallback failed:", err);
+      console.warn("[chat/stream] Mastra fallback failed:", err);
     }
   }
 
-  // Fallback 2: Python backend (raw LLM, no tools)
+  // If Mastra failed, try Chesster
+  if (failedRoute === 'mastra' && isChessterAvailable()) {
+    try {
+      console.log("[chat/stream] Mastra failed, falling back to Chesster...");
+      return await handleClawdbot(userId, fen, query, sendEvent);
+    } catch (err) {
+      console.warn("[chat/stream] Chesster fallback failed:", err);
+    }
+  }
+
+  // Final fallback: Python backend (raw LLM, no tools)
   try {
     console.log("[chat/stream] Falling back to Python backend...");
     return await handlePythonBackend(fen, query, contextType, authHeader, sendEvent);
