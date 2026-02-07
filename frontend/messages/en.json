@@ -122,6 +122,8 @@
     "chessPuzzlesDesc": "Solve tactical puzzles to improve your calculation skills",
     "opponentAnalysis": "Opponent Analysis",
     "opponentAnalysisDesc": "Search players, analyze their games, openings and playing style",
+    "debut": "Debut",
+    "debutDesc": "Build your opening repertoire and search games by position",
     "learningJourney": "Your Learning Journey",
     "learningJourneySubtitle": "Structured courses with AI tutoring to master chess fundamentals",
     "startLearning": "Start Learning",

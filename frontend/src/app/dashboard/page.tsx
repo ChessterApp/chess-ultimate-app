@@ -133,11 +133,11 @@ export default function DashboardPage() {
       gradient: 'from-purple-500 to-purple-600'
     },
     {
-      id: 'opponent',
-      title: t('dashboard.opponentAnalysis'),
-      description: t('dashboard.opponentAnalysisDesc'),
-      icon: '🔍',
-      href: '/opponent',
+      id: 'debut',
+      title: t('dashboard.debut'),
+      description: t('dashboard.debutDesc'),
+      icon: '📖',
+      href: '/debut',
       gradient: 'from-orange-500 to-orange-600'
     }
   ]
