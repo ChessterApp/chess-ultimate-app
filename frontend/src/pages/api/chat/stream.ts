@@ -63,7 +63,7 @@ export default async function handler(
     let fullResponse = "";
 
     // Route based on intelligent decision
-    if (route === 'chesster' && isChessterAvailable()) {
+    if ((route === 'chesster' || route === 'clawdbot') && isChessterAvailable()) {
       fullResponse = await handleClawdbot(userId, fen, query, sendEvent);
     } else {
       fullResponse = await handleMastra(fen, query, context_type, sendEvent);

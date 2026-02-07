@@ -15,8 +15,9 @@ const CLAWDBOT_KEYWORDS = [
   'review', 'lesson', 'study', 'progress', 'improve',
   'generate', 'create', 'plan', 'history', 'remember',
   'last game', 'my games', 'weakness', 'strength',
-  'teach me', 'learning', 'practice', 'training',
-  'long term', 'over time', 'pattern', 'habit'
+  'teach me', 'teach', 'teaching', 'learning', 'learn', 'practice', 'training',
+  'long term', 'over time', 'pattern', 'habit',
+  'help', 'better', 'coach', 'coaching', 'guide', 'strategy', 'strategic'
 ];
 
 // Keywords that indicate need for quick position analysis (Mastra)
