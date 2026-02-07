@@ -141,3 +141,5 @@ Thumbs.db
 # OpenSpec (keep only specs and changes)
 # ===========================
 # Commit all OpenSpec files - they're documentation
+backend/data/twic/*.db
+backend/data/twic/*.db-*

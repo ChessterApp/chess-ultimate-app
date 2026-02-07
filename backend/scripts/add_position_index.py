@@ -60,8 +60,8 @@ def main():
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=OFF")
-    conn.execute("PRAGMA cache_size=-2000000")  # 2GB cache
+    conn.execute("PRAGMA synchronous=FULL")
+    conn.execute("PRAGMA cache_size=-64000")  # 2GB cache
     conn.execute("PRAGMA temp_store=MEMORY")
 
     # Check if table already exists

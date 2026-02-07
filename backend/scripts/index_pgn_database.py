@@ -1,166 +1,76 @@
 #!/usr/bin/env python3
-"""
-PGN Database Indexer for TWIC Master Database
+"""TWIC Database Indexer - Robust version"""
 
-Parses the TWIC master database (3.6GB, ~4.3M games) and creates a SQLite index
-for fast searching by player name, ELO, date, ECO, and other criteria.
-
-Usage:
-    python scripts/index_pgn_database.py
-
-The indexer stores byte offsets to the original PGN file, allowing on-demand
-retrieval of full game PGN without duplicating the data.
-
-Estimated runtime: 15-30 minutes for 4.3M games
-Output: data/twic/games_index.db (~500MB)
-"""
-
-import sqlite3
-import re
-import os
-import sys
-import time
-import unicodedata
-from typing import Dict, Optional, Tuple, Generator
+import sqlite3, re, os, sys, time, gc, traceback, unicodedata
 from datetime import datetime
 
-# Paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
 PGN_PATH = os.path.join(BACKEND_DIR, "data/twic/twic_master_database.pgn")
 DB_PATH = os.path.join(BACKEND_DIR, "data/twic/games_index.db")
-
-# Batch size for commits (balance between speed and memory)
-BATCH_SIZE = 10000
-
-# Progress reporting interval
+BATCH_SIZE = 2000
 PROGRESS_INTERVAL = 50000
 
+def normalize_name(name):
+    if not name: return ""
+    n = unicodedata.normalize('NFKD', name)
+    n = ''.join(c for c in n if not unicodedata.combining(c))
+    return n.lower().replace(",", " ").replace("  ", " ").strip()
 
-def normalize_name(name: str) -> str:
-    """
-    Normalize player name for searching.
-    - Convert to lowercase
-    - Remove accents/diacritics
-    - Remove commas and extra spaces
-    - Handle "Lastname,Firstname" format
-    """
-    if not name:
-        return ""
+def parse_elo(s):
+    if not s or s in ("?", "0"): return None
+    try: return int(s)
+    except: return None
 
-    # Remove accents/diacritics
-    normalized = unicodedata.normalize('NFKD', name)
-    normalized = ''.join(c for c in normalized if not unicodedata.combining(c))
+def extract_year(d):
+    if not d or d.startswith("?"): return None
+    try: return int(d.split(".")[0])
+    except: return None
 
-    # Lowercase and clean
-    normalized = normalized.lower()
-    normalized = normalized.replace(",", " ").replace("  ", " ").strip()
+def setup_db(path):
+    if os.path.exists(path):
+        if '--fresh' in sys.argv:
+            for ext in ('', '-wal', '-shm', '-journal'):
+                p = path + ext
+                if os.path.exists(p): os.remove(p)
+            print("Removed old DB")
+        else:
+            try:
+                tc = sqlite3.connect(path)
+                c = tc.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+                tc.close()
+                if c > 100000:
+                    print(f"DB has {c:,} games. Use --fresh.")
+                    sys.exit(0)
+            except:
+                for ext in ('', '-wal', '-shm', '-journal'):
+                    p = path + ext
+                    if os.path.exists(p): os.remove(p)
 
-    return normalized
-
-
-def parse_elo(elo_str: str) -> Optional[int]:
-    """Parse ELO string to integer, handling missing/invalid values."""
-    if not elo_str or elo_str == "?" or elo_str == "0":
-        return None
-    try:
-        return int(elo_str)
-    except ValueError:
-        return None
-
-
-def extract_year(date_str: str) -> Optional[int]:
-    """Extract year from PGN date format (YYYY.MM.DD)."""
-    if not date_str or date_str.startswith("?"):
-        return None
-    try:
-        return int(date_str.split(".")[0])
-    except (ValueError, IndexError):
-        return None
-
-
-def create_database(db_path: str) -> sqlite3.Connection:
-    """Create SQLite database with schema for game indexing."""
-
-    # Remove existing database if present
-    if os.path.exists(db_path):
-        os.remove(db_path)
-        print(f"Removed existing database: {db_path}")
-
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Main games table
-    cursor.execute('''
-        CREATE TABLE games (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            white_name TEXT NOT NULL,
-            white_name_normalized TEXT NOT NULL,
-            black_name TEXT NOT NULL,
-            black_name_normalized TEXT NOT NULL,
-            white_elo INTEGER,
-            black_elo INTEGER,
-            white_title TEXT,
-            black_title TEXT,
-            white_fide_id TEXT,
-            black_fide_id TEXT,
-            result TEXT,
-            date TEXT,
-            year INTEGER,
-            eco TEXT,
-            opening TEXT,
-            variation TEXT,
-            event TEXT,
-            site TEXT,
-            round TEXT,
-            pgn_offset INTEGER NOT NULL,
-            pgn_length INTEGER NOT NULL
-        )
-    ''')
-
-    # Players aggregation table
-    cursor.execute('''
-        CREATE TABLE players (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            name_normalized TEXT NOT NULL,
-            fide_id TEXT,
-            title TEXT,
-            highest_elo INTEGER,
-            latest_elo INTEGER,
-            latest_date TEXT,
-            total_games INTEGER DEFAULT 0,
-            wins_white INTEGER DEFAULT 0,
-            wins_black INTEGER DEFAULT 0,
-            losses_white INTEGER DEFAULT 0,
-            losses_black INTEGER DEFAULT 0,
-            draws INTEGER DEFAULT 0,
-            first_game_date TEXT,
-            last_game_date TEXT
-        )
-    ''')
-
-    # Metadata table for tracking index status
-    cursor.execute('''
-        CREATE TABLE metadata (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )
-    ''')
-
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA cache_size=-256000")
+    conn.execute("PRAGMA temp_store=MEMORY")
+    conn.execute('''CREATE TABLE IF NOT EXISTS games (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        white_name TEXT NOT NULL, white_name_normalized TEXT NOT NULL,
+        black_name TEXT NOT NULL, black_name_normalized TEXT NOT NULL,
+        white_elo INTEGER, black_elo INTEGER,
+        white_title TEXT, black_title TEXT,
+        white_fide_id TEXT, black_fide_id TEXT,
+        result TEXT, date TEXT, year INTEGER,
+        eco TEXT, opening TEXT, variation TEXT,
+        event TEXT, site TEXT, round TEXT,
+        pgn_offset INTEGER NOT NULL, pgn_length INTEGER NOT NULL)''')
+    conn.execute('CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT)')
     conn.commit()
-    print("Database schema created successfully")
+    print("[OK] Database ready", flush=True)
     return conn
 
-
-def create_indexes(conn: sqlite3.Connection):
-    """Create indexes after data insertion for better performance."""
-    cursor = conn.cursor()
-
-    print("Creating indexes (this may take a few minutes)...")
-
-    # Games table indexes
-    indexes = [
+def create_game_indexes(conn):
+    print("[IDX] Creating game indexes...", flush=True)
+    for name, defn in [
         ("idx_white_name", "games(white_name_normalized)"),
         ("idx_black_name", "games(black_name_normalized)"),
         ("idx_white_elo", "games(white_elo)"),
@@ -172,351 +82,207 @@ def create_indexes(conn: sqlite3.Connection):
         ("idx_white_fide", "games(white_fide_id)"),
         ("idx_black_fide", "games(black_fide_id)"),
         ("idx_event", "games(event)"),
-    ]
+    ]:
+        print(f"  {name}...", flush=True)
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {defn}")
+        conn.commit()
+    print("[IDX] Done", flush=True)
 
-    for idx_name, idx_def in indexes:
-        print(f"  Creating {idx_name}...")
-        cursor.execute(f"CREATE INDEX {idx_name} ON {idx_def}")
-
-    # Players table indexes
-    cursor.execute("CREATE INDEX idx_player_name ON players(name_normalized)")
-    cursor.execute("CREATE INDEX idx_player_fide ON players(fide_id)")
-    cursor.execute("CREATE INDEX idx_player_elo ON players(highest_elo)")
-
+def build_players(conn):
+    cur = conn.cursor()
+    print("[PLR] Building players...", flush=True)
+    cur.execute("DROP TABLE IF EXISTS players_fts")
+    cur.execute("DROP TABLE IF EXISTS players")
+    cur.execute('''CREATE TABLE players (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE NOT NULL, name_normalized TEXT NOT NULL,
+        fide_id TEXT, title TEXT,
+        highest_elo INTEGER, latest_elo INTEGER, latest_date TEXT,
+        total_games INTEGER DEFAULT 0,
+        wins_white INTEGER DEFAULT 0, wins_black INTEGER DEFAULT 0,
+        losses_white INTEGER DEFAULT 0, losses_black INTEGER DEFAULT 0,
+        draws INTEGER DEFAULT 0,
+        first_game_date TEXT, last_game_date TEXT)''')
     conn.commit()
-    print("All indexes created successfully")
 
-
-def create_fts_index(conn: sqlite3.Connection):
-    """Create full-text search index for player names."""
-    cursor = conn.cursor()
-
-    print("Creating full-text search index...")
-
-    # Create FTS5 virtual table for player search
-    cursor.execute('''
-        CREATE VIRTUAL TABLE players_fts USING fts5(
-            name,
-            name_normalized,
-            content='players',
-            content_rowid='id'
-        )
-    ''')
-
-    # Populate FTS index
-    cursor.execute('''
-        INSERT INTO players_fts(rowid, name, name_normalized)
-        SELECT id, name, name_normalized FROM players
-    ''')
-
+    print("  White side...", flush=True)
+    cur.execute('''INSERT INTO players (name, name_normalized, fide_id, title, highest_elo,
+        total_games, wins_white, losses_white, draws, first_game_date, last_game_date)
+    SELECT white_name, white_name_normalized, MAX(NULLIF(white_fide_id,'')),
+        MAX(NULLIF(white_title,'')), MAX(white_elo), COUNT(*),
+        SUM(CASE WHEN result='1-0' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN result='0-1' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN result='1/2-1/2' THEN 1 ELSE 0 END),
+        MIN(date), MAX(date) FROM games GROUP BY white_name''')
     conn.commit()
-    print("Full-text search index created")
+    wc = cur.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+    print(f"  {wc:,} from white", flush=True)
 
+    print("  Black side merge...", flush=True)
+    cur2 = conn.cursor()
+    cur2.execute('''SELECT black_name, black_name_normalized,
+        MAX(NULLIF(black_fide_id,'')), MAX(NULLIF(black_title,'')),
+        MAX(black_elo), COUNT(*),
+        SUM(CASE WHEN result='0-1' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN result='1-0' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN result='1/2-1/2' THEN 1 ELSE 0 END),
+        MIN(date), MAX(date) FROM games GROUP BY black_name''')
 
-def parse_pgn_games(pgn_path: str) -> Generator[Tuple[Dict[str, str], int, int], None, None]:
-    """
-    Generator that yields (headers_dict, byte_offset, pgn_length) for each game.
-    Uses streaming to handle large files efficiently.
-    """
-
-    with open(pgn_path, 'rb') as f:
-        game_start = 0
-        headers = {}
-        in_headers = False
-        current_line_start = 0
-
-        while True:
-            line_bytes = f.readline()
-            if not line_bytes:
-                break
-
-            try:
-                line = line_bytes.decode('utf-8', errors='replace').strip()
-            except:
-                line = line_bytes.decode('latin-1', errors='replace').strip()
-
-            # Detect start of new game (Event header)
-            if line.startswith('[Event '):
-                # If we have a previous game, yield it
-                if headers and 'Event' in headers:
-                    game_end = current_line_start
-                    yield (headers, game_start, game_end - game_start)
-
-                # Start new game
-                game_start = current_line_start
-                headers = {}
-                in_headers = True
-
-            # Parse header lines
-            if line.startswith('[') and line.endswith(']'):
-                match = re.match(r'\[(\w+)\s+"([^"]*)"\]', line)
-                if match:
-                    headers[match.group(1)] = match.group(2)
-
-            current_line_start = f.tell()
-
-        # Yield last game
-        if headers and 'Event' in headers:
-            yield (headers, game_start, current_line_start - game_start)
-
-
-def update_player_stats(cursor: sqlite3.Connection, player_data: dict):
-    """Update or insert player statistics."""
-
-    name = player_data['name']
-    name_normalized = player_data['name_normalized']
-
-    # Check if player exists
-    cursor.execute(
-        "SELECT id, highest_elo, latest_date, total_games, wins_white, wins_black, "
-        "losses_white, losses_black, draws, first_game_date, last_game_date "
-        "FROM players WHERE name = ?",
-        (name,)
-    )
-    existing = cursor.fetchone()
-
-    if existing:
-        # Update existing player
-        player_id, highest_elo, latest_date, total_games, wins_w, wins_b, losses_w, losses_b, draws, first_date, last_date = existing
-
-        new_highest = max(highest_elo or 0, player_data.get('elo') or 0) or None
-        new_total = total_games + 1
-
-        # Update wins/losses/draws based on color and result
-        if player_data['color'] == 'white':
-            if player_data['result'] == '1-0':
-                wins_w += 1
-            elif player_data['result'] == '0-1':
-                losses_w += 1
-            elif player_data['result'] == '1/2-1/2':
-                draws += 1
-        else:  # black
-            if player_data['result'] == '0-1':
-                wins_b += 1
-            elif player_data['result'] == '1-0':
-                losses_b += 1
-            elif player_data['result'] == '1/2-1/2':
-                draws += 1
-
-        # Update date range
-        game_date = player_data.get('date', '')
-        if game_date and (not first_date or game_date < first_date):
-            first_date = game_date
-        if game_date and (not last_date or game_date > last_date):
-            last_date = game_date
-
-        # Update latest ELO if this is a more recent game
-        new_latest_elo = existing[1]  # Keep existing
-        new_latest_date = latest_date
-        if game_date and player_data.get('elo'):
-            if not latest_date or game_date >= latest_date:
-                new_latest_elo = player_data['elo']
-                new_latest_date = game_date
-
-        cursor.execute('''
-            UPDATE players SET
-                highest_elo = ?,
-                latest_elo = ?,
-                latest_date = ?,
-                total_games = ?,
-                wins_white = ?,
-                wins_black = ?,
-                losses_white = ?,
-                losses_black = ?,
-                draws = ?,
-                first_game_date = ?,
-                last_game_date = ?,
-                fide_id = COALESCE(fide_id, ?),
-                title = COALESCE(title, ?)
-            WHERE id = ?
-        ''', (
-            new_highest, new_latest_elo, new_latest_date, new_total,
-            wins_w, wins_b, losses_w, losses_b, draws,
-            first_date, last_date,
-            player_data.get('fide_id'), player_data.get('title'),
-            player_id
-        ))
-    else:
-        # Insert new player
-        wins_w = wins_b = losses_w = losses_b = draws = 0
-        if player_data['color'] == 'white':
-            if player_data['result'] == '1-0':
-                wins_w = 1
-            elif player_data['result'] == '0-1':
-                losses_w = 1
-            elif player_data['result'] == '1/2-1/2':
-                draws = 1
+    upd = ins = 0
+    new_batch = []
+    for row in cur2:
+        nm, nm_n, fid, ttl, melo, tot, wb, lb, db, fd, ld = row
+        cur.execute('''UPDATE players SET total_games=total_games+?, wins_black=?,
+            losses_black=?, draws=draws+?,
+            highest_elo=MAX(COALESCE(highest_elo,0),?),
+            fide_id=COALESCE(fide_id,?), title=COALESCE(title,?),
+            first_game_date=MIN(COALESCE(first_game_date,'9999'),?),
+            last_game_date=MAX(COALESCE(last_game_date,''),?)
+        WHERE name=?''', (tot, wb, lb, db, melo or 0, fid, ttl, fd or '9999', ld or '', nm))
+        if cur.rowcount == 0:
+            new_batch.append((nm, nm_n, fid, ttl,
+                melo if melo and melo > 0 else None,
+                tot, 0, wb, 0, lb, db, fd, ld))
+            ins += 1
         else:
-            if player_data['result'] == '0-1':
-                wins_b = 1
-            elif player_data['result'] == '1-0':
-                losses_b = 1
-            elif player_data['result'] == '1/2-1/2':
-                draws = 1
+            upd += 1
+        if len(new_batch) >= 5000:
+            cur.executemany('''INSERT INTO players (name, name_normalized, fide_id, title,
+                highest_elo, total_games, wins_white, wins_black, losses_white, losses_black,
+                draws, first_game_date, last_game_date)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''', new_batch)
+            new_batch = []
+            conn.commit()
+        if (upd+ins) % 100000 == 0 and (upd+ins) > 0:
+            print(f"  {upd+ins:,} (upd:{upd:,} new:{ins:,})", flush=True)
+            conn.commit()
+    if new_batch:
+        cur.executemany('''INSERT INTO players (name, name_normalized, fide_id, title,
+            highest_elo, total_games, wins_white, wins_black, losses_white, losses_black,
+            draws, first_game_date, last_game_date)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)''', new_batch)
+    conn.commit()
+    print(f"  Upd:{upd:,} New:{ins:,}", flush=True)
 
-        cursor.execute('''
-            INSERT INTO players (
-                name, name_normalized, fide_id, title, highest_elo, latest_elo,
-                latest_date, total_games, wins_white, wins_black, losses_white,
-                losses_black, draws, first_game_date, last_game_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            name, name_normalized,
-            player_data.get('fide_id'), player_data.get('title'),
-            player_data.get('elo'), player_data.get('elo'),
-            player_data.get('date'),
-            wins_w, wins_b, losses_w, losses_b, draws,
-            player_data.get('date'), player_data.get('date')
-        ))
+    print("  Player indexes...", flush=True)
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_player_name ON players(name_normalized)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_player_fide ON players(fide_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_player_elo ON players(highest_elo)")
+    conn.commit()
+    pc = cur.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+    print(f"[PLR] {pc:,} players", flush=True)
+    return pc
 
+def create_fts(conn):
+    print("[FTS] Creating...", flush=True)
+    conn.execute("DROP TABLE IF EXISTS players_fts")
+    conn.execute('''CREATE VIRTUAL TABLE players_fts USING fts5(
+        name, name_normalized, content='players', content_rowid='id')''')
+    conn.execute('''INSERT INTO players_fts(rowid, name, name_normalized)
+        SELECT id, name, name_normalized FROM players''')
+    conn.commit()
+    print("[FTS] Done", flush=True)
 
-def index_database():
-    """Main indexing function."""
+def parse_pgn(path):
+    with open(path, 'rb') as f:
+        gs = 0; hdr = {}; pos = 0
+        while True:
+            lb = f.readline()
+            if not lb: break
+            try: line = lb.decode('utf-8', errors='replace').strip()
+            except: line = lb.decode('latin-1', errors='replace').strip()
+            if line.startswith('[Event '):
+                if hdr and 'Event' in hdr:
+                    yield (hdr, gs, pos - gs)
+                gs = pos; hdr = {}
+            if line.startswith('[') and line.endswith(']'):
+                m = re.match(r'\[(\w+)\s+"([^"]*)"\]', line)
+                if m: hdr[m.group(1)] = m.group(2)
+            pos = f.tell()
+        if hdr and 'Event' in hdr:
+            yield (hdr, gs, pos - gs)
 
-    print("=" * 60)
-    print("TWIC Database Indexer")
-    print("=" * 60)
-
-    # Verify PGN file exists
+def main():
+    print("=" * 50, flush=True)
+    print("TWIC Indexer (robust)", flush=True)
+    print("=" * 50, flush=True)
     if not os.path.exists(PGN_PATH):
-        print(f"ERROR: PGN file not found: {PGN_PATH}")
+        print(f"ERROR: {PGN_PATH} not found"); sys.exit(1)
+    fsz = os.path.getsize(PGN_PATH)
+    print(f"PGN: {fsz/(1024**3):.2f} GB", flush=True)
+
+    conn = setup_db(DB_PATH)
+    cur = conn.cursor()
+    t0 = time.time(); gc_count = 0; errs = 0; batch = []
+
+    print("\n[P1] Parsing games...", flush=True)
+    try:
+        for hdr, off, ln in parse_pgn(PGN_PATH):
+            gc_count += 1
+            try:
+                wn = hdr.get('White','Unknown'); bn = hdr.get('Black','Unknown')
+                d = hdr.get('Date','')
+                batch.append((wn, normalize_name(wn), bn, normalize_name(bn),
+                    parse_elo(hdr.get('WhiteElo','')), parse_elo(hdr.get('BlackElo','')),
+                    hdr.get('WhiteTitle',''), hdr.get('BlackTitle',''),
+                    hdr.get('WhiteFideId',''), hdr.get('BlackFideId',''),
+                    hdr.get('Result','*'), d, extract_year(d),
+                    hdr.get('ECO',''), hdr.get('Opening',''),
+                    hdr.get('Variation',''), hdr.get('Event',''),
+                    hdr.get('Site',''), hdr.get('Round',''), off, ln))
+                if len(batch) >= BATCH_SIZE:
+                    cur.executemany('''INSERT INTO games (white_name,white_name_normalized,
+                        black_name,black_name_normalized,white_elo,black_elo,white_title,
+                        black_title,white_fide_id,black_fide_id,result,date,year,eco,
+                        opening,variation,event,site,round,pgn_offset,pgn_length)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', batch)
+                    conn.commit(); batch = []
+                    if gc_count % (BATCH_SIZE * 50) == 0: gc.collect()
+                if gc_count % PROGRESS_INTERVAL == 0:
+                    el = time.time()-t0; rt = gc_count/el
+                    pct = (off/fsz)*100
+                    print(f"  {gc_count:,} ({pct:.1f}%) | {rt:.0f}/s | err:{errs}", flush=True)
+            except Exception as e:
+                errs += 1
+                if errs <= 20: print(f"  ERR {gc_count}: {e}", flush=True)
+        if batch:
+            cur.executemany('''INSERT INTO games (white_name,white_name_normalized,
+                black_name,black_name_normalized,white_elo,black_elo,white_title,
+                black_title,white_fide_id,black_fide_id,result,date,year,eco,
+                opening,variation,event,site,round,pgn_offset,pgn_length)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', batch)
+            conn.commit()
+    except Exception as e:
+        print(f"\nFATAL at {gc_count}: {e}", flush=True)
+        print(traceback.format_exc(), flush=True)
+        try: conn.commit()
+        except: pass
         sys.exit(1)
 
-    file_size = os.path.getsize(PGN_PATH)
-    print(f"PGN file: {PGN_PATH}")
-    print(f"File size: {file_size / (1024**3):.2f} GB")
-    print(f"Output: {DB_PATH}")
-    print()
+    el = time.time()-t0
+    print(f"\n[P1] Done: {gc_count:,} games, {el:.0f}s, {gc_count/max(el,1):.0f}/s", flush=True)
 
-    # Create database
-    conn = create_database(DB_PATH)
-    cursor = conn.cursor()
+    print("\n[P2] Indexes...", flush=True)
+    create_game_indexes(conn); gc.collect()
 
-    # Track progress
-    start_time = time.time()
-    game_count = 0
-    batch_count = 0
-    player_cache = {}  # Cache player updates for batch processing
+    print("\n[P3] Players...", flush=True)
+    pc = build_players(conn); gc.collect()
 
-    print("Parsing PGN and inserting games...")
-    print()
+    print("\n[P4] FTS...", flush=True)
+    create_fts(conn)
 
-    for headers, offset, length in parse_pgn_games(PGN_PATH):
-        game_count += 1
-        batch_count += 1
-
-        # Extract and normalize data
-        white_name = headers.get('White', 'Unknown')
-        black_name = headers.get('Black', 'Unknown')
-        white_norm = normalize_name(white_name)
-        black_norm = normalize_name(black_name)
-
-        white_elo = parse_elo(headers.get('WhiteElo', ''))
-        black_elo = parse_elo(headers.get('BlackElo', ''))
-
-        date = headers.get('Date', '')
-        year = extract_year(date)
-        result = headers.get('Result', '*')
-
-        # Insert game record
-        cursor.execute('''
-            INSERT INTO games (
-                white_name, white_name_normalized, black_name, black_name_normalized,
-                white_elo, black_elo, white_title, black_title,
-                white_fide_id, black_fide_id, result, date, year,
-                eco, opening, variation, event, site, round,
-                pgn_offset, pgn_length
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            white_name, white_norm, black_name, black_norm,
-            white_elo, black_elo,
-            headers.get('WhiteTitle', ''), headers.get('BlackTitle', ''),
-            headers.get('WhiteFideId', ''), headers.get('BlackFideId', ''),
-            result, date, year,
-            headers.get('ECO', ''), headers.get('Opening', ''),
-            headers.get('Variation', ''), headers.get('Event', ''),
-            headers.get('Site', ''), headers.get('Round', ''),
-            offset, length
-        ))
-
-        # Update player statistics (white)
-        update_player_stats(cursor, {
-            'name': white_name,
-            'name_normalized': white_norm,
-            'elo': white_elo,
-            'fide_id': headers.get('WhiteFideId', ''),
-            'title': headers.get('WhiteTitle', ''),
-            'date': date,
-            'result': result,
-            'color': 'white'
-        })
-
-        # Update player statistics (black)
-        update_player_stats(cursor, {
-            'name': black_name,
-            'name_normalized': black_norm,
-            'elo': black_elo,
-            'fide_id': headers.get('BlackFideId', ''),
-            'title': headers.get('BlackTitle', ''),
-            'date': date,
-            'result': result,
-            'color': 'black'
-        })
-
-        # Commit in batches
-        if batch_count >= BATCH_SIZE:
-            conn.commit()
-            batch_count = 0
-
-        # Progress report
-        if game_count % PROGRESS_INTERVAL == 0:
-            elapsed = time.time() - start_time
-            rate = game_count / elapsed
-            print(f"  Processed {game_count:,} games ({rate:.0f} games/sec)")
-
-    # Final commit
+    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('indexed_at',?)", (datetime.now().isoformat(),))
+    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('game_count',?)", (str(gc_count),))
+    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('player_count',?)", (str(pc),))
     conn.commit()
 
-    elapsed = time.time() - start_time
-    print()
-    print(f"Game insertion complete: {game_count:,} games in {elapsed:.1f} seconds")
-    print(f"Average rate: {game_count/elapsed:.0f} games/second")
-    print()
-
-    # Create indexes
-    create_indexes(conn)
-
-    # Create FTS index
-    create_fts_index(conn)
-
-    # Get player count
-    cursor.execute("SELECT COUNT(*) FROM players")
-    player_count = cursor.fetchone()[0]
-
-    # Store metadata
-    cursor.execute("INSERT INTO metadata VALUES ('indexed_at', ?)", (datetime.now().isoformat(),))
-    cursor.execute("INSERT INTO metadata VALUES ('game_count', ?)", (str(game_count),))
-    cursor.execute("INSERT INTO metadata VALUES ('player_count', ?)", (str(player_count),))
-    cursor.execute("INSERT INTO metadata VALUES ('pgn_file', ?)", (PGN_PATH,))
-    conn.commit()
-
-    # Final stats
-    db_size = os.path.getsize(DB_PATH)
-    total_time = time.time() - start_time
-
-    print()
-    print("=" * 60)
-    print("INDEXING COMPLETE")
-    print("=" * 60)
-    print(f"Total games indexed: {game_count:,}")
-    print(f"Unique players: {player_count:,}")
-    print(f"Database size: {db_size / (1024**2):.1f} MB")
-    print(f"Total time: {total_time/60:.1f} minutes")
-    print(f"Output: {DB_PATH}")
-    print("=" * 60)
-
+    dsz = os.path.getsize(DB_PATH)
+    tt = time.time()-t0
+    print(f"\n{'='*50}", flush=True)
+    print(f"DONE: {gc_count:,} games, {pc:,} players", flush=True)
+    print(f"DB: {dsz/(1024**2):.0f} MB | Time: {tt/60:.1f} min", flush=True)
+    print(f"{'='*50}", flush=True)
     conn.close()
 
-
 if __name__ == "__main__":
-    index_database()
+    main()
