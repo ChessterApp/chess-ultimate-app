@@ -105,18 +105,34 @@ export default function DebutBoard({
     return 520;
   }, [windowWidth]);
 
-  // Piece images
+  // Piece images — map names to actual folder (filesystem is case-sensitive)
+  const ASSET_VERSION = process.env.NEXT_PUBLIC_ASSET_VERSION || '';
   const customPieces = useMemo(() => {
-    if (pieceType === 'cburnett') return undefined;
+    const folderMap: Record<string, string> = { cburnett: 'Cburnett', fritz: 'Fritz', Fritz: 'Fritz' };
+    const folder = folderMap[pieceType] || pieceType || 'Fritz';
+    const svgSets = ['cburnett', 'fritz'];
+    const isSvg = svgSets.includes(pieceType.toLowerCase());
+    const ext = isSvg ? 'svg' : 'png';
     const pieces: Record<string, any> = {};
     const pieceTypes = ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK'];
     pieceTypes.forEach(p => {
       pieces[p] = ({ squareWidth }: { squareWidth: number }) => (
-        <img src={`/static/pieces/${pieceType}/${p}.svg`} alt={p} style={{ width: squareWidth, height: squareWidth }} />
+        <img
+          src={`/static/pieces/${folder}/${p}.${ext}?v=${ASSET_VERSION}`}
+          alt={p}
+          style={{ width: squareWidth, height: squareWidth }}
+          onError={(e) => {
+            const img = e.currentTarget;
+            if (!img.dataset.retried) {
+              img.dataset.retried = '1';
+              img.src = `${img.src.split('?')[0]}?v=${ASSET_VERSION}&t=${Date.now()}`;
+            }
+          }}
+        />
       );
     });
     return pieces;
-  }, [pieceType]);
+  }, [pieceType, ASSET_VERSION]);
 
   // Legal move squares styling
   const moveSquares = useMemo(() => {

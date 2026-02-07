@@ -5,7 +5,7 @@
 
 import { useState, useCallback } from 'react';
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5001') + '/api/openings';
+const API_BASE = '/api/openings';
 
 // ─── Types ───────────────────────────────
 
