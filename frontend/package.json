@@ -33,6 +33,7 @@
     "next": "^16.0.10",
     "next-intl": "^4.5.5",
     "ollama-ai-provider-v2": "^1.5.1",
+    "playwright": "^1.58.2",
     "react": "^19.0.3",
     "react-chessboard": "^4.7.3",
     "react-dom": "^19.2.3",
