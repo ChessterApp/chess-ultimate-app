@@ -198,10 +198,10 @@
   },
   "navigation": {
     "home": "Home",
-    "learn": "Learn",
     "puzzles": "Puzzles",
     "analyze": "Analyze",
-    "profile": "Profile"
+    "profile": "Profile",
+    "debut": "Debut"
   },
   "learn": {
     "title": "Learning Path",
@@ -639,5 +639,13 @@
     "sessionExpired": "Session expired",
     "fetchCourseFailed": "Failed to fetch course data",
     "invalidResponseFormat": "Invalid response format: moves not found"
+  },
+  "debut": {
+    "title": "My Openings",
+    "subtitle": "Build and study your opening repertoire",
+    "newRepertoire": "New Repertoire",
+    "selectRepertoire": "Select a repertoire",
+    "noRepertoires": "No repertoires yet. Create your first one!",
+    "signInRequired": "Sign in to manage your opening repertoire"
   }
 }
