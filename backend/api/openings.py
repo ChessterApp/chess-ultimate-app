@@ -1273,7 +1273,7 @@ def add_node():
         parent_node = parent.data[0]
         repertoire_id = parent_node['repertoire_id']
 
-        # Check for existing child with same move
+        # Check for existing child with same move (by SAN or UCI)
         existing = supabase.table('opening_nodes') \
             .select('*') \
             .eq('parent_id', parent_id) \
@@ -1282,6 +1282,17 @@ def add_node():
 
         if existing.data:
             return jsonify(existing.data[0])  # Return existing node
+
+        # Also check by UCI to handle the unique constraint
+        if move_uci:
+            existing_uci = supabase.table('opening_nodes') \
+                .select('*') \
+                .eq('parent_id', parent_id) \
+                .eq('move_uci', move_uci) \
+                .execute()
+
+            if existing_uci.data:
+                return jsonify(existing_uci.data[0])  # Return existing node
 
         # Determine move number and color
         fen_parts = new_fen.split(' ')
@@ -1307,7 +1318,19 @@ def add_node():
             'eco_code': opening_info.get('eco') if opening_info else None,
         }
 
-        result = supabase.table('opening_nodes').insert(new_node).execute()
+        try:
+            result = supabase.table('opening_nodes').insert(new_node).execute()
+        except Exception as insert_err:
+            # Handle duplicate key race condition — return existing node
+            if '23505' in str(insert_err):
+                existing_retry = supabase.table('opening_nodes') \
+                    .select('*') \
+                    .eq('parent_id', parent_id) \
+                    .eq('move_san', move_san) \
+                    .execute()
+                if existing_retry.data:
+                    return jsonify(existing_retry.data[0])
+            raise insert_err
 
         if result.data:
             return jsonify(result.data[0]), 201
