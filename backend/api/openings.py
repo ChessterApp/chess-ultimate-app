@@ -356,6 +356,20 @@ def fetch_internal_games(search_query: str, max_games: int, filter_fen: str = No
         return []
 
 
+def _has_position_index(conn) -> bool:
+    """Check if game_positions hash table exists."""
+    result = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='game_positions'"
+    ).fetchone()
+    return result is not None
+
+
+def _get_board_hash(fen: str) -> str:
+    """Convert a full FEN to board hash (pieces + side + castling + ep)."""
+    parts = fen.split(' ')
+    return ' '.join(parts[:4])
+
+
 def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
                                       min_rating: int = 0, max_games: int = 10,
                                       stop_after: int = 500):
@@ -367,6 +381,54 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
     cursor = conn.cursor()
 
     try:
+        # FAST PATH: Use position hash index if available
+        if filter_fen and _has_position_index(conn):
+            board_hash = _get_board_hash(filter_fen)
+            logger.info(f"Using position hash index for: {board_hash[:40]}...")
+
+            query = """
+                SELECT DISTINCT g.* FROM games g
+                INNER JOIN game_positions gp ON g.id = gp.game_id
+                WHERE gp.board_hash = ?
+            """
+            params = [board_hash]
+
+            if min_rating > 0:
+                query += " AND (g.white_elo >= ? OR g.black_elo >= ?)"
+                params.extend([min_rating, min_rating])
+
+            if eco_filter:
+                query += " AND g.eco LIKE ?"
+                params.append(f"{eco_filter}%")
+
+            query += " ORDER BY g.date DESC LIMIT ?"
+            params.append(max_games)
+
+            cursor.execute(query, params)
+            found = 0
+            for row in cursor.fetchall():
+                game_data = dict(row)
+                # Load PGN
+                if game_data.get('pgn_offset') is not None:
+                    try:
+                        with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
+                            f.seek(game_data['pgn_offset'])
+                            pgn_text = ''
+                            for line in f:
+                                pgn_text += line
+                                if line.strip() in ['1-0', '0-1', '1/2-1/2', '*'] and len(pgn_text) > 50:
+                                    break
+                            game_data['pgn'] = pgn_text
+                    except Exception:
+                        pass
+                found += 1
+                yield {'type': 'game', 'game': game_data, 'checked': found, 'found': found}
+
+            conn.close()
+            yield {'type': 'done', 'checked': found, 'found': found}
+            return
+
+        # SLOW PATH: Scan games and replay PGN to check position
         query = "SELECT * FROM games"
         params = []
         conditions = []
