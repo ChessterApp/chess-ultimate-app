@@ -1,23 +1,65 @@
 import createNextIntlPlugin from 'next-intl/plugin';
+import crypto from 'crypto';
 
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts');
+
+// Generate a unique build-time hash for cache-busting static assets.
+// This changes on every build, forcing browsers to refetch piece images
+// even if they have stale cached responses from before CORP headers were added.
+const ASSET_VERSION = crypto.randomBytes(8).toString('hex');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: 'standalone' as const,
     productionBrowserSourceMaps: process.env.ENABLE_SOURCE_MAPS === 'true',
+    env: {
+        // Expose build hash to client-side code for cache-busting query params
+        NEXT_PUBLIC_ASSET_VERSION: ASSET_VERSION,
+    },
     headers() {
         const headers = [
             {
-                source: '/:path*',
+                // Apply COEP headers to all routes EXCEPT sign-in and sign-up
+                // (Clerk needs cross-origin resources that COEP blocks)
+                source: '/((?!sign-in|sign-up).*)',
                 headers: ENGINE_HEADERS,
             },
             {
+                // Other static assets (engines, etc.) — long cache is fine
                 source: '/static/:path*',
-                headers: ENGINE_HEADERS.concat({
-                    key: 'Cache-Control',
-                    value: 'public, max-age=2592000, immutable',
-                }),
+                headers: ENGINE_HEADERS.concat(
+                    {
+                        key: 'Cache-Control',
+                        value: 'public, max-age=2592000',
+                    },
+                    {
+                        key: 'Cross-Origin-Resource-Policy',
+                        value: 'same-origin',
+                    },
+                ),
+            },
+            {
+                // Static piece images — override the generic /static/* cache policy.
+                // Use shorter max-age with must-revalidate instead of immutable,
+                // so header changes (like adding CORP) take effect on revalidation.
+                // This MUST come after /static/:path* to win the Cache-Control conflict.
+                source: '/static/pieces/:path*',
+                headers: [
+                    {
+                        key: 'Cache-Control',
+                        value: 'public, max-age=604800, must-revalidate',
+                    },
+                ],
+            },
+            {
+                // All Next.js assets need CORP header when COEP is enabled
+                source: '/_next/:path*',
+                headers: [
+                    {
+                        key: 'Cross-Origin-Resource-Policy',
+                        value: 'same-origin',
+                    },
+                ],
             },
         ];
 

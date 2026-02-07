@@ -4,7 +4,7 @@ import React, { Suspense } from "react";
 import dynamic from "next/dynamic";
 import { useTranslations } from "next-intl";
 
-const BoardEditor = dynamic(() => import("@/components/editor/BoardEditor"));
+const BoardEditor = dynamic(() => import("@/components/editor/BoardEditor"), { ssr: false });
 
 function EditorContent() {
   const t = useTranslations("editor");

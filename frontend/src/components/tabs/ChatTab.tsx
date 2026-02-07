@@ -772,7 +772,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Avatar
-              src="/static/images/agineowl.png"
+              src="/static/images/chesster-logo.png"
               sx={{
                 width: 20,
                 height: 20,
@@ -1034,7 +1034,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             }}
           >
             <Avatar
-              src="/static/images/agineowl.png"
+              src="/static/images/chesster-logo.png"
               sx={{
                 width: 50,
                 height: 50,
@@ -1169,7 +1169,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 {/* Avatar for assistant messages */}
                 {message.role === "assistant" && (
                   <Avatar
-                    src="/static/images/agineowl.png"
+                    src="/static/images/chesster-logo.png"
                     sx={{
                       width: compactView ? 24 : 28,
                       height: compactView ? 24 : 28,
@@ -1404,7 +1404,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 }}
               >
                 <Avatar
-                  src="/static/images/agineowl.png"
+                  src="/static/images/chesster-logo.png"
                   sx={{
                     width: compactView ? 24 : 28,
                     height: compactView ? 24 : 28,

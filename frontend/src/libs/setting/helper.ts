@@ -89,6 +89,14 @@ export const BOARD_THEMES = {
     squareClickLegalColor: "rgba(46, 125, 50, 0.5)",
     selectedSquareColor: "rgba(255, 235, 59, 0.6)", // warm yellow
   },
+  chessbase: {
+    name: "ChessBase",
+    lightSquareColor: "#ebebeb",
+    darkSquareColor: "#d3d3d3",
+    bestMoveArrowColor: "#2e7d32",
+    squareClickLegalColor: "rgba(165, 165, 165, 0.5)",
+    selectedSquareColor: "rgba(165, 165, 165, 0.6)", // subtle gray highlight
+  },
 } as const;
 
 
@@ -106,7 +114,8 @@ export const PIECE_STYLE_TYPES = {
   Junpiter: { name: "Junpiter" },
   Mars: { name: "Mars" },
   Minerva: { name: "Minerva" },
-  Cyborg: {name: "Cyborg"}
+  Cyborg: {name: "Cyborg"},
+  Fritz: {name: "Fritz"},
 };
 
 export const getCurrentThemeColors = (themeName: string) => {

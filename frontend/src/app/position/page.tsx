@@ -14,11 +14,11 @@ import { useChatSessions } from "@/hooks/useChatSessions";
 
 import type { EditorState } from "@/components/editor/BoardEditor";
 
-// Dynamic imports for code splitting
-const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"));
-const ChessterAnalysisView = dynamic(() => import("@/components/analysis/ChessterAnalysisView"));
-const ChatSidebar = dynamic(() => import("@/components/ChatSidebar"));
-const EditorControls = dynamic(() => import("@/components/editor/EditorControls"));
+// Dynamic imports — ssr:false prevents hydration mismatches from useLocalStorage
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), { ssr: false });
+const ChessterAnalysisView = dynamic(() => import("@/components/analysis/ChessterAnalysisView"), { ssr: false });
+const ChatSidebar = dynamic(() => import("@/components/ChatSidebar"), { ssr: false });
+const EditorControls = dynamic(() => import("@/components/editor/EditorControls"), { ssr: false });
 
 export default function PositionPage() {
   // const session = useSession();

@@ -234,11 +234,26 @@ export function togglePieceColor(piece: PieceCode): PieceCode {
 }
 
 /**
- * Get the piece image source path for a given piece code and piece set
+ * Build-time asset version for cache-busting piece image URLs.
+ * Changes on every build, ensuring stale cached responses (e.g. from before
+ * CORP headers were added) are invalidated.
+ */
+const ASSET_VERSION = process.env.NEXT_PUBLIC_ASSET_VERSION || 'dev';
+
+/**
+ * Get the piece image source path for a given piece code and piece set.
+ * Appends a build-time version query param to bust stale browser caches.
  */
 export function getPieceImageSrc(pieceCode: PieceCode, pieceSet: string): string {
-  if (pieceSet.toLowerCase() === "cburnett" || !pieceSet) {
-    return `/static/pieces/Cburnett/${pieceCode}.svg`;
+  const svgSets = ['cburnett', 'fritz'];
+  // Map piece set keys to actual folder names (filesystem is case-sensitive)
+  const folderMap: Record<string, string> = { cburnett: 'Cburnett', fritz: 'Fritz', Fritz: 'Fritz' };
+  let src: string;
+  if (!pieceSet || svgSets.includes(pieceSet.toLowerCase())) {
+    const folder = folderMap[pieceSet] || pieceSet || 'Cburnett';
+    src = `/static/pieces/${folder}/${pieceCode}.svg`;
+  } else {
+    src = `/static/pieces/${pieceSet}/${pieceCode}.png`;
   }
-  return `/static/pieces/${pieceSet}/${pieceCode}.png`;
+  return `${src}?v=${ASSET_VERSION}`;
 }

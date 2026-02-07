@@ -36,7 +36,7 @@ import ChatTab from "@/components/tabs/ChatTab";
 import useChesster from "@/hooks/useChesster";
 
 // Dynamic import for code splitting
-const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"));
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), { ssr: false });
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
 import { purpleTheme } from "@/theme/theme";

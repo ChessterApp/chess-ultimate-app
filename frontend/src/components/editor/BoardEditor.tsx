@@ -81,8 +81,8 @@ export default function BoardEditor({
   const searchParams = useSearchParams();
 
   // User settings from localStorage
-  const [pieceSet] = useLocalStorage<string>("board_piece_type", "Cburnett");
-  const [boardTheme] = useLocalStorage<string>("board_theme", "classic");
+  const [pieceSet] = useLocalStorage<string>("board_piece_type", "Fritz");
+  const [boardTheme] = useLocalStorage<string>("board_theme", "chessbase");
 
   // Initialize from prop, URL param, or starting position
   const startFen = propFen || searchParams?.get("fen") || STARTING_FEN;
@@ -152,6 +152,13 @@ export default function BoardEditor({
             src={src}
             style={{ width: squareWidth, height: squareWidth }}
             draggable={false}
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (!img.dataset.retried) {
+                img.dataset.retried = '1';
+                img.src = src + '&t=' + Date.now();
+              }
+            }}
           />
         );
       });

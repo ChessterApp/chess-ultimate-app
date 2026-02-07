@@ -23,17 +23,62 @@ import {
 } from "@mui/material";
 import {
   Settings as SettingsIcon,
-  NavigateBefore,
-  NavigateNext,
+  // NavigateBefore, NavigateNext removed — using ChessBase SVG icons
   RotateLeft,
   Upload,
   CameraAlt,
   Close,
+  // SkipPrevious, SkipNext, Replay, SwapVert removed — using ChessBase SVG icons
 } from "@mui/icons-material";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
 import { Chessboard } from "react-chessboard";
 import { UciEngine } from "@/stockfish/engine/UciEngine";
+import { SvgIcon, SvgIconProps } from "@mui/material";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+
+// ChessBase-style SVG icons (extracted from database.chessbase.com)
+const CBResetIcon = (props: SvgIconProps) => (
+  <SvgIcon {...props} viewBox="0 0 187.862 164">
+    <path d="M82,135.848c-29.738,0-53.848-24.109-53.848-53.848S52.262,28.152,82,28.152c9.961,0,19.283,2.715,27.286,7.431 l14.266-24.269C111.364,4.135,97.168,0,82,0C36.713,0,0,36.713,0,82s36.713,82,82,82s82-36.713,82-82h-28.152 C135.848,111.738,111.738,135.848,82,135.848z" />
+    <polygon points="111.124,82.652 149.493,16.195 187.862,82.652" />
+  </SvgIcon>
+);
+
+const CBGoToStartIcon = (props: SvgIconProps) => (
+  <SvgIcon {...props} viewBox="0 0 274.446 170">
+    <path d="M274.446,150c0,11-7.794,15.5-17.32,10L144.543,95c-9.526-5.5-9.526-14.5,0-20l112.582-65c9.526-5.5,17.32-1,17.32,10V150z" />
+    <path d="M147.223,150c0,11-7.794,15.5-17.32,10L17.32,95c-9.526-5.5-9.526-14.5,0-20l112.583-65c9.526-5.5,17.32-1,17.32,10V150z" />
+    <path d="M28,10c0-5.5-4.5-10-10-10h-8C4.5,0,0,4.5,0,10v150c0,5.5,4.5,10,10,10h8c5.5,0,10-4.5,10-10V10z" />
+  </SvgIcon>
+);
+
+const CBPreviousMoveIcon = (props: SvgIconProps) => (
+  <SvgIcon {...props} viewBox="0 0 137.047 154.695">
+    <path d="M137.047,142.347c0,11-7.794,15.5-17.32,10l-112.583-65c-9.526-5.5-9.526-14.5,0-20l112.583-65c9.526-5.5,17.32-1,17.32,10 V142.347z" />
+  </SvgIcon>
+);
+
+const CBNextMoveIcon = (props: SvgIconProps) => (
+  <SvgIcon {...props} viewBox="0 0 137.047 154.695">
+    <path d="M0,12.347c0-11,7.794-15.5,17.32-10l112.583,65c9.526,5.5,9.526,14.5,0,20l-112.583,65c-9.526,5.5-17.32,1-17.32-10V12.347z" />
+  </SvgIcon>
+);
+
+const CBGoToEndIcon = (props: SvgIconProps) => (
+  <SvgIcon {...props} viewBox="0 0 274.446 170">
+    <path d="M0,20C0,9,7.794,4.5,17.32,10l112.583,65c9.526,5.5,9.526,14.5,0,20L17.32,160C7.794,165.5,0,161,0,150V20z" />
+    <path d="M127.223,20c0-11,7.794-15.5,17.32-10l112.582,65c9.526,5.5,9.526,14.5,0,20l-112.582,65c-9.526,5.5-17.32,1-17.32-10V20z" />
+    <path d="M246.446,160c0,5.5,4.5,10,10,10h8c5.5,0,10-4.5,10-10V10c0-5.5-4.5-10-10-10h-8c-5.5,0-10,4.5-10,10V160z" />
+  </SvgIcon>
+);
+
+const CBFlipBoardIcon = (props: SvgIconProps) => (
+  <SvgIcon {...props} viewBox="0 0 303.866 170">
+    <path d="M274.076,77.414c0-25.335-20.364-45.872-45.485-45.872V0c41.568,1.208,74.902,35.367,74.902,77.362 c0,41.993-33.334,76.154-74.902,77.362v-31.438C253.711,123.285,274.076,102.748,274.076,77.414z" />
+    <polygon points="176.938,139.509 229.621,109.018 229.621,170" />
+    <path d="M169.956,0v170H0.374V0H169.956z M22.818,147.5h62.346V85h62.346V22.5H85.165V85H22.818V147.5z" />
+  </SvgIcon>
+);
 import { Chess, Square } from "chess.js";
 import { PositionEval } from "@/stockfish/engine/engine";
 import { MasterGames } from "../../libs/openingdatabase/helper";
@@ -177,7 +222,7 @@ export default function AiChessboardPanel({
   }, [windowWidth, panelDimensions]);
   const [pieceType, setPieceType] = useLocalStorage<string>(
     "board_piece_type",
-    "Cburnett"
+    "Fritz"
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showCoordinates, setShowCoordinates] = useLocalStorage<boolean>(
@@ -187,7 +232,7 @@ export default function AiChessboardPanel({
 
   const [boardTheme, setBoardTheme] = useLocalStorage<string>(
     "board_theme",
-    "purple" // Default to purple theme
+    "chessbase" // Default to ChessBase theme
   );
   const [animationDuration, setAnimationDuration] = useLocalStorage<number>(
     "board_ui_animation_duration",
@@ -214,6 +259,19 @@ export default function AiChessboardPanel({
       "board_ui_show_semiprotectedpiece",
       DEFAULT_BOARD_SEMI_PROTECTED_PIECE
     );
+
+  // Note: This component is loaded with dynamic({ ssr: false }) from page.tsx
+  // so useLocalStorage hydration mismatches are avoided at the import level.
+
+  // One-time migration: switch existing users from old defaults to ChessBase/Fritz
+  useEffect(() => {
+    const migrated = localStorage.getItem('board_theme_migrated_v2');
+    if (!migrated) {
+      setPieceType('Fritz');
+      setBoardTheme('chessbase');
+      localStorage.setItem('board_theme_migrated_v2', '1');
+    }
+  }, []);
 
   // Resize functionality
   const [isResizing, setIsResizing] = useState(false);
@@ -727,6 +785,43 @@ export default function AiChessboardPanel({
     }
   }, [currentMoveIndex, moveHistory, setGame, setFen]);
 
+  const goToStart = useCallback(() => {
+    if (moveHistory.length > 0 && currentMoveIndex > 0) {
+      const newFen = moveHistory[0];
+      const newGame = new Chess(newFen);
+      setGame(newGame);
+      setFen(newFen);
+      setCurrentMoveIndex(0);
+      setSelectedSquare(null);
+      setLegalMoves([]);
+    }
+  }, [moveHistory, currentMoveIndex, setGame, setFen]);
+
+  const goToEnd = useCallback(() => {
+    if (moveHistory.length > 0 && currentMoveIndex < moveHistory.length - 1) {
+      const lastIndex = moveHistory.length - 1;
+      const newFen = moveHistory[lastIndex];
+      const newGame = new Chess(newFen);
+      setGame(newGame);
+      setFen(newFen);
+      setCurrentMoveIndex(lastIndex);
+      setSelectedSquare(null);
+      setLegalMoves([]);
+    }
+  }, [moveHistory, currentMoveIndex, setGame, setFen]);
+
+  const resetBoard = useCallback(() => {
+    const startingFen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    const newGame = new Chess(startingFen);
+    setGame(newGame);
+    setFen(startingFen);
+    setMoveHistory([startingFen]);
+    setCurrentMoveIndex(0);
+    clearAnalysis();
+    setSelectedSquare(null);
+    setLegalMoves([]);
+  }, [setGame, setFen, clearAnalysis]);
+
   // Load custom FEN callback
   const loadCustomFen = useCallback(() => {
     try {
@@ -872,21 +967,38 @@ export default function AiChessboardPanel({
       ({ squareWidth }: { squareWidth: number }) => JSX.Element
     > = {};
 
+    const assetVersion = process.env.NEXT_PUBLIC_ASSET_VERSION || 'dev';
+
     colors.forEach((color) => {
       pieces.forEach((piece) => {
         const pieceKey = `${color}${piece}`;
 
         let src: string;
-        if (pieceSet.toLowerCase() == 'cburnett' || !pieceSet) {
-          src = `/static/pieces/Cburnett/${pieceKey}.svg`;
+        const svgSets = ['cburnett', 'fritz'];
+        // Map piece set keys to actual folder names (filesystem is case-sensitive)
+        const folderMap: Record<string, string> = { cburnett: 'Cburnett', fritz: 'Fritz', Fritz: 'Fritz' };
+        if (!pieceSet || svgSets.includes(pieceSet.toLowerCase())) {
+          const folder = folderMap[pieceSet] || pieceSet || 'Cburnett';
+          src = `/static/pieces/${folder}/${pieceKey}.svg`;
         } else {
           src = `/static/pieces/${pieceSet}/${pieceKey}.png`;
         }
+        // Append build-time version to bust stale cached responses
+        src = `${src}?v=${assetVersion}`;
 
         customPieces[pieceKey] = ({ squareWidth }) => (
           <img
             src={src}
             style={{ width: squareWidth, height: squareWidth }}
+            onError={(e) => {
+              // If the image fails to load (e.g. stale COEP-blocked cache),
+              // force a refetch by appending a timestamp
+              const img = e.currentTarget;
+              if (!img.dataset.retried) {
+                img.dataset.retried = '1';
+                img.src = src + '&t=' + Date.now();
+              }
+            }}
           />
         );
       });
@@ -1047,7 +1159,7 @@ export default function AiChessboardPanel({
         ) : (
           <>
             {gameReviewMode && gameInfo && <TopPlayerBar />}
-            {/* Chessboard */}
+            {/* Chessboard + Control Bar */}
             <Box sx={{ display: "flex", justifyContent: "center", mb: 2, gap: 1 }}>
               {showEvalBar && !puzzleMode && (
                 <EvalBar
@@ -1056,80 +1168,84 @@ export default function AiChessboardPanel({
                   height={responsiveBoardSize} // Match the board height
                 />
               )}
-              <Chessboard
-                position={fen}
-                onPieceDrop={puzzleMode ? onDropPuzzle : handlePlayerMove}
-                onSquareClick={
-                  puzzleMode ? handleSquarePuzzleClick : handleSquareClick
-                }
-                allowDragOutsideBoard={false}
-                animationDuration={animationDuration}
-                showBoardNotation={showCoordinates}
-                customSquareStyles={
-                  puzzleMode ? puzzleCustomSquareStyle : customSquareStyles
-                }
-                customDarkSquareStyle={{
-                  backgroundColor:
-                    getCurrentThemeColors(boardTheme).darkSquareColor,
-                }}
-                customLightSquareStyle={{
-                  backgroundColor:
-                    getCurrentThemeColors(boardTheme).lightSquareColor,
-                }}
-                customArrows={customArrows}
-                boardWidth={responsiveBoardSize}
-                boardOrientation={getBoardOrientation()}
-                customPieces={getCustomPieces(pieceType)}
-              />
+              <Box sx={{ width: responsiveBoardSize, flexShrink: 0 }}>
+                <Chessboard
+                  position={fen}
+                  onPieceDrop={puzzleMode ? onDropPuzzle : handlePlayerMove}
+                  onSquareClick={
+                    puzzleMode ? handleSquarePuzzleClick : handleSquareClick
+                  }
+                  allowDragOutsideBoard={false}
+                  animationDuration={animationDuration}
+                  showBoardNotation={showCoordinates}
+                  customSquareStyles={
+                    puzzleMode ? puzzleCustomSquareStyle : customSquareStyles
+                  }
+                  customDarkSquareStyle={{
+                    backgroundColor:
+                      getCurrentThemeColors(boardTheme).darkSquareColor,
+                  }}
+                  customLightSquareStyle={{
+                    backgroundColor:
+                      getCurrentThemeColors(boardTheme).lightSquareColor,
+                  }}
+                  customArrows={customArrows}
+                  boardWidth={responsiveBoardSize}
+                  boardOrientation={getBoardOrientation()}
+                  customPieces={getCustomPieces(pieceType)}
+                />
+                {/* Board Control Bar — same width as board */}
+                {!playMode && !gameReviewMode && !puzzleMode && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      flexDirection: "row",
+                      alignItems: "center",
+                      backgroundColor: "#2a2a2a",
+                      borderRadius: 0,
+                      height: 38,
+                      width: "100%",
+                      overflow: "hidden",
+                    }}
+                  >
+                {/* ChessBase proportions: reset/start/end/flip = flex 1, prev/next = flex 1.42 */}
+                {/* Icon heights match CB originals: reset=60%, start/end=38%, prev/next=40%, flip=60% of button height */}
+                {[
+                  { icon: <CBResetIcon sx={{ width: 22, height: 22 }} />, onClick: resetBoard, disabled: false, title: "Reset board", flex: 1 },
+                  { icon: <CBGoToStartIcon sx={{ width: 18, height: 14 }} />, onClick: goToStart, disabled: isPreviousDisabled, title: "Go to start", flex: 1 },
+                  { icon: <CBPreviousMoveIcon sx={{ width: 14, height: 15 }} />, onClick: goToPreviousMove, disabled: isPreviousDisabled, title: "Previous move", flex: 1.42 },
+                  { icon: <CBNextMoveIcon sx={{ width: 14, height: 15 }} />, onClick: goToNextMove, disabled: isNextDisabled, title: "Next move", flex: 1.42 },
+                  { icon: <CBGoToEndIcon sx={{ width: 18, height: 14 }} />, onClick: goToEnd, disabled: isNextDisabled, title: "Go to end", flex: 1 },
+                  { icon: <CBFlipBoardIcon sx={{ width: 26, height: 22 }} />, onClick: flipBoard, disabled: false, title: "Flip board", flex: 1 },
+                ].map((btn, i) => (
+                  <Box
+                    key={i}
+                    onClick={btn.disabled ? undefined : btn.onClick}
+                    title={btn.title}
+                    sx={{
+                      flex: btn.flex,
+                      height: 38,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: btn.disabled ? "default" : "pointer",
+                      color: btn.disabled ? "rgba(160,160,160,0.3)" : "#a0a0a0",
+                      padding: "5px",
+                      transition: "background-color 0.15s, color 0.15s",
+                      "&:hover": btn.disabled ? {} : {
+                        backgroundColor: "rgba(255,255,255,0.08)",
+                        color: "#fff",
+                      },
+                    }}
+                  >
+                    {btn.icon}
+                  </Box>
+                ))}
+              </Box>
+                )}
+              </Box>
             </Box>
             {gameReviewMode && gameInfo && <BottomPlayerBar />}
-
-            {/* Navigation Controls */}
-            {!playMode && !gameReviewMode && !puzzleMode && (
-              <Stack spacing={2}>
-                {/* Navigation buttons */}
-                <Stack direction="row" spacing={2}>
-                  <Button
-                    onClick={goToPreviousMove}
-                    variant="contained"
-                    disabled={isPreviousDisabled}
-                    startIcon={<NavigateBefore fontSize="small" />}
-                    fullWidth
-                    size="small"
-                    sx={{
-                      backgroundColor: "#9c27b0",
-                      "&:hover": {
-                        backgroundColor: "#7b1fa2",
-                      },
-                      "&:disabled": {
-                        backgroundColor: "rgba(156, 39, 176, 0.3)",
-                      },
-                    }}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    onClick={goToNextMove}
-                    variant="contained"
-                    disabled={isNextDisabled}
-                    endIcon={<NavigateNext fontSize="small" />}
-                    fullWidth
-                    size="small"
-                    sx={{
-                      backgroundColor: "#9c27b0",
-                      "&:hover": {
-                        backgroundColor: "#7b1fa2",
-                      },
-                      "&:disabled": {
-                        backgroundColor: "rgba(156, 39, 176, 0.3)",
-                      },
-                    }}
-                  >
-                    Next
-                  </Button>
-                </Stack>
-              </Stack>
-            )}
           </>
         )}
 

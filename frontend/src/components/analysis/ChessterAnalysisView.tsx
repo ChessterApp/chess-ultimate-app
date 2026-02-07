@@ -250,12 +250,12 @@ function ChessterAnalysisView({
             },
           }}
         >
+          <Tab icon={<ChatIcon />} iconPosition="start" label={t("tabs.aiChat")} />
           <Tab
             icon={<AnalyticsIcon />}
             iconPosition="start"
             label={t("tabs.analysis")}
           />
-          <Tab icon={<ChatIcon />} iconPosition="start" label={t("tabs.aiChat")} />
           {isGameReviewMode && allGames && allGames.length > 1 && (
             <Tab icon={<StorageIcon />} iconPosition="start" label={t("tabs.gamesDatabase")} />
           )}
@@ -274,7 +274,7 @@ function ChessterAnalysisView({
           flexDirection: "column",
         }}
       >
-        <TabPanel value={analysisTab} index={0}>
+        <TabPanel value={analysisTab} index={1}>
           <Stack spacing={3}>
             {/* Game Review Section (only for game page) */}
             {isGameReviewMode && (
@@ -640,7 +640,7 @@ function ChessterAnalysisView({
           </Stack>
         </TabPanel>
 
-        <TabPanel value={analysisTab} index={1}>
+        <TabPanel value={analysisTab} index={0}>
           <ChatTab
             chatMessages={chatMessages}
             chatInput={chatInput}

@@ -65,6 +65,14 @@ export default function SparePieces({
             alt={piece}
             style={{ width: 40, height: 40, pointerEvents: "none" }}
             draggable={false}
+            onError={(e) => {
+              const img = e.currentTarget;
+              if (!img.dataset.retried) {
+                img.dataset.retried = '1';
+                const base = getPieceImageSrc(piece, pieceSet);
+                img.src = base + '&t=' + Date.now();
+              }
+            }}
           />
         </div>
       ))}
