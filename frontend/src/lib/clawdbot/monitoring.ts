@@ -38,7 +38,7 @@ export function getMetricsSummary() {
   const now = Date.now();
   const last24h = metrics.filter((m) => now - m.timestamp < 86400000);
 
-  const byRoute = { mastra: 0, clawdbot: 0 };
+  const byRoute: Record<RouteTarget, number> = { mastra: 0, clawdbot: 0, chesster: 0 };
   let totalLatency = 0;
   let errors = 0;
   const tokensByUser: Record<string, number> = {};

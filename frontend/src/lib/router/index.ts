@@ -1,7 +1,7 @@
 // frontend/src/lib/router/index.ts
 // Hybrid routing logic for Mastra (quick analysis) vs Clawdbot (deep coaching)
 
-export type RouteTarget = 'mastra' | 'clawdbot';
+export type RouteTarget = 'mastra' | 'clawdbot' | 'chesster';
 
 export interface RouteContext {
   fen?: string;
@@ -95,6 +95,17 @@ export function getRouteExplanation(target: RouteTarget, _query: string): string
  */
 export function isClawdbotAvailable(): boolean {
   return !!(process.env.CLAWDBOT_GATEWAY_URL || process.env.CLAWDBOT_GATEWAY_TOKEN);
+}
+
+/**
+ * Utility to check if Chesster gateway is available
+ */
+export function isChessterAvailable(): boolean {
+  return !!(
+    process.env.CLAWDBOT_GATEWAY_URL &&
+    process.env.CLAWDBOT_GATEWAY_TOKEN &&
+    process.env.CHESSTER_GATEWAY_ENABLED === 'true'
+  );
 }
 
 /**

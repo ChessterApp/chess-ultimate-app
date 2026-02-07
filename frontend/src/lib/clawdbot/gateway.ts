@@ -3,7 +3,7 @@
 import type { CoachingRequest, CoachingResponse } from './types';
 import { getSessionKey, getUserWorkspace } from './workspace';
 
-const GATEWAY_URL = process.env.CLAWDBOT_GATEWAY_URL || 'http://127.0.0.1:18789';
+const GATEWAY_URL = process.env.CLAWDBOT_GATEWAY_URL || 'http://127.0.0.1:19789';
 const GATEWAY_TOKEN = process.env.CLAWDBOT_GATEWAY_TOKEN || '';
 
 const DEFAULT_TIMEOUTS: Record<string, number> = {
