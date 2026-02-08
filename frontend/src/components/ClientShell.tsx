@@ -23,7 +23,6 @@ export default function ClientShell({ children }: { children: ReactNode }) {
         {children}
       </main>
       <BottomNavigation />
-      <BottomNavSpacer />
     </>
   )
 }

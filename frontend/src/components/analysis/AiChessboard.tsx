@@ -174,6 +174,7 @@ export default function AiChessboardPanel({
   onEditorStateChange,
 }: AiChessboardPanelProps) {
   const tEditor = useTranslations("editor");
+  const tBoard = useTranslations("board");
   // Fix hydration mismatch by ensuring client-only rendering
   const [mounted, setMounted] = useState(false);
 
@@ -1506,12 +1507,12 @@ export default function AiChessboardPanel({
           },
         }}
       >
-        <DialogTitle>Chessboard Settings</DialogTitle>
+        <DialogTitle>{tBoard("settingsTitle")}</DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ pt: 1 }}>
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
-                Board Size: {boardSize}px
+                {tBoard("boardSize", { size: boardSize })}
               </Typography>
               <Slider
                 value={boardSize}
@@ -1528,10 +1529,10 @@ export default function AiChessboardPanel({
             {/* Board Theme Selection */}
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                Board Theme
+                {tBoard("boardTheme")}
               </Typography>
               <FormControl size="small" fullWidth>
-                <InputLabel sx={{ color: "grey.300" }}>theme</InputLabel>
+                <InputLabel sx={{ color: "grey.300" }}>{tBoard("themeLabel")}</InputLabel>
                 <Select
                   value={boardTheme}
                   onChange={(e) => setBoardTheme(e.target.value)}
@@ -1568,10 +1569,10 @@ export default function AiChessboardPanel({
 
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                Piece Style
+                {tBoard("pieceStyle")}
               </Typography>
               <FormControl size="small" fullWidth>
-                <InputLabel sx={{ color: "grey.300" }}>piece style</InputLabel>
+                <InputLabel sx={{ color: "grey.300" }}>{tBoard("pieceStyleLabel")}</InputLabel>
                 <Select
                   value={pieceType}
                   onChange={(e) => setPieceType(e.target.value)}
@@ -1610,7 +1611,7 @@ export default function AiChessboardPanel({
 
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
-                Animation Speed: {animationDuration}ms
+                {tBoard("animationSpeed", { ms: animationDuration })}
               </Typography>
               <Slider
                 value={animationDuration}
@@ -1626,7 +1627,7 @@ export default function AiChessboardPanel({
 
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                Display Options
+                {tBoard("displayOptions")}
               </Typography>
               <Stack spacing={2}>
                 <Stack
@@ -1635,7 +1636,7 @@ export default function AiChessboardPanel({
                   alignItems="center"
                 >
                   <Typography variant="body2" sx={{ color: "grey.300" }}>
-                    Show Coordinates
+                    {tBoard("showCoordinates")}
                   </Typography>
                   <Switch
                     checked={showCoordinates}
@@ -1658,7 +1659,7 @@ export default function AiChessboardPanel({
                   alignItems="center"
                 >
                   <Typography variant="body2" sx={{ color: "grey.300" }}>
-                    Show FEN String
+                    {tBoard("showFenString")}
                   </Typography>
                   <Switch
                     checked={showFen}
@@ -1682,7 +1683,7 @@ export default function AiChessboardPanel({
                     alignItems="center"
                   >
                     <Typography variant="body2" sx={{ color: "grey.300" }}>
-                      Show Analysis Arrows
+                      {tBoard("showAnalysisArrows")}
                     </Typography>
                     <Switch
                       checked={showArrows}
@@ -1707,7 +1708,7 @@ export default function AiChessboardPanel({
                     alignItems="center"
                   >
                     <Typography variant="body2" sx={{ color: "grey.300" }}>
-                      Show Eval Bar
+                      {tBoard("showEvalBar")}
                     </Typography>
                     <Switch
                       checked={showEvalBar}
@@ -1730,7 +1731,7 @@ export default function AiChessboardPanel({
             {/* Piece Highlighting Options */}
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                Piece Highlighting
+                {tBoard("pieceHighlighting")}
               </Typography>
               <Stack spacing={2}>
                 <Stack
@@ -1740,13 +1741,13 @@ export default function AiChessboardPanel({
                 >
                   <Box>
                     <Typography variant="body2" sx={{ color: "grey.300" }}>
-                      Hanging Pieces
+                      {tBoard("hangingPieces")}
                     </Typography>
                     <Typography
                       variant="caption"
                       sx={{ color: "grey.500", fontSize: "0.7rem" }}
                     >
-                      Critical threats - undefended pieces
+                      {tBoard("hangingPiecesDesc")}
                     </Typography>
                   </Box>
                   <Switch
@@ -1771,13 +1772,13 @@ export default function AiChessboardPanel({
                 >
                   <Box>
                     <Typography variant="body2" sx={{ color: "grey.300" }}>
-                      Semi-Protected Pieces
+                      {tBoard("semiProtectedPieces")}
                     </Typography>
                     <Typography
                       variant="caption"
                       sx={{ color: "grey.500", fontSize: "0.7rem" }}
                     >
-                      Equal attackers and defenders
+                      {tBoard("semiProtectedDesc")}
                     </Typography>
                   </Box>
                   <Switch
@@ -1805,7 +1806,7 @@ export default function AiChessboardPanel({
 
                 <Box>
                   <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                    Board Controls
+                    {tBoard("boardControls")}
                   </Typography>
 
                   <Stack spacing={2}>
@@ -1824,12 +1825,12 @@ export default function AiChessboardPanel({
                         },
                       }}
                     >
-                      Flip Board
+                      {tBoard("flipBoard")}
                     </Button>
 
                     {/* FEN Input */}
                     <TextField
-                      label="Load custom position (FEN)"
+                      label={tBoard("loadFenLabel")}
                       variant="outlined"
                       value={customFen}
                       onChange={(e) => setCustomFen(e.target.value)}
@@ -1876,14 +1877,14 @@ export default function AiChessboardPanel({
                         },
                       }}
                     >
-                      Load FEN
+                      {tBoard("loadFen")}
                     </Button>
 
                     {/* Photo to FEN Section */}
                     <Divider sx={{ borderColor: "rgba(255,255,255,0.1)", my: 1 }} />
 
                     <Typography variant="caption" sx={{ color: "grey.500", display: "block", mb: 1 }}>
-                      Or upload a photo of a chess board
+                      {tBoard("uploadPhotoHint")}
                     </Typography>
 
                     <Button
@@ -1901,7 +1902,7 @@ export default function AiChessboardPanel({
                         },
                       }}
                     >
-                      {photoLoading ? "Analyzing..." : "Upload Board Photo"}
+                      {photoLoading ? tBoard("analyzing") : tBoard("uploadBoardPhoto")}
                       <input
                         type="file"
                         hidden
@@ -1953,7 +1954,7 @@ export default function AiChessboardPanel({
                             }}
                           >
                             <Typography sx={{ color: "white" }}>
-                              Analyzing position...
+                              {tBoard("analyzingPosition")}
                             </Typography>
                           </Box>
                         )}
@@ -1977,7 +1978,7 @@ export default function AiChessboardPanel({
         </DialogContent>
         <DialogActions>
           <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
-            Done
+            {tBoard("done")}
           </Button>
         </DialogActions>
       </Dialog>

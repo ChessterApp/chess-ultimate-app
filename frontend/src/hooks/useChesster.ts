@@ -386,7 +386,7 @@ export default function useChesster(fen: string) {
       query: string,
       mode: string,
       onToken: (token: string) => void,
-      onComplete: (data: { conversation_id: string; tokens_used: number }) => void,
+      onComplete: (data: { conversation_id: string; tokens_used: number; route?: string; model?: string; provider?: string }) => void,
       onError: (error: string) => void
     ): Promise<void> => {
       if (abortControllerRef.current) {
@@ -472,7 +472,10 @@ export default function useChesster(fen: string) {
                   }
                   onComplete({
                     conversation_id: data.conversation_id,
-                    tokens_used: data.tokens_used
+                    tokens_used: data.tokens_used,
+                    route: data.route,
+                    model: data.model,
+                    provider: data.provider
                   });
                 }
                 if (data.error) {
@@ -817,8 +820,8 @@ ${candidateMoves}
         fen,
         "", // Start with empty content
         undefined,
-        "openrouter",
-        "google/gemini-3-flash-preview",
+        undefined,
+        undefined,
         assistantMessageId
       );
 
@@ -856,12 +859,14 @@ ${candidateMoves}
           });
         },
         // onComplete - update metadata and stop loading
-        (data: { conversation_id: string; tokens_used: number }) => {
+        (data: { conversation_id: string; tokens_used: number; route?: string; model?: string; provider?: string }) => {
           setState(prev => {
             const updatedMessages = [...prev.chatMessages];
             const lastMsg = updatedMessages[updatedMessages.length - 1];
             if (lastMsg && lastMsg.id === assistantMessageId) {
               lastMsg.maxTokens = data.tokens_used;
+              if (data.model) lastMsg.model = data.model;
+              if (data.provider) lastMsg.provider = data.provider;
             }
             return { ...prev, chatMessages: updatedMessages, chatLoading: false };
           });

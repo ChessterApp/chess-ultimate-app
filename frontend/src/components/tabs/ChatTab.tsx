@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Send, MenuBook, Close, ContentCopy, History, Stop, Settings as SettingsIcon, VolumeUp, VolumeOff, Visibility, DeleteOutline } from "@mui/icons-material";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useTranslations } from "next-intl";
+import { Send, MenuBook, Close, ContentCopy, History, Stop, Settings as SettingsIcon, VolumeUp, VolumeOff, Visibility, DeleteOutline, Mic, Stop as StopIcon } from "@mui/icons-material";
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import { BookmarkAdd } from "@mui/icons-material";
 import { Bookmark } from "@mui/icons-material";
@@ -39,6 +40,7 @@ import {
 // ModelSetting removed - using server-managed LLM
 // import ModelSetting from "./ModelSetting";
 import { ChatMessage } from "../../hooks/useChesster";
+import useVoiceRecorder from "../../hooks/useVoiceRecorder";
 import { calculateChatPrice } from "@/libs/docs/helper";
 import { useLocalStorage } from "usehooks-ts";
 import { DEFAULT_CHAT_AUTOSCROLL, DEFAULT_CHAT_COMPACT_VIEW, DEFAULT_CHAT_FONT_SIZE, DEFAULT_CHAT_DIMENSIONS, DEFAULT_CHAT_SHOW_TIMESTAMP, DEFAULT_CHAT_SPEECH_PITCH, DEFAULT_CHAT_SPEECH_RATE, DEFAULT_CHAT_SPEECH_VOICE, DEFAULT_CHAT_SPEECH_VOLUME, DEFAULT_CHAT_TECHNICAL_INFO } from "@/libs/setting/helper";
@@ -77,63 +79,31 @@ interface SavedPosition {
 }
 
 
-const sessionPrompts = [
-  "How does Silman's imbalances apply here?",
-  "How does Fine's chess principles apply here?",
-  "How would you play this?",
-  "What catches your eye here?",
-  "Is this looking good or bad?",
-  "What's your gut feeling about this position?",
-  "Any cool tactics you spot?",
-  "How should I approach this?",
-  "What would you do here?",
-  "See anything interesting?",
-  "Thoughts on the position?",
-  "Which move feels right to you?",
-  "What do you think about this position?",
+// Prompt key arrays — values come from useTranslations('chat') inside the component
+const sessionPromptKeys = [
+  "promptSilman", "promptFine", "promptHowPlay", "promptEyeCatch",
+  "promptGoodBad", "promptGutFeeling", "promptTactics", "promptApproach",
+  "promptWhatDo", "promptInteresting", "promptThoughts", "promptFeelsRight",
+  "promptWhatThink",
 ];
 
-const puzzlePrompts = [
-  "Any hints you can share?",
-  "How would you approach this puzzle?",
-  "What do you see here?",
-  "Got any ideas?",
-  "What's your first thought?",
-  "Can you give me a nudge in the right direction?",
+const puzzlePromptKeys = [
+  "promptHints", "promptPuzzleApproach", "promptWhatSee",
+  "promptIdeas", "promptFirstThought", "promptNudge",
 ];
 
-const playPrompts = [
-  "What would you play here?",
-  "Should I castle or wait?",
-  "Time to attack or be patient?",
-  "How do I handle this threat?",
-  "What's my opponent up to?",
-  "Good time to trade pieces?",
-  "Is this move safe enough?",
-  "What's the plan here?",
-  "Push the pawns or hold back?",
-  "How can I coordinate better?",
-  "See any tactics brewing?",
-  "What piece should I develop next?",
+const playPromptKeys = [
+  "promptPlayHere", "promptCastle", "promptAttack", "promptThreat",
+  "promptOpponent", "promptTrade", "promptSafe", "promptPlan",
+  "promptPawns", "promptCoordinate", "promptTacticsBrewing", "promptDevelop",
 ];
 
-const chatPrompts = [
-  "Tell me about chess basics",
-  "How do I get better at chess?",
-  "What are your favorite tactics?",
-  "Know any cool chess stories?",
-  "How should I study openings?",
-  "Why are endgames important?",
-  "What's the difference between strategy and tactics?",
-  "How do strong players think?",
-  "What are the key chess principles?",
-  "How do you calculate moves?",
-  "Tell me about pawn structures",
-  "Positional vs tactical play - what's the deal?",
-  "Any time management tips?",
-  "What opening mistakes should I avoid?",
-  "How do I keep my king safe?",
-  "How can I recognize patterns better?",
+const chatPromptKeys = [
+  "promptBasics", "promptImprove", "promptFavTactics", "promptStories",
+  "promptOpenings", "promptEndgames", "promptStratVsTact", "promptStrongPlayers",
+  "promptPrinciples", "promptCalculate", "promptPawnStructures",
+  "promptPositionalVsTactical", "promptTimeManagement", "promptOpeningMistakes",
+  "promptKingSafety", "promptPatterns",
 ];
 
 export const ChatTab: React.FC<ChatTabProps> = ({
@@ -153,6 +123,13 @@ export const ChatTab: React.FC<ChatTabProps> = ({
   playMode = false,
   puzzleQuery,
 }) => {
+  const t = useTranslations('chat');
+
+  // Translated prompt arrays (memoized to avoid re-creating on every render)
+  const sessionPrompts = useMemo(() => sessionPromptKeys.map(k => t(k)), [t]);
+  const puzzlePrompts = useMemo(() => puzzlePromptKeys.map(k => t(k)), [t]);
+  const playPrompts = useMemo(() => playPromptKeys.map(k => t(k)), [t]);
+  const chatPrompts = useMemo(() => chatPromptKeys.map(k => t(k)), [t]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -193,6 +170,45 @@ export const ChatTab: React.FC<ChatTabProps> = ({
     DEFAULT_CHAT_COMPACT_VIEW
   )
   
+  // Voice Input state
+  const [autoSendVoice, setAutoSendVoice] = useLocalStorage<boolean>("chat_voice_autosend", true);
+  const [voiceErrorSnackbar, setVoiceErrorSnackbar] = useState<string | null>(null);
+  const [pendingVoiceSend, setPendingVoiceSend] = useState(false);
+
+  const {
+    isRecording,
+    isTranscribing,
+    isSupported: voiceSupported,
+    recordingDuration,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useVoiceRecorder({
+    onTranscriptionComplete: (text) => {
+      setChatInput(text);
+      if (autoSendVoice) {
+        setPendingVoiceSend(true);
+      }
+    },
+    onError: (err) => {
+      setVoiceErrorSnackbar(err);
+    },
+  });
+
+  // Auto-send voice message after chatInput state has been updated by React
+  useEffect(() => {
+    if (pendingVoiceSend && chatInput.trim()) {
+      setPendingVoiceSend(false);
+      sendChatMessage(gameInfo, currentMove, puzzleMode, puzzleQuery, playMode, questionMode);
+    }
+  }, [pendingVoiceSend, chatInput]);
+
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   // Text-to-Speech state
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [currentSpeakingId, setCurrentSpeakingId] = useState<string | null>(null);
@@ -473,19 +489,17 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
   // Determine which prompts to show based on mode
   let currentPrompts = sessionMode ? sessionPrompts : chatPrompts;
-  let modeTitle = sessionMode ? "Chess Buddy Analysis" : "Chess Chat";
-  let modeDescription = sessionMode
-    ? "🤔 Let's look at this position together (I might miss things too!)"
-    : "♟️ Just chatting about chess - no pressure, no perfect answers";
+  let modeTitle = sessionMode ? t("modeBuddyAnalysis") : t("modeChat");
+  let modeDescription = sessionMode ? t("descBuddyAnalysis") : t("descChat");
 
   if (puzzleMode) {
     currentPrompts = puzzlePrompts;
-    modeTitle = "Puzzle Solving";
-    modeDescription = "🧩 Let's figure this puzzle out together!";
+    modeTitle = t("modePuzzle");
+    modeDescription = t("descPuzzle");
   } else if (playMode) {
     currentPrompts = playPrompts;
-    modeTitle = "Game Buddy";
-    modeDescription = "🎮 I'm here to brainstorm moves with you";
+    modeTitle = t("modeGame");
+    modeDescription = t("descGame");
   }
 
   const drawerContent = (
@@ -786,14 +800,14 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               textOverflow: "ellipsis",
               maxWidth: "200px"
             }}>
-              Chesster - Your Chess Buddy
+              {t("title")}
             </Typography>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           
           {/* Action Buttons */}
           <Stack direction="row" spacing={0.5}>
-            <Tooltip title="Conversation starters" arrow>
+            <Tooltip title={t("conversationStarters")} arrow>
               <IconButton
                 onClick={() => setDrawerOpen(true)}
                 sx={{ color: "white", p: 0.5 }}
@@ -803,7 +817,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               </IconButton>
             </Tooltip>
 
-            <Tooltip title="Position Library" arrow>
+            <Tooltip title={t("positionLibrary")} arrow>
               <IconButton
                 onClick={openLibraryModal}
                 sx={{ 
@@ -839,7 +853,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             </Tooltip>
 
             {chatMessages.length > 0 && (
-              <Tooltip title="Chat History" arrow>
+              <Tooltip title={t("chatHistory")} arrow>
                 <IconButton
                   onClick={handleCopyMenuClick}
                   sx={{ color: "white", p: 0.5 }}
@@ -851,7 +865,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             )}
 
             {speechEnabled && isSpeaking && (
-              <Tooltip title="Stop speaking" arrow>
+              <Tooltip title={t("stopSpeaking")} arrow>
                 <IconButton
                   onClick={stopSpeaking}
                   sx={{ color: "#ff6b6b", p: 0.5 }}
@@ -862,7 +876,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               </Tooltip>
             )}
 
-            <Tooltip title="Settings" arrow>
+            <Tooltip title={t("settings")} arrow>
               <IconButton
                 onClick={() => setSettingsOpen(true)}
                 sx={{ color: "white", p: 0.5 }}
@@ -874,84 +888,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           </Stack>
         </Stack>
 
-        {/* Mode Controls */}
-        {!puzzleMode && !playMode && (
-          <Stack direction="row" alignItems="center" spacing={1.5}>
-            <Typography variant="caption" sx={{ color: "white", fontWeight: 500 }}>
-              Position Context
-            </Typography>
-            <Switch
-              checked={sessionMode}
-              onChange={(e) => setSessionMode(e.target.checked)}
-              size="small"
-              sx={{
-                '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: '#9c27b0',
-                },
-                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: '#9c27b0',
-                },
-              }}
-            />
-            <Typography variant="caption" sx={{
-              color: "grey.400",
-              fontSize: '11px',
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: "150px"
-            }}>
-              {sessionMode ? "Looking at the board together" : "General chess chat"}
-            </Typography>
-            <Typography variant="caption" sx={{ color: "white", fontWeight: 500 }}>
-              Interactive Q/A
-            </Typography>
-            <Switch
-              checked={questionMode}
-              onChange={(e) => setQuestionMode(e.target.checked)}
-              size="small"
-              sx={{
-                '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: '#9c27b0',
-                },
-                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: '#9c27b0',
-                },
-              }}
-            />
-            <Typography variant="caption" sx={{
-              color: "grey.400",
-              fontSize: '11px',
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              maxWidth: "150px"
-            }}>
-              {questionMode ? "Interactive question mode" : "Positional Analysis"}
-            </Typography>
-            <Box sx={{ flexGrow: 1 }} />
-            {chatMessages.length > 0 && (
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={clearChatHistory}
-                sx={{ 
-                  color: "white",
-                  borderColor: "rgba(255,255,255,0.3)",
-                  fontSize: '11px',
-                  py: 0.5,
-                  px: 1,
-                  "&:hover": {
-                    borderColor: "#9c27b0",
-                    backgroundColor: "rgba(156, 39, 176, 0.1)",
-                  }
-                }}
-              >
-                Clear
-              </Button>
-            )}
-          </Stack>
-        )}
+        {/* Mode Controls moved to Settings dialog */}
 
         {(puzzleMode || playMode) && (
           <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -986,7 +923,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                   }
                 }}
               >
-                Clear
+                {t("clear")}
               </Button>
             )}
           </Stack>
@@ -1049,10 +986,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               wordWrap: "break-word"
             }}>
               {playMode
-                ? "Hey! Let's figure out some good moves together"
+                ? t("welcomePlay")
                 : puzzleMode
-                ? "Ready to tackle this puzzle with you!"
-                : "Hey there, chess friend!"
+                ? t("welcomePuzzle")
+                : t("welcomeDefault")
               }
             </Typography>
             <Typography variant="caption" sx={{
@@ -1063,12 +1000,12 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               wordWrap: "break-word"
             }}>
               {playMode
-                ? "I'll share my thoughts on moves and positions."
+                ? t("subtitlePlay")
                 : puzzleMode
-                ? "Let's work on this puzzle together! I might not get it right the first time, but that's part of the fun."
+                ? t("subtitlePuzzle")
                 : sessionMode
-                ? "I'll take a look at your position and share what I'm thinking."
-                : "Let's chat about chess! I'm just a fellow chess enthusiast."
+                ? t("subtitleSession")
+                : t("subtitleChat")
               }
             </Typography>
             
@@ -1084,11 +1021,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 width: "100%",
               }}
             >
-              <Typography variant="caption" sx={{ color: "grey.300", textAlign: "center", display: "block", lineHeight: 1.4 }}>
-                ⚠️ <strong>Friendly reminder:</strong> I can make mistakes and miss things just like a human! 
-                Always double-check important moves, especially in real games. 
-                I am here to help you think through positions, not replace your own judgment.
-              </Typography>
+              <Typography variant="caption" sx={{ color: "grey.300", textAlign: "center", display: "block", lineHeight: 1.4 }}
+                dangerouslySetInnerHTML={{ __html: t("disclaimer") }}
+              />
             </Paper>
 
             {/* Quick Start Prompts */}
@@ -1097,7 +1032,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 variant="caption"
                 sx={{ mb: 2, display: "block", opacity: 0.8, textAlign: "center", color: "grey.400" }}
               >
-                Quick start - try one of these:
+                {t("quickStart")}
               </Typography>
               <Box
                 sx={{
@@ -1148,7 +1083,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                     },
                   }}
                 >
-                  More conversation starters →
+                  {t("moreStarters")}
                 </Button>
               </Box>
             </Box>
@@ -1241,7 +1176,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
                       {/* Eye icon for viewing chessboard - only show if FEN exists */}
                       {message.fen && (
-                        <Tooltip title="View position on board" arrow>
+                        <Tooltip title={t("viewOnBoard")} arrow>
                           <IconButton
                             onClick={() => openChessboardModal(message.fen!)}
                             sx={{
@@ -1260,7 +1195,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                       )}
                       
                       {speechEnabled && (
-                        <Tooltip title={currentSpeakingId === message.id && isSpeaking ? "Stop speaking" : "Listen to message"} arrow>
+                        <Tooltip title={currentSpeakingId === message.id && isSpeaking ? t("stopSpeaking") : t("listenToMessage")} arrow>
                           <IconButton
                             onClick={() => speakMessage(message.id, message.content)}
                             sx={{
@@ -1281,7 +1216,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                           </IconButton>
                         </Tooltip>
                       )}
-                      <Tooltip title="Copy message" arrow>
+                      <Tooltip title={t("copyMessage")} arrow>
                         <IconButton
                           onClick={() => copyMessage(message.content)}
                           sx={{
@@ -1429,7 +1364,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                     Chesster is thinking...
                   </Typography>
                   {abortChatMessage && (
-                    <Tooltip title="Stop response" arrow>
+                    <Tooltip title={t("stopResponse")} arrow>
                       <IconButton
                         onClick={handleAbortMessage}
                         size="small"
@@ -1464,69 +1399,130 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           flexShrink: 0,
         }}
       >
-        <Stack direction="row" spacing={1}>
-          <TextField
-            fullWidth
-            multiline
-            maxRows={3}
-            placeholder={
-              playMode
-                ? "What are you thinking?"
-                : puzzleMode
-                  ? "Want to brainstorm this puzzle?"
-                  : sessionMode
-                    ? "What's on your mind about this position?"
-                    : "Let's talk chess..."
-            }
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            onKeyDown={handleChatKeyPress}
-            disabled={chatLoading}
-            size="small"
-            sx={{
-              minWidth: 0,
-              "& .MuiOutlinedInput-root": {
-                backgroundColor: "rgba(255,255,255,0.05)",
-                "& fieldset": {
-                  borderColor: "rgba(255,255,255,0.2)",
-                },
-                "&:hover fieldset": {
-                  borderColor: "rgba(255,255,255,0.3)",
-                },
-                "&.Mui-focused fieldset": {
-                  borderColor: "#9c27b0",
-                },
-              },
-            }}
-            slotProps={{
-              input: {
-                sx: { 
-                  color: "white",
-                  fontSize: `${fontSize}px`
-                },
-              },
-            }}
-          />
-          <Button
-            variant="contained"
-            size="small"
-            onClick={() => sendChatMessage(gameInfo, currentMove, puzzleMode, puzzleQuery, playMode, questionMode)}
-            disabled={chatLoading || !chatInput.trim()}
-            sx={{
-              minWidth: "auto",
-              px: 1.5,
-              flexShrink: 0,
-              backgroundColor: "#9c27b0",
-              "&:hover": {
-                backgroundColor: "#7b1fa2",
-              },
-              "&:disabled": {
-                backgroundColor: "rgba(156, 39, 176, 0.3)",
-              }
-            }}
-          >
-            <Send fontSize="small" />
-          </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {isRecording ? (
+            <>
+              <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1, px: 1 }}>
+                <Box
+                  sx={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: '50%',
+                    backgroundColor: '#f44336',
+                    animation: 'pulse 1.5s ease-in-out infinite',
+                    '@keyframes pulse': {
+                      '0%, 100%': { opacity: 1 },
+                      '50%': { opacity: 0.3 },
+                    },
+                  }}
+                />
+                <Typography variant="body2" sx={{ color: '#f44336', fontWeight: 500 }}>
+                  {t("recording", { duration: formatDuration(recordingDuration) })}
+                </Typography>
+              </Box>
+              <IconButton
+                onClick={stopRecording}
+                size="small"
+                sx={{ color: '#f44336', '&:hover': { backgroundColor: 'rgba(244,67,54,0.1)' } }}
+              >
+                <StopIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                onClick={cancelRecording}
+                size="small"
+                sx={{ color: 'grey.500', '&:hover': { backgroundColor: 'rgba(255,255,255,0.05)' } }}
+              >
+                <Close fontSize="small" />
+              </IconButton>
+            </>
+          ) : isTranscribing ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, gap: 1, px: 1 }}>
+              <CircularProgress size={18} sx={{ color: '#9c27b0' }} />
+              <Typography variant="body2" sx={{ color: 'grey.400' }}>
+                Transcribing your message...
+              </Typography>
+            </Box>
+          ) : (
+            <>
+              <TextField
+                fullWidth
+                multiline
+                maxRows={3}
+                placeholder={
+                  playMode
+                    ? t("placeholderPlay")
+                    : puzzleMode
+                      ? t("placeholderPuzzle")
+                      : sessionMode
+                        ? t("placeholderSession")
+                        : t("placeholderChat")
+                }
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={handleChatKeyPress}
+                disabled={chatLoading}
+                size="small"
+                sx={{
+                  minWidth: 0,
+                  "& .MuiOutlinedInput-root": {
+                    backgroundColor: "rgba(255,255,255,0.05)",
+                    "& fieldset": {
+                      borderColor: "rgba(255,255,255,0.2)",
+                    },
+                    "&:hover fieldset": {
+                      borderColor: "rgba(255,255,255,0.3)",
+                    },
+                    "&.Mui-focused fieldset": {
+                      borderColor: "#9c27b0",
+                    },
+                  },
+                }}
+                slotProps={{
+                  input: {
+                    sx: { 
+                      color: "white",
+                      fontSize: `${fontSize}px`
+                    },
+                  },
+                }}
+              />
+              {voiceSupported && (
+                <IconButton
+                  onClick={startRecording}
+                  disabled={chatLoading}
+                  size="small"
+                  sx={{
+                    color: 'grey.400',
+                    flexShrink: 0,
+                    '&:hover': { color: '#9c27b0', backgroundColor: 'rgba(156,39,176,0.1)' },
+                    '&:disabled': { color: 'rgba(255,255,255,0.2)' },
+                  }}
+                >
+                  <Mic fontSize="small" />
+                </IconButton>
+              )}
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => sendChatMessage(gameInfo, currentMove, puzzleMode, puzzleQuery, playMode, questionMode)}
+                disabled={chatLoading || !chatInput.trim()}
+                sx={{
+                  minWidth: "auto",
+                  px: 1.5,
+                  flexShrink: 0,
+                  backgroundColor: "#9c27b0",
+                  "&:hover": {
+                    backgroundColor: "#7b1fa2",
+                  },
+                  "&:disabled": {
+                    backgroundColor: "rgba(156, 39, 176, 0.3)",
+                  }
+                }}
+              >
+                <Send fontSize="small" />
+              </Button>
+            </>
+          )}
         </Stack>
       </Paper>
 
@@ -1680,17 +1676,85 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           }
         }}
       >
-        <DialogTitle>Chat Settings</DialogTitle>
+        <DialogTitle>{t("settingsTitle")}</DialogTitle>
         <DialogContent>
           <Stack spacing={3} sx={{ pt: 1 }}>
+            {/* Chat Mode (moved from header) */}
+            {!puzzleMode && !playMode && (
+              <Box>
+                <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
+                  {t("chatMode")}
+                </Typography>
+                <Stack spacing={2}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Box>
+                      <Typography variant="body2" sx={{ color: "grey.300" }}>
+                        {t("positionContext")}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "grey.500" }}>
+                        {sessionMode ? t("lookingAtBoard") : t("generalChat")}
+                      </Typography>
+                    </Box>
+                    <Switch
+                      checked={sessionMode}
+                      onChange={(e) => setSessionMode(e.target.checked)}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#9c27b0' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#9c27b0' },
+                      }}
+                    />
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Box>
+                      <Typography variant="body2" sx={{ color: "grey.300" }}>
+                        {t("interactiveQA")}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "grey.500" }}>
+                        {questionMode ? t("interactiveMode") : t("positionalAnalysis")}
+                      </Typography>
+                    </Box>
+                    <Switch
+                      checked={questionMode}
+                      onChange={(e) => setQuestionMode(e.target.checked)}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#9c27b0' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#9c27b0' },
+                      }}
+                    />
+                  </Stack>
+                  {chatMessages.length > 0 && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() => { clearChatHistory(); handleSettingsClose(); }}
+                      sx={{
+                        color: "#f44336",
+                        borderColor: "rgba(244,67,54,0.3)",
+                        fontSize: '12px',
+                        "&:hover": {
+                          borderColor: "#f44336",
+                          backgroundColor: "rgba(244,67,54,0.1)",
+                        }
+                      }}
+                    >
+                      {t("clear")}
+                    </Button>
+                  )}
+                </Stack>
+              </Box>
+            )}
+            {!puzzleMode && !playMode && (
+              <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+            )}
+
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                Display Options
+                {t("displayOptions")}
               </Typography>
               <Stack spacing={2}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="body2" sx={{ color: "grey.300" }}>
-                    Auto-scroll to new messages
+                    {t("autoScroll")}
                   </Typography>
                   <Switch
                     checked={autoScroll}
@@ -1707,7 +1771,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 </Stack>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="body2" sx={{ color: "grey.300" }}>
-                    Show timestamps
+                    {t("showTimestamps")}
                   </Typography>
                   <Switch
                     checked={showTimestamps}
@@ -1724,7 +1788,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 </Stack>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="body2" sx={{ color: "grey.300" }}>
-                    Show tokens, model info
+                    {t("showTokensModel")}
                   </Typography>
                   <Switch
                     checked={showTechnicalInfo}
@@ -1741,7 +1805,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 </Stack>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography variant="body2" sx={{ color: "grey.300" }}>
-                    Compact view
+                    {t("compactView")}
                   </Typography>
                   <Switch
                     checked={compactView}
@@ -1760,20 +1824,54 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             </Box>
             <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
 
+            {/* Voice Input Settings */}
+            <Box>
+              <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
+                {t("voiceInput")}
+              </Typography>
+              <Stack spacing={2}>
+                {voiceSupported ? (
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Box>
+                      <Typography variant="body2" sx={{ color: "grey.300" }}>
+                        {t("autoSendTranscription")}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "grey.500" }}>
+                        {t("autoSendDescription")}
+                      </Typography>
+                    </Box>
+                    <Switch
+                      checked={autoSendVoice}
+                      onChange={(e) => setAutoSendVoice(e.target.checked)}
+                      sx={{
+                        '& .MuiSwitch-switchBase.Mui-checked': { color: '#9c27b0' },
+                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#9c27b0' },
+                      }}
+                    />
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" sx={{ color: "grey.500" }}>
+                    {t("voiceUnavailable")}
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+
             {/* Text-to-Speech Settings */}
             {speechEnabled && (
               <>
                 <Box>
                   <Typography variant="body2" sx={{ color: "grey.300", mb: 2 }}>
-                    Text-to-Speech Settings
+                    {t("ttsSettings")}
                   </Typography>
                   <Stack spacing={2}>
                     <FormControl size="small" fullWidth>
-                      <InputLabel sx={{ color: "grey.300" }}>Voice</InputLabel>
+                      <InputLabel sx={{ color: "grey.300" }}>{t("voice")}</InputLabel>
                       <Select
                         value={selectedVoice}
                         onChange={(e) => setSelectedVoice(e.target.value)}
-                        label="Voice"
+                        label={t("voice")}
                         sx={{
                           color: "white",
                           "& .MuiOutlinedInput-notchedOutline": {
@@ -1805,7 +1903,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
                     <Box>
                       <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
-                        Speech Rate: {speechRate.toFixed(1)}x
+                        {t("speechRate", { rate: speechRate.toFixed(1) })}
                       </Typography>
                       <Box sx={{ px: 1 }}>
                         <input
@@ -1825,7 +1923,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
                     <Box>
                       <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
-                        Pitch: {speechPitch.toFixed(1)}
+                        {t("pitch", { pitch: speechPitch.toFixed(1) })}
                       </Typography>
                       <Box sx={{ px: 1 }}>
                         <input
@@ -1845,7 +1943,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
                     <Box>
                       <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
-                        Volume: {Math.round(speechVolume * 100)}%
+                        {t("volume", { volume: Math.round(speechVolume * 100) })}
                       </Typography>
                       <Box sx={{ px: 1 }}>
                         <input
@@ -1871,10 +1969,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             {/* Server-managed LLM - No API key configuration needed */}
             <Box sx={{ p: 2, bgcolor: "rgba(156, 39, 176, 0.1)", borderRadius: 1 }}>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 1, fontWeight: 500 }}>
-                🤖 AI Model: Claude 3.5 Sonnet
+                {t("aiModel")}
               </Typography>
               <Typography variant="caption" sx={{ color: "grey.400" }}>
-                Powered by server-managed Anthropic API. No configuration required!
+                {t("aiModelDescription")}
               </Typography>
             </Box>
 
@@ -1882,10 +1980,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
-                Font Size: {fontSize}px
+                {t("fontSizeLabel", { size: fontSize })}
               </Typography>
               <Typography variant="caption" sx={{ color: "grey.400", mb: 2, display: "block" }}>
-                Adjust text size for better readability
+                {t("fontSizeDescription")}
               </Typography>
               <Box sx={{ px: 1 }}>
                 <input
@@ -1905,7 +2003,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         </DialogContent>
         <DialogActions>
           <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
-            Done
+            {t("done")}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1925,7 +2023,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
       >
         <MenuItem onClick={copyEntireChat}>
           <ContentCopy sx={{ mr: 1 }} fontSize="small" />
-          Copy Entire Chat History
+          {t("copyEntireChat")}
         </MenuItem>
       </Menu>
 
@@ -1945,7 +2043,19 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             color: "white"
           }}
         >
-          Copied to clipboard!
+          {t("copiedToClipboard")}
+        </Alert>
+      </Snackbar>
+
+      {/* Voice Error Snackbar */}
+      <Snackbar
+        open={!!voiceErrorSnackbar}
+        autoHideDuration={4000}
+        onClose={() => setVoiceErrorSnackbar(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="error" variant="filled" onClose={() => setVoiceErrorSnackbar(null)}>
+          {voiceErrorSnackbar}
         </Alert>
       </Snackbar>
 

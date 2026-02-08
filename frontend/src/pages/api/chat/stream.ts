@@ -19,6 +19,19 @@ const MASTRA_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const MASTRA_IS_ROUTED = process.env.MASTRA_IS_ROUTED !== "false";
 const MASTRA_LANGUAGE = process.env.MASTRA_LANGUAGE || "English";
 
+/**
+ * Simple language detection based on character scripts.
+ * Returns language name for the Mastra system prompt.
+ */
+function detectLanguage(text: string): string {
+  const cyrillic = (text.match(/[\u0400-\u04FF]/g) || []).length;
+  const latin = (text.match(/[a-zA-Z]/g) || []).length;
+  const total = cyrillic + latin;
+  if (total === 0) return MASTRA_LANGUAGE;
+  if (cyrillic / total > 0.5) return 'Russian';
+  return MASTRA_LANGUAGE;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -59,6 +72,27 @@ export default async function handler(
   const route = routeRequest(query, { fen, hasGameHistory: !!conversation_id });
   console.log(`[chat/stream] route=${route}, query="${query.substring(0, 50)}..."`);
 
+  // Helper functions for route metadata
+  const getModelForRoute = (r: string) => {
+    switch(r) {
+      case 'mastra': return `${MASTRA_PROVIDER}/${MASTRA_MODEL}`;
+      case 'chesster': case 'clawdbot': return 'anthropic/claude-sonnet-4-0';
+      case 'python-backend': return 'openrouter/auto';
+      default: return 'unknown';
+    }
+  };
+  const getProviderForRoute = (r: string) => {
+    switch(r) {
+      case 'mastra': return MASTRA_IS_ROUTED ? 'openrouter' : MASTRA_PROVIDER;
+      case 'chesster': case 'clawdbot': return 'chesster';
+      case 'python-backend': return 'python-backend';
+      default: return 'unknown';
+    }
+  };
+
+  // Track which route actually answers (may change on fallback)
+  let actualRoute: string = route;
+
   try {
     let fullResponse = "";
 
@@ -74,20 +108,35 @@ export default async function handler(
       (err) => console.error("[chat/stream] Failed to save conversation:", err)
     );
 
-    // Send completion
+    // Send completion with route metadata
     const tokensUsed = Math.ceil(fullResponse.length / 4);
-    sendEvent({ done: true, conversation_id: conversation_id || null, tokens_used: tokensUsed });
+    sendEvent({
+      done: true,
+      conversation_id: conversation_id || null,
+      tokens_used: tokensUsed,
+      route: actualRoute,
+      model: getModelForRoute(actualRoute),
+      provider: getProviderForRoute(actualRoute)
+    });
   } catch (error) {
     console.error(`[chat/stream] ${route} failed:`, error);
 
     // Try fallback chain
     try {
-      const fallbackResponse = await handleFallback(route, userId, fen, query, context_type, authHeader, sendEvent);
-      if (fallbackResponse) {
-        const tokensUsed = Math.ceil(fallbackResponse.length / 4);
-        sendEvent({ done: true, conversation_id: conversation_id || null, tokens_used: tokensUsed });
+      const fallbackResult = await handleFallback(route, userId, fen, query, context_type, authHeader, sendEvent);
+      if (fallbackResult) {
+        actualRoute = fallbackResult.route;
+        const tokensUsed = Math.ceil(fallbackResult.text.length / 4);
+        sendEvent({
+          done: true,
+          conversation_id: conversation_id || null,
+          tokens_used: tokensUsed,
+          route: actualRoute,
+          model: getModelForRoute(actualRoute),
+          provider: getProviderForRoute(actualRoute)
+        });
 
-        saveConversation(authHeader, fen, query, fallbackResponse, conversation_id, context_type).catch(
+        saveConversation(authHeader, fen, query, fallbackResult.text, conversation_id, context_type).catch(
           (err) => console.error("[chat/stream] Failed to save fallback conversation:", err)
         );
       } else {
@@ -137,9 +186,10 @@ async function handleMastra(
   runtimeContext.set("apiKey", MASTRA_API_KEY);
   runtimeContext.set("mode", mode);
   runtimeContext.set("isRouted", MASTRA_IS_ROUTED);
-  runtimeContext.set("lang", MASTRA_LANGUAGE);
+  const detectedLang = detectLanguage(query);
+  runtimeContext.set("lang", detectedLang);
 
-  console.log(`[chat/stream] Mastra: provider=${MASTRA_PROVIDER}, model=${MASTRA_MODEL}, isRouted=${MASTRA_IS_ROUTED}`);
+  console.log(`[chat/stream] Mastra: provider=${MASTRA_PROVIDER}, model=${MASTRA_MODEL}, isRouted=${MASTRA_IS_ROUTED}, lang=${detectedLang}`);
 
   // Stream from Mastra agent
   const streamResult = await chessChesster.stream(
@@ -176,11 +226,15 @@ async function handleClawdbot(
     throw new Error("Clawdbot gateway not configured");
   }
 
-  console.log(`[chat/stream] Routing to Clawdbot for user ${userId.substring(0, 8)}...`);
+  const detectedLang = detectLanguage(query);
+  console.log(`[chat/stream] Routing to Clawdbot for user ${userId.substring(0, 8)}..., lang=${detectedLang}`);
 
+  const langHint = detectedLang !== 'English'
+    ? `\n[User is writing in ${detectedLang}. Please respond in ${detectedLang}.]`
+    : '';
   const response = await callGateway(userId, {
     action: "chat",
-    payload: { message: query, fen },
+    payload: { message: query + langHint, fen },
     timeout: 60000,
   });
 
@@ -204,12 +258,13 @@ async function handleFallback(
   contextType: string,
   authHeader: string,
   sendEvent: (data: Record<string, unknown>) => void
-): Promise<string | null> {
+): Promise<{ text: string; route: string } | null> {
   // If Chesster failed, try Mastra
   if (failedRoute === 'chesster') {
     try {
       console.log("[chat/stream] Chesster failed, falling back to Mastra...");
-      return await handleMastra(fen, query, contextType, sendEvent);
+      const text = await handleMastra(fen, query, contextType, sendEvent);
+      return { text, route: 'mastra' };
     } catch (err) {
       console.warn("[chat/stream] Mastra fallback failed:", err);
     }
@@ -219,7 +274,8 @@ async function handleFallback(
   if (failedRoute === 'mastra' && isChessterAvailable()) {
     try {
       console.log("[chat/stream] Mastra failed, falling back to Chesster...");
-      return await handleClawdbot(userId, fen, query, sendEvent);
+      const text = await handleClawdbot(userId, fen, query, sendEvent);
+      return { text, route: 'chesster' };
     } catch (err) {
       console.warn("[chat/stream] Chesster fallback failed:", err);
     }
@@ -228,7 +284,8 @@ async function handleFallback(
   // Final fallback: Python backend (raw LLM, no tools)
   try {
     console.log("[chat/stream] Falling back to Python backend...");
-    return await handlePythonBackend(fen, query, contextType, authHeader, sendEvent);
+    const text = await handlePythonBackend(fen, query, contextType, authHeader, sendEvent);
+    return { text, route: 'python-backend' };
   } catch (err) {
     console.error("[chat/stream] Python backend fallback failed:", err);
   }
