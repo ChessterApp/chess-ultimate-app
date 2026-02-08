@@ -143,3 +143,6 @@ Thumbs.db
 # Commit all OpenSpec files - they're documentation
 backend/data/twic/*.db
 backend/data/twic/*.db-*
+backend/data/twic/games_index.db
+backend/data/twic/games_index.db-journal
+backend/data/twic/*.pgn
