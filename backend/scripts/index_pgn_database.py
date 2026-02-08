@@ -4,6 +4,20 @@
 import sqlite3, re, os, sys, time, gc, traceback, unicodedata
 from datetime import datetime
 
+# SAFETY: Never nuke a working database
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'twic', 'games_index.db')
+if os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 100_000_000:  # >100MB
+    try:
+        _c = sqlite3.connect(DB_PATH)
+        _g = _c.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+        _c.close()
+        if _g > 4_000_000:
+            print(f"SAFETY: Database already has {_g:,} games ({os.path.getsize(DB_PATH)/1e9:.1f}GB). Phase 1 is DONE.")
+            print("If you really need to rebuild, delete the file manually first.")
+            sys.exit(0)
+    except:
+        pass
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
 PGN_PATH = os.path.join(BACKEND_DIR, "data/twic/twic_master_database.pgn")
