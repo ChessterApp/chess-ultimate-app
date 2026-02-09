@@ -1725,14 +1725,14 @@ def get_node_games(node_id):
     user_id = get_current_user_id()
 
     try:
-        # Verify ownership
+        # Verify ownership — return empty list for deleted/missing nodes
         node = supabase.table('opening_nodes') \
             .select('id, opening_repertoires!inner(user_id)') \
             .eq('id', node_id) \
             .execute()
 
         if not node.data or node.data[0].get('opening_repertoires', {}).get('user_id') != user_id:
-            return jsonify({'error': 'Not found'}), 404
+            return jsonify({'games': []})
 
         result = supabase.table('opening_game_links') \
             .select('*') \
