@@ -65,7 +65,7 @@ export default function DebutPage() {
     addNode, updateNode, deleteNode,
     importPgn, exportPgn,
     addArrow, deleteArrow,
-    fetchGamesByPosition,
+    fetchGamesByPosition, fetchPositionCount,
     searchGamesStream, linkGame, getNodeGames, deleteGameLink,
   } = useOpeningRepertoire();
 
@@ -125,11 +125,19 @@ export default function DebutPage() {
     let cancelled = false;
     setMasterGamesLoading(true);
 
+    // Fast path: fetch games without waiting for COUNT
     fetchGamesByPosition(selectedNode.fen, 50)
       .then((data) => {
         if (!cancelled) {
           setMasterGames(data.games);
           setMasterGamesTotal(data.total);
+
+          // If count is approximate, fetch exact count in background
+          if (!data.count_exact && data.games.length > 0) {
+            fetchPositionCount(selectedNode.fen)
+              .then((count) => { if (!cancelled) setMasterGamesTotal(count); })
+              .catch(() => {});
+          }
         }
       })
       .catch(() => {
@@ -143,7 +151,7 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, fetchGamesByPosition]);
+  }, [selectedNode?.fen, fetchGamesByPosition, fetchPositionCount]);
 
   // ─── Handlers ───
 

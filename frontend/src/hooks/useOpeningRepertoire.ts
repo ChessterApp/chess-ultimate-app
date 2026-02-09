@@ -288,10 +288,16 @@ export function useOpeningRepertoire() {
     fen: string,
     limit: number = 5,
     minRating: number = 0
-  ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean }> => {
+  ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }> => {
     const params = new URLSearchParams({ fen, limit: String(limit), min_rating: String(minRating) });
-    const data = await apiFetch<{ games: GameSearchResult[]; total: number; indexed: boolean }>(`/games/by-position?${params}`);
+    const data = await apiFetch<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`);
     return data;
+  }, []);
+
+  const fetchPositionCount = useCallback(async (fen: string): Promise<number> => {
+    const params = new URLSearchParams({ fen });
+    const data = await apiFetch<{ count: number }>(`/games/position-count?${params}`);
+    return data.count;
   }, []);
 
   const searchGames = useCallback(async (
@@ -443,6 +449,7 @@ export function useOpeningRepertoire() {
     deleteArrow,
     // Game search
     fetchGamesByPosition,
+    fetchPositionCount,
     searchGames,
     searchGamesStream,
     linkGame,

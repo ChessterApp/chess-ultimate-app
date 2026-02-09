@@ -1811,10 +1811,14 @@ def delete_game_link(game_link_id):
         return jsonify({'error': str(e)}), 500
 
 
+# In-memory cache for position counts (board_hash -> count)
+_position_count_cache = {}
+
 @openings_bp.route('/games/by-position', methods=['GET'])
 @verify_clerk_token
 def games_by_position():
-    """Fast lookup: find games that reach a given FEN using the position hash index."""
+    """Fast lookup: find games that reach a given FEN using the position hash index.
+    Returns games immediately; total count is served from cache or estimated."""
     fen = request.args.get('fen', '')
     if not fen:
         return jsonify({'error': 'Missing fen parameter'}), 400
@@ -1827,23 +1831,13 @@ def games_by_position():
 
     conn = get_internal_db_connection()
     try:
-        # Check if position index exists
         if not _has_position_index(conn):
             conn.close()
             return jsonify({'games': [], 'total': 0, 'indexed': False})
 
         board_hash = _get_board_hash(fen)
 
-        # Get total count (index-only scan, ~0.7s for common positions)
-        total = conn.execute(
-            "SELECT COUNT(*) as cnt FROM game_positions WHERE board_hash = ?",
-            [board_hash]
-        ).fetchone()['cnt']
-
-        # Two-step approach for speed:
-        # 1. Get a pool of game_ids from the position index (fast, index-only)
-        # 2. Fetch game details and sort by Elo
-        # We grab more IDs than needed so sorting by Elo still surfaces top games.
+        # Fast path: get games without blocking on COUNT
         pool_size = min(max(limit * 40, 200), 2000)
         id_rows = conn.execute(
             "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
@@ -1852,8 +1846,21 @@ def games_by_position():
         game_ids = [r['game_id'] for r in id_rows]
 
         if not game_ids:
+            _position_count_cache[board_hash] = 0
             conn.close()
             return jsonify({'games': [], 'total': 0, 'indexed': True})
+
+        # Use cached count, or estimate from pool
+        cached_count = _position_count_cache.get(board_hash)
+        if cached_count is not None:
+            total = cached_count
+        elif len(game_ids) < pool_size:
+            # Pool wasn't full — exact count
+            total = len(game_ids)
+            _position_count_cache[board_hash] = total
+        else:
+            # Pool is full — we have at least pool_size games, show "N+" estimate
+            total = pool_size  # Will be updated by deferred count endpoint
 
         # Fetch game details for the pool, filter by rating, sort by strength
         placeholders = ','.join('?' * len(game_ids))
@@ -1871,7 +1878,6 @@ def games_by_position():
         games = []
         for row in cursor.fetchall():
             game_data = dict(row)
-            # Load PGN from master file
             if game_data.get('pgn_offset') is not None:
                 try:
                     with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
@@ -1887,9 +1893,54 @@ def games_by_position():
             games.append(game_data)
 
         conn.close()
-        return jsonify({'games': games, 'total': total, 'indexed': True})
+        return jsonify({
+            'games': games,
+            'total': total,
+            'indexed': True,
+            'count_exact': cached_count is not None or len(game_ids) < pool_size,
+        })
     except Exception as e:
         logger.error(f"Error in games_by_position: {e}")
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@openings_bp.route('/games/position-count', methods=['GET'])
+@verify_clerk_token
+def position_count():
+    """Deferred COUNT endpoint — called async by frontend after games load."""
+    fen = request.args.get('fen', '')
+    if not fen:
+        return jsonify({'error': 'Missing fen parameter'}), 400
+
+    if not check_internal_db_exists():
+        return jsonify({'count': 0})
+
+    conn = get_internal_db_connection()
+    try:
+        if not _has_position_index(conn):
+            conn.close()
+            return jsonify({'count': 0})
+
+        board_hash = _get_board_hash(fen)
+
+        # Check cache first
+        cached = _position_count_cache.get(board_hash)
+        if cached is not None:
+            conn.close()
+            return jsonify({'count': cached})
+
+        # Do the slow COUNT
+        total = conn.execute(
+            "SELECT COUNT(*) as cnt FROM game_positions WHERE board_hash = ?",
+            [board_hash]
+        ).fetchone()['cnt']
+
+        _position_count_cache[board_hash] = total
+        conn.close()
+        return jsonify({'count': total})
+    except Exception as e:
+        logger.error(f"Error in position_count: {e}")
         conn.close()
         return jsonify({'error': str(e)}), 500
 
