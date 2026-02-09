@@ -515,13 +515,17 @@ export default function DebutPage() {
           {/* Move notation — only show in Debut tab */}
           {activeTab === 'debut' && (
             <Box sx={{
-              width: '100%',
-              maxWidth: { xs: '100%', lg: 520 },
-              maxHeight: { xs: 80, lg: 240 },
+              width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
+              maxWidth: 520,
+              maxHeight: { xs: 88, lg: 240 },
+              mx: 'auto',
+              mt: 0.5,
               overflow: 'auto',
-              borderRadius: { xs: 0, lg: '0 0 4px 4px' },
-              '&::-webkit-scrollbar': { width: 4 },
-              '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.12)', borderRadius: 2 },
+              bgcolor: 'rgba(255,255,255,0.07)',
+              borderRadius: '8px',
+              border: '1px solid rgba(255,255,255,0.1)',
+              '&::-webkit-scrollbar': { width: 3 },
+              '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 4 },
             }}>
               <MoveNotation
                 tree={currentTree}

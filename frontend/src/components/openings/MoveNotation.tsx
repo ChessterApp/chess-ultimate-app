@@ -208,16 +208,16 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loadi
 
   if (loading) {
     return (
-      <Box sx={{ px: 1.5, py: 1, color: '#666' }}>
-        <Typography sx={{ fontSize: 12 }}>Loading…</Typography>
+      <Box sx={{ px: 1, py: 0.75, color: '#666' }}>
+        <Typography sx={{ fontSize: 11.5 }}>Loading…</Typography>
       </Box>
     );
   }
 
   if (!tree || elements.length === 0) {
     return (
-      <Box sx={{ px: 1.5, py: 1, color: '#555', textAlign: 'center' }}>
-        <Typography sx={{ fontSize: 12 }}>Make a move on the board to start.</Typography>
+      <Box sx={{ px: 1, py: 0.75, color: '#555', textAlign: 'center' }}>
+        <Typography sx={{ fontSize: 11.5, fontStyle: 'italic' }}>Make a move on the board to start.</Typography>
       </Box>
     );
   }
@@ -228,18 +228,14 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loadi
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'baseline',
-        gap: '0px 2px',
-        px: 1.5,
-        py: 0.75,
-        bgcolor: '#1e1e1e',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
+        gap: '1px 3px',
+        px: { xs: 1, lg: 1.5 },
+        py: { xs: 0.5, lg: 0.75 },
         overflow: 'auto',
-        fontSize: { xs: 13, lg: 13 },
+        fontSize: { xs: 12.5, lg: 13 },
         fontFamily: '"Roboto Mono", "SF Mono", "Fira Code", monospace',
-        lineHeight: 1.7,
+        lineHeight: 1.65,
         letterSpacing: '-0.01em',
-        '&::-webkit-scrollbar': { width: 4 },
-        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.12)', borderRadius: 2 },
       }}
     >
       {elements}
