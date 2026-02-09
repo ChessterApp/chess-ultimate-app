@@ -11,7 +11,7 @@ import type { Arrow } from 'react-chessboard/dist/chessboard/types';
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), { ssr: false });
 const RepertoireSelector = dynamic(() => import('@/components/openings/RepertoireSelector'), { ssr: false });
-const OpeningTree = dynamic(() => import('@/components/openings/OpeningTree'), { ssr: false });
+const MoveNotation = dynamic(() => import('@/components/openings/MoveNotation'), { ssr: false });
 const NodeDetailsPanel = dynamic(() => import('@/components/openings/NodeDetailsPanel'), { ssr: false });
 const PgnImporter = dynamic(() => import('@/components/openings/PgnImporter'), { ssr: false });
 const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPanel'), { ssr: false });
@@ -490,14 +490,15 @@ export default function DebutPage() {
         display: 'flex',
         flexDirection: { xs: 'column', lg: 'row' },
         flex: 1,
-        p: { xs: 1, sm: 2 },
-        gap: 2,
-        pb: { xs: '80px', md: 2 }, // bottom nav spacer on mobile
+        p: { xs: 0, sm: 1, lg: 2 },
+        gap: { xs: 0, lg: 2 },
+        pb: { xs: '80px', md: 2 },
       }}>
-        {/* Left: Board */}
+        {/* Left: Board + Notation */}
         <Box sx={{
           display: 'flex',
-          justifyContent: 'center',
+          flexDirection: 'column',
+          alignItems: 'center',
           flexShrink: 0,
         }}>
           <DebutBoard
@@ -512,9 +513,44 @@ export default function DebutPage() {
             onGoToEnd={activeTab === 'debut' ? handleGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)}
             onFlip={handleFlip}
           />
+
+          {/* Move notation — only show in Debut tab */}
+          {activeTab === 'debut' && (
+            <Box sx={{
+              width: '100%',
+              maxWidth: { xs: '100%', lg: 520 },
+              maxHeight: { xs: 150, lg: 280 },
+              overflow: 'auto',
+              borderRadius: { xs: 0, lg: '0 0 4px 4px' },
+              mt: { xs: 0, lg: 0 },
+            }}>
+              <MoveNotation
+                tree={currentTree}
+                selectedNodeId={selectedNode?.id || null}
+                onNodeSelect={handleNodeSelect}
+                loading={treeLoading}
+              />
+            </Box>
+          )}
+
+          {/* Game viewer notation — when viewing a game tab */}
+          {activeTab !== 'debut' && activeGame && (
+            <Box sx={{
+              width: '100%',
+              maxWidth: { xs: '100%', lg: 520 },
+              maxHeight: { xs: 150, lg: 280 },
+              overflow: 'auto',
+            }}>
+              <GameViewerPanel
+                game={activeGame}
+                currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
+                onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+              />
+            </Box>
+          )}
         </Box>
 
-        {/* Right: Tree + Details */}
+        {/* Right: Repertoire + Details */}
         <Box sx={{
           flex: 1,
           display: 'flex',
@@ -527,7 +563,6 @@ export default function DebutPage() {
         }}>
           {activeTab === 'debut' ? (
             <>
-              {/* Repertoire selector */}
               <RepertoireSelector
                 repertoires={repertoires}
                 selectedId={selectedRepertoireId}
@@ -539,60 +574,28 @@ export default function DebutPage() {
                 onExportPgn={handleExportPgn}
                 loading={loading}
               />
-
-              {/* Tree + Details split */}
-              <Box sx={{
-                display: 'flex',
-                flexDirection: { xs: 'column', md: 'row' },
-                flex: 1,
-                minHeight: 0,
-                overflow: 'hidden',
-              }}>
-                {/* Tree */}
-                <Box sx={{
-                  flex: 1,
-                  borderRight: { md: '1px solid #333' },
-                  borderBottom: { xs: '1px solid #333', md: 'none' },
-                  overflow: 'auto',
-                  minHeight: { xs: 200, md: 0 },
-                  maxHeight: { xs: 300, md: 'none' },
-                }}>
-                  <OpeningTree
-                    tree={currentTree}
-                    selectedNodeId={selectedNode?.id || null}
-                    onNodeSelect={handleNodeSelect}
-                    loading={treeLoading}
-                  />
-                </Box>
-
-                {/* Details */}
-                <Box sx={{
-                  flex: 1,
-                  overflow: 'auto',
-                  minHeight: { xs: 200, md: 0 },
-                }}>
-                  <NodeDetailsPanel
-                    node={selectedNode}
-                    onUpdateNotes={handleUpdateNotes}
-                    onToggleCritical={handleToggleCritical}
-                    onDeleteNode={handleDeleteNode}
-                    onSearchGames={handleSearchGames}
-                    gameLinks={gameLinks}
-                    gameLinksLoading={gameLinksLoading}
-                    masterGames={masterGames}
-                    masterGamesTotal={masterGamesTotal}
-                    masterGamesLoading={masterGamesLoading}
-                    onOpenGame={handleOpenGame}
-                  />
-                </Box>
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
+                <NodeDetailsPanel
+                  node={selectedNode}
+                  onUpdateNotes={handleUpdateNotes}
+                  onToggleCritical={handleToggleCritical}
+                  onDeleteNode={handleDeleteNode}
+                  onSearchGames={handleSearchGames}
+                  gameLinks={gameLinks}
+                  gameLinksLoading={gameLinksLoading}
+                  masterGames={masterGames}
+                  masterGamesTotal={masterGamesTotal}
+                  masterGamesLoading={masterGamesLoading}
+                  onOpenGame={handleOpenGame}
+                />
               </Box>
             </>
           ) : activeGame ? (
-            <GameViewerPanel
-              game={activeGame}
-              currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
-              onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
-            />
+            <Box sx={{ p: 2, color: '#888' }}>
+              <Typography variant="body2" sx={{ color: '#aaa' }}>
+                Viewing game: {activeGame.white} vs {activeGame.black}
+              </Typography>
+            </Box>
           ) : null}
         </Box>
       </Box>
