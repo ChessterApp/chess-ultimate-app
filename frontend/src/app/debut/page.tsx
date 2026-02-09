@@ -490,7 +490,7 @@ export default function DebutPage() {
         flex: { xs: 'none', lg: 1 },
         p: { xs: 0, sm: 1, lg: 2 },
         gap: { xs: 0, lg: 2 },
-        pb: { xs: '64px', md: 2 },
+        pb: { xs: 0, md: 2 },
       }}>
         {/* Left: Board + Notation */}
         <Box sx={{
