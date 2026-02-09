@@ -191,15 +191,15 @@ export function useOpeningRepertoire() {
 
   // ── Tree ──────────────────────
 
-  const fetchTree = useCallback(async (repertoireId: string) => {
-    setTreeLoading(true);
+  const fetchTree = useCallback(async (repertoireId: string, silent = false) => {
+    if (!silent) setTreeLoading(true);
     try {
       const data = await apiFetch<{ repertoire: Repertoire; tree: OpeningNode }>(`/repertoires/${repertoireId}`);
       setCurrentTree(data.tree);
     } catch (e: any) {
-      setError(e.message);
+      if (!silent) setError(e.message);
     } finally {
-      setTreeLoading(false);
+      if (!silent) setTreeLoading(false);
     }
   }, []);
 
@@ -434,6 +434,7 @@ export function useOpeningRepertoire() {
     deleteRepertoire,
     // Tree
     currentTree,
+    setCurrentTree,
     treeLoading,
     fetchTree,
     addNode,

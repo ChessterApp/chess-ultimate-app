@@ -61,7 +61,7 @@ export default function DebutPage() {
   const {
     repertoires, loading, error, fetchRepertoires,
     createRepertoire, updateRepertoire, deleteRepertoire,
-    currentTree, treeLoading, fetchTree,
+    currentTree, setCurrentTree, treeLoading, fetchTree,
     addNode, updateNode, deleteNode,
     importPgn, exportPgn,
     addArrow, deleteArrow,
@@ -212,7 +212,7 @@ export default function DebutPage() {
   const handleBoardMove = useCallback(async (
     from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
   ) => {
-    if (!selectedNode || !selectedRepertoireId) return;
+    if (!selectedNode || !selectedRepertoireId || !currentTree) return;
 
     // Optimistic: update board FEN immediately so the piece stays in place
     setBoardFen(newFen);
@@ -230,17 +230,84 @@ export default function DebutPage() {
       return;
     }
 
+    // ── Optimistic tree update: notation appears INSTANTLY ──
+    // Parse move number from FEN (fullmove counter is last field)
+    const fenParts = newFen.split(' ');
+    const isWhiteMove = fenParts[1] === 'b'; // if it's black's turn now, white just moved
+    const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
+    const tempId = `temp-${Date.now()}`;
+
+    const optimisticNode: OpeningNode = {
+      id: tempId,
+      repertoire_id: selectedRepertoireId,
+      parent_id: selectedNode.id,
+      fen: newFen,
+      move_san: moveSan,
+      move_uci: moveUci,
+      move_number: moveNumber || 1,
+      is_white_move: isWhiteMove,
+      opening_name: null,
+      eco_code: null,
+      notes: null,
+      priority: 0,
+      is_critical: false,
+      times_trained: 0,
+      times_correct: 0,
+      last_trained_at: null,
+      next_review_at: null,
+      ease_factor: 2.5,
+      interval_days: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      children: [],
+    };
+
+    // Clone tree and splice in the new node
+    const cloneAndInsert = (node: OpeningNode): OpeningNode => {
+      const cloned = { ...node, children: (node.children || []).map(cloneAndInsert) };
+      if (node.id === selectedNode.id) {
+        cloned.children = [...(cloned.children || []), optimisticNode];
+      }
+      return cloned;
+    };
+    const optimisticTree = cloneAndInsert(currentTree);
+
+    // Update tree + selection IMMEDIATELY — notation renders instantly
+    setCurrentTree(optimisticTree);
+    setSelectedNodeId(tempId);
+    setSelectedNode(optimisticNode);
+
+    // ── Background: persist to DB and reconcile ──
+    // Use the REAL parent ID (not temp) — if selectedNode was temp, use its parent_id
+    const realParentId = selectedNode.id.startsWith('temp-') ? selectedNode.parent_id! : selectedNode.id;
+
     try {
-      const newNode = await addNode(selectedNode.id, moveSan, moveUci, newFen);
-      // Track by ID — the re-resolve useEffect will find this in the fresh tree
+      const newNode = await addNode(realParentId, moveSan, moveUci, newFen);
+      // Replace temp ID with real ID in tree and selection
+      const realNode: OpeningNode = { ...newNode, children: [] };
+      setCurrentTree(prev => {
+        if (!prev) return prev;
+        const replaceTempId = (node: OpeningNode): OpeningNode => {
+          const cloned = { ...node, children: (node.children || []).map(replaceTempId) };
+          if (cloned.id === tempId) {
+            return { ...realNode, children: cloned.children };
+          }
+          return cloned;
+        };
+        return replaceTempId(prev);
+      });
       setSelectedNodeId(newNode.id);
-      await fetchTree(selectedRepertoireId);
+      setSelectedNode(realNode);
+      // Silently refresh tree in background (no loading spinner)
+      fetchTree(selectedRepertoireId, true).catch(() => {});
     } catch (e: any) {
       // Revert optimistic update on error
       setBoardFen(selectedNode.fen);
+      setSelectedNodeId(selectedNode.id.startsWith('temp-') ? selectedNode.parent_id! : selectedNode.id);
+      fetchTree(selectedRepertoireId, true).catch(() => {});
       setSnackbar({ open: true, msg: e.message, severity: 'error' });
     }
-  }, [selectedNode, selectedRepertoireId, addNode, fetchTree]);
+  }, [selectedNode, selectedRepertoireId, currentTree, addNode, fetchTree, setCurrentTree]);
 
   // Navigation handlers
   const handleReset = useCallback(() => {
