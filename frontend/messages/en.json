@@ -817,6 +817,7 @@
     "navStart": "Start",
     "navPrevious": "Previous",
     "navNext": "Next",
-    "navEnd": "End"
+    "navEnd": "End",
+    "startingPosition": "(starting position)"
   }
 }

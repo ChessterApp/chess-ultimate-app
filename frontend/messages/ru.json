@@ -817,6 +817,7 @@
     "navStart": "В начало",
     "navPrevious": "Назад",
     "navNext": "Вперёд",
-    "navEnd": "В конец"
+    "navEnd": "В конец",
+    "startingPosition": "(начальная позиция)"
   }
 }

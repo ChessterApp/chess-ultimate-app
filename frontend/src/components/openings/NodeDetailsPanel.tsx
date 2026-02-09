@@ -68,7 +68,7 @@ export default function NodeDetailsPanel({
     navigator.clipboard.writeText(node.fen);
   };
 
-  let moveDisplay = '(starting position)';
+  let moveDisplay = t('startingPosition');
   if (node.move_san) {
     moveDisplay = node.is_white_move
       ? `${node.move_number}. ${node.move_san}`

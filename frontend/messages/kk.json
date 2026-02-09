@@ -817,6 +817,7 @@
     "navStart": "Басына",
     "navPrevious": "Артқа",
     "navNext": "Алға",
-    "navEnd": "Соңына"
+    "navEnd": "Соңына",
+    "startingPosition": "(бастапқы позиция)"
   }
 }
