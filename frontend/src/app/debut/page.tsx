@@ -82,13 +82,14 @@ export default function DebutPage() {
     }
   }, [selectedRepertoireId, fetchTree, repertoires]);
 
-  // ─── Select root when tree loads ───
+  // ─── Select root when tree loads (only if no node is selected) ───
   useEffect(() => {
     if (currentTree && !selectedNode) {
       setSelectedNode(currentTree);
       setBoardFen(currentTree.fen);
     }
-  }, [currentTree]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTree?.id]);
 
   // ─── Load game links when node changes ───
   useEffect(() => {
@@ -163,6 +164,9 @@ export default function DebutPage() {
   ) => {
     if (!selectedNode || !selectedRepertoireId) return;
 
+    // Optimistic: update board FEN immediately so the piece stays in place
+    setBoardFen(newFen);
+
     // Check if child with this FEN already exists
     const existingChild = selectedNode.children?.find(c => {
       const cFenParts = c.fen.split(' ').slice(0, 4).join(' ');
@@ -171,23 +175,22 @@ export default function DebutPage() {
     });
 
     if (existingChild) {
-      handleNodeSelect(existingChild);
+      setSelectedNode(existingChild);
       return;
     }
 
     try {
       const newNode = await addNode(selectedNode.id, moveSan, moveUci, newFen);
+      // Set the new node BEFORE fetching tree so the tree-load effect
+      // won't reset to root (selectedNode will be non-null)
+      setSelectedNode(newNode);
       await fetchTree(selectedRepertoireId);
-
-      // Select the new node after tree refresh
-      setTimeout(() => {
-        setBoardFen(newFen);
-        setSelectedNode(newNode);
-      }, 100);
     } catch (e: any) {
+      // Revert optimistic update on error
+      setBoardFen(selectedNode.fen);
       setSnackbar({ open: true, msg: e.message, severity: 'error' });
     }
-  }, [selectedNode, selectedRepertoireId, addNode, fetchTree, handleNodeSelect]);
+  }, [selectedNode, selectedRepertoireId, addNode, fetchTree]);
 
   // Navigation handlers
   const handleReset = useCallback(() => {
