@@ -79,6 +79,9 @@ export default function DebutPage() {
     }
   }, [repertoires, selectedRepertoireId]);
 
+  // ─── Track selected node by ID (survives tree re-fetches) ───
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
   // ─── Fetch tree when repertoire changes ───
   useEffect(() => {
     if (selectedRepertoireId) {
@@ -88,18 +91,44 @@ export default function DebutPage() {
         setBoardOrientation(rep.color === 'b' ? 'black' : 'white');
         setBoardFen(rep.starting_fen || STARTING_FEN);
         setSelectedNode(null);
+        setSelectedNodeId(null);
       }
     }
   }, [selectedRepertoireId, fetchTree, repertoires]);
 
-  // ─── Select root when tree loads (only if no node is selected) ───
+  // ─── Re-resolve selectedNode from tree whenever tree or selectedNodeId changes ───
   useEffect(() => {
-    if (currentTree && !selectedNode) {
+    if (!currentTree) {
+      setSelectedNode(null);
+      return;
+    }
+    if (!selectedNodeId) {
+      // No node requested — select root
       setSelectedNode(currentTree);
       setBoardFen(currentTree.fen);
+      return;
+    }
+    // Find node by ID in the fresh tree
+    const findById = (node: OpeningNode, id: string): OpeningNode | null => {
+      if (node.id === id) return node;
+      for (const child of node.children || []) {
+        const found = findById(child, id);
+        if (found) return found;
+      }
+      return null;
+    };
+    const resolved = findById(currentTree, selectedNodeId);
+    if (resolved) {
+      setSelectedNode(resolved);
+      setBoardFen(resolved.fen);
+    } else {
+      // Node was deleted or not found — fall back to root
+      setSelectedNode(currentTree);
+      setBoardFen(currentTree.fen);
+      setSelectedNodeId(currentTree.id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTree?.id]);
+  }, [currentTree, selectedNodeId]);
 
   // ─── Load game links when node changes ───
   useEffect(() => {
@@ -156,6 +185,7 @@ export default function DebutPage() {
   // ─── Handlers ───
 
   const handleNodeSelect = useCallback((node: OpeningNode) => {
+    setSelectedNodeId(node.id);
     setSelectedNode(node);
     setBoardFen(node.fen);
   }, []);
@@ -193,15 +223,15 @@ export default function DebutPage() {
     });
 
     if (existingChild) {
+      setSelectedNodeId(existingChild.id);
       setSelectedNode(existingChild);
       return;
     }
 
     try {
       const newNode = await addNode(selectedNode.id, moveSan, moveUci, newFen);
-      // Set the new node BEFORE fetching tree so the tree-load effect
-      // won't reset to root (selectedNode will be non-null)
-      setSelectedNode(newNode);
+      // Track by ID — the re-resolve useEffect will find this in the fresh tree
+      setSelectedNodeId(newNode.id);
       await fetchTree(selectedRepertoireId);
     } catch (e: any) {
       // Revert optimistic update on error
@@ -293,19 +323,17 @@ export default function DebutPage() {
 
   const handleDeleteNode = useCallback(async (nodeId: string) => {
     try {
+      // Navigate to parent before deleting
+      const parentId = selectedNode?.parent_id || null;
       await deleteNode(nodeId);
       if (selectedRepertoireId) {
+        setSelectedNodeId(parentId);
         await fetchTree(selectedRepertoireId);
-        // Go to parent
-        if (selectedNode?.parent_id && currentTree) {
-          const parent = findNode(currentTree, selectedNode.parent_id);
-          if (parent) handleNodeSelect(parent);
-        }
       }
     } catch (e: any) {
       setSnackbar({ open: true, msg: e.message, severity: 'error' });
     }
-  }, [deleteNode, selectedRepertoireId, fetchTree, selectedNode, currentTree, findNode, handleNodeSelect]);
+  }, [deleteNode, selectedRepertoireId, fetchTree, selectedNode]);
 
   const handleDeleteLastMove = useCallback(async () => {
     if (!selectedNode || !selectedNode.move_san) return; // Can't delete root
@@ -318,16 +346,15 @@ export default function DebutPage() {
     if (rootChildren.length === 0) return;
     if (!window.confirm('Delete all moves in this repertoire?')) return;
     try {
-      // Delete all root children (each deletes its subtree)
       for (const child of rootChildren) {
         await deleteNode(child.id);
       }
+      setSelectedNodeId(null); // Will resolve to root
       await fetchTree(selectedRepertoireId);
-      handleNodeSelect(currentTree);
     } catch (e: any) {
       setSnackbar({ open: true, msg: e.message, severity: 'error' });
     }
-  }, [currentTree, selectedRepertoireId, deleteNode, fetchTree, handleNodeSelect]);
+  }, [currentTree, selectedRepertoireId, deleteNode, fetchTree]);
 
   const handleImportPgn = useCallback(async (pgn: string, maxPly: number) => {
     if (!selectedRepertoireId) throw new Error('No repertoire selected');

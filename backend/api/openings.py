@@ -1343,6 +1343,7 @@ def add_node():
             .execute()
 
         if existing.data:
+            existing.data[0]['children'] = []
             return jsonify(existing.data[0])  # Return existing node
 
         # Also check by UCI to handle the unique constraint
@@ -1354,6 +1355,7 @@ def add_node():
                 .execute()
 
             if existing_uci.data:
+                existing_uci.data[0]['children'] = []
                 return jsonify(existing_uci.data[0])  # Return existing node
 
         # Determine move number and color
@@ -1391,10 +1393,12 @@ def add_node():
                     .eq('move_san', move_san) \
                     .execute()
                 if existing_retry.data:
+                    existing_retry.data[0]['children'] = []
                     return jsonify(existing_retry.data[0])
             raise insert_err
 
         if result.data:
+            result.data[0]['children'] = []
             return jsonify(result.data[0]), 201
         else:
             return jsonify({'error': 'Failed to create node'}), 500
