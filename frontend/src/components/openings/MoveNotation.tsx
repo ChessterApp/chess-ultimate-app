@@ -31,18 +31,18 @@ function MoveSpan({
       component="span"
       onClick={() => onNodeSelect(node)}
       sx={{
-        color: isSelected ? '#fff' : '#d4d4d4',
-        bgcolor: isSelected ? '#5c6bc0' : 'transparent',
-        fontSize: 'inherit',
-        fontFamily: 'inherit',
+        color: isSelected ? '#fff' : '#ccc',
+        bgcolor: isSelected ? '#555' : 'transparent',
+        fontFamily: 'monospace',
+        fontSize: '12px',
         fontWeight: isSelected ? 600 : 400,
         px: '3px',
-        py: '0px',
+        py: '1px',
         borderRadius: '2px',
         cursor: 'pointer',
-        transition: 'all 0.12s ease',
+        transition: 'background-color 0.1s',
         '&:hover': {
-          bgcolor: isSelected ? '#5c6bc0' : 'rgba(255,255,255,0.06)',
+          bgcolor: isSelected ? '#666' : '#333',
           color: '#fff',
         },
       }}
@@ -57,11 +57,12 @@ function MoveNumber({ text }: { text: string }) {
     <Typography
       component="span"
       sx={{
-        color: '#666',
-        fontSize: 'inherit',
-        fontFamily: 'inherit',
-        fontWeight: 600,
-        mr: '1px',
+        color: '#888',
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        fontWeight: 500,
+        mr: '3px',
+        flexShrink: 0,
         userSelect: 'none',
       }}
     >
@@ -118,20 +119,20 @@ function renderNode(
           gap: '0px 2px',
           width: '100%',
           pl: `${Math.min((depth + 1) * 10, 40)}px`,
-          fontSize: 'inherit',
-          fontFamily: 'inherit',
+          fontFamily: 'monospace',
+          fontSize: '12px',
         }}
       >
         <Typography
           component="span"
-          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           (
         </Typography>
         {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef)}
         <Typography
           component="span"
-          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           )
         </Typography>
@@ -170,20 +171,20 @@ function renderTree(
           gap: '0px 2px',
           width: '100%',
           pl: '10px',
-          fontSize: 'inherit',
-          fontFamily: 'inherit',
+          fontFamily: 'monospace',
+          fontSize: '12px',
         }}
       >
         <Typography
           component="span"
-          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           (
         </Typography>
         {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef)}
         <Typography
           component="span"
-          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           )
         </Typography>
@@ -212,7 +213,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   if (loading) {
     return (
       <Box sx={{ px: 1, py: 0.75, color: '#666' }}>
-        <Typography sx={{ fontSize: 11.5 }}>Loading…</Typography>
+        <Typography sx={{ fontFamily: 'monospace', fontSize: '12px' }}>Loading…</Typography>
       </Box>
     );
   }
@@ -220,7 +221,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   if (!tree || elements.length === 0) {
     return (
       <Box sx={{ px: 1, py: 0.75, color: '#555', textAlign: 'center' }}>
-        <Typography sx={{ fontSize: 11.5, fontStyle: 'italic' }}>Make a move on the board to start.</Typography>
+        <Typography sx={{ fontFamily: 'monospace', fontSize: '12px', fontStyle: 'italic' }}>Make a move on the board to start.</Typography>
       </Box>
     );
   }
@@ -235,15 +236,14 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'baseline',
-          gap: '1px 3px',
-          px: { xs: 1, lg: 1.5 },
-          py: { xs: 0.5, lg: 0.75 },
+          gap: '1px 2px',
+          px: 1,
+          py: 0.5,
           overflow: 'auto',
           flex: 1,
-          fontSize: { xs: 12.5, lg: 13 },
-          fontFamily: '"Roboto Mono", "SF Mono", "Fira Code", monospace',
-          lineHeight: 1.65,
-          letterSpacing: '-0.01em',
+          fontFamily: 'monospace',
+          fontSize: '12px',
+          lineHeight: 1.4,
         }}
       >
         {elements}
@@ -258,7 +258,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
           gap: 0.25,
           px: 0.5,
           py: 0.25,
-          borderTop: '1px solid rgba(255,255,255,0.06)',
+          borderTop: '1px solid #333',
         }}>
           {onDeleteLast && (
             <Tooltip title="Delete last move" arrow placement="top">

@@ -580,11 +580,12 @@ export default function DebutPage() {
               mx: 'auto',
               mt: 0.5,
               overflow: 'auto',
-              bgcolor: 'rgba(255,255,255,0.07)',
-              borderRadius: '8px',
-              border: '1px solid rgba(255,255,255,0.1)',
-              '&::-webkit-scrollbar': { width: 3 },
-              '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 4 },
+              bgcolor: '#2a2a2a',
+              borderRadius: 1,
+              border: '1px solid #444',
+              '&::-webkit-scrollbar': { width: '6px' },
+              '&::-webkit-scrollbar-track': { background: '#1a1a1a', borderRadius: '3px' },
+              '&::-webkit-scrollbar-thumb': { background: '#555', borderRadius: '3px', '&:hover': { background: '#666' } },
             }}>
               <MoveNotation
                 tree={currentTree}
