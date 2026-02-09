@@ -517,10 +517,11 @@ export default function DebutPage() {
             <Box sx={{
               width: '100%',
               maxWidth: { xs: '100%', lg: 520 },
-              maxHeight: { xs: 150, lg: 280 },
+              maxHeight: { xs: 80, lg: 240 },
               overflow: 'auto',
               borderRadius: { xs: 0, lg: '0 0 4px 4px' },
-              mt: { xs: 0, lg: 0 },
+              '&::-webkit-scrollbar': { width: 4 },
+              '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.12)', borderRadius: 2 },
             }}>
               <MoveNotation
                 tree={currentTree}

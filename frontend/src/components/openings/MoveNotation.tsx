@@ -11,9 +11,6 @@ interface MoveNotationProps {
   loading: boolean;
 }
 
-/**
- * Renders a move span — clickable, highlighted if selected.
- */
 function MoveSpan({
   node,
   isSelected,
@@ -31,18 +28,19 @@ function MoveSpan({
       component="span"
       onClick={() => onNodeSelect(node)}
       sx={{
-        color: isSelected ? '#fff' : '#ccc',
-        bgcolor: isSelected ? '#3692e7' : 'transparent',
+        color: isSelected ? '#fff' : '#d4d4d4',
+        bgcolor: isSelected ? '#5c6bc0' : 'transparent',
         fontSize: 'inherit',
         fontFamily: 'inherit',
-        fontWeight: isSelected ? 700 : 400,
-        px: '4px',
-        py: '1px',
-        borderRadius: '3px',
+        fontWeight: isSelected ? 600 : 400,
+        px: '3px',
+        py: '0px',
+        borderRadius: '2px',
         cursor: 'pointer',
-        transition: 'background-color 0.1s',
+        transition: 'all 0.12s ease',
         '&:hover': {
-          bgcolor: isSelected ? '#3692e7' : 'rgba(255,255,255,0.08)',
+          bgcolor: isSelected ? '#5c6bc0' : 'rgba(255,255,255,0.06)',
+          color: '#fff',
         },
       }}
     >
@@ -51,19 +49,16 @@ function MoveSpan({
   );
 }
 
-/**
- * Renders a move number span.
- */
 function MoveNumber({ text }: { text: string }) {
   return (
     <Typography
       component="span"
       sx={{
-        color: '#999',
+        color: '#666',
         fontSize: 'inherit',
         fontFamily: 'inherit',
-        fontWeight: 500,
-        mr: '2px',
+        fontWeight: 600,
+        mr: '1px',
         userSelect: 'none',
       }}
     >
@@ -72,17 +67,6 @@ function MoveNumber({ text }: { text: string }) {
   );
 }
 
-/**
- * Recursively renders a node and its descendants.
- * Main line continues inline; side lines get their own indented line.
- *
- * @param node       The current node to render
- * @param depth      Nesting depth (for indentation of variations)
- * @param isFirst    Whether this is the first node rendered in a variation (need black move number)
- * @param selectedNodeId  Currently selected node id
- * @param onNodeSelect    Selection callback
- * @param selectedRef     Ref for auto-scroll
- */
 function renderNode(
   node: OpeningNode,
   depth: number,
@@ -95,15 +79,12 @@ function renderNode(
   const key = node.id;
   const isSelected = node.id === selectedNodeId;
 
-  // Move number
   if (node.is_white_move) {
     elements.push(<MoveNumber key={`mn-${key}`} text={`${node.move_number}.`} />);
   } else if (isFirst) {
-    // Black move at start of a variation — show "N..."
-    elements.push(<MoveNumber key={`mn-${key}`} text={`${node.move_number}...`} />);
+    elements.push(<MoveNumber key={`mn-${key}`} text={`${node.move_number}…`} />);
   }
 
-  // The move itself
   elements.push(
     <MoveSpan
       key={`m-${key}`}
@@ -117,12 +98,10 @@ function renderNode(
   const children = node.children || [];
   if (children.length === 0) return elements;
 
-  // Main line (first child) continues inline
   elements.push(
     ...renderNode(children[0], depth, false, selectedNodeId, onNodeSelect, selectedRef)
   );
 
-  // Side lines as indented variations
   for (let i = 1; i < children.length; i++) {
     const alt = children[i];
     elements.push(
@@ -133,24 +112,23 @@ function renderNode(
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'baseline',
-          gap: '1px 3px',
+          gap: '0px 2px',
           width: '100%',
-          pl: `${(depth + 1) * 12}px`,
-          color: '#b0b0b0',
+          pl: `${Math.min((depth + 1) * 10, 40)}px`,
           fontSize: 'inherit',
           fontFamily: 'inherit',
         }}
       >
         <Typography
           component="span"
-          sx={{ color: '#777', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
         >
           (
         </Typography>
         {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef)}
         <Typography
           component="span"
-          sx={{ color: '#777', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
         >
           )
         </Typography>
@@ -161,10 +139,6 @@ function renderNode(
   return elements;
 }
 
-/**
- * Renders the entire tree starting from root.
- * Root node (move_san === null) is skipped; its children are rendered.
- */
 function renderTree(
   root: OpeningNode,
   selectedNodeId: string | null,
@@ -176,12 +150,10 @@ function renderTree(
 
   const elements: React.ReactNode[] = [];
 
-  // First child is the main line
   elements.push(
     ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef)
   );
 
-  // Additional root children are alternative first moves (branches)
   for (let i = 1; i < children.length; i++) {
     const alt = children[i];
     elements.push(
@@ -192,24 +164,23 @@ function renderTree(
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'baseline',
-          gap: '1px 3px',
+          gap: '0px 2px',
           width: '100%',
-          pl: '12px',
-          color: '#b0b0b0',
+          pl: '10px',
           fontSize: 'inherit',
           fontFamily: 'inherit',
         }}
       >
         <Typography
           component="span"
-          sx={{ color: '#777', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
         >
           (
         </Typography>
         {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef)}
         <Typography
           component="span"
-          sx={{ color: '#777', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
+          sx={{ color: '#555', fontSize: 'inherit', fontFamily: 'inherit', userSelect: 'none' }}
         >
           )
         </Typography>
@@ -223,7 +194,6 @@ function renderTree(
 export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loading }: MoveNotationProps) {
   const selectedRef = useRef<HTMLSpanElement>(null);
 
-  // Auto-scroll to selected move
   useEffect(() => {
     if (selectedRef.current) {
       selectedRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -238,16 +208,16 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loadi
 
   if (loading) {
     return (
-      <Box sx={{ p: 1.5, color: '#888' }}>
-        <Typography variant="caption">Loading...</Typography>
+      <Box sx={{ px: 1.5, py: 1, color: '#666' }}>
+        <Typography sx={{ fontSize: 12 }}>Loading…</Typography>
       </Box>
     );
   }
 
   if (!tree || elements.length === 0) {
     return (
-      <Box sx={{ p: 1.5, color: '#666', textAlign: 'center' }}>
-        <Typography variant="caption">Make a move on the board to start.</Typography>
+      <Box sx={{ px: 1.5, py: 1, color: '#555', textAlign: 'center' }}>
+        <Typography sx={{ fontSize: 12 }}>Make a move on the board to start.</Typography>
       </Box>
     );
   }
@@ -258,13 +228,18 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loadi
         display: 'flex',
         flexWrap: 'wrap',
         alignItems: 'baseline',
-        gap: '1px 3px',
-        p: 1,
-        bgcolor: '#262422',
+        gap: '0px 2px',
+        px: 1.5,
+        py: 0.75,
+        bgcolor: '#1e1e1e',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
         overflow: 'auto',
-        fontSize: 14,
-        fontFamily: '"Noto Sans", "Roboto", sans-serif',
-        lineHeight: 1.6,
+        fontSize: { xs: 13, lg: 13 },
+        fontFamily: '"Roboto Mono", "SF Mono", "Fira Code", monospace',
+        lineHeight: 1.7,
+        letterSpacing: '-0.01em',
+        '&::-webkit-scrollbar': { width: 4 },
+        '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.12)', borderRadius: 2 },
       }}
     >
       {elements}
