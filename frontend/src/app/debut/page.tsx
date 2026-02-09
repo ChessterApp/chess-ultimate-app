@@ -448,7 +448,7 @@ export default function DebutPage() {
   const selectedRep = repertoires.find(r => r.id === selectedRepertoireId);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', lg: '100vh' }, bgcolor: { xs: '#121212', lg: '#1a1a1a' } }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', lg: '100vh' }, bgcolor: { xs: '#1a0d2e', lg: '#1a1a1a' } }}>
       {/* Tab bar — always visible */}
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
         <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#555', borderRadius: 2 } }}>
