@@ -1811,6 +1811,89 @@ def delete_game_link(game_link_id):
         return jsonify({'error': str(e)}), 500
 
 
+@openings_bp.route('/games/by-position', methods=['GET'])
+@verify_clerk_token
+def games_by_position():
+    """Fast lookup: find games that reach a given FEN using the position hash index."""
+    fen = request.args.get('fen', '')
+    if not fen:
+        return jsonify({'error': 'Missing fen parameter'}), 400
+
+    limit = min(int(request.args.get('limit', 5)), 50)
+    min_rating = int(request.args.get('min_rating', 0))
+
+    if not check_internal_db_exists():
+        return jsonify({'games': [], 'total': 0, 'indexed': False})
+
+    conn = get_internal_db_connection()
+    try:
+        # Check if position index exists
+        if not _has_position_index(conn):
+            conn.close()
+            return jsonify({'games': [], 'total': 0, 'indexed': False})
+
+        board_hash = _get_board_hash(fen)
+
+        # Get total count (index-only scan, ~0.7s for common positions)
+        total = conn.execute(
+            "SELECT COUNT(*) as cnt FROM game_positions WHERE board_hash = ?",
+            [board_hash]
+        ).fetchone()['cnt']
+
+        # Two-step approach for speed:
+        # 1. Get a pool of game_ids from the position index (fast, index-only)
+        # 2. Fetch game details and sort by Elo
+        # We grab more IDs than needed so sorting by Elo still surfaces top games.
+        pool_size = min(max(limit * 40, 200), 2000)
+        id_rows = conn.execute(
+            "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
+            [board_hash, pool_size]
+        ).fetchall()
+        game_ids = [r['game_id'] for r in id_rows]
+
+        if not game_ids:
+            conn.close()
+            return jsonify({'games': [], 'total': 0, 'indexed': True})
+
+        # Fetch game details for the pool, filter by rating, sort by strength
+        placeholders = ','.join('?' * len(game_ids))
+        query = f"SELECT * FROM games WHERE id IN ({placeholders})"
+        params = list(game_ids)
+
+        if min_rating > 0:
+            query += " AND (white_elo >= ? OR black_elo >= ?)"
+            params.extend([min_rating, min_rating])
+
+        query += " ORDER BY COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC LIMIT ?"
+        params.append(limit)
+
+        cursor = conn.execute(query, params)
+        games = []
+        for row in cursor.fetchall():
+            game_data = dict(row)
+            # Load PGN from master file
+            if game_data.get('pgn_offset') is not None:
+                try:
+                    with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
+                        f.seek(game_data['pgn_offset'])
+                        pgn_text = ''
+                        for line in f:
+                            pgn_text += line
+                            if line.strip() in ['1-0', '0-1', '1/2-1/2', '*'] and len(pgn_text) > 50:
+                                break
+                        game_data['pgn'] = pgn_text
+                except Exception:
+                    pass
+            games.append(game_data)
+
+        conn.close()
+        return jsonify({'games': games, 'total': total, 'indexed': True})
+    except Exception as e:
+        logger.error(f"Error in games_by_position: {e}")
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
 @openings_bp.route('/games/search', methods=['GET'])
 @verify_clerk_token
 def search_games():

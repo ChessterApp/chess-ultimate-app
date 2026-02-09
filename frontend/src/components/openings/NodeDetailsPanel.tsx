@@ -4,12 +4,13 @@ import React, { useState, useEffect } from 'react';
 import {
   Box, Typography, TextField, IconButton, Button, Chip, Divider,
   LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, List, ListItem, ListItemText,
+  CircularProgress,
 } from '@mui/material';
 import {
   Star, StarBorder, Delete, Edit, Search, ContentCopy,
-  CheckCircle, Schedule, Close,
+  CheckCircle, Schedule, Close, Storage,
 } from '@mui/icons-material';
-import type { OpeningNode, GameLink } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
 
 interface NodeDetailsPanelProps {
   node: OpeningNode | null;
@@ -19,11 +20,15 @@ interface NodeDetailsPanelProps {
   onSearchGames: (fen: string) => void;
   gameLinks: GameLink[];
   gameLinksLoading: boolean;
+  masterGames?: GameSearchResult[];
+  masterGamesTotal?: number;
+  masterGamesLoading?: boolean;
 }
 
 export default function NodeDetailsPanel({
   node, onUpdateNotes, onToggleCritical, onDeleteNode,
   onSearchGames, gameLinks, gameLinksLoading,
+  masterGames = [], masterGamesTotal = 0, masterGamesLoading = false,
 }: NodeDetailsPanelProps) {
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState('');
@@ -142,6 +147,83 @@ export default function NodeDetailsPanel({
         ) : (
           <Typography variant="body2" sx={{ color: node.notes ? '#ccc' : '#666', fontSize: 13, fontStyle: node.notes ? 'normal' : 'italic' }}>
             {node.notes || 'No notes'}
+          </Typography>
+        )}
+      </Box>
+
+      {/* Master Games (auto-fetched from TWIC) */}
+      <Divider sx={{ borderColor: '#333' }} />
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Storage sx={{ fontSize: 14, color: '#7986cb' }} />
+          <Typography variant="caption" sx={{ color: '#aaa', fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
+            Master Games
+          </Typography>
+          {masterGamesTotal > 0 && (
+            <Chip
+              label={masterGamesTotal.toLocaleString()}
+              size="small"
+              sx={{ height: 16, fontSize: 10, bgcolor: '#3949ab', color: '#fff', ml: 'auto' }}
+            />
+          )}
+        </Box>
+
+        {masterGamesLoading ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
+            <CircularProgress size={14} sx={{ color: '#7986cb' }} />
+            <Typography variant="caption" sx={{ color: '#777' }}>Searching position...</Typography>
+          </Box>
+        ) : masterGames.length > 0 ? (
+          <Box>
+            <List dense sx={{ p: 0 }}>
+              {masterGames.map((g, idx) => (
+                <ListItem key={`master-${g.id || idx}`} sx={{ px: 0, py: 0.3 }}>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography component="span" sx={{ color: '#e0e0e0', fontSize: 12 }}>
+                          {g.white_name || g.white || '?'}
+                        </Typography>
+                        <Typography component="span" sx={{ color: '#777', fontSize: 10 }}>
+                          ({g.white_elo || '?'})
+                        </Typography>
+                        <Typography component="span" sx={{ color: '#888', fontSize: 11 }}>vs</Typography>
+                        <Typography component="span" sx={{ color: '#e0e0e0', fontSize: 12 }}>
+                          {g.black_name || g.black || '?'}
+                        </Typography>
+                        <Typography component="span" sx={{ color: '#777', fontSize: 10 }}>
+                          ({g.black_elo || '?'})
+                        </Typography>
+                      </Box>
+                    }
+                    secondary={
+                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
+                        <Chip label={g.result || '?'} size="small" sx={{ height: 14, fontSize: 9, bgcolor: '#444', color: '#ccc' }} />
+                        {g.eco && <Chip label={g.eco} size="small" sx={{ height: 14, fontSize: 9, bgcolor: '#3949ab', color: '#fff' }} />}
+                        {(g.date || g.year) && (
+                          <Typography component="span" sx={{ color: '#666', fontSize: 10 }}>
+                            {g.date || g.year}
+                          </Typography>
+                        )}
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+            {masterGamesTotal > 5 && (
+              <Button
+                size="small"
+                onClick={() => onSearchGames(node!.fen)}
+                sx={{ color: '#7986cb', fontSize: 11, textTransform: 'none', mt: 0.5 }}
+              >
+                View all {masterGamesTotal.toLocaleString()} games →
+              </Button>
+            )}
+          </Box>
+        ) : (
+          <Typography variant="body2" sx={{ color: '#555', fontSize: 12, fontStyle: 'italic' }}>
+            No master games found for this position.
           </Typography>
         )}
       </Box>

@@ -93,10 +93,13 @@ export interface GameSearchResult {
   source: string;
   white: string;
   black: string;
+  white_name?: string;
+  black_name?: string;
   white_elo: number | null;
   black_elo: number | null;
   result: string;
   date: string;
+  year?: number | string;
   eco: string | null;
   opening: string | null;
   event: string | null;
@@ -281,6 +284,16 @@ export function useOpeningRepertoire() {
 
   // ── Game search & linking ────
 
+  const fetchGamesByPosition = useCallback(async (
+    fen: string,
+    limit: number = 5,
+    minRating: number = 0
+  ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean }> => {
+    const params = new URLSearchParams({ fen, limit: String(limit), min_rating: String(minRating) });
+    const data = await apiFetch<{ games: GameSearchResult[]; total: number; indexed: boolean }>(`/games/by-position?${params}`);
+    return data;
+  }, []);
+
   const searchGames = useCallback(async (
     source: string,
     fen: string,
@@ -429,6 +442,7 @@ export function useOpeningRepertoire() {
     addArrow,
     deleteArrow,
     // Game search
+    fetchGamesByPosition,
     searchGames,
     searchGamesStream,
     linkGame,

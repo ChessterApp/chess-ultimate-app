@@ -39,6 +39,11 @@ export default function DebutPage() {
   const [gameLinks, setGameLinks] = useState<GameLink[]>([]);
   const [gameLinksLoading, setGameLinksLoading] = useState(false);
 
+  // ─── Auto-fetched master games ───
+  const [masterGames, setMasterGames] = useState<GameSearchResult[]>([]);
+  const [masterGamesTotal, setMasterGamesTotal] = useState(0);
+  const [masterGamesLoading, setMasterGamesLoading] = useState(false);
+
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
 
@@ -50,6 +55,7 @@ export default function DebutPage() {
     addNode, updateNode, deleteNode,
     importPgn, exportPgn,
     addArrow, deleteArrow,
+    fetchGamesByPosition,
     searchGamesStream, linkGame, getNodeGames, deleteGameLink,
   } = useOpeningRepertoire();
 
@@ -96,6 +102,37 @@ export default function DebutPage() {
       setGameLinks([]);
     }
   }, [selectedNode?.id, getNodeGames]);
+
+  // ─── Auto-fetch master games when node changes ───
+  useEffect(() => {
+    if (!selectedNode) {
+      setMasterGames([]);
+      setMasterGamesTotal(0);
+      return;
+    }
+
+    let cancelled = false;
+    setMasterGamesLoading(true);
+
+    fetchGamesByPosition(selectedNode.fen, 5)
+      .then((data) => {
+        if (!cancelled) {
+          setMasterGames(data.games);
+          setMasterGamesTotal(data.total);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMasterGames([]);
+          setMasterGamesTotal(0);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMasterGamesLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedNode?.fen, fetchGamesByPosition]);
 
   // ─── Handlers ───
 
@@ -428,6 +465,9 @@ export default function DebutPage() {
                 onSearchGames={handleSearchGames}
                 gameLinks={gameLinks}
                 gameLinksLoading={gameLinksLoading}
+                masterGames={masterGames}
+                masterGamesTotal={masterGamesTotal}
+                masterGamesLoading={masterGamesLoading}
               />
             </Box>
           </Box>
