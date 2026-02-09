@@ -121,11 +121,13 @@ export default function DebutPage() {
     if (resolved) {
       setSelectedNode(resolved);
       setBoardFen(resolved.fen);
-    } else {
-      // Node was deleted or not found — fall back to root
+    }
+    // If not found, DON'T reset to root — the node might be newly created
+    // and not yet in the tree (fetchTree still in flight). The next tree
+    // update will resolve it. Only reset if we have no selectedNode at all.
+    else if (!selectedNode) {
       setSelectedNode(currentTree);
       setBoardFen(currentTree.fen);
-      setSelectedNodeId(currentTree.id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTree, selectedNodeId]);
