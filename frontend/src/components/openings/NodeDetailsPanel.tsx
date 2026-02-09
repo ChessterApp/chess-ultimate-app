@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, Typography, TextField, IconButton, Button, Chip, Divider,
-  LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, List, ListItem, ListItemText,
+  Box, Typography, Button, Chip, Divider,
+  LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText,
   CircularProgress,
 } from '@mui/material';
 import {
-  Star, StarBorder, Delete, Edit, Search, ContentCopy,
-  CheckCircle, Schedule, Close, Storage,
+  Star, StarBorder, Delete, Search,
+  CheckCircle, Schedule, Storage,
 } from '@mui/icons-material';
 import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
 
@@ -34,14 +34,7 @@ export default function NodeDetailsPanel({
   onOpenGame,
 }: NodeDetailsPanelProps) {
   const t = useTranslations('debut');
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [notesText, setNotesText] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
-
-  useEffect(() => {
-    setEditingNotes(false);
-    setNotesText(node?.notes || '');
-  }, [node?.id]);
 
   if (!node) {
     return (
@@ -58,15 +51,6 @@ export default function NodeDetailsPanel({
   const isMastered = node.times_trained >= 5 && accuracy >= 80;
   const needsReview = node.next_review_at ? new Date(node.next_review_at) <= new Date() : false;
   const isUntrained = node.times_trained === 0;
-
-  const handleSaveNotes = async () => {
-    await onUpdateNotes(node.id, notesText);
-    setEditingNotes(false);
-  };
-
-  const handleCopyFen = () => {
-    navigator.clipboard.writeText(node.fen);
-  };
 
   let moveDisplay = t('startingPosition');
   if (node.move_san) {
@@ -91,72 +75,7 @@ export default function NodeDetailsPanel({
         </Box>
       )}
 
-      {/* Move display */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography variant="h6" sx={{ color: '#e0e0e0', fontFamily: 'monospace', fontSize: 18 }}>
-          {moveDisplay}
-        </Typography>
-      </Box>
-
-      {/* FEN */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography
-          variant="caption"
-          sx={{ fontFamily: 'monospace', color: '#777', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}
-        >
-          {node.fen}
-        </Typography>
-        <Tooltip title={t('copyFen')}>
-          <IconButton size="small" onClick={handleCopyFen} sx={{ color: '#777', p: 0.3 }}>
-            <ContentCopy sx={{ fontSize: 14 }} />
-          </IconButton>
-        </Tooltip>
-      </Box>
-
-      <Divider sx={{ borderColor: '#333' }} />
-
-      {/* Notes */}
-      <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-          <Typography variant="caption" sx={{ color: '#aaa', fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
-            {t('notes')}
-          </Typography>
-          {!editingNotes && (
-            <IconButton size="small" onClick={() => { setNotesText(node.notes || ''); setEditingNotes(true); }} sx={{ color: '#777', p: 0.3 }}>
-              <Edit sx={{ fontSize: 14 }} />
-            </IconButton>
-          )}
-        </Box>
-
-        {editingNotes ? (
-          <Box>
-            <TextField
-              multiline
-              rows={3}
-              value={notesText}
-              onChange={e => setNotesText(e.target.value)}
-              fullWidth
-              size="small"
-              placeholder={t('addNotesPlaceholder')}
-              sx={{
-                '& .MuiInputBase-root': { color: '#e0e0e0', bgcolor: '#2a2a2a', fontSize: 13 },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
-              }}
-            />
-            <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-              <Button size="small" variant="contained" onClick={handleSaveNotes} sx={{ fontSize: 11 }}>{t('save')}</Button>
-              <Button size="small" onClick={() => setEditingNotes(false)} sx={{ color: '#aaa', fontSize: 11 }}>{t('cancel')}</Button>
-            </Box>
-          </Box>
-        ) : (
-          <Typography variant="body2" sx={{ color: node.notes ? '#ccc' : '#666', fontSize: 13, fontStyle: node.notes ? 'normal' : 'italic' }}>
-            {node.notes || t('noNotes')}
-          </Typography>
-        )}
-      </Box>
-
       {/* Master Games (auto-fetched from TWIC) */}
-      <Divider sx={{ borderColor: '#333' }} />
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
           <Storage sx={{ fontSize: 14, color: '#7986cb' }} />
