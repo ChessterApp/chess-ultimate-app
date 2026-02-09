@@ -125,7 +125,7 @@ export default function DebutPage() {
     let cancelled = false;
     setMasterGamesLoading(true);
 
-    fetchGamesByPosition(selectedNode.fen, 5)
+    fetchGamesByPosition(selectedNode.fen, 15)
       .then((data) => {
         if (!cancelled) {
           setMasterGames(data.games);

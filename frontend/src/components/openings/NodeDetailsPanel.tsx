@@ -1,15 +1,14 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Box, Typography, Button, Chip, Divider,
-  LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions, List, ListItem, ListItemText,
+  List, ListItem, ListItemText,
   CircularProgress,
 } from '@mui/material';
 import {
-  Star, StarBorder, Delete, Search,
-  CheckCircle, Schedule, Storage,
+  Storage,
 } from '@mui/icons-material';
 import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
 
@@ -34,8 +33,6 @@ export default function NodeDetailsPanel({
   onOpenGame,
 }: NodeDetailsPanelProps) {
   const t = useTranslations('debut');
-  const [deleteOpen, setDeleteOpen] = useState(false);
-
   if (!node) {
     return (
       <Box sx={{ p: 2, color: '#888' }}>
@@ -45,13 +42,6 @@ export default function NodeDetailsPanel({
   }
 
   const isRoot = node.move_san === null;
-  const accuracy = node.times_trained > 0 ? (node.times_correct / node.times_trained * 100) : 0;
-  const accuracyColor = accuracy >= 80 ? '#4caf50' : accuracy >= 60 ? '#ff9800' : '#f44336';
-
-  const isMastered = node.times_trained >= 5 && accuracy >= 80;
-  const needsReview = node.next_review_at ? new Date(node.next_review_at) <= new Date() : false;
-  const isUntrained = node.times_trained === 0;
-
   let moveDisplay = t('startingPosition');
   if (node.move_san) {
     moveDisplay = node.is_white_move
@@ -138,7 +128,7 @@ export default function NodeDetailsPanel({
                 </ListItem>
               ))}
             </List>
-            {masterGamesTotal > 5 && (
+            {masterGamesTotal > 15 && (
               <Button
                 size="small"
                 onClick={() => onSearchGames(node!.fen)}
@@ -152,86 +142,6 @@ export default function NodeDetailsPanel({
           <Typography variant="body2" sx={{ color: '#555', fontSize: 12, fontStyle: 'italic' }}>
             {t('noMasterGames')}
           </Typography>
-        )}
-      </Box>
-
-      {/* Training stats (non-root only) */}
-      {!isRoot && (
-        <>
-          <Divider sx={{ borderColor: '#333' }} />
-          <Box>
-            <Typography variant="caption" sx={{ color: '#aaa', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
-              {t('training')}
-            </Typography>
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-              {isMastered && <Chip icon={<CheckCircle />} label="Mastered" size="small" sx={{ bgcolor: '#1b5e20', color: '#fff' }} />}
-              {needsReview && !isMastered && <Chip icon={<Schedule />} label="Due for Review" size="small" sx={{ bgcolor: '#e65100', color: '#fff' }} />}
-              {isUntrained && <Chip label={t('untrained')} size="small" sx={{ bgcolor: '#333', color: '#888' }} />}
-            </Box>
-
-            {node.times_trained > 0 && (
-              <Box sx={{ mb: 0.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.3 }}>
-                  <Typography variant="caption" sx={{ color: '#aaa', fontSize: 11 }}>
-                    Accuracy: {accuracy.toFixed(0)}%
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: '#aaa', fontSize: 11 }}>
-                    {node.times_correct}/{node.times_trained}
-                  </Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={accuracy}
-                  sx={{ height: 4, borderRadius: 2, bgcolor: '#333', '& .MuiLinearProgress-bar': { bgcolor: accuracyColor } }}
-                />
-              </Box>
-            )}
-
-            {node.next_review_at && (
-              <Typography variant="caption" sx={{ color: '#777', fontSize: 10 }}>
-                Next review: {new Date(node.next_review_at).toLocaleDateString()}
-              </Typography>
-            )}
-          </Box>
-        </>
-      )}
-
-      <Divider sx={{ borderColor: '#333' }} />
-
-      {/* Actions */}
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-        {!isRoot && (
-          <Button
-            size="small"
-            startIcon={node.is_critical ? <Star /> : <StarBorder />}
-            onClick={() => onToggleCritical(node.id, !node.is_critical)}
-            sx={{
-              color: node.is_critical ? '#ffd700' : '#aaa', fontSize: 11, textTransform: 'none',
-            }}
-          >
-            {node.is_critical ? t('critical') : t('markCritical')}
-          </Button>
-        )}
-
-        <Button
-          size="small"
-          startIcon={<Search />}
-          onClick={() => onSearchGames(node.fen)}
-          sx={{ color: '#aaa', fontSize: 11, textTransform: 'none' }}
-        >
-          {t('searchGames')}
-        </Button>
-
-        {!isRoot && (
-          <Button
-            size="small"
-            startIcon={<Delete />}
-            onClick={() => setDeleteOpen(true)}
-            sx={{ color: '#f44336', fontSize: 11, textTransform: 'none' }}
-          >
-            {t('delete')}
-          </Button>
         )}
       </Box>
 
@@ -260,17 +170,6 @@ export default function NodeDetailsPanel({
         </>
       )}
 
-      {/* Delete confirmation */}
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
-        <DialogTitle>{t('deleteMoveTitle')}</DialogTitle>
-        <DialogContent>
-          <Typography>{t('deleteMoveConfirm', { move: moveDisplay })}</Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
-          <Button onClick={() => { onDeleteNode(node.id); setDeleteOpen(false); }} color="error" variant="contained">{t('delete')}</Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }
