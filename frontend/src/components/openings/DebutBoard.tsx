@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { Box, IconButton, Tooltip } from '@mui/material';
+import { Box } from '@mui/material';
 import { SvgIcon, SvgIconProps } from '@mui/material';
 import { Chessboard } from 'react-chessboard';
 import { Chess, Square } from 'chess.js';
@@ -205,12 +205,6 @@ export default function DebutBoard({
     return false;
   }, [fen, onMove]);
 
-  const controlButtonSx = {
-    color: '#b0b0b0',
-    '&:hover': { color: '#e0e0e0', bgcolor: 'rgba(255,255,255,0.08)' },
-    p: 0.8,
-  };
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <Chessboard
@@ -233,19 +227,50 @@ export default function DebutBoard({
         animationDuration={animationDuration}
       />
 
-      {/* Control bar */}
-      <Box sx={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        gap: 0.5, mt: 0.5, width: boardSize,
-        bgcolor: '#1a1a1a', borderRadius: 1, py: 0.3,
-      }}>
-        <Tooltip title="Reset"><IconButton sx={controlButtonSx} onClick={onReset}><CBResetIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
-        <Tooltip title="Start"><IconButton sx={controlButtonSx} onClick={onGoToStart}><CBGoToStartIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
-        <Tooltip title="Previous"><IconButton sx={controlButtonSx} onClick={onPrev}><CBPreviousMoveIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
-        <Tooltip title="Next"><IconButton sx={controlButtonSx} onClick={onNext}><CBNextMoveIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
-        <Tooltip title="End"><IconButton sx={controlButtonSx} onClick={onGoToEnd}><CBGoToEndIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
-        <Box sx={{ width: 16 }} />
-        <Tooltip title="Flip board"><IconButton sx={controlButtonSx} onClick={onFlip}><CBFlipBoardIcon sx={{ fontSize: 20 }} /></IconButton></Tooltip>
+      {/* Board Control Bar — matches Analysis board exactly */}
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          backgroundColor: '#2a2a2a',
+          borderRadius: 0,
+          height: 38,
+          width: boardSize,
+          overflow: 'hidden',
+        }}
+      >
+        {[
+          { icon: <CBResetIcon sx={{ width: 22, height: 22 }} />, onClick: onReset, title: 'Reset board', flex: 1 },
+          { icon: <CBGoToStartIcon sx={{ width: 18, height: 14 }} />, onClick: onGoToStart, title: 'Go to start', flex: 1 },
+          { icon: <CBPreviousMoveIcon sx={{ width: 14, height: 15 }} />, onClick: onPrev, title: 'Previous move', flex: 1.42 },
+          { icon: <CBNextMoveIcon sx={{ width: 14, height: 15 }} />, onClick: onNext, title: 'Next move', flex: 1.42 },
+          { icon: <CBGoToEndIcon sx={{ width: 18, height: 14 }} />, onClick: onGoToEnd, title: 'Go to end', flex: 1 },
+          { icon: <CBFlipBoardIcon sx={{ width: 26, height: 22 }} />, onClick: onFlip, title: 'Flip board', flex: 1 },
+        ].map((btn, i) => (
+          <Box
+            key={i}
+            onClick={btn.onClick}
+            title={btn.title}
+            sx={{
+              flex: btn.flex,
+              height: 38,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#a0a0a0',
+              padding: '5px',
+              transition: 'background-color 0.15s, color 0.15s',
+              '&:hover': {
+                backgroundColor: 'rgba(255,255,255,0.08)',
+                color: '#fff',
+              },
+            }}
+          >
+            {btn.icon}
+          </Box>
+        ))}
       </Box>
     </Box>
   );
