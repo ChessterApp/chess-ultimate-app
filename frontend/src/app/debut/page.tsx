@@ -217,12 +217,22 @@ export default function DebutPage() {
     // Optimistic: update board FEN immediately so the piece stays in place
     setBoardFen(newFen);
 
-    // Check if child with this FEN already exists
-    const existingChild = selectedNode.children?.find(c => {
-      const cFenParts = c.fen.split(' ').slice(0, 4).join(' ');
-      const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
-      return cFenParts === newFenParts;
-    });
+    // Check if child with this FEN already exists — search both selectedNode
+    // AND currentTree (selectedNode may be optimistic with empty children)
+    const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
+    const fenMatch = (c: OpeningNode) => c.fen.split(' ').slice(0, 4).join(' ') === newFenParts;
+
+    let existingChild = selectedNode.children?.find(fenMatch) || null;
+    if (!existingChild && currentTree) {
+      // Deep search: find selectedNode in currentTree and check ITS children
+      const findNode = (node: OpeningNode, id: string): OpeningNode | null => {
+        if (node.id === id) return node;
+        for (const ch of node.children || []) { const f = findNode(ch, id); if (f) return f; }
+        return null;
+      };
+      const treeParent = findNode(currentTree, selectedNode.id);
+      existingChild = treeParent?.children?.find(fenMatch) || null;
+    }
 
     if (existingChild) {
       setSelectedNodeId(existingChild.id);
@@ -262,11 +272,14 @@ export default function DebutPage() {
       children: [],
     };
 
-    // Clone tree and splice in the new node
+    // Clone tree and splice in the new node (skip if FEN already exists)
     const cloneAndInsert = (node: OpeningNode): OpeningNode => {
       const cloned = { ...node, children: (node.children || []).map(cloneAndInsert) };
       if (node.id === selectedNode.id) {
-        cloned.children = [...(cloned.children || []), optimisticNode];
+        const alreadyHasFen = (cloned.children || []).some(fenMatch);
+        if (!alreadyHasFen) {
+          cloned.children = [...(cloned.children || []), optimisticNode];
+        }
       }
       return cloned;
     };
