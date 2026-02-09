@@ -1,0 +1,196 @@
+'use client';
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  Box, Typography, Chip, Divider, IconButton, Tooltip,
+} from '@mui/material';
+import { ChevronLeft, ChevronRight, FirstPage, LastPage } from '@mui/icons-material';
+import { Chess } from 'chess.js';
+
+export interface OpenedGame {
+  id: string;
+  white: string;
+  black: string;
+  whiteElo?: number;
+  blackElo?: number;
+  result: string;
+  eco?: string;
+  date?: string;
+  event?: string;
+  pgn: string;
+  moves: string[];         // SAN moves parsed from PGN
+  fens: string[];           // FEN at each move index (index 0 = after move 1)
+  startingFen: string;
+}
+
+interface GameViewerPanelProps {
+  game: OpenedGame;
+  currentMoveIndex: number;  // -1 = starting position
+  onMoveIndexChange: (index: number) => void;
+}
+
+export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
+  const chess = new Chess();
+  try {
+    chess.loadPgn(pgn);
+  } catch {
+    // If loadPgn fails, try extracting moves manually
+    const moveText = pgn.replace(/\[.*?\]\s*/g, '').replace(/\{.*?\}/g, '').trim();
+    const tokens = moveText.split(/\s+/).filter(t => !t.match(/^\d+\./) && !t.match(/^(1-0|0-1|1\/2-1\/2|\*)$/));
+    const fresh = new Chess();
+    const moves: string[] = [];
+    const fens: string[] = [];
+    for (const token of tokens) {
+      try {
+        fresh.move(token);
+        moves.push(token);
+        fens.push(fresh.fen());
+      } catch { break; }
+    }
+    return { moves, fens, startingFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' };
+  }
+  
+  const history = chess.history();
+  // Replay to get FENs at each position
+  const fens: string[] = [];
+  const replay = new Chess();
+  for (const move of history) {
+    replay.move(move);
+    fens.push(replay.fen());
+  }
+  
+  return {
+    moves: history,
+    fens,
+    startingFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+  };
+}
+
+export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange }: GameViewerPanelProps) {
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      switch (e.key) {
+        case 'ArrowLeft': e.preventDefault(); onMoveIndexChange(Math.max(-1, currentMoveIndex - 1)); break;
+        case 'ArrowRight': e.preventDefault(); onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1)); break;
+        case 'Home': e.preventDefault(); onMoveIndexChange(-1); break;
+        case 'End': e.preventDefault(); onMoveIndexChange(game.moves.length - 1); break;
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [currentMoveIndex, game.moves.length, onMoveIndexChange]);
+
+  // Build move pairs for display (1. e4 e5  2. Nf3 Nc6 ...)
+  const movePairs = useMemo(() => {
+    const pairs: { num: number; white: { san: string; idx: number }; black?: { san: string; idx: number } }[] = [];
+    for (let i = 0; i < game.moves.length; i += 2) {
+      pairs.push({
+        num: Math.floor(i / 2) + 1,
+        white: { san: game.moves[i], idx: i },
+        black: i + 1 < game.moves.length ? { san: game.moves[i + 1], idx: i + 1 } : undefined,
+      });
+    }
+    return pairs;
+  }, [game.moves]);
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {/* Game header */}
+      <Box sx={{ p: 1.5, borderBottom: '1px solid #333' }}>
+        <Typography variant="body2" sx={{ color: '#e0e0e0', fontWeight: 600, fontSize: 13 }}>
+          {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} vs {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+          <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#444', color: '#ccc' }} />
+          {game.eco && <Chip label={game.eco} size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#3949ab', color: '#fff' }} />}
+          {game.date && <Typography variant="caption" sx={{ color: '#777', fontSize: 10 }}>{game.date}</Typography>}
+          {game.event && <Typography variant="caption" sx={{ color: '#666', fontSize: 10, ml: 0.5 }}>· {game.event}</Typography>}
+        </Box>
+      </Box>
+
+      {/* Move list */}
+      <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, alignItems: 'baseline' }}>
+          {movePairs.map(pair => (
+            <Box key={pair.num} sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.3 }}>
+              <Typography component="span" sx={{ color: '#666', fontSize: 12, minWidth: 20, textAlign: 'right', mr: 0.2 }}>
+                {pair.num}.
+              </Typography>
+              <Typography
+                component="span"
+                onClick={() => onMoveIndexChange(pair.white.idx)}
+                sx={{
+                  fontSize: 13,
+                  fontFamily: 'monospace',
+                  cursor: 'pointer',
+                  px: 0.4,
+                  py: 0.1,
+                  borderRadius: 0.5,
+                  color: currentMoveIndex === pair.white.idx ? '#fff' : '#ccc',
+                  bgcolor: currentMoveIndex === pair.white.idx ? '#5c6bc0' : 'transparent',
+                  '&:hover': { bgcolor: currentMoveIndex === pair.white.idx ? '#5c6bc0' : 'rgba(255,255,255,0.08)' },
+                }}
+              >
+                {pair.white.san}
+              </Typography>
+              {pair.black && (
+                <Typography
+                  component="span"
+                  onClick={() => onMoveIndexChange(pair.black!.idx)}
+                  sx={{
+                    fontSize: 13,
+                    fontFamily: 'monospace',
+                    cursor: 'pointer',
+                    px: 0.4,
+                    py: 0.1,
+                    borderRadius: 0.5,
+                    color: currentMoveIndex === pair.black.idx ? '#fff' : '#ccc',
+                    bgcolor: currentMoveIndex === pair.black.idx ? '#5c6bc0' : 'transparent',
+                    '&:hover': { bgcolor: currentMoveIndex === pair.black.idx ? '#5c6bc0' : 'rgba(255,255,255,0.08)' },
+                    mr: 0.5,
+                  }}
+                >
+                  {pair.black.san}
+                </Typography>
+              )}
+            </Box>
+          ))}
+          {game.result && game.result !== '*' && (
+            <Typography component="span" sx={{ color: '#888', fontSize: 12, fontWeight: 600, ml: 0.5 }}>
+              {game.result}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+
+      {/* Navigation controls */}
+      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, p: 0.5, borderTop: '1px solid #333' }}>
+        <Tooltip title="Start">
+          <IconButton size="small" onClick={() => onMoveIndexChange(-1)} disabled={currentMoveIndex === -1} sx={{ color: '#aaa' }}>
+            <FirstPage fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Previous">
+          <IconButton size="small" onClick={() => onMoveIndexChange(Math.max(-1, currentMoveIndex - 1))} disabled={currentMoveIndex === -1} sx={{ color: '#aaa' }}>
+            <ChevronLeft fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Typography variant="caption" sx={{ color: '#888', alignSelf: 'center', minWidth: 50, textAlign: 'center' }}>
+          {currentMoveIndex + 1} / {game.moves.length}
+        </Typography>
+        <Tooltip title="Next">
+          <IconButton size="small" onClick={() => onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1))} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: '#aaa' }}>
+            <ChevronRight fontSize="small" />
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="End">
+          <IconButton size="small" onClick={() => onMoveIndexChange(game.moves.length - 1)} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: '#aaa' }}>
+            <LastPage fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
+    </Box>
+  );
+}

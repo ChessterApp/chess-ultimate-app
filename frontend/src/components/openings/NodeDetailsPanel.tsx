@@ -23,12 +23,14 @@ interface NodeDetailsPanelProps {
   masterGames?: GameSearchResult[];
   masterGamesTotal?: number;
   masterGamesLoading?: boolean;
+  onOpenGame?: (game: any) => void;
 }
 
 export default function NodeDetailsPanel({
   node, onUpdateNotes, onToggleCritical, onDeleteNode,
   onSearchGames, gameLinks, gameLinksLoading,
   masterGames = [], masterGamesTotal = 0, masterGamesLoading = false,
+  onOpenGame,
 }: NodeDetailsPanelProps) {
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState('');
@@ -177,7 +179,11 @@ export default function NodeDetailsPanel({
           <Box>
             <List dense sx={{ p: 0 }}>
               {masterGames.map((g, idx) => (
-                <ListItem key={`master-${g.id || idx}`} sx={{ px: 0, py: 0.3 }}>
+                <ListItem
+                  key={`master-${g.id || idx}`}
+                  sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
+                  onClick={() => onOpenGame?.(g)}
+                >
                   <ListItemText
                     primary={
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

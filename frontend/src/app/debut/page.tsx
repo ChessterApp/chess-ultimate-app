@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Box, Typography, Snackbar, Alert } from '@mui/material';
+import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import dynamic from 'next/dynamic';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
 import type { OpeningNode, GameSearchResult, GameLink } from '@/hooks/useOpeningRepertoire';
@@ -14,6 +14,9 @@ const OpeningTree = dynamic(() => import('@/components/openings/OpeningTree'), {
 const NodeDetailsPanel = dynamic(() => import('@/components/openings/NodeDetailsPanel'), { ssr: false });
 const PgnImporter = dynamic(() => import('@/components/openings/PgnImporter'), { ssr: false });
 const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPanel'), { ssr: false });
+
+import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
+import { Close } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -43,6 +46,11 @@ export default function DebutPage() {
   const [masterGames, setMasterGames] = useState<GameSearchResult[]>([]);
   const [masterGamesTotal, setMasterGamesTotal] = useState(0);
   const [masterGamesLoading, setMasterGamesLoading] = useState(false);
+
+  // ─── Game viewer tabs ───
+  const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
+  const [activeTab, setActiveTab] = useState<string>('debut');
+  const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
@@ -319,6 +327,69 @@ export default function DebutPage() {
     setGameSearchOpen(true);
   }, []);
 
+  // ─── Game viewer handlers ───
+  const handleOpenGame = useCallback((game: any) => {
+    const gameId = String(game.id || `${game.white_name || game.white}-${game.black_name || game.black}-${game.date}`);
+    const existing = openedGames.find(g => g.id === gameId);
+    if (existing) {
+      setActiveTab(gameId);
+      return;
+    }
+
+    if (!game.pgn) {
+      setSnackbar({ open: true, msg: 'No PGN data available for this game', severity: 'error' });
+      return;
+    }
+
+    if (openedGames.length >= 10) {
+      setSnackbar({ open: true, msg: 'Max 10 game tabs. Close some first.', severity: 'error' });
+      return;
+    }
+
+    const parsed = parseGamePgn(game.pgn);
+    const newGame: OpenedGame = {
+      id: gameId,
+      white: game.white_name || game.white || '?',
+      black: game.black_name || game.black || '?',
+      whiteElo: game.white_elo,
+      blackElo: game.black_elo,
+      result: game.result || '*',
+      eco: game.eco,
+      date: game.date || game.year?.toString(),
+      event: game.event,
+      pgn: game.pgn,
+      moves: parsed.moves,
+      fens: parsed.fens,
+      startingFen: parsed.startingFen,
+    };
+
+    setOpenedGames(prev => [...prev, newGame]);
+    setGameMoveIndices(prev => ({ ...prev, [gameId]: -1 }));
+    setActiveTab(gameId);
+  }, [openedGames, setSnackbar]);
+
+  const handleCloseGame = useCallback((gameId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setOpenedGames(prev => prev.filter(g => g.id !== gameId));
+    setGameMoveIndices(prev => {
+      const next = { ...prev };
+      delete next[gameId];
+      return next;
+    });
+    if (activeTab === gameId) setActiveTab('debut');
+  }, [activeTab]);
+
+  const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
+    setGameMoveIndices(prev => ({ ...prev, [gameId]: moveIndex }));
+  }, []);
+
+  const activeGame = openedGames.find(g => g.id === activeTab);
+  const activeGameFen = activeGame
+    ? (gameMoveIndices[activeGame.id] ?? -1) === -1
+      ? activeGame.startingFen
+      : activeGame.fens[gameMoveIndices[activeGame.id]] || activeGame.startingFen
+    : null;
+
   const handleLinkGame = useCallback(async (game: GameSearchResult) => {
     if (!selectedNode) return;
     try {
@@ -376,6 +447,42 @@ export default function DebutPage() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: '#1a1a1a' }}>
+      {/* Tab bar */}
+      {openedGames.length > 0 && (
+        <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
+          <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#555', borderRadius: 2 } }}>
+            <Chip
+              label="📖 Debut"
+              onClick={() => setActiveTab('debut')}
+              sx={{
+                height: 28, fontSize: 12, fontWeight: 600,
+                bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#333',
+                color: activeTab === 'debut' ? '#fff' : '#aaa',
+                '&:hover': { bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#444' },
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            />
+            {openedGames.map(g => (
+              <Chip
+                key={g.id}
+                label={`♟ ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
+                onClick={() => setActiveTab(g.id)}
+                onDelete={() => handleCloseGame(g.id)}
+                deleteIcon={<Close sx={{ fontSize: 14, color: '#aaa', '&:hover': { color: '#fff' } }} />}
+                sx={{
+                  height: 28, fontSize: 11, maxWidth: 200,
+                  bgcolor: activeTab === g.id ? '#5c6bc0' : '#333',
+                  color: activeTab === g.id ? '#fff' : '#aaa',
+                  '&:hover': { bgcolor: activeTab === g.id ? '#5c6bc0' : '#444' },
+                  cursor: 'pointer', flexShrink: 0,
+                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                }}
+              />
+            ))}
+          </Box>
+        </Box>
+      )}
+
       {/* Main content */}
       <Box sx={{
         display: 'flex',
@@ -392,15 +499,15 @@ export default function DebutPage() {
           flexShrink: 0,
         }}>
           <DebutBoard
-            fen={boardFen}
+            fen={activeGameFen || boardFen}
             orientation={boardOrientation}
-            onMove={handleBoardMove}
+            onMove={activeTab === 'debut' ? handleBoardMove : (() => {})}
             customArrows={boardArrows}
-            onReset={handleReset}
-            onGoToStart={handleGoToStart}
-            onPrev={handlePrev}
-            onNext={handleNext}
-            onGoToEnd={handleGoToEnd}
+            onReset={activeTab === 'debut' ? handleReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
+            onGoToStart={activeTab === 'debut' ? handleGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
+            onPrev={activeTab === 'debut' ? handlePrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))}
+            onNext={activeTab === 'debut' ? handleNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))}
+            onGoToEnd={activeTab === 'debut' ? handleGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)}
             onFlip={handleFlip}
           />
         </Box>
@@ -416,64 +523,75 @@ export default function DebutPage() {
           minWidth: 0,
           maxHeight: { lg: 'calc(100vh - 32px)' },
         }}>
-          {/* Repertoire selector */}
-          <RepertoireSelector
-            repertoires={repertoires}
-            selectedId={selectedRepertoireId}
-            onSelect={setSelectedRepertoireId}
-            onCreate={handleCreateRepertoire}
-            onRename={handleRenameRepertoire}
-            onDelete={handleDeleteRepertoire}
-            onImportPgn={() => setPgnImporterOpen(true)}
-            onExportPgn={handleExportPgn}
-            loading={loading}
-          />
-
-          {/* Tree + Details split */}
-          <Box sx={{
-            display: 'flex',
-            flexDirection: { xs: 'column', md: 'row' },
-            flex: 1,
-            minHeight: 0,
-            overflow: 'hidden',
-          }}>
-            {/* Tree */}
-            <Box sx={{
-              flex: 1,
-              borderRight: { md: '1px solid #333' },
-              borderBottom: { xs: '1px solid #333', md: 'none' },
-              overflow: 'auto',
-              minHeight: { xs: 200, md: 0 },
-              maxHeight: { xs: 300, md: 'none' },
-            }}>
-              <OpeningTree
-                tree={currentTree}
-                selectedNodeId={selectedNode?.id || null}
-                onNodeSelect={handleNodeSelect}
-                loading={treeLoading}
+          {activeTab === 'debut' ? (
+            <>
+              {/* Repertoire selector */}
+              <RepertoireSelector
+                repertoires={repertoires}
+                selectedId={selectedRepertoireId}
+                onSelect={setSelectedRepertoireId}
+                onCreate={handleCreateRepertoire}
+                onRename={handleRenameRepertoire}
+                onDelete={handleDeleteRepertoire}
+                onImportPgn={() => setPgnImporterOpen(true)}
+                onExportPgn={handleExportPgn}
+                loading={loading}
               />
-            </Box>
 
-            {/* Details */}
-            <Box sx={{
-              flex: 1,
-              overflow: 'auto',
-              minHeight: { xs: 200, md: 0 },
-            }}>
-              <NodeDetailsPanel
-                node={selectedNode}
-                onUpdateNotes={handleUpdateNotes}
-                onToggleCritical={handleToggleCritical}
-                onDeleteNode={handleDeleteNode}
-                onSearchGames={handleSearchGames}
-                gameLinks={gameLinks}
-                gameLinksLoading={gameLinksLoading}
-                masterGames={masterGames}
-                masterGamesTotal={masterGamesTotal}
-                masterGamesLoading={masterGamesLoading}
-              />
-            </Box>
-          </Box>
+              {/* Tree + Details split */}
+              <Box sx={{
+                display: 'flex',
+                flexDirection: { xs: 'column', md: 'row' },
+                flex: 1,
+                minHeight: 0,
+                overflow: 'hidden',
+              }}>
+                {/* Tree */}
+                <Box sx={{
+                  flex: 1,
+                  borderRight: { md: '1px solid #333' },
+                  borderBottom: { xs: '1px solid #333', md: 'none' },
+                  overflow: 'auto',
+                  minHeight: { xs: 200, md: 0 },
+                  maxHeight: { xs: 300, md: 'none' },
+                }}>
+                  <OpeningTree
+                    tree={currentTree}
+                    selectedNodeId={selectedNode?.id || null}
+                    onNodeSelect={handleNodeSelect}
+                    loading={treeLoading}
+                  />
+                </Box>
+
+                {/* Details */}
+                <Box sx={{
+                  flex: 1,
+                  overflow: 'auto',
+                  minHeight: { xs: 200, md: 0 },
+                }}>
+                  <NodeDetailsPanel
+                    node={selectedNode}
+                    onUpdateNotes={handleUpdateNotes}
+                    onToggleCritical={handleToggleCritical}
+                    onDeleteNode={handleDeleteNode}
+                    onSearchGames={handleSearchGames}
+                    gameLinks={gameLinks}
+                    gameLinksLoading={gameLinksLoading}
+                    masterGames={masterGames}
+                    masterGamesTotal={masterGamesTotal}
+                    masterGamesLoading={masterGamesLoading}
+                    onOpenGame={handleOpenGame}
+                  />
+                </Box>
+              </Box>
+            </>
+          ) : activeGame ? (
+            <GameViewerPanel
+              game={activeGame}
+              currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
+              onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+            />
+          ) : null}
         </Box>
       </Box>
 
