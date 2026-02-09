@@ -1,13 +1,16 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, IconButton, Tooltip } from '@mui/material';
+import { Backspace, DeleteSweep } from '@mui/icons-material';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
 
 interface MoveNotationProps {
   tree: OpeningNode | null;
   selectedNodeId: string | null;
   onNodeSelect: (node: OpeningNode) => void;
+  onDeleteLast?: () => void;
+  onDeleteAll?: () => void;
   loading: boolean;
 }
 
@@ -191,7 +194,7 @@ function renderTree(
   return elements;
 }
 
-export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loading }: MoveNotationProps) {
+export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading }: MoveNotationProps) {
   const selectedRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -222,23 +225,66 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loadi
     );
   }
 
+  const hasContent = elements.length > 0;
+
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'baseline',
-        gap: '1px 3px',
-        px: { xs: 1, lg: 1.5 },
-        py: { xs: 0.5, lg: 0.75 },
-        overflow: 'auto',
-        fontSize: { xs: 12.5, lg: 13 },
-        fontFamily: '"Roboto Mono", "SF Mono", "Fira Code", monospace',
-        lineHeight: 1.65,
-        letterSpacing: '-0.01em',
-      }}
-    >
-      {elements}
+    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+      {/* Notation content */}
+      <Box
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'baseline',
+          gap: '1px 3px',
+          px: { xs: 1, lg: 1.5 },
+          py: { xs: 0.5, lg: 0.75 },
+          overflow: 'auto',
+          flex: 1,
+          fontSize: { xs: 12.5, lg: 13 },
+          fontFamily: '"Roboto Mono", "SF Mono", "Fira Code", monospace',
+          lineHeight: 1.65,
+          letterSpacing: '-0.01em',
+        }}
+      >
+        {elements}
+      </Box>
+
+      {/* Action bar */}
+      {hasContent && (onDeleteLast || onDeleteAll) && (
+        <Box sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'flex-end',
+          gap: 0.25,
+          px: 0.5,
+          py: 0.25,
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          {onDeleteLast && (
+            <Tooltip title="Delete last move" arrow placement="top">
+              <IconButton
+                size="small"
+                onClick={onDeleteLast}
+                disabled={!selectedNodeId}
+                sx={{ color: '#888', p: 0.4, '&:hover': { color: '#e57373', bgcolor: 'rgba(229,115,115,0.08)' } }}
+              >
+                <Backspace sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+          {onDeleteAll && (
+            <Tooltip title="Delete all moves" arrow placement="top">
+              <IconButton
+                size="small"
+                onClick={onDeleteAll}
+                sx={{ color: '#888', p: 0.4, '&:hover': { color: '#e57373', bgcolor: 'rgba(229,115,115,0.08)' } }}
+              >
+                <DeleteSweep sx={{ fontSize: 15 }} />
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
+      )}
     </Box>
   );
 }

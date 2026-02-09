@@ -307,6 +307,28 @@ export default function DebutPage() {
     }
   }, [deleteNode, selectedRepertoireId, fetchTree, selectedNode, currentTree, findNode, handleNodeSelect]);
 
+  const handleDeleteLastMove = useCallback(async () => {
+    if (!selectedNode || !selectedNode.move_san) return; // Can't delete root
+    await handleDeleteNode(selectedNode.id);
+  }, [selectedNode, handleDeleteNode]);
+
+  const handleDeleteAllMoves = useCallback(async () => {
+    if (!currentTree || !selectedRepertoireId) return;
+    const rootChildren = currentTree.children || [];
+    if (rootChildren.length === 0) return;
+    if (!window.confirm('Delete all moves in this repertoire?')) return;
+    try {
+      // Delete all root children (each deletes its subtree)
+      for (const child of rootChildren) {
+        await deleteNode(child.id);
+      }
+      await fetchTree(selectedRepertoireId);
+      handleNodeSelect(currentTree);
+    } catch (e: any) {
+      setSnackbar({ open: true, msg: e.message, severity: 'error' });
+    }
+  }, [currentTree, selectedRepertoireId, deleteNode, fetchTree, handleNodeSelect]);
+
   const handleImportPgn = useCallback(async (pgn: string, maxPly: number) => {
     if (!selectedRepertoireId) throw new Error('No repertoire selected');
     const result = await importPgn(selectedRepertoireId, pgn, maxPly);
@@ -539,6 +561,8 @@ export default function DebutPage() {
                 tree={currentTree}
                 selectedNodeId={selectedNode?.id || null}
                 onNodeSelect={handleNodeSelect}
+                onDeleteLast={handleDeleteLastMove}
+                onDeleteAll={handleDeleteAllMoves}
                 loading={treeLoading}
               />
             </Box>
