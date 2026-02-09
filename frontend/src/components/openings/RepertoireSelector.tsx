@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   Box, Select, MenuItem, IconButton, Button, Dialog, DialogTitle,
   DialogContent, DialogActions, TextField, ToggleButton, ToggleButtonGroup,
@@ -27,6 +28,7 @@ export default function RepertoireSelector({
   repertoires, selectedId, onSelect, onCreate, onRename, onDelete,
   onImportPgn, onExportPgn, loading,
 }: RepertoireSelectorProps) {
+  const t = useTranslations('debut');
   const [createOpen, setCreateOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -122,15 +124,15 @@ export default function RepertoireSelector({
           setMenuAnchor(null);
         }}>
           <ListItemIcon><Edit fontSize="small" /></ListItemIcon>
-          <ListItemText>Rename</ListItemText>
+          <ListItemText>{t('rename')}</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => { onImportPgn(); setMenuAnchor(null); }}>
           <ListItemIcon><FileUpload fontSize="small" /></ListItemIcon>
-          <ListItemText>Import PGN</ListItemText>
+          <ListItemText>{t('importPgn')}</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => { onExportPgn(); setMenuAnchor(null); }}>
           <ListItemIcon><FileDownload fontSize="small" /></ListItemIcon>
-          <ListItemText>Export PGN</ListItemText>
+          <ListItemText>{t('exportPgn')}</ListItemText>
         </MenuItem>
         <MenuItem onClick={() => {
           setEditingId(selectedId);
@@ -138,17 +140,17 @@ export default function RepertoireSelector({
           setMenuAnchor(null);
         }} sx={{ color: '#f44336' }}>
           <ListItemIcon><Delete fontSize="small" sx={{ color: '#f44336' }} /></ListItemIcon>
-          <ListItemText>Delete</ListItemText>
+          <ListItemText>{t('delete')}</ListItemText>
         </MenuItem>
       </Menu>
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
-        <DialogTitle>New Repertoire</DialogTitle>
+        <DialogTitle>{t('newRepertoire')}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important', minWidth: 300 }}>
           <TextField
             autoFocus
-            label="Name"
+            label={t('name')}
             value={newName}
             onChange={e => setNewName(e.target.value)}
             size="small"
@@ -163,23 +165,23 @@ export default function RepertoireSelector({
             onChange={(_, v) => v && setNewColor(v)}
             size="small"
           >
-            <ToggleButton value="w" sx={{ color: '#e0e0e0' }}>♔ White</ToggleButton>
-            <ToggleButton value="b" sx={{ color: '#e0e0e0' }}>♚ Black</ToggleButton>
+            <ToggleButton value="w" sx={{ color: '#e0e0e0' }}>{`♔ ${t('white')}`}</ToggleButton>
+            <ToggleButton value="b" sx={{ color: '#e0e0e0' }}>{`♚ ${t('black')}`}</ToggleButton>
           </ToggleButtonGroup>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateOpen(false)} sx={{ color: '#aaa' }}>Cancel</Button>
-          <Button onClick={handleCreate} variant="contained" disabled={!newName.trim()}>Create</Button>
+          <Button onClick={() => setCreateOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={handleCreate} variant="contained" disabled={!newName.trim()}>{t('create')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* Rename Dialog */}
       <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
-        <DialogTitle>Rename Repertoire</DialogTitle>
+        <DialogTitle>{t('renameRepertoire')}</DialogTitle>
         <DialogContent sx={{ pt: '8px !important', minWidth: 300 }}>
           <TextField
             autoFocus
-            label="Name"
+            label={t('name')}
             value={newName}
             onChange={e => setNewName(e.target.value)}
             size="small"
@@ -190,20 +192,20 @@ export default function RepertoireSelector({
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenameOpen(false)} sx={{ color: '#aaa' }}>Cancel</Button>
-          <Button onClick={handleRename} variant="contained" disabled={!newName.trim()}>Rename</Button>
+          <Button onClick={() => setRenameOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={handleRename} variant="contained" disabled={!newName.trim()}>{t('rename')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* Delete Dialog */}
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
-        <DialogTitle>Delete Repertoire?</DialogTitle>
+        <DialogTitle>{t('deleteRepertoireTitle')}</DialogTitle>
         <DialogContent>
-          <Typography>This will permanently delete this repertoire and all its moves.</Typography>
+          <Typography>{t('deleteRepertoireConfirm')}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)} sx={{ color: '#aaa' }}>Cancel</Button>
-          <Button onClick={handleDelete} color="error" variant="contained">Delete</Button>
+          <Button onClick={() => setDeleteOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={handleDelete} color="error" variant="contained">{t('delete')}</Button>
         </DialogActions>
       </Dialog>
     </Box>

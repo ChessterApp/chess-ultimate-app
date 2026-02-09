@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   Box, Typography, Chip, Divider, IconButton, Tooltip,
 } from '@mui/material';
@@ -67,6 +68,7 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
 }
 
 export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange }: GameViewerPanelProps) {
+  const t = useTranslations('debut');
   // Keyboard navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -100,7 +102,7 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
       {/* Game header */}
       <Box sx={{ p: 1.5, borderBottom: '1px solid #333' }}>
         <Typography variant="body2" sx={{ color: '#e0e0e0', fontWeight: 600, fontSize: 13 }}>
-          {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} vs {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
+          {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
           <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#444', color: '#ccc' }} />
@@ -167,12 +169,12 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
 
       {/* Navigation controls */}
       <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, p: 0.5, borderTop: '1px solid #333' }}>
-        <Tooltip title="Start">
+        <Tooltip title={t('navStart')}>
           <IconButton size="small" onClick={() => onMoveIndexChange(-1)} disabled={currentMoveIndex === -1} sx={{ color: '#aaa' }}>
             <FirstPage fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title="Previous">
+        <Tooltip title={t('navPrevious')}>
           <IconButton size="small" onClick={() => onMoveIndexChange(Math.max(-1, currentMoveIndex - 1))} disabled={currentMoveIndex === -1} sx={{ color: '#aaa' }}>
             <ChevronLeft fontSize="small" />
           </IconButton>
@@ -180,12 +182,12 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
         <Typography variant="caption" sx={{ color: '#888', alignSelf: 'center', minWidth: 50, textAlign: 'center' }}>
           {currentMoveIndex + 1} / {game.moves.length}
         </Typography>
-        <Tooltip title="Next">
+        <Tooltip title={t('navNext')}>
           <IconButton size="small" onClick={() => onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1))} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: '#aaa' }}>
             <ChevronRight fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Tooltip title="End">
+        <Tooltip title={t('navEnd')}>
           <IconButton size="small" onClick={() => onMoveIndexChange(game.moves.length - 1)} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: '#aaa' }}>
             <LastPage fontSize="small" />
           </IconButton>

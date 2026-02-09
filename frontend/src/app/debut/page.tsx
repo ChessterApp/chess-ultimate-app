@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import dynamic from 'next/dynamic';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
@@ -21,6 +22,7 @@ import { Close } from '@mui/icons-material';
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 export default function DebutPage() {
+  const t = useTranslations('debut');
   // Auth disabled
   const session = { isLoaded: true, isSignedIn: true };
 
@@ -337,12 +339,12 @@ export default function DebutPage() {
     }
 
     if (!game.pgn) {
-      setSnackbar({ open: true, msg: 'No PGN data available for this game', severity: 'error' });
+      setSnackbar({ open: true, msg: t('noPgnData'), severity: 'error' });
       return;
     }
 
     if (openedGames.length >= 10) {
-      setSnackbar({ open: true, msg: 'Max 10 game tabs. Close some first.', severity: 'error' });
+      setSnackbar({ open: true, msg: t('maxTabsError'), severity: 'error' });
       return;
     }
 
@@ -408,7 +410,7 @@ export default function DebutPage() {
       // Refresh game links
       const links = await getNodeGames(selectedNode.id);
       setGameLinks(links);
-      setSnackbar({ open: true, msg: 'Game linked!', severity: 'success' });
+      setSnackbar({ open: true, msg: t('gameLinked'), severity: 'success' });
     } catch (e: any) {
       setSnackbar({ open: true, msg: e.message, severity: 'error' });
     }
@@ -452,7 +454,7 @@ export default function DebutPage() {
         <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
           <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#555', borderRadius: 2 } }}>
             <Chip
-              label="📖 Debut"
+              label={t('debutTab')}
               onClick={() => setActiveTab('debut')}
               sx={{
                 height: 28, fontSize: 12, fontWeight: 600,

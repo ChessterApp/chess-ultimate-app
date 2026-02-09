@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   Box, Typography, TextField, IconButton, Button, Chip, Divider,
   LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, List, ListItem, ListItemText,
@@ -32,6 +33,7 @@ export default function NodeDetailsPanel({
   masterGames = [], masterGamesTotal = 0, masterGamesLoading = false,
   onOpenGame,
 }: NodeDetailsPanelProps) {
+  const t = useTranslations('debut');
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -44,7 +46,7 @@ export default function NodeDetailsPanel({
   if (!node) {
     return (
       <Box sx={{ p: 2, color: '#888' }}>
-        <Typography variant="body2">Select a move to view details.</Typography>
+        <Typography variant="body2">{t('selectMoveDetails')}</Typography>
       </Box>
     );
   }
@@ -104,7 +106,7 @@ export default function NodeDetailsPanel({
         >
           {node.fen}
         </Typography>
-        <Tooltip title="Copy FEN">
+        <Tooltip title={t('copyFen')}>
           <IconButton size="small" onClick={handleCopyFen} sx={{ color: '#777', p: 0.3 }}>
             <ContentCopy sx={{ fontSize: 14 }} />
           </IconButton>
@@ -117,7 +119,7 @@ export default function NodeDetailsPanel({
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
           <Typography variant="caption" sx={{ color: '#aaa', fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
-            Notes
+            {t('notes')}
           </Typography>
           {!editingNotes && (
             <IconButton size="small" onClick={() => { setNotesText(node.notes || ''); setEditingNotes(true); }} sx={{ color: '#777', p: 0.3 }}>
@@ -135,20 +137,20 @@ export default function NodeDetailsPanel({
               onChange={e => setNotesText(e.target.value)}
               fullWidth
               size="small"
-              placeholder="Add notes about this position..."
+              placeholder={t('addNotesPlaceholder')}
               sx={{
                 '& .MuiInputBase-root': { color: '#e0e0e0', bgcolor: '#2a2a2a', fontSize: 13 },
                 '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
               }}
             />
             <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
-              <Button size="small" variant="contained" onClick={handleSaveNotes} sx={{ fontSize: 11 }}>Save</Button>
-              <Button size="small" onClick={() => setEditingNotes(false)} sx={{ color: '#aaa', fontSize: 11 }}>Cancel</Button>
+              <Button size="small" variant="contained" onClick={handleSaveNotes} sx={{ fontSize: 11 }}>{t('save')}</Button>
+              <Button size="small" onClick={() => setEditingNotes(false)} sx={{ color: '#aaa', fontSize: 11 }}>{t('cancel')}</Button>
             </Box>
           </Box>
         ) : (
           <Typography variant="body2" sx={{ color: node.notes ? '#ccc' : '#666', fontSize: 13, fontStyle: node.notes ? 'normal' : 'italic' }}>
-            {node.notes || 'No notes'}
+            {node.notes || t('noNotes')}
           </Typography>
         )}
       </Box>
@@ -159,7 +161,7 @@ export default function NodeDetailsPanel({
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
           <Storage sx={{ fontSize: 14, color: '#7986cb' }} />
           <Typography variant="caption" sx={{ color: '#aaa', fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
-            Master Games
+            {t('masterGames')}
           </Typography>
           {masterGamesTotal > 0 && (
             <Chip
@@ -173,7 +175,7 @@ export default function NodeDetailsPanel({
         {masterGamesLoading ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
             <CircularProgress size={14} sx={{ color: '#7986cb' }} />
-            <Typography variant="caption" sx={{ color: '#777' }}>Searching position...</Typography>
+            <Typography variant="caption" sx={{ color: '#777' }}>{t('searchingPosition')}</Typography>
           </Box>
         ) : masterGames.length > 0 ? (
           <Box>
@@ -193,7 +195,7 @@ export default function NodeDetailsPanel({
                         <Typography component="span" sx={{ color: '#777', fontSize: 10 }}>
                           ({g.white_elo || '?'})
                         </Typography>
-                        <Typography component="span" sx={{ color: '#888', fontSize: 11 }}>vs</Typography>
+                        <Typography component="span" sx={{ color: '#888', fontSize: 11 }}>{t('vs')}</Typography>
                         <Typography component="span" sx={{ color: '#e0e0e0', fontSize: 12 }}>
                           {g.black_name || g.black || '?'}
                         </Typography>
@@ -223,13 +225,13 @@ export default function NodeDetailsPanel({
                 onClick={() => onSearchGames(node!.fen)}
                 sx={{ color: '#7986cb', fontSize: 11, textTransform: 'none', mt: 0.5 }}
               >
-                View all {masterGamesTotal.toLocaleString()} games →
+                {t('viewAllGames', { count: masterGamesTotal.toLocaleString() })}
               </Button>
             )}
           </Box>
         ) : (
           <Typography variant="body2" sx={{ color: '#555', fontSize: 12, fontStyle: 'italic' }}>
-            No master games found for this position.
+            {t('noMasterGames')}
           </Typography>
         )}
       </Box>
@@ -240,13 +242,13 @@ export default function NodeDetailsPanel({
           <Divider sx={{ borderColor: '#333' }} />
           <Box>
             <Typography variant="caption" sx={{ color: '#aaa', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
-              Training
+              {t('training')}
             </Typography>
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
               {isMastered && <Chip icon={<CheckCircle />} label="Mastered" size="small" sx={{ bgcolor: '#1b5e20', color: '#fff' }} />}
               {needsReview && !isMastered && <Chip icon={<Schedule />} label="Due for Review" size="small" sx={{ bgcolor: '#e65100', color: '#fff' }} />}
-              {isUntrained && <Chip label="Untrained" size="small" sx={{ bgcolor: '#333', color: '#888' }} />}
+              {isUntrained && <Chip label={t('untrained')} size="small" sx={{ bgcolor: '#333', color: '#888' }} />}
             </Box>
 
             {node.times_trained > 0 && (
@@ -289,7 +291,7 @@ export default function NodeDetailsPanel({
               color: node.is_critical ? '#ffd700' : '#aaa', fontSize: 11, textTransform: 'none',
             }}
           >
-            {node.is_critical ? 'Critical ★' : 'Mark Critical'}
+            {node.is_critical ? t('critical') : t('markCritical')}
           </Button>
         )}
 
@@ -299,7 +301,7 @@ export default function NodeDetailsPanel({
           onClick={() => onSearchGames(node.fen)}
           sx={{ color: '#aaa', fontSize: 11, textTransform: 'none' }}
         >
-          Search Games
+          {t('searchGames')}
         </Button>
 
         {!isRoot && (
@@ -309,7 +311,7 @@ export default function NodeDetailsPanel({
             onClick={() => setDeleteOpen(true)}
             sx={{ color: '#f44336', fontSize: 11, textTransform: 'none' }}
           >
-            Delete
+            {t('delete')}
           </Button>
         )}
       </Box>
@@ -326,7 +328,7 @@ export default function NodeDetailsPanel({
               {gameLinks.map(g => (
                 <ListItem key={g.id} sx={{ px: 0, py: 0.3 }}>
                   <ListItemText
-                    primary={`${g.white_player || '?'} vs ${g.black_player || '?'}`}
+                    primary={`${g.white_player || '?'} ${t('vs')} ${g.black_player || '?'}`}
                     secondary={`${g.result || ''} · ${g.date_played || ''}`}
                     primaryTypographyProps={{ sx: { color: '#ccc', fontSize: 12 } }}
                     secondaryTypographyProps={{ sx: { color: '#777', fontSize: 10 } }}
@@ -341,13 +343,13 @@ export default function NodeDetailsPanel({
 
       {/* Delete confirmation */}
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
-        <DialogTitle>Delete Move?</DialogTitle>
+        <DialogTitle>{t('deleteMoveTitle')}</DialogTitle>
         <DialogContent>
-          <Typography>Delete <strong>{moveDisplay}</strong> and all child moves? This cannot be undone.</Typography>
+          <Typography>{t('deleteMoveConfirm', { move: moveDisplay })}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)} sx={{ color: '#aaa' }}>Cancel</Button>
-          <Button onClick={() => { onDeleteNode(node.id); setDeleteOpen(false); }} color="error" variant="contained">Delete</Button>
+          <Button onClick={() => setDeleteOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={() => { onDeleteNode(node.id); setDeleteOpen(false); }} color="error" variant="contained">{t('delete')}</Button>
         </DialogActions>
       </Dialog>
     </Box>

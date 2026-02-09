@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   Box, Typography, IconButton, Chip, Tooltip, Button,
 } from '@mui/material';
@@ -56,6 +57,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
   expandedIds: Set<string>;
   onToggle: (id: string) => void;
 }) {
+  const t = useTranslations('debut');
   const hasChildren = (node.children?.length || 0) > 0;
   const isExpanded = expandedIds.has(node.id);
   const isSelected = node.id === selectedId;
@@ -118,7 +120,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
             fontWeight: isSelected ? 600 : 400,
           }}
         >
-          {isRoot ? '(start)' : moveText}
+          {isRoot ? t('start') : moveText}
         </Typography>
 
         {/* ECO chip */}
@@ -173,6 +175,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
 export default function OpeningTree({
   tree, selectedNodeId, onNodeSelect, loading,
 }: OpeningTreeProps) {
+  const t = useTranslations('debut');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Auto-expand path to selected node
@@ -241,11 +244,11 @@ export default function OpeningTree({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderBottom: '1px solid #333' }}>
         <Button size="small" startIcon={<UnfoldMore sx={{ fontSize: 14 }} />} onClick={expandAll}
           sx={{ color: '#aaa', fontSize: 11, textTransform: 'none', minWidth: 0, px: 1 }}>
-          Expand
+          {t('expand')}
         </Button>
         <Button size="small" startIcon={<UnfoldLess sx={{ fontSize: 14 }} />} onClick={collapseAll}
           sx={{ color: '#aaa', fontSize: 11, textTransform: 'none', minWidth: 0, px: 1 }}>
-          Collapse
+          {t('collapse')}
         </Button>
         <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
           <Tooltip title="Critical position"><Star sx={{ fontSize: 12, color: '#ffd700' }} /></Tooltip>
