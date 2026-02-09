@@ -1,14 +1,14 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, Typography, Button, Chip, Divider,
+  Box, Typography, Button, Chip, Divider, IconButton,
   List, ListItem, ListItemText,
   CircularProgress,
 } from '@mui/material';
 import {
-  Storage,
+  Storage, ChevronLeft, ChevronRight,
 } from '@mui/icons-material';
 import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
 
@@ -33,6 +33,14 @@ export default function NodeDetailsPanel({
   onOpenGame,
 }: NodeDetailsPanelProps) {
   const t = useTranslations('debut');
+  const [gamesPage, setGamesPage] = useState(0);
+  const GAMES_PER_PAGE = 10;
+
+  // Reset page when node changes
+  useEffect(() => {
+    setGamesPage(0);
+  }, [node?.id]);
+
   if (!node) {
     return (
       <Box sx={{ p: 2, color: '#888' }}>
@@ -89,7 +97,7 @@ export default function NodeDetailsPanel({
         ) : masterGames.length > 0 ? (
           <Box>
             <List dense sx={{ p: 0 }}>
-              {masterGames.map((g, idx) => (
+              {masterGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE).map((g, idx) => (
                 <ListItem
                   key={`master-${g.id || idx}`}
                   sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
@@ -128,7 +136,33 @@ export default function NodeDetailsPanel({
                 </ListItem>
               ))}
             </List>
-            {masterGamesTotal > 15 && (
+
+            {/* Pagination controls */}
+            {masterGames.length > GAMES_PER_PAGE && (
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1, mt: 0.5 }}>
+                <IconButton
+                  size="small"
+                  disabled={gamesPage === 0}
+                  onClick={() => setGamesPage(p => p - 1)}
+                  sx={{ color: '#aaa', p: 0.3 }}
+                >
+                  <ChevronLeft sx={{ fontSize: 18 }} />
+                </IconButton>
+                <Typography variant="caption" sx={{ color: '#888', fontSize: 11 }}>
+                  {gamesPage + 1} / {Math.ceil(masterGames.length / GAMES_PER_PAGE)}
+                </Typography>
+                <IconButton
+                  size="small"
+                  disabled={(gamesPage + 1) * GAMES_PER_PAGE >= masterGames.length}
+                  onClick={() => setGamesPage(p => p + 1)}
+                  sx={{ color: '#aaa', p: 0.3 }}
+                >
+                  <ChevronRight sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Box>
+            )}
+
+            {masterGamesTotal > masterGames.length && (
               <Button
                 size="small"
                 onClick={() => onSearchGames(node!.fen)}

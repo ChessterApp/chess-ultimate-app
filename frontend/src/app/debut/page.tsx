@@ -125,7 +125,7 @@ export default function DebutPage() {
     let cancelled = false;
     setMasterGamesLoading(true);
 
-    fetchGamesByPosition(selectedNode.fen, 15)
+    fetchGamesByPosition(selectedNode.fen, 50)
       .then((data) => {
         if (!cancelled) {
           setMasterGames(data.games);
@@ -553,9 +553,9 @@ export default function DebutPage() {
           flex: 1,
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: '#222',
-          borderRadius: 1,
-          overflow: 'hidden',
+          bgcolor: { xs: 'transparent', lg: '#222' },
+          borderRadius: { xs: 0, lg: 1 },
+          overflow: { xs: 'visible', lg: 'hidden' },
           minWidth: 0,
           maxHeight: { lg: 'calc(100vh - 32px)' },
         }}>
