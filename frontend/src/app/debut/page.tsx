@@ -449,41 +449,39 @@ export default function DebutPage() {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: '#1a1a1a' }}>
-      {/* Tab bar */}
-      {openedGames.length > 0 && (
-        <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
-          <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#555', borderRadius: 2 } }}>
+      {/* Tab bar — always visible */}
+      <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
+        <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#555', borderRadius: 2 } }}>
+          <Chip
+            label={t('debutTab')}
+            onClick={() => setActiveTab('debut')}
+            sx={{
+              height: 28, fontSize: 12, fontWeight: 600,
+              bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#333',
+              color: activeTab === 'debut' ? '#fff' : '#aaa',
+              '&:hover': { bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#444' },
+              cursor: 'pointer', flexShrink: 0,
+            }}
+          />
+          {openedGames.map(g => (
             <Chip
-              label={t('debutTab')}
-              onClick={() => setActiveTab('debut')}
+              key={g.id}
+              label={`♟ ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
+              onClick={() => setActiveTab(g.id)}
+              onDelete={() => handleCloseGame(g.id)}
+              deleteIcon={<Close sx={{ fontSize: 14, color: '#aaa', '&:hover': { color: '#fff' } }} />}
               sx={{
-                height: 28, fontSize: 12, fontWeight: 600,
-                bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#333',
-                color: activeTab === 'debut' ? '#fff' : '#aaa',
-                '&:hover': { bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#444' },
+                height: 28, fontSize: 11, maxWidth: 200,
+                bgcolor: activeTab === g.id ? '#5c6bc0' : '#333',
+                color: activeTab === g.id ? '#fff' : '#aaa',
+                '&:hover': { bgcolor: activeTab === g.id ? '#5c6bc0' : '#444' },
                 cursor: 'pointer', flexShrink: 0,
+                '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
               }}
             />
-            {openedGames.map(g => (
-              <Chip
-                key={g.id}
-                label={`♟ ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
-                onClick={() => setActiveTab(g.id)}
-                onDelete={() => handleCloseGame(g.id)}
-                deleteIcon={<Close sx={{ fontSize: 14, color: '#aaa', '&:hover': { color: '#fff' } }} />}
-                sx={{
-                  height: 28, fontSize: 11, maxWidth: 200,
-                  bgcolor: activeTab === g.id ? '#5c6bc0' : '#333',
-                  color: activeTab === g.id ? '#fff' : '#aaa',
-                  '&:hover': { bgcolor: activeTab === g.id ? '#5c6bc0' : '#444' },
-                  cursor: 'pointer', flexShrink: 0,
-                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-                }}
-              />
-            ))}
-          </Box>
+          ))}
         </Box>
-      )}
+      </Box>
 
       {/* Main content */}
       <Box sx={{
