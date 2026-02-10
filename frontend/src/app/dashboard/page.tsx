@@ -120,7 +120,7 @@ export default function DashboardPage() {
       id: 'position',
       title: t('dashboard.positionAnalysis'),
       description: t('dashboard.positionAnalysisDesc'),
-      icon: '♟️',
+      icon: '♞',
       href: '/position',
       gradient: 'from-blue-500 to-blue-600'
     },

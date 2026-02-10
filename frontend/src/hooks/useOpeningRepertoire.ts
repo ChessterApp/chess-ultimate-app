@@ -104,6 +104,8 @@ export interface GameSearchResult {
   opening: string | null;
   event: string | null;
   pgn?: string;
+  pgn_offset?: number;
+  pgn_length?: number;
   url?: string;
 }
 
@@ -300,6 +302,11 @@ export function useOpeningRepertoire() {
     return data.count;
   }, []);
 
+  const fetchGamePgn = useCallback(async (gameId: number): Promise<string> => {
+    const data = await apiFetch<{ pgn: string }>(`/games/${gameId}/pgn`);
+    return data.pgn;
+  }, []);
+
   const searchGames = useCallback(async (
     source: string,
     fen: string,
@@ -451,6 +458,7 @@ export function useOpeningRepertoire() {
     // Game search
     fetchGamesByPosition,
     fetchPositionCount,
+    fetchGamePgn,
     searchGames,
     searchGamesStream,
     linkGame,

@@ -65,7 +65,7 @@ export default function DebutPage() {
     addNode, updateNode, deleteNode,
     importPgn, exportPgn,
     addArrow, deleteArrow,
-    fetchGamesByPosition, fetchPositionCount,
+    fetchGamesByPosition, fetchPositionCount, fetchGamePgn,
     searchGamesStream, linkGame, getNodeGames, deleteGameLink,
   } = useOpeningRepertoire();
 
@@ -469,16 +469,11 @@ export default function DebutPage() {
   }, []);
 
   // ─── Game viewer handlers ───
-  const handleOpenGame = useCallback((game: any) => {
+  const handleOpenGame = useCallback(async (game: any) => {
     const gameId = String(game.id || `${game.white_name || game.white}-${game.black_name || game.black}-${game.date}`);
     const existing = openedGames.find(g => g.id === gameId);
     if (existing) {
       setActiveTab(gameId);
-      return;
-    }
-
-    if (!game.pgn) {
-      setSnackbar({ open: true, msg: t('noPgnData'), severity: 'error' });
       return;
     }
 
@@ -487,7 +482,24 @@ export default function DebutPage() {
       return;
     }
 
-    const parsed = parseGamePgn(game.pgn);
+    // If PGN not loaded yet, fetch it on demand
+    let pgnText = game.pgn;
+    if (!pgnText && game.id && (game.pgn_offset !== undefined || game.pgn_length !== undefined)) {
+      try {
+        setSnackbar({ open: true, msg: 'Loading game...', severity: 'success' });
+        pgnText = await fetchGamePgn(Number(game.id));
+      } catch (e: any) {
+        setSnackbar({ open: true, msg: e.message || 'Failed to load PGN', severity: 'error' });
+        return;
+      }
+    }
+
+    if (!pgnText) {
+      setSnackbar({ open: true, msg: t('noPgnData'), severity: 'error' });
+      return;
+    }
+
+    const parsed = parseGamePgn(pgnText);
     const newGame: OpenedGame = {
       id: gameId,
       white: game.white_name || game.white || '?',
@@ -498,7 +510,7 @@ export default function DebutPage() {
       eco: game.eco,
       date: game.date || game.year?.toString(),
       event: game.event,
-      pgn: game.pgn,
+      pgn: pgnText,
       moves: parsed.moves,
       fens: parsed.fens,
       startingFen: parsed.startingFen,
@@ -507,7 +519,7 @@ export default function DebutPage() {
     setOpenedGames(prev => [...prev, newGame]);
     setGameMoveIndices(prev => ({ ...prev, [gameId]: -1 }));
     setActiveTab(gameId);
-  }, [openedGames, setSnackbar]);
+  }, [openedGames, setSnackbar, fetchGamePgn]);
 
   const handleCloseGame = useCallback((gameId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -759,6 +771,7 @@ export default function DebutPage() {
         open={gameSearchOpen}
         onClose={() => setGameSearchOpen(false)}
         onSearch={searchGamesStream}
+        fetchGamePgn={fetchGamePgn}
       />
 
       {/* Snackbar */}

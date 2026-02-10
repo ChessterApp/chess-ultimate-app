@@ -128,7 +128,7 @@ export default function LearnPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
-          <div className="text-6xl mb-4">♟️</div>
+          <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-16 h-16 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('learn.startJourney')}</h1>
           <p className="text-gray-600 mb-6">
             {t('learn.signInPrompt')}

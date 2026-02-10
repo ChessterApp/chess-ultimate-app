@@ -327,15 +327,11 @@ def fetch_internal_games(search_query: str, max_games: int, filter_fen: str = No
         for row in rows:
             game_data = dict(row)
             if filter_fen and game_data.get('pgn_offset') is not None:
-                # Read PGN from master file
+                # Read PGN from master file using exact length
                 try:
                     with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
                         f.seek(game_data['pgn_offset'])
-                        pgn_text = ''
-                        for line in f:
-                            pgn_text += line
-                            if line.strip() in ['1-0', '0-1', '1/2-1/2', '*'] and len(pgn_text) > 50:
-                                break
+                        pgn_text = f.read(game_data['pgn_length'])
 
                         if check_game_reaches_fen(pgn_text, filter_fen, str(game_data.get('id', ''))):
                             game_data['pgn'] = pgn_text
@@ -386,22 +382,32 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
             board_hash = _get_board_hash(filter_fen)
             logger.info(f"Using position hash index for: {board_hash[:40]}...")
 
-            query = """
-                SELECT DISTINCT g.* FROM games g
-                INNER JOIN game_positions gp ON g.id = gp.game_id
-                WHERE gp.board_hash = ?
-            """
-            params = [board_hash]
+            # 2-step: get IDs first (fast index scan), then fetch details
+            pool_size = min(max(max_games * 40, 200), 2000)
+            id_rows = conn.execute(
+                "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
+                [board_hash, pool_size]
+            ).fetchall()
+            game_ids = [r['game_id'] for r in id_rows]
+
+            if not game_ids:
+                conn.close()
+                yield {'type': 'done', 'checked': 0, 'found': 0}
+                return
+
+            placeholders = ','.join('?' * len(game_ids))
+            query = f"SELECT * FROM games WHERE id IN ({placeholders})"
+            params = list(game_ids)
 
             if min_rating > 0:
-                query += " AND (g.white_elo >= ? OR g.black_elo >= ?)"
+                query += " AND (white_elo >= ? OR black_elo >= ?)"
                 params.extend([min_rating, min_rating])
 
             if eco_filter:
-                query += " AND g.eco LIKE ?"
+                query += " AND eco LIKE ?"
                 params.append(f"{eco_filter}%")
 
-            query += " ORDER BY g.date DESC LIMIT ?"
+            query += " ORDER BY date DESC LIMIT ?"
             params.append(max_games)
 
             cursor.execute(query, params)
@@ -409,15 +415,11 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
             for row in cursor.fetchall():
                 game_data = dict(row)
                 # Load PGN
-                if game_data.get('pgn_offset') is not None:
+                if game_data.get('pgn_offset') is not None and game_data.get('pgn_length'):
                     try:
                         with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
                             f.seek(game_data['pgn_offset'])
-                            pgn_text = ''
-                            for line in f:
-                                pgn_text += line
-                                if line.strip() in ['1-0', '0-1', '1/2-1/2', '*'] and len(pgn_text) > 50:
-                                    break
+                            pgn_text = f.read(game_data['pgn_length'])
                             game_data['pgn'] = pgn_text
                     except Exception:
                         pass
@@ -457,13 +459,18 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
 
             if filter_fen and game_data.get('pgn_offset') is not None:
                 try:
+                    pgn_length = game_data.get('pgn_length')
                     with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
                         f.seek(game_data['pgn_offset'])
-                        pgn_text = ''
-                        for line in f:
-                            pgn_text += line
-                            if line.strip() in ['1-0', '0-1', '1/2-1/2', '*'] and len(pgn_text) > 50:
-                                break
+                        if pgn_length:
+                            pgn_text = f.read(pgn_length)
+                        else:
+                            # Fallback: line-by-line with fixed termination
+                            pgn_text = ''
+                            for line in f:
+                                pgn_text += line
+                                if line.strip().endswith(('1-0', '0-1', '1/2-1/2', '*')) and len(pgn_text) > 50:
+                                    break
 
                         if check_game_reaches_fen(pgn_text, filter_fen):
                             game_data['pgn'] = pgn_text
@@ -1822,7 +1829,7 @@ _position_count_cache = {}
 @verify_clerk_token
 def games_by_position():
     """Fast lookup: find games that reach a given FEN using the position hash index.
-    Returns games immediately; total count is served from cache or estimated."""
+    Returns game metadata only (no PGN). PGN is fetched on demand via /games/<id>/pgn."""
     fen = request.args.get('fen', '')
     if not fen:
         return jsonify({'error': 'Missing fen parameter'}), 400
@@ -1841,7 +1848,26 @@ def games_by_position():
 
         board_hash = _get_board_hash(fen)
 
-        # Fast path: get games without blocking on COUNT
+        # Estimate total count from cache or a capped probe
+        cached_count = _position_count_cache.get(board_hash)
+        if cached_count is not None:
+            total = cached_count
+        else:
+            # Quick probe to estimate
+            pool_size = min(max(limit * 40, 200), 2000)
+            probe = conn.execute(
+                "SELECT COUNT(*) as cnt FROM (SELECT 1 FROM game_positions WHERE board_hash = ? LIMIT ?)",
+                [board_hash, pool_size]
+            ).fetchone()['cnt']
+            if probe < pool_size:
+                total = probe
+                _position_count_cache[board_hash] = total
+            else:
+                total = pool_size  # Will be updated by deferred count endpoint
+
+        # 2-step approach: get limited IDs first, then fetch+sort the small set
+        # (JOIN with ORDER BY is too slow on millions of matching rows — SQLite
+        #  materializes all matches before sorting)
         pool_size = min(max(limit * 40, 200), 2000)
         id_rows = conn.execute(
             "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
@@ -1854,19 +1880,11 @@ def games_by_position():
             conn.close()
             return jsonify({'games': [], 'total': 0, 'indexed': True})
 
-        # Use cached count, or estimate from pool
-        cached_count = _position_count_cache.get(board_hash)
-        if cached_count is not None:
-            total = cached_count
-        elif len(game_ids) < pool_size:
-            # Pool wasn't full — exact count
+        # Update total estimate if pool wasn't full
+        if len(game_ids) < pool_size:
             total = len(game_ids)
             _position_count_cache[board_hash] = total
-        else:
-            # Pool is full — we have at least pool_size games, show "N+" estimate
-            total = pool_size  # Will be updated by deferred count endpoint
 
-        # Fetch game details for the pool, filter by rating, sort by strength
         placeholders = ','.join('?' * len(game_ids))
         query = f"SELECT * FROM games WHERE id IN ({placeholders})"
         params = list(game_ids)
@@ -1882,18 +1900,7 @@ def games_by_position():
         games = []
         for row in cursor.fetchall():
             game_data = dict(row)
-            if game_data.get('pgn_offset') is not None:
-                try:
-                    with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
-                        f.seek(game_data['pgn_offset'])
-                        pgn_text = ''
-                        for line in f:
-                            pgn_text += line
-                            if line.strip() in ['1-0', '0-1', '1/2-1/2', '*'] and len(pgn_text) > 50:
-                                break
-                        game_data['pgn'] = pgn_text
-                except Exception:
-                    pass
+            # No PGN — frontend fetches on demand via /games/<id>/pgn
             games.append(game_data)
 
         conn.close()
@@ -1901,10 +1908,35 @@ def games_by_position():
             'games': games,
             'total': total,
             'indexed': True,
-            'count_exact': cached_count is not None or len(game_ids) < pool_size,
+            'count_exact': cached_count is not None,
         })
     except Exception as e:
         logger.error(f"Error in games_by_position: {e}")
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+
+@openings_bp.route('/games/<int:game_id>/pgn', methods=['GET'])
+@verify_clerk_token
+def get_game_pgn(game_id):
+    """Fetch PGN for a single game on demand."""
+    if not check_internal_db_exists():
+        return jsonify({'error': 'Database not available'}), 503
+
+    conn = get_internal_db_connection()
+    try:
+        row = conn.execute("SELECT pgn_offset, pgn_length FROM games WHERE id = ?", [game_id]).fetchone()
+        if not row:
+            conn.close()
+            return jsonify({'error': 'Game not found'}), 404
+        conn.close()
+
+        with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
+            f.seek(row['pgn_offset'])
+            pgn_text = f.read(row['pgn_length'])
+
+        return jsonify({'pgn': pgn_text})
+    except Exception as e:
         conn.close()
         return jsonify({'error': str(e)}), 500
 

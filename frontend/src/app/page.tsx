@@ -20,7 +20,7 @@ const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { 
     <div className={`${sizes[size]} ${className} relative`}>
       <div className="absolute inset-0 bg-gradient-to-br from-purple-400/30 to-indigo-500/30 rounded-3xl border-4 border-dashed border-purple-300/50 flex items-center justify-center backdrop-blur-sm">
         <div className="text-center">
-          <span className="text-4xl md:text-6xl">♟️</span>
+          <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-12 h-12 md:w-16 md:h-16 mx-auto" />
           <p className="text-xs text-purple-200 mt-1 font-medium">{label}</p>
         </div>
       </div>
@@ -206,7 +206,7 @@ export default function HomePage() {
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <span className="text-3xl">♟️</span>
+            <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-8 h-8 inline" />
             <span className="text-xl font-bold text-gray-800">{t('common.chesster')}</span>
           </div>
 
@@ -489,7 +489,7 @@ export default function HomePage() {
       <section className="py-20 bg-gradient-to-br from-purple-600 to-indigo-700 text-white relative overflow-hidden">
         {/* Background decorations */}
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 text-9xl">♟️</div>
+          <div className="absolute top-10 left-10"><img src="/static/images/chesster-logo.png" alt="" className="w-24 h-24 opacity-20" /></div>
           <div className="absolute bottom-10 right-10 text-9xl">♞</div>
           <div className="absolute top-1/2 left-1/4 text-6xl">♜</div>
           <div className="absolute top-1/3 right-1/4 text-7xl">♛</div>
@@ -529,7 +529,7 @@ export default function HomePage() {
             {/* Brand */}
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-3xl">♟️</span>
+                <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-8 h-8 inline" />
                 <span className="text-xl font-bold text-white">{t('common.chesster')}</span>
               </div>
               <p className="text-sm">{t('landing.footer.tagline')}</p>

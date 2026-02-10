@@ -21,9 +21,10 @@ interface GameSearchPanelProps {
     onGame: (game: GameSearchResult) => void,
     onProgress: (p: { checked: number; found: number }) => void,
   ) => () => void;
+  fetchGamePgn?: (gameId: number) => Promise<string>;
 }
 
-export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSearch }: GameSearchPanelProps) {
+export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSearch, fetchGamePgn }: GameSearchPanelProps) {
   const [source, setSource] = useState(0); // 0=internal, 1=lichess, 2=chesscom
   const [username, setUsername] = useState('');
   const [minRating, setMinRating] = useState(2000);
@@ -32,6 +33,8 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
   const [games, setGames] = useState<GameSearchResult[]>([]);
   const [progress, setProgress] = useState({ checked: 0, found: 0 });
   const [expandedPgn, setExpandedPgn] = useState<string | null>(null);
+  const [loadedPgns, setLoadedPgns] = useState<Record<string, string>>({});
+  const [loadingPgnId, setLoadingPgnId] = useState<string | null>(null);
   const abortRef = useRef<(() => void) | null>(null);
 
   const sourceNames = ['internal', 'lichess', 'chesscom'];
@@ -213,13 +216,29 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
                       Link
                     </Button>
 
-                    {game.pgn && (
+                    {(game.pgn || game.pgn_offset !== undefined || loadedPgns[String(game.id)]) && (
                       <IconButton
                         size="small"
-                        onClick={() => setExpandedPgn(expandedPgn === String(game.id) ? null : String(game.id))}
+                        onClick={async () => {
+                          const gid = String(game.id);
+                          if (expandedPgn === gid) {
+                            setExpandedPgn(null);
+                            return;
+                          }
+                          // Lazy-load PGN if not available
+                          if (!game.pgn && !loadedPgns[gid] && fetchGamePgn && game.id) {
+                            setLoadingPgnId(gid);
+                            try {
+                              const pgn = await fetchGamePgn(Number(game.id));
+                              setLoadedPgns(prev => ({ ...prev, [gid]: pgn }));
+                            } catch { /* ignore */ }
+                            setLoadingPgnId(null);
+                          }
+                          setExpandedPgn(gid);
+                        }}
                         sx={{ color: '#777' }}
                       >
-                        {expandedPgn === String(game.id) ? <ExpandLess /> : <ExpandMore />}
+                        {loadingPgnId === String(game.id) ? <CircularProgress size={14} /> : expandedPgn === String(game.id) ? <ExpandLess /> : <ExpandMore />}
                       </IconButton>
                     )}
                   </Box>
@@ -228,7 +247,7 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
                   <Collapse in={expandedPgn === String(game.id)}>
                     <Box sx={{ mt: 0.5, p: 1, bgcolor: '#252525', borderRadius: 1, maxHeight: 120, overflow: 'auto' }}>
                       <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#aaa', fontSize: 11, whiteSpace: 'pre-wrap' }}>
-                        {game.pgn?.slice(0, 1000)}
+                        {(game.pgn || loadedPgns[String(game.id)] || '')?.slice(0, 1000)}
                       </Typography>
                     </Box>
                   </Collapse>

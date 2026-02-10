@@ -24,7 +24,7 @@ export default function NavBar() {
             onClick={() => router.push(isSignedIn ? "/dashboard" : "/")}
             className="text-xl font-bold text-gray-900 hover:text-purple-600 transition-colors flex items-center gap-1"
           >
-            ♟️ Chesster
+            <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-6 h-6" /> Chesster
           </button>
 
           {/* Right side: Language Switcher + User Avatar (if signed in) */}

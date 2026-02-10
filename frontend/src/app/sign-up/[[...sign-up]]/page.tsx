@@ -263,7 +263,7 @@ export default function SignUpPage() {
       <div className="w-full max-w-md px-4">
         {/* Optional: Add Chesster branding above the form */}
         <div className="text-center mb-6">
-          <span className="text-5xl">♟️</span>
+          <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-16 h-16 mx-auto" />
         </div>
 
         <SignUp
