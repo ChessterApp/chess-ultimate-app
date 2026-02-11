@@ -36,10 +36,6 @@ export default function SignInPage() {
           margin-bottom: 1.5rem !important;
         }
 
-        .cl-headerSubtitle {
-          display: none !important;
-        }
-
         /* Input fields - Duolingo style rounded */
         .cl-formFieldInput {
           border: 2px solid #e5e5e5 !important;
@@ -255,7 +251,7 @@ export default function SignInPage() {
               rootBox: 'w-full',
               card: 'shadow-none border-0 bg-white p-8 rounded-3xl',
               headerTitle: 'text-2xl font-bold text-gray-800 text-center',
-              headerSubtitle: 'hidden',
+              headerSubtitle: 'text-sm text-gray-500 text-center',
               formFieldInput: 'rounded-2xl border-2 border-gray-200 py-4 px-5 text-base focus:border-purple-500',
               formFieldLabel: 'hidden',
               formButtonPrimary: 'bg-purple-600 hover:bg-purple-700 rounded-2xl py-4 font-bold uppercase tracking-wide border-b-4 border-purple-800 active:border-b-2 active:translate-y-0.5 transition-all',

@@ -86,6 +86,18 @@ export const metadata: Metadata = {
 
 // Custom localization for Clerk components
 const clerkLocalization = {
+  signIn: {
+    start: {
+      title: 'Sign in to Chesster',
+      subtitle: 'Welcome back! Please sign in to continue',
+    },
+  },
+  signUp: {
+    start: {
+      title: 'Create your Chesster account',
+      subtitle: 'Start your chess journey today',
+    },
+  },
   formFieldInputPlaceholder__firstName: 'Name (optional)',
   formFieldInputPlaceholder__emailAddress: 'Email',
   formFieldInputPlaceholder__password: 'Password',
