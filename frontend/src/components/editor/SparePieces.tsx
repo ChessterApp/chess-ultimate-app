@@ -32,7 +32,7 @@ export default function SparePieces({
         alignItems: "center",
         gap: "2px",
         padding: "4px 8px",
-        backgroundColor: "#2a2a2a",
+        backgroundColor: "var(--surface-raised, #2a2a2a)",
         borderRadius: "4px",
         flexWrap: "wrap",
       }}

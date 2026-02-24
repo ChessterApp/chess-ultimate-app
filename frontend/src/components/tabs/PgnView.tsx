@@ -349,7 +349,7 @@ const PGNView: React.FC<PGNViewProps> = ({
           key={`num-${moveNumber}`}
           component="span"
           sx={{ 
-            color: '#888',
+            color: 'text.secondary',
             mr: 0.3,
             fontFamily: 'monospace',
             fontSize: '12px',
@@ -384,11 +384,11 @@ const PGNView: React.FC<PGNViewProps> = ({
             fontFamily: 'monospace',
             fontSize: '12px',
             height: '20px',
-            backgroundColor: isWhiteSelected ? '#555' : 'transparent',
-            color: isWhiteSelected ? '#fff' : '#ccc',
+            backgroundColor: isWhiteSelected ? 'action.selected' : 'transparent',
+            color: isWhiteSelected ? 'text.primary' : 'text.secondary',
             border: hasWhiteComment ? '1px solid #4FC3F7' : 'none',
             '&:hover': {
-              backgroundColor: isWhiteSelected ? '#666' : '#333',
+              backgroundColor: isWhiteSelected ? 'action.focus' : 'action.hover',
             },
             '& .MuiButton-startIcon': {
               marginRight: '2px',
@@ -426,11 +426,11 @@ const PGNView: React.FC<PGNViewProps> = ({
               fontFamily: 'monospace',
               fontSize: '12px',
               height: '20px',
-              backgroundColor: isBlackSelected ? '#555' : 'transparent',
-              color: isBlackSelected ? '#fff' : '#ccc',
+              backgroundColor: isBlackSelected ? 'action.selected' : 'transparent',
+              color: isBlackSelected ? 'text.primary' : 'text.secondary',
               border: hasBlackComment ? '1px solid #4FC3F7' : 'none',
               '&:hover': {
-                backgroundColor: isBlackSelected ? '#666' : '#333',
+                backgroundColor: isBlackSelected ? 'action.focus' : 'action.hover',
               },
               '& .MuiButton-startIcon': {
                 marginRight: '2px',
@@ -463,7 +463,7 @@ const PGNView: React.FC<PGNViewProps> = ({
             ml: 1,
             px: 1,
             py: 0.5,
-            backgroundColor: '#333',
+            backgroundColor: 'action.hover',
             borderRadius: '3px',
             flexShrink: 0
           }}
@@ -472,7 +472,7 @@ const PGNView: React.FC<PGNViewProps> = ({
         </Typography>
       );
     }
-    
+
     return elements;
   };
 
@@ -510,7 +510,8 @@ const PGNView: React.FC<PGNViewProps> = ({
             alignItems: 'center',
             minHeight: '28px',
             py: 0.5,
-            borderBottom: '1px solid #333',
+            borderBottom: 1,
+            borderColor: 'divider',
             '&:last-child': {
               borderBottom: 'none',
             },
@@ -519,7 +520,7 @@ const PGNView: React.FC<PGNViewProps> = ({
           {/* Move number */}
           <Typography
             sx={{
-              color: '#888',
+              color: 'text.secondary',
               fontFamily: 'monospace',
               fontSize: '12px',
               width: '32px',
@@ -547,12 +548,12 @@ const PGNView: React.FC<PGNViewProps> = ({
               textTransform: 'none',
               fontFamily: 'monospace',
               fontSize: '12px',
-              backgroundColor: isWhiteSelected ? '#555' : 'transparent',
-              color: isWhiteSelected ? '#fff' : '#ccc',
+              backgroundColor: isWhiteSelected ? 'action.selected' : 'transparent',
+              color: isWhiteSelected ? 'text.primary' : 'text.secondary',
               border: hasWhiteComment ? '1px solid #4FC3F7' : '1px solid transparent',
               justifyContent: 'flex-start',
               '&:hover': {
-                backgroundColor: isWhiteSelected ? '#666' : '#333',
+                backgroundColor: isWhiteSelected ? 'action.focus' : 'action.hover',
               },
               '& .MuiButton-startIcon': {
                 marginRight: '4px',
@@ -581,12 +582,12 @@ const PGNView: React.FC<PGNViewProps> = ({
                 textTransform: 'none',
                 fontFamily: 'monospace',
                 fontSize: '12px',
-                backgroundColor: isBlackSelected ? '#555' : 'transparent',
-                color: isBlackSelected ? '#fff' : '#ccc',
+                backgroundColor: isBlackSelected ? 'action.selected' : 'transparent',
+                color: isBlackSelected ? 'text.primary' : 'text.secondary',
                 border: hasBlackComment ? '1px solid #4FC3F7' : '1px solid transparent',
                 justifyContent: 'flex-start',
                 '&:hover': {
-                  backgroundColor: isBlackSelected ? '#666' : '#333',
+                  backgroundColor: isBlackSelected ? 'action.focus' : 'action.hover',
                 },
                 '& .MuiButton-startIcon': {
                   marginRight: '4px',
@@ -623,7 +624,8 @@ const PGNView: React.FC<PGNViewProps> = ({
             display: 'flex',
             justifyContent: 'center',
             py: 1,
-            borderTop: '1px solid #444',
+            borderTop: 1,
+            borderColor: 'divider',
             mt: 1,
           }}
         >
@@ -635,7 +637,7 @@ const PGNView: React.FC<PGNViewProps> = ({
               fontWeight: 'bold',
               px: 2,
               py: 0.5,
-              backgroundColor: '#333',
+              backgroundColor: 'action.hover',
               borderRadius: '4px',
             }}
           >
@@ -644,7 +646,7 @@ const PGNView: React.FC<PGNViewProps> = ({
         </Box>
       );
     }
-    
+
     return elements;
   };
 
@@ -662,15 +664,15 @@ const PGNView: React.FC<PGNViewProps> = ({
           size="small"
           sx={{
             '& .MuiToggleButton-root': {
-              color: '#888',
-              borderColor: '#555',
+              color: 'text.secondary',
+              borderColor: 'divider',
               '&.Mui-selected': {
                 color: '#4FC3F7',
-                backgroundColor: '#333',
+                backgroundColor: 'action.hover',
                 borderColor: '#4FC3F7',
               },
               '&:hover': {
-                backgroundColor: '#333',
+                backgroundColor: 'action.hover',
               },
             },
           }}
@@ -695,14 +697,14 @@ const PGNView: React.FC<PGNViewProps> = ({
             startIcon={<DownloadIcon />}
             onClick={handleDownloadPGN}
             sx={{
-              color: '#ccc',
-              borderColor: '#555',
-              backgroundColor: '#2a2a2a',
+              color: 'text.secondary',
+              borderColor: 'divider',
+              backgroundColor: 'background.paper',
               fontSize: '11px',
               textTransform: 'none',
               '&:hover': {
-                borderColor: '#777',
-                backgroundColor: '#333',
+                borderColor: 'text.secondary',
+                backgroundColor: 'action.hover',
               },
               '& .MuiButton-startIcon': {
                 marginRight: '4px',
@@ -721,9 +723,10 @@ const PGNView: React.FC<PGNViewProps> = ({
           height: `${dimensions.height}px`,
           overflowY: 'auto',
           overflowX: 'hidden',
-          backgroundColor: '#2a2a2a',
+          backgroundColor: 'background.paper',
           borderRadius: 1,
-          border: '1px solid #444',
+          border: 1,
+          borderColor: 'divider',
           px: 1,
           py: 0.5,
           position: 'relative',
@@ -732,14 +735,14 @@ const PGNView: React.FC<PGNViewProps> = ({
             width: '6px',
           },
           '&::-webkit-scrollbar-track': {
-            background: '#1a1a1a',
+            background: 'background.default',
             borderRadius: '3px',
           },
           '&::-webkit-scrollbar-thumb': {
-            background: '#555',
+            background: 'action.disabled',
             borderRadius: '3px',
             '&:hover': {
-              background: '#666',
+              background: 'action.active',
             },
           },
         }}
@@ -763,7 +766,7 @@ const PGNView: React.FC<PGNViewProps> = ({
             </Box>
           )
         ) : (
-          <Typography variant="body2" sx={{ color: '#888', fontSize: '12px' }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '12px' }}>
             No moves to display
           </Typography>
         )}
@@ -778,7 +781,7 @@ const PGNView: React.FC<PGNViewProps> = ({
             width: '16px',
             height: '16px',
             cursor: 'nw-resize',
-            backgroundColor: '#555',
+            backgroundColor: 'action.disabled',
             borderTopRightRadius: '3px',
             opacity: 0.7,
             display: 'flex',
@@ -786,14 +789,14 @@ const PGNView: React.FC<PGNViewProps> = ({
             justifyContent: 'center',
             '&:hover': {
               opacity: 1,
-              backgroundColor: '#666',
+              backgroundColor: 'action.active',
             },
           }}
         >
           <OpenInFullIcon 
             sx={{ 
               fontSize: '10px', 
-              color: '#ccc',
+              color: 'text.secondary',
               transform: 'rotate(180deg)'
             }} 
           />
@@ -812,14 +815,14 @@ const PGNView: React.FC<PGNViewProps> = ({
         }
         sx={{
           '& .MuiPaper-root': {
-            backgroundColor: '#333',
-            color: '#ccc',
+            backgroundColor: 'action.hover',
+            color: 'text.secondary',
           },
         }}
       >
         <MenuItem onClick={() => contextMenu && handleOpenCommentDialog(contextMenu.moveIndex)}>
           <ListItemIcon>
-            <CommentIcon fontSize="small" sx={{ color: '#ccc' }} />
+            <CommentIcon fontSize="small" sx={{ color: 'text.secondary' }} />
           </ListItemIcon>
           <ListItemText>Comment & Annotate</ListItemText>
         </MenuItem>
@@ -833,8 +836,8 @@ const PGNView: React.FC<PGNViewProps> = ({
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: '#2a2a2a',
-            color: '#ccc',
+            backgroundColor: 'background.paper',
+            color: 'text.secondary',
           },
         }}
       >
@@ -843,7 +846,7 @@ const PGNView: React.FC<PGNViewProps> = ({
             <>
               Comment & Annotate Move: {moves[selectedMoveIndex]} 
               {getMoveAnalysis(selectedMoveIndex) && (
-                <Typography variant="body2" component="span" sx={{ ml: 1, color: '#888' }}>
+                <Typography variant="body2" component="span" sx={{ ml: 1, color: 'text.secondary' }}>
                   ({getMoveAnalysis(selectedMoveIndex)?.quality})
                 </Typography>
               )}
@@ -865,31 +868,31 @@ const PGNView: React.FC<PGNViewProps> = ({
             disabled={isAnnotating}
             sx={{
               '& .MuiOutlinedInput-root': {
-                color: '#ccc',
+                color: 'text.secondary',
                 '& fieldset': {
-                  borderColor: '#555',
+                  borderColor: 'divider',
                 },
                 '&:hover fieldset': {
-                  borderColor: '#777',
+                  borderColor: 'text.secondary',
                 },
                 '&.Mui-focused fieldset': {
                   borderColor: '#4FC3F7',
                 },
                 '&.Mui-disabled fieldset': {
-                  borderColor: '#333',
+                  borderColor: 'action.hover',
                 },
               },
               '& .MuiInputLabel-root': {
-                color: '#888',
+                color: 'text.secondary',
                 '&.Mui-focused': {
                   color: '#4FC3F7',
                 },
                 '&.Mui-disabled': {
-                  color: '#666',
+                  color: 'text.disabled',
                 },
               },
               '& .MuiOutlinedInput-input.Mui-disabled': {
-                WebkitTextFillColor: '#999',
+                WebkitTextFillColor: 'text.secondary',
               },
             }}
           />
@@ -906,7 +909,7 @@ const PGNView: React.FC<PGNViewProps> = ({
           <Button
             onClick={handleCloseCommentDialog}
             disabled={isAnnotating}
-            sx={{ color: '#888' }}
+            sx={{ color: 'text.secondary' }}
           >
             Cancel
           </Button>

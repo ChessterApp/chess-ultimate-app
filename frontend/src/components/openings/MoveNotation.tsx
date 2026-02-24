@@ -31,8 +31,8 @@ function MoveSpan({
       component="span"
       onClick={() => onNodeSelect(node)}
       sx={{
-        color: isSelected ? '#fff' : '#ccc',
-        bgcolor: isSelected ? '#555' : 'transparent',
+        color: isSelected ? 'text.primary' : 'text.secondary',
+        bgcolor: isSelected ? 'action.hover' : 'transparent',
         fontFamily: 'monospace',
         fontSize: '12px',
         fontWeight: isSelected ? 600 : 400,
@@ -42,8 +42,8 @@ function MoveSpan({
         cursor: 'pointer',
         transition: 'background-color 0.1s',
         '&:hover': {
-          bgcolor: isSelected ? '#666' : '#333',
-          color: '#fff',
+          bgcolor: isSelected ? 'action.selected' : 'action.hover',
+          color: 'text.primary',
         },
       }}
     >
@@ -57,7 +57,7 @@ function MoveNumber({ text }: { text: string }) {
     <Typography
       component="span"
       sx={{
-        color: '#888',
+        color: 'text.secondary',
         fontFamily: 'monospace',
         fontSize: '12px',
         fontWeight: 500,
@@ -125,14 +125,14 @@ function renderNode(
       >
         <Typography
           component="span"
-          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
+          sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           (
         </Typography>
         {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef)}
         <Typography
           component="span"
-          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
+          sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           )
         </Typography>
@@ -177,14 +177,14 @@ function renderTree(
       >
         <Typography
           component="span"
-          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
+          sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           (
         </Typography>
         {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef)}
         <Typography
           component="span"
-          sx={{ color: '#666', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
+          sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
         >
           )
         </Typography>
@@ -212,7 +212,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
 
   if (loading) {
     return (
-      <Box sx={{ px: 1, py: 0.75, color: '#666' }}>
+      <Box sx={{ px: 1, py: 0.75, color: 'text.secondary' }}>
         <Typography sx={{ fontFamily: 'monospace', fontSize: '12px' }}>Loading…</Typography>
       </Box>
     );
@@ -220,7 +220,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
 
   if (!tree || elements.length === 0) {
     return (
-      <Box sx={{ px: 1, py: 0.75, color: '#555', textAlign: 'center' }}>
+      <Box sx={{ px: 1, py: 0.75, color: 'text.secondary', textAlign: 'center' }}>
         <Typography sx={{ fontFamily: 'monospace', fontSize: '12px', fontStyle: 'italic' }}>Make a move on the board to start.</Typography>
       </Box>
     );
@@ -258,7 +258,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
           gap: 0.25,
           px: 0.5,
           py: 0.25,
-          borderTop: '1px solid #333',
+          borderTop: 1, borderColor: 'divider',
         }}>
           {onDeleteLast && (
             <Tooltip title="Delete last move" arrow placement="top">
@@ -266,7 +266,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
                 size="small"
                 onClick={onDeleteLast}
                 disabled={!selectedNodeId}
-                sx={{ color: '#888', p: 0.4, '&:hover': { color: '#e57373', bgcolor: 'rgba(229,115,115,0.08)' } }}
+                sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'error.light', bgcolor: 'rgba(229,115,115,0.08)' } }}
               >
                 <Backspace sx={{ fontSize: 15 }} />
               </IconButton>
@@ -277,7 +277,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
               <IconButton
                 size="small"
                 onClick={onDeleteAll}
-                sx={{ color: '#888', p: 0.4, '&:hover': { color: '#e57373', bgcolor: 'rgba(229,115,115,0.08)' } }}
+                sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'error.light', bgcolor: 'rgba(229,115,115,0.08)' } }}
               >
                 <DeleteSweep sx={{ fontSize: 15 }} />
               </IconButton>

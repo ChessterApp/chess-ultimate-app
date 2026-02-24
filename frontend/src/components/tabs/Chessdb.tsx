@@ -239,17 +239,17 @@ export function ChessDBDisplay({
   const getScoreColor = (score: string) => {
     if (score === "N/A") return "grey.400";
     const numScore = parseFloat(score) / 100; // Convert centipawns to pawns
-    if (numScore > 0.5) return "#4caf50";   // Green for advantage > 0.5 pawns
-    if (numScore < -0.5) return "#f44336";  // Red for disadvantage > 0.5 pawns
-    return "#ff9800";                       // Orange for roughly equal
+    if (numScore > 0.5) return "success.main";   // Green for advantage > 0.5 pawns
+    if (numScore < -0.5) return "error.main";  // Red for disadvantage > 0.5 pawns
+    return "warning.main";                       // Orange for roughly equal
   };
 
   const getWinrateColor = (winrate: string) => {
     if (winrate === "N/A") return "grey.400";
     const rate = parseFloat(winrate);
-    if (rate >= 60) return "#4caf50";
-    if (rate <= 40) return "#f44336";
-    return "#ff9800";
+    if (rate >= 60) return "success.main";
+    if (rate <= 40) return "error.main";
+    return "warning.main";
   };
 
   // Show disabled state
@@ -258,7 +258,7 @@ export function ChessDBDisplay({
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 2,
         }}
       >
@@ -281,10 +281,10 @@ export function ChessDBDisplay({
             onChange={handleChessDBToggle}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': {
-                color: '#9c27b0',
+                color: 'secondary.main',
               },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                backgroundColor: '#9c27b0',
+                backgroundColor: 'secondary.main',
               },
             }}
           />
@@ -304,8 +304,8 @@ export function ChessDBDisplay({
           onClose={handleSettingsClose}
           PaperProps={{
             sx: {
-              backgroundColor: "#1a1a1a",
-              color: "white",
+              backgroundColor: "background.paper",
+              color: "text.primary",
               minWidth: 400
             }
           }}
@@ -329,10 +329,10 @@ export function ChessDBDisplay({
                   onChange={(e) => setShowScores(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: '#9c27b0',
+                      color: 'secondary.main',
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: '#9c27b0',
+                      backgroundColor: 'secondary.main',
                     },
                   }}
                 />
@@ -346,10 +346,10 @@ export function ChessDBDisplay({
                   onChange={(e) => setShowWinrates(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: '#9c27b0',
+                      color: 'secondary.main',
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: '#9c27b0',
+                      backgroundColor: 'secondary.main',
                     },
                   }}
                 />
@@ -357,7 +357,7 @@ export function ChessDBDisplay({
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+            <Button onClick={handleSettingsClose} sx={{ color: "secondary.main" }}>
               Done
             </Button>
           </DialogActions>
@@ -374,7 +374,7 @@ export function ChessDBDisplay({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mb: 2
           }}
@@ -386,10 +386,10 @@ export function ChessDBDisplay({
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: "#9c27b0",
+                  backgroundColor: "secondary.main",
                 }}
               />
-              <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                 ChessDB On
               </Typography>
             </Box>
@@ -398,17 +398,17 @@ export function ChessDBDisplay({
               onChange={handleChessDBToggle}
               sx={{
                 '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: '#9c27b0',
+                  color: 'secondary.main',
                 },
                 '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: '#9c27b0',
+                  backgroundColor: 'secondary.main',
                 },
               }}
             />
             <Box sx={{ flexGrow: 1 }} />
             <IconButton
               onClick={() => setSettingsOpen(true)}
-              sx={{ color: "white", p: 0.5 }}
+              sx={{ color: "text.primary", p: 0.5 }}
               size="small"
             >
               <SettingsIcon fontSize="small" />
@@ -421,7 +421,7 @@ export function ChessDBDisplay({
           <Stack alignItems="center" spacing={2}>
             <CircularProgress 
               size={40} 
-              sx={{ color: "#9c27b0" }} 
+              sx={{ color: "secondary.main" }} 
             />
             <Typography variant="body2" sx={{ color: "grey.400" }}>
               Querying ChessDB...
@@ -435,8 +435,8 @@ export function ChessDBDisplay({
           onClose={handleSettingsClose}
           PaperProps={{
             sx: {
-              backgroundColor: "#1a1a1a",
-              color: "white",
+              backgroundColor: "background.paper",
+              color: "text.primary",
               minWidth: 400
             }
           }}
@@ -461,10 +461,10 @@ export function ChessDBDisplay({
                   onChange={(e) => setShowScores(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: '#9c27b0',
+                      color: 'secondary.main',
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: '#9c27b0',
+                      backgroundColor: 'secondary.main',
                     },
                   }}
                 />
@@ -478,10 +478,10 @@ export function ChessDBDisplay({
                   onChange={(e) => setShowWinrates(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: '#9c27b0',
+                      color: 'secondary.main',
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: '#9c27b0',
+                      backgroundColor: 'secondary.main',
                     },
                   }}
                 />
@@ -489,7 +489,7 @@ export function ChessDBDisplay({
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+            <Button onClick={handleSettingsClose} sx={{ color: "secondary.main" }}>
               Done
             </Button>
           </DialogActions>
@@ -506,7 +506,7 @@ export function ChessDBDisplay({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mb: 2
           }}
@@ -518,10 +518,10 @@ export function ChessDBDisplay({
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: "#9c27b0",
+                  backgroundColor: "secondary.main",
                 }}
               />
-              <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                 ChessDB On
               </Typography>
             </Box>
@@ -530,17 +530,17 @@ export function ChessDBDisplay({
               onChange={handleChessDBToggle}
               sx={{
                 '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: '#9c27b0',
+                  color: 'secondary.main',
                 },
                 '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: '#9c27b0',
+                  backgroundColor: 'secondary.main',
                 },
               }}
             />
             <Box sx={{ flexGrow: 1 }} />
             <IconButton
               onClick={() => setSettingsOpen(true)}
-              sx={{ color: "white", p: 0.5 }}
+              sx={{ color: "text.primary", p: 0.5 }}
               size="small"
             >
               <SettingsIcon fontSize="small" />
@@ -552,7 +552,7 @@ export function ChessDBDisplay({
         <Paper
           sx={{
             p: 4,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             textAlign: "center"
           }}
@@ -568,11 +568,11 @@ export function ChessDBDisplay({
               onClick={onRequestAnalysis}
               disabled={queueing}
               sx={{
-                borderColor: "#9c27b0",
-                color: "#9c27b0",
+                borderColor: "secondary.main",
+                color: "secondary.main",
                 "&:hover": {
-                  borderColor: "#7b1fa2",
-                  backgroundColor: "rgba(156, 39, 176, 0.1)",
+                  borderColor: "secondary.dark",
+                  backgroundColor: "action.selected",
                 },
                 "&:disabled": {
                   borderColor: "grey.600",
@@ -588,10 +588,10 @@ export function ChessDBDisplay({
               startIcon={<Refresh />}
               onClick={onRefresh}
               sx={{
-                backgroundColor: "#9c27b0",
-                color: "white",
+                backgroundColor: "secondary.main",
+                color: "text.primary",
                 "&:hover": {
-                  backgroundColor: "#7b1fa2",
+                  backgroundColor: "secondary.dark",
                 },
               }}
             >
@@ -613,7 +613,7 @@ export function ChessDBDisplay({
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 2,
           mb: 2
         }}
@@ -625,10 +625,10 @@ export function ChessDBDisplay({
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                backgroundColor: "#9c27b0",
+                backgroundColor: "secondary.main",
               }}
             />
-            <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
               ChessDB On
             </Typography>
           </Box>
@@ -637,17 +637,17 @@ export function ChessDBDisplay({
             onChange={handleChessDBToggle}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': {
-                color: '#9c27b0',
+                color: 'secondary.main',
               },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                backgroundColor: '#9c27b0',
+                backgroundColor: 'secondary.main',
               },
             }}
           />
           <Box sx={{ flexGrow: 1 }} />
           <IconButton
             onClick={onRefresh}
-            sx={{ color: "white", p: 0.5, mr: 1 }}
+            sx={{ color: "text.primary", p: 0.5, mr: 1 }}
             size="small"
             title="Refresh data"
           >
@@ -655,7 +655,7 @@ export function ChessDBDisplay({
           </IconButton>
           <IconButton
             onClick={() => setSettingsOpen(true)}
-            sx={{ color: "white", p: 0.5 }}
+            sx={{ color: "text.primary", p: 0.5 }}
             size="small"
           >
             <SettingsIcon fontSize="small" />
@@ -664,20 +664,20 @@ export function ChessDBDisplay({
 
         {/* Database Info */}
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-          <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+          <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
             ChessDB Database
           </Typography>
           <Chip 
             label={`${data.length}`} 
             size="small" 
             sx={{ 
-              backgroundColor: "rgba(156, 39, 176, 0.2)", 
-              color: "#9c27b0",
+              backgroundColor: "action.selected", 
+              color: "secondary.main",
               fontSize: "0.7rem",
               fontWeight: 600
             }} 
           />
-          <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+          <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
             Moves present
           </Typography>
         </Stack>
@@ -714,13 +714,15 @@ export function ChessDBDisplay({
             onClick={() => analyzeMove(move)}
             sx={{
               p: 2,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: "background.paper",
               borderRadius: 0,
-              borderLeft: index === 0 ? "3px solid #9c27b0" : "3px solid transparent",
+              borderLeftWidth: 3,
+              borderLeftStyle: "solid",
+              borderLeftColor: index === 0 ? "secondary.main" : "transparent",
               cursor: llmLoading ? "not-allowed" : "pointer",
               transition: "background-color 0.2s ease",
               "&:hover": {
-                backgroundColor: llmLoading ? "#1a1a1a" : "rgba(156, 39, 176, 0.1)",
+                backgroundColor: llmLoading ? "background.paper" : "action.selected",
               },
               filter: llmLoading ? "grayscale(50%)" : "none",
             }}
@@ -730,7 +732,7 @@ export function ChessDBDisplay({
               <Typography
                 variant="body2"
                 sx={{
-                  color: "#9c27b0",
+                  color: "secondary.main",
                   fontWeight: "bold",
                   minWidth: "80px",
                   fontFamily: "monospace",
@@ -806,14 +808,14 @@ export function ChessDBDisplay({
       <Paper
         sx={{
           p: 1.5,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 0,
           mt: 0
         }}
       >
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Storage fontSize="small" sx={{ color: "#9c27b0" }} />
+            <Storage fontSize="small" sx={{ color: "secondary.main" }} />
             <Typography variant="caption" sx={{ color: "grey.400" }}>
               Data from ChessDB
             </Typography>
@@ -830,8 +832,8 @@ export function ChessDBDisplay({
         onClose={handleSettingsClose}
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: 400
           }
         }}
@@ -858,10 +860,10 @@ export function ChessDBDisplay({
                     onChange={(e) => setShowScores(e.target.checked)}
                     sx={{
                       '& .MuiSwitch-switchBase.Mui-checked': {
-                        color: '#9c27b0',
+                        color: 'secondary.main',
                       },
                       '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                        backgroundColor: '#9c27b0',
+                        backgroundColor: 'secondary.main',
                       },
                     }}
                   />
@@ -875,10 +877,10 @@ export function ChessDBDisplay({
                     onChange={(e) => setShowWinrates(e.target.checked)}
                     sx={{
                       '& .MuiSwitch-switchBase.Mui-checked': {
-                        color: '#9c27b0',
+                        color: 'secondary.main',
                       },
                       '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                        backgroundColor: '#9c27b0',
+                        backgroundColor: 'secondary.main',
                       },
                     }}
                   />
@@ -888,7 +890,7 @@ export function ChessDBDisplay({
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+          <Button onClick={handleSettingsClose} sx={{ color: "secondary.main" }}>
             Done
           </Button>
         </DialogActions>

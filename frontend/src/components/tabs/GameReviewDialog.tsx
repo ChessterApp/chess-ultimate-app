@@ -333,7 +333,7 @@ export const GameReviewDialog: React.FC<GameReviewDialogProps> = ({
                         mb: 1.5,
                         p: 2,
                         borderRadius: 1,
-                        backgroundColor: "#2A2A2A",
+                        backgroundColor: "background.paper",
                         borderLeft: 4,
                         borderColor:
                           tp.player === "White"

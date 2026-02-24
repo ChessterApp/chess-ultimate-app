@@ -100,15 +100,15 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Game header */}
-      <Box sx={{ p: 1.5, borderBottom: '1px solid #333' }}>
-        <Typography variant="body2" sx={{ color: '#e0e0e0', fontWeight: 600, fontSize: 13 }}>
+      <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+        <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: 13 }}>
           {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-          <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#444', color: '#ccc' }} />
-          {game.eco && <Chip label={game.eco} size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#3949ab', color: '#fff' }} />}
-          {game.date && <Typography variant="caption" sx={{ color: '#777', fontSize: 10 }}>{game.date}</Typography>}
-          {game.event && <Typography variant="caption" sx={{ color: '#666', fontSize: 10, ml: 0.5 }}>· {game.event}</Typography>}
+          <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'divider', color: 'text.secondary' }} />
+          {game.eco && <Chip label={game.eco} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'primary.dark', color: 'primary.contrastText' }} />}
+          {game.date && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10 }}>{game.date}</Typography>}
+          {game.event && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10, ml: 0.5 }}>· {game.event}</Typography>}
         </Box>
       </Box>
 
@@ -117,7 +117,7 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, alignItems: 'baseline' }}>
           {movePairs.map(pair => (
             <Box key={pair.num} sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.3 }}>
-              <Typography component="span" sx={{ color: '#666', fontSize: 12, minWidth: 20, textAlign: 'right', mr: 0.2 }}>
+              <Typography component="span" sx={{ color: 'text.disabled', fontSize: 12, minWidth: 20, textAlign: 'right', mr: 0.2 }}>
                 {pair.num}.
               </Typography>
               <Typography
@@ -130,9 +130,9 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
                   px: 0.4,
                   py: 0.1,
                   borderRadius: 0.5,
-                  color: currentMoveIndex === pair.white.idx ? '#fff' : '#ccc',
-                  bgcolor: currentMoveIndex === pair.white.idx ? '#5c6bc0' : 'transparent',
-                  '&:hover': { bgcolor: currentMoveIndex === pair.white.idx ? '#5c6bc0' : 'rgba(255,255,255,0.08)' },
+                  color: currentMoveIndex === pair.white.idx ? 'primary.contrastText' : 'text.secondary',
+                  bgcolor: currentMoveIndex === pair.white.idx ? 'primary.main' : 'transparent',
+                  '&:hover': { bgcolor: currentMoveIndex === pair.white.idx ? 'primary.main' : 'rgba(255,255,255,0.08)' },
                 }}
               >
                 {pair.white.san}
@@ -148,9 +148,9 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
                     px: 0.4,
                     py: 0.1,
                     borderRadius: 0.5,
-                    color: currentMoveIndex === pair.black.idx ? '#fff' : '#ccc',
-                    bgcolor: currentMoveIndex === pair.black.idx ? '#5c6bc0' : 'transparent',
-                    '&:hover': { bgcolor: currentMoveIndex === pair.black.idx ? '#5c6bc0' : 'rgba(255,255,255,0.08)' },
+                    color: currentMoveIndex === pair.black.idx ? 'primary.contrastText' : 'text.secondary',
+                    bgcolor: currentMoveIndex === pair.black.idx ? 'primary.main' : 'transparent',
+                    '&:hover': { bgcolor: currentMoveIndex === pair.black.idx ? 'primary.main' : 'rgba(255,255,255,0.08)' },
                     mr: 0.5,
                   }}
                 >
@@ -160,7 +160,7 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
             </Box>
           ))}
           {game.result && game.result !== '*' && (
-            <Typography component="span" sx={{ color: '#888', fontSize: 12, fontWeight: 600, ml: 0.5 }}>
+            <Typography component="span" sx={{ color: 'text.disabled', fontSize: 12, fontWeight: 600, ml: 0.5 }}>
               {game.result}
             </Typography>
           )}
@@ -168,27 +168,27 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
       </Box>
 
       {/* Navigation controls */}
-      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, p: 0.5, borderTop: '1px solid #333' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, p: 0.5, borderTop: 1, borderColor: 'divider' }}>
         <Tooltip title={t('navStart')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(-1)} disabled={currentMoveIndex === -1} sx={{ color: '#aaa' }}>
+          <IconButton size="small" onClick={() => onMoveIndexChange(-1)} disabled={currentMoveIndex === -1} sx={{ color: 'text.secondary' }}>
             <FirstPage fontSize="small" />
           </IconButton>
         </Tooltip>
         <Tooltip title={t('navPrevious')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(Math.max(-1, currentMoveIndex - 1))} disabled={currentMoveIndex === -1} sx={{ color: '#aaa' }}>
+          <IconButton size="small" onClick={() => onMoveIndexChange(Math.max(-1, currentMoveIndex - 1))} disabled={currentMoveIndex === -1} sx={{ color: 'text.secondary' }}>
             <ChevronLeft fontSize="small" />
           </IconButton>
         </Tooltip>
-        <Typography variant="caption" sx={{ color: '#888', alignSelf: 'center', minWidth: 50, textAlign: 'center' }}>
+        <Typography variant="caption" sx={{ color: 'text.disabled', alignSelf: 'center', minWidth: 50, textAlign: 'center' }}>
           {currentMoveIndex + 1} / {game.moves.length}
         </Typography>
         <Tooltip title={t('navNext')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1))} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: '#aaa' }}>
+          <IconButton size="small" onClick={() => onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1))} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: 'text.secondary' }}>
             <ChevronRight fontSize="small" />
           </IconButton>
         </Tooltip>
         <Tooltip title={t('navEnd')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(game.moves.length - 1)} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: '#aaa' }}>
+          <IconButton size="small" onClick={() => onMoveIndexChange(game.moves.length - 1)} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: 'text.secondary' }}>
             <LastPage fontSize="small" />
           </IconButton>
         </Tooltip>

@@ -31,14 +31,14 @@ export default function GlobalError({
   return (
     <html>
       <body>
-        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', padding: '1rem', background: 'linear-gradient(to bottom, #faf5ff, white)' }}>
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', padding: '1rem', background: 'linear-gradient(to bottom, var(--primary-light, #EDE9FE), var(--surface-card, #FFFFFF))' }}>
           <div style={{ textAlign: 'center', maxWidth: '400px' }}>
             <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>♞</div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#1f2937', marginBottom: '0.5rem' }}>Something went wrong</h2>
-            <p style={{ color: '#6b7280', marginBottom: '1.5rem' }}>We encountered an unexpected error. Please try refreshing the page.</p>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'var(--text-primary, #18181B)', marginBottom: '0.5rem' }}>Something went wrong</h2>
+            <p style={{ color: 'var(--text-secondary, #52525B)', marginBottom: '1.5rem' }}>We encountered an unexpected error. Please try refreshing the page.</p>
             <button
               onClick={reset}
-              style={{ padding: '0.75rem 1.5rem', backgroundColor: '#9333ea', color: 'white', border: 'none', borderRadius: '0.75rem', fontWeight: '600', cursor: 'pointer', fontSize: '1rem' }}
+              style={{ padding: '0.75rem 1.5rem', backgroundColor: 'var(--primary, #8B5CF6)', color: 'var(--text-on-primary, #FFFFFF)', border: 'none', borderRadius: '0.75rem', fontWeight: '600', cursor: 'pointer', fontSize: '1rem' }}
             >
               Try Again
             </button>

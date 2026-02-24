@@ -85,16 +85,16 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
 
     if (isDraw || game.status === "draw" || game.status === "stalemate") {
       resultText = "Draw";
-      backgroundColor = "#95a5a6";
+      backgroundColor = "text.secondary";
     } else if (userIsWinner) {
       resultText = "Won";
-      backgroundColor = "#27ae60";
+      backgroundColor = "success.main";
     } else if (game.winner) {
       resultText = "Lost";
-      backgroundColor = "#e74c3c";
+      backgroundColor = "error.main";
     } else {
       resultText = game.status.charAt(0).toUpperCase() + game.status.slice(1);
-      backgroundColor = "#95a5a6";
+      backgroundColor = "text.secondary";
     }
 
     return (

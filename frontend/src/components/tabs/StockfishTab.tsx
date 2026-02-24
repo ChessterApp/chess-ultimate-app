@@ -165,7 +165,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                     width: 8,
                                     height: 8,
                                     borderRadius: "50%",
-                                    backgroundColor: "#9c27b0",
+                                    backgroundColor: "primary.main",
                                     transition: "background-color 0.3s ease",
                                 }}
                             />
@@ -179,10 +179,10 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                             disabled={isTransitioning}
                             sx={{
                                 '& .MuiSwitch-switchBase.Mui-checked': {
-                                    color: '#9c27b0',
+                                    color: "primary.main",
                                 },
                                 '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                    backgroundColor: '#9c27b0',
+                                    backgroundColor: "primary.main",
                                 },
                                 transition: "all 0.3s ease",
                             }}
@@ -203,7 +203,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                     <Stack alignItems="center" spacing={2}>
                         <CircularProgress 
                             size={40} 
-                            sx={{ color: "#9c27b0" }} 
+                            sx={{ color: "primary.main" }} 
                         />
                         <Typography variant="body2" sx={{ color: "grey.400" }}>
                             {isTransitioning ? t("applyingSettings") : t("startingAnalysis")}
@@ -244,10 +244,10 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                                 borderColor: 'rgba(255, 255, 255, 0.23)',
                                             },
                                             '&:hover .MuiOutlinedInput-notchedOutline': {
-                                                borderColor: '#9c27b0',
+                                                borderColor: "primary.main",
                                             },
                                             '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                                                borderColor: '#9c27b0',
+                                                borderColor: "primary.main",
                                             },
                                             '& .MuiSvgIcon-root': {
                                                 color: 'text.primary',
@@ -321,7 +321,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         </Stack>
                     </DialogContent>
                     <DialogActions>
-                        <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+                        <Button onClick={handleSettingsClose} sx={{ color: "primary.main" }}>
                             {t("done")}
                         </Button>
                     </DialogActions>
@@ -362,10 +362,10 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         disabled={isTransitioning}
                         sx={{
                             '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: '#9c27b0',
+                                color: "primary.main",
                             },
                             '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: '#9c27b0',
+                                backgroundColor: "primary.main",
                             },
                             transition: "all 0.3s ease",
                         }}
@@ -413,10 +413,10 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                                 borderColor: 'rgba(255, 255, 255, 0.23)',
                                             },
                                             '&:hover .MuiOutlinedInput-notchedOutline': {
-                                                borderColor: '#9c27b0',
+                                                borderColor: "primary.main",
                                             },
                                             '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                                                borderColor: '#9c27b0',
+                                                borderColor: "primary.main",
                                             },
                                             '& .MuiSvgIcon-root': {
                                                 color: 'text.primary',
@@ -490,7 +490,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         </Stack>
                     </DialogContent>
                     <DialogActions>
-                        <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+                        <Button onClick={handleSettingsClose} sx={{ color: "primary.main" }}>
                             {t("done")}
                         </Button>
                     </DialogActions>
@@ -518,7 +518,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                 width: 8,
                                 height: 8,
                                 borderRadius: "50%",
-                                backgroundColor: "#9c27b0",
+                                backgroundColor: "primary.main",
                                 transition: "background-color 0.3s ease",
                             }}
                         />
@@ -532,10 +532,10 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         disabled={isTransitioning}
                         sx={{
                             '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: '#9c27b0',
+                                color: "primary.main",
                             },
                             '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: '#9c27b0',
+                                backgroundColor: "primary.main",
                             },
                             transition: "all 0.3s ease",
                         }}
@@ -560,7 +560,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         size="small" 
                         sx={{ 
                             backgroundColor: "rgba(156, 39, 176, 0.2)", 
-                            color: "#9c27b0",
+                            color: "primary.main",
                             fontSize: "0.7rem",
                             fontWeight: 600,
                             transition: "all 0.3s ease",
@@ -574,7 +574,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         size="small"
                         sx={{
                             backgroundColor: "rgba(156, 39, 176, 0.2)",
-                            color: "#9c27b0",
+                            color: "primary.main",
                             fontSize: "0.7rem",
                             fontWeight: 600,
                             transition: "all 0.3s ease",
@@ -610,7 +610,8 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                             backgroundColor: "background.paper",
                             borderRadius: 0,
                             borderBottom: index < stockfishAnalysisResult.lines.length - 1 ? 1 : "none", borderColor: 'divider',
-                            borderLeft: index === 0 ? "3px solid #9c27b0" : "3px solid transparent",
+                            borderLeft: index === 0 ? "3px solid" : "3px solid transparent",
+                            borderLeftColor: index === 0 ? "primary.main" : "transparent",
                             cursor: llmLoading ? "not-allowed" : "pointer",
                             transition: "all 0.3s ease",
                             opacity: isTransitioning ? 0.5 : 1,
@@ -626,9 +627,9 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                 variant="body2"
                                 sx={{
                                     color: line.cp !== undefined 
-                                        ? (line.cp > 0 ? "#4caf50" : line.cp < 0 ? "#f44336" : "white")
+                                        ? (line.cp > 0 ? "success.main" : line.cp < 0 ? "error.main" : "white")
                                         : line.mate !== undefined
-                                        ? (line.mate > 0 ? "#4caf50" : "#f44336")
+                                        ? (line.mate > 0 ? "success.main" : "error.main")
                                         : "white",
                                     fontWeight: "bold",
                                     minWidth: "60px",
@@ -678,7 +679,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
 
                             {/* Loading indicator for incomplete lines */}
                             {(stockfishLoading || isTransitioning) && line.depth < engineDepth && (
-                                <CircularProgress size={16} sx={{ color: "#9c27b0" }} />
+                                <CircularProgress size={16} sx={{ color: "primary.main" }} />
                             )}
                         </Stack>
                     </Paper>
@@ -703,7 +704,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                             }}
                         >
                             <Stack direction="row" alignItems="center" spacing={2}>
-                                <CircularProgress size={16} sx={{ color: "#9c27b0" }} />
+                                <CircularProgress size={16} sx={{ color: "primary.main" }} />
                                 <Typography
                                     variant="body2"
                                     sx={{ color: "grey.400", fontFamily: "monospace", fontSize: "0.85rem" }}
@@ -773,10 +774,10 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                             borderColor: 'rgba(255, 255, 255, 0.23)',
                                         },
                                         '&:hover .MuiOutlinedInput-notchedOutline': {
-                                            borderColor: '#9c27b0',
+                                            borderColor: "primary.main",
                                         },
                                         '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                                            borderColor: '#9c27b0',
+                                            borderColor: "primary.main",
                                         },
                                         '& .MuiSvgIcon-root': {
                                             color: 'text.primary',
@@ -850,7 +851,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                     </Stack>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+                    <Button onClick={handleSettingsClose} sx={{ color: "primary.main" }}>
                         Done
                     </Button>
                 </DialogActions>

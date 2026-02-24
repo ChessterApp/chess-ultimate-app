@@ -20,7 +20,7 @@ export default function SignUpPage() {
 
         /* Card container */
         .cl-card {
-          background: white !important;
+          background: var(--surface-card, #FFFFFF) !important;
           box-shadow: none !important;
           border: none !important;
           padding: 1rem !important;
@@ -38,25 +38,25 @@ export default function SignUpPage() {
 
         /* Input fields - Duolingo style rounded */
         .cl-formFieldInput {
-          border: 2px solid #e5e5e5 !important;
+          border: 2px solid var(--border-default, #E4E4E7) !important;
           border-radius: 16px !important;
           padding: 16px 18px !important;
           font-size: 1rem !important;
-          background: white !important;
-          color: #3c3c3c !important;
+          background: var(--surface-input, #FFFFFF) !important;
+          color: var(--text-primary, #18181B) !important;
           height: auto !important;
           min-height: 56px !important;
           transition: border-color 0.2s ease !important;
         }
 
         .cl-formFieldInput:focus {
-          border-color: #1cb0f6 !important;
+          border-color: var(--primary, #8B5CF6) !important;
           box-shadow: none !important;
           outline: none !important;
         }
 
         .cl-formFieldInput::placeholder {
-          color: #afafaf !important;
+          color: var(--text-tertiary, #A1A1AA) !important;
         }
 
         /* Form field labels */
@@ -76,29 +76,29 @@ export default function SignUpPage() {
 
         /* Password visibility toggle */
         .cl-formFieldInputShowPasswordButton {
-          color: #afafaf !important;
+          color: var(--text-tertiary, #A1A1AA) !important;
           right: 16px !important;
         }
 
         /* Primary button - Duolingo style */
         .cl-formButtonPrimary {
-          background: linear-gradient(to bottom, #9333ea, #7c3aed) !important;
+          background: linear-gradient(to bottom, var(--primary, #8B5CF6), var(--primary-hover, #7C3AED)) !important;
           border: none !important;
-          border-bottom: 4px solid #6b21a8 !important;
+          border-bottom: 4px solid var(--primary-hover, #7C3AED) !important;
           border-radius: 16px !important;
           padding: 14px 24px !important;
           font-size: 0.875rem !important;
           font-weight: 700 !important;
           text-transform: uppercase !important;
           letter-spacing: 0.8px !important;
-          color: white !important;
+          color: var(--text-on-primary, #FFFFFF) !important;
           min-height: 54px !important;
           transition: all 0.15s ease !important;
           margin-top: 8px !important;
         }
 
         .cl-formButtonPrimary:hover {
-          background: linear-gradient(to bottom, #a855f7, #8b5cf6) !important;
+          background: linear-gradient(to bottom, var(--primary-light-hover, #a855f7), var(--primary, #8B5CF6)) !important;
           transform: translateY(-1px) !important;
         }
 
@@ -113,11 +113,11 @@ export default function SignUpPage() {
         }
 
         .cl-dividerLine {
-          background: #e5e5e5 !important;
+          background: var(--border-default, #E4E4E7) !important;
         }
 
         .cl-dividerText {
-          color: #afafaf !important;
+          color: var(--text-tertiary, #A1A1AA) !important;
           font-size: 0.875rem !important;
           font-weight: 600 !important;
           text-transform: uppercase !important;
@@ -130,40 +130,40 @@ export default function SignUpPage() {
 
         /* Social buttons - Duolingo style */
         .cl-socialButtonsBlockButton {
-          border: 2px solid #e5e5e5 !important;
+          border: 2px solid var(--border-default, #E4E4E7) !important;
           border-radius: 16px !important;
           padding: 12px 16px !important;
-          background: white !important;
+          background: var(--surface-card, #FFFFFF) !important;
           min-height: 50px !important;
           transition: all 0.2s ease !important;
           flex: 1 !important;
         }
 
         .cl-socialButtonsBlockButton:hover {
-          background: #f7f7f7 !important;
-          border-color: #d5d5d5 !important;
+          background: var(--surface-card-hover, #F4F4F5) !important;
+          border-color: var(--border-strong, #D4D4D8) !important;
         }
 
         .cl-socialButtonsBlockButtonText {
           font-size: 0.875rem !important;
           font-weight: 700 !important;
-          color: #3c3c3c !important;
+          color: var(--text-primary, #18181B) !important;
           text-transform: uppercase !important;
         }
 
         .cl-socialButtonsIconButton {
-          border: 2px solid #e5e5e5 !important;
+          border: 2px solid var(--border-default, #E4E4E7) !important;
           border-radius: 16px !important;
           padding: 12px 20px !important;
-          background: white !important;
+          background: var(--surface-card, #FFFFFF) !important;
           min-height: 50px !important;
           min-width: 120px !important;
           transition: all 0.2s ease !important;
         }
 
         .cl-socialButtonsIconButton:hover {
-          background: #f7f7f7 !important;
-          border-color: #d5d5d5 !important;
+          background: var(--surface-card-hover, #F4F4F5) !important;
+          border-color: var(--border-strong, #D4D4D8) !important;
         }
 
         /* Social buttons provider icons */
@@ -182,7 +182,7 @@ export default function SignUpPage() {
         }
 
         .cl-footerActionText {
-          color: #afafaf !important;
+          color: var(--text-tertiary, #A1A1AA) !important;
           font-size: 0.875rem !important;
         }
 
@@ -200,7 +200,7 @@ export default function SignUpPage() {
 
         /* Error messages */
         .cl-formFieldErrorText {
-          color: #ff4b4b !important;
+          color: var(--error, #EF4444) !important;
           font-size: 0.75rem !important;
           margin-top: 4px !important;
         }
@@ -229,7 +229,7 @@ export default function SignUpPage() {
 
         /* Alternative sign-in text */
         .cl-footerActionLink__signIn {
-          color: #1cb0f6 !important;
+          color: var(--primary, #8B5CF6) !important;
           font-weight: 700 !important;
           text-decoration: none !important;
         }

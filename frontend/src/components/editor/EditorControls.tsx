@@ -36,7 +36,7 @@ const sectionStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  color: "#aaa",
+  color: "var(--text-secondary)",
   fontSize: "12px",
   textTransform: "uppercase",
   letterSpacing: "0.5px",
@@ -48,10 +48,10 @@ const btnStyle: React.CSSProperties = {
   width: "100%",
   padding: "8px 12px",
   marginBottom: "6px",
-  border: "1px solid #555",
+  border: "1px solid var(--border-default)",
   borderRadius: "4px",
-  backgroundColor: "#333",
-  color: "#ddd",
+  backgroundColor: "var(--surface-raised)",
+  color: "var(--text-primary)",
   fontSize: "13px",
   cursor: "pointer",
   textAlign: "center",
@@ -64,9 +64,9 @@ const btnStyle: React.CSSProperties = {
 const selectStyle: React.CSSProperties = {
   width: "100%",
   padding: "6px 8px",
-  backgroundColor: "#333",
-  color: "#ddd",
-  border: "1px solid #555",
+  backgroundColor: "var(--surface-raised)",
+  color: "var(--text-primary)",
+  border: "1px solid var(--border-default)",
   borderRadius: "4px",
   fontSize: "13px",
   marginBottom: "4px",
@@ -100,9 +100,9 @@ export default function EditorControls({
     <div
       style={{
         padding: "12px",
-        backgroundColor: "#1e1e1e",
+        backgroundColor: "var(--surface-card)",
         borderRadius: "6px",
-        border: "1px solid #333",
+        border: "1px solid var(--border-default)",
         minWidth: "220px",
       }}
     >
@@ -142,7 +142,7 @@ export default function EditorControls({
         <div style={{ display: "flex", gap: "12px" }}>
           <label
             style={{
-              color: "#ddd",
+              color: "var(--text-primary)",
               fontSize: "13px",
               cursor: "pointer",
               display: "flex",
@@ -160,7 +160,7 @@ export default function EditorControls({
           </label>
           <label
             style={{
-              color: "#ddd",
+              color: "var(--text-primary)",
               fontSize: "13px",
               cursor: "pointer",
               display: "flex",
@@ -192,12 +192,12 @@ export default function EditorControls({
             marginBottom: "4px",
           }}
         >
-          <span style={{ color: "#999", fontSize: "12px", width: "40px" }}>
+          <span style={{ color: "var(--text-secondary)", fontSize: "12px", width: "40px" }}>
             {t("white")}
           </span>
           <label
             style={{
-              color: castlingAvail.whiteOOPossible ? "#ddd" : "#666",
+              color: castlingAvail.whiteOOPossible ? "var(--text-primary)" : "var(--text-secondary)",
               fontSize: "13px",
               cursor: castlingAvail.whiteOOPossible ? "pointer" : "default",
               display: "flex",
@@ -217,7 +217,7 @@ export default function EditorControls({
           </label>
           <label
             style={{
-              color: castlingAvail.whiteOOOPossible ? "#ddd" : "#666",
+              color: castlingAvail.whiteOOOPossible ? "var(--text-primary)" : "var(--text-secondary)",
               fontSize: "13px",
               cursor: castlingAvail.whiteOOOPossible ? "pointer" : "default",
               display: "flex",
@@ -245,12 +245,12 @@ export default function EditorControls({
             gap: "8px",
           }}
         >
-          <span style={{ color: "#999", fontSize: "12px", width: "40px" }}>
+          <span style={{ color: "var(--text-secondary)", fontSize: "12px", width: "40px" }}>
             {t("black")}
           </span>
           <label
             style={{
-              color: castlingAvail.blackOOPossible ? "#ddd" : "#666",
+              color: castlingAvail.blackOOPossible ? "var(--text-primary)" : "var(--text-secondary)",
               fontSize: "13px",
               cursor: castlingAvail.blackOOPossible ? "pointer" : "default",
               display: "flex",
@@ -270,7 +270,7 @@ export default function EditorControls({
           </label>
           <label
             style={{
-              color: castlingAvail.blackOOOPossible ? "#ddd" : "#666",
+              color: castlingAvail.blackOOOPossible ? "var(--text-primary)" : "var(--text-secondary)",
               fontSize: "13px",
               cursor: castlingAvail.blackOOOPossible ? "pointer" : "default",
               display: "flex",
@@ -314,10 +314,10 @@ export default function EditorControls({
           style={btnStyle}
           onClick={onStartingPosition}
           onMouseEnter={(e) =>
-            (e.currentTarget.style.backgroundColor = "#444")
+            (e.currentTarget.style.backgroundColor = "var(--surface-card-hover)")
           }
           onMouseLeave={(e) =>
-            (e.currentTarget.style.backgroundColor = "#333")
+            (e.currentTarget.style.backgroundColor = "var(--surface-raised)")
           }
         >
           {t("startingPosition")}
@@ -326,10 +326,10 @@ export default function EditorControls({
           style={btnStyle}
           onClick={onClearBoard}
           onMouseEnter={(e) =>
-            (e.currentTarget.style.backgroundColor = "#444")
+            (e.currentTarget.style.backgroundColor = "var(--surface-card-hover)")
           }
           onMouseLeave={(e) =>
-            (e.currentTarget.style.backgroundColor = "#333")
+            (e.currentTarget.style.backgroundColor = "var(--surface-raised)")
           }
         >
           {t("clearBoard")}
@@ -338,10 +338,10 @@ export default function EditorControls({
           style={btnStyle}
           onClick={onFlipBoard}
           onMouseEnter={(e) =>
-            (e.currentTarget.style.backgroundColor = "#444")
+            (e.currentTarget.style.backgroundColor = "var(--surface-card-hover)")
           }
           onMouseLeave={(e) =>
-            (e.currentTarget.style.backgroundColor = "#333")
+            (e.currentTarget.style.backgroundColor = "var(--surface-raised)")
           }
         >
           {t("flipBoard")}
@@ -438,7 +438,7 @@ export default function EditorControls({
               marginTop: "8px",
               marginBottom: "8px",
               borderRadius: "4px",
-              border: "1px solid #555",
+              border: "1px solid var(--border-default)",
               overflow: "hidden",
             }}
           >
@@ -459,14 +459,14 @@ export default function EditorControls({
         {photoError && (
           <div
             style={{
-              color: "#f44336",
+              color: "var(--error, #f44336)",
               fontSize: "12px",
               marginTop: "4px",
               marginBottom: "8px",
               padding: "8px",
               backgroundColor: "rgba(244, 67, 54, 0.1)",
               borderRadius: "4px",
-              border: "1px solid #f44336",
+              border: "1px solid var(--error, #f44336)",
               lineHeight: "1.4",
             }}
           >

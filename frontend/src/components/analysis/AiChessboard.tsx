@@ -1062,14 +1062,14 @@ export default function AiChessboardPanel({
             width: "6px",
           },
           "&::-webkit-scrollbar-track": {
-            background: "#2a2a2a",
+            background: "var(--surface-card)",
             borderRadius: "3px",
           },
           "&::-webkit-scrollbar-thumb": {
-            background: "#555",
+            background: "var(--text-secondary)",
             borderRadius: "3px",
             "&:hover": {
-              background: "#666",
+              background: "var(--text-secondary)",
             },
           },
         }}
@@ -1098,12 +1098,13 @@ export default function AiChessboardPanel({
                   onClick={() => onEditorModeChange?.(false)}
                   sx={{
                     backgroundColor: !editorMode ? `${modeInfo.color}20` : "transparent",
-                    color: !editorMode ? modeInfo.color : "#888",
+                    color: !editorMode ? modeInfo.color : "text.disabled",
                     fontSize: "0.65rem",
                     fontWeight: 600,
                     cursor: "pointer",
-                    border: editorMode ? "1px solid #555" : "none",
-                    "&:hover": { backgroundColor: !editorMode ? `${modeInfo.color}30` : "#333" },
+                    border: editorMode ? 1 : "none",
+                    borderColor: editorMode ? "divider" : undefined,
+                    "&:hover": { backgroundColor: !editorMode ? `${modeInfo.color}30` : "action.hover" },
                   }}
                 />
                 <Chip
@@ -1112,12 +1113,13 @@ export default function AiChessboardPanel({
                   onClick={() => onEditorModeChange?.(true)}
                   sx={{
                     backgroundColor: editorMode ? "#1b5e2030" : "transparent",
-                    color: editorMode ? "#66bb6a" : "#888",
+                    color: editorMode ? "success.light" : "text.disabled",
                     fontSize: "0.65rem",
                     fontWeight: 600,
                     cursor: "pointer",
-                    border: !editorMode ? "1px solid #555" : "none",
-                    "&:hover": { backgroundColor: editorMode ? "#1b5e2040" : "#333" },
+                    border: !editorMode ? 1 : "none",
+                    borderColor: !editorMode ? "divider" : undefined,
+                    "&:hover": { backgroundColor: editorMode ? "rgba(27,94,32,0.25)" : "action.hover" },
                   }}
                 />
               </Stack>
@@ -1250,7 +1252,7 @@ export default function AiChessboardPanel({
                       alignItems: "center",
                       justifyContent: "center",
                       cursor: btn.disabled ? "default" : "pointer",
-                      color: btn.disabled ? "rgba(160,160,160,0.3)" : "#a0a0a0",
+                      color: btn.disabled ? "rgba(160,160,160,0.3)" : "text.secondary",
                       padding: "5px",
                       transition: "background-color 0.15s, color 0.15s",
                       "&:hover": btn.disabled ? {} : {
@@ -1420,7 +1422,7 @@ export default function AiChessboardPanel({
                             sx={{
                               width: 8,
                               height: 8,
-                              backgroundColor: "#f44336",
+                              backgroundColor: "error.main",
                               borderRadius: 0.5,
                             }}
                           />
@@ -1445,7 +1447,7 @@ export default function AiChessboardPanel({
                             sx={{
                               width: 8,
                               height: 8,
-                              backgroundColor: "#ffeb3b",
+                              backgroundColor: "warning.light",
                               borderRadius: 0.5,
                             }}
                           />
@@ -1488,7 +1490,7 @@ export default function AiChessboardPanel({
             width: "16px",
             height: "16px",
             cursor: "nw-resize",
-            backgroundColor: "#555",
+            backgroundColor: "action.active",
             borderTopRightRadius: "3px",
             opacity: 0.7,
             display: "flex",
@@ -1496,7 +1498,7 @@ export default function AiChessboardPanel({
             justifyContent: "center",
             "&:hover": {
               opacity: 1,
-              backgroundColor: "#666",
+              backgroundColor: "action.selected",
             },
           }}
         >
@@ -1566,7 +1568,7 @@ export default function AiChessboardPanel({
                       borderColor: "rgba(255,255,255,0.3)",
                     },
                     "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "#9c27b0",
+                      borderColor: "primary.main",
                     },
                   }}
                   MenuProps={{
@@ -1606,7 +1608,7 @@ export default function AiChessboardPanel({
                       borderColor: "rgba(255,255,255,0.3)",
                     },
                     "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                      borderColor: "#9c27b0",
+                      borderColor: "primary.main",
                     },
                   }}
                   MenuProps={{
@@ -1667,7 +1669,7 @@ export default function AiChessboardPanel({
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
-                          backgroundColor: "#9c27b0",
+                          backgroundColor: "primary.main",
                         },
                     }}
                   />
@@ -1690,7 +1692,7 @@ export default function AiChessboardPanel({
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
-                          backgroundColor: "#9c27b0",
+                          backgroundColor: "primary.main",
                         },
                     }}
                   />
@@ -1714,7 +1716,7 @@ export default function AiChessboardPanel({
                         },
                         "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                           {
-                            backgroundColor: "#9c27b0",
+                            backgroundColor: "primary.main",
                           },
                       }}
                     />
@@ -1739,7 +1741,7 @@ export default function AiChessboardPanel({
                         },
                         "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                           {
-                            backgroundColor: "#9c27b0",
+                            backgroundColor: "primary.main",
                           },
                       }}
                     />
@@ -1779,7 +1781,7 @@ export default function AiChessboardPanel({
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
-                          backgroundColor: "#f44336",
+                          backgroundColor: "error.main",
                         },
                     }}
                   />
@@ -1812,7 +1814,7 @@ export default function AiChessboardPanel({
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
-                          backgroundColor: "#ffeb3b",
+                          backgroundColor: "warning.light",
                         },
                     }}
                   />
@@ -1838,9 +1840,9 @@ export default function AiChessboardPanel({
                       fullWidth
                       sx={{
                         color: "secondary.main",
-                        borderColor: "#9c27b0",
+                        borderColor: "primary.main",
                         "&:hover": {
-                          borderColor: "#7b1fa2",
+                          borderColor: "primary.dark",
                           backgroundColor: "rgba(156, 39, 176, 0.1)",
                         },
                       }}
@@ -1866,7 +1868,7 @@ export default function AiChessboardPanel({
                             borderColor: "rgba(255,255,255,0.3)",
                           },
                           "&.Mui-focused fieldset": {
-                            borderColor: "#9c27b0",
+                            borderColor: "primary.main",
                           },
                         },
                       }}
@@ -1888,9 +1890,9 @@ export default function AiChessboardPanel({
                       disabled={!customFen.trim()}
                       fullWidth
                       sx={{
-                        backgroundColor: "#9c27b0",
+                        backgroundColor: "primary.main",
                         "&:hover": {
-                          backgroundColor: "#7b1fa2",
+                          backgroundColor: "primary.dark",
                         },
                         "&:disabled": {
                           backgroundColor: "rgba(156, 39, 176, 0.3)",

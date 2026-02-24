@@ -62,20 +62,20 @@ export default function RepertoireSelector({
   };
 
   return (
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderBottom: '1px solid #333' }}>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, borderBottom: 1, borderColor: 'divider' }}>
       <Select
         value={selectedId || ''}
         onChange={(e) => onSelect(e.target.value)}
         size="small"
         sx={{
-          flex: 1, color: '#e0e0e0', bgcolor: '#2a2a2a',
-          '.MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
-          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#666' },
-          '.MuiSvgIcon-root': { color: '#aaa' },
+          flex: 1, color: 'text.secondary', bgcolor: 'background.paper',
+          '.MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+          '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.secondary' },
+          '.MuiSvgIcon-root': { color: 'text.secondary' },
         }}
         displayEmpty
         renderValue={(val) => {
-          if (!val) return <em style={{ color: '#888' }}>Select repertoire...</em>;
+          if (!val) return <em style={{ color: 'var(--text-secondary)' }}>Select repertoire...</em>;
           const rep = repertoires.find(r => r.id === val);
           if (!rep) return val;
           return (
@@ -83,7 +83,7 @@ export default function RepertoireSelector({
               <span>{rep.color === 'w' ? '♔' : '♚'}</span>
               <span>{rep.name}</span>
               {rep.node_count !== undefined && (
-                <Chip label={rep.node_count} size="small" sx={{ height: 18, fontSize: 11, bgcolor: '#444', color: '#ccc' }} />
+                <Chip label={rep.node_count} size="small" sx={{ height: 18, fontSize: 11, bgcolor: 'action.hover', color: 'text.secondary' }} />
               )}
             </Box>
           );
@@ -102,7 +102,7 @@ export default function RepertoireSelector({
         ))}
       </Select>
 
-      <IconButton size="small" onClick={() => { setNewName(''); setNewColor('w'); setCreateOpen(true); }} sx={{ color: '#aaa' }}>
+      <IconButton size="small" onClick={() => { setNewName(''); setNewColor('w'); setCreateOpen(true); }} sx={{ color: 'text.secondary' }}>
         <AddIcon />
       </IconButton>
 
@@ -110,7 +110,7 @@ export default function RepertoireSelector({
         size="small"
         onClick={(e) => setMenuAnchor(e.currentTarget)}
         disabled={!selectedId}
-        sx={{ color: '#aaa' }}
+        sx={{ color: 'text.secondary' }}
       >
         <MoreVert />
       </IconButton>
@@ -138,14 +138,14 @@ export default function RepertoireSelector({
           setEditingId(selectedId);
           setDeleteOpen(true);
           setMenuAnchor(null);
-        }} sx={{ color: '#f44336' }}>
-          <ListItemIcon><Delete fontSize="small" sx={{ color: '#f44336' }} /></ListItemIcon>
+        }} sx={{ color: 'error.main' }}>
+          <ListItemIcon><Delete fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
           <ListItemText>{t('delete')}</ListItemText>
         </MenuItem>
       </Menu>
 
       {/* Create Dialog */}
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} PaperProps={{ sx: { bgcolor: 'background.paper', color: 'text.primary' } }}>
         <DialogTitle>{t('newRepertoire')}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important', minWidth: 300 }}>
           <TextField
@@ -156,8 +156,8 @@ export default function RepertoireSelector({
             size="small"
             fullWidth
             onKeyDown={e => e.key === 'Enter' && handleCreate()}
-            InputLabelProps={{ sx: { color: '#aaa' } }}
-            InputProps={{ sx: { color: '#e0e0e0' } }}
+            InputLabelProps={{ sx: { color: 'text.secondary' } }}
+            InputProps={{ sx: { color: 'text.primary' } }}
           />
           <ToggleButtonGroup
             value={newColor}
@@ -165,18 +165,18 @@ export default function RepertoireSelector({
             onChange={(_, v) => v && setNewColor(v)}
             size="small"
           >
-            <ToggleButton value="w" sx={{ color: '#e0e0e0' }}>{`♔ ${t('white')}`}</ToggleButton>
-            <ToggleButton value="b" sx={{ color: '#e0e0e0' }}>{`♚ ${t('black')}`}</ToggleButton>
+            <ToggleButton value="w" sx={{ color: 'text.primary' }}>{`♔ ${t('white')}`}</ToggleButton>
+            <ToggleButton value="b" sx={{ color: 'text.primary' }}>{`♚ ${t('black')}`}</ToggleButton>
           </ToggleButtonGroup>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={() => setCreateOpen(false)} sx={{ color: 'text.secondary' }}>{t('cancel')}</Button>
           <Button onClick={handleCreate} variant="contained" disabled={!newName.trim()}>{t('create')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* Rename Dialog */}
-      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
+      <Dialog open={renameOpen} onClose={() => setRenameOpen(false)} PaperProps={{ sx: { bgcolor: 'background.paper', color: 'text.primary' } }}>
         <DialogTitle>{t('renameRepertoire')}</DialogTitle>
         <DialogContent sx={{ pt: '8px !important', minWidth: 300 }}>
           <TextField
@@ -187,24 +187,24 @@ export default function RepertoireSelector({
             size="small"
             fullWidth
             onKeyDown={e => e.key === 'Enter' && handleRename()}
-            InputLabelProps={{ sx: { color: '#aaa' } }}
-            InputProps={{ sx: { color: '#e0e0e0' } }}
+            InputLabelProps={{ sx: { color: 'text.secondary' } }}
+            InputProps={{ sx: { color: 'text.primary' } }}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setRenameOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={() => setRenameOpen(false)} sx={{ color: 'text.secondary' }}>{t('cancel')}</Button>
           <Button onClick={handleRename} variant="contained" disabled={!newName.trim()}>{t('rename')}</Button>
         </DialogActions>
       </Dialog>
 
       {/* Delete Dialog */}
-      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} PaperProps={{ sx: { bgcolor: '#2a2a2a', color: '#e0e0e0' } }}>
+      <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)} PaperProps={{ sx: { bgcolor: 'background.paper', color: 'text.primary' } }}>
         <DialogTitle>{t('deleteRepertoireTitle')}</DialogTitle>
         <DialogContent>
           <Typography>{t('deleteRepertoireConfirm')}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDeleteOpen(false)} sx={{ color: '#aaa' }}>{t('cancel')}</Button>
+          <Button onClick={() => setDeleteOpen(false)} sx={{ color: 'text.secondary' }}>{t('cancel')}</Button>
           <Button onClick={handleDelete} color="error" variant="contained">{t('delete')}</Button>
         </DialogActions>
       </Dialog>

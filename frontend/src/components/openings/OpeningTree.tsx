@@ -90,7 +90,8 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
           pl: depth * 2, pr: 1, py: 0.3, cursor: 'pointer',
           bgcolor: isSelected ? 'rgba(128, 128, 255, 0.15)' : 'transparent',
           '&:hover': { bgcolor: isSelected ? 'rgba(128, 128, 255, 0.2)' : 'rgba(255,255,255,0.04)' },
-          borderLeft: isSelected ? '2px solid #7c7cff' : '2px solid transparent',
+          borderLeft: '2px solid',
+          borderColor: isSelected ? 'primary.main' : 'transparent',
           minHeight: 28,
         }}
       >
@@ -99,7 +100,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
           <IconButton
             size="small"
             onClick={(e) => { e.stopPropagation(); onToggle(node.id); }}
-            sx={{ p: 0, color: '#888', width: 20, height: 20 }}
+            sx={{ p: 0, color: 'text.secondary', width: 20, height: 20 }}
           >
             {isExpanded ? <ExpandMore sx={{ fontSize: 16 }} /> : <ChevronRight sx={{ fontSize: 16 }} />}
           </IconButton>
@@ -116,7 +117,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
         <Typography
           component="span"
           sx={{
-            fontSize: 13, fontFamily: 'monospace', color: '#e0e0e0',
+            fontSize: 13, fontFamily: 'monospace', color: 'text.primary',
             fontWeight: isSelected ? 600 : 400,
           }}
         >
@@ -128,7 +129,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
           <Chip
             label={node.eco_code}
             size="small"
-            sx={{ height: 16, fontSize: 10, bgcolor: '#444', color: '#aaa', ml: 0.5 }}
+            sx={{ height: 16, fontSize: 10, bgcolor: 'action.hover', color: 'text.secondary', ml: 0.5 }}
           />
         )}
 
@@ -136,7 +137,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
         {node.opening_name && (
           <Typography
             component="span"
-            sx={{ fontSize: 11, color: '#888', ml: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            sx={{ fontSize: 11, color: 'text.secondary', ml: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
           >
             {node.opening_name}
           </Typography>
@@ -147,7 +148,7 @@ const TreeNodeItem = React.memo(function TreeNodeItem({
           <Chip
             label={`+${descendantCount}`}
             size="small"
-            sx={{ height: 16, fontSize: 10, bgcolor: '#333', color: '#777', ml: 'auto' }}
+            sx={{ height: 16, fontSize: 10, bgcolor: 'action.hover', color: 'text.secondary', ml: 'auto' }}
           />
         )}
       </Box>
@@ -224,7 +225,7 @@ export default function OpeningTree({
 
   if (loading) {
     return (
-      <Box sx={{ p: 2, color: '#888' }}>
+      <Box sx={{ p: 2, color: 'text.secondary' }}>
         <Typography variant="body2">Loading tree...</Typography>
       </Box>
     );
@@ -232,7 +233,7 @@ export default function OpeningTree({
 
   if (!tree) {
     return (
-      <Box sx={{ p: 2, color: '#888' }}>
+      <Box sx={{ p: 2, color: 'text.secondary' }}>
         <Typography variant="body2">Select a repertoire to view the opening tree.</Typography>
       </Box>
     );
@@ -241,13 +242,13 @@ export default function OpeningTree({
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
       {/* Toolbar */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderBottom: '1px solid #333' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.5, borderBottom: 1, borderColor: 'divider' }}>
         <Button size="small" startIcon={<UnfoldMore sx={{ fontSize: 14 }} />} onClick={expandAll}
-          sx={{ color: '#aaa', fontSize: 11, textTransform: 'none', minWidth: 0, px: 1 }}>
+          sx={{ color: 'text.secondary', fontSize: 11, textTransform: 'none', minWidth: 0, px: 1 }}>
           {t('expand')}
         </Button>
         <Button size="small" startIcon={<UnfoldLess sx={{ fontSize: 14 }} />} onClick={collapseAll}
-          sx={{ color: '#aaa', fontSize: 11, textTransform: 'none', minWidth: 0, px: 1 }}>
+          sx={{ color: 'text.secondary', fontSize: 11, textTransform: 'none', minWidth: 0, px: 1 }}>
           {t('collapse')}
         </Button>
         <Box sx={{ ml: 'auto', display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -260,7 +261,7 @@ export default function OpeningTree({
       {/* Tree */}
       <Box sx={{ flex: 1, overflow: 'auto', py: 0.5 }}>
         {(tree.children?.length || 0) === 0 && !tree.move_san ? (
-          <Box sx={{ p: 2, color: '#777', textAlign: 'center' }}>
+          <Box sx={{ p: 2, color: 'text.secondary', textAlign: 'center' }}>
             <Typography variant="body2">No moves yet. Make a move on the board to start building your repertoire.</Typography>
           </Box>
         ) : (

@@ -182,15 +182,6 @@ const ModelSetting: React.FC = () => {
 
   const supportsRouting = currentProviderConfig?.supportsRouting || false;
 
-  const colors = {
-    background: { card: '#1a1a1a', input: '#2a2a2a' },
-    text: { primary: '#ffffff', secondary: '#cccccc', accent: '#bb86fc' },
-    primary: '#bb86fc',
-    primaryDark: '#9965f4',
-    secondary: '#03dac6',
-    accent: '#cf6679',
-  };
-
   return (
     <Box>
        
@@ -200,7 +191,7 @@ const ModelSetting: React.FC = () => {
           sx={{ 
             mb: 3,
             backgroundColor: '#d32f2f20',
-            color: colors.text.primary,
+            color: 'text.primary',
           }}
         >
           {validationError}
@@ -211,21 +202,21 @@ const ModelSetting: React.FC = () => {
         variant="outlined" 
         sx={{ 
           mb: 3, 
-          backgroundColor: colors.background.card,
-          borderColor: `${colors.secondary}60`,
+          backgroundColor: 'background.paper',
+          borderColor: 'divider',
         }}
       >
         <CardContent>
           <Typography 
             variant="h6" 
             gutterBottom
-            sx={{ color: colors.text.accent }}
+            sx={{ color: 'primary.main' }}
           >
             Provider Configuration
           </Typography>
           
           <FormControl fullWidth margin="normal">
-            <InputLabel sx={{ color: colors.text.secondary }}>
+            <InputLabel sx={{ color: 'text.secondary' }}>
               AI Provider
             </InputLabel>
             <Select
@@ -233,23 +224,23 @@ const ModelSetting: React.FC = () => {
               label="AI Provider"
               onChange={(e) => handleProviderChange(e.target.value)}
               sx={{
-                backgroundColor: colors.background.input,
-                color: colors.text.primary,
+                backgroundColor: 'background.default',
+                color: 'text.primary',
                 '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: `${colors.secondary}60`,
+                  borderColor: 'divider',
                 },
                 '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: colors.secondary,
+                  borderColor: 'secondary.main',
                 },
                 '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: colors.primary,
+                  borderColor: 'primary.main',
                 },
               }}
               MenuProps={{
                 PaperProps: {
                   sx: {
-                    backgroundColor: colors.background.input,
-                    color: colors.text.primary,
+                    backgroundColor: 'background.default',
+                    color: 'text.primary',
                   },
                 },
               }}
@@ -268,7 +259,7 @@ const ModelSetting: React.FC = () => {
           {/* Model Selection */}
           {tempSettings.provider && currentProviderConfig && (
             <FormControl fullWidth margin="normal">
-              <InputLabel sx={{ color: colors.text.secondary }}>
+              <InputLabel sx={{ color: 'text.secondary' }}>
                 Model
               </InputLabel>
               <Select
@@ -276,23 +267,23 @@ const ModelSetting: React.FC = () => {
                 label="Model"
                 onChange={(e) => setTempSettings({ ...tempSettings, model: e.target.value })}
                 sx={{
-                  backgroundColor: colors.background.input,
-                  color: colors.text.primary,
+                  backgroundColor: 'background.default',
+                  color: 'text.primary',
                   '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: `${colors.secondary}60`,
+                    borderColor: 'divider',
                   },
                   '&:hover .MuiOutlinedInput-notchedOutline': {
-                    borderColor: colors.secondary,
+                    borderColor: 'secondary.main',
                   },
                   '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                    borderColor: colors.primary,
+                    borderColor: 'primary.main',
                   },
                 }}
                 MenuProps={{
                   PaperProps: {
                     sx: {
-                      backgroundColor: colors.background.input,
-                      color: colors.text.primary,
+                      backgroundColor: 'background.default',
+                      color: 'text.primary',
                       maxHeight: 400,
                     },
                   },
@@ -316,25 +307,25 @@ const ModelSetting: React.FC = () => {
                     checked={tempSettings.isRouted || false}
                     onChange={(e) => setTempSettings({ ...tempSettings, isRouted: e.target.checked })}
                     sx={{
-                      color: colors.text.secondary,
+                      color: 'text.secondary',
                       '&.Mui-checked': {
-                        color: colors.primary,
+                        color: 'primary.main',
                       },
                     }}
                   />
                 }
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
-                    <SwapHorizIcon fontSize="small" sx={{ color: colors.text.accent }} />
-                    <Typography sx={{ color: colors.text.primary }}>
+                    <SwapHorizIcon fontSize="small" sx={{ color: 'primary.main' }} />
+                    <Typography sx={{ color: 'text.primary' }}>
                       Use OpenRouter
                     </Typography>
                     <Chip 
                       size="small" 
                       label="Optional"
                       sx={{
-                        backgroundColor: `${colors.secondary}30`,
-                        color: colors.text.primary,
+                        backgroundColor: 'action.hover',
+                        color: 'text.primary',
                         fontSize: '0.7rem',
                       }}
                     />
@@ -344,7 +335,7 @@ const ModelSetting: React.FC = () => {
               <Typography 
                 variant="caption" 
                 sx={{ 
-                  color: colors.text.secondary, 
+                  color: 'text.secondary', 
                   ml: 4,
                   display: 'block',
                   fontStyle: 'italic'
@@ -361,16 +352,16 @@ const ModelSetting: React.FC = () => {
         variant="outlined" 
         sx={{ 
           mb: 3, 
-          backgroundColor: colors.background.card,
-          borderColor: `${colors.secondary}60`,
+          backgroundColor: 'background.paper',
+          borderColor: 'divider',
         }}
       >
         <CardContent>
           <Box display="flex" alignItems="center" gap={1} mb={2}>
-            <LanguageIcon sx={{ color: colors.text.accent }} />
+            <LanguageIcon sx={{ color: 'primary.main' }} />
             <Typography 
               variant="h6"
-              sx={{ color: colors.text.accent }}
+              sx={{ color: 'primary.main' }}
             >
               Output Language
             </Typography>
@@ -379,9 +370,9 @@ const ModelSetting: React.FC = () => {
                 size="small" 
                 label={`${selectedLanguage.flag} ${selectedLanguage.nativeName}`}
                 sx={{
-                  backgroundColor: `${colors.primary}30`,
-                  color: colors.text.primary,
-                  borderColor: colors.primary,
+                  backgroundColor: 'action.selected',
+                  color: 'text.primary',
+                  borderColor: 'primary.main',
                 }}
                 variant="outlined"
               />
@@ -389,7 +380,7 @@ const ModelSetting: React.FC = () => {
           </Box>
           
           <FormControl fullWidth>
-            <InputLabel sx={{ color: colors.text.secondary }}>
+            <InputLabel sx={{ color: 'text.secondary' }}>
               Preferred Language for AI Responses
             </InputLabel>
             <Select
@@ -397,23 +388,23 @@ const ModelSetting: React.FC = () => {
               label="Preferred Language for AI Responses"
               onChange={(e) => setTempSettings({ ...tempSettings, language: e.target.value })}
               sx={{
-                backgroundColor: colors.background.input,
-                color: colors.text.primary,
+                backgroundColor: 'background.default',
+                color: 'text.primary',
                 '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: `${colors.secondary}60`,
+                  borderColor: 'divider',
                 },
                 '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: colors.secondary,
+                  borderColor: 'secondary.main',
                 },
                 '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: colors.primary,
+                  borderColor: 'primary.main',
                 },
               }}
               MenuProps={{
                 PaperProps: {
                   sx: {
-                    backgroundColor: colors.background.input,
-                    color: colors.text.primary,
+                    backgroundColor: 'background.default',
+                    color: 'text.primary',
                     maxHeight: 400,
                   },
                 },
@@ -426,13 +417,13 @@ const ModelSetting: React.FC = () => {
                       {language.flag}
                     </Typography>
                     <Box>
-                      <Typography variant="body2" sx={{ color: colors.text.primary }}>
+                      <Typography variant="body2" sx={{ color: 'text.primary' }}>
                         {language.name}
                       </Typography>
                       <Typography 
                         variant="caption" 
                         sx={{ 
-                          color: colors.text.secondary,
+                          color: 'text.secondary',
                           fontStyle: 'italic' 
                         }}
                       >
@@ -448,7 +439,7 @@ const ModelSetting: React.FC = () => {
           <Typography 
             variant="caption" 
             sx={{ 
-              color: colors.text.secondary, 
+              color: 'text.secondary', 
               mt: 1, 
               display: 'block',
               fontStyle: 'italic'
@@ -464,15 +455,15 @@ const ModelSetting: React.FC = () => {
           variant="outlined" 
           sx={{ 
             mb: 3,
-            backgroundColor: colors.background.card,
-            borderColor: `${colors.secondary}60`,
+            backgroundColor: 'background.paper',
+            borderColor: 'divider',
           }}
         >
           <CardContent>
             <Box display="flex" alignItems="center" gap={1} mb={2}>
               <Typography 
                 variant="h6"
-                sx={{ color: colors.text.accent }}
+                sx={{ color: 'primary.main' }}
               >
                 API Key
               </Typography>
@@ -480,9 +471,9 @@ const ModelSetting: React.FC = () => {
                 size="small" 
                 label={currentProviderConfig.name}
                 sx={{
-                  backgroundColor: `${colors.secondary}30`,
-                  color: colors.text.primary,
-                  borderColor: colors.secondary,
+                  backgroundColor: 'action.hover',
+                  color: 'text.primary',
+                  borderColor: 'secondary.main',
                 }}
                 variant="outlined"
               />
@@ -498,25 +489,25 @@ const ModelSetting: React.FC = () => {
               helperText={currentProviderConfig.keyPrefix ? `Should start with "${currentProviderConfig.keyPrefix}"` : 'Enter your API key'}
               sx={{
                 '& .MuiInputBase-root': {
-                  backgroundColor: colors.background.input,
+                  backgroundColor: 'background.default',
                 },
                 '& .MuiInputLabel-root': {
-                  color: colors.text.secondary,
+                  color: 'text.secondary',
                 },
                 '& .MuiOutlinedInput-root': {
-                  color: colors.text.primary,
+                  color: 'text.primary',
                   '& fieldset': {
-                    borderColor: `${colors.secondary}60`,
+                    borderColor: 'divider',
                   },
                   '&:hover fieldset': {
-                    borderColor: colors.secondary,
+                    borderColor: 'secondary.main',
                   },
                   '&.Mui-focused fieldset': {
-                    borderColor: colors.primary,
+                    borderColor: 'primary.main',
                   },
                 },
                 '& .MuiFormHelperText-root': {
-                  color: colors.text.secondary,
+                  color: 'text.secondary',
                 },
               }}
               InputProps={{
@@ -524,7 +515,7 @@ const ModelSetting: React.FC = () => {
                   <IconButton
                     onClick={() => setShowApiKey(!showApiKey)}
                     edge="end"
-                    sx={{ color: colors.text.secondary }}
+                    sx={{ color: 'text.secondary' }}
                   >
                     {showApiKey ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -541,9 +532,9 @@ const ModelSetting: React.FC = () => {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: 0.5,
-                  color: colors.accent,
+                  color: 'error.main',
                   '&:hover': {
-                    color: colors.text.accent,
+                    color: 'primary.main',
                   }
                 }}
               >
@@ -561,17 +552,17 @@ const ModelSetting: React.FC = () => {
           variant="outlined" 
           sx={{ 
             mb: 3,
-            backgroundColor: colors.background.card,
-            borderColor: `${colors.primary}60`,
-            boxShadow: `0 0 10px ${colors.primary}30`,
+            backgroundColor: 'background.paper',
+            borderColor: 'divider',
+            boxShadow: 1,
           }}
         >
           <CardContent>
             <Box display="flex" alignItems="center" gap={1} mb={2}>
-              <SwapHorizIcon sx={{ color: colors.text.accent }} />
+              <SwapHorizIcon sx={{ color: 'primary.main' }} />
               <Typography 
                 variant="h6"
-                sx={{ color: colors.text.accent }}
+                sx={{ color: 'primary.main' }}
               >
                 OpenRouter API Key
               </Typography>
@@ -579,9 +570,9 @@ const ModelSetting: React.FC = () => {
                 size="small" 
                 label="Routing Enabled"
                 sx={{
-                  backgroundColor: `${colors.primary}30`,
-                  color: colors.text.primary,
-                  borderColor: colors.primary,
+                  backgroundColor: 'action.selected',
+                  color: 'text.primary',
+                  borderColor: 'primary.main',
                 }}
                 variant="outlined"
               />
@@ -597,25 +588,25 @@ const ModelSetting: React.FC = () => {
               helperText='Should start with "sk-or-"'
               sx={{
                 '& .MuiInputBase-root': {
-                  backgroundColor: colors.background.input,
+                  backgroundColor: 'background.default',
                 },
                 '& .MuiInputLabel-root': {
-                  color: colors.text.secondary,
+                  color: 'text.secondary',
                 },
                 '& .MuiOutlinedInput-root': {
-                  color: colors.text.primary,
+                  color: 'text.primary',
                   '& fieldset': {
-                    borderColor: `${colors.primary}60`,
+                    borderColor: 'divider',
                   },
                   '&:hover fieldset': {
-                    borderColor: colors.primary,
+                    borderColor: 'primary.main',
                   },
                   '&.Mui-focused fieldset': {
-                    borderColor: colors.primary,
+                    borderColor: 'primary.main',
                   },
                 },
                 '& .MuiFormHelperText-root': {
-                  color: colors.text.secondary,
+                  color: 'text.secondary',
                 },
               }}
               InputProps={{
@@ -623,7 +614,7 @@ const ModelSetting: React.FC = () => {
                   <IconButton
                     onClick={() => setShowOpenRouterKey(!showOpenRouterKey)}
                     edge="end"
-                    sx={{ color: colors.text.secondary }}
+                    sx={{ color: 'text.secondary' }}
                   >
                     {showOpenRouterKey ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
@@ -640,9 +631,9 @@ const ModelSetting: React.FC = () => {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: 0.5,
-                  color: colors.accent,
+                  color: 'error.main',
                   '&:hover': {
-                    color: colors.text.accent,
+                    color: 'primary.main',
                   }
                 }}
               >
@@ -655,10 +646,10 @@ const ModelSetting: React.FC = () => {
               severity="info" 
               sx={{ 
                 mt: 2,
-                backgroundColor: `${colors.primary}10`,
-                color: colors.text.primary,
+                backgroundColor: 'action.hover',
+                color: 'text.primary',
                 '& .MuiAlert-icon': {
-                  color: colors.primary,
+                  color: 'primary.main',
                 },
               }}
             >
@@ -674,15 +665,15 @@ const ModelSetting: React.FC = () => {
           variant="outlined" 
           sx={{ 
             mb: 3,
-            backgroundColor: colors.background.card,
-            borderColor: `${colors.secondary}60`,
+            backgroundColor: 'background.paper',
+            borderColor: 'divider',
           }}
         >
           <CardContent>
             <Box display="flex" alignItems="center" gap={1} mb={2}>
               <Typography 
                 variant="h6"
-                sx={{ color: colors.text.accent }}
+                sx={{ color: 'primary.main' }}
               >
                 Local LLM ngrok endpoint
               </Typography>
@@ -690,9 +681,9 @@ const ModelSetting: React.FC = () => {
                 size="small" 
                 label={currentProviderConfig.name}
                 sx={{
-                  backgroundColor: `${colors.secondary}30`,
-                  color: colors.text.primary,
-                  borderColor: colors.secondary,
+                  backgroundColor: 'action.hover',
+                  color: 'text.primary',
+                  borderColor: 'secondary.main',
                 }}
                 variant="outlined"
               />
@@ -707,25 +698,25 @@ const ModelSetting: React.FC = () => {
               helperText="Enter your ngrok endpoint https:..."
               sx={{
                 '& .MuiInputBase-root': {
-                  backgroundColor: colors.background.input,
+                  backgroundColor: 'background.default',
                 },
                 '& .MuiInputLabel-root': {
-                  color: colors.text.secondary,
+                  color: 'text.secondary',
                 },
                 '& .MuiOutlinedInput-root': {
-                  color: colors.text.primary,
+                  color: 'text.primary',
                   '& fieldset': {
-                    borderColor: `${colors.secondary}60`,
+                    borderColor: 'divider',
                   },
                   '&:hover fieldset': {
-                    borderColor: colors.secondary,
+                    borderColor: 'secondary.main',
                   },
                   '&.Mui-focused fieldset': {
-                    borderColor: colors.primary,
+                    borderColor: 'primary.main',
                   },
                 },
                 '& .MuiFormHelperText-root': {
-                  color: colors.text.secondary,
+                  color: 'text.secondary',
                 },
               }}
             />
@@ -739,9 +730,9 @@ const ModelSetting: React.FC = () => {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: 0.5,
-                  color: colors.accent,
+                  color: 'error.main',
                   '&:hover': {
-                    color: colors.text.accent,
+                    color: 'primary.main',
                   }
                 }}
               >
@@ -758,10 +749,10 @@ const ModelSetting: React.FC = () => {
           severity="success" 
           sx={{ 
             mb: 3,
-            backgroundColor: `${colors.secondary}20`,
-            color: colors.text.primary,
+            backgroundColor: 'action.hover',
+            color: 'text.primary',
             '& .MuiAlert-icon': {
-              color: colors.accent,
+              color: 'error.main',
             },
           }}
         >
@@ -775,11 +766,11 @@ const ModelSetting: React.FC = () => {
           variant="outlined" 
           onClick={handleReset}
           sx={{
-            borderColor: colors.secondary,
-            color: colors.text.secondary,
+            borderColor: 'secondary.main',
+            color: 'text.secondary',
             '&:hover': {
-              borderColor: colors.text.accent,
-              backgroundColor: `${colors.secondary}20`,
+              borderColor: 'primary.main',
+              backgroundColor: 'action.hover',
             }
           }}
         >
@@ -791,13 +782,13 @@ const ModelSetting: React.FC = () => {
           onClick={handleSave}
           disabled={!tempSettings.provider}
           sx={{
-            backgroundColor: colors.primary,
+            backgroundColor: 'primary.main',
             '&:hover': {
-              backgroundColor: colors.primaryDark,
+              backgroundColor: 'primary.dark',
             },
             '&:disabled': {
-              backgroundColor: `${colors.primary}50`,
-              color: `${colors.text.primary}50`,
+              backgroundColor: 'action.disabledBackground',
+              color: 'text.disabled',
             }
           }}
         >

@@ -80,16 +80,16 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
       onClose={handleClose}
       fullWidth
       maxWidth="md"
-      PaperProps={{ sx: { bgcolor: '#1e1e1e', color: '#e0e0e0', minHeight: 500 } }}
+      PaperProps={{ sx: { bgcolor: 'background.default', color: 'text.primary', minHeight: 500 } }}
     >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
         Search Games by Position
-        <IconButton onClick={handleClose} sx={{ color: '#aaa' }}><Close /></IconButton>
+        <IconButton onClick={handleClose} sx={{ color: 'text.secondary' }}><Close /></IconButton>
       </DialogTitle>
 
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         {/* FEN display */}
-        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#777', fontSize: 10, wordBreak: 'break-all' }}>
+        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.disabled', fontSize: 10, wordBreak: 'break-all' }}>
           FEN: {fen}
         </Typography>
 
@@ -98,9 +98,9 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
           value={source}
           onChange={(_, v) => setSource(v)}
           sx={{
-            '& .MuiTab-root': { color: '#aaa', fontSize: 12, minHeight: 36, textTransform: 'none' },
-            '& .Mui-selected': { color: '#7986cb' },
-            '& .MuiTabs-indicator': { bgcolor: '#7986cb' },
+            '& .MuiTab-root': { color: 'text.secondary', fontSize: 12, minHeight: 36, textTransform: 'none' },
+            '& .Mui-selected': { color: 'primary.light' },
+            '& .MuiTabs-indicator': { bgcolor: 'primary.light' },
           }}
         >
           <Tab label="TWIC Database" />
@@ -118,15 +118,15 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
               size="small"
               sx={{
                 width: 180,
-                '& .MuiInputBase-root': { color: '#e0e0e0', bgcolor: '#252525' },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
-                '& .MuiInputLabel-root': { color: '#888' },
+                '& .MuiInputBase-root': { color: 'text.primary', bgcolor: 'action.hover' },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+                '& .MuiInputLabel-root': { color: 'text.secondary' },
               }}
             />
           )}
 
           <Box sx={{ width: 140 }}>
-            <Typography variant="caption" sx={{ color: '#aaa', fontSize: 10 }}>Min Rating: {minRating}</Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>Min Rating: {minRating}</Typography>
             <Slider
               value={minRating}
               onChange={(_, v) => setMinRating(v as number)}
@@ -134,19 +134,19 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
               max={2800}
               step={100}
               size="small"
-              sx={{ color: '#7986cb' }}
+              sx={{ color: 'primary.light' }}
             />
           </Box>
 
           <Box sx={{ width: 100 }}>
-            <Typography variant="caption" sx={{ color: '#aaa', fontSize: 10 }}>Max: {maxGames}</Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>Max: {maxGames}</Typography>
             <Slider
               value={maxGames}
               onChange={(_, v) => setMaxGames(v as number)}
               min={1}
               max={50}
               size="small"
-              sx={{ color: '#7986cb' }}
+              sx={{ color: 'primary.light' }}
             />
           </Box>
 
@@ -177,7 +177,7 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
         {(searching || progress.checked > 0) && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {searching && <CircularProgress size={14} />}
-            <Typography variant="caption" sx={{ color: '#aaa' }}>
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
               Checked {progress.checked} games · Found {progress.found} matches
             </Typography>
           </Box>
@@ -186,7 +186,7 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
         {/* Results */}
         <Box sx={{ flex: 1, overflow: 'auto' }}>
           {games.length === 0 && !searching && progress.checked > 0 && (
-            <Typography sx={{ color: '#777', textAlign: 'center', mt: 2 }}>
+            <Typography sx={{ color: 'text.disabled', textAlign: 'center', mt: 2 }}>
               No games found for this position.
             </Typography>
           )}
@@ -197,13 +197,13 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
                 <ListItem sx={{ px: 0, py: 0.5, flexDirection: 'column', alignItems: 'stretch' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
                     <Box sx={{ flex: 1 }}>
-                      <Typography variant="body2" sx={{ color: '#e0e0e0', fontSize: 13 }}>
+                      <Typography variant="body2" sx={{ color: 'text.primary', fontSize: 13 }}>
                         {game.white} ({game.white_elo || '?'}) vs {game.black} ({game.black_elo || '?'})
                       </Typography>
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.3 }}>
-                        <Chip label={game.result || '?'} size="small" sx={{ height: 16, fontSize: 10, bgcolor: '#444', color: '#ccc' }} />
-                        {game.eco && <Chip label={game.eco} size="small" sx={{ height: 16, fontSize: 10, bgcolor: '#3949ab', color: '#fff' }} />}
-                        {game.date && <Typography variant="caption" sx={{ color: '#777', fontSize: 10 }}>{game.date}</Typography>}
+                        <Chip label={game.result || '?'} size="small" sx={{ height: 16, fontSize: 10, bgcolor: 'action.hover', color: 'text.secondary' }} />
+                        {game.eco && <Chip label={game.eco} size="small" sx={{ height: 16, fontSize: 10, bgcolor: 'primary.dark', color: '#fff' }} />}
+                        {game.date && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10 }}>{game.date}</Typography>}
                       </Box>
                     </Box>
 
@@ -211,7 +211,7 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
                       size="small"
                       startIcon={<LinkIcon sx={{ fontSize: 14 }} />}
                       onClick={() => onLinkGame(game)}
-                      sx={{ color: '#7986cb', fontSize: 11, textTransform: 'none', minWidth: 0 }}
+                      sx={{ color: 'primary.light', fontSize: 11, textTransform: 'none', minWidth: 0 }}
                     >
                       Link
                     </Button>
@@ -236,7 +236,7 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
                           }
                           setExpandedPgn(gid);
                         }}
-                        sx={{ color: '#777' }}
+                        sx={{ color: 'text.disabled' }}
                       >
                         {loadingPgnId === String(game.id) ? <CircularProgress size={14} /> : expandedPgn === String(game.id) ? <ExpandLess /> : <ExpandMore />}
                       </IconButton>
@@ -245,14 +245,14 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
 
                   {/* PGN view */}
                   <Collapse in={expandedPgn === String(game.id)}>
-                    <Box sx={{ mt: 0.5, p: 1, bgcolor: '#252525', borderRadius: 1, maxHeight: 120, overflow: 'auto' }}>
-                      <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#aaa', fontSize: 11, whiteSpace: 'pre-wrap' }}>
+                    <Box sx={{ mt: 0.5, p: 1, bgcolor: 'action.hover', borderRadius: 1, maxHeight: 120, overflow: 'auto' }}>
+                      <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary', fontSize: 11, whiteSpace: 'pre-wrap' }}>
                         {(game.pgn || loadedPgns[String(game.id)] || '')?.slice(0, 1000)}
                       </Typography>
                     </Box>
                   </Collapse>
                 </ListItem>
-                {idx < games.length - 1 && <Divider sx={{ borderColor: '#333' }} />}
+                {idx < games.length - 1 && <Divider sx={{ borderColor: 'divider' }} />}
               </React.Fragment>
             ))}
           </List>

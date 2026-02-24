@@ -36,13 +36,13 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   ];
 
   const selectSx = {
-    color: '#ccc',
+    color: 'text.secondary',
     fontSize: 12,
     height: 32,
-    '.MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
-    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#666' },
-    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#5c6bc0' },
-    '.MuiSelect-icon': { color: '#888' },
+    '.MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+    '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.secondary' },
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'primary.main' },
+    '.MuiSelect-icon': { color: 'text.secondary' },
   };
 
   return (
@@ -56,23 +56,23 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
-              <Search sx={{ fontSize: 18, color: '#7986cb' }} />
+              <Search sx={{ fontSize: 18, color: 'primary.light' }} />
             </InputAdornment>
           ),
         }}
         sx={{
           '& .MuiOutlinedInput-root': {
-            bgcolor: '#2a2a2a',
+            bgcolor: 'background.paper',
             borderRadius: 1.5,
             height: 36,
-            '& fieldset': { borderColor: '#444' },
-            '&:hover fieldset': { borderColor: '#666' },
-            '&.Mui-focused fieldset': { borderColor: '#5c6bc0' },
+            '& fieldset': { borderColor: 'divider' },
+            '&:hover fieldset': { borderColor: 'text.secondary' },
+            '&.Mui-focused fieldset': { borderColor: 'primary.main' },
           },
           '& .MuiInputBase-input': {
-            color: '#e0e0e0',
+            color: 'text.primary',
             fontSize: 13,
-            '&::placeholder': { color: '#888', opacity: 1 },
+            '&::placeholder': { color: 'text.secondary', opacity: 1 },
           },
         }}
       />
@@ -83,8 +83,8 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
           <Select
             value={filters.playerColor}
             onChange={(e) => onFilterChange({ ...filters, playerColor: e.target.value })}
-            sx={{ ...selectSx, bgcolor: '#2a2a2a', borderRadius: 1.5 }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: '#333', color: '#ccc' } } }}
+            sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'action.hover', color: 'text.secondary' } } }}
           >
             {colorOptions.map(opt => (
               <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
@@ -98,8 +98,8 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
           <Select
             value={filters.sortBy}
             onChange={(e) => onFilterChange({ ...filters, sortBy: e.target.value })}
-            sx={{ ...selectSx, bgcolor: '#2a2a2a', borderRadius: 1.5 }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: '#333', color: '#ccc' } } }}
+            sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'action.hover', color: 'text.secondary' } } }}
           >
             {sortOptions.map(opt => (
               <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>

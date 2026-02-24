@@ -412,13 +412,13 @@ export default function BoardEditor({
           display: "flex",
           gap: "8px",
           alignItems: "center",
-          backgroundColor: "#1e1e1e",
+          backgroundColor: "var(--surface-card)",
           padding: "8px 12px",
           borderRadius: "4px",
-          border: "1px solid #333",
+          border: "1px solid var(--border-default)",
         }}
       >
-        <label style={{ color: "#999", fontSize: "12px", flexShrink: 0 }}>
+        <label style={{ color: "var(--text-secondary)", fontSize: "12px", flexShrink: 0 }}>
           {t("fen")}
         </label>
         <input
@@ -431,9 +431,9 @@ export default function BoardEditor({
           }}
           style={{
             flex: 1,
-            backgroundColor: "#2a2a2a",
-            color: "#ddd",
-            border: "1px solid #444",
+            backgroundColor: "var(--surface-raised)",
+            color: "var(--text-primary)",
+            border: "1px solid var(--border-default)",
             borderRadius: "4px",
             padding: "6px 8px",
             fontSize: "13px",
@@ -448,13 +448,13 @@ export default function BoardEditor({
           display: "flex",
           gap: "8px",
           alignItems: "center",
-          backgroundColor: "#1e1e1e",
+          backgroundColor: "var(--surface-card)",
           padding: "8px 12px",
           borderRadius: "4px",
-          border: "1px solid #333",
+          border: "1px solid var(--border-default)",
         }}
       >
-        <label style={{ color: "#999", fontSize: "12px", flexShrink: 0 }}>
+        <label style={{ color: "var(--text-secondary)", fontSize: "12px", flexShrink: 0 }}>
           {t("url")}
         </label>
         <input
@@ -463,9 +463,9 @@ export default function BoardEditor({
           readOnly
           style={{
             flex: 1,
-            backgroundColor: "#2a2a2a",
-            color: "#888",
-            border: "1px solid #444",
+            backgroundColor: "var(--surface-raised)",
+            color: "var(--text-secondary)",
+            border: "1px solid var(--border-default)",
             borderRadius: "4px",
             padding: "6px 8px",
             fontSize: "13px",
@@ -476,9 +476,9 @@ export default function BoardEditor({
           onClick={handleCopyUrl}
           style={{
             padding: "6px 12px",
-            backgroundColor: copied ? "#2e7d32" : "#333",
-            color: "#ddd",
-            border: "1px solid #555",
+            backgroundColor: copied ? "#2e7d32" : "var(--surface-raised)",
+            color: "var(--text-primary)",
+            border: "1px solid var(--border-default)",
             borderRadius: "4px",
             cursor: "pointer",
             fontSize: "12px",

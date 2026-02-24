@@ -111,12 +111,12 @@ export default function DesktopSidebar() {
         title={collapsed ? `${t(item.labelKey)} (${item.shortcut || ''})` : undefined}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group relative ${
           active
-            ? 'bg-purple-50 text-purple-700 font-semibold'
-            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 font-semibold'
+            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-white/5 hover:text-gray-900 dark:hover:text-gray-200'
         } ${collapsed ? 'justify-center' : ''}`}
       >
         {active && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-purple-600 rounded-r-full" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-purple-600 dark:bg-purple-400 rounded-r-full" />
         )}
         <div className="flex-shrink-0">
           {active ? item.activeIcon : item.icon}
@@ -125,7 +125,7 @@ export default function DesktopSidebar() {
           <span className="text-sm truncate">{t(item.labelKey)}</span>
         )}
         {!collapsed && item.shortcut && (
-          <kbd className="ml-auto text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-mono opacity-0 group-hover:opacity-100 transition-opacity">
+          <kbd className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-white/10 px-1.5 py-0.5 rounded font-mono opacity-0 group-hover:opacity-100 transition-opacity">
             {item.shortcut}
           </kbd>
         )}
@@ -135,14 +135,14 @@ export default function DesktopSidebar() {
 
   return (
     <aside
-      className={`sticky top-0 h-screen bg-white border-r border-gray-200 flex flex-col transition-all duration-200 overflow-visible ${
+      className={`sticky top-0 h-screen bg-white dark:bg-[#141414] border-r border-gray-200 dark:border-[#2a2a2a] flex flex-col transition-all duration-200 overflow-visible ${
         collapsed ? 'w-[64px]' : 'w-[220px]'
       }`}
     >
       {/* Logo */}
-      <div className={`h-16 flex items-center border-b border-gray-100 px-3 ${collapsed ? 'justify-center' : 'gap-2'}`}>
+      <div className={`h-16 flex items-center border-b border-gray-100 dark:border-[#2a2a2a] px-3 ${collapsed ? 'justify-center' : 'gap-2'}`}>
         <Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={28} height={28} />
-        {!collapsed && <span className="font-bold text-gray-900 text-lg">Chesster</span>}
+        {!collapsed && <span className="font-bold text-gray-900 dark:text-gray-100 text-lg">Chesster</span>}
       </div>
 
       {/* Main nav */}
@@ -151,7 +151,7 @@ export default function DesktopSidebar() {
       </nav>
 
       {/* Separator */}
-      <div className="border-t border-gray-100 mx-3" />
+      <div className="border-t border-gray-100 dark:border-[#2a2a2a] mx-3" />
 
       {/* Bottom items */}
       <div className="px-2 py-2 space-y-1">
@@ -159,7 +159,7 @@ export default function DesktopSidebar() {
       </div>
 
       {/* Language + User */}
-      <div className={`px-3 py-3 border-t border-gray-100 flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
+      <div className={`px-3 py-3 border-t border-gray-100 dark:border-[#2a2a2a] flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
         {!collapsed && <LanguageSwitcher currentLocale={locale} variant="minimal" dropUp />}
         {mounted && isSignedIn && (
           <UserButton
@@ -175,7 +175,7 @@ export default function DesktopSidebar() {
       {/* Collapse toggle */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 bg-white border border-gray-200 rounded-full shadow-sm flex items-center justify-center text-gray-400 hover:text-gray-600 hover:shadow-md transition-all z-30"
+        className="absolute -right-3 top-20 w-6 h-6 bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-[#2a2a2a] rounded-full shadow-sm flex items-center justify-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:shadow-md transition-all z-30"
       >
         <svg className={`w-3 h-3 transition-transform ${collapsed ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />

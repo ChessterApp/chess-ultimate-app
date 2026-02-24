@@ -12,6 +12,7 @@ import {
   DialogActions,
   Button,
   Chip,
+  useTheme,
 } from "@mui/material";
 import { Settings as SettingsIcon, Gavel} from "@mui/icons-material";
 
@@ -26,6 +27,7 @@ export function LegalMoveTab({
   handleFutureMoveLegalClick,
   disabled = false,
 }: LegalMoveTabProps) {
+  const theme = useTheme();
   const [legalMovesEnabled, setLegalMovesEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [maxMoves, setMaxMoves] = useState(20);
@@ -70,11 +72,11 @@ export function LegalMoveTab({
   const actualMaxMoves = availableMoves;
 
   const getMoveTypeColor = (move: string) => {
-    if (move === "O-O" || move === "O-O-O") return "#e91e63"; // Pink for castling
-    if (move.includes("+")) return "#ff5722"; // Orange for check
-    if (move.includes("#")) return "#f44336"; // Red for checkmate
-    if (move.includes("x")) return "#ff9800"; // Amber for capture
-    return "#d3d3d3ff"; // Green for pawn moves
+    if (move === "O-O" || move === "O-O-O") return "secondary.main"; // Pink for castling
+    if (move.includes("+")) return "warning.main"; // Orange for check
+    if (move.includes("#")) return "error.main"; // Red for checkmate
+    if (move.includes("x")) return "warning.dark"; // Amber for capture
+    return "text.secondary"; // Default for pawn moves
   };
 
   const getPieceIcon = (move: string) => {
@@ -116,10 +118,10 @@ export function LegalMoveTab({
             onChange={handleLegalMovesToggle}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': {
-                color: '#9c27b0',
+                color: "primary.main",
               },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                backgroundColor: '#9c27b0',
+                backgroundColor: "primary.main",
               },
             }}
           />
@@ -164,7 +166,7 @@ export function LegalMoveTab({
                     onChange={(e) => setMaxMoves(Number(e.target.value))}
                     style={{
                       width: '100%',
-                      accentColor: '#4caf50'
+                      accentColor: theme.palette.success.main
                     }}
                   />
                 </Box>
@@ -172,7 +174,7 @@ export function LegalMoveTab({
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleSettingsClose} sx={{ color: "#4caf50" }}>
+            <Button onClick={handleSettingsClose} sx={{ color: "success.main" }}>
               Done
             </Button>
           </DialogActions>
@@ -201,7 +203,7 @@ export function LegalMoveTab({
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: "#9c27b0",
+                  backgroundColor: "primary.main",
                 }}
               />
               <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
@@ -213,10 +215,10 @@ export function LegalMoveTab({
               onChange={handleLegalMovesToggle}
               sx={{
                 '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: '#9c27b0',
+                  color: "primary.main",
                 },
                 '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: '#9c27b0',
+                  backgroundColor: "primary.main",
                 },
               }}
             />
@@ -259,7 +261,7 @@ export function LegalMoveTab({
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                backgroundColor: "#9c27b0",
+                backgroundColor: "primary.main",
               }}
             />
             <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
@@ -271,10 +273,10 @@ export function LegalMoveTab({
             onChange={handleLegalMovesToggle}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': {
-                color: '#9c27b0',
+                color: "primary.main",
               },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                backgroundColor: '#9c27b0',
+                backgroundColor: "primary.main",
               },
             }}
           />
@@ -298,7 +300,7 @@ export function LegalMoveTab({
             size="small" 
             sx={{ 
               backgroundColor: "rgba(76, 175, 80, 0.2)", 
-              color: "#4caf50",
+              color: "success.main",
               fontSize: "0.7rem",
               fontWeight: 600
             }} 
@@ -341,7 +343,8 @@ export function LegalMoveTab({
               transition: "background-color 0.2s ease",
               "&:hover": {
                 backgroundColor: disabled ? "background.paper" : "rgba(76, 175, 80, 0.1)",
-                borderLeft: disabled ? "3px solid transparent" : "3px solid #4caf50",
+                borderLeft: disabled ? "3px solid transparent" : "3px solid",
+                borderLeftColor: disabled ? "transparent" : "success.main",
               },
               filter: disabled ? "grayscale(50%)" : "none",
             }}
@@ -420,7 +423,7 @@ export function LegalMoveTab({
       >
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Gavel fontSize="small" sx={{ color: "#4caf50" }} />
+            <Gavel fontSize="small" sx={{ color: "success.main" }} />
             <Typography variant="caption" sx={{ color: "grey.400" }}>
               Legal Moves Available
             </Typography>
@@ -465,7 +468,7 @@ export function LegalMoveTab({
                   onChange={(e) => setMaxMoves(Number(e.target.value))}
                   style={{
                     width: '100%',
-                    accentColor: '#9c27b0'
+                    accentColor: theme.palette.primary.main
                   }}
                 />
               </Box>
@@ -484,10 +487,10 @@ export function LegalMoveTab({
                   onChange={(e) => setSortAlphabetically(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: '#9c27b0',
+                      color: "primary.main",
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: '#9c27b0',
+                      backgroundColor: "primary.main",
                     },
                   }}
                 />
@@ -506,11 +509,11 @@ export function LegalMoveTab({
                     variant={filterByPiece === piece ? "filled" : "outlined"}
                     onClick={() => setFilterByPiece(piece)}
                     sx={{
-                      backgroundColor: filterByPiece === piece ? "#4caf50" : "transparent",
-                      borderColor: "#4caf50",
-                      color: filterByPiece === piece ? "white" : "#4caf50",
+                      backgroundColor: filterByPiece === piece ? "success.main" : "transparent",
+                      borderColor: "success.main",
+                      color: filterByPiece === piece ? "white" : "success.main",
                       "&:hover": {
-                        backgroundColor: filterByPiece === piece ? "#388e3c" : "rgba(76, 175, 80, 0.1)",
+                        backgroundColor: filterByPiece === piece ? "success.dark" : "rgba(76, 175, 80, 0.1)",
                       },
                       fontSize: "0.7rem"
                     }}
@@ -522,7 +525,7 @@ export function LegalMoveTab({
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSettingsClose} sx={{ color: "#4caf50" }}>
+          <Button onClick={handleSettingsClose} sx={{ color: "success.main" }}>
             Done
           </Button>
         </DialogActions>

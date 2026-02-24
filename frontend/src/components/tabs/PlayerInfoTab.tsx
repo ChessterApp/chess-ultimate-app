@@ -26,17 +26,17 @@ const PlayerInfoBar = ({ gameInfo, boardOrientation }: PlayerInfoType) => {
     if (!result) return { text: '', color: 'default' as const };
 
     if (result === '1/2-1/2') {
-      return { text: '½', color: '#ff9800' }; // Yellow for draw
+      return { text: '½', color: 'warning.main' }; // Yellow for draw
     } else if (
       (result === '1-0' && color === 'white') || 
       (result === '0-1' && color === 'black')
     ) {
-      return { text: '1', color: '#4caf50' }; // Green for win
+      return { text: '1', color: 'success.main' }; // Green for win
     } else if (
       (result === '1-0' && color === 'black') || 
       (result === '0-1' && color === 'white')
     ) {
-      return { text: '0', color: '#f44336' }; // Red for loss
+      return { text: '0', color: 'error.main' }; // Red for loss
     }
 
     return { text: '', color: 'default' as const };

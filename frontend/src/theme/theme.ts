@@ -84,12 +84,12 @@ export const chessterDarkTheme = createTheme({
   components: {
     MuiCard: {
       styleOverrides: {
-        root: { backgroundColor: '#1a1a1a', borderRadius: 16 },
+        root: { borderRadius: 16 },
       },
     },
     MuiPaper: {
       styleOverrides: {
-        root: { backgroundColor: '#1a1a1a', borderRadius: 12 },
+        root: { borderRadius: 12 },
       },
     },
     MuiButton: {
@@ -104,7 +104,7 @@ export const chessterDarkTheme = createTheme({
     },
     MuiDialog: {
       styleOverrides: {
-        paper: { backgroundColor: '#1a1a1a', borderRadius: 16 },
+        paper: { borderRadius: 16 },
       },
     },
   },

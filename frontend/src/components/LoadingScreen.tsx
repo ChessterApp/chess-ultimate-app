@@ -81,7 +81,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
           left: 0 !important;
           width: 100% !important;
           height: 100% !important;
-          background-color: #000 !important;
+          background-color: var(--surface-page, #FAFAFA) !important;
           display: flex !important;
           justify-content: center !important;
           align-items: center !important;
@@ -98,10 +98,10 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
           width: 100% !important;
           height: 100% !important;
           background-image:
-            linear-gradient(45deg, rgba(255,255,255,0.02) 25%, transparent 25%),
-            linear-gradient(-45deg, rgba(255,255,255,0.02) 25%, transparent 25%),
-            linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.02) 75%),
-            linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.02) 75%) !important;
+            linear-gradient(45deg, rgba(0,0,0,0.03) 25%, transparent 25%),
+            linear-gradient(-45deg, rgba(0,0,0,0.03) 25%, transparent 25%),
+            linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.03) 75%),
+            linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.03) 75%) !important;
           background-size: 60px 60px !important;
           background-position: 0 0, 0 30px, 30px -30px, -30px 0px !important;
           z-index: -1 !important;
@@ -147,7 +147,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
           bottom: -50px !important;
           left: 50% !important;
           transform: translateX(-50%) !important;
-          color: rgba(255,255,255,0.7) !important;
+          color: var(--text-secondary, rgba(0,0,0,0.5)) !important;
           font-size: 16px !important;
           letter-spacing: 2px !important;
           text-transform: uppercase !important;
@@ -178,7 +178,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
           }
         }
       `}</style>
-      <div className="loading-screen-overlay" style={{position:'fixed',top:0,left:0,width:'100%',height:'100%',backgroundColor:'#000',display:'flex',justifyContent:'center',alignItems:'center',zIndex:9999}}>
+      <div className="loading-screen-overlay" style={{position:'fixed',top:0,left:0,width:'100%',height:'100%',display:'flex',justifyContent:'center',alignItems:'center',zIndex:9999}}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <div id="loadingWave">
           <div className="chess-piece king">♚</div>

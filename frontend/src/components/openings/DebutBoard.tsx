@@ -233,7 +233,7 @@ export default function DebutBoard({
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
-          backgroundColor: '#2a2a2a',
+          backgroundColor: 'background.paper',
           borderRadius: 0,
           height: 38,
           width: boardSize,
@@ -259,12 +259,12 @@ export default function DebutBoard({
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
-              color: '#a0a0a0',
+              color: 'text.secondary',
               padding: '5px',
               transition: 'background-color 0.15s, color 0.15s',
               '&:hover': {
                 backgroundColor: 'rgba(255,255,255,0.08)',
-                color: '#fff',
+                color: 'text.primary',
               },
             }}
           >

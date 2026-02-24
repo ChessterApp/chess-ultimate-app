@@ -16,7 +16,7 @@ import {
   Switch,
   ToggleButton,
   ToggleButtonGroup,
-  
+  useTheme,
 } from "@mui/material";
 import { Settings as SettingsIcon, TrendingUp } from "@mui/icons-material";
 import { MasterGames, Moves } from "../../libs/openingdatabase/helper";
@@ -40,6 +40,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
   lichessOpeningLoading,
   handleOpeningMoveClick,
 }) => {
+  const theme = useTheme();
   const [explorerType, setExplorerType] = useState<ExplorerType>('master');
   const [explorerEnabled, setExplorerEnabled] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -96,10 +97,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             onChange={handleExplorerToggle}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': {
-                color: '#9c27b0"',
+                color: "primary.main",
               },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                backgroundColor: '#9c27b0"',
+                backgroundColor: "primary.main",
               },
             }}
           />
@@ -140,16 +141,16 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   sx={{
                     '& .MuiToggleButton-root': {
                       color: 'grey.300',
-                      borderColor: '#444',
+                      borderColor: 'divider',
                       '&.Mui-selected': {
-                        backgroundColor: '#9c27b0"',
-                        color: '#000',
+                        backgroundColor: "primary.main",
+                        color: 'text.primary',
                         '&:hover': {
-                          backgroundColor: '#9c27b0"',
+                          backgroundColor: "primary.main",
                         }
                       },
                       '&:hover': {
-                        backgroundColor: '#333',
+                        backgroundColor: 'action.hover',
                       }
                     }
                   }}
@@ -167,10 +168,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   onChange={(e) => setShowTopGames(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: '#9c27b0"',
+                      color: "primary.main",
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: '#9c27b0"',
+                      backgroundColor: "primary.main",
                     },
                   }}
                 />
@@ -178,7 +179,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+            <Button onClick={handleSettingsClose} sx={{ color: "primary.main" }}>
               Done
             </Button>
           </DialogActions>
@@ -207,7 +208,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: "#9c27b0",
+                  backgroundColor: "primary.main",
                 }}
               />
               <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
@@ -219,10 +220,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
               onChange={handleExplorerToggle}
               sx={{
                 '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: '#00d4aa',
+                  color: 'success.main',
                 },
                 '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: '#00d4aa',
+                  backgroundColor: 'success.main',
                 },
               }}
             />
@@ -242,7 +243,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           <Stack alignItems="center" spacing={2}>
             <CircularProgress 
               size={40} 
-              sx={{ color: "#9c27b0" }} 
+              sx={{ color: "primary.main" }}
             />
             <Typography variant="body2" sx={{ color: "grey.400" }}>
               Loading {explorerType} database...
@@ -277,16 +278,16 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   sx={{
                     '& .MuiToggleButton-root': {
                       color: 'grey.300',
-                      borderColor: '#444',
+                      borderColor: 'divider',
                       '&.Mui-selected': {
-                        backgroundColor: "#9c27b0",
-                        color: '#000',
+                        backgroundColor: "primary.main",
+                        color: 'text.primary',
                         '&:hover': {
-                          backgroundColor: "#9c27b0",
+                          backgroundColor: "primary.main",
                         }
                       },
                       '&:hover': {
-                        backgroundColor: '#333',
+                        backgroundColor: 'action.hover',
                       }
                     }
                   }}
@@ -304,10 +305,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   onChange={(e) => setShowTopGames(e.target.checked)}
                   sx={{
                     '& .MuiSwitch-switchBase.Mui-checked': {
-                      color: "#9c27b0",
+                      color: "primary.main",
                     },
                     '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                      backgroundColor: "#9c27b0",
+                      backgroundColor: "primary.main",
                     },
                   }}
                 />
@@ -315,7 +316,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             </Stack>
           </DialogContent>
           <DialogActions>
-            <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+            <Button onClick={handleSettingsClose} sx={{ color: "primary.main" }}>
               Done
             </Button>
           </DialogActions>
@@ -345,7 +346,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  backgroundColor: "#9c27b0",
+                  backgroundColor: "primary.main",
                 }}
               />
               <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
@@ -357,10 +358,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
               onChange={handleExplorerToggle}
               sx={{
                 '& .MuiSwitch-switchBase.Mui-checked': {
-                  color: "#9c27b0",
+                  color: "primary.main",
                 },
                 '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                  backgroundColor: "#9c27b0",
+                  backgroundColor: "primary.main",
                 },
               }}
             />
@@ -400,7 +401,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Box
           sx={{
             width: `${whitePercent}%`,
-            backgroundColor: '#f0f0f0',
+            backgroundColor: 'action.selected',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -408,7 +409,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           }}
         >
           {whitePercent > 20 && (
-            <Typography variant="caption" sx={{ color: '#333', fontWeight: 'bold', fontSize: '0.7rem' }}>
+            <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 'bold', fontSize: '0.7rem' }}>
               {whitePercent.toFixed(0)}%
             </Typography>
           )}
@@ -416,7 +417,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Box
           sx={{
             width: `${drawPercent}%`,
-            backgroundColor: '#888',
+            backgroundColor: 'text.disabled',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -432,7 +433,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Box
           sx={{
             width: `${blackPercent}%`,
-            backgroundColor: '#000',
+            backgroundColor: 'text.primary',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -467,7 +468,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                backgroundColor: "#9c27b0",
+                backgroundColor: "primary.main",
               }}
             />
             <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
@@ -479,10 +480,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             onChange={handleExplorerToggle}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': {
-                color: "#9c27b0",
+                color: "primary.main",
               },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                backgroundColor: "#9c27b0",
+                backgroundColor: "primary.main",
               },
             }}
           />
@@ -525,8 +526,8 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
               label={currentData.opening.eco} 
               size="small" 
               sx={{ 
-                backgroundColor: "#00d4aa", 
-                color: "#000",
+                backgroundColor: "success.main",
+                color: "text.primary",
                 fontSize: "0.7rem",
                 fontWeight: 600
               }} 
@@ -579,7 +580,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 <Typography
                   variant="body2"
                   sx={{
-                    color: "#00d4aa",
+                    color: "success.main",
                     fontWeight: "bold",
                     minWidth: "80px",
                     fontFamily: "monospace",
@@ -673,20 +674,20 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 <Box
                   sx={{
                     width: `${whiteWinRate}%`,
-                    backgroundColor: '#f0f0f0',
+                    backgroundColor: 'action.selected',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                   }}
                 >
-                  <Typography variant="caption" sx={{ color: '#333', fontWeight: 'bold', fontSize: '0.7rem' }}>
+                  <Typography variant="caption" sx={{ color: 'text.primary', fontWeight: 'bold', fontSize: '0.7rem' }}>
                     {whiteWinRate}%
                   </Typography>
                 </Box>
                 <Box
                   sx={{
                     width: `${drawRate}%`,
-                    backgroundColor: '#888',
+                    backgroundColor: 'text.disabled',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -699,7 +700,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 <Box
                   sx={{
                     width: `${blackWinRate}%`,
-                    backgroundColor: '#000',
+                    backgroundColor: 'text.primary',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -726,7 +727,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           }}
         >
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
-            <TrendingUp fontSize="small" sx={{ color: "#00d4aa" }} />
+            <TrendingUp fontSize="small" sx={{ color: "success.main" }} />
             <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
               Notable Games
             </Typography>
@@ -739,7 +740,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   p: 1.5,
                   backgroundColor: "rgba(255,255,255,0.05)",
                   borderRadius: 1,
-                  borderLeft: "3px solid #00d4aa"
+                  borderLeft: 3, borderLeftColor: "success.main"
                 }}
               >
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -756,7 +757,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                     target="_blank"
                     rel="noopener"
                     sx={{ 
-                      color: "#00d4aa", 
+                      color: "success.main",
                       textDecoration: "none",
                       fontSize: "0.8rem",
                       "&:hover": {
@@ -800,16 +801,16 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 sx={{
                   '& .MuiToggleButton-root': {
                     color: 'grey.300',
-                    borderColor: '#444',
+                    borderColor: 'divider',
                     '&.Mui-selected': {
-                      backgroundColor: "#9c27b0",
-                      color: '#000',
+                      backgroundColor: "primary.main",
+                      color: 'text.primary',
                       '&:hover': {
-                        backgroundColor: "#9c27b0",
+                        backgroundColor: "primary.main",
                       }
                     },
                     '&:hover': {
-                      backgroundColor: '#333',
+                      backgroundColor: 'action.hover',
                     }
                   }
                 }}
@@ -830,10 +831,10 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 onChange={(e) => setShowTopGames(e.target.checked)}
                 sx={{
                   '& .MuiSwitch-switchBase.Mui-checked': {
-                    color: "#9c27b0",
+                    color: "primary.main",
                   },
                   '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                    backgroundColor: "#9c27b0",
+                    backgroundColor: "primary.main",
                   },
                 }}
               />
@@ -854,7 +855,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   onChange={(e) => setMaxMoves(Number(e.target.value))}
                   style={{
                     width: '100%',
-                    accentColor: "#9c27b0"
+                    accentColor: theme.palette.primary.main
                   }}
                 />
               </Box>
@@ -862,7 +863,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSettingsClose} sx={{ color: "#00d4aa" }}>
+          <Button onClick={handleSettingsClose} sx={{ color: "success.main" }}>
             Done
           </Button>
         </DialogActions>

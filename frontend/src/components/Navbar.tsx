@@ -17,13 +17,13 @@ export default function NavBar() {
   useEffect(() => { setMounted(true) }, [])
 
   return (
-    <nav className="bg-white border-b border-gray-100">
+    <nav className="bg-white dark:bg-[#141414] border-b border-gray-100 dark:border-[#2a2a2a]">
       <div className="container mx-auto px-4 py-3">
         <div className="flex items-center justify-between">
           {/* Logo - always clickable */}
           <button
             onClick={() => router.push(isSignedIn ? "/dashboard" : "/")}
-            className="text-xl font-bold text-gray-900 hover:text-purple-600 transition-colors flex items-center gap-1"
+            className="text-xl font-bold text-gray-900 dark:text-gray-100 hover:text-purple-600 dark:hover:text-purple-400 transition-colors flex items-center gap-1"
           >
             <Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={24} height={24} className="w-6 h-6" /> Chesster
           </button>

@@ -61,11 +61,11 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
       onClose={handleClose}
       fullWidth
       maxWidth="md"
-      PaperProps={{ sx: { bgcolor: '#1e1e1e', color: '#e0e0e0' } }}
+      PaperProps={{ sx: { bgcolor: 'background.default', color: 'text.primary' } }}
     >
       <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         Import PGN into &ldquo;{repertoireName}&rdquo;
-        <IconButton onClick={handleClose} sx={{ color: '#aaa' }}><Close /></IconButton>
+        <IconButton onClick={handleClose} sx={{ color: 'text.secondary' }}><Close /></IconButton>
       </DialogTitle>
 
       <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -80,20 +80,20 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
               fullWidth
               sx={{
                 '& .MuiInputBase-root': {
-                  fontFamily: 'monospace', fontSize: 13, color: '#e0e0e0', bgcolor: '#252525',
+                  fontFamily: 'monospace', fontSize: 13, color: 'text.primary', bgcolor: 'action.hover',
                 },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: '#444' },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
               }}
             />
 
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Button size="small" onClick={() => setPgn(SAMPLE_PGN)} sx={{ color: '#7986cb', fontSize: 11, textTransform: 'none' }}>
+              <Button size="small" onClick={() => setPgn(SAMPLE_PGN)} sx={{ color: 'primary.light', fontSize: 11, textTransform: 'none' }}>
                 Load Example
               </Button>
             </Box>
 
             <Box sx={{ px: 1 }}>
-              <Typography variant="caption" sx={{ color: '#aaa' }}>Max Ply Depth: {maxPly}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>Max Ply Depth: {maxPly}</Typography>
               <Slider
                 value={maxPly}
                 onChange={(_, v) => setMaxPly(v as number)}
@@ -101,11 +101,11 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
                 max={50}
                 step={5}
                 marks={[5, 10, 20, 30, 40, 50].map(v => ({ value: v, label: String(v) }))}
-                sx={{ color: '#7986cb', '& .MuiSlider-markLabel': { color: '#777', fontSize: 10 } }}
+                sx={{ color: 'primary.light', '& .MuiSlider-markLabel': { color: 'text.disabled', fontSize: 10 } }}
               />
             </Box>
 
-            <Alert severity="info" sx={{ bgcolor: '#1a237e', color: '#bbdefb', '& .MuiAlert-icon': { color: '#64b5f6' } }}>
+            <Alert severity="info" sx={{ bgcolor: 'primary.dark', color: 'info.light', '& .MuiAlert-icon': { color: 'info.main' } }}>
               Variations will be imported as separate branches. Duplicate positions are automatically skipped.
             </Alert>
           </>
@@ -114,9 +114,9 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
             <Alert
               severity={result.errors.length > 0 ? 'warning' : 'success'}
               sx={{
-                bgcolor: result.errors.length > 0 ? '#4a2700' : '#1b5e20',
-                color: '#fff',
-                '& .MuiAlert-icon': { color: '#fff' },
+                bgcolor: result.errors.length > 0 ? 'warning.dark' : 'success.dark',
+                color: 'common.white',
+                '& .MuiAlert-icon': { color: 'common.white' },
               }}
             >
               {result.errors.length > 0
@@ -125,16 +125,16 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
             </Alert>
 
             <Box sx={{ display: 'flex', gap: 1 }}>
-              <Chip label={`${result.imported} imported`} sx={{ bgcolor: '#1b5e20', color: '#fff' }} />
-              <Chip label={`${result.skipped} skipped`} sx={{ bgcolor: '#555', color: '#ccc' }} />
-              <Chip label={`${result.errors.length} errors`} sx={{ bgcolor: result.errors.length > 0 ? '#b71c1c' : '#555', color: '#fff' }} />
+              <Chip label={`${result.imported} imported`} sx={{ bgcolor: 'success.dark', color: 'common.white' }} />
+              <Chip label={`${result.skipped} skipped`} sx={{ bgcolor: 'action.hover', color: 'text.secondary' }} />
+              <Chip label={`${result.errors.length} errors`} sx={{ bgcolor: result.errors.length > 0 ? 'error.dark' : 'action.hover', color: result.errors.length > 0 ? '#fff' : 'text.secondary' }} />
             </Box>
 
             {result.nodes && result.nodes.length > 0 && (
               <Box>
-                <Typography variant="caption" sx={{ color: '#aaa', mb: 0.5, display: 'block' }}>Sample imported moves:</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', mb: 0.5, display: 'block' }}>Sample imported moves:</Typography>
                 {result.nodes.slice(0, 5).map((n, i) => (
-                  <Typography key={i} variant="body2" sx={{ color: '#ccc', fontFamily: 'monospace', fontSize: 12 }}>
+                  <Typography key={i} variant="body2" sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: 12 }}>
                     {n.move_san} {n.opening_name ? `— ${n.opening_name}` : ''}
                   </Typography>
                 ))}
@@ -143,9 +143,9 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
 
             {result.errors.length > 0 && (
               <Box>
-                <Typography variant="caption" sx={{ color: '#f44336', mb: 0.5, display: 'block' }}>Errors:</Typography>
+                <Typography variant="caption" sx={{ color: 'error.main', mb: 0.5, display: 'block' }}>Errors:</Typography>
                 {result.errors.slice(0, 5).map((e, i) => (
-                  <Typography key={i} variant="body2" sx={{ color: '#ef9a9a', fontSize: 12 }}>{e}</Typography>
+                  <Typography key={i} variant="body2" sx={{ color: 'error.light', fontSize: 12 }}>{e}</Typography>
                 ))}
               </Box>
             )}
@@ -156,12 +156,12 @@ export default function PgnImporter({ open, onClose, onImport, repertoireName }:
       <DialogActions>
         {result ? (
           <>
-            <Button onClick={handleReset} sx={{ color: '#7986cb' }}>Import More</Button>
+            <Button onClick={handleReset} sx={{ color: 'primary.light' }}>Import More</Button>
             <Button onClick={handleClose} variant="contained">Done</Button>
           </>
         ) : (
           <>
-            <Button onClick={handleClose} sx={{ color: '#aaa' }}>Cancel</Button>
+            <Button onClick={handleClose} sx={{ color: 'text.secondary' }}>Cancel</Button>
             <Button
               onClick={handleImport}
               variant="contained"

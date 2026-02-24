@@ -239,9 +239,9 @@ const [saveTitle, setSaveTitle] = useState("");
                       <IconButton
                         onClick={() => deleteFromHistory(savedGame.id)}
                         sx={{
-                          color: "#f44336",
+                          color: "error.main",
                           "&:hover": {
-                            backgroundColor: "#f4433620",
+                            backgroundColor: "rgba(244, 67, 54, 0.13)",
                           },
                         }}
                       >

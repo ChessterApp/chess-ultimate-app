@@ -53,11 +53,11 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
   if (isCollapsed) {
     return (
-      <div className="w-16 bg-gradient-to-b from-purple-950/40 to-slate-900/40 backdrop-blur-xl border-r border-purple-500/20 flex flex-col shadow-2xl shadow-purple-900/50 hidden md:flex">
+      <div className="w-16 bg-white dark:bg-gradient-to-b dark:from-purple-950/40 dark:to-slate-900/40 backdrop-blur-xl border-r border-gray-200 dark:border-purple-500/20 flex flex-col shadow-sm dark:shadow-2xl dark:shadow-purple-900/50 hidden md:flex">
         <div className="p-3">
           <button
             onClick={onToggleCollapse}
-            className="w-full aspect-square flex items-center justify-center rounded-lg bg-gradient-to-br from-purple-600 to-purple-800 hover:from-purple-500 hover:to-purple-700 text-white transition-all duration-300 shadow-lg shadow-purple-900/50 hover:shadow-purple-600/50 hover:scale-105"
+            className="w-full aspect-square flex items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-500 text-white transition-all duration-300 shadow-lg hover:scale-105"
             title="Expand Session Panel"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -70,12 +70,12 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
   }
 
   return (
-    <div className="w-80 md:w-80 bg-gradient-to-b from-purple-950/40 to-slate-900/40 backdrop-blur-xl border-r border-purple-500/20 flex flex-col h-full shadow-2xl shadow-purple-900/50 hidden md:flex">
+    <div className="w-80 md:w-80 bg-white dark:bg-gradient-to-b dark:from-purple-950/40 dark:to-slate-900/40 backdrop-blur-xl border-r border-gray-200 dark:border-purple-500/20 flex flex-col h-full shadow-sm dark:shadow-2xl dark:shadow-purple-900/50 hidden md:flex">
       {/* Header with New Chat and Collapse buttons */}
-      <div className="p-4 border-b border-purple-500/20 space-y-2">
+      <div className="p-4 border-b border-gray-200 dark:border-purple-500/20 space-y-2">
         <button
           onClick={onNewChat}
-          className="w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-gradient-to-r from-purple-600 to-purple-800 hover:from-purple-500 hover:to-purple-700 text-white font-medium transition-all duration-300 shadow-lg shadow-purple-900/50 hover:shadow-purple-600/50 hover:scale-[1.02]"
+          className="w-full flex items-center justify-center space-x-2 px-4 py-3 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-medium transition-all duration-300 shadow-lg hover:scale-[1.02]"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -84,7 +84,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
         </button>
         <button
           onClick={onToggleCollapse}
-          className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-lg bg-slate-800/30 hover:bg-slate-700/40 text-slate-300 text-sm font-medium transition-all duration-300 border border-purple-500/20 hover:border-purple-500/40"
+          className="w-full flex items-center justify-center space-x-2 px-4 py-2 rounded-lg bg-gray-100 dark:bg-slate-800/30 hover:bg-gray-200 dark:hover:bg-slate-700/40 text-gray-600 dark:text-slate-300 text-sm font-medium transition-all duration-300 border border-gray-200 dark:border-purple-500/20 hover:border-gray-300 dark:hover:border-purple-500/40"
           title="Collapse Panel"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -98,10 +98,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {sessions.length === 0 ? (
           <div className="p-6 text-center">
-            <div className="text-purple-300/60 text-sm">
+            <div className="text-gray-400 dark:text-purple-300/60 text-sm">
               {t('analysis.noChatsYet')}
             </div>
-            <div className="text-slate-400 text-xs mt-2">
+            <div className="text-gray-500 dark:text-slate-400 text-xs mt-2">
               {t('analysis.startNewChat')}
             </div>
           </div>
@@ -114,8 +114,8 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                   key={session.id}
                   className={`group relative rounded-lg transition-all duration-200 ${
                     session.id === currentSessionId
-                      ? 'bg-gradient-to-r from-purple-600/20 to-purple-800/20 border-2 border-purple-500/50 shadow-lg shadow-purple-900/30'
-                      : 'bg-slate-800/20 border-2 border-transparent hover:bg-slate-700/30 hover:border-purple-500/30'
+                      ? 'bg-purple-50 dark:bg-purple-600/20 border-2 border-purple-300 dark:border-purple-500/50 shadow-sm dark:shadow-lg dark:shadow-purple-900/30'
+                      : 'bg-gray-50 dark:bg-slate-800/20 border-2 border-transparent hover:bg-gray-100 dark:hover:bg-slate-700/30 hover:border-purple-200 dark:hover:border-purple-500/30'
                   }`}
                 >
                   {editingSessionId === session.id ? (
@@ -129,7 +129,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                           if (e.key === 'Escape') handleCancelEdit();
                         }}
                         onBlur={handleSaveEdit}
-                        className="w-full bg-slate-900/80 border border-purple-500/50 text-white text-sm px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                        className="w-full bg-white dark:bg-slate-900/80 border border-gray-300 dark:border-purple-500/50 text-gray-900 dark:text-white text-sm px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                         autoFocus
                       />
                     </div>
@@ -140,16 +140,16 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                     >
                       <div className="flex-1 min-w-0">
                         <div className={`text-sm font-medium truncate flex items-center ${
-                          session.id === currentSessionId ? 'text-purple-200' : 'text-slate-200'
+                          session.id === currentSessionId ? 'text-purple-700 dark:text-purple-200' : 'text-gray-800 dark:text-slate-200'
                         }`}>
                           {session.title}
                         </div>
                         <div className="flex items-center space-x-2 mt-1">
-                          <div className="text-xs text-slate-400">
+                          <div className="text-xs text-gray-500 dark:text-slate-400">
                             {new Date(session.updatedAt).toLocaleDateString()}
                           </div>
                           {session.messages.length > 0 && (
-                            <div className="text-xs text-purple-400/60">
+                            <div className="text-xs text-purple-500 dark:text-purple-400/60">
                               • {session.messages.length} msg{session.messages.length !== 1 ? 's' : ''}
                             </div>
                           )}
@@ -163,7 +163,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                             e.stopPropagation();
                             handleStartEdit(session);
                           }}
-                          className="p-1.5 text-slate-400 hover:text-purple-300 hover:bg-purple-500/20 rounded transition-colors"
+                          className="p-1.5 text-gray-400 dark:text-slate-400 hover:text-purple-600 dark:hover:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-500/20 rounded transition-colors"
                           title={t('analysis.renameChat')}
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -176,7 +176,7 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
                             setSessionToDelete(session.id);
                             setDeleteDialogOpen(true);
                           }}
-                          className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                          className="p-1.5 text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 rounded transition-colors"
                           title={t('analysis.deleteChat')}
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -193,10 +193,10 @@ const ChatSidebar: React.FC<ChatSidebarProps> = ({
       </div>
 
       {/* Footer with session counter */}
-      <div className="p-4 border-t border-purple-500/20">
+      <div className="p-4 border-t border-gray-200 dark:border-purple-500/20">
         <div className="flex items-center justify-center">
-          <div className="text-slate-400 text-xs flex items-center space-x-2">
-            <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-gray-500 dark:text-slate-400 text-xs flex items-center space-x-2">
+            <svg className="w-4 h-4 text-purple-500 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
             </svg>
             <span>
