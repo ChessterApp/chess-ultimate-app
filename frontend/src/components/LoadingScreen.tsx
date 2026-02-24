@@ -86,7 +86,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
           justify-content: center !important;
           align-items: center !important;
           z-index: 9999 !important;
-          animation: fadeIn 0.3s ease-out !important;
+          /* no fade-in — overlay must appear instantly to prevent piece flash */
           font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
         }
 
@@ -144,11 +144,11 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
 
         .loading-text {
           position: absolute !important;
-          bottom: -60px !important;
+          bottom: -50px !important;
           left: 50% !important;
           transform: translateX(-50%) !important;
-          color: #666 !important;
-          font-size: 14px !important;
+          color: rgba(255,255,255,0.7) !important;
+          font-size: 16px !important;
           letter-spacing: 2px !important;
           text-transform: uppercase !important;
           animation: pulse 2s ease-in-out infinite !important;
@@ -168,8 +168,18 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
             gap: 15px !important;
           }
         }
+
+        @media (max-width: 380px) {
+          .chess-piece {
+            font-size: 22px !important;
+          }
+          #loadingWave {
+            gap: 10px !important;
+          }
+        }
       `}</style>
-      <div className="loading-screen-overlay">
+      <div className="loading-screen-overlay" style={{position:'fixed',top:0,left:0,width:'100%',height:'100%',backgroundColor:'#000',display:'flex',justifyContent:'center',alignItems:'center',zIndex:9999}}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
         <div id="loadingWave">
           <div className="chess-piece king">♚</div>
           <div className="chess-piece queen">♛</div>
@@ -178,6 +188,7 @@ const LoadingScreen: React.FC<LoadingScreenProps> = ({ isVisible }) => {
           <div className="chess-piece knight">♞</div>
           <div className="chess-piece pawn">♟</div>
           <div className="loading-text">{t('loading')}</div>
+        </div>
         </div>
       </div>
     </>

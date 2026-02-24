@@ -21,12 +21,12 @@ const moodEmojis: Record<MascotMood, string> = {
 };
 
 const moodColors: Record<MascotMood, string> = {
-  happy: 'bg-green-100 border-green-300',
-  thinking: 'bg-blue-100 border-blue-300',
-  celebrating: 'bg-amber-100 border-amber-300',
-  sad: 'bg-gray-100 border-gray-300',
-  encouraging: 'bg-purple-100 border-purple-300',
-  neutral: 'bg-gray-100 border-gray-300',
+  happy: 'bg-white border-green-400',
+  thinking: 'bg-white border-green-400',
+  celebrating: 'bg-white border-green-400',
+  sad: 'bg-white border-green-400',
+  encouraging: 'bg-white border-green-400',
+  neutral: 'bg-white border-green-400',
 };
 
 export function ChessterMascot({
@@ -80,7 +80,7 @@ export function ChessterMascot({
           isAnimating ? 'scale-90' : 'scale-100'
         }`}
       >
-        <span className={`${knightSizes[size]} select-none`}>♞</span>
+        <img src="/static/images/chesster-logo-v3.png" alt="Chesster" className={`${sizeClasses[size]} rounded-full object-cover p-1`} />
       </div>
 
       {/* Mood indicator badge */}

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { AnimatedChessBoard } from '@/components/chess'
 import { ChevronLeft, ChevronRight, Check, Trophy, RotateCcw } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
 
 interface Puzzle {
   id: string
@@ -39,6 +41,7 @@ export default function PuzzleSequence({
 }: PuzzleSequenceProps) {
   const t = useTranslations('puzzles')
   const tErrors = useTranslations('errors')
+  const { showToast } = useToast()
   const [puzzles, setPuzzles] = useState<Puzzle[]>([])
   const [currentIndex, setCurrentIndex] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -57,18 +60,12 @@ export default function PuzzleSequence({
       const token = await getToken()
       if (!token) return
 
-      const res = await fetch(
+      const data = await apiFetch<any>(
         `${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/puzzles`,
         {
           headers: { 'Authorization': `Bearer ${token}` }
         }
       )
-
-      if (!res.ok) {
-        throw new Error(tErrors('fetchFailed'))
-      }
-
-      const data = await res.json()
       setPuzzles(data.puzzles || [])
       setTotalCount(data.total_count || 0)
       setCompletedCount(data.completed_count || 0)
@@ -76,6 +73,13 @@ export default function PuzzleSequence({
       setAllComplete(data.completed_count >= data.total_count && data.total_count > 0)
     } catch (err) {
       console.error('Error fetching puzzles:', err)
+      if (err instanceof ApiError) {
+        if (err.status === 0) {
+          showToast('Network error — check your connection', 'error')
+        } else if (err.status === 408) {
+          showToast('Request timed out — try again', 'error')
+        }
+      }
       setError(t('noPuzzles'))
     } finally {
       setLoading(false)
@@ -92,24 +96,23 @@ export default function PuzzleSequence({
       const token = await getToken()
       if (!token) return
 
-      const res = await fetch(
-        `${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/puzzles/${currentIndex}/complete`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ attempts: 1 })
-        }
-      )
-
-      if (!res.ok) {
+      let data: any
+      try {
+        data = await apiFetch<any>(
+          `${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/puzzles/${currentIndex}/complete`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ attempts: 1 })
+          }
+        )
+      } catch (err) {
         console.error('Failed to mark puzzle complete')
         return
       }
-
-      const data = await res.json()
 
       // Update local state
       setPuzzles(prev => prev.map(p =>
@@ -131,6 +134,7 @@ export default function PuzzleSequence({
       }
     } catch (err) {
       console.error('Error completing puzzle:', err)
+      showToast('Failed to save puzzle progress', 'error')
     }
   }
 
@@ -165,7 +169,7 @@ export default function PuzzleSequence({
       const token = await getToken()
       if (!token) return
 
-      const res = await fetch(
+      await apiFetch(
         `${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/puzzles/reset`,
         {
           method: 'POST',
@@ -176,10 +180,6 @@ export default function PuzzleSequence({
         }
       )
 
-      if (!res.ok) {
-        throw new Error(tErrors('resetFailed'))
-      }
-
       // Reset local state
       setPuzzles(prev => prev.map(p => ({ ...p, completed: false, attempts: 0 })))
       setCompletedCount(0)
@@ -188,7 +188,7 @@ export default function PuzzleSequence({
       setJustSolved(false)
     } catch (err) {
       console.error('Error resetting progress:', err)
-      alert(t('resetFailed'))
+      showToast(t('resetFailed'), 'error')
     } finally {
       setResetting(false)
     }

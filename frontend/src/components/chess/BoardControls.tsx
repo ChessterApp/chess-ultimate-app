@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { useTranslations } from 'next-intl';
 
 interface BoardControlsProps {
   /** Callback when hint button is clicked */
@@ -31,6 +32,7 @@ export default function BoardControls({
   resetDisabled = false,
   className = '',
 }: BoardControlsProps) {
+  const t = useTranslations();
   return (
     <div className={`board-controls flex flex-wrap gap-2 mt-4 ${className}`}>
       <button
@@ -53,10 +55,10 @@ export default function BoardControls({
           items-center
           gap-2
         "
-        aria-label="Show hint"
+        aria-label={t('lesson.showHint')}
       >
         <span aria-hidden="true">💡</span>
-        Show Hint
+        {t('lesson.showHint')}
       </button>
 
       {onReset && (
@@ -80,10 +82,10 @@ export default function BoardControls({
             items-center
             gap-2
           "
-          aria-label="Reset board"
+          aria-label={t('lesson.reset')}
         >
           <span aria-hidden="true">↻</span>
-          Reset
+          {t('lesson.reset')}
         </button>
       )}
     </div>

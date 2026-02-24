@@ -25,7 +25,6 @@ import GameDownloader from "@/components/gamedownloader/GameDownloader";
 import PGNView from "@/components/tabs/PgnView";
 import ResizableChapterSelector from "@/components/tabs/ChaptersTab";
 import { extractMovesWithComments, extractGameInfo } from "@/libs/game/helper";
-import { purpleTheme } from "@/theme/theme";
 import { useGameTheme } from "@/hooks/useGameTheme";
 import Loader from "@/components/loading/Loader";
 import LoadingScreen from "@/components/LoadingScreen";
@@ -670,7 +669,7 @@ export default function PGNUploaderPage() {
     <Box
       sx={{
         display: "flex",
-        backgroundColor: purpleTheme.background.main,
+        backgroundColor: 'var(--surface-page)',
         minHeight: "100vh",
         position: "relative",
       }}
@@ -710,9 +709,9 @@ export default function PGNUploaderPage() {
         <Card
           sx={{
             mb: { xs: 2, sm: 3, md: 4 },
-            backgroundColor: purpleTheme.background.paper,
+            backgroundColor: 'var(--surface-card)',
             borderRadius: { xs: 2, md: 3 },
-            boxShadow: `0 8px 32px rgba(138, 43, 226, 0.15)`,
+            boxShadow: 'var(--shadow-lg)',
           }}
         >
           <CardContent sx={{ p: { xs: 2, sm: 3, md: 4 } }}>
@@ -721,10 +720,10 @@ export default function PGNUploaderPage() {
                 variant="h3"
                 gutterBottom
                 sx={{
-                  color: purpleTheme.text.primary,
+                  color: 'var(--text-primary)',
                   fontWeight: 700,
                   fontSize: { xs: "1.5rem", sm: "2rem", md: "2.5rem", lg: "3rem" },
-                  background: `linear-gradient(45deg, ${purpleTheme.accent}, ${purpleTheme.secondary})`,
+                  background: 'linear-gradient(45deg, #8B5CF6, #A78BFA)',
                   backgroundClip: "text",
                   WebkitBackgroundClip: "text",
                   WebkitTextFillColor: "transparent",
@@ -735,7 +734,7 @@ export default function PGNUploaderPage() {
               <Typography
                 variant="h6"
                 sx={{
-                  color: purpleTheme.text.secondary,
+                  color: 'var(--text-secondary)',
                   mb: { xs: 2, sm: 3 },
                   maxWidth: 600,
                   mx: "auto",
@@ -756,7 +755,7 @@ export default function PGNUploaderPage() {
                 setInputsVisible={setInputsVisible}
               />
 
-              <Divider sx={{ borderColor: purpleTheme.secondary }} />
+              <Divider sx={{ borderColor: 'var(--border-default)' }} />
 
               <LoadLichessGameUrl
                 setComment={setComment}
@@ -774,7 +773,7 @@ export default function PGNUploaderPage() {
                 analyzeGameTheme={analyzeGameTheme}
               />
 
-              <Divider sx={{ borderColor: purpleTheme.secondary }} />
+              <Divider sx={{ borderColor: 'var(--border-default)' }} />
 
               <LoadPGNGame
                 pgnText={pgnText}
@@ -783,12 +782,12 @@ export default function PGNUploaderPage() {
                 setInputsVisible={setInputsVisible}
               />
 
-              <Divider sx={{ borderColor: purpleTheme.secondary }} />
+              <Divider sx={{ borderColor: 'var(--border-default)' }} />
 
               <Box>
                 <Typography
                   variant="h6"
-                  sx={{ color: purpleTheme.text.accent, mb: 2 }}
+                  sx={{ color: 'var(--accent-purple-text)', mb: 2 }}
                 >
                   Your Lichess Games
                 </Typography>
@@ -798,24 +797,24 @@ export default function PGNUploaderPage() {
                 </Box>
               </Box>
 
-              <Divider sx={{ borderColor: purpleTheme.secondary }} />
+              <Divider sx={{ borderColor: 'var(--border-default)' }} />
 
               <Box>
                 <Typography
                   variant="h6"
-                  sx={{ color: purpleTheme.text.accent, mb: 2 }}
+                  sx={{ color: 'var(--accent-purple-text)', mb: 2 }}
                 >
                   Your Chess.com Games
                 </Typography>
                 <UserChessDotComGameSelect loadPGN={loadUserPGN} />
               </Box>
 
-              <Divider sx={{ borderColor: purpleTheme.secondary }} />
+              <Divider sx={{ borderColor: 'var(--border-default)' }} />
 
               <Box>
                 <Typography
                   variant="h6"
-                  sx={{ color: purpleTheme.text.accent, mb: 2 }}
+                  sx={{ color: 'var(--accent-purple-text)', mb: 2 }}
                 >
                   Download Games Database
                 </Typography>
@@ -874,13 +873,13 @@ export default function PGNUploaderPage() {
                   startIcon={<SaveIcon />}
                   disabled={!gameReview.length}
                   sx={{
-                    backgroundColor: purpleTheme.accent,
+                    backgroundColor: 'primary.main',
                     "&:hover": {
-                      backgroundColor: `${purpleTheme.accent}dd`,
+                      backgroundColor: 'primary.dark',
                     },
                     "&:disabled": {
-                      backgroundColor: purpleTheme.secondary,
-                      color: purpleTheme.text.secondary,
+                      backgroundColor: 'action.disabled',
+                      color: 'var(--text-secondary)',
                     },
                     borderRadius: 2,
                     px: 3,
@@ -906,11 +905,11 @@ export default function PGNUploaderPage() {
                   }}
                   startIcon={<RefreshIcon />}
                   sx={{
-                    borderColor: purpleTheme.secondary,
-                    color: purpleTheme.text.primary,
+                    borderColor: 'var(--border-default)',
+                    color: 'var(--text-primary)',
                     "&:hover": {
-                      borderColor: purpleTheme.accent,
-                      backgroundColor: `${purpleTheme.accent}20`,
+                      borderColor: 'primary.main',
+                      backgroundColor: 'var(--accent-purple-bg)',
                     },
                     borderRadius: 2,
                     px: 3,
@@ -929,18 +928,18 @@ export default function PGNUploaderPage() {
                         onChange={(e) => setAutoAnalyzeEnabled(e.target.checked)}
                         sx={{
                           "& .MuiSwitch-switchBase.Mui-checked": {
-                            color: purpleTheme.accent,
+                            color: 'primary.main',
                           },
                           "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
-                            backgroundColor: purpleTheme.accent,
+                            backgroundColor: 'primary.main',
                           },
                         }}
                       />
                     }
                     label={
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                        <SpeedIcon sx={{ fontSize: 18, color: purpleTheme.text.secondary }} />
-                        <Typography variant="body2" sx={{ color: purpleTheme.text.secondary }}>
+                        <SpeedIcon sx={{ fontSize: 18, color: 'var(--text-secondary)' }} />
+                        <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
                           Auto-Analyze
                         </Typography>
                       </Box>

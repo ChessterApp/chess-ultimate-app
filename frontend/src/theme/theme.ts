@@ -1,118 +1,112 @@
-import { deepPurple, indigo, purple } from "@mui/material/colors";
 import { createTheme } from "@mui/material";
-export const purpleTheme = {
-  primary: deepPurple[500],
-  primaryDark: deepPurple[700],
-  secondary: purple[400],
-  accent: indigo[300],
-  background: {
-    main: '#1a0d2e',
-    paper: '#2d1b3d',
-    card: '#3e2463',
-    input: '#4a2c5a'
-  },
-  text: {
-    primary: '#e1d5f0',
-    secondary: '#b39ddb',
-    accent: '#ce93d8'
-  },
-  success: "#4caf50",
-};
 
-export const agineTheme = createTheme({
+// ─── Light MUI Theme ───
+export const chessterLightTheme = createTheme({
   palette: {
-    mode: 'dark',
+    mode: 'light',
     primary: {
-      main: purpleTheme.primary,
-      dark: purpleTheme.primaryDark,
+      main: '#8B5CF6',
+      dark: '#7C3AED',
+      light: '#A78BFA',
     },
     secondary: {
-      main: purpleTheme.secondary,
+      main: '#AB47BC',
     },
     background: {
-      default: purpleTheme.background.main,
-      paper: purpleTheme.background.paper,
+      default: '#FAFAFA',
+      paper: '#FFFFFF',
     },
     text: {
-      primary: purpleTheme.text.primary,
-      secondary: purpleTheme.text.secondary,
+      primary: '#18181B',
+      secondary: '#52525B',
     },
+    success: { main: '#22C55E' },
+    error: { main: '#EF4444' },
+    warning: { main: '#F59E0B' },
+    divider: '#E4E4E7',
   },
+  shape: { borderRadius: 12 },
   components: {
     MuiCard: {
       styleOverrides: {
-        root: {
-          backgroundColor: purpleTheme.background.card,
-          borderRadius: 12,
-        },
+        root: { borderRadius: 16 },
       },
     },
     MuiPaper: {
       styleOverrides: {
-        root: {
-          backgroundColor: purpleTheme.background.paper,
-          borderRadius: 12,
-        },
+        root: { borderRadius: 12 },
       },
     },
     MuiButton: {
       styleOverrides: {
-        root: {
-          borderRadius: 8,
-          textTransform: 'none',
-        },
+        root: { borderRadius: 8, textTransform: 'none' as const },
       },
     },
     MuiChip: {
       styleOverrides: {
-        root: {
-          borderRadius: 6,
-        },
+        root: { borderRadius: 6 },
       },
     },
-    MuiTableCell: {
+    MuiDialog: {
       styleOverrides: {
-        root: {
-          borderBottom: `1px solid ${purpleTheme.background.input}`,
-          color: purpleTheme.text.primary,
-        },
-        head: {
-          backgroundColor: purpleTheme.background.input,
-          fontWeight: 600,
-        },
-      },
-    },
-    MuiAccordion: {
-      styleOverrides: {
-        root: {
-          backgroundColor: purpleTheme.background.card,
-          '&:before': {
-            display: 'none',
-          },
-        },
+        paper: { borderRadius: 16 },
       },
     },
   },
 });
 
-export const darkGreyTheme = createTheme({
+// ─── Dark MUI Theme ───
+export const chessterDarkTheme = createTheme({
   palette: {
-    mode: "dark",
+    mode: 'dark',
+    primary: {
+      main: '#A78BFA',
+      dark: '#8B5CF6',
+      light: '#C4B5FD',
+    },
+    secondary: {
+      main: '#CE93D8',
+    },
     background: {
-      default: "#121212",
-      paper: "#1E1E1E",
+      default: '#0f0f0f',
+      paper: '#1a1a1a',
     },
     text: {
-      primary: "#E0E0E0",
-      secondary: "#B0B0B0",
+      primary: '#F0F0F0',
+      secondary: '#A0A0A0',
     },
-    primary: { main: "#bb86fc" },
-    success: { main: "#81c784" },
-    error: { main: "#e57373" },
-    divider: "#333",
+    success: { main: '#4ADE80' },
+    error: { main: '#F87171' },
+    warning: { main: '#FBBF24' },
+    divider: '#2a2a2a',
   },
+  shape: { borderRadius: 12 },
   components: {
-    MuiCard: { styleOverrides: { root: { backgroundColor: "#1E1E1E" } } },
-    MuiDialog: { styleOverrides: { paper: { backgroundColor: "#1E1E1E" } } },
+    MuiCard: {
+      styleOverrides: {
+        root: { backgroundColor: '#1a1a1a', borderRadius: 16 },
+      },
+    },
+    MuiPaper: {
+      styleOverrides: {
+        root: { backgroundColor: '#1a1a1a', borderRadius: 12 },
+      },
+    },
+    MuiButton: {
+      styleOverrides: {
+        root: { borderRadius: 8, textTransform: 'none' as const },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: { borderRadius: 6 },
+      },
+    },
+    MuiDialog: {
+      styleOverrides: {
+        paper: { backgroundColor: '#1a1a1a', borderRadius: 16 },
+      },
+    },
   },
 });
+

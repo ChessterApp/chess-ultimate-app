@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth, UserButton } from "@clerk/nextjs"
 import { useLocale } from 'next-intl'
+import Image from "next/image"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 
 export default function NavBar() {
@@ -24,7 +25,7 @@ export default function NavBar() {
             onClick={() => router.push(isSignedIn ? "/dashboard" : "/")}
             className="text-xl font-bold text-gray-900 hover:text-purple-600 transition-colors flex items-center gap-1"
           >
-            <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-6 h-6" /> Chesster
+            <Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={24} height={24} className="w-6 h-6" /> Chesster
           </button>
 
           {/* Right side: Language Switcher + User Avatar (if signed in) */}

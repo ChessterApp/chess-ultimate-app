@@ -6,6 +6,7 @@ import { getLocale, getMessages } from 'next-intl/server';
 import "./globals.css";
 import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -18,21 +19,21 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chess Empire - AI-Powered Chess Training",
-  description: "Plug-and-play chess training with your choice of AI provider. Convert OpenAI, Claude, or Gemini model into chess-aware Chessbuddy and get personalized live chat training. Chess Empire integrates with Stockfish 17.1 engine, chess databases and to better align with position context, making LLMs chess aware.",
+  title: "Chesster - AI-Powered Chess Training",
+  description: "Plug-and-play chess training with your choice of AI provider. Convert OpenAI, Claude, or Gemini model into chess-aware Chessbuddy and get personalized live chat training. Chesster integrates with Stockfish 17.1 engine, chess databases and to better align with position context, making LLMs chess aware.",
   
   // Open Graph metadata (for Facebook, LinkedIn, Discord, etc.)
   openGraph: {
-    title: "Chess Empire - AI-Powered Chess Training",
+    title: "Chesster - AI-Powered Chess Training",
     description: "Transform any AI model into your personal chessbuddy. Get live training with OpenAI, Claude, or Gemini integrated with Stockfish 17.1 engine.",
     url: "https://www.chessempire.com/", // Replace with your actual domain
-    siteName: "Chess Empire",
+    siteName: "Chesster",
     images: [
       {
         url: "static/images/chesster-logo-og.png", // Chess knight mascot logo (1024x1024px)
         width: 1200,
         height: 1200,
-        alt: "Chess Empire Logo",
+        alt: "Chesster Logo",
       },
     ],
     locale: "en_US",
@@ -42,7 +43,7 @@ export const metadata: Metadata = {
   // Twitter Card metadata
   twitter: {
     card: "summary_large_image",
-    title: "Chess Empire - AI-Powered Chess Training",
+    title: "Chesster - AI-Powered Chess Training",
     description: "Transform any AI model into your personal chess coach. Get live training with OpenAI, Claude, or Gemini integrated with Stockfish 17.1.",
     images: ["static/images/chesster-logo-og.png"], // Chess knight mascot logo
   },
@@ -117,8 +118,18 @@ export default async function RootLayout({
   return (
     <ClerkProvider localization={clerkLocalization}>
       <html lang={locale} suppressHydrationWarning>
+        <head>
+          <link rel="preconnect" href="https://clerk.chesster.io" />
+          <link rel="preconnect" href="https://accounts.clerk.services" />
+          <link rel="dns-prefetch" href="https://clerk.chesster.io" />
+          <link rel="manifest" href="/manifest.json" />
+          <meta name="theme-color" content="#9333ea" />
+          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
           <NextIntlClientProvider messages={messages}>
+            <ServiceWorkerRegistration />
             <ClientShell>
               {children}
             </ClientShell>

@@ -9,12 +9,14 @@ interface LanguageSwitcherProps {
   currentLocale: string
   variant?: 'default' | 'minimal'
   className?: string
+  dropUp?: boolean
 }
 
 export default function LanguageSwitcher({
   currentLocale,
   variant = 'default',
-  className = ''
+  className = '',
+  dropUp = false
 }: LanguageSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -51,21 +53,20 @@ export default function LanguageSwitcher({
           className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-600"
           aria-label="Change language"
         >
-          <span className="text-sm font-semibold">🌐 {currentLocale.toUpperCase()}</span>
+          <span className="text-sm font-semibold">🌐 {currentLocale === 'kz' ? 'KZ' : currentLocale.toUpperCase()}</span>
         </button>
 
         {isOpen && (
-          <div className="absolute top-full right-0 mt-2 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50 min-w-[140px]">
+          <div className={`absolute ${dropUp ? 'bottom-full mb-2' : 'top-full mt-2'} right-0 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden z-50`}>
             {locales.map((locale) => (
               <button
                 key={locale}
                 onClick={() => handleLocaleChange(locale)}
-                className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-purple-50 transition-colors ${
-                  currentLocale === locale ? 'bg-purple-100 text-purple-700' : 'text-gray-700'
+                className={`w-full flex items-center justify-center px-3 py-2 hover:bg-purple-50 transition-colors ${
+                  currentLocale === locale ? 'bg-purple-100' : ''
                 }`}
               >
-                <span className="text-lg">{localeFlags[locale]}</span>
-                <span className="font-medium">{localeNames[locale]}</span>
+                <span className="text-xl">{localeFlags[locale]}</span>
               </button>
             ))}
           </div>

@@ -10,7 +10,6 @@ import {
   AccordionDetails,
   Typography,
   Divider,
-  ThemeProvider,
 } from "@mui/material";
 import {
   ExpandMore as ExpandMoreIcon,
@@ -20,7 +19,6 @@ import {
 } from "@mui/icons-material";
 import { useTranslations } from "next-intl";
 
-import { darkGreyTheme, purpleTheme } from "@/theme/theme";
 import StockfishAnalysisTab from "../tabs/StockfishTab";
 import { TabPanel } from "../tabs/tab";
 import GameInfoTab from "../tabs/GameInfoTab";
@@ -209,7 +207,7 @@ function ChessterAnalysisView({
   return (
     <Card
       sx={{
-        backgroundColor: purpleTheme.background.paper,
+        backgroundColor: 'background.paper',
         borderRadius: 3,
         boxShadow: `0 8px 32px rgba(138, 43, 226, 0.15)`,
         minHeight: isGameReviewMode ? 500 : 600,
@@ -223,7 +221,8 @@ function ChessterAnalysisView({
     >
       <Box
         sx={{
-          borderBottom: `1px solid ${purpleTheme.secondary}40`,
+          borderBottom: 1,
+          borderColor: 'divider',
           px: 3,
           pt: 2,
         }}
@@ -233,18 +232,18 @@ function ChessterAnalysisView({
           onChange={(_, newValue: number) => setAnalysisTab(newValue)}
           sx={{
             "& .MuiTab-root": {
-              color: purpleTheme.text.secondary,
+              color: 'text.secondary',
               textTransform: "none",
               fontSize: "1rem",
               fontWeight: 500,
               minHeight: 48,
             },
             "& .Mui-selected": {
-              color: `${purpleTheme.accent} !important`,
+              color: `primary.light`,
               fontWeight: 600,
             },
             "& .MuiTabs-indicator": {
-              backgroundColor: purpleTheme.accent,
+              backgroundColor: 'primary.light',
               height: 3,
               borderRadius: 2,
             },
@@ -284,7 +283,7 @@ function ChessterAnalysisView({
                   setActiveAnalysisTab(activeAnalysisTab === 0 ? -1 : 0)
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:before": { display: "none" },
                   borderRadius: 2,
                   overflow: "hidden",
@@ -292,19 +291,19 @@ function ChessterAnalysisView({
               >
                 <AccordionSummary
                   expandIcon={
-                    <ExpandMoreIcon sx={{ color: purpleTheme.text.primary }} />
+                    <ExpandMoreIcon sx={{ color: 'text.primary' }} />
                   }
                   sx={{
-                    backgroundColor: purpleTheme.background.card,
+                    backgroundColor: 'background.paper',
                     "&:hover": {
-                      backgroundColor: `${purpleTheme.secondary}20`,
+                      backgroundColor: 'action.hover',
                     },
                   }}
                 >
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -312,7 +311,7 @@ function ChessterAnalysisView({
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails
-                  sx={{ backgroundColor: purpleTheme.background.paper }}
+                  sx={{ backgroundColor: 'background.paper' }}
                 >
                   <GameInfoTab
                     moves={moves!}
@@ -342,7 +341,7 @@ function ChessterAnalysisView({
                   setActiveAnalysisTab(activeAnalysisTab === 1 ? -1 : 1)
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:before": { display: "none" },
                   borderRadius: 2,
                   overflow: "hidden",
@@ -354,7 +353,7 @@ function ChessterAnalysisView({
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -365,13 +364,11 @@ function ChessterAnalysisView({
                   {gameReviewTheme !== null &&
                     gameReview !== undefined &&
                     currentMoveIndex !== undefined && (
-                      <ThemeProvider theme={darkGreyTheme}>
                         <PositionRadarAnalysis
                           moveAnalysis={gameReview}
                           currentMoveIndex={currentMoveIndex}
                           gameReview={gameReviewTheme}
                         />
-                      </ThemeProvider>
                     )}
                 </AccordionDetails>
               </Accordion>
@@ -382,7 +379,7 @@ function ChessterAnalysisView({
                   setActiveAnalysisTab(activeAnalysisTab === 1 ? -1 : 1)
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:before": { display: "none" },
                   borderRadius: 2,
                   overflow: "hidden",
@@ -394,7 +391,7 @@ function ChessterAnalysisView({
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -402,10 +399,7 @@ function ChessterAnalysisView({
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails>
-                  {/* Replace with your actual FEN value */}
-                  <ThemeProvider theme={darkGreyTheme}>
-                    <PositionFenThemeAnalysis fen={fen ?? ""} />
-                  </ThemeProvider>
+                  <PositionFenThemeAnalysis fen={fen ?? ""} />
                 </AccordionDetails>
               </Accordion>
             )}
@@ -424,7 +418,7 @@ function ChessterAnalysisView({
                 )
               }
               sx={{
-                backgroundColor: purpleTheme.background.card,
+                backgroundColor: 'background.paper',
                 "&:before": { display: "none" },
                 borderRadius: 2,
                 overflow: "hidden",
@@ -432,12 +426,12 @@ function ChessterAnalysisView({
             >
               <AccordionSummary
                 expandIcon={
-                  <ExpandMoreIcon sx={{ color: purpleTheme.text.primary }} />
+                  <ExpandMoreIcon sx={{ color: 'text.primary' }} />
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:hover": {
-                    backgroundColor: `${purpleTheme.secondary}20`,
+                    backgroundColor: 'action.hover',
                   },
                 }}
               >
@@ -445,7 +439,7 @@ function ChessterAnalysisView({
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -454,7 +448,7 @@ function ChessterAnalysisView({
                 </Box>
               </AccordionSummary>
               <AccordionDetails
-                sx={{ backgroundColor: purpleTheme.background.paper }}
+                sx={{ backgroundColor: 'background.paper' }}
               >
                 <StockfishAnalysisTab
                   stockfishAnalysisResult={stockfishAnalysisResult}
@@ -486,7 +480,7 @@ function ChessterAnalysisView({
                 )
               }
               sx={{
-                backgroundColor: purpleTheme.background.card,
+                backgroundColor: 'background.paper',
                 "&:before": { display: "none" },
                 borderRadius: 2,
                 overflow: "hidden",
@@ -494,12 +488,12 @@ function ChessterAnalysisView({
             >
               <AccordionSummary
                 expandIcon={
-                  <ExpandMoreIcon sx={{ color: purpleTheme.text.primary }} />
+                  <ExpandMoreIcon sx={{ color: 'text.primary' }} />
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:hover": {
-                    backgroundColor: `${purpleTheme.secondary}20`,
+                    backgroundColor: 'action.hover',
                   },
                 }}
               >
@@ -507,7 +501,7 @@ function ChessterAnalysisView({
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -516,7 +510,7 @@ function ChessterAnalysisView({
                 </Box>
               </AccordionSummary>
               <AccordionDetails
-                sx={{ backgroundColor: purpleTheme.background.paper }}
+                sx={{ backgroundColor: 'background.paper' }}
               >
                 <OpeningExplorer
                   openingLoading={openingLoading}
@@ -542,7 +536,7 @@ function ChessterAnalysisView({
                 )
               }
               sx={{
-                backgroundColor: purpleTheme.background.card,
+                backgroundColor: 'background.paper',
                 "&:before": { display: "none" },
                 borderRadius: 2,
                 overflow: "hidden",
@@ -550,12 +544,12 @@ function ChessterAnalysisView({
             >
               <AccordionSummary
                 expandIcon={
-                  <ExpandMoreIcon sx={{ color: purpleTheme.text.primary }} />
+                  <ExpandMoreIcon sx={{ color: 'text.primary' }} />
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:hover": {
-                    backgroundColor: `${purpleTheme.secondary}20`,
+                    backgroundColor: 'action.hover',
                   },
                 }}
               >
@@ -563,7 +557,7 @@ function ChessterAnalysisView({
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -572,7 +566,7 @@ function ChessterAnalysisView({
                 </Box>
               </AccordionSummary>
               <AccordionDetails
-                sx={{ backgroundColor: purpleTheme.background.paper }}
+                sx={{ backgroundColor: 'background.paper' }}
               >
                 <ChessDBDisplay
                   data={chessdbdata}
@@ -599,7 +593,7 @@ function ChessterAnalysisView({
                 )
               }
               sx={{
-                backgroundColor: purpleTheme.background.card,
+                backgroundColor: 'background.paper',
                 "&:before": { display: "none" },
                 borderRadius: 2,
                 overflow: "hidden",
@@ -607,12 +601,12 @@ function ChessterAnalysisView({
             >
               <AccordionSummary
                 expandIcon={
-                  <ExpandMoreIcon sx={{ color: purpleTheme.text.primary }} />
+                  <ExpandMoreIcon sx={{ color: 'text.primary' }} />
                 }
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
+                  backgroundColor: 'background.paper',
                   "&:hover": {
-                    backgroundColor: `${purpleTheme.secondary}20`,
+                    backgroundColor: 'action.hover',
                   },
                 }}
               >
@@ -620,7 +614,7 @@ function ChessterAnalysisView({
                   <Typography
                     variant="h6"
                     sx={{
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontWeight: 600,
                     }}
                   >
@@ -629,7 +623,7 @@ function ChessterAnalysisView({
                 </Box>
               </AccordionSummary>
               <AccordionDetails
-                sx={{ backgroundColor: purpleTheme.background.paper }}
+                sx={{ backgroundColor: 'background.paper' }}
               >
                 <LegalMoveTab
                   legalMoves={legalMoves}

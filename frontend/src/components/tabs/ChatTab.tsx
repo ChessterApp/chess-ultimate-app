@@ -510,23 +510,23 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           justifyContent: "space-between",
           alignItems: "center",
           p: 2,
-          borderBottom: `1px solid rgba(255,255,255,0.1)`,
-          backgroundColor: "#1a1a1a",
+          borderBottom: 1, borderColor: 'divider',
+          backgroundColor: "background.paper",
         }}
       >
-        <Typography variant="subtitle1" sx={{ color: "white", fontWeight: 600 }}>
+        <Typography variant="subtitle1" sx={{ color: "text.primary", fontWeight: 600 }}>
           {modeTitle}
         </Typography>
         <IconButton
           onClick={() => setDrawerOpen(false)}
-          sx={{ color: "white" }}
+          sx={{ color: "text.primary" }}
           size="small"
         >
           <Close />
         </IconButton>
       </Box>
       
-      <List sx={{ p: 0, backgroundColor: "#1a1a1a", height: "calc(100% - 80px)" }}>
+      <List sx={{ p: 0, backgroundColor: "background.paper", height: "calc(100% - 80px)" }}>
         {currentPrompts.map((prompt, index) => (
           <ListItem key={index} disablePadding>
             <ListItemButton
@@ -534,9 +534,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               sx={{
                 py: 1.5,
                 px: 2,
-                borderBottom: index < currentPrompts.length - 1 ? `1px solid rgba(255,255,255,0.1)` : "none",
+                borderBottom: index < currentPrompts.length - 1 ? 1 : "none", borderColor: 'divider',
                 "&:hover": {
-                  backgroundColor: "#2a2a2a",
+                  backgroundColor: "action.hover",
                 },
               }}
             >
@@ -544,7 +544,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 primary={prompt}
                 sx={{
                   "& .MuiListItemText-primary": {
-                    color: "white",
+                    color: "text.primary",
                     fontSize: "0.9rem",
                     lineHeight: 1.4,
                   },
@@ -555,7 +555,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         ))}
       </List>
       
-      <Box sx={{ p: 2, borderTop: `1px solid rgba(255,255,255,0.1)`, backgroundColor: "#1a1a1a" }}>
+      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', backgroundColor: "background.paper" }}>
         <Typography variant="caption" sx={{ color: "grey.400", fontStyle: "italic" }}>
           💡 Click any prompt to get started
         </Typography>
@@ -575,7 +575,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
     <Box sx={{ 
       flex: 1,
       overflowY: "auto",
-      backgroundColor: "#1a1a1a",
+      backgroundColor: "background.paper",
       '&::-webkit-scrollbar': {
         width: '6px',
       },
@@ -588,14 +588,14 @@ export const ChatTab: React.FC<ChatTabProps> = ({
       },
     }}>
       {savedPositions.length === 0 ? (
-        <Box sx={{ 
-          display: "flex", 
-          flexDirection: "column", 
-          alignItems: "center", 
-          justifyContent: "center", 
+        <Box sx={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
           height: "100%",
           p: 3,
-          color: "#888"
+          color: "text.secondary"
         }}>
           <Typography variant="h6" sx={{ mb: 2 }}>
             No saved positions
@@ -612,9 +612,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               sx={{ 
                 display: "flex",
                 minHeight: 140,
-                borderBottom: index < savedPositions.length - 1 ? "1px solid #333" : "none",
+                borderBottom: index < savedPositions.length - 1 ? 1 : "none", borderColor: 'divider',
                 "&:hover": {
-                  backgroundColor: "#252525"
+                  backgroundColor: "action.hover"
                 }
               }}
             >
@@ -626,8 +626,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#222",
-                borderRight: "1px solid #333"
+                backgroundColor: "background.default",
+                borderRight: 1, borderColor: 'divider'
               }}>
                 <Box 
                   onClick={() => viewPositionFromLibrary(position)}
@@ -665,15 +665,15 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                   alignItems: "flex-start",
                   mb: 1
                 }}>
-                  <Typography variant="subtitle1" sx={{ 
-                    color: "white", 
+                  <Typography variant="subtitle1" sx={{
+                    color: "text.primary",
                     fontWeight: 600,
                     flex: 1
                   }}>
                     {position.title}
                   </Typography>
-                  <Typography variant="caption" sx={{ 
-                    color: "#888",
+                  <Typography variant="caption" sx={{
+                    color: "text.secondary",
                     ml: 2
                   }}>
                     {new Date(position.timestamp).toLocaleDateString()}
@@ -684,7 +684,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 <Typography 
                   variant="body2" 
                   sx={{ 
-                    color: "#ccc",
+                    color: "text.primary",
                     lineHeight: 1.5,
                     flex: 1,
                     overflow: "hidden",
@@ -709,9 +709,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                       viewPositionFromLibrary(position);
                     }}
                     size="small"
-                    sx={{ 
-                      color: "#aaa",
-                      "&:hover": { color: "white" }
+                    sx={{
+                      color: "text.secondary",
+                      "&:hover": { color: "text.primary" }
                     }}
                   >
                     <Visibility fontSize="small" />
@@ -723,9 +723,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                       copyMessage(position.analysis);
                     }}
                     size="small"
-                    sx={{ 
-                      color: "#aaa",
-                      "&:hover": { color: "white" }
+                    sx={{
+                      color: "text.secondary",
+                      "&:hover": { color: "text.primary" }
                     }}
                   >
                     <ContentCopy fontSize="small" />
@@ -737,8 +737,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                       deletePositionFromLibrary(position.id);
                     }}
                     size="small"
-                    sx={{ 
-                      color: "#aaa",
+                    sx={{
+                      color: "text.secondary",
                       "&:hover": { color: "#ff6b6b" }
                     }}
                   >
@@ -764,11 +764,11 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
-        backgroundColor: "#1a1a1a",
+        backgroundColor: "background.paper",
         overflow: "hidden",
         minWidth: 0,
         position: "relative",
-        border: "1px solid #444",
+        border: 1, borderColor: 'divider',
         borderRadius: 1,
         userSelect: isResizing ? 'none' : 'auto',
       }}
@@ -777,23 +777,25 @@ export const ChatTab: React.FC<ChatTabProps> = ({
       <Paper
         sx={{
           p: 1.5,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 0,
-          borderBottom: "1px solid rgba(255,255,255,0.1)",
+          borderBottom: 1, borderColor: 'divider',
           flexShrink: 0,
         }}
       >
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Avatar
-              src="/static/images/chesster-logo.png"
+              src="/static/images/chesster-logo-v3.png"
               sx={{
                 width: 20,
                 height: 20,
+                backgroundColor: "white",
+                p: 0.25,
               }}
             />
             <Typography variant="subtitle2" sx={{
-              color: "white",
+              color: "text.primary",
               fontWeight: 600,
               whiteSpace: "nowrap",
               overflow: "hidden",
@@ -810,7 +812,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             <Tooltip title={t("conversationStarters")} arrow>
               <IconButton
                 onClick={() => setDrawerOpen(true)}
-                sx={{ color: "white", p: 0.5 }}
+                sx={{ color: "text.primary", p: 0.5 }}
                 size="small"
               >
                 <MenuBook fontSize="small" />
@@ -821,7 +823,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               <IconButton
                 onClick={openLibraryModal}
                 sx={{ 
-                  color: savedPositions.length > 0 ? "#9c27b0" : "white", 
+                  color: savedPositions.length > 0 ? "#9c27b0" : "text.primary",
                   p: 0.5,
                   position: "relative"
                 }}
@@ -856,7 +858,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               <Tooltip title={t("chatHistory")} arrow>
                 <IconButton
                   onClick={handleCopyMenuClick}
-                  sx={{ color: "white", p: 0.5 }}
+                  sx={{ color: "text.primary", p: 0.5 }}
                   size="small"
                 >
                   <History fontSize="small" />
@@ -879,7 +881,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             <Tooltip title={t("settings")} arrow>
               <IconButton
                 onClick={() => setSettingsOpen(true)}
-                sx={{ color: "white", p: 0.5 }}
+                sx={{ color: "text.primary", p: 0.5 }}
                 size="small"
               >
                 <SettingsIcon fontSize="small" />
@@ -911,9 +913,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 variant="outlined"
                 size="small"
                 onClick={clearChatHistory}
-                sx={{ 
-                  color: "white",
-                  borderColor: "rgba(255,255,255,0.3)",
+                sx={{
+                  color: "text.primary",
+                  borderColor: "divider",
                   fontSize: '11px',
                   py: 0.5,
                   px: 1,
@@ -938,7 +940,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           minHeight: 0,
           overflowY: "auto",
           overflowX: "hidden",
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           position: "relative",
           px: 1.5,
           py: 1,
@@ -966,16 +968,18 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               alignItems: "center",
               justifyContent: "center",
               height: "100%",
-              color: "white",
+              color: "text.primary",
               p: 2,
             }}
           >
             <Avatar
-              src="/static/images/chesster-logo.png"
+              src="/static/images/chesster-logo-v3.png"
               sx={{
                 width: 50,
                 height: 50,
                 mb: 2,
+                backgroundColor: "white",
+                p: 0.5,
               }}
             />
             <Typography variant="subtitle1" sx={{
@@ -1009,84 +1013,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               }
             </Typography>
             
-            {/* Disclaimer */}
-            <Paper
-              sx={{
-                p: 1.5,
-                mb: 3,
-                backgroundColor: "rgba(156, 39, 176, 0.1)",
-                border: "1px solid rgba(156, 39, 176, 0.3)",
-                borderRadius: 2,
-                maxWidth: "90%",
-                width: "100%",
-              }}
-            >
-              <Typography variant="caption" sx={{ color: "grey.300", textAlign: "center", display: "block", lineHeight: 1.4 }}
-                dangerouslySetInnerHTML={{ __html: t("disclaimer") }}
-              />
-            </Paper>
-
-            {/* Quick Start Prompts */}
-            <Box sx={{ width: "100%" }}>
-              <Typography
-                variant="caption"
-                sx={{ mb: 2, display: "block", opacity: 0.8, textAlign: "center", color: "grey.400" }}
-              >
-                {t("quickStart")}
-              </Typography>
-              <Box
-                sx={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 1,
-                  justifyContent: "center",
-                }}
-              >
-                {currentPrompts.slice(0, 4).map((prompt, index) => (
-                  <Chip
-                    key={index}
-                    label={prompt}
-                    variant="outlined"
-                    size="small"
-                    onClick={() => handlePromptSelect(prompt)}
-                    sx={{
-                      color: "white",
-                      borderColor: "rgba(156, 39, 176, 0.5)",
-                      cursor: "pointer",
-                      fontSize: '10px',
-                      maxWidth: "100%",
-                      transition: "all 0.2s ease",
-                      "& .MuiChip-label": {
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      },
-                      "&:hover": {
-                        backgroundColor: "rgba(156, 39, 176, 0.2)",
-                        borderColor: "#9c27b0",
-                        transform: "translateY(-1px)",
-                      },
-                    }}
-                  />
-                ))}
-              </Box>
-              <Box sx={{ textAlign: "center", mt: 2 }}>
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={() => setDrawerOpen(true)}
-                  sx={{ 
-                    color: "#9c27b0",
-                    fontSize: '11px',
-                    "&:hover": {
-                      backgroundColor: "rgba(156, 39, 176, 0.1)",
-                    },
-                  }}
-                >
-                  {t("moreStarters")}
-                </Button>
-              </Box>
-            </Box>
+            {/* Conversation starters removed for cleaner mobile UX */}
           </Box>
         ) : (
           <Stack spacing={compactView ? 0.5 : 1} sx={{ width: "100%", minWidth: 0 }}>
@@ -1104,13 +1031,15 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 {/* Avatar for assistant messages */}
                 {message.role === "assistant" && (
                   <Avatar
-                    src="/static/images/chesster-logo.png"
+                    src="/static/images/chesster-logo-v3.png"
                     sx={{
                       width: compactView ? 24 : 28,
                       height: compactView ? 24 : 28,
                       mr: 1,
                       mt: 0.5,
                       flexShrink: 0,
+                      backgroundColor: "white",
+                      p: 0.25,
                     }}
                   />
                 )}
@@ -1339,13 +1268,15 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 }}
               >
                 <Avatar
-                  src="/static/images/chesster-logo.png"
+                  src="/static/images/chesster-logo-v3.png"
                   sx={{
                     width: compactView ? 24 : 28,
                     height: compactView ? 24 : 28,
                     mr: 1,
                     mt: 0.5,
                     flexShrink: 0,
+                    backgroundColor: "white",
+                    p: 0.25,
                   }}
                 />
                 <Paper
@@ -1393,9 +1324,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
       <Paper
         sx={{
           p: 1.5,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 0,
-          borderTop: "1px solid rgba(255,255,255,0.1)",
+          borderTop: 1, borderColor: 'divider',
           flexShrink: 0,
         }}
       >
@@ -1479,8 +1410,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 }}
                 slotProps={{
                   input: {
-                    sx: { 
-                      color: "white",
+                    sx: {
+                      color: "text.primary",
                       fontSize: `${fontSize}px`
                     },
                   },
@@ -1564,8 +1495,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         maxWidth="md"
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: { xs: "95%", sm: 450 },
             maxWidth: { xs: "95%", sm: 800 },
             maxHeight: "80vh"
@@ -1597,8 +1528,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         maxWidth="md"
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: { xs: "95%", sm: 450 },
             maxHeight: "80vh"
           }
@@ -1610,10 +1541,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           alignItems: "center",
           pb: 1
         }}>
-          <Typography variant="h6" sx={{ color: "white" }}>
+          <Typography variant="h6" sx={{ color: "text.primary" }}>
             Position View
           </Typography>
-          <IconButton onClick={closeChessboardModal} sx={{ color: "white" }}>
+          <IconButton onClick={closeChessboardModal} sx={{ color: "text.primary" }}>
             <Close />
           </IconButton>
         </DialogTitle>
@@ -1668,8 +1599,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         onClose={handleSettingsClose}
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: { xs: "95%", sm: 400 },
             maxWidth: { xs: "95%", sm: 500 },
             maxHeight: "80vh"
@@ -1744,7 +1675,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               </Box>
             )}
             {!puzzleMode && !playMode && (
-              <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+              <Divider sx={{ borderColor: "divider" }} />
             )}
 
             <Box>
@@ -1822,7 +1753,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 </Stack>
               </Stack>
             </Box>
-            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+            <Divider sx={{ borderColor: "divider" }} />
 
             {/* Voice Input Settings */}
             <Box>
@@ -1856,7 +1787,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 )}
               </Stack>
             </Box>
-            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+            <Divider sx={{ borderColor: "divider" }} />
 
             {/* Text-to-Speech Settings */}
             {speechEnabled && (
@@ -1873,7 +1804,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                         onChange={(e) => setSelectedVoice(e.target.value)}
                         label={t("voice")}
                         sx={{
-                          color: "white",
+                          color: "text.primary",
                           "& .MuiOutlinedInput-notchedOutline": {
                             borderColor: "rgba(255,255,255,0.2)",
                           },
@@ -1887,8 +1818,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                         MenuProps={{
                           PaperProps: {
                             sx: {
-                              backgroundColor: "#2a2a2a",
-                              color: "white",
+                              backgroundColor: "action.hover",
+                              color: "text.primary",
                             },
                           },
                         }}
@@ -1962,7 +1893,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                     </Box>
                   </Stack>
                 </Box>
-                <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+                <Divider sx={{ borderColor: "divider" }} />
               </>
             )}
 
@@ -1976,7 +1907,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               </Typography>
             </Box>
 
-            <Divider sx={{ borderColor: "rgba(255,255,255,0.1)" }} />
+            <Divider sx={{ borderColor: "divider" }} />
             
             <Box>
               <Typography variant="body2" sx={{ color: "grey.300", mb: 1 }}>
@@ -2015,9 +1946,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         onClose={handleCopyMenuClose}
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
-            border: "1px solid rgba(255,255,255,0.1)",
+            backgroundColor: "background.paper",
+            color: "text.primary",
+            border: 1, borderColor: 'divider',
           },
         }}
       >
@@ -2066,8 +1997,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         onClose={() => setDrawerOpen(false)}
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
           },
         }}
       >

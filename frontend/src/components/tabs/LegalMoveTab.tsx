@@ -93,7 +93,7 @@ export function LegalMoveTab({
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 2,
         }}
       >
@@ -139,8 +139,8 @@ export function LegalMoveTab({
           onClose={handleSettingsClose}
           PaperProps={{
             sx: {
-              backgroundColor: "#1a1a1a",
-              color: "white",
+              backgroundColor: "background.paper",
+              color: "text.primary",
               minWidth: 400
             }
           }}
@@ -189,7 +189,7 @@ export function LegalMoveTab({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mb: 2
           }}
@@ -204,7 +204,7 @@ export function LegalMoveTab({
                   backgroundColor: "#9c27b0",
                 }}
               />
-              <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                 Legal Moves On
               </Typography>
             </Box>
@@ -223,7 +223,7 @@ export function LegalMoveTab({
             <Box sx={{ flexGrow: 1 }} />
             <IconButton
               onClick={() => setSettingsOpen(true)}
-              sx={{ color: "white", p: 0.5 }}
+              sx={{ color: "text.primary", p: 0.5 }}
               size="small"
             >
               <SettingsIcon fontSize="small" />
@@ -247,7 +247,7 @@ export function LegalMoveTab({
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 2,
           mb: 2
         }}
@@ -262,7 +262,7 @@ export function LegalMoveTab({
                 backgroundColor: "#9c27b0",
               }}
             />
-            <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
               Legal Moves On
             </Typography>
           </Box>
@@ -281,7 +281,7 @@ export function LegalMoveTab({
           <Box sx={{ flexGrow: 1 }} />
           <IconButton
             onClick={() => setSettingsOpen(true)}
-            sx={{ color: "white", p: 0.5 }}
+            sx={{ color: "text.primary", p: 0.5 }}
             size="small"
           >
             <SettingsIcon fontSize="small" />
@@ -290,7 +290,7 @@ export function LegalMoveTab({
 
         {/* Move Count Info */}
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-          <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+          <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
             Available Legal Moves
           </Typography>
           <Chip 
@@ -303,7 +303,7 @@ export function LegalMoveTab({
               fontWeight: 600
             }} 
           />
-          <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+          <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
             {filterByPiece !== "all" ? `${filterByPiece} moves` : "total moves"}
           </Typography>
         </Stack>
@@ -333,14 +333,14 @@ export function LegalMoveTab({
             onClick={() => !disabled && handleFutureMoveLegalClick(move)}
             sx={{
               p: 2,
-              backgroundColor: "#1a1a1a",
+              backgroundColor: "background.paper",
               borderRadius: 0,
-              borderBottom: index < processedMoves.length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none",
+              borderBottom: index < processedMoves.length - 1 ? 1 : "none", borderColor: 'divider',
               borderLeft: "3px solid transparent",
               cursor: disabled ? "not-allowed" : "pointer",
               transition: "background-color 0.2s ease",
               "&:hover": {
-                backgroundColor: disabled ? "#1a1a1a" : "rgba(76, 175, 80, 0.1)",
+                backgroundColor: disabled ? "background.paper" : "rgba(76, 175, 80, 0.1)",
                 borderLeft: disabled ? "3px solid transparent" : "3px solid #4caf50",
               },
               filter: disabled ? "grayscale(50%)" : "none",
@@ -413,7 +413,7 @@ export function LegalMoveTab({
       <Paper
         sx={{
           p: 1.5,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 0,
           mt: 0
         }}
@@ -437,8 +437,8 @@ export function LegalMoveTab({
         onClose={handleSettingsClose}
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: 400
           }
         }}

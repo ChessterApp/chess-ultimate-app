@@ -24,6 +24,7 @@ import {
 import FeedbackDisplay, { FeedbackType } from './FeedbackDisplay';
 import BoardControls from './BoardControls';
 import TargetStar from './TargetStar';
+import { useHaptic } from '@/hooks/useHaptic';
 import ArrowOverlay from './ArrowOverlay';
 import LottieCelebration from './LottieCelebration';
 
@@ -107,6 +108,7 @@ export default function AnimatedChessBoard({
   showStar = true,
   strictValidation = false,
 }: AnimatedChessBoardProps) {
+  const haptic = useHaptic();
   const boardRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<Api | null>(null);
   const validatorRef = useRef<MoveValidator>(new MoveValidator(fen));
@@ -389,6 +391,7 @@ export default function AnimatedChessBoard({
     }
 
     // Call success callback
+    haptic.onPuzzleCorrect();
     setTimeout(() => {
       onCorrectMove();
     }, ANIMATION_DURATIONS.CELEBRATION_START_DELAY);
@@ -555,6 +558,7 @@ export default function AnimatedChessBoard({
     });
 
     // Call incorrect callback
+    haptic.onPuzzleWrong();
     if (onIncorrectMove) {
       onIncorrectMove(moveUci);
     }

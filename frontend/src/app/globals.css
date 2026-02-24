@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ========================================
    CHESSGROUND BOARD STYLING
    Critical: cg-wrap must fill its container
@@ -105,6 +107,44 @@
 
   /* Bottom nav safe area */
   --bottom-nav-height: 4rem;
+
+  /* ========================================
+     SEMANTIC DESIGN TOKENS
+     Surface, text, and border tokens for consistent theming
+     ======================================== */
+
+  /* Surfaces */
+  --surface-page: #FAFAFA;
+  --surface-card: #FFFFFF;
+  --surface-card-hover: #F4F4F5;
+  --surface-raised: #FFFFFF;
+  --surface-overlay: rgba(0, 0, 0, 0.5);
+  --surface-input: #FFFFFF;
+  --surface-sidebar: #FFFFFF;
+
+  /* Text */
+  --text-primary: #18181B;
+  --text-secondary: #52525B;
+  --text-tertiary: #A1A1AA;
+  --text-inverse: #FFFFFF;
+  --text-link: #7C3AED;
+  --text-on-primary: #FFFFFF;
+
+  /* Borders */
+  --border-default: #E4E4E7;
+  --border-strong: #D4D4D8;
+  --border-subtle: #F4F4F5;
+  --border-focus: #8B5CF6;
+
+  /* Accent backgrounds */
+  --accent-purple-bg: #EDE9FE;
+  --accent-purple-text: #6D28D9;
+  --accent-green-bg: #DCFCE7;
+  --accent-green-text: #15803D;
+  --accent-amber-bg: #FEF3C7;
+  --accent-amber-text: #B45309;
+  --accent-red-bg: #FEE2E2;
+  --accent-red-text: #B91C1C;
 }
 
 @theme inline {
@@ -114,12 +154,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* Dark mode vars are handled by html.dark below */
 
 body {
   background: var(--background);
@@ -496,6 +531,239 @@ body {
 .active\:scale-98:active {
   transform: scale(0.98);
 }
+
+/* ========================================
+   GLOBAL MICRO-INTERACTIONS
+   Button press, card press, nav feedback
+   ======================================== */
+
+/* All buttons get subtle press feedback */
+button:not(:disabled):active,
+[role="button"]:not(:disabled):active,
+a.btn:active {
+  transform: scale(0.97);
+  transition: transform 80ms ease-out;
+}
+
+/* Clickable cards get lift on hover, press on click */
+.card-interactive {
+  transition: transform 200ms ease, box-shadow 200ms ease;
+  cursor: pointer;
+}
+.card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px -5px rgb(0 0 0 / 0.1), 0 4px 10px -6px rgb(0 0 0 / 0.1);
+}
+.card-interactive:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Smooth focus ring for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ========================================
+   PAGE TRANSITION ANIMATIONS
+   Fade + slide for content mounting
+   ======================================== */
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-enter {
+  animation: fadeSlideIn 250ms ease-out;
+}
+
+/* Stagger children animation */
+@keyframes staggerFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stagger-children > * {
+  animation: staggerFadeIn 300ms ease-out both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 50ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 100ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 150ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 250ms; }
+.stagger-children > *:nth-child(7) { animation-delay: 300ms; }
+.stagger-children > *:nth-child(8) { animation-delay: 350ms; }
+
+/* ========================================
+   DARK MODE
+   ======================================== */
+
+html.dark {
+  --background: #0f0f0f;
+  --foreground: #e5e5e5;
+
+  /* Semantic overrides for dark mode */
+  --surface-page: #0f0f0f;
+  --surface-card: #1a1a1a;
+  --surface-card-hover: #252525;
+  --surface-raised: #222222;
+  --surface-overlay: rgba(0, 0, 0, 0.7);
+  --surface-input: #1a1a1a;
+  --surface-sidebar: #141414;
+
+  --text-primary: #F0F0F0;
+  --text-secondary: #A0A0A0;
+  --text-tertiary: #666666;
+  --text-inverse: #18181B;
+  --text-link: #A78BFA;
+  --text-on-primary: #FFFFFF;
+
+  --border-default: #2a2a2a;
+  --border-strong: #333333;
+  --border-subtle: #1f1f1f;
+  --border-focus: #8B5CF6;
+
+  --accent-purple-bg: rgba(139, 92, 246, 0.15);
+  --accent-purple-text: #A78BFA;
+  --accent-green-bg: rgba(34, 197, 94, 0.15);
+  --accent-green-text: #86EFAC;
+  --accent-amber-bg: rgba(245, 158, 11, 0.15);
+  --accent-amber-text: #FCD34D;
+  --accent-red-bg: rgba(239, 68, 68, 0.15);
+  --accent-red-text: #FCA5A5;
+}
+
+html.dark body {
+  background: #0f0f0f !important;
+  color: #e5e5e5 !important;
+}
+
+/* Dark mode overrides — must use !important to beat Tailwind v4 layer specificity */
+
+/* Backgrounds: white and grays */
+html.dark .bg-white { background-color: #1a1a1a !important; }
+html.dark .bg-gray-50 { background-color: #111111 !important; }
+html.dark .bg-gray-100 { background-color: #1a1a1a !important; }
+html.dark .bg-gray-200 { background-color: #252525 !important; }
+html.dark .bg-gray-300 { background-color: #333 !important; }
+
+/* Backgrounds: colored 50/100 (light tints → dark tints) */
+html.dark .bg-purple-50 { background-color: rgba(139, 92, 246, 0.15) !important; }
+html.dark .bg-purple-100 { background-color: rgba(139, 92, 246, 0.2) !important; }
+html.dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.15) !important; }
+html.dark .bg-amber-100 { background-color: rgba(245, 158, 11, 0.2) !important; }
+html.dark .bg-green-50 { background-color: rgba(34, 197, 94, 0.15) !important; }
+html.dark .bg-green-100 { background-color: rgba(34, 197, 94, 0.2) !important; }
+html.dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.15) !important; }
+html.dark .bg-blue-100 { background-color: rgba(59, 130, 246, 0.2) !important; }
+html.dark .bg-red-50 { background-color: rgba(239, 68, 68, 0.15) !important; }
+html.dark .bg-red-100 { background-color: rgba(239, 68, 68, 0.2) !important; }
+html.dark .bg-orange-50 { background-color: rgba(249, 115, 22, 0.15) !important; }
+html.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.2) !important; }
+html.dark .bg-yellow-50 { background-color: rgba(234, 179, 8, 0.15) !important; }
+html.dark .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.2) !important; }
+
+/* Text: dark grays → light */
+html.dark .text-gray-900 { color: #f0f0f0 !important; }
+html.dark .text-gray-800 { color: #e0e0e0 !important; }
+html.dark .text-gray-700 { color: #d0d0d0 !important; }
+html.dark .text-gray-600 { color: #b0b0b0 !important; }
+html.dark .text-gray-500 { color: #999 !important; }
+html.dark .text-gray-400 { color: #888 !important; }
+html.dark .text-gray-300 { color: #777 !important; }
+
+/* Text: colored dark shades → lighter */
+html.dark .text-purple-700 { color: #a78bfa !important; }
+html.dark .text-purple-800 { color: #a78bfa !important; }
+html.dark .text-purple-600 { color: #b794f6 !important; }
+html.dark .text-blue-800 { color: #93c5fd !important; }
+html.dark .text-blue-600 { color: #93c5fd !important; }
+html.dark .text-green-700 { color: #86efac !important; }
+html.dark .text-green-800 { color: #86efac !important; }
+html.dark .text-green-600 { color: #86efac !important; }
+html.dark .text-red-700 { color: #fca5a5 !important; }
+html.dark .text-red-800 { color: #fca5a5 !important; }
+html.dark .text-red-600 { color: #fca5a5 !important; }
+html.dark .text-amber-600 { color: #fcd34d !important; }
+html.dark .text-amber-700 { color: #fcd34d !important; }
+html.dark .text-orange-600 { color: #fdba74 !important; }
+html.dark .text-orange-700 { color: #fdba74 !important; }
+html.dark .text-yellow-800 { color: #fde047 !important; }
+html.dark .text-yellow-600 { color: #fde047 !important; }
+
+/* Borders */
+html.dark .border-gray-100 { border-color: #2a2a2a !important; }
+html.dark .border-gray-200 { border-color: #333 !important; }
+html.dark .border-gray-300 { border-color: #444 !important; }
+html.dark .border-gray-600 { border-color: #555 !important; }
+html.dark .border-purple-200 { border-color: rgba(139, 92, 246, 0.3) !important; }
+html.dark .border-purple-300 { border-color: rgba(139, 92, 246, 0.4) !important; }
+html.dark .border-purple-400 { border-color: rgba(139, 92, 246, 0.5) !important; }
+html.dark .border-green-200 { border-color: rgba(34, 197, 94, 0.3) !important; }
+html.dark .border-green-300 { border-color: rgba(34, 197, 94, 0.4) !important; }
+html.dark .border-blue-300 { border-color: rgba(59, 130, 246, 0.4) !important; }
+html.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.3) !important; }
+html.dark .border-amber-300 { border-color: rgba(245, 158, 11, 0.4) !important; }
+html.dark .border-red-200 { border-color: rgba(239, 68, 68, 0.3) !important; }
+html.dark .border-yellow-200 { border-color: rgba(234, 179, 8, 0.3) !important; }
+
+/* Shadows */
+html.dark .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.2) !important;
+}
+html.dark .shadow-md {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.2) !important;
+}
+html.dark .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2) !important;
+}
+html.dark .shadow-xl {
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.3), 0 8px 10px -6px rgb(0 0 0 / 0.2) !important;
+}
+
+/* Gradients */
+html.dark .from-purple-600 { --tw-gradient-from: #7c3aed !important; }
+
+/* Placeholder and input styling */
+html.dark input, html.dark textarea, html.dark select {
+  background-color: #1a1a1a !important;
+  color: #e5e5e5 !important;
+  border-color: #333 !important;
+}
+
+/* Card component */
+html.dark .card-gamified {
+  background: #1a1a1a !important;
+  border-color: #2a2a2a !important;
+}
+
+/* Hover states */
+html.dark .hover\:bg-gray-50:hover { background-color: #1a1a1a !important; }
+html.dark .hover\:bg-gray-100:hover { background-color: #252525 !important; }
+html.dark .hover\:text-gray-900:hover { color: #f0f0f0 !important; }
+
+/* Ring colors for focus states */
+html.dark .ring-gray-200 { --tw-ring-color: #333 !important; }
+html.dark .ring-gray-300 { --tw-ring-color: #444 !important; }
+
+/* Divide colors */
+html.dark .divide-gray-100 > :not(:last-child) { border-color: #2a2a2a !important; }
+html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; }
 
 /* ========================================
    TYPOGRAPHY FOR GAMIFICATION

@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { useTranslations } from 'next-intl';
 
 export type FeedbackType = 'idle' | 'correct' | 'incorrect' | 'hint';
 
@@ -25,27 +26,6 @@ interface FeedbackConfig {
   defaultMessage: string;
 }
 
-const FEEDBACK_CONFIGS: Record<Exclude<FeedbackType, 'idle'>, FeedbackConfig> = {
-  correct: {
-    icon: '✓',
-    color: 'bg-green-500',
-    title: 'Correct!',
-    defaultMessage: 'Great move! You found the solution.',
-  },
-  incorrect: {
-    icon: '✗',
-    color: 'bg-red-500',
-    title: 'Not quite',
-    defaultMessage: 'Try again! Think about what the position needs.',
-  },
-  hint: {
-    icon: '💡',
-    color: 'bg-yellow-500',
-    title: 'Hint',
-    defaultMessage: 'The highlighted square shows where to move.',
-  },
-};
-
 /**
  * FeedbackDisplay component shows success/error/hint messages
  * with smooth animations
@@ -55,6 +35,28 @@ export default function FeedbackDisplay({
   message,
   className = '',
 }: FeedbackDisplayProps) {
+  const t = useTranslations();
+
+  const FEEDBACK_CONFIGS: Record<Exclude<FeedbackType, 'idle'>, FeedbackConfig> = {
+    correct: {
+      icon: '✓',
+      color: 'bg-green-500',
+      title: t('lesson.feedback.correctTitle'),
+      defaultMessage: t('lesson.feedback.correctMessage'),
+    },
+    incorrect: {
+      icon: '✗',
+      color: 'bg-red-500',
+      title: t('lesson.feedback.incorrectTitle'),
+      defaultMessage: t('lesson.feedback.incorrectMessage'),
+    },
+    hint: {
+      icon: '💡',
+      color: 'bg-yellow-500',
+      title: t('lesson.feedback.hintTitle'),
+      defaultMessage: t('lesson.feedback.hintMessage'),
+    },
+  };
   // Don't render anything if feedback is idle
   if (feedback === 'idle') {
     return null;

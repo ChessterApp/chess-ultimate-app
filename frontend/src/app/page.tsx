@@ -4,6 +4,7 @@ import { useAuth } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState, useRef } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
+import Image from 'next/image'
 import LoadingScreen from '@/components/LoadingScreen'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 
@@ -20,7 +21,7 @@ const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { 
     <div className={`${sizes[size]} ${className} relative`}>
       <div className="absolute inset-0 bg-gradient-to-br from-purple-400/30 to-indigo-500/30 rounded-3xl border-4 border-dashed border-purple-300/50 flex items-center justify-center backdrop-blur-sm">
         <div className="text-center">
-          <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-12 h-12 md:w-16 md:h-16 mx-auto" />
+          <Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={64} height={64} className="w-12 h-12 md:w-16 md:h-16 mx-auto" />
           <p className="text-xs text-purple-200 mt-1 font-medium">{label}</p>
         </div>
       </div>
@@ -30,18 +31,19 @@ const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { 
 
 // Animated counter component
 const AnimatedCounter = ({ target, suffix = '' }: { target: number, suffix?: string }) => {
-  const [count, setCount] = useState(0)
+  const [count, setCount] = useState(target)
   const ref = useRef<HTMLSpanElement>(null)
-  const [isVisible, setIsVisible] = useState(false)
+  const [hasAnimated, setHasAnimated] = useState(false)
 
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true)
+        if (entry.isIntersecting && !hasAnimated) {
+          setHasAnimated(true)
+          setCount(0)
         }
       },
-      { threshold: 0.5 }
+      { threshold: 0.1 }
     )
 
     if (ref.current) {
@@ -49,10 +51,10 @@ const AnimatedCounter = ({ target, suffix = '' }: { target: number, suffix?: str
     }
 
     return () => observer.disconnect()
-  }, [])
+  }, [hasAnimated])
 
   useEffect(() => {
-    if (!isVisible) return
+    if (!hasAnimated) return
 
     const duration = 2000
     const steps = 60
@@ -70,7 +72,7 @@ const AnimatedCounter = ({ target, suffix = '' }: { target: number, suffix?: str
     }, duration / steps)
 
     return () => clearInterval(timer)
-  }, [isVisible, target])
+  }, [hasAnimated, target])
 
   return <span ref={ref}>{count.toLocaleString()}{suffix}</span>
 }
@@ -132,6 +134,7 @@ export default function HomePage() {
   const { isSignedIn, isLoaded } = useAuth()
   const router = useRouter()
   const [activeFeature, setActiveFeature] = useState(0)
+  const [activeTestimonial, setActiveTestimonial] = useState(0)
   const t = useTranslations()
   const locale = useLocale()
 
@@ -140,6 +143,14 @@ export default function HomePage() {
     const interval = setInterval(() => {
       setActiveFeature((prev) => (prev + 1) % 4)
     }, 3000)
+    return () => clearInterval(interval)
+  }, [])
+
+  // Testimonial auto-rotate on mobile
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveTestimonial((prev) => (prev + 1) % 6)
+    }, 4000)
     return () => clearInterval(interval)
   }, [])
 
@@ -171,6 +182,9 @@ export default function HomePage() {
     { quote: t('landing.testimonials.quote1'), name: t('landing.testimonials.name1'), rating: t('landing.testimonials.rating1') },
     { quote: t('landing.testimonials.quote2'), name: t('landing.testimonials.name2'), rating: t('landing.testimonials.rating2') },
     { quote: t('landing.testimonials.quote3'), name: t('landing.testimonials.name3'), rating: t('landing.testimonials.rating3') },
+    { quote: t('landing.testimonials.quote4'), name: t('landing.testimonials.name4'), rating: t('landing.testimonials.rating4') },
+    { quote: t('landing.testimonials.quote5'), name: t('landing.testimonials.name5'), rating: t('landing.testimonials.rating5') },
+    { quote: t('landing.testimonials.quote6'), name: t('landing.testimonials.name6'), rating: t('landing.testimonials.rating6') },
   ]
 
   return (
@@ -198,16 +212,23 @@ export default function HomePage() {
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #9333ea; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #7c3aed; }
+
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        @supports(padding: env(safe-area-inset-bottom)) {
+          main { padding-bottom: env(safe-area-inset-bottom); }
+        }
       `}} />
 
     <main className="min-h-screen bg-white overflow-hidden">
       {/* ===== HEADER (Duolingo-style minimal) ===== */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-transparent lg:bg-white/95 lg:backdrop-blur-sm lg:border-b lg:border-gray-100">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-8 h-8 inline" />
-            <span className="text-xl font-bold text-gray-800">{t('common.chesster')}</span>
+            <div className="bg-white rounded-full p-1"><Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={32} height={32} className="w-6 h-6 inline" /></div>
+            <span className="text-xl font-bold text-white lg:text-gray-800">{t('common.chesster')}</span>
           </div>
 
           {/* Language/Settings button (Duolingo-style) */}
@@ -215,47 +236,66 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* ===== HERO SECTION (Duolingo split layout) ===== */}
-      <section className="pt-20 min-h-[90vh] flex items-center bg-gradient-to-b from-white to-purple-50">
-        <div className="container mx-auto px-4 py-12">
-          <div className="flex flex-col lg:flex-row items-center gap-8 lg:gap-16">
-            {/* Mascot Side */}
-            <div className="flex-1 flex justify-center lg:justify-end order-2 lg:order-1">
+      {/* ===== HERO SECTION (Redesigned — gradient bg, prominent mascot, subtle animation) ===== */}
+      <section className="pt-20 min-h-[100dvh] lg:min-h-[90vh] flex items-center relative overflow-hidden bg-purple-600 lg:bg-gradient-to-br lg:from-purple-700 lg:via-indigo-600 lg:to-violet-800">
+        {/* Animated background shapes */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none hidden lg:block">
+          <div className="absolute -top-24 -left-24 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute -bottom-32 -right-32 w-[30rem] h-[30rem] bg-indigo-400/15 rounded-full blur-3xl" style={{ animation: 'pulse 4s ease-in-out infinite' }} />
+          <div className="absolute top-1/3 right-1/4 w-64 h-64 bg-violet-300/10 rounded-full blur-2xl" style={{ animation: 'pulse 6s ease-in-out infinite 1s' }} />
+          {/* Floating chess pieces */}
+          <div className="absolute top-20 right-[15%] text-white/5 text-8xl" style={{ animation: 'bounce-slow 5s ease-in-out infinite' }}>♞</div>
+          <div className="absolute bottom-20 left-[10%] text-white/5 text-7xl" style={{ animation: 'bounce-slow 7s ease-in-out infinite 2s' }}>♛</div>
+        </div>
+
+        <div className="container mx-auto px-6 py-8 relative z-10 h-full">
+          {/* Mobile: vertical layout — mascot top, text middle, CTAs bottom */}
+          <div className="flex flex-col items-center justify-center gap-6 min-h-[calc(100dvh-5rem)] lg:min-h-0 lg:flex-row lg:items-center lg:gap-16">
+            {/* Mascot */}
+            <div className="flex-shrink-0 flex justify-center lg:flex-1 lg:justify-end pt-4 lg:pt-0 lg:order-1">
               <div className="relative">
-                {/* Animated floating effect */}
-                <div className="animate-bounce-slow">
-                  <MascotPlaceholder size="xl" label={t('landing.mascot')} />
+                <div className="absolute inset-0 -m-8 bg-gradient-to-br from-purple-400/30 to-indigo-300/20 rounded-full blur-2xl" />
+                <div className="animate-bounce-slow relative">
+                  <div className="bg-white rounded-full p-5 lg:p-6 shadow-xl">
+                    <Image
+                      src="/static/images/chesster-logo-v3.png"
+                      alt="Chesster"
+                      width={280}
+                      height={280}
+                      className="w-36 h-36 md:w-40 md:h-40 lg:w-60 lg:h-60"
+                      priority
+                    />
+                  </div>
                 </div>
-                {/* Speech bubble */}
-                <div className="absolute -top-4 -right-4 bg-white rounded-2xl px-4 py-2 shadow-lg border-2 border-purple-200 animate-pulse">
+                <div className="hidden md:block absolute -top-2 -right-2 md:-top-4 md:-right-4 bg-white rounded-2xl px-4 py-2 shadow-lg border-2 border-purple-200 animate-pulse">
                   <span className="text-sm font-bold text-purple-600">{t('landing.letsLearn')} 🎯</span>
                 </div>
               </div>
             </div>
 
-            {/* CTA Side */}
-            <div className="flex-1 text-center lg:text-left order-1 lg:order-2 max-w-xl">
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-800 mb-6 leading-tight lowercase">
-                {t('landing.heroTitle')}
+            {/* Text + CTAs */}
+            <div className="flex-1 text-center lg:text-left lg:order-2 max-w-xl flex flex-col items-center lg:items-start">
+              <h1 className="text-3xl sm:text-4xl lg:text-7xl font-extrabold text-white mb-3 lg:mb-6 leading-[1.1] lowercase tracking-tight">
+                <span className="bg-gradient-to-r from-white via-purple-100 to-indigo-200 bg-clip-text text-transparent">
+                  {t('landing.heroTitle')}
+                </span>
               </h1>
 
-              <p className="text-lg text-gray-600 mb-8">
+              <p className="text-base md:text-xl text-purple-100/90 mb-6 lg:mb-8 leading-relaxed">
                 {t('landing.heroSubtitle')}
               </p>
 
-              {/* Primary & Secondary CTAs (Duolingo-style stacked buttons) */}
-              <div className="flex flex-col gap-4 sm:max-w-sm lg:max-w-md">
+              <div className="flex flex-col gap-3 w-full max-w-md pb-8 lg:pb-0">
                 <button
                   onClick={() => router.push('/sign-up')}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white px-12 py-4 rounded-2xl font-bold text-lg transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl active:scale-95"
+                  className="w-full bg-white hover:bg-purple-50 text-purple-700 px-8 py-4 rounded-2xl font-bold text-base lg:text-lg uppercase tracking-wider transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl active:scale-95 border-b-4 border-purple-200 active:border-b-2 active:translate-y-0.5"
                 >
                   {t('common.getStarted')}
                 </button>
 
-                {/* Secondary CTA (Duolingo-style bordered button) */}
                 <button
                   onClick={() => router.push('/sign-in')}
-                  className="w-full bg-white border-2 border-gray-200 border-b-4 hover:bg-gray-50 text-purple-600 px-12 py-4 rounded-2xl font-bold text-lg transition-all duration-200 transform hover:scale-105 active:scale-95 active:border-b-2 shadow-sm hover:shadow-md"
+                  className="w-full bg-transparent border-2 border-white/40 hover:bg-white/10 text-white px-8 py-4 rounded-2xl font-bold text-base lg:text-lg uppercase tracking-wider transition-all duration-200 active:translate-y-0.5"
                 >
                   {t('landing.alreadyHaveAccount')}
                 </button>
@@ -263,17 +303,24 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        {/* Wave divider */}
+        <div className="absolute bottom-0 left-0 right-0 hidden lg:block">
+          <svg viewBox="0 0 1440 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full">
+            <path d="M0,40 C360,80 720,0 1080,40 C1260,60 1380,50 1440,40 L1440,80 L0,80 Z" fill="#faf5ff" />
+          </svg>
+        </div>
       </section>
 
       {/* ===== FEATURE CAROUSEL (Duolingo language selector style) ===== */}
-      <section className="py-8 bg-purple-50 border-y border-purple-100">
+      <section className="py-8 bg-purple-50 border-y border-purple-100 hidden lg:block">
         <div className="container mx-auto px-4">
-          <div className="flex flex-wrap justify-center gap-4">
+          <div className="flex overflow-x-auto gap-3 pb-2 snap-x snap-mandatory px-2 -mx-2 scrollbar-hide">
             {features.map((feature, index) => (
               <button
                 key={feature.label}
                 onClick={() => setActiveFeature(index)}
-                className={`flex items-center gap-3 px-6 py-3 rounded-2xl transition-all duration-300 ${
+                className={`flex-shrink-0 snap-start flex items-center gap-3 px-6 py-3 rounded-2xl transition-all duration-300 ${
                   activeFeature === index
                     ? 'bg-purple-600 text-white shadow-lg scale-105'
                     : 'bg-white text-gray-700 hover:bg-purple-100'
@@ -317,18 +364,18 @@ export default function HomePage() {
               description={t('landing.whyWorks.funEngagingDesc')}
               delay={100}
             />
-            <FeatureCard
+            <div className="hidden sm:block"><FeatureCard
               icon="📱"
               title={t('landing.whyWorks.personalized')}
               description={t('landing.whyWorks.personalizedDesc')}
               delay={200}
-            />
-            <FeatureCard
+            /></div>
+            <div className="hidden sm:block"><FeatureCard
               icon="🆓"
               title={t('landing.whyWorks.free')}
               description={t('landing.whyWorks.freeDesc')}
               delay={300}
-            />
+            /></div>
           </div>
         </div>
       </section>
@@ -336,27 +383,27 @@ export default function HomePage() {
       {/* ===== STATS SECTION (Social proof) ===== */}
       <section className="py-16 bg-purple-600 text-white">
         <div className="container mx-auto px-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-8 text-center">
             <div>
-              <div className="text-4xl md:text-5xl font-bold mb-2">
+              <div className="text-2xl md:text-5xl font-bold mb-2">
                 <AnimatedCounter target={50000} suffix="+" />
               </div>
               <div className="text-purple-200 font-medium">{t('landing.stats.activeLearners')}</div>
             </div>
             <div>
-              <div className="text-4xl md:text-5xl font-bold mb-2">
+              <div className="text-2xl md:text-5xl font-bold mb-2">
                 <AnimatedCounter target={1000} suffix="+" />
               </div>
               <div className="text-purple-200 font-medium">{t('landing.stats.lessons')}</div>
             </div>
             <div>
-              <div className="text-4xl md:text-5xl font-bold mb-2">
+              <div className="text-2xl md:text-5xl font-bold mb-2">
                 <AnimatedCounter target={10000} suffix="+" />
               </div>
               <div className="text-purple-200 font-medium">{t('landing.stats.puzzles')}</div>
             </div>
             <div>
-              <div className="text-4xl md:text-5xl font-bold mb-2">
+              <div className="text-2xl md:text-5xl font-bold mb-2">
                 <AnimatedCounter target={98} suffix="%" />
               </div>
               <div className="text-purple-200 font-medium">{t('landing.stats.satisfaction')}</div>
@@ -366,7 +413,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== HOW IT WORKS (With mascot) ===== */}
-      <section className="py-20 bg-gray-50">
+      <section className="py-20 bg-gray-50 hidden lg:block">
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto">
             <h2 className="text-3xl md:text-4xl font-bold text-gray-800 text-center lowercase mb-16">
@@ -376,7 +423,7 @@ export default function HomePage() {
             <div className="space-y-16">
               {/* Step 1 */}
               <div className="flex flex-col md:flex-row items-center gap-8">
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 hidden md:block">
                   <MascotPlaceholder size="md" className="transform -rotate-6" label={t('landing.mascot')} />
                 </div>
                 <div className="flex-1 text-center md:text-left">
@@ -388,7 +435,7 @@ export default function HomePage() {
 
               {/* Step 2 */}
               <div className="flex flex-col md:flex-row-reverse items-center gap-8">
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 hidden md:block">
                   <MascotPlaceholder size="md" className="transform rotate-6" label={t('landing.mascot')} />
                 </div>
                 <div className="flex-1 text-center md:text-right">
@@ -400,7 +447,7 @@ export default function HomePage() {
 
               {/* Step 3 */}
               <div className="flex flex-col md:flex-row items-center gap-8">
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 hidden md:block">
                   <MascotPlaceholder size="md" className="transform -rotate-3" label={t('landing.mascot')} />
                 </div>
                 <div className="flex-1 text-center md:text-left">
@@ -415,7 +462,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== PRODUCT CARDS (Duolingo-style colorful grid) ===== */}
-      <section className="py-20 bg-white">
+      <section className="py-20 bg-white hidden lg:block">
         <div className="container mx-auto px-4">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-800 text-center lowercase mb-12">
             {t('landing.explore.title')}
@@ -461,8 +508,53 @@ export default function HomePage() {
             {t('landing.testimonials.title')}
           </h2>
 
-          <div className="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {testimonials.map((testimonial, index) => (
+          {/* Mobile: slideshow */}
+          <div className="md:hidden relative">
+            <div className="overflow-hidden">
+              {testimonials.map((testimonial, index) => (
+                <div
+                  key={index}
+                  className={`transition-all duration-500 ${
+                    index === activeTestimonial ? 'block opacity-100' : 'hidden opacity-0'
+                  }`}
+                >
+                  <div className="bg-white rounded-2xl p-6 shadow-lg mx-4">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
+                        <span className="text-xl">👤</span>
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-800">{testimonial.name}</div>
+                        <div className="text-sm text-purple-600">{t('landing.testimonials.ratingLabel')}: {testimonial.rating}</div>
+                      </div>
+                    </div>
+                    <p className="text-gray-600 italic">&quot;{testimonial.quote}&quot;</p>
+                    <div className="mt-4 flex gap-1">
+                      {[...Array(5)].map((_, i) => (
+                        <span key={i} className="text-yellow-400">★</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Dots */}
+            <div className="flex justify-center gap-2 mt-6">
+              {testimonials.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => setActiveTestimonial(index)}
+                  className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
+                    index === activeTestimonial ? 'bg-purple-600 w-6' : 'bg-purple-300'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          {/* Desktop: grid */}
+          <div className="hidden md:grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {testimonials.slice(0, 3).map((testimonial, index) => (
               <div key={index} className="bg-white rounded-2xl p-6 shadow-lg">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -488,8 +580,8 @@ export default function HomePage() {
       {/* ===== FINAL CTA (Duolingo-style with mascot) ===== */}
       <section className="py-20 bg-gradient-to-br from-purple-600 to-indigo-700 text-white relative overflow-hidden">
         {/* Background decorations */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10"><img src="/static/images/chesster-logo.png" alt="" className="w-24 h-24 opacity-20" /></div>
+        <div className="absolute inset-0 opacity-10 hidden lg:block">
+          <div className="absolute top-10 left-10"><Image src="/static/images/chesster-logo-v3.png" alt="" width={96} height={96} className="w-24 h-24 opacity-20" /></div>
           <div className="absolute bottom-10 right-10 text-9xl">♞</div>
           <div className="absolute top-1/2 left-1/4 text-6xl">♜</div>
           <div className="absolute top-1/3 right-1/4 text-7xl">♛</div>
@@ -498,7 +590,7 @@ export default function HomePage() {
         <div className="container mx-auto px-4 relative z-10">
           <div className="flex flex-col lg:flex-row items-center justify-center gap-12 max-w-4xl mx-auto">
             {/* Mascot */}
-            <div className="flex-shrink-0">
+            <div className="flex-shrink-0 hidden lg:block">
               <MascotPlaceholder size="lg" label={t('landing.mascot')} />
             </div>
 
@@ -525,11 +617,11 @@ export default function HomePage() {
       {/* ===== FOOTER ===== */}
       <footer className="bg-gray-900 text-gray-400 py-12">
         <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-4 gap-8 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 md:gap-8 mb-8">
             {/* Brand */}
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-8 h-8 inline" />
+                <div className="bg-white rounded-full p-1"><Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={32} height={32} className="w-6 h-6 inline" /></div>
                 <span className="text-xl font-bold text-white">{t('common.chesster')}</span>
               </div>
               <p className="text-sm">{t('landing.footer.tagline')}</p>
@@ -547,7 +639,7 @@ export default function HomePage() {
             </div>
 
             {/* Company */}
-            <div>
+            <div className="hidden md:block">
               <h4 className="text-white font-bold mb-4">{t('landing.footer.company')}</h4>
               <ul className="space-y-2 text-sm">
                 <li><button className="hover:text-white transition-colors">{t('landing.footer.about')}</button></li>
@@ -558,7 +650,7 @@ export default function HomePage() {
             </div>
 
             {/* Social */}
-            <div>
+            <div className="hidden md:block">
               <h4 className="text-white font-bold mb-4">{t('landing.footer.connect')}</h4>
               <div className="flex gap-4">
                 <button className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors">

@@ -73,7 +73,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 2,
         }}
       >
@@ -119,8 +119,8 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           onClose={handleSettingsClose}
           PaperProps={{
             sx: {
-              backgroundColor: "#1a1a1a",
-              color: "white",
+              backgroundColor: "background.paper",
+              color: "text.primary",
               minWidth: 400
             }
           }}
@@ -195,7 +195,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mb: 2
           }}
@@ -210,7 +210,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   backgroundColor: "#9c27b0",
                 }}
               />
-              <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                 Opening Explorer On
               </Typography>
             </Box>
@@ -229,7 +229,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             <Box sx={{ flexGrow: 1 }} />
             <IconButton
               onClick={() => setSettingsOpen(true)}
-              sx={{ color: "white", p: 0.5 }}
+              sx={{ color: "text.primary", p: 0.5 }}
               size="small"
             >
               <SettingsIcon fontSize="small" />
@@ -256,8 +256,8 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           onClose={handleSettingsClose}
           PaperProps={{
             sx: {
-              backgroundColor: "#1a1a1a",
-              color: "white",
+              backgroundColor: "background.paper",
+              color: "text.primary",
               minWidth: 400
             }
           }}
@@ -333,7 +333,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mb: 2
           }}
@@ -348,7 +348,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                   backgroundColor: "#9c27b0",
                 }}
               />
-              <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+              <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                 Opening Explorer On
               </Typography>
             </Box>
@@ -367,7 +367,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             <Box sx={{ flexGrow: 1 }} />
             <IconButton
               onClick={() => setSettingsOpen(true)}
-              sx={{ color: "white", p: 0.5 }}
+              sx={{ color: "text.primary", p: 0.5 }}
               size="small"
             >
               <SettingsIcon fontSize="small" />
@@ -455,7 +455,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
       <Paper
         sx={{
           p: 2,
-          backgroundColor: "#1a1a1a",
+          backgroundColor: "background.paper",
           borderRadius: 2,
           mb: 2
         }}
@@ -470,7 +470,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                 backgroundColor: "#9c27b0",
               }}
             />
-            <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
               Opening Explorer On
             </Typography>
           </Box>
@@ -489,7 +489,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           <Box sx={{ flexGrow: 1 }} />
           <IconButton
             onClick={() => setSettingsOpen(true)}
-            sx={{ color: "white", p: 0.5 }}
+            sx={{ color: "text.primary", p: 0.5 }}
             size="small"
           >
             <SettingsIcon fontSize="small" />
@@ -498,7 +498,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
 
         {/* Database Info */}
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-          <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+          <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
             {explorerType === 'master' ? 'Master Database' : 'Lichess Database'}
           </Typography>
           <Chip 
@@ -506,7 +506,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             size="small" 
             sx={{ 
               backgroundColor: "rgba(255,255,255,0.1)", 
-              color: "white",
+              color: "text.primary",
               fontSize: "0.7rem"
             }} 
           />
@@ -518,7 +518,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         {/* Opening Name */}
         {currentData.opening && (
           <Stack direction="row" alignItems="center" spacing={2}>
-            <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+            <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
               {currentData.opening.name}
             </Typography>
             <Chip 
@@ -563,13 +563,13 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
               onClick={() => handleOpeningMoveClick(move)}
               sx={{
                 p: 2,
-                backgroundColor: "#1a1a1a",
+                backgroundColor: "background.paper",
                 borderRadius: 0,
-                borderBottom: index < currentData.moves.slice(0, maxMoves).length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none",
+                borderBottom: index < currentData.moves.slice(0, maxMoves).length - 1 ? 1 : "none", borderColor: 'divider',
                 cursor: llmLoading ? "not-allowed" : "pointer",
                 transition: "background-color 0.2s ease",
                 "&:hover": {
-                  backgroundColor: llmLoading ? "#1a1a1a" : "#2a2a2a",
+                  backgroundColor: llmLoading ? "background.paper" : "action.hover",
                 },
                 filter: llmLoading ? "grayscale(50%)" : "none",
               }}
@@ -628,7 +628,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderTop: "2px solid rgba(255,255,255,0.2)",
             borderRadius: 0,
           }}
@@ -637,7 +637,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             <Typography
               variant="body2"
               sx={{
-                color: "white",
+                color: "text.primary",
                 fontWeight: "bold",
                 minWidth: "80px",
                 fontSize: "0.9rem"
@@ -648,7 +648,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             <Typography
               variant="body2"
               sx={{
-                color: "white",
+                color: "text.primary",
                 fontWeight: "bold",
                 minWidth: "60px",
                 fontFamily: "monospace",
@@ -660,7 +660,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
             <Typography
               variant="body2"
               sx={{
-                color: "white",
+                color: "text.primary",
                 fontWeight: "bold",
                 minWidth: "40px",
                 fontSize: "0.85rem"
@@ -720,14 +720,14 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         <Paper
           sx={{
             p: 2,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mt: 2
           }}
         >
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <TrendingUp fontSize="small" sx={{ color: "#00d4aa" }} />
-            <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
               Notable Games
             </Typography>
           </Stack>
@@ -744,7 +744,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
               >
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Box>
-                    <Typography variant="body2" sx={{ color: "white", fontSize: "0.85rem" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary", fontSize: "0.85rem" }}>
                       {game.white?.name} ({game.white?.rating}) vs {game.black?.name} ({game.black?.rating})
                     </Typography>
                     <Typography variant="caption" sx={{ color: "grey.400" }}>
@@ -779,8 +779,8 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         onClose={handleSettingsClose}
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: 400
           }
         }}

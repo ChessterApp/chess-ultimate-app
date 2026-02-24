@@ -81,17 +81,17 @@ function GameInfoTab({
   }
 
   return (
-    <Box sx={{ bgcolor: "#1a1a1a"}}>
+    <Box sx={{ bgcolor: "background.paper"}}>
       <Stack spacing={3}>
         
         <Box sx={{ display: "flex", justifyContent: "flex-start", p: 2 }}>
           <IconButton
             onClick={() => setGameInfoOpen(true)}
             sx={{
-              color: "#fff",
-              bgcolor: "#333",
-              border: "1px solid #555",
-              "&:hover": { bgcolor: "#444" },
+              color: "text.primary",
+              bgcolor: "action.selected",
+              border: 1, borderColor: 'divider',
+              "&:hover": { bgcolor: "action.hover" },
             }}
           >
             <Info size={20} />
@@ -106,9 +106,9 @@ function GameInfoTab({
           fullWidth
           PaperProps={{
             sx: {
-              bgcolor: "#1a1a1a",
-              color: "#fff",
-              border: "1px solid #333",
+              bgcolor: "background.paper",
+              color: "text.primary",
+              border: 1, borderColor: 'divider',
             }
           }}
         >
@@ -116,29 +116,29 @@ function GameInfoTab({
             display: "flex", 
             alignItems: "center", 
             gap: 1,
-            bgcolor: "#000",
-            color: "#fff",
-            borderBottom: "1px solid #333"
+            bgcolor: "background.default",
+            color: "text.primary",
+            borderBottom: 1, borderColor: 'divider'
           }}>
             <Trophy size={20} />
             Game Information
           </DialogTitle>
-          <DialogContent sx={{ bgcolor: "#1a1a1a", color: "#fff" }}>
+          <DialogContent sx={{ bgcolor: "background.paper", color: "text.primary" }}>
             <Stack spacing={2} sx={{ mt: 2 }}>
               {/* Players */}
               <Stack direction={{ xs: "column", sm: "row" }} spacing={4}>
                 <Stack spacing={0.5} flex={1}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <User size={16} />
-                    <Typography variant="subtitle2" sx={{ color: "#ccc" }}>
+                    <Typography variant="subtitle2" sx={{ color: "text.primary" }}>
                       Players
                     </Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ color: "#fff" }}>
+                  <Typography variant="body2" sx={{ color: "text.primary" }}>
                     <strong>White:</strong> {gameInfo.White || "Unknown"}
                     {gameInfo.WhiteElo && ` (${gameInfo.WhiteElo})`}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: "#fff" }}>
+                  <Typography variant="body2" sx={{ color: "text.primary" }}>
                     <strong>Black:</strong> {gameInfo.Black || "Unknown"}
                     {gameInfo.BlackElo && ` (${gameInfo.BlackElo})`}
                   </Typography>
@@ -146,27 +146,27 @@ function GameInfoTab({
                 <Stack spacing={0.5} flex={1}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Calendar size={16} />
-                    <Typography variant="subtitle2" sx={{ color: "#ccc" }}>
+                    <Typography variant="subtitle2" sx={{ color: "text.primary" }}>
                       Game Details
                     </Typography>
                   </Box>
                   {gameInfo.Date && (
-                    <Typography variant="body2" sx={{ color: "#fff" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary" }}>
                       <strong>Date:</strong> {gameInfo.Date}
                     </Typography>
                   )}
                   {gameInfo.Event && (
-                    <Typography variant="body2" sx={{ color: "#fff" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary" }}>
                       <strong>Event:</strong> {gameInfo.Event}
                     </Typography>
                   )}
                   {gameInfo.Site && (
-                    <Typography variant="body2" sx={{ color: "#fff" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary" }}>
                       <strong>Site:</strong> {gameInfo.Site}
                     </Typography>
                   )}
                   {gameInfo.Result && (
-                    <Typography variant="body2" sx={{ color: "#fff" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary" }}>
                       <strong>Result:</strong> {gameInfo.Result}
                     </Typography>
                   )}
@@ -178,11 +178,11 @@ function GameInfoTab({
                 <Stack spacing={0.5}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                     <Clock size={16} />
-                    <Typography variant="subtitle2" sx={{ color: "#ccc" }}>
+                    <Typography variant="subtitle2" sx={{ color: "text.primary" }}>
                       Time Control
                     </Typography>
                   </Box>
-                  <Typography variant="body2" sx={{ color: "#fff" }}>
+                  <Typography variant="body2" sx={{ color: "text.primary" }}>
                     {formatTimeControl(gameInfo.TimeControl)}
                   </Typography>
                 </Stack>
@@ -191,16 +191,16 @@ function GameInfoTab({
               {/* Additional Info */}
               {(gameInfo.Opening || gameInfo.ECO) && (
                 <Stack spacing={0.5}>
-                  <Typography variant="subtitle2" sx={{ color: "#ccc" }}>
+                  <Typography variant="subtitle2" sx={{ color: "text.primary" }}>
                     Opening
                   </Typography>
                   {gameInfo.ECO && (
-                    <Typography variant="body2" sx={{ color: "#fff" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary" }}>
                       <strong>ECO:</strong> {gameInfo.ECO}
                     </Typography>
                   )}
                   {gameInfo.Opening && (
-                    <Typography variant="body2" sx={{ color: "#fff" }}>
+                    <Typography variant="body2" sx={{ color: "text.primary" }}>
                       <strong>Opening:</strong> {gameInfo.Opening}
                     </Typography>
                   )}
@@ -209,15 +209,15 @@ function GameInfoTab({
             </Stack>
           </DialogContent>
           <DialogActions sx={{ 
-            bgcolor: "#000", 
-            borderTop: "1px solid #333",
-            color: "#fff"
+            bgcolor: "background.default", 
+            borderTop: 1, borderColor: 'divider',
+            color: "text.primary"
           }}>
             <Button 
               onClick={() => setGameInfoOpen(false)} 
               sx={{ 
-                color: "#fff",
-                "&:hover": { bgcolor: "#333" }
+                color: "text.primary",
+                "&:hover": { bgcolor: "action.selected" }
               }}
             >
               Close

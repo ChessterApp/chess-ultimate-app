@@ -152,7 +152,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                 <Paper
                     sx={{
                         p: 2,
-                        backgroundColor: "#1a1a1a",
+                        backgroundColor: "background.paper",
                         borderRadius: 2,
                         mb: 2,
                         transition: "all 0.3s ease",
@@ -169,7 +169,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                     transition: "background-color 0.3s ease",
                                 }}
                             />
-                            <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+                            <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                                 {t("stockfishOn")}
                             </Typography>
                         </Box>
@@ -190,7 +190,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         <Box sx={{ flexGrow: 1 }} />
                         <IconButton
                             onClick={() => setSettingsOpen(true)}
-                            sx={{ color: "white", p: 0.5 }}
+                            sx={{ color: "text.primary", p: 0.5 }}
                             size="small"
                         >
                             <SettingsIcon fontSize="small" />
@@ -217,8 +217,8 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                     onClose={handleSettingsClose}
                     PaperProps={{
                         sx: {
-                            backgroundColor: "#1a1a1a",
-                            color: "white",
+                            backgroundColor: "background.paper",
+                            color: "text.primary",
                             minWidth: 450
                         }
                     }}
@@ -239,7 +239,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                         onChange={(e) => handleEngineChange(e.target.value as EngineName)}
                                         disabled={stockfishLoading || isTransitioning}
                                         sx={{
-                                            color: 'white',
+                                            color: 'text.primary',
                                             '& .MuiOutlinedInput-notchedOutline': {
                                                 borderColor: 'rgba(255, 255, 255, 0.23)',
                                             },
@@ -250,15 +250,15 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                                 borderColor: '#9c27b0',
                                             },
                                             '& .MuiSvgIcon-root': {
-                                                color: 'white',
+                                                color: 'text.primary',
                                             },
                                         }}
                                         MenuProps={{
                                             PaperProps: {
                                                 sx: {
-                                                    backgroundColor: '#2a2a2a',
+                                                    backgroundColor: 'action.hover',
                                                     '& .MuiMenuItem-root': {
-                                                        color: 'white',
+                                                        color: 'text.primary',
                                                         '&:hover': {
                                                             backgroundColor: 'rgba(156, 39, 176, 0.1)',
                                                         },
@@ -336,7 +336,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
             <Paper
                 sx={{
                     p: 2,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: "background.paper",
                     borderRadius: 2,
                     transition: "all 0.3s ease",
                 }}
@@ -386,8 +386,8 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                     onClose={handleSettingsClose}
                     PaperProps={{
                         sx: {
-                            backgroundColor: "#1a1a1a",
-                            color: "white",
+                            backgroundColor: "background.paper",
+                            color: "text.primary",
                             minWidth: 450
                         }
                     }}
@@ -408,7 +408,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                         onChange={(e) => handleEngineChange(e.target.value as EngineName)}
                                         disabled={stockfishLoading || isTransitioning}
                                         sx={{
-                                            color: 'white',
+                                            color: 'text.primary',
                                             '& .MuiOutlinedInput-notchedOutline': {
                                                 borderColor: 'rgba(255, 255, 255, 0.23)',
                                             },
@@ -419,15 +419,15 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                                 borderColor: '#9c27b0',
                                             },
                                             '& .MuiSvgIcon-root': {
-                                                color: 'white',
+                                                color: 'text.primary',
                                             },
                                         }}
                                         MenuProps={{
                                             PaperProps: {
                                                 sx: {
-                                                    backgroundColor: '#2a2a2a',
+                                                    backgroundColor: 'action.hover',
                                                     '& .MuiMenuItem-root': {
-                                                        color: 'white',
+                                                        color: 'text.primary',
                                                         '&:hover': {
                                                             backgroundColor: 'rgba(156, 39, 176, 0.1)',
                                                         },
@@ -505,7 +505,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
             <Paper
                 sx={{
                     p: 2,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: "background.paper",
                     borderRadius: 2,
                     mb: 2,
                     transition: "all 0.3s ease",
@@ -522,7 +522,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                 transition: "background-color 0.3s ease",
                             }}
                         />
-                        <Typography variant="subtitle2" sx={{ color: "white", fontWeight: 600 }}>
+                        <Typography variant="subtitle2" sx={{ color: "text.primary", fontWeight: 600 }}>
                             Stockfish On
                         </Typography>
                     </Box>
@@ -543,7 +543,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                     <Box sx={{ flexGrow: 1 }} />
                     <IconButton
                         onClick={() => setSettingsOpen(true)}
-                        sx={{ color: "white", p: 0.5 }}
+                        sx={{ color: "text.primary", p: 0.5 }}
                         size="small"
                     >
                         <SettingsIcon fontSize="small" />
@@ -552,7 +552,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
 
                 {/* Engine Info */}
                 <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-                    <Typography variant="body2" sx={{ color: "white", fontWeight: 500 }}>
+                    <Typography variant="body2" sx={{ color: "text.primary", fontWeight: 500 }}>
                         {getCurrentEngineDisplayName()}
                     </Typography>
                     <Chip 
@@ -607,15 +607,15 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                         onClick={() => handleEngineLineClick(line, index)}
                         sx={{
                             p: 2,
-                            backgroundColor: "#1a1a1a",
+                            backgroundColor: "background.paper",
                             borderRadius: 0,
-                            borderBottom: index < stockfishAnalysisResult.lines.length - 1 ? "1px solid rgba(255,255,255,0.1)" : "none",
+                            borderBottom: index < stockfishAnalysisResult.lines.length - 1 ? 1 : "none", borderColor: 'divider',
                             borderLeft: index === 0 ? "3px solid #9c27b0" : "3px solid transparent",
                             cursor: llmLoading ? "not-allowed" : "pointer",
                             transition: "all 0.3s ease",
                             opacity: isTransitioning ? 0.5 : 1,
                             "&:hover": {
-                                backgroundColor: llmLoading ? "#1a1a1a" : "rgba(156, 39, 176, 0.1)",
+                                backgroundColor: llmLoading ? "background.paper" : "rgba(156, 39, 176, 0.1)",
                             },
                             filter: llmLoading ? "grayscale(50%)" : "none",
                         }}
@@ -663,7 +663,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                             <Typography
                                 variant="body2"
                                 sx={{ 
-                                    color: "white", 
+                                    color: "text.primary", 
                                     fontFamily: "monospace", 
                                     flex: 1,
                                     fontSize: "0.85rem",
@@ -695,9 +695,9 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                             key={`placeholder-${index}`}
                             sx={{
                                 p: 2,
-                                backgroundColor: "#1a1a1a",
+                                backgroundColor: "background.paper",
                                 borderRadius: 0,
-                                borderBottom: "1px solid rgba(255,255,255,0.1)",
+                                borderBottom: 1, borderColor: 'divider',
                                 opacity: 0.5,
                                 transition: "all 0.3s ease",
                             }}
@@ -720,7 +720,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                 <Paper
                     sx={{
                         p: 1.5,
-                        backgroundColor: "#1a1a1a",
+                        backgroundColor: "background.paper",
                         borderRadius: 0,
                         mt: 0,
                         transition: "all 0.3s ease",
@@ -746,8 +746,8 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                 onClose={handleSettingsClose}
                 PaperProps={{
                     sx: {
-                        backgroundColor: "#1a1a1a",
-                        color: "white",
+                        backgroundColor: "background.paper",
+                        color: "text.primary",
                         minWidth: 450
                     }
                 }}
@@ -768,7 +768,7 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                     onChange={(e) => handleEngineChange(e.target.value as EngineName)}
                                     disabled={stockfishLoading || isTransitioning}
                                     sx={{
-                                        color: 'white',
+                                        color: 'text.primary',
                                         '& .MuiOutlinedInput-notchedOutline': {
                                             borderColor: 'rgba(255, 255, 255, 0.23)',
                                         },
@@ -779,15 +779,15 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
                                             borderColor: '#9c27b0',
                                         },
                                         '& .MuiSvgIcon-root': {
-                                            color: 'white',
+                                            color: 'text.primary',
                                         },
                                     }}
                                     MenuProps={{
                                         PaperProps: {
                                             sx: {
-                                                backgroundColor: '#2a2a2a',
+                                                backgroundColor: 'action.hover',
                                                 '& .MuiMenuItem-root': {
-                                                    color: 'white',
+                                                    color: 'text.primary',
                                                     '&:hover': {
                                                         backgroundColor: 'rgba(156, 39, 176, 0.1)',
                                                     },
