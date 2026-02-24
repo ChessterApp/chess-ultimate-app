@@ -2,13 +2,16 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useAuth, SignInButton } from '@clerk/nextjs'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
 import { useParams, useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { AnimatedChessBoard, PuzzleSequence } from '@/components/chess'
 import LoadingScreen from '@/components/LoadingScreen'
 import Link from 'next/link'
 import { ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
+import Breadcrumbs from '@/components/Breadcrumbs'
 import { XPGain } from '@/components/gamification/XPDisplay'
 import { CelebrationOverlay, QuickCelebration } from '@/components/gamification/CelebrationOverlay'
 import { InlineTip } from '@/components/mascot/SpeechBubble'
@@ -55,6 +58,8 @@ export default function LessonPage() {
   const router = useRouter()
   const { getToken, isLoaded, isSignedIn } = useAuth()
   const t = useTranslations()
+  const locale = useLocale()
+  const { showToast } = useToast()
   const [lesson, setLesson] = useState<Lesson | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputMessage, setInputMessage] = useState('')
@@ -96,32 +101,26 @@ export default function LessonPage() {
         const headers = { 'Authorization': `Bearer ${token}` }
 
         // Fetch lesson and chat history in parallel for faster loading
-        const [lessonRes, chatRes] = await Promise.all([
-          fetch(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}`, { headers }),
-          fetch(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/chat`, { headers })
-        ])
+        try {
+          const [lessonData, chatData] = await Promise.all([
+            apiFetch<Lesson>(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}?locale=${locale}`, { headers }),
+            apiFetch<any>(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/chat?locale=${locale}`, { headers }).catch(() => ({ messages: [] }))
+          ])
 
-        if (lessonRes.status === 401) {
-          setError(t('lesson.sessionExpired'))
-          setLoading(false)
-          return
-        }
-
-        if (!lessonRes.ok) {
-          throw new Error('Failed to fetch lesson')
-        }
-
-        const lessonData = await lessonRes.json()
-        setLesson(lessonData)
-        setError(null)
-
-        if (chatRes.ok) {
-          const chatData = await chatRes.json()
+          setLesson(lessonData)
+          setError(null)
           setMessages(chatData.messages || [])
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) {
+            setError(t('lesson.sessionExpired'))
+            setLoading(false)
+            return
+          }
+          throw e
         }
 
         // Mark lesson as in progress (fire-and-forget, don't block rendering)
-        fetch(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/progress`, {
+        apiFetch(`${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/progress?locale=${locale}`, {
           method: 'POST',
           headers: { ...headers, 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'in_progress' })
@@ -130,6 +129,13 @@ export default function LessonPage() {
       } catch (err) {
         console.error('Failed to fetch lesson:', err)
         setError(t('lesson.loadError'))
+        if (err instanceof ApiError) {
+          if (err.status === 408) {
+            showToast('Request timed out — try again', 'error')
+          } else if (err.status === 0) {
+            showToast('Network error — check your connection', 'error')
+          }
+        }
       } finally {
         setLoading(false)
       }
@@ -152,8 +158,8 @@ export default function LessonPage() {
 
     try {
       const token = await getToken()
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}/${lessonSlug}/chat`,
+      const data = await apiFetch<any>(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}/${lessonSlug}/chat?locale=${locale}`,
         {
           method: 'POST',
           headers: {
@@ -163,11 +169,10 @@ export default function LessonPage() {
           body: JSON.stringify({ message: userMessage })
         }
       )
-
-      const data = await res.json()
       setMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to send message:', err)
+      showToast('Failed to send message — try again', 'error')
       // Revert optimistic update on error
       setMessages(prev => prev.slice(0, -1))
     } finally {
@@ -178,8 +183,8 @@ export default function LessonPage() {
   const markLessonComplete = async () => {
     try {
       const token = await getToken()
-      await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}/${lessonSlug}/progress`,
+      await apiFetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}/${lessonSlug}/progress?locale=${locale}`,
         {
           method: 'POST',
           headers: {
@@ -196,6 +201,7 @@ export default function LessonPage() {
       setShowXPGain(true)
     } catch (err) {
       console.error('Failed to mark lesson complete:', err)
+      showToast('Failed to save progress — try again', 'error')
     }
   }
 
@@ -267,6 +273,7 @@ export default function LessonPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Breadcrumbs />
       <button
         onClick={() => router.push(`/learn/${courseSlug}`)}
         className="text-blue-600 hover:underline mb-4"
@@ -326,8 +333,8 @@ export default function LessonPage() {
                   arrowFromSquare={lesson.exercise_solution?.arrow?.from}
                   arrowPath={lesson.exercise_solution?.arrow?.path}
                   showArrowsOverlay={!lesson.exercise_solution?.targets}
-                  showStar={false}
-                  strictValidation={lesson.exercise_type === 'one_move_puzzle'}
+                  showStar={!lesson.exercise_solution?.targets}
+                  strictValidation={lesson.exercise_type === 'one_move_puzzle' && !((lesson.exercise_solution?.arrow?.path?.length ?? 0) > 1)}
                 />
               </div>
               {lesson.hint_text && (

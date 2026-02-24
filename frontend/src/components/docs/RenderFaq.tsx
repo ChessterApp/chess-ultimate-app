@@ -43,10 +43,10 @@ export const renderFAQ = () => (
           sx={{ display: "flex", alignItems: "center", gap: 1 }}
         >
           <CommunityIcon />
-          About Chess Empire
+          About Chesster
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Chess Empire is designed to be your friendly AI chess companion, think
+          Chesster is designed to be your friendly AI chess companion, think
           of it as a knowledgeable chess buddy who is always available to chat,
           analyze positions, and help you explore the wonderful world of chess.
           It is NOT a formal coach with structured lessons, but rather a
@@ -111,7 +111,7 @@ export const renderFAQ = () => (
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
           Can not find what you are looking for? Join our community Discord
-          where fellow chess enthusiasts and Chess Empire users share tips,
+          where fellow chess enthusiasts and Chesster users share tips,
           discuss strategies, and help each other out!
         </Typography>
         <Button

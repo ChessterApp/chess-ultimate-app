@@ -2,11 +2,15 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { useAuth, SignInButton } from '@clerk/nextjs'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
+import Image from 'next/image'
 import LoadingScreen from '@/components/LoadingScreen'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
 import { LessonPath } from '@/components/gamification/LessonPath'
 import { LevelProgressCard } from '@/components/gamification/LevelBadge'
 import { SpeechBubble } from '@/components/mascot/SpeechBubble'
+import UpgradePrompt from '@/components/UpgradePrompt'
 
 interface Course {
   id: string
@@ -37,6 +41,8 @@ function generateSlug(title: string): string {
 export default function LearnPage() {
   const { getToken, isSignedIn, isLoaded } = useAuth()
   const t = useTranslations()
+  const locale = useLocale()
+  const { showToast } = useToast()
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -56,17 +62,11 @@ export default function LearnPage() {
 
       try {
         const token = await getToken()
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/courses`, {
+        const data = await apiFetch<Course[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/courses?locale=${locale}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         })
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch courses')
-        }
-
-        const data = await response.json()
         setCourses(data)
 
         // Mock progress data - will be replaced with real API
@@ -82,13 +82,22 @@ export default function LearnPage() {
         setCourseProgress(mockProgress)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error')
+        if (err instanceof ApiError) {
+          if (err.status === 429) {
+            showToast('Too many requests — please slow down', 'error')
+          } else if (err.status === 408) {
+            showToast('Request timed out — try again', 'error')
+          } else if (err.status === 0) {
+            showToast('Network error — check your connection', 'error')
+          }
+        }
       } finally {
         setLoading(false)
       }
     }
 
     fetchCourses()
-  }, [getToken, isLoaded, isSignedIn])
+  }, [getToken, isLoaded, isSignedIn, showToast])
 
   // Transform courses for LessonPath component
   const lessonPathCourses = useMemo(() => {
@@ -128,7 +137,7 @@ export default function LearnPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md text-center">
-          <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-16 h-16 mx-auto mb-4" />
+          <Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={64} height={64} className="w-16 h-16 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-900 mb-2">{t('learn.startJourney')}</h1>
           <p className="text-gray-600 mb-6">
             {t('learn.signInPrompt')}
@@ -144,7 +153,8 @@ export default function LearnPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 animate-page-enter">
+      <UpgradePrompt feature="Structured lessons" />
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
         <div className="container mx-auto px-4 py-6">

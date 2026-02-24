@@ -422,54 +422,54 @@ export function calculateChatPrice(tokens: number, model: string){
 
 export const FAQ_ITEMS: FAQItem[] = [
   {
-    question: "What is Chess Empire and how is it different from a chess coach?",
-    answer: "Chess Empire is your AI chess buddy, not a formal coach. Think of it as a knowledgeable friend who's always available to chat about chess, analyze positions, explain concepts, and help you explore the game. Unlike a structured coaching program, Chess Empire adapts to your curiosity and provides conversational, friendly guidance whenever you need it.",
+    question: "What is Chesster and how is it different from a chess coach?",
+    answer: "Chesster is your AI chess buddy, not a formal coach. Think of it as a knowledgeable friend who's always available to chat about chess, analyze positions, explain concepts, and help you explore the game. Unlike a structured coaching program, Chesster adapts to your curiosity and provides conversational, friendly guidance whenever you need it.",
     category: "general"
   },
 
   {
-    question: "Is Chess Empire suitable for beginners?",
-    answer: "Absolutely! Chess Empire is designed to be helpful for players of all levels. It can explain basic rules, teach fundamental concepts, suggest beginner-friendly openings, and provide encouragement. The AI adapts its explanations to your level and asks clarifying questions to better understand what you want to learn.",
+    question: "Is Chesster suitable for beginners?",
+    answer: "Absolutely! Chesster is designed to be helpful for players of all levels. It can explain basic rules, teach fundamental concepts, suggest beginner-friendly openings, and provide encouragement. The AI adapts its explanations to your level and asks clarifying questions to better understand what you want to learn.",
     category: "general"
   },
   {
-    question: "Can I use Chess Empire completely free?",
-    answer: "Yes! Chess Empire Cloud provides free usage to open source models, Ollama is another option where you can use local LLM models",
+    question: "Can I use Chesster completely free?",
+    answer: "Yes! Chesster Cloud provides free usage to open source models, Ollama is another option where you can use local LLM models",
     category: "cost"
   },
   {
     question: "What's the difference between Ollama Cloud and Ollama Local models?",
-    answer: "Ollama Cloud models (with '-cloud' suffix) run on Ollama's free servers - you just connect Chess Empire and start analyzing, no setup required. Local models run on your own computer, giving you offline access and maximum privacy but requiring installation and adequate RAM. Both are completely free! Cloud models are easier to start with, while local models work without internet and keep everything private.",
+    answer: "Ollama Cloud models (with '-cloud' suffix) run on Ollama's free servers - you just connect Chesster and start analyzing, no setup required. Local models run on your own computer, giving you offline access and maximum privacy but requiring installation and adequate RAM. Both are completely free! Cloud models are easier to start with, while local models work without internet and keep everything private.",
     category: "technical"
   },
   {
-    question: "What is Ollama and how do I use it with Chess Empire?",
-    answer: "Ollama provides free AI models in two ways: Cloud models are the easiest - just select an Ollama cloud model in Chess Empire and start using it immediately with no setup. For local models: 1) Install Ollama from ollama.com, 2) Download a model (like qwen3:8b), 3) Connect Chess Empire to your local Ollama instance. Cloud models are perfect for getting started instantly, while local models give you offline access.",
+    question: "What is Ollama and how do I use it with Chesster?",
+    answer: "Ollama provides free AI models in two ways: Cloud models are the easiest - just select an Ollama cloud model in Chesster and start using it immediately with no setup. For local models: 1) Install Ollama from ollama.com, 2) Download a model (like qwen3:8b), 3) Connect Chesster to your local Ollama instance. Cloud models are perfect for getting started instantly, while local models give you offline access.",
     category: "technical"
   },
   {
-    question: "Can Chess Empire help improve my chess rating?",
-    answer: "While Chess Empire isn't a replacement for structured training or human coaching, it can definitely support your improvement journey. It can help you understand your games, explain tactical patterns, suggest areas to focus on, and provide practice scenarios. Think of it as a study companion that's available 24/7.",
+    question: "Can Chesster help improve my chess rating?",
+    answer: "While Chesster isn't a replacement for structured training or human coaching, it can definitely support your improvement journey. It can help you understand your games, explain tactical patterns, suggest areas to focus on, and provide practice scenarios. Think of it as a study companion that's available 24/7.",
     category: "general"
   },
   {
-    question: "Can Chess Empire make mistakes or give incorrect analysis?",
-    answer: "Yes, like all AI models, Chess Empire can make mistakes or occasionally provide incorrect information - this is called 'hallucination'. It might miscalculate variations, give inaccurate historical facts, or misunderstand complex positions. Always use your own judgment and cross-reference important information. For critical analysis, consider using higher-tier models like o1, GPT-5, or Claude Opus-4. Free local models (Ollama) may have more limitations than premium cloud models.",
+    question: "Can Chesster make mistakes or give incorrect analysis?",
+    answer: "Yes, like all AI models, Chesster can make mistakes or occasionally provide incorrect information - this is called 'hallucination'. It might miscalculate variations, give inaccurate historical facts, or misunderstand complex positions. Always use your own judgment and cross-reference important information. For critical analysis, consider using higher-tier models like o1, GPT-5, or Claude Opus-4. Free local models (Ollama) may have more limitations than premium cloud models.",
     category: "technical"
   },
   {
-    question: "Is Chess Empire trained on millions of chess games?",
-    answer: "Chess Empire itself is not specially trained - it uses the base model's existing training to predict responses. Chess Empire applies various AI engineering techniques to convert general AI models into chess-aware assistants. The underlying models have seen chess content during training, but Chess Empire enhances their chess capabilities through prompt engineering and integration techniques.",
+    question: "Is Chesster trained on millions of chess games?",
+    answer: "Chesster itself is not specially trained - it uses the base model's existing training to predict responses. Chesster applies various AI engineering techniques to convert general AI models into chess-aware assistants. The underlying models have seen chess content during training, but Chesster enhances their chess capabilities through prompt engineering and integration techniques.",
     category: "technical"
   },
   {
-    question: "How can I get more accurate results from Chess Empire?",
+    question: "How can I get more accurate results from Chesster?",
     answer: "To improve accuracy: 1) Use higher-tier models (like GPT-5, Claude Opus-4, or o1) which generally provide better reasoning, 2) Be specific in your questions, 3) Ask follow-up questions if something seems unclear, 4) Cross-reference important analysis with multiple sources. For free options, larger Ollama models (like gpt-oss:20b or qwen3:30b) typically perform better than smaller ones, though they require more RAM.",
     category: "technical"
   },
   {
-    question: "How accurate is Chess Empire's chess analysis?",
-    answer: "Chess Empire provides good general chess understanding and can explain concepts well, but it's not a chess engine like Stockfish. For precise move evaluation, it integrates with Stockfish. For learning and understanding concepts, Chess Empire excels at providing clear, conversational explanations. However, like all AI, it can make errors, so use it as a learning tool rather than an absolute authority.",
+    question: "How accurate is Chesster's chess analysis?",
+    answer: "Chesster provides good general chess understanding and can explain concepts well, but it's not a chess engine like Stockfish. For precise move evaluation, it integrates with Stockfish. For learning and understanding concepts, Chesster excels at providing clear, conversational explanations. However, like all AI, it can make errors, so use it as a learning tool rather than an absolute authority.",
     category: "technical"
   },
   {
@@ -478,48 +478,48 @@ export const FAQ_ITEMS: FAQItem[] = [
     category: "technical"
   },
   {
-    question: "What is Chess Empire Cloud?",
-    answer: "Chess Empire Cloud uses open source small models to support user queries, its a free alternative to Ollama but cloud based so you just login and start using Chess Empire. Since Chess Empire Cloud is in beta, users might experience rate limits, but ratelimit reset every 24 hours.",
+    question: "What is Chesster Cloud?",
+    answer: "Chesster Cloud uses open source small models to support user queries, its a free alternative to Ollama but cloud based so you just login and start using Chesster. Since Chesster Cloud is in beta, users might experience rate limits, but ratelimit reset every 24 hours.",
     category: "cost"
   },
   {
-    question: "Should I use Chess Empire Cloud/Ollama or paid API models?",
+    question: "Should I use Chesster Cloud/Ollama or paid API models?",
     answer: "It depends on your needs! ChessterCloud is perfect for: learning basics, casual analysis, unlimited practice without cost concerns, Ollama is great for offline use. Paid APIs are better for: faster responses, more sophisticated analysis, limited computer resources, and professional-level chess study. Many users start with Ollama and upgrade to paid models for important analysis.",
     category: "cost"
   },
   {
-    question: "How much does it typically cost to use Chess Empire?",
-    answer: "With Ollama and Chess Empire Cloud: $0 - completely free! With cloud APIs: Costs vary by model and usage. For casual use (a few analyses per day), expect $0.50-$3 per month. Heavy users might spend $5-$15 monthly. The cost analysis tab shows detailed breakdowns for different usage patterns and models.",
+    question: "How much does it typically cost to use Chesster?",
+    answer: "With Ollama and Chesster Cloud: $0 - completely free! With cloud APIs: Costs vary by model and usage. For casual use (a few analyses per day), expect $0.50-$3 per month. Heavy users might spend $5-$15 monthly. The cost analysis tab shows detailed breakdowns for different usage patterns and models.",
     category: "cost"
   },
   {
-    question: "Where do I set up payment information to use Chess Empire?",
-    answer: "For Ollama/Chess Empire Cloud models: No payment needed - they're completely free. For cloud APIs: You set up payment directly with the AI provider (OpenAI, Anthropic, or Google), not within the Chess Empire UI. Visit your chosen provider's billing interface to add payment methods.",
+    question: "Where do I set up payment information to use Chesster?",
+    answer: "For Ollama/Chesster Cloud models: No payment needed - they're completely free. For cloud APIs: You set up payment directly with the AI provider (OpenAI, Anthropic, or Google), not within the Chesster UI. Visit your chosen provider's billing interface to add payment methods.",
     category: "cost"
   },
   {
     question: "Is my chess data and conversation history private?",
-    answer: "Your privacy depends on the provider you choose. With Ollama, everything runs locally on your computer - maximum privacy. With cloud APIs, Chess Empire doesn't store your conversations - they go directly between your browser and the AI provider. Check each provider's privacy policy for details on data handling and retention.",
+    answer: "Your privacy depends on the provider you choose. With Ollama, everything runs locally on your computer - maximum privacy. With cloud APIs, Chesster doesn't store your conversations - they go directly between your browser and the AI provider. Check each provider's privacy policy for details on data handling and retention.",
     category: "privacy"
   },
   {
-    question: "Can I use multiple AI providers with Chess Empire?",
+    question: "Can I use multiple AI providers with Chesster?",
     answer: "Yes! You can set up Ollama for free local models AND add API keys for cloud providers, then switch between them. This lets you use different models for different purposes - perhaps Ollama for quick questions and a powerful cloud model for deep analysis. Mix and match based on your needs!",
     category: "technical"
   },
   {
     question: "What happens if I run out of API credits for paid models?",
-    answer: "If your API credits are exhausted, you'll need to add more funds to your provider account. Chess Empire will show you the error message from the provider, and you can add credits directly through their platform. Alternatively, switch to Ollama models which never run out since they're free and local.",
+    answer: "If your API credits are exhausted, you'll need to add more funds to your provider account. Chesster will show you the error message from the provider, and you can add credits directly through their platform. Alternatively, switch to Ollama models which never run out since they're free and local.",
     category: "cost"
   },
   {
-    question: "Can Chess Empire analyze games from chess.com or Lichess?",
-    answer: "Yes! You can paste PGN games from any platform, and Chess Empire can analyze them. With the Lichess integration, you can also explore opening databases and get additional context for your games.",
+    question: "Can Chesster analyze games from chess.com or Lichess?",
+    answer: "Yes! You can paste PGN games from any platform, and Chesster can analyze them. With the Lichess integration, you can also explore opening databases and get additional context for your games.",
     category: "technical"
   },
   {
     question: "What computer specs do I need to run Ollama models?",
-    answer: "It varies by model size: qwen3:4b needs ~4GB RAM, qwen3:8b needs ~8GB RAM, and larger models like gpt-oss:120b need 64GB+ RAM. Most modern computers can run the smaller models (4b-8b) just fine. Start with a smaller model and upgrade if you have the resources and want better analysis quality. You can use Chess Empire Cloud without worrying about ollama setup but you might encounter rate limits",
+    answer: "It varies by model size: qwen3:4b needs ~4GB RAM, qwen3:8b needs ~8GB RAM, and larger models like gpt-oss:120b need 64GB+ RAM. Most modern computers can run the smaller models (4b-8b) just fine. Start with a smaller model and upgrade if you have the resources and want better analysis quality. You can use Chesster Cloud without worrying about ollama setup but you might encounter rate limits",
     category: "technical"
   }
 ];

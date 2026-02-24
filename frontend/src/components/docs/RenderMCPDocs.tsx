@@ -86,11 +86,11 @@ const MCPdocs =  () => {
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Box sx={{ mb: 4 }}>
         <Typography variant="h3" component="h1" gutterBottom fontWeight="bold">
-          Chess Empire MCP Installation
+          Chesster MCP Installation
         </Typography>
         <Typography variant="body1" color="text.secondary" paragraph>
           Choose your preferred installation method to get started with
-          Chess Empire MCP
+          Chesster MCP
         </Typography>
         <Chip label="Node.js 20+ Required" color="primary" size="small" />
       </Box>
@@ -121,7 +121,7 @@ const MCPdocs =  () => {
         </AccordionSummary>
         <AccordionDetails>
           <Typography variant="body2" paragraph>
-            Install Chess Empire automatically using Smithery:
+            Install Chesster automatically using Smithery:
           </Typography>
           <CodeBlock code="npx -y @smithery/cli install @jalpp/chessempire-mcp" />
           <Link

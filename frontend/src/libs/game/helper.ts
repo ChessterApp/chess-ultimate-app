@@ -78,20 +78,14 @@ export function getValidGameId(url: string): string {
   }
 }
 
+import { apiFetch } from '@/lib/api';
+
 export async function fetchLichessGame(gameId: string): Promise<string> {
-  const response = await fetch(`https://lichess.org/game/export/${gameId}`, {
+  const pgnText = await apiFetch<string>(`https://lichess.org/game/export/${gameId}`, {
     headers: {
       Accept: "application/x-chess-pgn",
     },
   });
-
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch game: ${response.status} ${response.statusText}`
-    );
-  }
-
-  const pgnText = await response.text();
 
   if (!pgnText || pgnText.trim() === "") {
     throw new Error("Empty PGN received from Lichess");

@@ -1,5 +1,6 @@
 import React, { CSSProperties, JSX } from "react";
 import { useTranslations } from "next-intl";
+import { apiFetch, ApiError } from '@/lib/api';
 import {
   Stack,
   Button,
@@ -107,6 +108,8 @@ import {
 import PlayerInfoBar from "../tabs/PlayerInfoTab";
 import { EvalBar } from "./EvalBar";
 import BoardEditor from "@/components/editor/BoardEditor";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
+import { useHaptic } from "@/hooks/useHaptic";
 
 interface AiChessboardPanelProps {
   fen: string;
@@ -175,6 +178,8 @@ export default function AiChessboardPanel({
 }: AiChessboardPanelProps) {
   const tEditor = useTranslations("editor");
   const tBoard = useTranslations("board");
+  const { play: playSound } = useSoundEffects();
+  const haptic = useHaptic();
   // Fix hydration mismatch by ensuring client-only rendering
   const [mounted, setMounted] = useState(false);
 
@@ -206,19 +211,19 @@ export default function AiChessboardPanel({
 
   // Calculate responsive board size based on window width
   const responsiveBoardSize = useMemo(() => {
-    if (windowWidth < 400) return Math.min(windowWidth - 40, 320); // Very small phones
-    if (windowWidth < 600) return Math.min(windowWidth - 32, 360); // Small phones
-    if (windowWidth < 768) return Math.min(windowWidth - 48, 420); // Large phones
-    if (windowWidth < 1024) return Math.min(windowWidth - 64, 480); // Tablets
+    if (windowWidth < 400) return windowWidth - 8; // Very small phones — full width
+    if (windowWidth < 600) return windowWidth - 12; // Small phones — near full width
+    if (windowWidth < 768) return Math.min(windowWidth - 24, 440); // Large phones
+    if (windowWidth < 1024) return Math.min(windowWidth - 48, 500); // Tablets
     return boardSize; // Desktop - use user preference
   }, [windowWidth, boardSize]);
 
   // Calculate responsive panel dimensions
   const responsivePanelDimensions = useMemo(() => {
-    if (windowWidth < 400) return { width: windowWidth - 16, height: 'auto' };
-    if (windowWidth < 600) return { width: windowWidth - 16, height: 'auto' };
-    if (windowWidth < 768) return { width: windowWidth - 32, height: 'auto' };
-    if (windowWidth < 1024) return { width: Math.min(windowWidth - 48, 520), height: 'auto' };
+    if (windowWidth < 400) return { width: windowWidth, height: 'auto' };
+    if (windowWidth < 600) return { width: windowWidth, height: 'auto' };
+    if (windowWidth < 768) return { width: windowWidth - 8, height: 'auto' };
+    if (windowWidth < 1024) return { width: Math.min(windowWidth - 24, 540), height: 'auto' };
     return { width: panelDimensions.width, height: panelDimensions.height };
   }, [windowWidth, panelDimensions]);
   const [pieceType, setPieceType] = useLocalStorage<string>(
@@ -483,6 +488,8 @@ export default function AiChessboardPanel({
           });
 
           if (move) {
+            playSound(move.captured ? 'capture' : 'move');
+            haptic.vibrate(move.captured ? 'capture' : move.san.includes('+') ? 'check' : 'move');
             const newGame = new Chess(game.fen());
             setGame(newGame);
             setFen(newGame.fen());
@@ -504,6 +511,8 @@ export default function AiChessboardPanel({
             promotion: "q",
           });
           if (move) {
+            playSound(move.captured ? 'capture' : 'move');
+            haptic.vibrate(move.captured ? 'capture' : move.san.includes('+') ? 'check' : 'move');
             moveMade = true;
             clearAnalysis();
           }
@@ -521,6 +530,7 @@ export default function AiChessboardPanel({
       setMoveSquares,
       safeGameMutate,
       clearAnalysis,
+      playSound,
     ]
   );
 
@@ -860,15 +870,24 @@ export default function AiChessboardPanel({
       setPhotoLoading(true);
 
       try {
-        const response = await fetch('/api/convert-image', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: base64Data }),
-        });
+        let data: any;
+        try {
+          data = await apiFetch<any>('/api/convert-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64Data }),
+          });
+        } catch (e) {
+          if (e instanceof ApiError) {
+            setPhotoError(e.message || 'Failed to convert image to FEN');
+          } else {
+            setPhotoError('Network error. Please try again.');
+          }
+          setPhotoLoading(false);
+          return;
+        }
 
-        const data = await response.json();
-
-        if (response.ok && data.fen) {
+        if (data.fen) {
           // Try to load the FEN into the board
           try {
             const newGame = new Chess(data.fen);
@@ -1025,9 +1044,10 @@ export default function AiChessboardPanel({
           : `${responsivePanelDimensions.height}px`,
         maxWidth: '100%',
         position: "relative",
-        border: "1px solid #444",
+        border: 1,
+        borderColor: "divider",
         borderRadius: 2,
-        backgroundColor: "#1a1a1a",
+        backgroundColor: "background.paper",
         overflow: "hidden",
         userSelect: isResizing ? "none" : "auto",
       }}
@@ -1037,7 +1057,7 @@ export default function AiChessboardPanel({
           height: "100%",
           overflowY: "auto",
           overflowX: "hidden",
-          p: 2,
+          p: windowWidth < 600 ? 0.5 : 2,
           "&::-webkit-scrollbar": {
             width: "6px",
           },
@@ -1058,7 +1078,7 @@ export default function AiChessboardPanel({
         <Paper
           sx={{
             p: 1.5,
-            backgroundColor: "#1a1a1a",
+            backgroundColor: "background.paper",
             borderRadius: 2,
             mb: 2,
           }}
@@ -1116,7 +1136,7 @@ export default function AiChessboardPanel({
             <Box sx={{ flexGrow: 1 }} />
             <IconButton
               onClick={() => setSettingsOpen(true)}
-              sx={{ color: "white", p: 0.5 }}
+              sx={{ color: "text.primary", p: 0.5 }}
               size="small"
             >
               <SettingsIcon fontSize="small" />
@@ -1127,7 +1147,7 @@ export default function AiChessboardPanel({
           <Stack direction="row" alignItems="center" spacing={2}>
             {(puzzleMode || playMode) && (
               <Typography variant="caption" sx={{ color: "grey.400" }}>
-                {getBoardOrientation()} To Play
+                {(getBoardOrientation() ?? 'white').charAt(0).toUpperCase() + (getBoardOrientation() ?? 'white').slice(1)} to Play
               </Typography>
             )}
           </Stack>
@@ -1202,7 +1222,7 @@ export default function AiChessboardPanel({
                       display: "flex",
                       flexDirection: "row",
                       alignItems: "center",
-                      backgroundColor: "#2a2a2a",
+                      backgroundColor: "action.hover",
                       borderRadius: 0,
                       height: 38,
                       width: "100%",
@@ -1235,7 +1255,7 @@ export default function AiChessboardPanel({
                       transition: "background-color 0.15s, color 0.15s",
                       "&:hover": btn.disabled ? {} : {
                         backgroundColor: "rgba(255,255,255,0.08)",
-                        color: "#fff",
+                        color: "text.primary",
                       },
                     }}
                   >
@@ -1257,19 +1277,19 @@ export default function AiChessboardPanel({
               <Paper
                 sx={{
                   p: 1.5,
-                  backgroundColor: "#1a1a1a",
+                  backgroundColor: "background.paper",
                   borderRadius: 2,
                 }}
               >
-                <Typography variant="caption" sx={{ color: "grey.300", mb: 1 }}>
+                <Typography variant="caption" sx={{ color: "text.secondary", mb: 1 }}>
                   Current Position (FEN)
                 </Typography>
                 <Typography
                   variant="caption"
                   sx={{
-                    color: "white",
+                    color: "text.primary",
                     fontFamily: "monospace",
-                    backgroundColor: "rgba(255,255,255,0.05)",
+                    backgroundColor: "action.hover",
                     p: 1,
                     borderRadius: 1,
                     wordBreak: "break-all",
@@ -1288,13 +1308,13 @@ export default function AiChessboardPanel({
                 <Paper
                   sx={{
                     p: 1.5,
-                    backgroundColor: "#1a1a1a",
+                    backgroundColor: "background.paper",
                     borderRadius: 2,
                   }}
                 >
                   <Typography
                     variant="caption"
-                    sx={{ color: "grey.300", mb: 1.5, display: "block" }}
+                    sx={{ color: "text.secondary", mb: 1.5, display: "block" }}
                   >
                     Piece Analysis
                   </Typography>
@@ -1305,7 +1325,7 @@ export default function AiChessboardPanel({
                         <Typography
                           variant="caption"
                           sx={{
-                            color: "#f44336",
+                            color: "error.main",
                             fontWeight: 600,
                             fontSize: "0.7rem",
                           }}
@@ -1338,7 +1358,7 @@ export default function AiChessboardPanel({
                         <Typography
                           variant="caption"
                           sx={{
-                            color: "#ffeb3b",
+                            color: "warning.main",
                             fontWeight: 600,
                             fontSize: "0.7rem",
                           }}
@@ -1483,7 +1503,7 @@ export default function AiChessboardPanel({
           <OpenInFullIcon
             sx={{
               fontSize: "10px",
-              color: "#ccc",
+              color: "text.secondary",
               transform: "rotate(180deg)",
             }}
           />
@@ -1498,8 +1518,8 @@ export default function AiChessboardPanel({
         maxWidth="sm"
         PaperProps={{
           sx: {
-            backgroundColor: "#1a1a1a",
-            color: "white",
+            backgroundColor: "background.paper",
+            color: "text.primary",
             minWidth: { xs: "90vw", sm: 400, md: 450 },
             maxWidth: { xs: "95vw", sm: 500 },
             maxHeight: "90vh",
@@ -1521,7 +1541,7 @@ export default function AiChessboardPanel({
                 max={800}
                 step={25}
                 sx={{
-                  color: "#9c27b0",
+                  color: "secondary.main",
                 }}
               />
             </Box>
@@ -1552,7 +1572,7 @@ export default function AiChessboardPanel({
                   MenuProps={{
                     PaperProps: {
                       sx: {
-                        backgroundColor: "#2a2a2a",
+                        backgroundColor: "action.hover",
                         color: "white",
                       },
                     },
@@ -1592,7 +1612,7 @@ export default function AiChessboardPanel({
                   MenuProps={{
                     PaperProps: {
                       sx: {
-                        backgroundColor: "#2a2a2a",
+                        backgroundColor: "action.hover",
                         color: "white",
                       },
                     },
@@ -1620,7 +1640,7 @@ export default function AiChessboardPanel({
                 max={1000}
                 step={50}
                 sx={{
-                  color: "#9c27b0",
+                  color: "secondary.main",
                 }}
               />
             </Box>
@@ -1643,7 +1663,7 @@ export default function AiChessboardPanel({
                     onChange={(e) => setShowCoordinates(e.target.checked)}
                     sx={{
                       "& .MuiSwitch-switchBase.Mui-checked": {
-                        color: "#9c27b0",
+                        color: "secondary.main",
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
@@ -1666,7 +1686,7 @@ export default function AiChessboardPanel({
                     onChange={(e) => setShowFen(e.target.checked)}
                     sx={{
                       "& .MuiSwitch-switchBase.Mui-checked": {
-                        color: "#9c27b0",
+                        color: "secondary.main",
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
@@ -1690,7 +1710,7 @@ export default function AiChessboardPanel({
                       onChange={(e) => setShowArrows(e.target.checked)}
                       sx={{
                         "& .MuiSwitch-switchBase.Mui-checked": {
-                          color: "#9c27b0",
+                          color: "secondary.main",
                         },
                         "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                           {
@@ -1715,7 +1735,7 @@ export default function AiChessboardPanel({
                       onChange={(e) => setEvalBar(e.target.checked)}
                       sx={{
                         "& .MuiSwitch-switchBase.Mui-checked": {
-                          color: "#9c27b0",
+                          color: "secondary.main",
                         },
                         "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                           {
@@ -1755,7 +1775,7 @@ export default function AiChessboardPanel({
                     onChange={(e) => setShowHangingPieces(e.target.checked)}
                     sx={{
                       "& .MuiSwitch-switchBase.Mui-checked": {
-                        color: "#f44336",
+                        color: "error.main",
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
@@ -1788,7 +1808,7 @@ export default function AiChessboardPanel({
                     }
                     sx={{
                       "& .MuiSwitch-switchBase.Mui-checked": {
-                        color: "#ffeb3b",
+                        color: "warning.main",
                       },
                       "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track":
                         {
@@ -1817,7 +1837,7 @@ export default function AiChessboardPanel({
                       startIcon={<RotateLeft />}
                       fullWidth
                       sx={{
-                        color: "#9c27b0",
+                        color: "secondary.main",
                         borderColor: "#9c27b0",
                         "&:hover": {
                           borderColor: "#7b1fa2",
@@ -1894,7 +1914,7 @@ export default function AiChessboardPanel({
                       fullWidth
                       disabled={photoLoading}
                       sx={{
-                        color: "#00bcd4",
+                        color: "info.main",
                         borderColor: "#00bcd4",
                         "&:hover": {
                           borderColor: "#0097a7",
@@ -1965,7 +1985,7 @@ export default function AiChessboardPanel({
                     {photoError && (
                       <Typography
                         variant="caption"
-                        sx={{ color: "#f44336", display: "block", mt: 1 }}
+                        sx={{ color: "error.main", display: "block", mt: 1 }}
                       >
                         {photoError}
                       </Typography>
@@ -1977,7 +1997,7 @@ export default function AiChessboardPanel({
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleSettingsClose} sx={{ color: "#9c27b0" }}>
+          <Button onClick={handleSettingsClose} sx={{ color: "secondary.main" }}>
             {tBoard("done")}
           </Button>
         </DialogActions>

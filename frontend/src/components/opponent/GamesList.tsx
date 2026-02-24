@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
 
 interface GameData {
   id: number
@@ -40,6 +42,7 @@ export default function GamesList({
 }: GamesListProps) {
   const t = useTranslations('opponent')
   const tCommon = useTranslations('common')
+  const { showToast } = useToast()
   const [loadingGameId, setLoadingGameId] = useState<number | null>(null)
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
@@ -59,13 +62,17 @@ export default function GamesList({
 
     setLoadingGameId(game.id)
     try {
-      const response = await fetch(`${API_URL}/api/opponent/game/${game.id}/pgn`)
-      if (response.ok) {
-        const data = await response.json()
-        onSelectGame(game, data.pgn)
-      }
+      const data = await apiFetch<any>(`${API_URL}/api/opponent/game/${game.id}/pgn`)
+      onSelectGame(game, data.pgn)
     } catch (error) {
       console.error('Error fetching PGN:', error)
+      if (error instanceof ApiError) {
+        if (error.status === 0) {
+          showToast('Network error — check your connection', 'error')
+        } else {
+          showToast('Failed to load game — please try again', 'error')
+        }
+      }
     } finally {
       setLoadingGameId(null)
     }

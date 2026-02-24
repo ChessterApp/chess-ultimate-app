@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { apiFetch, ApiError } from '@/lib/api';
 
 interface UseVoiceRecorderOptions {
   onTranscriptionComplete?: (text: string) => void;
@@ -82,7 +83,7 @@ export default function useVoiceRecorder(
         const base64 = await base64Promise;
         const token = await getToken();
 
-        const response = await fetch('/api/chat/transcribe', {
+        const data = await apiFetch<any>('/api/chat/transcribe', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -90,8 +91,6 @@ export default function useVoiceRecorder(
           },
           body: JSON.stringify({ audio: base64 }),
         });
-
-        const data = await response.json();
 
         if (data.success && data.text) {
           onTranscriptionComplete?.(data.text);

@@ -16,24 +16,23 @@ import {
   Psychology as IntelligenceIcon,
   CheckCircle as CheckCircleIcon,
   SwapHorizontalCircleOutlined,
-  
+
 } from "@mui/icons-material";
-import { purpleTheme } from "@/theme/theme";
 import ConstructionIcon from '@mui/icons-material/Construction';
 
 
 export const renderHeader = () => (
   <>
     <Paper
-      sx={{
+      sx={(theme) => ({
         p: 4,
         mb: 4,
-        background: `linear-gradient(135deg, ${purpleTheme.primary} 0%, ${purpleTheme.secondary} 100%)`,
-        color: purpleTheme.text.primary,
-      }}
+        background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.secondary.main} 100%)`,
+        color: "common.white",
+      })}
     >
       <Typography variant="h3" component="h1" gutterBottom>
-        Welcome to Chess Empire
+        Welcome to Chesster
       </Typography>
       <Typography variant="h6">
         Your AI-powered chess companion with plug-and-play provider integration
@@ -44,7 +43,7 @@ export const renderHeader = () => (
     <Alert severity="warning" sx={{ mb: 4 }}>
       <AlertTitle>Important Security Information</AlertTitle>
       <Typography variant="body2">
-        <strong>Chess Empire DOES NOT store your API keys on our servers.</strong>{" "}
+        <strong>Chesster DOES NOT store your API keys on our servers.</strong>{" "}
         Your keys are only stored in your browser local storage and encrypted
         during transmission.
       </Typography>
@@ -58,34 +57,34 @@ export const renderHeader = () => (
       </Typography>
     </Alert>
     <Alert severity="warning" sx={{ mb: 4 }}>
-      <AlertTitle>Chess Empire Cloud Beta</AlertTitle>
+      <AlertTitle>Chesster Cloud Beta</AlertTitle>
       <Typography variant="body2">
-        <strong>Chess Empire Cloud is in Beta, if you experiece rate limits please try again at later time.</strong>{" "}
+        <strong>Chesster Cloud is in Beta, if you experiece rate limits please try again at later time.</strong>{" "}
       </Typography>
     </Alert>
 
     <Card sx={{ mb: 4 }}>
       <CardContent>
         <Typography variant="h5" gutterBottom color="primary.text">
-          Chess Empire Settings
+          Chesster Settings
         </Typography>
         <List>
           <ListItem>
             <ListItemIcon>
-              <CheckCircleIcon sx={{ color: purpleTheme.success }} />
+              <CheckCircleIcon sx={{ color: "success.main" }} />
             </ListItemIcon>
             <ListItemText
               primary="Chesster Cloud (beta)"
-              secondary="Pick a open source model and start using Chess Empire for free! No API or local setup required!"
+              secondary="Pick a open source model and start using Chesster for free! No API or local setup required!"
             />
           </ListItem>
           <ListItem>
             <ListItemIcon>
-              <CheckCircleIcon sx={{ color: purpleTheme.success }} />
+              <CheckCircleIcon sx={{ color: "success.main" }} />
             </ListItemIcon>
             <ListItemText
               primary="Ollama Support"
-              secondary="No API keys required run models locally or connect via ngrok/cloud for instant access and use Chess Empire for 100% Free!"
+              secondary="No API keys required run models locally or connect via ngrok/cloud for instant access and use Chesster for 100% Free!"
             />
           </ListItem>
           <ListItem>

@@ -14,8 +14,8 @@ if os.path.exists(DB_PATH) and os.path.getsize(DB_PATH) > 100_000_000:  # >100MB
         if _g > 4_000_000:
             print(f"SAFETY: Database already has {_g:,} games ({os.path.getsize(DB_PATH)/1e9:.1f}GB). Phase 1 is DONE.")
             print("If you really need to rebuild, delete the file manually first.")
-            sys.exit(0)
-    except:
+            os._exit(0)
+    except Exception:
         pass
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,6 +44,14 @@ def extract_year(d):
 def setup_db(path):
     if os.path.exists(path):
         if '--fresh' in sys.argv:
+            # HARD SAFETY: require manual confirmation file to prevent accidental destruction
+            confirm_file = path + '.CONFIRM_FRESH_REBUILD'
+            if not os.path.exists(confirm_file):
+                print("SAFETY BLOCK: --fresh requires manual confirmation.")
+                print(f"To confirm, create this file first: touch {confirm_file}")
+                print("This prevents accidental destruction of the database (including position index).")
+                sys.exit(1)
+            os.remove(confirm_file)
             for ext in ('', '-wal', '-shm', '-journal'):
                 p = path + ext
                 if os.path.exists(p): os.remove(p)

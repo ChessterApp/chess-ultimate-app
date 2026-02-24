@@ -20,7 +20,6 @@ import {
   OpenInNew as OpenIcon,
 } from "@mui/icons-material";
 import { FaGear } from "react-icons/fa6";
-import { purpleTheme } from "@/theme/theme";
 
 const INTEGRATIONS: IntegrationItem[] = [
   {
@@ -39,7 +38,7 @@ const INTEGRATIONS: IntegrationItem[] = [
   {
     name: "Lichess Explorer",
     description:
-      "Explore opening databases and master games directly within Chess Empire",
+      "Explore opening databases and master games directly within Chesster",
     icon: <DatabaseIcon />,
     features: [
       "Opening explorer with statistics",
@@ -99,12 +98,12 @@ export const renderIntegrations = () => (
       sx={{ display: "flex", alignItems: "center", gap: 1 }}
     >
       <FaGear />
-      Chess Empire Integrations
+      Chesster Integrations
     </Typography>
 
     <Typography variant="body1" color="text.secondary" paragraph>
-      Chess Empire connects with powerful chess tools and databases to enhance
-      your experience. Chess Empire convets a general purpose LLM into a chess
+      Chesster connects with powerful chess tools and databases to enhance
+      your experience. Chesster convets a general purpose LLM into a chess
       native helper buddy.
     </Typography>
 
@@ -146,7 +145,7 @@ export const renderIntegrations = () => (
                   <ListItem key={featureIndex} sx={{ py: 0.5, pl: 0 }}>
                     <ListItemIcon sx={{ minWidth: 24 }}>
                       <CheckCircleIcon
-                        sx={{ fontSize: 16, color: purpleTheme.success }}
+                        sx={{ fontSize: 16, color: "success.main" }}
                       />
                     </ListItemIcon>
                     <ListItemText
@@ -187,7 +186,7 @@ export const renderIntegrations = () => (
           How Integrations Work
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          Chess Empire seamlessly combines AI analysis with these powerful tools.
+          Chesster seamlessly combines AI analysis with these powerful tools.
           When you ask about an opening, it might consult the Lichess database
           for statistics. When you need precise evaluation, it can use
           Stockfish. For recent tournament information, it searches the web. All
@@ -197,7 +196,7 @@ export const renderIntegrations = () => (
         <Typography variant="body2" color="text.secondary">
           <strong>Privacy Note:</strong> Integration data is processed in
           real-time and follows the same privacy principles as your AI
-          conversations - no permanent storage by Chess Empire.
+          conversations - no permanent storage by Chesster.
         </Typography>
       </CardContent>
     </Card>

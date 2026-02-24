@@ -25,7 +25,6 @@ import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import HistoryIcon from "@mui/icons-material/History";
 import CasinoIcon from "@mui/icons-material/Casino";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
-import { purpleTheme } from "@/theme/theme";
 
 interface UserGameProp {
   loadPGN: (pgn: string) => void;
@@ -62,17 +61,17 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
     switch (speed) {
       case "bullet":
       case "ultrabullet":
-        return <FlashOnIcon fontSize="small" sx={{ mr: 1, color: purpleTheme.primary }} />;
+        return <FlashOnIcon fontSize="small" sx={{ mr: 1, color: "primary.main" }} />;
       case "blitz":
-        return <TimerIcon fontSize="small" sx={{ mr: 1, color: purpleTheme.primary }} />;
+        return <TimerIcon fontSize="small" sx={{ mr: 1, color: "primary.main" }} />;
       case "rapid":
-        return <RocketLaunchIcon fontSize="small" sx={{ mr: 1, color: purpleTheme.primary }} />;
+        return <RocketLaunchIcon fontSize="small" sx={{ mr: 1, color: "primary.main" }} />;
       case "classical":
-        return <HistoryIcon fontSize="small" sx={{ mr: 1, color: purpleTheme.primary }} />;
+        return <HistoryIcon fontSize="small" sx={{ mr: 1, color: "primary.main" }} />;
       case "correspondence":
-        return <CalendarMonthIcon fontSize="small" sx={{ mr: 1, color: purpleTheme.primary }} />;
+        return <CalendarMonthIcon fontSize="small" sx={{ mr: 1, color: "primary.main" }} />;
       default:
-        return <CasinoIcon fontSize="small" sx={{ mr: 1, color: purpleTheme.primary }} />;
+        return <CasinoIcon fontSize="small" sx={{ mr: 1, color: "primary.main" }} />;
     }
   };
 
@@ -117,8 +116,8 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
       elevation={3}
       sx={{
         p: 3,
-        backgroundColor: purpleTheme.background.paper,
-        color: purpleTheme.text.primary,
+        backgroundColor: "background.paper",
+        color: "text.primary",
       }}
     >
       <Box display="flex" justifyContent="center" mb={2}>
@@ -128,25 +127,21 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
             variant="outlined"
             value={lichessUsername}
             onChange={(e) => setLichessUsername(e.target.value)}
-            InputLabelProps={{ 
-              style: { color: purpleTheme.text.secondary } 
-            }}
-            InputProps={{
-              style: {
-                color: purpleTheme.text.primary,
-                backgroundColor: purpleTheme.background.input,
-              },
-            }}
             sx={{
+              '& .MuiInputLabel-root': {
+                color: 'text.secondary',
+              },
               '& .MuiOutlinedInput-root': {
+                color: 'text.primary',
+                backgroundColor: 'background.paper',
                 '& fieldset': {
-                  borderColor: purpleTheme.secondary,
+                  borderColor: 'secondary.main',
                 },
                 '&:hover fieldset': {
-                  borderColor: purpleTheme.primary,
+                  borderColor: 'primary.main',
                 },
                 '&.Mui-focused fieldset': {
-                  borderColor: purpleTheme.primary,
+                  borderColor: 'primary.main',
                 },
               },
             }}
@@ -155,15 +150,15 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
       </Box>
 
       {!lichessUsername ? (
-        <Typography textAlign="center" color={purpleTheme.text.secondary}>
+        <Typography textAlign="center" color="text.secondary">
           Enter a username to load recent games
         </Typography>
       ) : loading ? (
         <Box display="flex" justifyContent="center" mt={4}>
-          <CircularProgress sx={{ color: purpleTheme.primary }} />
+          <CircularProgress sx={{ color: "primary.main" }} />
         </Box>
       ) : games.length === 0 ? (
-        <Typography textAlign="center" color={purpleTheme.text.secondary}>
+        <Typography textAlign="center" color="text.secondary">
           No games found for this user
         </Typography>
       ) : (
@@ -177,11 +172,11 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
               }}
               sx={{
                 mb: 1,
-                backgroundColor: purpleTheme.background.card,
-                color: purpleTheme.text.primary,
+                backgroundColor: "background.paper",
+                color: "text.primary",
                 borderRadius: "8px",
                 "&:hover": {
-                  backgroundColor: purpleTheme.primaryDark,
+                  backgroundColor: "primary.dark",
                 },
               }}
             >
@@ -217,12 +212,12 @@ export default function UserLichessGames({ loadPGN, setOpen }: UserGameProp) {
                   component: "div",
                   fontWeight: "bold",
                   noWrap: true,
-                  color: purpleTheme.text.primary,
+                  color: "text.primary",
                 }}
                 secondaryTypographyProps={{
                   component: "div",
                   noWrap: true,
-                  color: purpleTheme.text.secondary,
+                  color: "text.secondary",
                 }}
               />
             </ListItemButton>

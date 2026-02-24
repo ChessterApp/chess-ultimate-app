@@ -284,13 +284,34 @@ def find_moves_to_fen(target_fen: str, max_depth: int = 30) -> List[str]:
 # ─────────────────────────────────────────────
 
 def get_internal_db_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(TWIC_DB_PATH)
+    # Open TWIC DB in explicit read-only immutable mode.
+    # This is required because we protect the DB with immutable filesystem flag
+    # (chattr +i), and SQLite write-oriented open modes can fail with
+    # "attempt to write a readonly database" even for read queries.
+    uri = f"file:{TWIC_DB_PATH}?mode=ro&immutable=1"
+    conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def check_internal_db_exists() -> bool:
     return os.path.exists(TWIC_DB_PATH)
+
+
+def _normalize_game_row(game_data: dict) -> dict:
+    """Normalize TWIC game row for frontend compatibility.
+
+    Keeps canonical DB fields (white_name/black_name) and also provides
+    legacy aliases (white/black) used by some existing UI paths.
+    """
+    if not game_data:
+        return game_data
+
+    if 'white_name' in game_data and 'white' not in game_data:
+        game_data['white'] = game_data.get('white_name')
+    if 'black_name' in game_data and 'black' not in game_data:
+        game_data['black'] = game_data.get('black_name')
+    return game_data
 
 
 def fetch_internal_games(search_query: str, max_games: int, filter_fen: str = None, eco_filter: str = None) -> list:
@@ -311,7 +332,7 @@ def fetch_internal_games(search_query: str, max_games: int, filter_fen: str = No
             params.append(f"{eco_filter}%")
 
         if search_query:
-            conditions.append("(white LIKE ? OR black LIKE ? OR event LIKE ?)")
+            conditions.append("(white_name LIKE ? OR black_name LIKE ? OR event LIKE ?)")
             params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
 
         if conditions:
@@ -325,7 +346,7 @@ def fetch_internal_games(search_query: str, max_games: int, filter_fen: str = No
 
         results = []
         for row in rows:
-            game_data = dict(row)
+            game_data = _normalize_game_row(dict(row))
             if filter_fen and game_data.get('pgn_offset') is not None:
                 # Read PGN from master file using exact length
                 try:
@@ -413,7 +434,7 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
             cursor.execute(query, params)
             found = 0
             for row in cursor.fetchall():
-                game_data = dict(row)
+                game_data = _normalize_game_row(dict(row))
                 # Load PGN
                 if game_data.get('pgn_offset') is not None and game_data.get('pgn_length'):
                     try:
@@ -455,7 +476,7 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
         checked = 0
         for row in cursor.fetchall():
             checked += 1
-            game_data = dict(row)
+            game_data = _normalize_game_row(dict(row))
 
             if filter_fen and game_data.get('pgn_offset') is not None:
                 try:
@@ -1835,7 +1856,11 @@ def games_by_position():
         return jsonify({'error': 'Missing fen parameter'}), 400
 
     limit = min(int(request.args.get('limit', 5)), 50)
-    min_rating = int(request.args.get('min_rating', 0))
+    player_color = request.args.get('player_color', '').strip().lower()
+    if player_color not in ('white', 'black', ''):
+        player_color = ''
+    player_name = request.args.get('player_name', '').strip()
+    sort_by = request.args.get('sort_by', 'rating')
 
     if not check_internal_db_exists():
         return jsonify({'games': [], 'total': 0, 'indexed': False})
@@ -1865,23 +1890,58 @@ def games_by_position():
             else:
                 total = pool_size  # Will be updated by deferred count endpoint
 
-        # 2-step approach: get limited IDs first, then fetch+sort the small set
-        # (JOIN with ORDER BY is too slow on millions of matching rows — SQLite
-        #  materializes all matches before sorting)
+        # 2-step approach: get limited IDs first, then fetch+sort the small set.
+        # For player search, avoid expensive JOIN on the full position set (can take >2 min).
         pool_size = min(max(limit * 40, 200), 2000)
-        id_rows = conn.execute(
-            "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
-            [board_hash, pool_size]
-        ).fetchall()
-        game_ids = [r['game_id'] for r in id_rows]
+        if player_name:
+            name_pattern = f"%{player_name.lower()}%"
+
+            # Fast path: find player-matching game IDs first, then intersect with board_hash.
+            # This avoids scanning huge board_hash ranges on every keystroke.
+            player_rows = conn.execute(
+                '''
+                SELECT id
+                FROM games
+                WHERE white_name_normalized LIKE ? OR black_name_normalized LIKE ?
+                LIMIT 12000
+                ''',
+                [name_pattern, name_pattern]
+            ).fetchall()
+            player_ids = [r['id'] for r in player_rows]
+
+            if not player_ids:
+                game_ids = []
+            else:
+                matched_ids: list[int] = []
+                batch = 500
+                for i in range(0, len(player_ids), batch):
+                    sub = player_ids[i:i + batch]
+                    placeholders = ','.join('?' * len(sub))
+                    q = f"""
+                        SELECT game_id FROM game_positions
+                        WHERE board_hash = ?
+                          AND game_id IN ({placeholders})
+                    """
+                    rows = conn.execute(q, [board_hash] + sub).fetchall()
+                    matched_ids.extend([r['game_id'] for r in rows])
+
+                game_ids = matched_ids
+                total = len(matched_ids)  # Player-specific count
+        else:
+            id_rows = conn.execute(
+                "SELECT game_id FROM game_positions WHERE board_hash = ? ORDER BY game_id DESC LIMIT ?",
+                [board_hash, pool_size]
+            ).fetchall()
+            game_ids = [r['game_id'] for r in id_rows]
 
         if not game_ids:
-            _position_count_cache[board_hash] = 0
+            if not player_name:
+                _position_count_cache[board_hash] = 0
             conn.close()
             return jsonify({'games': [], 'total': 0, 'indexed': True})
 
-        # Update total estimate if pool wasn't full
-        if len(game_ids) < pool_size:
+        # Update total estimate if pool wasn't full (only for non-player searches)
+        if not player_name and len(game_ids) < pool_size:
             total = len(game_ids)
             _position_count_cache[board_hash] = total
 
@@ -1889,20 +1949,45 @@ def games_by_position():
         query = f"SELECT * FROM games WHERE id IN ({placeholders})"
         params = list(game_ids)
 
-        if min_rating > 0:
-            query += " AND (white_elo >= ? OR black_elo >= ?)"
-            params.extend([min_rating, min_rating])
+        if player_name:
+            query += " AND (white_name_normalized LIKE ? OR black_name_normalized LIKE ?)"
+            name_pattern = f"%{player_name.lower()}%"
+            params.extend([name_pattern, name_pattern])
 
-        query += " ORDER BY COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC LIMIT ?"
+        if player_color == 'white':
+            if player_name:
+                query += " AND white_name_normalized LIKE ?"
+                params.append(name_pattern)
+            else:
+                # When filtering by white only without player name, still need the games table
+                pass
+        elif player_color == 'black':
+            if player_name:
+                query += " AND black_name_normalized LIKE ?"
+                params.append(name_pattern)
+            else:
+                # When filtering by black only without player name, still need the games table
+                pass
+
+        sort_clauses = {
+            'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
+            'date_desc': 'date DESC',
+            'date_asc': 'date ASC',
+            'elo_white': 'COALESCE(white_elo, 0) DESC',
+            'elo_black': 'COALESCE(black_elo, 0) DESC',
+        }
+        order = sort_clauses.get(sort_by, sort_clauses['rating'])
+        query += f" ORDER BY {order} LIMIT ?"
         params.append(limit)
 
         cursor = conn.execute(query, params)
         games = []
         for row in cursor.fetchall():
-            game_data = dict(row)
+            game_data = _normalize_game_row(dict(row))
             # No PGN — frontend fetches on demand via /games/<id>/pgn
             games.append(game_data)
 
+        logger.info(f"games_by_position result: board_hash={board_hash} player_name='{player_name}' player_color='{player_color}' sort_by={sort_by} returned={len(games)} total_est={total}")
         conn.close()
         return jsonify({
             'games': games,
@@ -1979,6 +2064,125 @@ def position_count():
         logger.error(f"Error in position_count: {e}")
         conn.close()
         return jsonify({'error': str(e)}), 500
+
+
+@openings_bp.route('/positions/candidates', methods=['GET'])
+@verify_clerk_token
+def position_candidates():
+    """Return candidate next moves for a FEN using TWIC position index.
+
+    Used by Analysis tab as primary local source; frontend can still fallback
+    to external ChessDB when this endpoint has no data.
+    """
+    fen = request.args.get('fen', '')
+    if not fen:
+        return jsonify({'status': 'error', 'message': 'Missing fen parameter', 'moves': []}), 400
+
+    limit = min(int(request.args.get('limit', 12)), 30)
+
+    try:
+        board = chess.Board(fen)
+    except Exception:
+        return jsonify({'status': 'error', 'message': 'Invalid FEN', 'moves': []}), 400
+
+    if not check_internal_db_exists():
+        return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': False})
+
+    conn = get_internal_db_connection()
+    try:
+        if not _has_position_index(conn):
+            conn.close()
+            return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': False})
+
+        board_hash = _get_board_hash(fen)
+        side_to_move = fen.split(' ')[1] if len(fen.split(' ')) > 1 else 'w'
+
+        rows = conn.execute(
+            '''
+            SELECT
+                gp2.board_hash AS next_hash,
+                COUNT(*) AS games_count,
+                MIN(gp1.game_id) AS sample_game_id,
+                MIN(gp2.ply) AS next_ply,
+                SUM(CASE WHEN g.result = '1-0' THEN 1 ELSE 0 END) AS white_wins,
+                SUM(CASE WHEN g.result = '0-1' THEN 1 ELSE 0 END) AS black_wins,
+                SUM(CASE WHEN g.result = '1/2-1/2' THEN 1 ELSE 0 END) AS draws
+            FROM game_positions gp1
+            JOIN game_positions gp2
+              ON gp2.game_id = gp1.game_id
+             AND gp2.ply = gp1.ply + 1
+            JOIN games g ON g.id = gp1.game_id
+            WHERE gp1.board_hash = ?
+            GROUP BY gp2.board_hash
+            ORDER BY games_count DESC
+            LIMIT ?
+            ''',
+            [board_hash, limit]
+        ).fetchall()
+
+        if not rows:
+            conn.close()
+            return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': True})
+
+        moves = []
+        for idx, r in enumerate(rows, start=1):
+            sample = conn.execute(
+                'SELECT pgn_offset, pgn_length FROM games WHERE id = ?',
+                [r['sample_game_id']]
+            ).fetchone()
+            if not sample:
+                continue
+
+            san = None
+            uci = None
+            try:
+                with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
+                    f.seek(sample['pgn_offset'])
+                    pgn_text = f.read(sample['pgn_length'])
+                game = chess.pgn.read_game(io.StringIO(pgn_text))
+                if game:
+                    b = game.board()
+                    ply_target = int(r['next_ply'])
+                    for ply_i, mv in enumerate(game.mainline_moves(), start=1):
+                        if ply_i == ply_target:
+                            san = b.san(mv)
+                            uci = mv.uci()
+                            break
+                        b.push(mv)
+            except Exception:
+                pass
+
+            total = max(int(r['games_count'] or 0), 1)
+            white_wins = int(r['white_wins'] or 0)
+            black_wins = int(r['black_wins'] or 0)
+            draws = int(r['draws'] or 0)
+
+            if side_to_move == 'w':
+                winrate = ((white_wins + 0.5 * draws) / total) * 100.0
+            else:
+                winrate = ((black_wins + 0.5 * draws) / total) * 100.0
+
+            # Lightweight eval proxy from master results (for existing UI field)
+            score_cp = int(round((winrate - 50.0) * 8.0))
+
+            note = 'Best' if idx == 1 else ('Good' if idx <= 3 else 'Playable')
+            moves.append({
+                'uci': uci or '',
+                'san': san or '',
+                'score': str(score_cp),
+                'winrate': f"{winrate:.1f}",
+                'rank': str(idx),
+                'note': note,
+                'count': total,
+            })
+
+        conn.close()
+        return jsonify({'status': 'ok', 'source': 'twic', 'indexed': True, 'moves': moves})
+
+    except Exception as e:
+        logger.error(f"Error in position_candidates: {e}")
+        conn.close()
+        return jsonify({'status': 'error', 'message': str(e), 'moves': []}), 500
 
 
 @openings_bp.route('/games/search', methods=['GET'])

@@ -3,18 +3,37 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
+import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
 import type { OpeningNode, GameSearchResult, GameLink } from '@/hooks/useOpeningRepertoire';
 import type { Arrow } from 'react-chessboard/dist/chessboard/types';
 
 // Dynamic imports to avoid SSR issues
-const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), { ssr: false });
-const RepertoireSelector = dynamic(() => import('@/components/openings/RepertoireSelector'), { ssr: false });
-const MoveNotation = dynamic(() => import('@/components/openings/MoveNotation'), { ssr: false });
-const NodeDetailsPanel = dynamic(() => import('@/components/openings/NodeDetailsPanel'), { ssr: false });
-const PgnImporter = dynamic(() => import('@/components/openings/PgnImporter'), { ssr: false });
-const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPanel'), { ssr: false });
+const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
+});
+const RepertoireSelector = dynamic(() => import('@/components/openings/RepertoireSelector'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-16 bg-gray-200 rounded-xl" />
+});
+const MoveNotation = dynamic(() => import('@/components/openings/MoveNotation'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-20 bg-gray-200 rounded-xl" />
+});
+const NodeDetailsPanel = dynamic(() => import('@/components/openings/NodeDetailsPanel'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-60 bg-gray-200 rounded-xl" />
+});
+const PgnImporter = dynamic(() => import('@/components/openings/PgnImporter'), {
+  ssr: false,
+  loading: () => null
+});
+const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPanel'), {
+  ssr: false,
+  loading: () => null
+});
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
 import { Close } from '@mui/icons-material';
@@ -25,6 +44,7 @@ export default function DebutPage() {
   const t = useTranslations('debut');
   // Auth disabled
   const session = { isLoaded: true, isSignedIn: true };
+  const backendHealthy = useBackendHealth();
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
@@ -48,6 +68,9 @@ export default function DebutPage() {
   const [masterGames, setMasterGames] = useState<GameSearchResult[]>([]);
   const [masterGamesTotal, setMasterGamesTotal] = useState(0);
   const [masterGamesLoading, setMasterGamesLoading] = useState(false);
+
+  // ─── Master games filters ───
+  const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', playerColor: '', sortBy: 'rating' });
 
   // ─── Game viewer tabs ───
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
@@ -145,7 +168,7 @@ export default function DebutPage() {
     }
   }, [selectedNode?.id, getNodeGames]);
 
-  // ─── Auto-fetch master games when node changes ───
+  // ─── Auto-fetch master games when node or filters change ───
   useEffect(() => {
     if (!selectedNode) {
       setMasterGames([]);
@@ -156,8 +179,13 @@ export default function DebutPage() {
     let cancelled = false;
     setMasterGamesLoading(true);
 
-    // Fast path: fetch games without waiting for COUNT
-    fetchGamesByPosition(selectedNode.fen, 50)
+    fetchGamesByPosition(
+      selectedNode.fen,
+      50,
+      masterGamesFilters.playerColor,
+      masterGamesFilters.playerName,
+      masterGamesFilters.sortBy
+    )
       .then((data) => {
         if (!cancelled) {
           setMasterGames(data.games);
@@ -182,7 +210,7 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, fetchGamesByPosition, fetchPositionCount]);
+  }, [selectedNode?.fen, masterGamesFilters, fetchGamesByPosition, fetchPositionCount]);
 
   // ─── Handlers ───
 
@@ -190,6 +218,7 @@ export default function DebutPage() {
     setSelectedNodeId(node.id);
     setSelectedNode(node);
     setBoardFen(node.fen);
+    setMasterGamesFilters({ playerName: '', playerColor: '', sortBy: 'rating' });
   }, []);
 
   // Find node by id in tree
@@ -590,8 +619,8 @@ export default function DebutPage() {
 
   if (!mounted) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', bgcolor: '#1a1a1a' }}>
-        <Typography sx={{ color: '#888' }}>Loading...</Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', bgcolor: 'var(--surface-page)' }}>
+        <Typography sx={{ color: 'var(--text-tertiary)' }}>Loading...</Typography>
       </Box>
     );
   }
@@ -599,18 +628,27 @@ export default function DebutPage() {
   const selectedRep = repertoires.find(r => r.id === selectedRepertoireId);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', lg: '100vh' }, bgcolor: { xs: '#1a0d2e', lg: '#1a1a1a' } }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', lg: '100vh' }, bgcolor: 'var(--surface-page)' }}>
+      {/* Backend health warning */}
+      {backendHealthy === false && (
+        <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 } }}>
+          <Alert severity="warning" sx={{ borderRadius: 2 }}>
+            ♞ Some features may be temporarily unavailable. We&apos;re working on it!
+          </Alert>
+        </Box>
+      )}
+
       {/* Tab bar — always visible */}
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
-        <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: '#555', borderRadius: 2 } }}>
+        <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'var(--text-tertiary)', borderRadius: 2 } }}>
           <Chip
             label={t('debutTab')}
             onClick={() => setActiveTab('debut')}
             sx={{
               height: 28, fontSize: 12, fontWeight: 600,
-              bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#333',
-              color: activeTab === 'debut' ? '#fff' : '#aaa',
-              '&:hover': { bgcolor: activeTab === 'debut' ? '#5c6bc0' : '#444' },
+              bgcolor: activeTab === 'debut' ? 'primary.main' : 'var(--surface-card)',
+              color: activeTab === 'debut' ? '#fff' : 'var(--text-secondary)',
+              '&:hover': { bgcolor: activeTab === 'debut' ? 'primary.dark' : 'var(--surface-card-hover)' },
               cursor: 'pointer', flexShrink: 0,
             }}
           />
@@ -620,12 +658,12 @@ export default function DebutPage() {
               label={`♟ ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
               onClick={() => setActiveTab(g.id)}
               onDelete={() => handleCloseGame(g.id)}
-              deleteIcon={<Close sx={{ fontSize: 14, color: '#aaa', '&:hover': { color: '#fff' } }} />}
+              deleteIcon={<Close sx={{ fontSize: 14, color: 'var(--text-tertiary)', '&:hover': { color: 'var(--text-primary)' } }} />}
               sx={{
                 height: 28, fontSize: 11, maxWidth: 200,
-                bgcolor: activeTab === g.id ? '#5c6bc0' : '#333',
-                color: activeTab === g.id ? '#fff' : '#aaa',
-                '&:hover': { bgcolor: activeTab === g.id ? '#5c6bc0' : '#444' },
+                bgcolor: activeTab === g.id ? 'primary.main' : 'var(--surface-card)',
+                color: activeTab === g.id ? '#fff' : 'var(--text-secondary)',
+                '&:hover': { bgcolor: activeTab === g.id ? 'primary.dark' : 'var(--surface-card-hover)' },
                 cursor: 'pointer', flexShrink: 0,
                 '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
               }}
@@ -672,12 +710,12 @@ export default function DebutPage() {
               mx: 'auto',
               mt: 0.5,
               overflow: 'auto',
-              bgcolor: '#2a2a2a',
+              bgcolor: 'var(--surface-card)',
               borderRadius: 1,
-              border: '1px solid #444',
+              border: '1px solid var(--border-strong)',
               '&::-webkit-scrollbar': { width: '6px' },
-              '&::-webkit-scrollbar-track': { background: '#1a1a1a', borderRadius: '3px' },
-              '&::-webkit-scrollbar-thumb': { background: '#555', borderRadius: '3px', '&:hover': { background: '#666' } },
+              '&::-webkit-scrollbar-track': { background: 'var(--surface-page)', borderRadius: '3px' },
+              '&::-webkit-scrollbar-thumb': { background: 'var(--text-tertiary)', borderRadius: '3px', '&:hover': { background: 'var(--text-secondary)' } },
             }}>
               <MoveNotation
                 tree={currentTree}
@@ -712,7 +750,7 @@ export default function DebutPage() {
           flex: { xs: 'none', lg: 1 },
           display: 'flex',
           flexDirection: 'column',
-          bgcolor: { xs: 'transparent', lg: '#222' },
+          bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
           borderRadius: { xs: 0, lg: 1 },
           overflow: { xs: 'visible', lg: 'hidden' },
           minWidth: 0,
@@ -744,12 +782,14 @@ export default function DebutPage() {
                   masterGamesTotal={masterGamesTotal}
                   masterGamesLoading={masterGamesLoading}
                   onOpenGame={handleOpenGame}
+                  masterGamesFilters={masterGamesFilters}
+                  onMasterGamesFilterChange={setMasterGamesFilters}
                 />
               </Box>
             </>
           ) : activeGame ? (
-            <Box sx={{ p: 2, color: '#888' }}>
-              <Typography variant="body2" sx={{ color: '#aaa' }}>
+            <Box sx={{ p: 2, color: 'var(--text-tertiary)' }}>
+              <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
                 Viewing game: {activeGame.white} vs {activeGame.black}
               </Typography>
             </Box>

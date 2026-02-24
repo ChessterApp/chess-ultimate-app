@@ -146,3 +146,7 @@ backend/data/twic/*.db-*
 backend/data/twic/games_index.db
 backend/data/twic/games_index.db-journal
 backend/data/twic/*.pgn
+backend/data/twic/downloads/*.pgn
+backend/data/twic/*.log
+backend/data/twic/*.json
+frontend/logs/

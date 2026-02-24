@@ -64,26 +64,23 @@ export const formatGameDate = (timestamp: number): string => {
   });
 };
 
+import { apiFetch, ApiError } from '@/lib/api';
+
 export const fetchUserRecentGames = async (
     username: string
 ): Promise<UserGame[]> => {
     try {
-        const response = await fetch(
+        const rawData = await apiFetch<string>(
             `https://lichess.org/api/games/user/${username}?until=${Date.now()}&max=20&pgnInJson=true&sort=dateDesc`,
             { method: "GET", headers: { accept: "application/x-ndjson" } }
         );
 
-        if (!response.ok) {
-            if (response.status === 404) return [];
-            throw new Error(`Failed to fetch games: ${response.statusText}`);
-        }
-
-        const rawData = await response.text();
         return rawData
             .split("\n")
             .filter(Boolean)
             .map((game) => JSON.parse(game)) as UserGame[];
     } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return [];
         console.error("Error fetching recent games:", error);
         return [];
     }

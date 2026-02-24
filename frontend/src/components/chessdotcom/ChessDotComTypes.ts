@@ -36,23 +36,19 @@ export interface ChessDotComArchive {
  * @param username Chess.com username
  * @returns Array of archive URLs (e.g., "https://api.chess.com/pub/player/hikaru/games/2025/01")
  */
+import { apiFetch, ApiError } from '@/lib/api';
+
 export const fetchUserArchives = async (
     username: string
 ): Promise<string[]> => {
     try {
-        const response = await fetch(
+        const data = await apiFetch<{ archives: string[] }>(
             `https://api.chess.com/pub/player/${username.toLowerCase()}/games/archives`,
             { method: "GET", headers: { accept: "application/json" } }
         );
-
-        if (!response.ok) {
-            if (response.status === 404) return [];
-            throw new Error(`Failed to fetch archives: ${response.statusText}`);
-        }
-
-        const data: { archives: string[] } = await response.json();
         return data.archives;
     } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return [];
         console.error("Error fetching user archives:", error);
         return [];
     }
@@ -76,16 +72,10 @@ export const fetchUserRecentGames = async (
         // Get the most recent archive (last in the array)
         const mostRecentArchive = archives[archives.length - 1];
 
-        const response = await fetch(mostRecentArchive, {
+        const data = await apiFetch<ChessDotComArchive>(mostRecentArchive, {
             method: "GET",
             headers: { accept: "application/json" }
         });
-
-        if (!response.ok) {
-            throw new Error(`Failed to fetch games: ${response.statusText}`);
-        }
-
-        const data: ChessDotComArchive = await response.json();
 
         // Return the most recent games (already sorted by end_time in API response)
         // Reverse to get newest first, then limit

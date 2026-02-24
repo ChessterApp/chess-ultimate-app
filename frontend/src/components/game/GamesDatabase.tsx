@@ -17,7 +17,6 @@ import {
 } from "@mui/material";
 import { debounce } from "lodash";
 import { Info as InfoIcon } from "@mui/icons-material";
-import { purpleTheme } from "@/theme/theme";
 
 export interface GameMetadata {
   index: number;
@@ -209,7 +208,7 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
         <Typography
           variant="h5"
           sx={{
-            color: purpleTheme.text.primary,
+            color: 'text.primary',
             fontWeight: 600,
           }}
         >
@@ -217,13 +216,13 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
         </Typography>
         <Tooltip title="Performance optimized: Uses pagination and debounced filtering for smooth browsing of large game collections">
           <IconButton size="small">
-            <InfoIcon sx={{ color: purpleTheme.accent, fontSize: 20 }} />
+            <InfoIcon sx={{ color: 'primary.light', fontSize: 20 }} />
           </IconButton>
         </Tooltip>
         <Typography
           variant="body2"
           sx={{
-            color: purpleTheme.text.secondary,
+            color: 'text.secondary',
             ml: "auto",
           }}
         >
@@ -235,7 +234,7 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
       <TableContainer
         component={Paper}
         sx={{
-          backgroundColor: purpleTheme.background.paper,
+          backgroundColor: 'background.paper',
           maxHeight: "calc(70vh - 100px)",
         }}
       >
@@ -244,8 +243,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
             <TableRow>
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 100,
                 }}
@@ -255,12 +254,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "year" ? sortDirection : "asc"}
                   onClick={() => handleSort("year")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -278,15 +277,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                     mt: 1,
                     width: "100%",
                     "& .MuiInputBase-input": {
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontSize: "0.875rem",
                     },
                     "& .MuiOutlinedInput-root": {
                       "& fieldset": {
-                        borderColor: purpleTheme.secondary,
+                        borderColor: 'secondary.main',
                       },
                       "&:hover fieldset": {
-                        borderColor: purpleTheme.accent,
+                        borderColor: 'primary.light',
                       },
                     },
                   }}
@@ -295,8 +294,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 150,
                 }}
@@ -306,12 +305,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "white" ? sortDirection : "asc"}
                   onClick={() => handleSort("white")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -329,15 +328,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                     mt: 1,
                     width: "100%",
                     "& .MuiInputBase-input": {
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontSize: "0.875rem",
                     },
                     "& .MuiOutlinedInput-root": {
                       "& fieldset": {
-                        borderColor: purpleTheme.secondary,
+                        borderColor: 'secondary.main',
                       },
                       "&:hover fieldset": {
-                        borderColor: purpleTheme.accent,
+                        borderColor: 'primary.light',
                       },
                     },
                   }}
@@ -346,8 +345,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 80,
                 }}
@@ -357,12 +356,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "whiteElo" ? sortDirection : "asc"}
                   onClick={() => handleSort("whiteElo")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -372,8 +371,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 150,
                 }}
@@ -383,12 +382,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "black" ? sortDirection : "asc"}
                   onClick={() => handleSort("black")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -406,15 +405,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                     mt: 1,
                     width: "100%",
                     "& .MuiInputBase-input": {
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontSize: "0.875rem",
                     },
                     "& .MuiOutlinedInput-root": {
                       "& fieldset": {
-                        borderColor: purpleTheme.secondary,
+                        borderColor: 'secondary.main',
                       },
                       "&:hover fieldset": {
-                        borderColor: purpleTheme.accent,
+                        borderColor: 'primary.light',
                       },
                     },
                   }}
@@ -423,8 +422,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 80,
                 }}
@@ -434,12 +433,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "blackElo" ? sortDirection : "asc"}
                   onClick={() => handleSort("blackElo")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -449,8 +448,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 100,
                 }}
@@ -460,12 +459,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "result" ? sortDirection : "asc"}
                   onClick={() => handleSort("result")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -483,15 +482,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                     mt: 1,
                     width: "100%",
                     "& .MuiInputBase-input": {
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontSize: "0.875rem",
                     },
                     "& .MuiOutlinedInput-root": {
                       "& fieldset": {
-                        borderColor: purpleTheme.secondary,
+                        borderColor: 'secondary.main',
                       },
                       "&:hover fieldset": {
-                        borderColor: purpleTheme.accent,
+                        borderColor: 'primary.light',
                       },
                     },
                   }}
@@ -500,8 +499,8 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
               <TableCell
                 sx={{
-                  backgroundColor: purpleTheme.background.card,
-                  color: purpleTheme.text.primary,
+                  backgroundColor: 'background.paper',
+                  color: 'text.primary',
                   fontWeight: 600,
                   minWidth: 100,
                 }}
@@ -511,12 +510,12 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                   direction={sortField === "eco" ? sortDirection : "asc"}
                   onClick={() => handleSort("eco")}
                   sx={{
-                    color: `${purpleTheme.text.primary} !important`,
+                    color: (theme: import('@mui/material').Theme) => `${theme.palette.text.primary} !important`,
                     "&.Mui-active": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                     "& .MuiTableSortLabel-icon": {
-                      color: `${purpleTheme.accent} !important`,
+                      color: (theme: import('@mui/material').Theme) => `${theme.palette.primary.light} !important`,
                     },
                   }}
                 >
@@ -534,15 +533,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                     mt: 1,
                     width: "100%",
                     "& .MuiInputBase-input": {
-                      color: purpleTheme.text.primary,
+                      color: 'text.primary',
                       fontSize: "0.875rem",
                     },
                     "& .MuiOutlinedInput-root": {
                       "& fieldset": {
-                        borderColor: purpleTheme.secondary,
+                        borderColor: 'secondary.main',
                       },
                       "&:hover fieldset": {
-                        borderColor: purpleTheme.accent,
+                        borderColor: 'primary.light',
                       },
                     },
                   }}
@@ -558,24 +557,24 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                 sx={{
                   cursor: "pointer",
                   "&:hover": {
-                    backgroundColor: `${purpleTheme.accent}20`,
+                    backgroundColor: 'action.hover',
                   },
                   transition: "background-color 0.2s",
                 }}
               >
-                <TableCell sx={{ color: purpleTheme.text.primary }}>
+                <TableCell sx={{ color: 'text.primary' }}>
                   {game.year}
                 </TableCell>
-                <TableCell sx={{ color: purpleTheme.text.primary }}>
+                <TableCell sx={{ color: 'text.primary' }}>
                   {game.white}
                 </TableCell>
-                <TableCell sx={{ color: purpleTheme.text.secondary }}>
+                <TableCell sx={{ color: 'text.secondary' }}>
                   {game.whiteElo}
                 </TableCell>
-                <TableCell sx={{ color: purpleTheme.text.primary }}>
+                <TableCell sx={{ color: 'text.primary' }}>
                   {game.black}
                 </TableCell>
-                <TableCell sx={{ color: purpleTheme.text.secondary }}>
+                <TableCell sx={{ color: 'text.secondary' }}>
                   {game.blackElo}
                 </TableCell>
                 <TableCell
@@ -585,13 +584,13 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
                         ? "#4caf50"
                         : game.result === "0-1"
                         ? "#f44336"
-                        : purpleTheme.text.secondary,
+                        : 'text.secondary',
                     fontWeight: 600,
                   }}
                 >
                   {game.result}
                 </TableCell>
-                <TableCell sx={{ color: purpleTheme.text.accent }}>
+                <TableCell sx={{ color: 'secondary.main' }}>
                   {game.eco}
                 </TableCell>
               </TableRow>
@@ -609,15 +608,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
         onPageChange={handleChangePage}
         onRowsPerPageChange={handleChangeRowsPerPage}
         sx={{
-          color: purpleTheme.text.primary,
+          color: 'text.primary',
           "& .MuiTablePagination-select": {
-            color: purpleTheme.text.primary,
+            color: 'text.primary',
           },
           "& .MuiTablePagination-selectIcon": {
-            color: purpleTheme.text.primary,
+            color: 'text.primary',
           },
           "& .MuiTablePagination-actions button": {
-            color: purpleTheme.text.primary,
+            color: 'text.primary',
           },
         }}
       />

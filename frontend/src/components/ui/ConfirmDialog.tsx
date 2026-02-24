@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button } from '@mui/material';
-import { purpleTheme } from '@/theme/theme';
 
 interface ConfirmDialogProps {
   open: boolean;

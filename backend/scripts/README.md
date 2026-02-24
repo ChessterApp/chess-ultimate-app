@@ -9,6 +9,9 @@ This directory contains utility scripts for working with the Chess Companion app
 - **import_openings.py**: Import chess openings from JSON files
 - **import_lessons.py**: Import chess lessons from document files (DOCX, PDF)
 - **healthcheck.py**: Check the health of all repositories and services
+- **protect_position_db.sh**: Enable immutable protection on `data/twic/games_index.db` and sidecar files
+- **unprotect_position_db.sh**: Disable immutable protection for maintenance operations
+- **delete_position_db.sh**: Controlled delete flow with explicit YES confirmation + audit log
 
 ## Usage Examples
 
@@ -85,6 +88,48 @@ This directory contains utility scripts for working with the Chess Companion app
 # With custom timeout
 ./healthcheck.py --timeout 5
 ```
+
+## Position Database Safety (TWIC)
+
+Target DB: `backend/data/twic/games_index.db`
+
+### 1) Enable protection (default recommended)
+
+```bash
+./protect_position_db.sh
+```
+
+This sets Linux immutable flag (`chattr +i`) on:
+- `games_index.db`
+- `games_index.db-wal`
+- `games_index.db-shm`
+- `games_index.db-journal`
+
+### 2) Controlled deletion (requires explicit confirmation)
+
+```bash
+./delete_position_db.sh
+```
+
+(Optionally pass a target path for safe testing: `./delete_position_db.sh /tmp/test_games_index.db`)
+
+The script asks exactly:
+`Are you sure you want to delete the position database?`
+
+Deletion proceeds **only** if you type `YES` (case-sensitive).
+
+### 3) Maintenance mode (temporary unprotect)
+
+```bash
+./unprotect_position_db.sh
+# ... maintenance ...
+./protect_position_db.sh
+```
+
+### Audit Log
+
+All protect/unprotect/delete actions are appended to:
+`backend/data/twic/position_db_delete_audit.log`
 
 ## Error Handling
 

@@ -5,6 +5,7 @@ import { LineEval } from "@/stockfish/engine/engine";
 import { Color } from "chess.js";
 import { CandidateMove } from "../components/tabs/Chessdb";
 import { isFenInAllDatabases } from "../libs/openingdatabase/ecoDatabase";
+import { apiFetch } from '@/lib/api';
 
 
 export type MoveQuality =
@@ -162,13 +163,7 @@ const useGameReview = (
       const encodedFen = encodeURIComponent(fenString);
       const apiUrl = `https://www.chessdb.cn/cdb.php?action=queryall&board=${encodedFen}&learn=1&json=1`;
 
-      const response = await fetch(apiUrl);
-
-      if (!response.ok) {
-        return [];
-      }
-
-      const responseData = await response.json();
+      const responseData = await apiFetch<any>(apiUrl);
 
       if (responseData.status !== "ok") {
         return [];
@@ -265,7 +260,7 @@ const useGameReview = (
           let bestMove;
           let evalMove = 0.0;
 
-          const openingMatch = isFenInAllDatabases(postMovefen);
+          const openingMatch = await isFenInAllDatabases(postMovefen);
 
           if (openingMatch) {
             gameStates.push({

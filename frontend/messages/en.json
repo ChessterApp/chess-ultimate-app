@@ -79,7 +79,16 @@
       "quote3": "Finally, a chess app that makes learning fun and not intimidating.",
       "name3": "Mike R.",
       "rating3": "1600",
-      "ratingLabel": "Rating"
+      "ratingLabel": "Rating",
+      "quote4": "My kid went from not knowing the rules to winning school tournaments in 6 months!",
+      "name4": "Elena P.",
+      "rating4": "Parent",
+      "quote5": "The puzzles are addictive. I solve 20 a day now and my tactical vision improved dramatically.",
+      "name5": "David L.",
+      "rating5": "1800",
+      "quote6": "Best free chess resource out there. The AI analysis is surprisingly accurate.",
+      "name6": "James W.",
+      "rating6": "1550"
     },
     "cta": {
       "title": "ready to become a chess master?",
@@ -99,7 +108,7 @@
       "blog": "Blog",
       "press": "Press",
       "connect": "Connect",
-      "copyright": "© 2024 Chesster. All rights reserved.",
+      "copyright": "© 2026 Chesster. All rights reserved.",
       "privacy": "Privacy",
       "terms": "Terms",
       "cookies": "Cookies"
@@ -107,7 +116,9 @@
   },
   "auth": {
     "signUpTitle": "Create Account",
+    "signUpSubtitle": "Start your chess journey today",
     "signInTitle": "Welcome Back",
+    "signInSubtitle": "Sign in to continue learning",
     "noAccount": "Don't have an account?",
     "haveAccount": "Already have an account?"
   },
@@ -203,7 +214,14 @@
     "puzzles": "Puzzles",
     "analyze": "Analyze",
     "profile": "Profile",
-    "debut": "Debut"
+    "debut": "Debut",
+    "learn": "Learn",
+    "opponent": "Opponent Prep",
+    "editor": "Board Editor",
+    "settings": "Settings",
+    "openings": "Openings",
+    "analysis": "Analysis",
+    "dashboard": "Dashboard"
   },
   "learn": {
     "title": "Learning Path",
@@ -264,7 +282,17 @@
     "askQuestion": "Ask a question...",
     "send": "Send",
     "collapseChat": "Collapse chat",
-    "expandChat": "Expand chat"
+    "expandChat": "Expand chat",
+    "showHint": "Show Hint",
+    "reset": "Reset",
+    "feedback": {
+      "correctTitle": "Correct!",
+      "correctMessage": "Great move! You found the solution.",
+      "incorrectTitle": "Not quite",
+      "incorrectMessage": "Try again! Think about what the position needs.",
+      "hintTitle": "Hint",
+      "hintMessage": "The highlighted square shows where to move."
+    }
   },
   "course": {
     "signInRequired": "Please sign in to access this course",
@@ -818,6 +846,251 @@
     "navPrevious": "Previous",
     "navNext": "Next",
     "navEnd": "End",
-    "startingPosition": "(starting position)"
+    "startingPosition": "(starting position)",
+    "searchPlayer": "Search player name...",
+    "anyRating": "Any rating",
+    "highestRated": "Highest rated",
+    "newestFirst": "Newest first",
+    "oldestFirst": "Oldest first",
+    "whiteRating": "White rating",
+    "blackRating": "Black rating"
+  },
+  "onboarding": {
+    "continue": "Continue",
+    "welcome": {
+      "title": "Your Personal Chess Coach",
+      "subtitle": "Join 10,000+ chess learners worldwide",
+      "getStarted": "Get Started",
+      "signIn": "Already have an account? Sign in"
+    },
+    "attribution": {
+      "title": "How did you hear about us?",
+      "socialMedia": "Social Media",
+      "friend": "Friend",
+      "appStore": "App Store",
+      "youtube": "YouTube",
+      "ad": "Advertisement",
+      "other": "Other"
+    },
+    "experience": {
+      "title": "What's your chess experience?",
+      "beginner": {
+        "title": "Beginner",
+        "desc": "I'm just learning the rules"
+      },
+      "intermediate": {
+        "title": "Intermediate",
+        "desc": "I know the basics but want to improve"
+      },
+      "advanced": {
+        "title": "Advanced",
+        "desc": "I play regularly and want to master strategy"
+      }
+    },
+    "rating": {
+      "title": "What's your ELO rating?",
+      "unrated": "Unrated",
+      "beginner": "Beginner",
+      "club": "Club Player",
+      "intermediate": "Intermediate",
+      "advanced": "Advanced",
+      "expert": "Expert",
+      "noRating": "I don't have a rating",
+      "subtitle": "International chess rating (FIDE or national federation)"
+    },
+    "focus": {
+      "title": "What do you want to improve?",
+      "tactics": "Tactics",
+      "openings": "Openings",
+      "endgames": "Endgames",
+      "strategy": "Strategy",
+      "timeManagement": "Time Management",
+      "calculation": "Calculation"
+    },
+    "challenge": {
+      "title": "What's your biggest challenge?",
+      "blunder": "I blunder pieces in games",
+      "openings": "I don't know what opening to play",
+      "time": "I run out of time on the clock",
+      "convert": "I can't convert winning positions"
+    },
+    "practiceTime": {
+      "title": "How much time can you practice daily?",
+      "5min": {
+        "title": "5 minutes",
+        "desc": "Quick daily practice"
+      },
+      "10min": {
+        "title": "10 minutes",
+        "desc": "Solid daily routine"
+      },
+      "15min": {
+        "title": "15 minutes",
+        "desc": "Dedicated learner"
+      },
+      "30min": {
+        "title": "30+ minutes",
+        "desc": "Serious training"
+      }
+    },
+    "goal": {
+      "title": "What's your chess goal?",
+      "beatFriends": "Beat my friends",
+      "reach1000": "Reach 1000 rating",
+      "reach1500": "Reach 1500 rating",
+      "tournaments": "Compete in tournaments",
+      "gainRating": "Reach {rating} rating",
+      "titledPlayer": "Become a titled player",
+      "learnFundamentals": "Learn the fundamentals",
+      "masterStrategy": "Master openings & strategy",
+      "internationalRating": "Achieve international rating"
+    },
+    "timeline": {
+      "title": "When do you want to achieve this?",
+      "1month": "1 month",
+      "3months": "3 months",
+      "6months": "6 months",
+      "1year": "1 year"
+    },
+    "puzzle": {
+      "title": "Let's test your skills!",
+      "comingSoon": "Puzzle coming soon",
+      "skip": "Skip for now"
+    },
+    "openingDNA": {
+      "title": "Your Opening DNA",
+      "asWhite": "As White",
+      "asBlack": "As Black",
+      "goTo": "Your go-to opening",
+      "alsoPlayed": "Also played",
+      "ofGames": "of games",
+      "winRate": "win rate",
+      "best": "Best",
+      "needsWork": "Needs work",
+      "noData": "Not enough games to analyze",
+      "games": "{count, plural, one {game} other {games}}"
+    },
+    "skillProfile": {
+      "title": "Your Skill Profile",
+      "message": "Great potential! Let's build your skills.",
+      "winRate": "Win Rate",
+      "openingKnowledge": "Opening Knowledge",
+      "consistency": "Consistency",
+      "endgame": "Endgame",
+      "best": "Best: {name} ({rate}% win rate)",
+      "needsWork": "Needs work: {name} ({rate}% win rate)",
+      "connectPrompt": "Connect your Chess.com or Lichess account for personalized insights",
+      "dataMessage": "Based on your {games} games, your {opening} is strong! Let's work on your {weakness} and boost your endgame skills."
+    },
+    "buildingPlan": {
+      "title": "Building your personal training plan...",
+      "analyzing": "Analyzing your skill level...",
+      "selecting": "Selecting optimal lessons...",
+      "calibrating": "Calibrating difficulty...",
+      "ready": "Your plan is ready!",
+      "foundGames": "Found {count} games on {platform}",
+      "analyzedRepertoire": "Analyzed your opening repertoire",
+      "identifiedStrengths": "Identified strengths & weaknesses",
+      "generating": "Generating your personalized plan..."
+    },
+    "customPlan": {
+      "title": "Your Custom Training Plan",
+      "week1": {
+        "label": "Week 1",
+        "title": "Chess Pieces & Movement"
+      },
+      "week2": {
+        "label": "Week 2",
+        "title": "Tactical Patterns"
+      },
+      "week3": {
+        "label": "Week 3",
+        "title": "Opening Principles"
+      },
+      "week4": {
+        "label": "Week 4",
+        "title": "Endgame Techniques"
+      },
+      "improvement": "Expected rating improvement: +200 in 4 weeks",
+      "dataImprovement": "Based on players with similar profiles, you could gain ~150 ELO in 4 weeks",
+      "improveOpening": "{opening} — Improve your {rate}% win rate",
+      "masterOpening": "Master {opening} — Your strongest weapon",
+      "tacticalPatterns": "Tactical Patterns Training",
+      "strategicPlanning": "Strategic Planning & Positional Play",
+      "endgameMastery": "Endgame Mastery & Rating Push",
+      "tacticalVision": "Tactical Vision Training",
+      "openingBuilder": "Opening Repertoire Builder",
+      "endgameEssentials": "Endgame Essentials",
+      "strategicThinking": "Strategic Thinking",
+      "calculation": "Calculation & Visualization",
+      "startButton": "Start My Plan"
+    },
+    "paywall1": {
+      "title": "We want you to try Chesster for free",
+      "subtitle": "Get full access to all lessons, puzzles, and AI coaching",
+      "button": "Try for $0",
+      "noPayment": "No payment required now"
+    },
+    "paywall2": {
+      "title": "We'll remind you before your trial ends",
+      "day1": {
+        "label": "Day 1",
+        "text": "Full access starts"
+      },
+      "day2": {
+        "label": "Day 2",
+        "text": "Reminder notification"
+      },
+      "day3": {
+        "label": "Day 3",
+        "text": "Choose to continue"
+      },
+      "noCharge": "You won't be charged anything for 3 days"
+    },
+    "paywall": {
+      "choosePlan": "Choose Your Plan",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "weeklyPrice": "$5.90/week",
+      "monthlyPrice": "$9.90/month",
+      "yearlyPrice": "$49.90/year",
+      "bestValue": "BEST VALUE",
+      "freeTrial": "FREE 3-DAY TRIAL",
+      "mostPopular": "Most Popular",
+      "perMonth": "Just $4.16/month",
+      "startFreeTrial": "Start Free Trial",
+      "subscribe": "Subscribe",
+      "cancelAnytime": "Cancel anytime",
+      "freeTrialYearly": "3-day free trial on yearly plan",
+      "reminderBeforeTrial": "Reminder before trial ends",
+      "trialTerms": "3-day free trial, then $49.90/year. Cancel anytime.",
+      "restorePurchase": "Restore purchase",
+      "skipForNow": "Skip for now"
+    },
+    "platform": {
+      "title": "Do you play chess online?",
+      "importDesc": "Import your games & rating",
+      "skip": "Skip",
+      "chessdotcom": "Chess.com",
+      "lichess": "Lichess",
+      "none": "I don't play online"
+    },
+    "username": {
+      "title": "What's your {platform} username?",
+      "placeholder": "Enter your username",
+      "checking": "Checking...",
+      "found": "Found you!",
+      "notFound": "Username not found",
+      "rating": "Rating: {rating}",
+      "continue": "Continue"
+    }
+  },
+  "upgradePrompt": {
+    "title": "Unlock Full Access",
+    "description": "{feature} is a premium feature. Upgrade to unlock it and get unlimited access to all Chesster tools.",
+    "descriptionGeneric": "Get unlimited access to all lessons, analysis, puzzles, and more.",
+    "viewPlans": "View Plans",
+    "maybeLater": "Maybe later"
   }
 }

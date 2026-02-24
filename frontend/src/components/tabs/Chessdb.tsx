@@ -17,6 +17,7 @@ import {
 import { Settings as SettingsIcon, Storage, Refresh, Queue } from "@mui/icons-material";
 import { validateFen } from "chess.js";
 import { useLocalStorage } from "usehooks-ts";
+import { apiFetch } from '@/lib/api';
 
 export interface CandidateMove {
   uci: string;
@@ -51,21 +52,34 @@ export function useChessDB(fen: string) {
     setError(null);
 
     try {
-      const encodedFen = encodeURIComponent(fenString);
-      const apiUrl = `https://www.chessdb.cn/cdb.php?action=queryall&board=${encodedFen}&json=1`;
+      // Primary: local TWIC indexed DB candidates
+      const localUrl = `/api/openings/positions/candidates?fen=${encodeURIComponent(fenString)}&limit=12`;
+      const localData = await apiFetch<any>(localUrl);
 
-      const response = await fetch(apiUrl);
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: Failed to fetch data`);
+      if (localData?.status === 'ok' && Array.isArray(localData?.moves) && localData.moves.length > 0) {
+        const processedMoves = localData.moves.map((move: CandidateMove) => {
+          const scoreNum = Number(move.score);
+          const scoreStr = isNaN(scoreNum) ? 'N/A' : (scoreNum / 100).toFixed(2);
+          return {
+            uci: move.uci || 'N/A',
+            san: move.san || 'N/A',
+            score: scoreStr,
+            winrate: move.winrate || 'N/A',
+            rank: move.rank,
+            note: move.note || 'unknown',
+          };
+        });
+        setData(processedMoves);
+        return;
       }
 
-      const responseData = await response.json();
+      // Fallback: external ChessDB service
+      const encodedFen = encodeURIComponent(fenString);
+      const apiUrl = `https://www.chessdb.cn/cdb.php?action=queryall&board=${encodedFen}&json=1`;
+      const responseData = await apiFetch<any>(apiUrl);
 
       if (responseData.status !== "ok") {
-        throw new Error(
-          `Position evaluation not available: ${responseData.status}`
-        );
+        throw new Error(`Position evaluation not available: ${responseData.status}`);
       }
 
       const moves = responseData.moves;
@@ -88,7 +102,7 @@ export function useChessDB(fen: string) {
           score: scoreStr,
           winrate: move.winrate || "N/A",
           rank: move.rank,
-          note: getChessDbNoteWord(move.note.split(" ")[0]),
+          note: getChessDbNoteWord((move.note || '').split(" ")[0]),
         };
       });
 
@@ -112,13 +126,7 @@ export function useChessDB(fen: string) {
       const encodedFen = encodeURIComponent(fenString);
       const queueUrl = `https://www.chessdb.cn/cdb.php?action=queue&board=${encodedFen}&json=1`;
 
-      const response = await fetch(queueUrl);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: Failed to queue analysis`);
-      }
-
-      const responseData = await response.json();
+      const responseData = await apiFetch<any>(queueUrl);
       
       if (responseData.status !== "ok") {
         throw new Error(`Failed to queue position: ${responseData.status}`);

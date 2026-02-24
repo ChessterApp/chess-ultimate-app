@@ -83,12 +83,17 @@ def get_master_stats():
 
     size = os.path.getsize(MASTER_PGN)
 
-    # Count games (quick estimate)
+    # Get game count from SQLite DB (fast) instead of scanning the 4GB PGN
+    db_path = os.path.join(DATA_DIR, "games_index.db")
     game_count = 0
-    with open(MASTER_PGN, 'r', encoding='utf-8', errors='ignore') as f:
-        for line in f:
-            if line.startswith('[Event "'):
-                game_count += 1
+    if os.path.exists(db_path):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            game_count = conn.execute("SELECT COUNT(*) FROM games").fetchone()[0]
+            conn.close()
+        except Exception:
+            game_count = 0  # DB might not have games table yet
 
     return size, game_count
 
@@ -160,8 +165,13 @@ def main():
     print(f"Database size: {initial_size / (1024**3):.2f} GB → {final_size / (1024**3):.2f} GB")
     print(f"Total games: ~{initial_games:,} → ~{final_games:,}")
     print()
-    print("Next step: Run the indexer to update the SQLite database:")
-    print("  python scripts/index_pgn_database.py")
+    print("Next step: Run INCREMENTAL indexing to add new games to SQLite:")
+    print("  cd /root/chess-app/backend && python3 scripts/index_pgn_database.py")
+    print()
+    print("WARNING: index_pgn_database.py will REFUSE to run if >4M games exist (safety check).")
+    print("         If the DB already has games, only NEW games from appended PGN will be added.")
+    print("         NEVER use --fresh flag — it DESTROYS the entire database including position index.")
+    print("         NEVER run add_position_index.py --fresh either.")
 
     return len(successful_issues) > 0
 

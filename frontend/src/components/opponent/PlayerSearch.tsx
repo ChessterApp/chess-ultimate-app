@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
 
 interface SearchResult {
   name: string
@@ -17,6 +19,7 @@ interface PlayerSearchProps {
 
 export default function PlayerSearch({ onSelect }: PlayerSearchProps) {
   const t = useTranslations('opponent')
+  const { showToast } = useToast()
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -43,17 +46,21 @@ export default function PlayerSearch({ onSelect }: PlayerSearchProps) {
       if (query.length >= 2) {
         setLoading(true)
         try {
-          const response = await fetch(
+          const data = await apiFetch<any>(
             `${API_URL}/api/opponent/search?q=${encodeURIComponent(query)}&limit=10`
           )
-          if (response.ok) {
-            const data = await response.json()
-            // API returns array directly, not wrapped in { players: [...] }
-            setResults(Array.isArray(data) ? data : (data.players || []))
-            setIsOpen(true)
-          }
+          // API returns array directly, not wrapped in { players: [...] }
+          setResults(Array.isArray(data) ? data : (data.players || []))
+          setIsOpen(true)
         } catch (error) {
           console.error('Search error:', error)
+          if (error instanceof ApiError) {
+            if (error.status === 429) {
+              showToast('Too many requests — please slow down', 'error')
+            } else if (error.status === 0) {
+              showToast('Network error — check your connection', 'error')
+            }
+          }
           setResults([])
         } finally {
           setLoading(false)

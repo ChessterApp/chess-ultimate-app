@@ -4,7 +4,6 @@ import { Box, Typography, Button, TextField } from "@mui/material";
 import { useState } from "react";
 import { CircularProgress } from "@mui/material";
 import { Gamepad } from "@mui/icons-material";
-import { purpleTheme } from "@/theme/theme";
 import {
   getValidGameId,
   fetchLichessGame,
@@ -123,7 +122,7 @@ function LoadLichessGameUrl({
       <Typography
         variant="h6"
         sx={{
-          color: purpleTheme.text.accent,
+          color: 'secondary.main',
           mb: 2,
           display: "flex",
           alignItems: "center",
@@ -139,24 +138,24 @@ function LoadLichessGameUrl({
         onChange={(e) => setGameUrl(e.target.value)}
         placeholder={tPlaceholder('lichessUrlPlaceholder')}
         sx={{
-          backgroundColor: purpleTheme.background.input,
+          backgroundColor: 'background.paper',
           borderRadius: 2,
           mb: 2,
           "& .MuiOutlinedInput-root": {
             "& fieldset": {
-              borderColor: purpleTheme.secondary,
+              borderColor: 'secondary.main',
             },
             "&:hover fieldset": {
-              borderColor: purpleTheme.accent,
+              borderColor: 'primary.light',
             },
             "&.Mui-focused fieldset": {
-              borderColor: purpleTheme.accent,
+              borderColor: 'primary.light',
             },
           },
         }}
         slotProps={{
-          inputLabel: { sx: { color: purpleTheme.text.secondary } },
-          input: { sx: { color: purpleTheme.text.primary } },
+          inputLabel: { sx: { color: 'text.secondary' } },
+          input: { sx: { color: 'text.primary' } },
         }}
       />
       <Button
@@ -166,8 +165,8 @@ function LoadLichessGameUrl({
         disabled={loadingGame}
         startIcon={loadingGame ? <CircularProgress size={20} /> : null}
         sx={{
-          backgroundColor: purpleTheme.primary,
-          "&:hover": { backgroundColor: purpleTheme.primaryDark },
+          backgroundColor: 'primary.main',
+          "&:hover": { backgroundColor: 'primary.dark' },
           borderRadius: 2,
           py: 1.5,
           textTransform: "none",

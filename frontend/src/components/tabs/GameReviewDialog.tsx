@@ -15,8 +15,6 @@ import {
   Stack,
   Alert,
   Button,
-  createTheme,
-  ThemeProvider,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -30,7 +28,6 @@ import {
 import { BarChart, LineChart, RadarChart } from "@mui/x-charts";
 import { MoveAnalysis } from "@/hooks/useGameReview";
 import { PositionRadarAnalysis } from "./PositionRadarAnalysis";
-import { darkGreyTheme } from "@/theme/theme";
 import { GameReviewTheme, getThemeLabelColor, themeColors } from "@/libs/themes/helper";
 import { ThemeScore } from "@/libs/themes/helper";
 
@@ -248,7 +245,7 @@ export const GameReviewDialog: React.FC<GameReviewDialogProps> = ({
   );
 
   return (
-    <ThemeProvider theme={darkGreyTheme}>
+    <>
       <Button
         variant="contained"
         startIcon={<Analytics />}
@@ -364,6 +361,6 @@ export const GameReviewDialog: React.FC<GameReviewDialogProps> = ({
           )}
         </DialogContent>
       </Dialog>
-    </ThemeProvider>
+    </>
   );
 };

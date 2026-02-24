@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { apiFetch as globalApiFetch, ApiError } from '@/lib/api';
 
 const API_BASE = '/api/openings';
 
@@ -122,23 +123,10 @@ function getHeaders(): HeadersInit {
 }
 
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  return globalApiFetch<T>(`${API_BASE}${path}`, {
     headers: getHeaders(),
     ...options,
   });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `API error ${res.status}`);
-  }
-
-  // Handle PGN (text) responses
-  const ct = res.headers.get('Content-Type') || '';
-  if (ct.includes('chess-pgn') || ct.includes('text/plain')) {
-    return (await res.text()) as unknown as T;
-  }
-
-  return res.json();
 }
 
 // ─── Hook ────────────────────────────────
@@ -289,9 +277,14 @@ export function useOpeningRepertoire() {
   const fetchGamesByPosition = useCallback(async (
     fen: string,
     limit: number = 5,
-    minRating: number = 0
+    playerColor: string = '',
+    playerName: string = '',
+    sortBy: string = 'rating'
   ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }> => {
-    const params = new URLSearchParams({ fen, limit: String(limit), min_rating: String(minRating) });
+    const params = new URLSearchParams({ fen, limit: String(limit) });
+    if (playerColor) params.set('player_color', playerColor);
+    if (playerName) params.set('player_name', playerName);
+    if (sortBy && sortBy !== 'rating') params.set('sort_by', sortBy);
     const data = await apiFetch<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`);
     return data;
   }, []);
@@ -366,7 +359,12 @@ export function useOpeningRepertoire() {
           }
         }
       }
-    }).catch(() => { /* aborted or network error */ });
+    }).catch((err) => {
+      if (err?.name !== 'AbortError') {
+        console.error('Game search stream failed:', err);
+        onProgress({ checked: 0, found: 0 });
+      }
+    });
 
     return () => controller.abort();
   }, []);

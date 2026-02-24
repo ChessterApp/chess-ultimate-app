@@ -16,6 +16,15 @@ const nextConfig = {
         // Expose build hash to client-side code for cache-busting query params
         NEXT_PUBLIC_ASSET_VERSION: ASSET_VERSION,
     },
+    async redirects() {
+        return [
+            {
+                source: '/analyze',
+                destination: '/position',
+                permanent: true,
+            },
+        ];
+    },
     headers() {
         const headers = [
             {

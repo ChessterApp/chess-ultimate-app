@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { GameReviewTheme } from '@/libs/themes/helper';
+import { apiFetch, ApiError } from '@/lib/api';
 
 interface UseGameThemeReturn {
   gameReviewTheme: GameReviewTheme | null;
@@ -22,7 +23,7 @@ export function useGameTheme(): UseGameThemeReturn {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/gametheme', {
+      const data = await apiFetch<GameReviewTheme>('/api/gametheme', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -31,13 +32,6 @@ export function useGameTheme(): UseGameThemeReturn {
           pgn: pgn
         }),
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || 'Failed to analyze game');
-      }
-
-      const data: GameReviewTheme = await response.json();
       setGameReviewTheme(data);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred';

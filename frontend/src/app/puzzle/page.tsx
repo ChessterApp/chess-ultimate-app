@@ -27,19 +27,24 @@ import {
   MenuItem,
   SelectChangeEvent,
 } from "@mui/material";
-import { grey } from "@mui/material/colors";
 import { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";
 import { TabPanel } from "@/components/tabs/tab";
 import StockfishAnalysisTab from "@/components/tabs/StockfishTab";
 import ChatTab from "@/components/tabs/ChatTab";
 import useChesster from "@/hooks/useChesster";
+import { useSoundEffects } from "@/hooks/useSoundEffects";
+import { apiFetch, ApiError } from '@/lib/api';
+import { useToast } from '@/components/ToastProvider';
+import RateLimitNotice from '@/components/RateLimitNotice';
 
 // Dynamic import for code splitting
-const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), { ssr: false });
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
+});
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
-import { purpleTheme } from "@/theme/theme";
 import {
   Lightbulb,
   Star,
@@ -55,12 +60,16 @@ import { useLocalStorage } from "usehooks-ts";
 import { PuzzleData, PuzzleQuery, PUZZLE_THEMES, DIFFICULTY_THEMES } from "@/libs/puzzle/helper";
 import Loader from "@/components/loading/Loader";
 import Warning from "@/components/loading/SignUpWarning";
+import Breadcrumbs from "@/components/Breadcrumbs";
 
 export default function PuzzlePage() {
   // const session = useSession();
   // Simulated session for no-auth mode
   const session = { isLoaded: true, isSignedIn: true };
   const t = useTranslations('puzzle');
+  const { showToast } = useToast();
+  const { play: playSound } = useSoundEffects();
+  const [rateLimited, setRateLimited] = useState(false);
 
   // Client-side only flag
   const [mounted, setMounted] = useState(false);
@@ -189,8 +198,7 @@ export default function PuzzlePage() {
         url += `?${params.toString()}`;
       }
       
-      const response = await fetch(url);
-      const result = await response.json();
+      const result = await apiFetch<any>(url);
       
       if (!result.success) {
         throw new Error(result.error || "Failed to fetch puzzle");
@@ -243,12 +251,22 @@ export default function PuzzlePage() {
     } catch (err) {
       console.log(puzzleQuery);
       console.error("Error fetching puzzle:", err);
+      if (err instanceof ApiError) {
+        if (err.status === 429) {
+          setRateLimited(true);
+          showToast('Too many requests — please slow down', 'error');
+        } else if (err.status === 408) {
+          showToast('Request timed out — try again', 'error');
+        } else if (err.status === 0) {
+          showToast('Network error — check your connection', 'error');
+        }
+      }
       setError("Failed to load puzzle. Please try again.");
     } finally {
       setLoading(false);
     }
   },
-  [convertMovesToSAN, createPuzzlePrompt]
+  [convertMovesToSAN, createPuzzlePrompt, showToast]
 );
   // Initialize with first puzzle
   useEffect(() => {
@@ -405,6 +423,7 @@ export default function PuzzlePage() {
 
         if (moveNotation === expectedMove) {
           // Correct move
+          playSound(move.captured ? 'capture' : 'move');
           setGame(gameCopy);
           setFen(gameCopy.fen());
           setMoveSquares({
@@ -414,6 +433,7 @@ export default function PuzzlePage() {
 
           if (currentSolutionIndex === solutionMoves.length - 1) {
             // Puzzle complete!
+            setTimeout(() => playSound('success'), 300);
             setPuzzleComplete(true);
           } else {
             // Make opponent's move
@@ -436,6 +456,7 @@ export default function PuzzlePage() {
           }
         } else {
           // Wrong move
+          playSound('error');
           setPuzzleFailed(true);
           setMoveSquares({
             [source]: "rgba(255, 0, 0, 0.41)",
@@ -456,6 +477,7 @@ export default function PuzzlePage() {
       puzzleComplete,
       puzzleFailed,
       showingSolution,
+      playSound,
     ]
   );
 
@@ -605,7 +627,8 @@ export default function PuzzlePage() {
 
   return (
     <>
-      <Box sx={{ p: { xs: 1, sm: 2, md: 3, lg: 4 }, backgroundColor: purpleTheme.background.main, minHeight: "100vh" }} >
+      <Box sx={{ p: { xs: 1, sm: 2, md: 3, lg: 4 }, backgroundColor: 'var(--surface-page)', minHeight: "100vh" }} >
+        <Box sx={{ px: { xs: 1, sm: 2 }, mb: 1 }}><Breadcrumbs /></Box>
         <Stack direction={{ xs: "column", lg: "row" }} spacing={{ xs: 2, sm: 3, lg: 4 }} >
            <Box sx={{ flex: '0 0 auto', width: { xs: "100%", lg: "auto" }, display: "flex", justifyContent: "center" }}>
              <AiChessboardPanel
@@ -646,8 +669,8 @@ export default function PuzzlePage() {
               p: { xs: 1.5, sm: 2, md: 3 },
               flex: 1,
               minHeight: { xs: 200, sm: 300 },
-              color: "white",
-              backgroundColor: purpleTheme.background.paper,
+              color: "var(--text-primary)",
+              backgroundColor: 'var(--surface-card)',
               maxHeight: { xs: "none", lg: "100vh" },
               overflow: "auto",
               width: "100%",
@@ -658,8 +681,16 @@ export default function PuzzlePage() {
               <Tabs
                 value={analysisTab}
                 onChange={(_, newValue) => setAnalysisTab(newValue)}
+                variant="scrollable"
+                scrollButtons="auto"
+                allowScrollButtonsMobile
                 sx={{
-                  "& .MuiTab-root": { color: "wheat" },
+                  "& .MuiTab-root": {
+                    color: "var(--text-secondary)",
+                    fontSize: { xs: "0.7rem", sm: "0.8rem", md: "0.875rem" },
+                    minWidth: { xs: "auto", sm: 90 },
+                    px: { xs: 1, sm: 2 },
+                  },
                   "& .Mui-selected": { color: "white !important" },
                 }}
               >
@@ -678,15 +709,15 @@ export default function PuzzlePage() {
               ) : (
                 <>
                 {/* Theme Selection Card */}
-                <Card sx={{ backgroundColor: purpleTheme.background.card }}>
+                <Card sx={{ backgroundColor: 'var(--surface-raised)' }}>
                   <CardContent>
-                  <Typography variant="h6" sx={{ mb: 2, color: "wheat" }}>
+                  <Typography variant="h6" sx={{ mb: 2, color: "var(--text-secondary)" }}>
                     {t('themes.title')}
                   </Typography>
                   <Stack spacing={2}>
                     {/* Quick Theme Selection */}
                     <FormControl fullWidth>
-                    <InputLabel sx={{ color: "wheat" }}>
+                    <InputLabel sx={{ color: "var(--text-secondary)" }}>
                       {t('themes.quickSelect')}
                     </InputLabel>
                     <Select
@@ -694,19 +725,19 @@ export default function PuzzlePage() {
                       onChange={handleQuickThemeChange}
                       label={t('themes.quickSelect')}
                       sx={{
-                      backgroundColor: grey[900],
-                      color: "wheat",
+                      backgroundColor: 'var(--surface-card)',
+                      color: "var(--text-secondary)",
                       ".MuiOutlinedInput-notchedOutline": {
-                        borderColor: "wheat",
+                        borderColor: "var(--border-default)",
                       },
                       "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-                        borderColor: "wheat",
+                        borderColor: "var(--border-default)",
                       },
                       "&:hover .MuiOutlinedInput-notchedOutline": {
-                        borderColor: "wheat",
+                        borderColor: "var(--border-default)",
                       },
                       ".MuiSvgIcon-root": {
-                        color: "wheat",
+                        color: "var(--text-secondary)",
                       },
                       }}
                     >
@@ -742,7 +773,7 @@ export default function PuzzlePage() {
                     >
                       <Typography
                       variant="body2"
-                      sx={{ color: "wheat", alignSelf: "center" }}
+                      sx={{ color: "var(--text-secondary)", alignSelf: "center" }}
                       >
                       {t('themes.activeThemes')}:
                       </Typography>
@@ -755,10 +786,10 @@ export default function PuzzlePage() {
                         }
                         size="small"
                         sx={{
-                        color: "wheat",
-                        borderColor: "wheat",
-                        backgroundColor: grey[800],
-                        "& .MuiChip-label": { color: "wheat" },
+                        color: "var(--text-secondary)",
+                        borderColor: "var(--border-default)",
+                        backgroundColor: 'var(--surface-raised)',
+                        "& .MuiChip-label": { color: "var(--text-secondary)" },
                         }}
                         variant="outlined"
                       />
@@ -778,7 +809,7 @@ export default function PuzzlePage() {
                       >
                       <Typography
                         variant="body2"
-                        sx={{ color: "wheat", alignSelf: "center" }}
+                        sx={{ color: "var(--text-secondary)", alignSelf: "center" }}
                       >
                         {t('themes.thisPuzzle')}:
                       </Typography>
@@ -791,10 +822,10 @@ export default function PuzzlePage() {
                         }
                         size="small"
                         sx={{
-                          color: "wheat",
-                          borderColor: "wheat",
-                          backgroundColor: grey[800],
-                          "& .MuiChip-label": { color: "wheat" },
+                          color: "var(--text-secondary)",
+                          borderColor: "var(--border-default)",
+                          backgroundColor: 'var(--surface-raised)',
+                          "& .MuiChip-label": { color: "var(--text-secondary)" },
                         }}
                         variant="outlined"
                         />
@@ -805,13 +836,13 @@ export default function PuzzlePage() {
                   </CardContent>
                 </Card>
                 {/* Action Buttons Card */}
-                <Card sx={{ backgroundColor: purpleTheme.background.card }}>
+                <Card sx={{ backgroundColor: 'var(--surface-raised)' }}>
                   <CardContent>
                   {showingSolution ? (
                     <Stack spacing={2}>
                     <Typography
                       variant="h6"
-                      sx={{ textAlign: "center", color: "white" }}
+                      sx={{ textAlign: "center", color: "var(--text-primary)" }}
                     >
                       {t('solution.title')} ({solutionViewIndex}/
                       {solutionMoves.length})
@@ -910,7 +941,7 @@ export default function PuzzlePage() {
                 </Card>
 
                 {/* Rating & Themes Card */}
-                <Card sx={{ backgroundColor: purpleTheme.background.card }}>
+                <Card sx={{ backgroundColor: 'var(--surface-raised)' }}>
                   <CardContent>
                   <Stack spacing={2}>
                     <Stack
@@ -942,7 +973,7 @@ export default function PuzzlePage() {
                   showHint ||
                   error ||
                   showingSolution) && (
-                  <Card sx={{ backgroundColor: grey[900] }}>
+                  <Card sx={{ backgroundColor: 'var(--surface-card)' }}>
                   <CardContent>
                     <Stack spacing={2}>
                     {puzzleComplete && (
@@ -966,7 +997,18 @@ export default function PuzzlePage() {
                       👁️ {t('status.viewingSolution')}
                       </Alert>
                     )}
-                    {error && <Alert severity="error">{t('status.notFound')}</Alert>}
+                    {rateLimited && (
+                      <RateLimitNotice onRetry={() => {
+                        setRateLimited(false);
+                        setError(null);
+                        fetchPuzzle(
+                          selectedThemes.length > 0 ? selectedThemes : [],
+                          puzzleLevel,
+                          puzzleLevel + 500
+                        );
+                      }} />
+                    )}
+                    {error && !rateLimited && <Alert severity="error">{t('status.notFound')}</Alert>}
                     </Stack>
                   </CardContent>
                   </Card>
@@ -1024,8 +1066,8 @@ export default function PuzzlePage() {
         fullWidth
         PaperProps={{
           sx: {
-            backgroundColor: grey[900],
-            color: "white",
+            backgroundColor: 'var(--surface-card)',
+            color: "var(--text-primary)",
           },
         }}
       >
@@ -1082,14 +1124,14 @@ export default function PuzzlePage() {
                 );
               }}
               sx={{
-                "& .MuiAutocomplete-popupIndicator": { color: "wheat" },
-                "& .MuiAutocomplete-clearIndicator": { color: "wheat" },
+                "& .MuiAutocomplete-popupIndicator": { color: "var(--text-secondary)" },
+                "& .MuiAutocomplete-clearIndicator": { color: "var(--text-secondary)" },
               }}
             />
 
             {/* Popular Theme Quick Selects */}
             <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1, color: "wheat" }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: "var(--text-secondary)" }}>
                 {t('dialog.popularThemes')}:
               </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
@@ -1129,7 +1171,7 @@ export default function PuzzlePage() {
             </Box>
 
             <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1, color: "wheat" }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: "var(--text-secondary)" }}>
                 {t('dialog.byDifficulty')}:
               </Typography>
               <Slider

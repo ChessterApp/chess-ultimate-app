@@ -6,6 +6,9 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
+import { useBackendHealth } from '@/hooks/useBackendHealth'
 import { StreakBanner, StreakMini } from '@/components/gamification/StreakBanner'
 import { XPDisplay } from '@/components/gamification/XPDisplay'
 import { LevelBadge, getLevelFromXp } from '@/components/gamification/LevelBadge'
@@ -43,6 +46,8 @@ export default function DashboardPage() {
   const { user } = useUser()
   const router = useRouter()
   const t = useTranslations()
+  const { showToast } = useToast()
+  const backendHealthy = useBackendHealth()
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -56,17 +61,11 @@ export default function DashboardPage() {
     async function fetchCourses() {
       try {
         const token = await getToken()
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/courses`, {
+        const data = await apiFetch<Course[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/courses`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         })
-
-        if (!response.ok) {
-          throw new Error('Failed to fetch courses')
-        }
-
-        const data = await response.json()
         setCourses(data)
 
         // Mock progress data - will be replaced with real API
@@ -82,13 +81,22 @@ export default function DashboardPage() {
         setCourseProgress(mockProgress)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error')
+        if (err instanceof ApiError) {
+          if (err.status === 429) {
+            showToast('Too many requests — please slow down', 'error')
+          } else if (err.status === 408) {
+            showToast('Request timed out — try again', 'error')
+          } else if (err.status === 0) {
+            showToast('Network error — check your connection', 'error')
+          }
+        }
       } finally {
         setLoading(false)
       }
     }
 
     fetchCourses()
-  }, [getToken])
+  }, [getToken, showToast])
 
   // Transform courses for LessonPath component
   const lessonPathCourses = useMemo(() => {
@@ -172,7 +180,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 animate-page-enter">
       {/* Header with streak and XP */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
         <div className="container mx-auto px-4 py-6">
@@ -191,9 +199,17 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-6">
+      <div className="container mx-auto px-4 py-6 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-6 md:items-start">
+        {backendHealthy === false && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-center md:col-span-2 lg:col-span-3">
+            <p className="text-amber-700 text-sm">
+              ♞ Some features may be temporarily unavailable. We&apos;re working on it!
+            </p>
+          </div>
+        )}
+
         {/* Mascot greeting */}
-        <div className="mb-6">
+        <div className="mb-6 md:col-span-2 lg:col-span-3">
           <SpeechBubble mood={streakDays >= 3 ? 'celebrating' : 'happy'} mascotSize="sm">
             {mascotMessage}
           </SpeechBubble>
@@ -201,10 +217,10 @@ export default function DashboardPage() {
 
         {/* Continue Learning Card */}
         {currentCourse && (
-          <div className="mb-8">
+          <div className="mb-8 md:col-span-2 lg:col-span-2">
             <Link
               href={`/learn/${currentCourse.slug}`}
-              className="block bg-white rounded-2xl shadow-lg p-6 border-2 border-purple-200 hover:border-purple-400 transition-all hover:shadow-xl"
+              className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200 hover:border-purple-400 transition-all hover:shadow-lg"
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-purple-600 uppercase tracking-wide">
@@ -246,9 +262,9 @@ export default function DashboardPage() {
         )}
 
         {/* Quick Actions */}
-        <div className="mb-8">
+        <div className="mb-8 md:col-span-1 lg:col-span-1">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('dashboard.quickActions')}</h2>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 md:grid-cols-1 gap-3 stagger-children">
             {analysisTools.map((tool) => (
               <Link
                 key={tool.id}
@@ -263,7 +279,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Streak Banner (expandable) */}
-        <div className="mb-8">
+        <div className="mb-8 md:col-span-1 lg:col-span-1">
           <StreakBanner
             streakDays={streakDays}
             lastActivityDate={new Date().toISOString()}
@@ -272,7 +288,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Learning Path */}
-        <div className="mb-8">
+        <div className="mb-8 md:col-span-2 lg:col-span-2">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('dashboard.learningJourney')}</h2>
 
           {error && (
@@ -294,7 +310,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Daily Goals / Achievements teaser */}
-        <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
+        <div className="bg-white rounded-2xl shadow-md p-6 mb-8 md:col-span-2 lg:col-span-3">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('dashboard.todaysGoals')}</h2>
           <div className="space-y-3">
             <div className="flex items-center justify-between p-3 bg-gray-50 rounded-xl">

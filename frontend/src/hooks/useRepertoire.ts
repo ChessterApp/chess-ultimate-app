@@ -14,6 +14,7 @@ import {
   AddVariationRequest,
   UseRepertoireReturn,
 } from '@/types/repertoire';
+import { apiFetch, ApiError } from '@/lib/api';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
@@ -40,17 +41,10 @@ export function useRepertoire(): UseRepertoireReturn {
         ...options.headers,
       };
 
-      const response = await fetch(`${API_URL}${endpoint}`, {
+      return apiFetch<any>(`${API_URL}${endpoint}`, {
         ...options,
         headers,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
-      }
-
-      return response.json();
     },
     [getToken]
   );

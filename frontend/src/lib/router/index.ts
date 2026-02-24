@@ -24,10 +24,7 @@ const CLAWDBOT_KEYWORDS = [
   'улучшить', 'прогресс', 'стратегия', 'план', 'совет',
   'подскажи', 'объясни', 'расскажи', 'покажи',
   'коучинг', 'тренер', 'наставник',
-  // Common non-chess queries (should go to Clawdbot)
-  'привет', 'здравствуй', 'кто такой', 'кто это', 'что такое',
-  'как дела', 'спасибо', 'пока',
-  // Kazakh
+  // Kazakh coaching
   'сәлем', 'рахмет',
 ];
 
@@ -37,9 +34,15 @@ const MASTRA_KEYWORDS = [
   'best move', 'evaluate', 'this position', 'should I',
   'what if', 'explain move', 'check', 'threat', 'tactic',
   'right now', 'current', 'analyze', 'calculate',
+  'opening', 'endgame', 'middlegame', 'on the board', 'this board',
+  'what move', 'which move', 'sacrifice', 'fork', 'pin',
   // Russian position analysis keywords
   'лучший ход', 'оценка', 'позиция', 'анализ', 'рассчитай',
   'угроза', 'тактика', 'шах', 'мат', 'вариант',
+  'дебют', 'эндшпиль', 'миттельшпиль', 'на доске', 'доске',
+  'ход', 'фигура', 'пешка', 'конь', 'слон', 'ладья', 'ферзь',
+  'рокировка', 'взятие', 'размен', 'жертва', 'вилка', 'связка',
+  'что здесь', 'оценить', 'какой ход',
 ];
 
 /**
@@ -80,10 +83,9 @@ export function routeRequest(query: string, context: RouteContext = {}): RouteTa
     }
   }
 
-  // Default to Clawdbot — it handles general conversation,
-  // non-English queries, and off-topic questions better.
-  // Mastra only activates on explicit position analysis keywords.
-  return 'clawdbot';
+  // Default to Mastra — it's fast (Gemini Flash, streaming).
+  // Clawdbot only activates for explicit coaching keywords.
+  return 'mastra';
 }
 
 /**

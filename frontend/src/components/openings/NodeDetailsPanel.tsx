@@ -11,6 +11,7 @@ import {
   Storage, ChevronLeft, ChevronRight,
 } from '@mui/icons-material';
 import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import MasterGamesFilter, { MasterGamesFilterState } from './MasterGamesFilter';
 
 interface NodeDetailsPanelProps {
   node: OpeningNode | null;
@@ -24,6 +25,8 @@ interface NodeDetailsPanelProps {
   masterGamesTotal?: number;
   masterGamesLoading?: boolean;
   onOpenGame?: (game: any) => void;
+  masterGamesFilters?: MasterGamesFilterState;
+  onMasterGamesFilterChange?: (filters: MasterGamesFilterState) => void;
 }
 
 export default function NodeDetailsPanel({
@@ -31,6 +34,8 @@ export default function NodeDetailsPanel({
   onSearchGames, gameLinks, gameLinksLoading,
   masterGames = [], masterGamesTotal = 0, masterGamesLoading = false,
   onOpenGame,
+  masterGamesFilters,
+  onMasterGamesFilterChange,
 }: NodeDetailsPanelProps) {
   const t = useTranslations('debut');
   const [gamesPage, setGamesPage] = useState(0);
@@ -88,6 +93,13 @@ export default function NodeDetailsPanel({
             />
           )}
         </Box>
+
+        {masterGamesFilters && onMasterGamesFilterChange && (
+          <MasterGamesFilter
+            filters={masterGamesFilters}
+            onFilterChange={onMasterGamesFilterChange}
+          />
+        )}
 
         {masterGamesLoading ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>

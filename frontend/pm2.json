@@ -1,0 +1,13 @@
+{
+  "apps": [{
+    "name": "chess-frontend",
+    "script": ".next/standalone/server.js",
+    "cwd": "/root/chess-app/frontend",
+    "env": {
+      "NODE_ENV": "production",
+      "CLAWDBOT_GATEWAY_URL": "http://127.0.0.1:19789",
+      "CLAWDBOT_GATEWAY_TOKEN": "chesster-chess-coach-gateway-token-20260207",
+      "CHESSTER_GATEWAY_ENABLED": "true"
+    }
+  }]
+}

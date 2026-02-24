@@ -10,6 +10,7 @@ import {
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // Clerk authentication for server-managed LLM
 import { useAuth } from "@clerk/nextjs";
+import { apiFetch, ApiError } from '@/lib/api';
 import { Chess } from "chess.js";
 import { CandidateMove, getChessDBSpeech, useChessDB } from "../components/tabs/Chessdb";
 import { useLocalStorage } from "usehooks-ts";
@@ -244,19 +245,18 @@ export default function useChesster(fen: string) {
       }
 
       const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
-      const response = await fetch(`${BACKEND_URL}/api/chat/history/${conversationId}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        console.warn(`Failed to load conversation history: ${response.status}`);
+      let data: any;
+      try {
+        data = await apiFetch<any>(`${BACKEND_URL}/api/chat/history/${conversationId}`, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      } catch (e) {
+        console.warn(`Failed to load conversation history: ${e instanceof ApiError ? e.status : e}`);
         return;
       }
-
-      const data = await response.json();
 
       // Convert backend messages to ChatMessage format
       const loadedMessages: ChatMessage[] = data.messages.map((msg: any) => ({
@@ -305,46 +305,37 @@ export default function useChesster(fen: string) {
                           mode === 'game' ? 'game' :
                           mode === 'puzzle' ? 'puzzle' : 'general';
 
-      const response = await fetch(`${BACKEND_URL}/api/chat/analysis`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          fen,
-          query,
-          conversation_id: conversationIdRef.current, // Maintain conversation context
-          context_type: contextType
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        let errorMessage = 'Failed to get AI response';
-        try {
-          const error = await response.json();
-          // Truncate long error messages to prevent UI issues
-          errorMessage = error.error || errorMessage;
+      let data: any;
+      try {
+        data = await apiFetch<any>(`${BACKEND_URL}/api/chat/analysis`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            fen,
+            query,
+            conversation_id: conversationIdRef.current, // Maintain conversation context
+            context_type: contextType
+          }),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        if (e instanceof ApiError) {
+          let errorMessage = e.message;
           if (errorMessage.length > 500) {
             errorMessage = errorMessage.substring(0, 500) + '...';
           }
-        } catch (e) {
-          // If JSON parsing fails, use default error message
-          errorMessage = `Request failed with status ${response.status}`;
+          if (e.status === 401) {
+            errorMessage = 'Please sign in to use AI chat features';
+          } else if (e.status === 429) {
+            errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
+          }
+          throw new Error(errorMessage);
         }
-
-        // Provide user-friendly error messages for common issues
-        if (response.status === 401) {
-          errorMessage = 'Please sign in to use AI chat features';
-        } else if (response.status === 429) {
-          errorMessage = 'Rate limit exceeded. Please try again in a few minutes.';
-        }
-
-        throw new Error(errorMessage);
+        throw e;
       }
-
-      const data = await response.json();
 
       // Save conversation ID for follow-up messages
       if (data.conversation_id) {

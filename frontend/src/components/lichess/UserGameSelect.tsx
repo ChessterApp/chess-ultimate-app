@@ -9,7 +9,6 @@ import {
 } from "@mui/material";
 import UserLichessGames from "./UserLichessGames";
 import SportsEsportsIcon from "@mui/icons-material/SportsEsports";
-import { purpleTheme } from "@/theme/theme";
 
 interface UserGameSelectProps {
   loadPGN: (pgn: string) => void;
@@ -17,22 +16,22 @@ interface UserGameSelectProps {
 
 const UserGameSelect: React.FC<UserGameSelectProps> = ({ loadPGN }) => {
   const [open, setOpen] = useState(false);
-  
+
   const handleOpen = () => setOpen(true);
   const handleClose = () => setOpen(false);
- 
+
   return (
     <>
       <Stack spacing={2} sx={{ mb: 3 }}>
-        <Button 
-          variant="contained" 
+        <Button
+          variant="contained"
           onClick={handleOpen}
           startIcon={<SportsEsportsIcon />}
           sx={{
-            backgroundColor: purpleTheme.primary,
-            color: purpleTheme.text.primary,
+            backgroundColor: "primary.main",
+            color: "text.primary",
             '&:hover': {
-              backgroundColor: purpleTheme.primaryDark,
+              backgroundColor: "primary.dark",
             },
             py: 1.5,
             fontWeight: 'medium',
@@ -50,49 +49,55 @@ const UserGameSelect: React.FC<UserGameSelectProps> = ({ loadPGN }) => {
         slotProps={{
           paper: {
             sx: {
-              backgroundColor: purpleTheme.background.main,
-              color: purpleTheme.text.primary,
+              backgroundColor: "background.default",
+              color: "text.primary",
               padding: 2,
               borderRadius: 2,
-              border: `1px solid ${purpleTheme.secondary}`,
+              borderWidth: 1,
+              borderStyle: "solid",
+              borderColor: "secondary.main",
             },
           },
         }}
       >
-        <DialogTitle 
-          sx={{ 
-            color: purpleTheme.text.primary,
+        <DialogTitle
+          sx={{
+            color: "text.primary",
             textAlign: 'center',
             fontWeight: 'bold',
-            borderBottom: `1px solid ${purpleTheme.secondary}`,
+            borderBottomWidth: 1,
+            borderBottomStyle: "solid",
+            borderBottomColor: "secondary.main",
             pb: 2,
             mb: 2,
           }}
         >
           Select a Recent Lichess Game
         </DialogTitle>
-        
+
         <DialogContent sx={{ p: 0 }}>
           <UserLichessGames loadPGN={loadPGN} setOpen={setOpen} />
         </DialogContent>
-        
-        <DialogActions 
-          sx={{ 
+
+        <DialogActions
+          sx={{
             pt: 2,
-            borderTop: `1px solid ${purpleTheme.secondary}`,
+            borderTopWidth: 1,
+            borderTopStyle: "solid",
+            borderTopColor: "secondary.main",
             justifyContent: 'center',
           }}
         >
-          <Button 
-            onClick={handleClose} 
+          <Button
+            onClick={handleClose}
             variant="outlined"
-            sx={{ 
-              color: purpleTheme.text.secondary,
-              borderColor: purpleTheme.secondary,
+            sx={{
+              color: "text.secondary",
+              borderColor: "secondary.main",
               '&:hover': {
-                borderColor: purpleTheme.primary,
-                backgroundColor: purpleTheme.background.card,
-                color: purpleTheme.text.primary,
+                borderColor: "primary.main",
+                backgroundColor: "background.paper",
+                color: "text.primary",
               },
               minWidth: 100,
             }}

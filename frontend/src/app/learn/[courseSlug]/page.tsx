@@ -5,8 +5,11 @@ import { useAuth, SignInButton } from '@clerk/nextjs'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import useSWR from 'swr'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
+import Breadcrumbs from '@/components/Breadcrumbs'
 
 interface Course {
   id: string
@@ -61,6 +64,8 @@ export default function CoursePage() {
   const { getToken, isLoaded, isSignedIn } = useAuth()
   const [authError, setAuthError] = useState<string | null>(null)
   const t = useTranslations()
+  const locale = useLocale()
+  const { showToast } = useToast()
 
   // SWR fetcher with auth
   const fetcher = useCallback(async (url: string): Promise<CourseData> => {
@@ -69,26 +74,30 @@ export default function CoursePage() {
       throw new Error('No auth token')
     }
 
-    const response = await fetch(url, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-
-    if (response.status === 401) {
-      throw new Error('Session expired')
-    }
-
-    if (!response.ok) {
+    try {
+      return await apiFetch<CourseData>(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 401) {
+          throw new Error('Session expired')
+        }
+        if (e.status === 408) {
+          showToast('Request timed out — try again', 'error')
+        } else if (e.status === 0) {
+          showToast('Network error — check your connection', 'error')
+        }
+      }
       throw new Error('Failed to fetch course data')
     }
-
-    return response.json()
-  }, [getToken])
+  }, [getToken, showToast])
 
   // Use SWR for caching - data persists across navigations
   const { data, error, isLoading, mutate } = useSWR<CourseData>(
     // Only fetch when we have a courseSlug and auth is ready
     courseSlug && isLoaded && isSignedIn
-      ? `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}`
+      ? `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}?locale=${locale}`
       : null,
     fetcher,
     {
@@ -200,6 +209,7 @@ export default function CoursePage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
+      <Breadcrumbs />
       <Link href="/dashboard" className="text-blue-600 hover:underline mb-4 inline-block">
         ← {t('course.backToDashboard')}
       </Link>

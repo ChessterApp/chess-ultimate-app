@@ -14,6 +14,49 @@ logger = logging.getLogger(__name__)
 
 lessons_bp = Blueprint('lessons', __name__)
 
+
+def localize(obj, locale=None):
+    """Apply localization to a DB object. Returns localized copy.
+    For each field with a _{locale} variant, use the localized value if available.
+    Falls back to English (original field) if translation is missing.
+    """
+    if not obj or not locale or locale == 'en':
+        return obj
+    result = dict(obj)
+    # Preserve English-based slug before overwriting title with localized version
+    if 'title' in result and not result.get('slug'):
+        _t = result['title'].lower()
+        _t = re.sub(r'\s+', '-', _t)
+        _t = re.sub(r'[^a-z0-9-]', '', _t)
+        _t = re.sub(r'-+', '-', _t).strip('-')
+        result['slug'] = _t
+    for field in ['title', 'description', 'content', 'hint_text', 'success_message']:
+        localized_key = f'{field}_{locale}'
+        if localized_key in result and result[localized_key]:
+            result[field] = result[localized_key]
+    return result
+
+
+def localize_list(items, locale=None):
+    """Apply localization to a list of DB objects."""
+    if not locale or locale == 'en':
+        return items
+    return [localize(item, locale) for item in items]
+
+
+def get_locale():
+    """Get locale from query param or Accept-Language header."""
+    locale = request.args.get('locale', '').strip().lower()
+    if locale in ('ru', 'kk'):
+        return locale
+    # Check Accept-Language header
+    accept = request.headers.get('Accept-Language', '')
+    if 'ru' in accept:
+        return 'ru'
+    if 'kk' in accept:
+        return 'kk'
+    return 'en'
+
 # Simple in-memory cache for course/lesson data (reduces Supabase round trips)
 _cache = {
     'courses': None,
@@ -103,8 +146,9 @@ def get_courses():
         ]
     """
     try:
+        locale = get_locale()
         result = supabase.table('courses').select('*').order('order_index').execute()
-        return jsonify(result.data), 200
+        return jsonify(localize_list(result.data, locale)), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch courses: {str(e)}"}), 500
 
@@ -129,13 +173,14 @@ def get_course_modules(course_id):
         ]
     """
     try:
+        locale = get_locale()
         result = supabase.table('modules')\
             .select('*')\
             .eq('course_id', course_id)\
             .order('order_index')\
             .execute()
 
-        return jsonify(result.data), 200
+        return jsonify(localize_list(result.data, locale)), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch modules: {str(e)}"}), 500
 
@@ -295,10 +340,16 @@ def get_course_by_slug(course_slug):
                         'score': prog.get('score')
                     }
 
+        locale = get_locale()
+        # Localize lessons within each module group
+        localized_lessons_by_module = {}
+        for mod_id, mod_lessons in lessons_by_module.items():
+            localized_lessons_by_module[mod_id] = localize_list(mod_lessons, locale)
+
         return jsonify({
-            "course": course,
-            "modules": modules,
-            "lessons": lessons_by_module,
+            "course": localize(course, locale),
+            "modules": localize_list(modules, locale),
+            "lessons": localized_lessons_by_module,
             "progress": progress_map
         }), 200
 
@@ -361,10 +412,13 @@ def get_lesson_by_slug(course_slug, lesson_slug):
                 }), 403
 
         # Include course info in response
-        lesson['course_slug'] = course_slug
-        lesson['course_title'] = course['title']
+        locale = get_locale()
+        localized_lesson = localize(lesson, locale)
+        localized_course = localize(course, locale)
+        localized_lesson['course_slug'] = course_slug
+        localized_lesson['course_title'] = localized_course['title']
 
-        return jsonify(lesson), 200
+        return jsonify(localized_lesson), 200
 
     except Exception as e:
         import traceback

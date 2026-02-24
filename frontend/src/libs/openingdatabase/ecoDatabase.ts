@@ -1,11 +1,3 @@
-// Import your JSON file (adjust path as needed)
-import ecoData from './eco_interpolated.json';
-import ecoDataA from './ecoA.json'
-import ecoDataB from './ecoB.json'
-import ecoDataC from './ecoC.json'
-import ecoDataD from './ecoD.json'
-import ecoDataE from './ecoE.json'
-
 // Define the structure of your ECO data
 interface EcoEntry {
   name: string;
@@ -35,6 +27,23 @@ export function fenExists(fen: string, ecoDatabase: EcoDatabase): boolean {
   return fen in ecoDatabase;
 }
 
-export function isFenInAllDatabases(fen: string): boolean {
-    return fenExists(fen, ecoDataA) || fenExists(fen, ecoDataB) || fenExists(fen, ecoDataC) || fenExists(fen, ecoDataD) || fenExists(fen, ecoDataE) || fenExists(fen, ecoData);
+// Runtime-fetched ECO database cache (JSON files served from /data/eco/)
+let _ecoCache: EcoDatabase[] | null = null;
+
+const ECO_FILES = ['ecoA', 'ecoB', 'ecoC', 'ecoD', 'ecoE', 'eco_interpolated'] as const;
+
+async function loadAllDatabases(): Promise<EcoDatabase[]> {
+  if (_ecoCache) return _ecoCache;
+  const results = await Promise.all(
+    ECO_FILES.map(name =>
+      fetch(`/data/eco/${name}.json`).then(r => r.json() as Promise<EcoDatabase>)
+    )
+  );
+  _ecoCache = results;
+  return _ecoCache;
+}
+
+export async function isFenInAllDatabases(fen: string): Promise<boolean> {
+  const databases = await loadAllDatabases();
+  return databases.some(db => fenExists(fen, db));
 }

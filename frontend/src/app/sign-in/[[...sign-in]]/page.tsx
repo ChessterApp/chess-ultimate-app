@@ -2,12 +2,13 @@
 
 import { SignIn } from '@clerk/nextjs'
 import { useTranslations } from 'next-intl'
+import Image from 'next/image'
 
 export default function SignInPage() {
   const t = useTranslations()
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
+    <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)] overflow-x-hidden">
       {/* Hide default Clerk branding and apply Duolingo-style design */}
       <style dangerouslySetInnerHTML={{ __html: `
         /* Hide Clerk branding */
@@ -22,18 +23,17 @@ export default function SignInPage() {
           background: white !important;
           box-shadow: none !important;
           border: none !important;
-          padding: 2rem !important;
-          max-width: 400px !important;
+          padding: 1rem !important;
+          max-width: 100% !important;
           width: 100% !important;
+          overflow: hidden !important;
+          box-sizing: border-box !important;
+          margin: 0 !important;
         }
 
-        /* Header styling */
-        .cl-headerTitle {
-          font-size: 1.5rem !important;
-          font-weight: 700 !important;
-          color: #3c3c3c !important;
-          text-align: center !important;
-          margin-bottom: 1.5rem !important;
+        /* Hide Clerk header — we use our own */
+        .cl-header {
+          display: none !important;
         }
 
         /* Input fields - Duolingo style rounded */
@@ -184,7 +184,17 @@ export default function SignInPage() {
         /* Root box */
         .cl-rootBox {
           width: 100% !important;
-          max-width: 400px !important;
+          max-width: 100% !important;
+          margin: 0 auto !important;
+        }
+
+        /* Card box - prevent overflow */
+        .cl-cardBox {
+          width: 100% !important;
+          max-width: 100% !important;
+          margin: 0 !important;
+          border: none !important;
+          box-shadow: none !important;
         }
 
         /* Form container */
@@ -199,12 +209,16 @@ export default function SignInPage() {
           margin-top: 4px !important;
         }
 
-        /* Hide "Secured by Clerk" */
+        /* Hide "Secured by Clerk" and Clerk footer */
         .cl-internal-1dauvpw,
         .cl-internal-mxmka,
         [aria-label*="Clerk"],
         .cl-footerPages,
-        .cl-footerPagesLink {
+        .cl-footerPagesLink,
+        .cl-footer,
+        .cl-footerAction,
+        .cl-footerActionLink,
+        .cl-footerActionText {
           display: none !important;
         }
 
@@ -225,10 +239,12 @@ export default function SignInPage() {
         }
       `}} />
 
-      <div className="w-full max-w-md px-4">
+      <div className="w-full max-w-sm bg-white md:bg-transparent rounded-3xl md:rounded-none p-4 md:p-0 mt-4 md:mt-0 shadow-xl md:shadow-none overflow-hidden">
         {/* Chesster branding above the form */}
-        <div className="text-center mb-6">
-          <img src="/static/images/chesster-logo.png" alt="Chesster" className="w-16 h-16 mx-auto" />
+        <div className="text-center mb-4 md:mb-6">
+          <div className="bg-white rounded-full p-3 md:p-4 inline-block shadow-lg"><Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={64} height={64} className="w-10 h-10 md:w-16 md:h-16" /></div>
+          <h1 className="text-2xl font-bold text-gray-800 mt-4">{t('auth.signInTitle')}</h1>
+          <p className="text-sm text-gray-500 mt-1">{t('auth.signInSubtitle')}</p>
         </div>
 
         <SignIn

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { chessChesster } from "@/server/mastra/agents";
 import { getBoardState } from "@/server/mastra/tools/protocol/state";
-import { RuntimeContext } from "@mastra/core/di";
+import { RequestContext } from "@mastra/core/request-context";
 import { PositionPrompter } from "@/server/mastra/tools/protocol/positionPrompter";
 // Clerk authentication disabled for local development
 // import { getAuth } from "@clerk/nextjs/server";
@@ -163,17 +163,17 @@ export default async function handler(
     }
 
     const aginePromptInject = `${query} \n ${positionPrompt}`;
-    const runtimeContext = new RuntimeContext();
-    runtimeContext.set("provider", apiSettings.provider);
-    runtimeContext.set("model", apiSettings.model);
-    runtimeContext.set("apiKey", apiSettings.apiKey || "");
-    runtimeContext.set("mode", mode);
-    runtimeContext.set("isRouted", apiSettings.isRouted)
-    runtimeContext.set("lang", apiSettings.language);
+    const requestContext = new RequestContext();
+    requestContext.set("provider", apiSettings.provider);
+    requestContext.set("model", apiSettings.model);
+    requestContext.set("apiKey", apiSettings.apiKey || "");
+    requestContext.set("mode", mode);
+    requestContext.set("isRouted", apiSettings.isRouted)
+    requestContext.set("lang", apiSettings.language);
 
     if (apiSettings.provider === "ollama") {
       if (apiSettings.ollamaBaseUrl) {
-        runtimeContext.set("ollamaBaseUrl", apiSettings.ollamaBaseUrl);
+        requestContext.set("ollamaBaseUrl", apiSettings.ollamaBaseUrl);
       }
     }
 
@@ -184,7 +184,7 @@ export default async function handler(
       response = await chessChesster.generate(
         [{ role: "user", content: aginePromptInject }],
         {
-          runtimeContext,
+          requestContext,
         }
       );
       maxTokens = response.usage.totalTokens || 0;

@@ -8,7 +8,6 @@ import {
     Alert
 } from "@mui/material";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
-import { purpleTheme } from "@/theme/theme";
 
 interface PGNUploaderProps {
     loadPGN: (pgn: string) => void;
@@ -39,11 +38,11 @@ const UserPGNUploader: React.FC<PGNUploaderProps> = ({ loadPGN }) => {
                 setError("The selected file appears to be empty");
             }
         };
-        
+
         reader.onerror = () => {
             setError("Error reading the file");
         };
-        
+
         reader.readAsText(file);
     };
 
@@ -52,25 +51,25 @@ const UserPGNUploader: React.FC<PGNUploaderProps> = ({ loadPGN }) => {
             elevation={3}
             sx={{
                 p: 3,
-                backgroundColor: purpleTheme.background.paper,
-                color: purpleTheme.text.primary,
+                backgroundColor: "background.paper",
+                color: "text.primary",
             }}
         >
-            <Typography 
-                variant="h6" 
-                sx={{ 
-                    color: purpleTheme.text.primary,
+            <Typography
+                variant="h6"
+                sx={{
+                    color: "text.primary",
                     mb: 2,
                     textAlign: "center"
                 }}
             >
                 Upload PGN File
             </Typography>
-            
-            <Typography 
-                variant="subtitle2" 
-                sx={{ 
-                    color: purpleTheme.text.secondary,
+
+            <Typography
+                variant="subtitle2"
+                sx={{
+                    color: "text.secondary",
                     mb: 3,
                     textAlign: "center"
                 }}
@@ -79,14 +78,14 @@ const UserPGNUploader: React.FC<PGNUploaderProps> = ({ loadPGN }) => {
             </Typography>
 
             {error && (
-                <Alert 
-                    severity="error" 
-                    sx={{ 
+                <Alert
+                    severity="error"
+                    sx={{
                         mb: 2,
-                        backgroundColor: purpleTheme.background.card,
-                        color: purpleTheme.text.primary,
+                        backgroundColor: "background.paper",
+                        color: "text.primary",
                         '& .MuiAlert-icon': {
-                            color: purpleTheme.accent
+                            color: "primary.light"
                         }
                     }}
                 >
@@ -100,10 +99,10 @@ const UserPGNUploader: React.FC<PGNUploaderProps> = ({ loadPGN }) => {
                     component="label"
                     startIcon={<UploadFileIcon />}
                     sx={{
-                        backgroundColor: purpleTheme.primary,
-                        color: purpleTheme.text.primary,
+                        backgroundColor: "primary.main",
+                        color: "text.primary",
                         '&:hover': {
-                            backgroundColor: purpleTheme.primaryDark,
+                            backgroundColor: "primary.dark",
                         },
                         minWidth: 200,
                         py: 1.5,
@@ -122,22 +121,24 @@ const UserPGNUploader: React.FC<PGNUploaderProps> = ({ loadPGN }) => {
                     <Box
                         sx={{
                             p: 2,
-                            backgroundColor: purpleTheme.background.card,
+                            backgroundColor: "background.paper",
                             borderRadius: 1,
-                            border: `1px solid ${purpleTheme.secondary}`,
+                            borderWidth: 1,
+                            borderStyle: "solid",
+                            borderColor: "secondary.main",
                             textAlign: "center",
                         }}
                     >
-                        <Typography 
-                            variant="body2" 
-                            sx={{ color: purpleTheme.text.secondary }}
+                        <Typography
+                            variant="body2"
+                            sx={{ color: "text.secondary" }}
                         >
                             Selected file:
                         </Typography>
-                        <Typography 
-                            variant="body1" 
-                            sx={{ 
-                                color: purpleTheme.text.accent,
+                        <Typography
+                            variant="body1"
+                            sx={{
+                                color: "secondary.main",
                                 fontWeight: "medium"
                             }}
                         >

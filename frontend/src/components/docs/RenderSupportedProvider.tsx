@@ -15,7 +15,7 @@ export const renderSupportedProvider = () => (
       Supported Providers
     </Typography>
     <Typography variant="body1" paragraph color="text.secondary">
-      Chess Empire supports the following AI providers. Click on any provider to
+      Chesster supports the following AI providers. Click on any provider to
       learn more.
     </Typography>
 

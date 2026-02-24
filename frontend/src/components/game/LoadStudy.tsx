@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Box, Typography, TextField, Button } from "@mui/material";
-import { purpleTheme } from "@/theme/theme";
 import { Analytics } from "@mui/icons-material";
 import { parsePgnChapters } from "@/libs/game/helper";
+import { apiFetch, ApiError } from '@/lib/api';
+import { useToast } from '@/components/ToastProvider';
 
 export interface Chapter {
     title: string;
@@ -16,7 +17,7 @@ interface GameLoaderProp {
 }
 
 function LoadStudy({setChapters, setInputsVisible}: GameLoaderProp) {
-
+  const { showToast } = useToast();
   const [studyUrl, setStudyUrl] = useState("");
 
   return (
@@ -24,7 +25,7 @@ function LoadStudy({setChapters, setInputsVisible}: GameLoaderProp) {
       <Typography
         variant="h6"
         sx={{
-          color: purpleTheme.text.accent,
+          color: 'secondary.main',
           mb: 2,
           display: "flex",
           alignItems: "center",
@@ -40,32 +41,32 @@ function LoadStudy({setChapters, setInputsVisible}: GameLoaderProp) {
         onChange={(e) => setStudyUrl(e.target.value)}
         placeholder="https://lichess.org/study/GuglnqGD"
         sx={{
-          backgroundColor: purpleTheme.background.input,
+          backgroundColor: 'background.paper',
           borderRadius: 2,
           mb: 2,
           "& .MuiOutlinedInput-root": {
             "& fieldset": {
-              borderColor: purpleTheme.secondary,
+              borderColor: 'secondary.main',
             },
             "&:hover fieldset": {
-              borderColor: purpleTheme.accent,
+              borderColor: 'primary.light',
             },
             "&.Mui-focused fieldset": {
-              borderColor: purpleTheme.accent,
+              borderColor: 'primary.light',
             },
           },
         }}
         slotProps={{
-          inputLabel: { sx: { color: purpleTheme.text.secondary } },
-          input: { sx: { color: purpleTheme.text.primary } },
+          inputLabel: { sx: { color: 'text.secondary' } },
+          input: { sx: { color: 'text.primary' } },
         }}
       />
       <Button
         variant="contained"
         fullWidth
         sx={{
-          backgroundColor: purpleTheme.primary,
-          "&:hover": { backgroundColor: purpleTheme.primaryDark },
+          backgroundColor: 'primary.main',
+          "&:hover": { backgroundColor: 'primary.dark' },
           borderRadius: 2,
           py: 1.5,
           textTransform: "none",
@@ -73,35 +74,48 @@ function LoadStudy({setChapters, setInputsVisible}: GameLoaderProp) {
         }}
         onClick={async () => {
           const idMatch = studyUrl.match(/study\/([a-zA-Z0-9]+)/);
-          if (!idMatch) return alert("Invalid study URL");
+          if (!idMatch) {
+            showToast("Invalid study URL", "error");
+            return;
+          }
 
           try {
-            const res = await fetch(
+            const text = await apiFetch<string>(
               `https://lichess.org/api/study/${idMatch[1]}.pgn`
             );
 
-            if (!res.ok) {
-              if (res.status === 404) {
-                return alert("Study not found. Please check the URL.");
-              }
-              return alert(`Failed to load study: ${res.status} ${res.statusText}`);
-            }
-
-            const text = await res.text();
-
             // Check if response is HTML (error page) instead of PGN
             if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-              return alert("This study is private or does not exist. Please use a public study URL.");
+              showToast("This study is private or does not exist", "error");
+              return;
             }
 
             const parsed = parsePgnChapters(text);
-            if (parsed.length === 0) return alert("No chapters found in this study");
+            if (parsed.length === 0) {
+              showToast("No chapters found in this study", "error");
+              return;
+            }
 
             setChapters(parsed);
             setInputsVisible(false);
+            showToast("Study loaded successfully!", "success");
           } catch (error) {
+            if (error instanceof ApiError) {
+              if (error.status === 404) {
+                showToast("Study not found — please check the URL", "error");
+                return;
+              }
+              if (error.status === 429) {
+                showToast("Too many requests — please slow down", "error");
+                return;
+              }
+              if (error.status === 0) {
+                showToast("Network error — check your connection", "error");
+                return;
+              }
+            }
             console.error("Error loading study:", error);
-            alert("Failed to load study. Please check your connection and try again.");
+            showToast("Failed to load study — please try again", "error");
           }
         }}
       >

@@ -9,18 +9,19 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.37",
-    "@ai-sdk/google": "^2.0.23",
-    "@ai-sdk/openai": "^2.0.53",
+    "@ai-sdk/anthropic": "^3.0.44",
+    "@ai-sdk/google": "^3.0.29",
+    "@ai-sdk/openai": "^3.0.29",
     "@clerk/nextjs": "^6.34.0",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@lottiefiles/dotlottie-react": "^0.17.8",
-    "@mastra/core": "^0.22.2",
+    "@mastra/core": "^1.4.0",
     "@mui/icons-material": "^7.3.4",
     "@mui/material": "^7.1.0",
     "@mui/x-charts": "^8.15.0",
-    "@openrouter/ai-sdk-provider": "^1.2.0",
+    "@openrouter/ai-sdk-provider": "^2.2.3",
+    "@supabase/supabase-js": "^2.95.3",
     "@tavily/core": "^0.5.12",
     "@types/lodash": "^4.17.20",
     "@types/react-window": "^1.8.8",
@@ -28,9 +29,10 @@
     "axios": "^1.12.2",
     "chess.js": "^1.4.0",
     "chessground": "^9.2.1",
+    "framer-motion": "^12.34.0",
     "lodash": "^4.17.21",
     "lucide-react": "^0.546.0",
-    "next": "^16.0.10",
+    "next": "^16.1.6",
     "next-intl": "^4.5.5",
     "ollama-ai-provider-v2": "^1.5.1",
     "playwright": "^1.58.2",
@@ -40,9 +42,10 @@
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
     "react-window": "^2.2.2",
+    "svix": "^1.85.0",
     "swr": "^2.3.8",
     "usehooks-ts": "^3.1.1",
-    "zod": "^4.1.12"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
@@ -51,7 +54,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "eslint": "^9.38.0",
-    "eslint-config-next": "^16.0.0",
+    "eslint-config-next": "^16.1.6",
     "tailwindcss": "^4",
     "typescript": "^5.9.3"
   }

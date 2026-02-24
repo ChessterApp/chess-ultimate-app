@@ -19,7 +19,6 @@ import {
   Alert,
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
-import { purpleTheme } from "@/theme/theme";
 import {
   GameFilters,
   DEFAULT_FILTERS,
@@ -30,12 +29,15 @@ import {
   downloadPGNFile,
 } from "./GameDownloaderTypes";
 import { fetchUserArchives } from "../chessdotcom/ChessDotComTypes";
+import { apiFetch, ApiError } from '@/lib/api';
+import { useToast } from '@/components/ToastProvider';
 
 interface GameDownloaderProps {
   onGamesLoaded?: (pgn: string) => void;
 }
 
 const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
+  const { showToast } = useToast();
   const [filters, setFilters] = useState<GameFilters>(DEFAULT_FILTERS);
   const [progress, setProgress] = useState<DownloadProgress>({
     currentMonth: "",
@@ -88,8 +90,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
 
     for (let i = 0; i < archives.length; i++) {
       const archiveUrl = archives[i];
-      const response = await fetch(archiveUrl);
-      const data = await response.json();
+      const data = await apiFetch<any>(archiveUrl);
 
       allGames = [...allGames, ...data.games];
 
@@ -117,7 +118,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
       max: filters.downloadAll ? "10000" : "1000",
     });
 
-    const response = await fetch(
+    const text = await apiFetch<string>(
       `https://lichess.org/api/games/user/${filters.username}?${params}`,
       {
         headers: {
@@ -125,8 +126,6 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
         },
       }
     );
-
-    const text = await response.text();
     const games = text
       .trim()
       .split("\n")
@@ -197,6 +196,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
       });
     } catch (error) {
       console.error("Download error:", error);
+      if (error instanceof ApiError) {
+        if (error.status === 429) {
+          showToast('Too many requests — please slow down', 'error');
+        } else if (error.status === 0) {
+          showToast('Network error — check your connection', 'error');
+        }
+      }
       setProgress({
         ...progress,
         status: "error",
@@ -209,15 +215,17 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
     <Paper
       sx={{
         p: 3,
-        backgroundColor: purpleTheme.background.card,
-        border: `1px solid ${purpleTheme.secondary}`,
+        backgroundColor: "background.paper",
+        borderWidth: 1,
+        borderStyle: "solid",
+        borderColor: "secondary.main",
         borderRadius: 2,
       }}
     >
       <Typography
         variant="h5"
         sx={{
-          color: purpleTheme.text.primary,
+          color: "text.primary",
           fontWeight: "bold",
           mb: 3,
         }}
@@ -229,7 +237,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
       <FormControl component="fieldset" sx={{ mb: 3, width: "100%" }}>
         <FormLabel
           sx={{
-            color: purpleTheme.text.primary,
+            color: "text.primary",
             fontWeight: "bold",
             mb: 1,
           }}
@@ -246,26 +254,26 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
             control={
               <Radio
                 sx={{
-                  color: purpleTheme.text.secondary,
-                  "&.Mui-checked": { color: purpleTheme.primary },
+                  color: "text.secondary",
+                  "&.Mui-checked": { color: "primary.main" },
                 }}
               />
             }
             label="Lichess"
-            sx={{ color: purpleTheme.text.primary }}
+            sx={{ color: "text.primary" }}
           />
           <FormControlLabel
             value="chessdotcom"
             control={
               <Radio
                 sx={{
-                  color: purpleTheme.text.secondary,
-                  "&.Mui-checked": { color: purpleTheme.primary },
+                  color: "text.secondary",
+                  "&.Mui-checked": { color: "primary.main" },
                 }}
               />
             }
             label="Chess.com"
-            sx={{ color: purpleTheme.text.primary }}
+            sx={{ color: "text.primary" }}
           />
         </RadioGroup>
       </FormControl>
@@ -279,14 +287,14 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
         sx={{
           mb: 3,
           "& .MuiOutlinedInput-root": {
-            color: purpleTheme.text.primary,
-            "& fieldset": { borderColor: purpleTheme.secondary },
-            "&:hover fieldset": { borderColor: purpleTheme.primary },
-            "&.Mui-focused fieldset": { borderColor: purpleTheme.primary },
+            color: "text.primary",
+            "& fieldset": { borderColor: "secondary.main" },
+            "&:hover fieldset": { borderColor: "primary.main" },
+            "&.Mui-focused fieldset": { borderColor: "primary.main" },
           },
           "& .MuiInputLabel-root": {
-            color: purpleTheme.text.secondary,
-            "&.Mui-focused": { color: purpleTheme.primary },
+            color: "text.secondary",
+            "&.Mui-focused": { color: "primary.main" },
           },
         }}
       />
@@ -295,7 +303,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
       <FormControl component="fieldset" sx={{ mb: 3, width: "100%" }}>
         <FormLabel
           sx={{
-            color: purpleTheme.text.primary,
+            color: "text.primary",
             fontWeight: "bold",
             mb: 1,
           }}
@@ -311,26 +319,26 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
             control={
               <Radio
                 sx={{
-                  color: purpleTheme.text.secondary,
-                  "&.Mui-checked": { color: purpleTheme.primary },
+                  color: "text.secondary",
+                  "&.Mui-checked": { color: "primary.main" },
                 }}
               />
             }
             label="Download all games"
-            sx={{ color: purpleTheme.text.primary }}
+            sx={{ color: "text.primary" }}
           />
           <FormControlLabel
             value="subset"
             control={
               <Radio
                 sx={{
-                  color: purpleTheme.text.secondary,
-                  "&.Mui-checked": { color: purpleTheme.primary },
+                  color: "text.secondary",
+                  "&.Mui-checked": { color: "primary.main" },
                 }}
               />
             }
             label="Download a subset (with filters below)"
-            sx={{ color: purpleTheme.text.primary }}
+            sx={{ color: "text.primary" }}
           />
         </RadioGroup>
       </FormControl>
@@ -342,7 +350,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
           <FormControl component="fieldset" sx={{ mb: 3, width: "100%" }}>
             <FormLabel
               sx={{
-                color: purpleTheme.text.primary,
+                color: "text.primary",
                 fontWeight: "bold",
                 mb: 1,
               }}
@@ -356,13 +364,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeWhite}
                     onChange={handleCheckboxChange("includeWhite")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="White"
-                sx={{ color: purpleTheme.text.primary }}
+                sx={{ color: "text.primary" }}
               />
               <FormControlLabel
                 control={
@@ -370,13 +378,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeBlack}
                     onChange={handleCheckboxChange("includeBlack")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Black"
-                sx={{ color: purpleTheme.text.primary }}
+                sx={{ color: "text.primary" }}
               />
             </FormGroup>
           </FormControl>
@@ -385,7 +393,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
           <FormControl component="fieldset" sx={{ mb: 3, width: "100%" }}>
             <FormLabel
               sx={{
-                color: purpleTheme.text.primary,
+                color: "text.primary",
                 fontWeight: "bold",
                 mb: 1,
               }}
@@ -399,13 +407,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeChess}
                     onChange={handleCheckboxChange("includeChess")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Chess"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -413,13 +421,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeChess960}
                     onChange={handleCheckboxChange("includeChess960")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Chess960"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -427,13 +435,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeBugHouse}
                     onChange={handleCheckboxChange("includeBugHouse")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Bug House"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -441,13 +449,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeKingOfTheHill}
                     onChange={handleCheckboxChange("includeKingOfTheHill")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="King of the Hill"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -455,13 +463,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeThreeCheck}
                     onChange={handleCheckboxChange("includeThreeCheck")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Three Check"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -469,13 +477,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeCrazyHouse}
                     onChange={handleCheckboxChange("includeCrazyHouse")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Crazy House"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
             </FormGroup>
           </FormControl>
@@ -484,7 +492,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
           <FormControl component="fieldset" sx={{ mb: 3, width: "100%" }}>
             <FormLabel
               sx={{
-                color: purpleTheme.text.primary,
+                color: "text.primary",
                 fontWeight: "bold",
                 mb: 1,
               }}
@@ -498,13 +506,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeUltraBullet}
                     onChange={handleCheckboxChange("includeUltraBullet")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Ultra Bullet"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -512,13 +520,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeBullet}
                     onChange={handleCheckboxChange("includeBullet")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Bullet"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -526,13 +534,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeBlitz}
                     onChange={handleCheckboxChange("includeBlitz")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Blitz"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -540,13 +548,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeRapid}
                     onChange={handleCheckboxChange("includeRapid")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Rapid"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -554,13 +562,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeClassical}
                     onChange={handleCheckboxChange("includeClassical")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Classical"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
               <FormControlLabel
                 control={
@@ -568,13 +576,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.includeDaily}
                     onChange={handleCheckboxChange("includeDaily")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Daily/Correspondence"
-                sx={{ color: purpleTheme.text.primary, minWidth: "150px" }}
+                sx={{ color: "text.primary", minWidth: "150px" }}
               />
             </FormGroup>
           </FormControl>
@@ -583,7 +591,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
           <FormControl component="fieldset" sx={{ mb: 3, width: "100%" }}>
             <FormLabel
               sx={{
-                color: purpleTheme.text.primary,
+                color: "text.primary",
                 fontWeight: "bold",
                 mb: 1,
               }}
@@ -599,39 +607,39 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                 control={
                   <Radio
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="All dates"
-                sx={{ color: purpleTheme.text.primary }}
+                sx={{ color: "text.primary" }}
               />
               <FormControlLabel
                 value="past18months"
                 control={
                   <Radio
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Past 18 months"
-                sx={{ color: purpleTheme.text.primary }}
+                sx={{ color: "text.primary" }}
               />
               <FormControlLabel
                 value="between"
                 control={
                   <Radio
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Between the following dates"
-                sx={{ color: purpleTheme.text.primary }}
+                sx={{ color: "text.primary" }}
               />
             </RadioGroup>
 
@@ -646,16 +654,16 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                   sx={{
                     flex: 1,
                     "& .MuiOutlinedInput-root": {
-                      color: purpleTheme.text.primary,
-                      "& fieldset": { borderColor: purpleTheme.secondary },
-                      "&:hover fieldset": { borderColor: purpleTheme.primary },
+                      color: "text.primary",
+                      "& fieldset": { borderColor: "secondary.main" },
+                      "&:hover fieldset": { borderColor: "primary.main" },
                       "&.Mui-focused fieldset": {
-                        borderColor: purpleTheme.primary,
+                        borderColor: "primary.main",
                       },
                     },
                     "& .MuiInputLabel-root": {
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-focused": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-focused": { color: "primary.main" },
                     },
                   }}
                 />
@@ -668,16 +676,16 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                   sx={{
                     flex: 1,
                     "& .MuiOutlinedInput-root": {
-                      color: purpleTheme.text.primary,
-                      "& fieldset": { borderColor: purpleTheme.secondary },
-                      "&:hover fieldset": { borderColor: purpleTheme.primary },
+                      color: "text.primary",
+                      "& fieldset": { borderColor: "secondary.main" },
+                      "&:hover fieldset": { borderColor: "primary.main" },
                       "&.Mui-focused fieldset": {
-                        borderColor: purpleTheme.primary,
+                        borderColor: "primary.main",
                       },
                     },
                     "& .MuiInputLabel-root": {
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-focused": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-focused": { color: "primary.main" },
                     },
                   }}
                 />
@@ -694,13 +702,13 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                     checked={filters.ratedOnly}
                     onChange={handleCheckboxChange("ratedOnly")}
                     sx={{
-                      color: purpleTheme.text.secondary,
-                      "&.Mui-checked": { color: purpleTheme.primary },
+                      color: "text.secondary",
+                      "&.Mui-checked": { color: "primary.main" },
                     }}
                   />
                 }
                 label="Only include rated games"
-                sx={{ color: purpleTheme.text.primary }}
+                sx={{ color: "text.primary" }}
               />
             </FormGroup>
           </FormControl>
@@ -713,7 +721,7 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
           {progress.status === "downloading" && (
             <>
               <Typography
-                sx={{ color: purpleTheme.text.secondary, mb: 1 }}
+                sx={{ color: "text.secondary", mb: 1 }}
               >
                 Downloading games... {progress.currentMonth}
               </Typography>
@@ -721,9 +729,9 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
                 variant="determinate"
                 value={progress.percentage}
                 sx={{
-                  backgroundColor: purpleTheme.background.main,
+                  backgroundColor: "background.default",
                   "& .MuiLinearProgress-bar": {
-                    backgroundColor: purpleTheme.primary,
+                    backgroundColor: "primary.main",
                   },
                 }}
               />
@@ -734,9 +742,9 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <CircularProgress
                 size={24}
-                sx={{ color: purpleTheme.primary }}
+                sx={{ color: "primary.main" }}
               />
-              <Typography sx={{ color: purpleTheme.text.secondary }}>
+              <Typography sx={{ color: "text.secondary" }}>
                 Processing and filtering games...
               </Typography>
             </Box>
@@ -775,16 +783,16 @@ const GameDownloader: React.FC<GameDownloaderProps> = ({ onGamesLoaded }) => {
           progress.status === "processing"
         }
         sx={{
-          backgroundColor: purpleTheme.primary,
+          backgroundColor: "primary.main",
           color: "white",
           py: 1.5,
           fontWeight: "bold",
           "&:hover": {
-            backgroundColor: purpleTheme.accent,
+            backgroundColor: "primary.light",
           },
           "&:disabled": {
-            backgroundColor: purpleTheme.background.main,
-            color: purpleTheme.text.secondary,
+            backgroundColor: "background.default",
+            color: "text.secondary",
           },
         }}
       >

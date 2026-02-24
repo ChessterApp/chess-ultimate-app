@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
+import { apiFetch, ApiError } from '@/lib/api'
+import { useToast } from '@/components/ToastProvider'
+import RateLimitNotice from '@/components/RateLimitNotice'
 import PlayerSearch from '@/components/opponent/PlayerSearch'
 import PlayerProfile from '@/components/opponent/PlayerProfile'
 import GameFilters from '@/components/opponent/GameFilters'
@@ -84,6 +87,8 @@ interface DatabaseStatusData {
 
 export default function OpponentAnalysisPage() {
   const t = useTranslations('opponent')
+  const { showToast } = useToast()
+  const [rateLimited, setRateLimited] = useState(false)
 
   const [loading, setLoading] = useState(false)
   const [selectedPlayer, setSelectedPlayer] = useState<string | null>(null)
@@ -112,57 +117,63 @@ export default function OpponentAnalysisPage() {
   useEffect(() => {
     async function fetchStatus() {
       try {
-        const response = await fetch(`${API_URL}/api/opponent/status`)
-        if (response.ok) {
-          const data = await response.json()
-          setDbStatus(data)
-        }
+        const data = await apiFetch<DatabaseStatusData>(`${API_URL}/api/opponent/status`)
+        setDbStatus(data)
       } catch (error) {
         console.error('Failed to fetch database status:', error)
+        if (error instanceof ApiError && error.status === 0) {
+          showToast('Network error — check your connection', 'error')
+        }
       }
     }
     fetchStatus()
-  }, [API_URL])
+  }, [API_URL, showToast])
 
   // Fetch player profile
   const fetchPlayerProfile = useCallback(async (playerName: string) => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_URL}/api/opponent/${encodeURIComponent(playerName)}/profile`)
-      if (response.ok) {
-        const data = await response.json()
-        // Flatten the API response to match PlayerData interface
-        // API returns stats nested in 'stats' object, but component expects flat structure
-        const flattenedData: PlayerData = {
-          name: data.name,
-          name_normalized: data.name_normalized || '',
-          fide_id: data.fide_id,
-          title: data.title,
-          highest_elo: data.highest_elo,
-          latest_elo: data.latest_elo,
-          total_games: data.total_games,
-          wins_white: data.stats?.wins_white ?? 0,
-          wins_black: data.stats?.wins_black ?? 0,
-          losses_white: data.stats?.losses_white ?? 0,
-          losses_black: data.stats?.losses_black ?? 0,
-          draws: data.stats?.draws ?? 0,
-          first_game_date: data.first_game || null,
-          last_game_date: data.last_game || null,
-          win_rate: data.stats?.win_rate ?? 0
-        }
-        setPlayerData(flattenedData)
-        setSelectedPlayer(playerName)
-      } else {
-        console.error('Failed to fetch player profile')
-        setPlayerData(null)
+      const data = await apiFetch<any>(`${API_URL}/api/opponent/${encodeURIComponent(playerName)}/profile`)
+      // Flatten the API response to match PlayerData interface
+      // API returns stats nested in 'stats' object, but component expects flat structure
+      const flattenedData: PlayerData = {
+        name: data.name,
+        name_normalized: data.name_normalized || '',
+        fide_id: data.fide_id,
+        title: data.title,
+        highest_elo: data.highest_elo,
+        latest_elo: data.latest_elo,
+        total_games: data.total_games,
+        wins_white: data.stats?.wins_white ?? 0,
+        wins_black: data.stats?.wins_black ?? 0,
+        losses_white: data.stats?.losses_white ?? 0,
+        losses_black: data.stats?.losses_black ?? 0,
+        draws: data.stats?.draws ?? 0,
+        first_game_date: data.first_game || null,
+        last_game_date: data.last_game || null,
+        win_rate: data.stats?.win_rate ?? 0
       }
+      setPlayerData(flattenedData)
+      setSelectedPlayer(playerName)
     } catch (error) {
       console.error('Error fetching player profile:', error)
+      if (error instanceof ApiError) {
+        if (error.status === 429) {
+          setRateLimited(true)
+          showToast('Too many requests — please slow down', 'error')
+        } else if (error.status === 408) {
+          showToast('Request timed out — try again', 'error')
+        } else if (error.status === 0) {
+          showToast('Network error — check your connection', 'error')
+        } else {
+          showToast('Failed to load player profile', 'error')
+        }
+      }
       setPlayerData(null)
     } finally {
       setLoading(false)
     }
-  }, [API_URL])
+  }, [API_URL, showToast])
 
   // Fetch games with filters
   const fetchGames = useCallback(async (page: number = 1) => {
@@ -183,64 +194,70 @@ export default function OpponentAnalysisPage() {
       if (filters.dateTo) params.set('date_to', filters.dateTo)
       if (filters.eco) params.set('eco', filters.eco)
 
-      const response = await fetch(
+      const data = await apiFetch<any>(
         `${API_URL}/api/opponent/${encodeURIComponent(selectedPlayer)}/games?${params}`
       )
-
-      if (response.ok) {
-        const data = await response.json()
-        // Transform games from API format (nested white/black objects) to flat format
-        const transformedGames: GameData[] = data.games.map((game: {
-          id: number
-          white: { name: string; elo: number | null; title: string | null }
-          black: { name: string; elo: number | null; title: string | null }
-          result: string
-          date: string
-          eco: string
-          opening: string
-          event: string
-          site: string
-        }) => ({
-          id: game.id,
-          white_name: game.white.name,
-          black_name: game.black.name,
-          white_elo: game.white.elo,
-          black_elo: game.black.elo,
-          result: game.result,
-          date: game.date,
-          eco: game.eco,
-          opening: game.opening,
-          event: game.event,
-          site: game.site
-        }))
-        setGames(transformedGames)
-        // API returns pagination in nested object
-        setTotalGames(data.pagination?.total ?? data.total ?? 0)
-        setCurrentPage(data.pagination?.page ?? data.page ?? page)
-      }
+      // Transform games from API format (nested white/black objects) to flat format
+      const transformedGames: GameData[] = data.games.map((game: {
+        id: number
+        white: { name: string; elo: number | null; title: string | null }
+        black: { name: string; elo: number | null; title: string | null }
+        result: string
+        date: string
+        eco: string
+        opening: string
+        event: string
+        site: string
+      }) => ({
+        id: game.id,
+        white_name: game.white.name,
+        black_name: game.black.name,
+        white_elo: game.white.elo,
+        black_elo: game.black.elo,
+        result: game.result,
+        date: game.date,
+        eco: game.eco,
+        opening: game.opening,
+        event: game.event,
+        site: game.site
+      }))
+      setGames(transformedGames)
+      // API returns pagination in nested object
+      setTotalGames(data.pagination?.total ?? data.total ?? 0)
+      setCurrentPage(data.pagination?.page ?? data.page ?? page)
     } catch (error) {
       console.error('Error fetching games:', error)
+      if (error instanceof ApiError) {
+        if (error.status === 429) {
+          setRateLimited(true)
+          showToast('Too many requests — please slow down', 'error')
+        } else if (error.status === 0) {
+          showToast('Network error — check your connection', 'error')
+        }
+      }
     } finally {
       setGamesLoading(false)
     }
-  }, [selectedPlayer, filters, API_URL])
+  }, [selectedPlayer, filters, API_URL, showToast])
 
   // Fetch openings (fetch both white and black separately)
   const fetchOpenings = useCallback(async () => {
     if (!selectedPlayer) return
 
     try {
-      // Fetch white openings
-      const whiteResponse = await fetch(
-        `${API_URL}/api/opponent/${encodeURIComponent(selectedPlayer)}/openings?color=white`
-      )
-      // Fetch black openings
-      const blackResponse = await fetch(
-        `${API_URL}/api/opponent/${encodeURIComponent(selectedPlayer)}/openings?color=black`
-      )
-
-      const whiteData = whiteResponse.ok ? await whiteResponse.json() : { openings: [] }
-      const blackData = blackResponse.ok ? await blackResponse.json() : { openings: [] }
+      // Fetch white and black openings in parallel
+      let whiteData: any = { openings: [] }
+      let blackData: any = { openings: [] }
+      try {
+        whiteData = await apiFetch<any>(
+          `${API_URL}/api/opponent/${encodeURIComponent(selectedPlayer)}/openings?color=white`
+        )
+      } catch { /* use default */ }
+      try {
+        blackData = await apiFetch<any>(
+          `${API_URL}/api/opponent/${encodeURIComponent(selectedPlayer)}/openings?color=black`
+        )
+      } catch { /* use default */ }
 
       setOpenings({
         white: whiteData.openings || [],
@@ -248,6 +265,9 @@ export default function OpponentAnalysisPage() {
       })
     } catch (error) {
       console.error('Error fetching openings:', error)
+      if (error instanceof ApiError && error.status === 429) {
+        setRateLimited(true)
+      }
     }
   }, [selectedPlayer, API_URL])
 
@@ -256,33 +276,32 @@ export default function OpponentAnalysisPage() {
     if (!selectedPlayer) return
 
     try {
-      const response = await fetch(
+      const data = await apiFetch<any>(
         `${API_URL}/api/opponent/${encodeURIComponent(selectedPlayer)}/opponents`
       )
-
-      if (response.ok) {
-        const data = await response.json()
-        // Transform API response to add score field
-        const transformedOpponents: OpponentData[] = (data.opponents || []).map((opp: {
-          name: string
-          games: number
-          wins: number
-          losses: number
-          draws: number
-          win_rate: number
-        }) => ({
-          name: opp.name,
-          games: opp.games,
-          wins: opp.wins,
-          losses: opp.losses,
-          draws: opp.draws,
-          // Calculate chess score: 1 point for win, 0.5 for draw
-          score: `${opp.wins + opp.draws * 0.5}/${opp.games}`
-        }))
-        setOpponents(transformedOpponents)
-      }
+      // Transform API response to add score field
+      const transformedOpponents: OpponentData[] = (data.opponents || []).map((opp: {
+        name: string
+        games: number
+        wins: number
+        losses: number
+        draws: number
+        win_rate: number
+      }) => ({
+        name: opp.name,
+        games: opp.games,
+        wins: opp.wins,
+        losses: opp.losses,
+        draws: opp.draws,
+        // Calculate chess score: 1 point for win, 0.5 for draw
+        score: `${opp.wins + opp.draws * 0.5}/${opp.games}`
+      }))
+      setOpponents(transformedOpponents)
     } catch (error) {
       console.error('Error fetching opponents:', error)
+      if (error instanceof ApiError && error.status === 429) {
+        setRateLimited(true)
+      }
     }
   }, [selectedPlayer, API_URL])
 
@@ -303,6 +322,7 @@ export default function OpponentAnalysisPage() {
   }, [filters, selectedPlayer, fetchGames])
 
   const handlePlayerSelect = (playerName: string) => {
+    setRateLimited(false)
     setFilters({
       result: 'all',
       color: 'both',
@@ -416,8 +436,18 @@ export default function OpponentAnalysisPage() {
         </div>
       )}
 
+      {/* Rate Limit Notice */}
+      {rateLimited && (
+        <div className="mb-8">
+          <RateLimitNotice onRetry={() => {
+            setRateLimited(false)
+            if (selectedPlayer) fetchPlayerProfile(selectedPlayer)
+          }} />
+        </div>
+      )}
+
       {/* Empty State */}
-      {!playerData && !loading && (
+      {!playerData && !loading && !rateLimited && (
         <div className="text-center py-16 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <div className="text-6xl mb-4">🔍</div>
           <p className="text-xl text-gray-600 dark:text-gray-300">

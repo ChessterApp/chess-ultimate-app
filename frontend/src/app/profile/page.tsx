@@ -52,7 +52,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 animate-page-enter">
       {/* Profile Header */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
         <div className="container mx-auto px-4 py-8">
@@ -145,6 +145,17 @@ export default function ProfilePage() {
         <div className="bg-white rounded-2xl shadow-md p-6">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('profile.account')}</h2>
           <div className="space-y-3">
+            <button
+              onClick={() => router.push('/settings')}
+              className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-xl">♞</span>
+                <span className="font-medium text-gray-900">Board & App Settings</span>
+              </div>
+              <span className="text-gray-400">→</span>
+            </button>
+
             <button
               onClick={() => router.push('/user-profile')}
               className="w-full flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"

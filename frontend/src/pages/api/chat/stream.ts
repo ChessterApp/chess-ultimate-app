@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { chessChesster } from "@/server/mastra/agents";
 import { getBoardState } from "@/server/mastra/tools/protocol/state";
-import { RuntimeContext } from "@mastra/core/di";
+import { RequestContext } from "@mastra/core/request-context";
 import { PositionPrompter } from "@/server/mastra/tools/protocol/positionPrompter";
 import { isClawdbotAvailable, routeRequest, isChessterAvailable } from "@/lib/router";
 import { callGateway } from "@/lib/clawdbot/gateway";
@@ -96,12 +96,8 @@ export default async function handler(
   try {
     let fullResponse = "";
 
-    // Route based on intelligent decision
-    if ((route === 'chesster' || route === 'clawdbot') && isChessterAvailable()) {
-      fullResponse = await handleClawdbot(userId, fen, query, sendEvent);
-    } else {
-      fullResponse = await handleMastra(fen, query, context_type, sendEvent);
-    }
+    // Always use Mastra (fast Gemini Flash), Clawdbot is fallback only
+    fullResponse = await handleMastra(fen, query, context_type, sendEvent);
 
     // Save conversation to Python backend (fire-and-forget)
     saveConversation(authHeader, fen, query, fullResponse, conversation_id, context_type).catch(
@@ -180,21 +176,21 @@ async function handleMastra(
   const mode = contextType === "puzzle" ? "puzzle" : contextType === "game" ? "position" : "position";
 
   // Build RuntimeContext
-  const runtimeContext = new RuntimeContext();
-  runtimeContext.set("provider", MASTRA_PROVIDER);
-  runtimeContext.set("model", MASTRA_MODEL);
-  runtimeContext.set("apiKey", MASTRA_API_KEY);
-  runtimeContext.set("mode", mode);
-  runtimeContext.set("isRouted", MASTRA_IS_ROUTED);
+  const requestContext = new RequestContext();
+  requestContext.set("provider", MASTRA_PROVIDER);
+  requestContext.set("model", MASTRA_MODEL);
+  requestContext.set("apiKey", MASTRA_API_KEY);
+  requestContext.set("mode", mode);
+  requestContext.set("isRouted", MASTRA_IS_ROUTED);
   const detectedLang = detectLanguage(query);
-  runtimeContext.set("lang", detectedLang);
+  requestContext.set("lang", detectedLang);
 
   console.log(`[chat/stream] Mastra: provider=${MASTRA_PROVIDER}, model=${MASTRA_MODEL}, isRouted=${MASTRA_IS_ROUTED}, lang=${detectedLang}`);
 
   // Stream from Mastra agent
   const streamResult = await chessChesster.stream(
     [{ role: "user", content: enrichedQuery }],
-    { runtimeContext }
+    { requestContext }
   );
 
   // Read the text stream and pipe as SSE
@@ -259,36 +255,19 @@ async function handleFallback(
   authHeader: string,
   sendEvent: (data: Record<string, unknown>) => void
 ): Promise<{ text: string; route: string } | null> {
-  // If Chesster failed, try Mastra
-  if (failedRoute === 'chesster') {
+  // Mastra failed, try Clawdbot as fallback
+  if (isChessterAvailable()) {
     try {
-      console.log("[chat/stream] Chesster failed, falling back to Mastra...");
-      const text = await handleMastra(fen, query, contextType, sendEvent);
-      return { text, route: 'mastra' };
-    } catch (err) {
-      console.warn("[chat/stream] Mastra fallback failed:", err);
-    }
-  }
-
-  // If Mastra failed, try Chesster
-  if (failedRoute === 'mastra' && isChessterAvailable()) {
-    try {
-      console.log("[chat/stream] Mastra failed, falling back to Chesster...");
+      console.log("[chat/stream] Mastra failed, falling back to Clawdbot...");
       const text = await handleClawdbot(userId, fen, query, sendEvent);
-      return { text, route: 'chesster' };
+      return { text, route: 'clawdbot' };
     } catch (err) {
-      console.warn("[chat/stream] Chesster fallback failed:", err);
+      console.warn("[chat/stream] Clawdbot fallback also failed:", err);
     }
   }
 
-  // Final fallback: Python backend (raw LLM, no tools)
-  try {
-    console.log("[chat/stream] Falling back to Python backend...");
-    const text = await handlePythonBackend(fen, query, contextType, authHeader, sendEvent);
-    return { text, route: 'python-backend' };
-  } catch (err) {
-    console.error("[chat/stream] Python backend fallback failed:", err);
-  }
+  // Python backend removed from fallback chain — requires Clerk auth
+  // which is fragile, and its LLM capabilities are worse than Clawdbot/Mastra.
 
   return null;
 }

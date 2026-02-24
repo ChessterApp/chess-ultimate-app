@@ -38,15 +38,13 @@ export interface MasterGames {
   topGames: Game[];
 }
 
+import { apiFetch } from '@/lib/api';
+
 // Opening Explorer Functions
 export const getOpeningStats = async (fen: string): Promise<MasterGames | null> => {
   try {
     const masterEndpoint = `https://explorer.lichess.ovh/masters?fen=${fen}&moves=12&topGames=15`;
-    const response = await fetch(masterEndpoint);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const masterData = (await response.json()) as MasterGames;
+    const masterData = await apiFetch<MasterGames>(masterEndpoint);
     return masterData;
   } catch (error) {
     console.error("Error fetching opening stats:", error);
@@ -57,11 +55,7 @@ export const getOpeningStats = async (fen: string): Promise<MasterGames | null> 
 export const getLichessOpeningStats = async (fen: string): Promise<MasterGames | null> => {
   try {
     const masterEndpoint = `https://explorer.lichess.ovh/lichess?fen=${fen}&moves=12&topGames=4`;
-    const response = await fetch(masterEndpoint);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const masterData = (await response.json()) as MasterGames;
+    const masterData = await apiFetch<MasterGames>(masterEndpoint);
     return masterData;
   } catch (error) {
     console.error("Error fetching opening stats:", error);

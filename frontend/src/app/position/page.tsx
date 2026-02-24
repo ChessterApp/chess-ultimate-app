@@ -7,18 +7,31 @@ import dynamic from "next/dynamic";
 import useChesster from "@/hooks/useChesster";
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
-import { purpleTheme } from "@/theme/theme";
+import UpgradePrompt from "@/components/UpgradePrompt";
 import Loader from "@/components/loading/Loader";
 import Warning from "@/components/loading/SignUpWarning";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import { useChatSessions } from "@/hooks/useChatSessions";
 
 import type { EditorState } from "@/components/editor/BoardEditor";
 
 // Dynamic imports — ssr:false prevents hydration mismatches from useLocalStorage
-const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), { ssr: false });
-const ChessterAnalysisView = dynamic(() => import("@/components/analysis/ChessterAnalysisView"), { ssr: false });
-const ChatSidebar = dynamic(() => import("@/components/ChatSidebar"), { ssr: false });
-const EditorControls = dynamic(() => import("@/components/editor/EditorControls"), { ssr: false });
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
+});
+const ChessterAnalysisView = dynamic(() => import("@/components/analysis/ChessterAnalysisView"), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
+});
+const ChatSidebar = dynamic(() => import("@/components/ChatSidebar"), {
+  ssr: false,
+  loading: () => <div className="animate-pulse w-64 h-screen bg-gray-200 rounded-xl" />
+});
+const EditorControls = dynamic(() => import("@/components/editor/EditorControls"), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-60 bg-gray-200 rounded-xl" />
+});
 
 export default function PositionPage() {
   // const session = useSession();
@@ -199,11 +212,15 @@ export default function PositionPage() {
     <Box
       sx={{
         display: "flex",
-        backgroundColor: purpleTheme.background.main,
+        flexDirection: "column",
+        backgroundColor: 'var(--surface-page)',
         minHeight: "100vh",
         position: "relative",
       }}
     >
+      <UpgradePrompt feature="Game analysis" />
+      <Box sx={{ px: { xs: 1, sm: 2 }, pt: 1 }}><Breadcrumbs /></Box>
+      <Box sx={{ display: "flex", flex: 1, position: "relative" }}>
       {/* Chat Sidebar */}
       <Box
         sx={{
@@ -326,6 +343,7 @@ export default function PositionPage() {
           )}
         </Box>
       </Stack>
+      </Box>
       </Box>
     </Box>
   );
