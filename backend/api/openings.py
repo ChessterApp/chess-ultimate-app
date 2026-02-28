@@ -284,11 +284,9 @@ def find_moves_to_fen(target_fen: str, max_depth: int = 30) -> List[str]:
 # ─────────────────────────────────────────────
 
 def get_internal_db_connection() -> sqlite3.Connection:
-    # Open TWIC DB in explicit read-only immutable mode.
-    # This is required because we protect the DB with immutable filesystem flag
-    # (chattr +i), and SQLite write-oriented open modes can fail with
-    # "attempt to write a readonly database" even for read queries.
-    uri = f"file:{TWIC_DB_PATH}?mode=ro&immutable=1"
+    # Open TWIC DB in read-only mode.
+    # mode=ro allows reads while backfill/indexer writes via separate connection.
+    uri = f"file:{TWIC_DB_PATH}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     return conn
@@ -886,6 +884,7 @@ def get_repertoire(repertoire_id):
         nodes_result = supabase.table('opening_nodes') \
             .select('*') \
             .eq('repertoire_id', repertoire_id) \
+            .order('priority', desc=True) \
             .order('created_at') \
             .execute()
 
@@ -1063,6 +1062,7 @@ def export_repertoire_pgn(repertoire_id):
         nodes_result = supabase.table('opening_nodes') \
             .select('*') \
             .eq('repertoire_id', repertoire_id) \
+            .order('priority', desc=True) \
             .order('created_at') \
             .execute()
 
@@ -1406,6 +1406,7 @@ def add_node():
             'move_number': move_number,
             'is_white_move': is_white_move,
             'is_critical': is_critical,
+            'priority': 1,
             'opening_name': opening_info.get('name') if opening_info else None,
             'eco_code': opening_info.get('eco') if opening_info else None,
         }
@@ -1440,6 +1441,11 @@ def add_node():
 @verify_clerk_token
 def update_node(node_id):
     """Update node metadata (notes, priority, critical)."""
+    try:
+        uuid.UUID(node_id)
+    except (ValueError, AttributeError):
+        return jsonify({'error': 'Invalid node_id'}), 400
+
     user_id = get_current_user_id()
     data = request.get_json()
 
@@ -1481,6 +1487,11 @@ def update_node(node_id):
 @verify_clerk_token
 def delete_node(node_id):
     """Delete node and all its children (cascading). Cannot delete root."""
+    try:
+        uuid.UUID(node_id)
+    except (ValueError, AttributeError):
+        return jsonify({'error': 'Invalid node_id'}), 400
+
     user_id = get_current_user_id()
 
     try:
@@ -1750,6 +1761,12 @@ def get_training_stats():
 @verify_clerk_token
 def get_node_games(node_id):
     """Get games linked to a node."""
+    # Guard: reject non-UUID node IDs (e.g. temp-* from optimistic UI)
+    try:
+        uuid.UUID(node_id)
+    except (ValueError, AttributeError):
+        return jsonify({'games': []})
+
     user_id = get_current_user_id()
 
     try:
@@ -1778,6 +1795,11 @@ def get_node_games(node_id):
 @verify_clerk_token
 def link_game_to_node(node_id):
     """Link a game to a node."""
+    try:
+        uuid.UUID(node_id)
+    except (ValueError, AttributeError):
+        return jsonify({'error': 'Invalid node_id'}), 400
+
     user_id = get_current_user_id()
     data = request.get_json()
 
@@ -1881,7 +1903,7 @@ def games_by_position():
             # Quick probe to estimate
             pool_size = min(max(limit * 40, 200), 2000)
             probe = conn.execute(
-                "SELECT COUNT(*) as cnt FROM (SELECT 1 FROM game_positions WHERE board_hash = ? LIMIT ?)",
+                "SELECT COUNT(*) as cnt FROM (SELECT 1 FROM game_positions gp INNER JOIN games g ON g.id = gp.game_id WHERE gp.board_hash = ? LIMIT ?)",
                 [board_hash, pool_size]
             ).fetchone()['cnt']
             if probe < pool_size:
@@ -1929,7 +1951,7 @@ def games_by_position():
                 total = len(matched_ids)  # Player-specific count
         else:
             id_rows = conn.execute(
-                "SELECT game_id FROM game_positions WHERE board_hash = ? ORDER BY game_id DESC LIMIT ?",
+                "SELECT gp.game_id FROM game_positions gp INNER JOIN games g ON g.id = gp.game_id WHERE gp.board_hash = ? ORDER BY gp.game_id DESC LIMIT ?",
                 [board_hash, pool_size]
             ).fetchall()
             game_ids = [r['game_id'] for r in id_rows]
@@ -2066,14 +2088,18 @@ def position_count():
         return jsonify({'error': str(e)}), 500
 
 
+_candidates_cache = {}   # board_hash -> (timestamp, result_dict)
+_CANDIDATES_CACHE_TTL = 600  # 10 minutes
+
 @openings_bp.route('/positions/candidates', methods=['GET'])
-@verify_clerk_token
 def position_candidates():
     """Return candidate next moves for a FEN using TWIC position index.
 
     Used by Analysis tab as primary local source; frontend can still fallback
     to external ChessDB when this endpoint has no data.
     """
+    import time as _time
+
     fen = request.args.get('fen', '')
     if not fen:
         return jsonify({'status': 'error', 'message': 'Missing fen parameter', 'moves': []}), 400
@@ -2088,101 +2114,286 @@ def position_candidates():
     if not check_internal_db_exists():
         return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': False})
 
+    board_hash = _get_board_hash(fen)
+
+    # Check cache first
+    cached = _candidates_cache.get(board_hash)
+    if cached:
+        ts, result = cached
+        if _time.time() - ts < _CANDIDATES_CACHE_TTL:
+            # Re-apply limit if needed
+            result_copy = dict(result)
+            result_copy['moves'] = result_copy['moves'][:limit]
+            return jsonify(result_copy)
+
     conn = get_internal_db_connection()
     try:
         if not _has_position_index(conn):
             conn.close()
             return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': False})
 
-        board_hash = _get_board_hash(fen)
         side_to_move = fen.split(' ')[1] if len(fen.split(' ')) > 1 else 'w'
 
+        # ── Fastest path: pre-aggregated move_stats table (<5ms) ──
+        has_move_stats = False
+        try:
+            test_stats = conn.execute(
+                "SELECT 1 FROM move_stats WHERE board_hash = ? LIMIT 1",
+                [board_hash]
+            ).fetchone()
+            has_move_stats = test_stats is not None
+        except Exception:
+            pass
+
+        if has_move_stats:
+            sql_rows = conn.execute(
+                '''
+                SELECT move_san, games as cnt,
+                       white_wins as w_wins, black_wins as b_wins, draws,
+                       avg_elo, avg_year
+                FROM move_stats
+                WHERE board_hash = ?
+                ORDER BY games DESC
+                LIMIT ?
+                ''',
+                [board_hash, limit]
+            ).fetchall()
+            conn.close()
+
+            if not sql_rows:
+                return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': True})
+
+            total_all_games = sum(r['cnt'] for r in sql_rows)
+            moves = []
+            for idx, r in enumerate(sql_rows, start=1):
+                total = max(r['cnt'], 1)
+                white_wins = r['w_wins'] or 0
+                black_wins = r['b_wins'] or 0
+                draws = r['draws'] or 0
+                avg_elo = round(r['avg_elo']) if r['avg_elo'] else None
+                avg_year = round(r['avg_year']) if r['avg_year'] else None
+
+                if side_to_move == 'w':
+                    winrate = ((white_wins + 0.5 * draws) / total) * 100.0
+                else:
+                    winrate = ((black_wins + 0.5 * draws) / total) * 100.0
+
+                score_cp = int(round((winrate - 50.0) * 8.0))
+                note = 'Best' if idx == 1 else ('Good' if idx <= 3 else 'Playable')
+                percentage = round((total / total_all_games * 100), 1) if total_all_games > 0 else 0
+
+                moves.append({
+                    'uci': '',
+                    'san': r['move_san'],
+                    'score': str(score_cp),
+                    'winrate': f"{winrate:.1f}",
+                    'rank': str(idx),
+                    'note': note,
+                    'count': total,
+                    'white_wins': white_wins,
+                    'draws': draws,
+                    'black_wins': black_wins,
+                    'avg_elo': avg_elo,
+                    'avg_year': avg_year,
+                    'percentage': percentage,
+                })
+
+            result = {'status': 'ok', 'source': 'twic', 'indexed': True, 'total_games': total_all_games, 'moves': moves}
+            _candidates_cache[board_hash] = (_time.time(), result)
+            return jsonify(result)
+
+        # ── Fallback: PGN parsing (used until backfill completes) ──
         rows = conn.execute(
             '''
-            SELECT
-                gp2.board_hash AS next_hash,
-                COUNT(*) AS games_count,
-                MIN(gp1.game_id) AS sample_game_id,
-                MIN(gp2.ply) AS next_ply,
-                SUM(CASE WHEN g.result = '1-0' THEN 1 ELSE 0 END) AS white_wins,
-                SUM(CASE WHEN g.result = '0-1' THEN 1 ELSE 0 END) AS black_wins,
-                SUM(CASE WHEN g.result = '1/2-1/2' THEN 1 ELSE 0 END) AS draws
-            FROM game_positions gp1
-            JOIN game_positions gp2
-              ON gp2.game_id = gp1.game_id
-             AND gp2.ply = gp1.ply + 1
-            JOIN games g ON g.id = gp1.game_id
-            WHERE gp1.board_hash = ?
-            GROUP BY gp2.board_hash
-            ORDER BY games_count DESC
-            LIMIT ?
+            SELECT gp.game_id, gp.ply,
+                   g.result, g.white_elo, g.black_elo, g.year,
+                   g.pgn_offset, g.pgn_length
+            FROM game_positions gp
+            JOIN games g ON g.id = gp.game_id
+            WHERE gp.board_hash = ?
+            LIMIT 1000
             ''',
-            [board_hash, limit]
+            [board_hash]
         ).fetchall()
 
         if not rows:
             conn.close()
             return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': True})
 
-        moves = []
-        for idx, r in enumerate(rows, start=1):
-            sample = conn.execute(
-                'SELECT pgn_offset, pgn_length FROM games WHERE id = ?',
-                [r['sample_game_id']]
-            ).fetchone()
-            if not sample:
-                continue
+        conn.close()
 
+        rows_sorted = sorted(rows, key=lambda r: r['pgn_offset'])
+        move_stats = {}
+
+        try:
+            pgn_file = open(TWIC_PGN_PATH, 'r', errors='replace')
+        except Exception:
+            return jsonify({'status': 'error', 'message': 'PGN file not available', 'moves': []}), 500
+
+        for r in rows_sorted:
+            ply_target = r['ply'] + 1
             san = None
             uci = None
             try:
-                with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
-                    f.seek(sample['pgn_offset'])
-                    pgn_text = f.read(sample['pgn_length'])
-                game = chess.pgn.read_game(io.StringIO(pgn_text))
-                if game:
-                    b = game.board()
-                    ply_target = int(r['next_ply'])
-                    for ply_i, mv in enumerate(game.mainline_moves(), start=1):
+                pgn_file.seek(r['pgn_offset'])
+                pgn_text = pgn_file.read(r['pgn_length'])
+                game_obj = chess.pgn.read_game(io.StringIO(pgn_text))
+                if game_obj:
+                    b = game_obj.board()
+                    for ply_i, mv in enumerate(game_obj.mainline_moves(), start=1):
                         if ply_i == ply_target:
                             san = b.san(mv)
                             uci = mv.uci()
                             break
                         b.push(mv)
             except Exception:
-                pass
+                continue
 
-            total = max(int(r['games_count'] or 0), 1)
-            white_wins = int(r['white_wins'] or 0)
-            black_wins = int(r['black_wins'] or 0)
-            draws = int(r['draws'] or 0)
+            if not san:
+                continue
+
+            if san not in move_stats:
+                move_stats[san] = {
+                    'uci': uci, 'count': 0,
+                    'white_wins': 0, 'draws': 0, 'black_wins': 0,
+                    'elo_sum': 0, 'elo_count': 0,
+                    'year_sum': 0, 'year_count': 0,
+                }
+
+            ms = move_stats[san]
+            ms['count'] += 1
+            result = r['result']
+            if result == '1-0':
+                ms['white_wins'] += 1
+            elif result == '0-1':
+                ms['black_wins'] += 1
+            elif result == '1/2-1/2':
+                ms['draws'] += 1
+
+            w_elo = r['white_elo'] or 0
+            b_elo = r['black_elo'] or 0
+            if w_elo > 0 and b_elo > 0:
+                ms['elo_sum'] += (w_elo + b_elo) / 2.0
+                ms['elo_count'] += 1
+            yr = r['year'] or 0
+            if yr > 0:
+                ms['year_sum'] += yr
+                ms['year_count'] += 1
+
+        pgn_file.close()
+
+        if not move_stats:
+            return jsonify({'status': 'ok', 'source': 'twic', 'moves': [], 'indexed': True})
+
+        sorted_moves = sorted(move_stats.items(), key=lambda x: x[1]['count'], reverse=True)[:limit]
+        total_all_games = sum(ms['count'] for _, ms in sorted_moves)
+
+        moves = []
+        for idx, (san, ms) in enumerate(sorted_moves, start=1):
+            total = max(ms['count'], 1)
+            white_wins = ms['white_wins']
+            black_wins = ms['black_wins']
+            draws = ms['draws']
+            avg_elo = round(ms['elo_sum'] / ms['elo_count']) if ms['elo_count'] > 0 else None
+            avg_year = round(ms['year_sum'] / ms['year_count']) if ms['year_count'] > 0 else None
 
             if side_to_move == 'w':
                 winrate = ((white_wins + 0.5 * draws) / total) * 100.0
             else:
                 winrate = ((black_wins + 0.5 * draws) / total) * 100.0
 
-            # Lightweight eval proxy from master results (for existing UI field)
             score_cp = int(round((winrate - 50.0) * 8.0))
-
             note = 'Best' if idx == 1 else ('Good' if idx <= 3 else 'Playable')
+            percentage = round((total / total_all_games * 100), 1) if total_all_games > 0 else 0
+
             moves.append({
-                'uci': uci or '',
-                'san': san or '',
+                'uci': ms['uci'] or '',
+                'san': san,
                 'score': str(score_cp),
                 'winrate': f"{winrate:.1f}",
                 'rank': str(idx),
                 'note': note,
                 'count': total,
+                'white_wins': white_wins,
+                'draws': draws,
+                'black_wins': black_wins,
+                'avg_elo': avg_elo,
+                'avg_year': avg_year,
+                'percentage': percentage,
             })
 
-        conn.close()
-        return jsonify({'status': 'ok', 'source': 'twic', 'indexed': True, 'moves': moves})
+        result = {'status': 'ok', 'source': 'twic', 'indexed': True, 'total_games': total_all_games, 'moves': moves}
+        _candidates_cache[board_hash] = (_time.time(), result)
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"Error in position_candidates: {e}")
-        conn.close()
+        try:
+            conn.close()
+        except Exception:
+            pass
         return jsonify({'status': 'error', 'message': str(e), 'moves': []}), 500
+
+
+_top_players_cache = {}   # board_hash -> (timestamp, result_list)
+_TOP_PLAYERS_CACHE_TTL = 600  # 10 minutes
+
+@openings_bp.route('/positions/top-players', methods=['GET'])
+@verify_clerk_token
+def position_top_players():
+    """Return top-rated players who played at a given position."""
+    import time as _time
+
+    fen = request.args.get('fen', '')
+    if not fen:
+        return jsonify({'status': 'error', 'message': 'Missing fen parameter', 'players': []}), 400
+
+    limit = min(int(request.args.get('limit', 10)), 30)
+
+    if not check_internal_db_exists():
+        return jsonify({'status': 'ok', 'players': []})
+
+    board_hash = _get_board_hash(fen)
+
+    # Check cache
+    cached = _top_players_cache.get(board_hash)
+    if cached:
+        ts, players_list = cached
+        if _time.time() - ts < _TOP_PLAYERS_CACHE_TTL:
+            return jsonify({'status': 'ok', 'players': players_list[:limit]})
+
+    conn = get_internal_db_connection()
+    try:
+        if not _has_position_index(conn):
+            conn.close()
+            return jsonify({'status': 'ok', 'players': []})
+
+        # Sample up to 2000 game_positions rows then extract player info.
+        # Without LIMIT, the starting position (4M+ rows) causes 20s+ queries.
+        rows = conn.execute('''
+            SELECT name, MAX(elo) as elo, MAX(title) as title, COUNT(*) as games
+            FROM (
+                SELECT g.white_name as name, g.white_elo as elo, g.white_title as title
+                FROM game_positions gp
+                JOIN games g ON g.id = gp.game_id
+                WHERE gp.board_hash = ? AND g.white_elo > 0
+                LIMIT 2000
+            )
+            GROUP BY name
+            ORDER BY elo DESC
+            LIMIT ?
+        ''', [board_hash, limit]).fetchall()
+
+        conn.close()
+
+        players = [{'name': r['name'], 'elo': r['elo'], 'title': r['title'] or '', 'games': r['games']} for r in rows]
+        _top_players_cache[board_hash] = (_time.time(), players)
+        return jsonify({'status': 'ok', 'players': players})
+
+    except Exception as e:
+        logger.error(f"Error in position_top_players: {e}")
+        conn.close()
+        return jsonify({'status': 'error', 'message': str(e), 'players': []}), 500
 
 
 @openings_bp.route('/games/search', methods=['GET'])

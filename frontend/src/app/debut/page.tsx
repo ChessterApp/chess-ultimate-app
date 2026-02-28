@@ -6,25 +6,33 @@ import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
-import type { OpeningNode, GameSearchResult, GameLink } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode, GameSearchResult, GameLink, MoveCandidate, CandidatesResponse } from '@/hooks/useOpeningRepertoire';
 import type { Arrow } from 'react-chessboard/dist/chessboard/types';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
   ssr: false,
-  loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
+  loading: () => <div className="animate-pulse h-80 bg-stone-200 rounded-xl" />
 });
 const RepertoireSelector = dynamic(() => import('@/components/openings/RepertoireSelector'), {
   ssr: false,
-  loading: () => <div className="animate-pulse h-16 bg-gray-200 rounded-xl" />
+  loading: () => <div className="animate-pulse h-16 bg-stone-200 rounded-xl" />
 });
 const MoveNotation = dynamic(() => import('@/components/openings/MoveNotation'), {
   ssr: false,
-  loading: () => <div className="animate-pulse h-20 bg-gray-200 rounded-xl" />
+  loading: () => <div className="animate-pulse h-20 bg-stone-200 rounded-xl" />
 });
 const NodeDetailsPanel = dynamic(() => import('@/components/openings/NodeDetailsPanel'), {
   ssr: false,
-  loading: () => <div className="animate-pulse h-60 bg-gray-200 rounded-xl" />
+  loading: () => <div className="animate-pulse h-60 bg-stone-200 rounded-xl" />
+});
+const MoveTree = dynamic(() => import('@/components/openings/MoveTree'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-32 bg-stone-200 rounded-xl" />
+});
+const PositionSummary = dynamic(() => import('@/components/openings/PositionSummary'), {
+  ssr: false,
+  loading: () => null
 });
 const PgnImporter = dynamic(() => import('@/components/openings/PgnImporter'), {
   ssr: false,
@@ -72,6 +80,12 @@ export default function DebutPage() {
   // ─── Master games filters ───
   const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', playerColor: '', sortBy: 'rating' });
 
+  // ─── Move tree (candidates) ───
+  const [candidateMoves, setCandidateMoves] = useState<MoveCandidate[]>([]);
+  const [candidatesTotalGames, setCandidatesTotalGames] = useState(0);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+
+
   // ─── Game viewer tabs ───
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
   const [activeTab, setActiveTab] = useState<string>('debut');
@@ -90,6 +104,7 @@ export default function DebutPage() {
     addArrow, deleteArrow,
     fetchGamesByPosition, fetchPositionCount, fetchGamePgn,
     searchGamesStream, linkGame, getNodeGames, deleteGameLink,
+    fetchCandidateMoves,
   } = useOpeningRepertoire();
 
   // ─── Fetch repertoires on mount ───
@@ -157,7 +172,7 @@ export default function DebutPage() {
 
   // ─── Load game links when node changes ───
   useEffect(() => {
-    if (selectedNode && selectedNode.move_san !== null) {
+    if (selectedNode && selectedNode.move_san !== null && !selectedNode.id.startsWith('temp-')) {
       setGameLinksLoading(true);
       getNodeGames(selectedNode.id)
         .then(setGameLinks)
@@ -211,6 +226,38 @@ export default function DebutPage() {
 
     return () => { cancelled = true; };
   }, [selectedNode?.fen, masterGamesFilters, fetchGamesByPosition, fetchPositionCount]);
+
+  // ─── Auto-fetch candidate moves when node changes ───
+  useEffect(() => {
+    if (!selectedNode) {
+      setCandidateMoves([]);
+      setCandidatesTotalGames(0);
+      return;
+    }
+
+    let cancelled = false;
+    setCandidatesLoading(true);
+
+    fetchCandidateMoves(selectedNode.fen)
+      .then((data) => {
+        if (!cancelled) {
+          setCandidateMoves(data.moves);
+          setCandidatesTotalGames(data.total_games);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCandidateMoves([]);
+          setCandidatesTotalGames(0);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCandidatesLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedNode?.fen, fetchCandidateMoves]);
+
 
   // ─── Handlers ───
 
@@ -288,7 +335,7 @@ export default function DebutPage() {
       opening_name: null,
       eco_code: null,
       notes: null,
-      priority: 0,
+      priority: 1,
       is_critical: false,
       times_trained: 0,
       times_correct: 0,
@@ -350,6 +397,29 @@ export default function DebutPage() {
       setSnackbar({ open: true, msg: e.message, severity: 'error' });
     }
   }, [selectedNode, selectedRepertoireId, currentTree, addNode, fetchTree, setCurrentTree]);
+
+  // Handle move tree click — navigate to the child node matching the clicked move
+  const handleMoveTreeClick = useCallback((move: MoveCandidate) => {
+    if (!selectedNode || !currentTree) return;
+    // Look for existing child with matching UCI
+    const child = selectedNode.children?.find(c => c.move_uci === move.uci);
+    if (child) {
+      handleNodeSelect(child);
+      return;
+    }
+    // If no existing child, simulate a board move
+    if (move.uci && move.uci.length >= 4) {
+      const from = move.uci.substring(0, 2);
+      const to = move.uci.substring(2, 4);
+      import('chess.js').then(({ Chess }) => {
+        const chess = new Chess(selectedNode.fen);
+        const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
+        if (result) {
+          handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
+        }
+      }).catch(() => {});
+    }
+  }, [selectedNode, currentTree, handleNodeSelect, handleBoardMove]);
 
   // Navigation handlers
   const handleReset = useCallback(() => {
@@ -646,8 +716,10 @@ export default function DebutPage() {
             onClick={() => setActiveTab('debut')}
             sx={{
               height: 28, fontSize: 12, fontWeight: 600,
-              bgcolor: activeTab === 'debut' ? 'primary.main' : 'var(--surface-card)',
+              borderRadius: '9999px',
+              bgcolor: activeTab === 'debut' ? 'primary.main' : 'rgba(255,255,255,0.95)',
               color: activeTab === 'debut' ? '#fff' : 'var(--text-secondary)',
+              border: activeTab === 'debut' ? 'none' : '1px solid rgba(31,41,55,0.1)',
               '&:hover': { bgcolor: activeTab === 'debut' ? 'primary.dark' : 'var(--surface-card-hover)' },
               cursor: 'pointer', flexShrink: 0,
             }}
@@ -661,8 +733,10 @@ export default function DebutPage() {
               deleteIcon={<Close sx={{ fontSize: 14, color: 'var(--text-tertiary)', '&:hover': { color: 'var(--text-primary)' } }} />}
               sx={{
                 height: 28, fontSize: 11, maxWidth: 200,
-                bgcolor: activeTab === g.id ? 'primary.main' : 'var(--surface-card)',
+                borderRadius: '9999px',
+                bgcolor: activeTab === g.id ? 'primary.main' : 'rgba(255,255,255,0.95)',
                 color: activeTab === g.id ? '#fff' : 'var(--text-secondary)',
+                border: activeTab === g.id ? 'none' : '1px solid rgba(31,41,55,0.1)',
                 '&:hover': { bgcolor: activeTab === g.id ? 'primary.dark' : 'var(--surface-card-hover)' },
                 cursor: 'pointer', flexShrink: 0,
                 '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -711,7 +785,7 @@ export default function DebutPage() {
               mt: 0.5,
               overflow: 'auto',
               bgcolor: 'var(--surface-card)',
-              borderRadius: 1,
+              borderRadius: '24px',
               border: '1px solid var(--border-strong)',
               '&::-webkit-scrollbar': { width: '6px' },
               '&::-webkit-scrollbar-track': { background: 'var(--surface-page)', borderRadius: '3px' },
@@ -751,7 +825,8 @@ export default function DebutPage() {
           display: 'flex',
           flexDirection: 'column',
           bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
-          borderRadius: { xs: 0, lg: 1 },
+          borderRadius: { xs: 0, lg: '24px' },
+          border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
           overflow: { xs: 'visible', lg: 'hidden' },
           minWidth: 0,
           maxHeight: { lg: 'calc(100vh - 32px)' },
@@ -770,6 +845,25 @@ export default function DebutPage() {
                 loading={loading}
               />
               <Box sx={{ flex: 1, overflow: 'auto' }}>
+                {/* Move Tree (ChessBase-style) */}
+                <MoveTree
+                  moves={candidateMoves}
+                  totalGames={candidatesTotalGames}
+                  loading={candidatesLoading}
+                  onMoveClick={handleMoveTreeClick}
+                  fen={selectedNode?.fen}
+                />
+
+                {/* Position Summary (ECO + aggregate W/D/L) */}
+                <PositionSummary
+                  ecoCode={selectedNode?.eco_code || null}
+                  openingName={selectedNode?.opening_name || null}
+                  totalGames={candidatesTotalGames}
+                  moves={candidateMoves}
+                />
+
+
+                {/* Master Games + Linked Games */}
                 <NodeDetailsPanel
                   node={selectedNode}
                   onUpdateNotes={handleUpdateNotes}
