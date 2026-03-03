@@ -1360,6 +1360,12 @@ def add_node():
     if not parent_id or not move_san or not new_fen:
         return jsonify({'error': 'parentId, moveSan, and newFen are required'}), 400
 
+    # Validate parentId is a valid UUID (reject temp IDs like "temp-xxx")
+    try:
+        uuid.UUID(parent_id)
+    except (ValueError, AttributeError):
+        return jsonify({'error': f'Invalid parentId format: {parent_id}'}), 400
+
     try:
         # Verify parent belongs to user
         parent = supabase.table('opening_nodes') \
