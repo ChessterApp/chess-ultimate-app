@@ -7,6 +7,7 @@ import { Config } from 'chessground/config';
 import { Key, Color } from 'chessground/types';
 import { Chess } from 'chess.js';
 import 'chessground/assets/chessground.base.css';
+import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
 
 interface ChessgroundBoardProps {
