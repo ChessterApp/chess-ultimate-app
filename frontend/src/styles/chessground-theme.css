@@ -3,18 +3,8 @@
  * Matches Chesster's brown theme and provides piece sprites
  */
 
-/* Board colors - Classic brown theme matching our default */
-.chessground-board cg-board {
-  background-color: #b58863; /* Default dark square */
-}
-
-.chessground-board cg-board square.white {
-  background-color: #f0d9b5; /* Light square */
-}
-
-.chessground-board cg-board square.black {
-  background-color: #b58863; /* Dark square */
-}
+/* Don't override inline width/height on the board wrapper —
+   the component sets explicit pixel dimensions via inline style */
 
 /* Selected square highlight */
 .chessground-board cg-board square.selected {
@@ -73,53 +63,54 @@
   opacity: 0.5;
 }
 
-/* Piece set - Using Fritz pieces from /static/pieces/Fritz/ */
-.chessground-board piece.pawn.white {
-  background-image: url('/static/pieces/Fritz/wP.svg');
+/* Piece set - Using Fritz pieces from /static/pieces/Fritz/
+   Higher specificity than base .cg-wrap piece selectors */
+.chessground-board.cg-wrap piece.pawn.white {
+  background-image: url('/static/pieces/Fritz/wP.svg') !important;
 }
 
-.chessground-board piece.knight.white {
-  background-image: url('/static/pieces/Fritz/wN.svg');
+.chessground-board.cg-wrap piece.knight.white {
+  background-image: url('/static/pieces/Fritz/wN.svg') !important;
 }
 
-.chessground-board piece.bishop.white {
-  background-image: url('/static/pieces/Fritz/wB.svg');
+.chessground-board.cg-wrap piece.bishop.white {
+  background-image: url('/static/pieces/Fritz/wB.svg') !important;
 }
 
-.chessground-board piece.rook.white {
-  background-image: url('/static/pieces/Fritz/wR.svg');
+.chessground-board.cg-wrap piece.rook.white {
+  background-image: url('/static/pieces/Fritz/wR.svg') !important;
 }
 
-.chessground-board piece.queen.white {
-  background-image: url('/static/pieces/Fritz/wQ.svg');
+.chessground-board.cg-wrap piece.queen.white {
+  background-image: url('/static/pieces/Fritz/wQ.svg') !important;
 }
 
-.chessground-board piece.king.white {
-  background-image: url('/static/pieces/Fritz/wK.svg');
+.chessground-board.cg-wrap piece.king.white {
+  background-image: url('/static/pieces/Fritz/wK.svg') !important;
 }
 
-.chessground-board piece.pawn.black {
-  background-image: url('/static/pieces/Fritz/bP.svg');
+.chessground-board.cg-wrap piece.pawn.black {
+  background-image: url('/static/pieces/Fritz/bP.svg') !important;
 }
 
-.chessground-board piece.knight.black {
-  background-image: url('/static/pieces/Fritz/bN.svg');
+.chessground-board.cg-wrap piece.knight.black {
+  background-image: url('/static/pieces/Fritz/bN.svg') !important;
 }
 
-.chessground-board piece.bishop.black {
-  background-image: url('/static/pieces/Fritz/bB.svg');
+.chessground-board.cg-wrap piece.bishop.black {
+  background-image: url('/static/pieces/Fritz/bB.svg') !important;
 }
 
-.chessground-board piece.rook.black {
-  background-image: url('/static/pieces/Fritz/bR.svg');
+.chessground-board.cg-wrap piece.rook.black {
+  background-image: url('/static/pieces/Fritz/bR.svg') !important;
 }
 
-.chessground-board piece.queen.black {
-  background-image: url('/static/pieces/Fritz/bQ.svg');
+.chessground-board.cg-wrap piece.queen.black {
+  background-image: url('/static/pieces/Fritz/bQ.svg') !important;
 }
 
-.chessground-board piece.king.black {
-  background-image: url('/static/pieces/Fritz/bK.svg');
+.chessground-board.cg-wrap piece.king.black {
+  background-image: url('/static/pieces/Fritz/bK.svg') !important;
 }
 
 /* Ensure pieces render as background images */

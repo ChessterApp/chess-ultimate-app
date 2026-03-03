@@ -48,6 +48,8 @@ export default function ChessgroundBoard({
 }: ChessgroundBoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const cgRef = useRef<Api | null>(null);
+  const onMoveRef = useRef(onMove);
+  onMoveRef.current = onMove;
 
   // Convert chess.js legal moves to chessground dests format
   const getLegalMoves = useCallback((fen: string): Map<Key, Key[]> => {
@@ -86,6 +88,19 @@ export default function ChessgroundBoard({
     return parts[1] === 'w' ? 'white' : 'black';
   }, []);
 
+  // Detect if king is in check from FEN
+  const isInCheck = useCallback((fen: string): Color | false => {
+    try {
+      const chess = new Chess(fen);
+      if (chess.inCheck()) {
+        return getTurnColor(fen);
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }, [getTurnColor]);
+
   // Initialize chessground
   useEffect(() => {
     if (!boardRef.current) return;
@@ -101,9 +116,9 @@ export default function ChessgroundBoard({
         dests: movable && !viewOnly ? getLegalMoves(fen) : new Map(),
         showDests: true, // Show legal move indicators
         events: {
-          after: onMove ? (orig: Key, dest: Key) => {
-            onMove(orig, dest);
-          } : undefined,
+          after: (orig: Key, dest: Key) => {
+            onMoveRef.current?.(orig, dest);
+          },
         },
       },
 
@@ -175,13 +190,13 @@ export default function ChessgroundBoard({
         color: movable && !viewOnly ? 'both' : undefined,
         dests: movable && !viewOnly ? getLegalMoves(fen) : new Map(),
       },
-      check: check || undefined,
+      check: check ? isInCheck(fen) : false,
     });
 
     if (lastMove) {
       cgRef.current.set({ lastMove });
     }
-  }, [fen, movable, viewOnly, check, lastMove, getLegalMoves, getTurnColor]);
+  }, [fen, movable, viewOnly, check, lastMove, getLegalMoves, getTurnColor, isInCheck]);
 
   // Update orientation
   useEffect(() => {

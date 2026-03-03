@@ -22,7 +22,8 @@
   height: 100% !important;
 }
 
-.cg-wrap {
+/* Only apply 100% sizing to cg-wrap inside the learning board wrapper */
+.chessground-wrapper .cg-wrap {
   width: 100% !important;
   height: 100% !important;
 }
@@ -37,9 +38,9 @@
      ======================================== */
 
   /* Primary brand colors */
-  --primary: #8B5CF6;
-  --primary-hover: #7C3AED;
-  --primary-light: #EDE9FE;
+  --primary: #1f2937;
+  --primary-hover: #111827;
+  --primary-light: #f0fdf4;
 
   /* Success/Correct */
   --success: #22C55E;
@@ -114,7 +115,7 @@
      ======================================== */
 
   /* Surfaces */
-  --surface-page: #FAFAFA;
+  --surface-page: #fafaf9;
   --surface-card: #FFFFFF;
   --surface-card-hover: #F4F4F5;
   --surface-raised: #FFFFFF;
@@ -127,18 +128,22 @@
   --text-secondary: #52525B;
   --text-tertiary: #A1A1AA;
   --text-inverse: #FFFFFF;
-  --text-link: #7C3AED;
+  --text-link: #0d9488;
   --text-on-primary: #FFFFFF;
 
   /* Borders */
-  --border-default: #E4E4E7;
+  --border-default: #e5e7eb;
   --border-strong: #D4D4D8;
   --border-subtle: #F4F4F5;
-  --border-focus: #8B5CF6;
+  --border-focus: #14b8a6;
 
   /* Accent backgrounds */
-  --accent-purple-bg: #EDE9FE;
-  --accent-purple-text: #6D28D9;
+  --accent-purple-bg: rgba(20,184,166,0.1);
+  --accent-purple-text: #0d9488;
+
+  /* ClawMart radii */
+  --radius-card: 32px;
+  --radius-button: 9999px;
   --accent-green-bg: #DCFCE7;
   --accent-green-text: #15803D;
   --accent-amber-bg: #FEF3C7;
@@ -154,12 +159,17 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* ChessBase-style piece animation easing */
+[data-boardid="debut-board"] div[style*="transition"] {
+  transition-timing-function: cubic-bezier(0.21, 0.34, 0.29, 0.98) !important;
+}
+
 /* Dark mode vars are handled by html.dark below */
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, Arial, Helvetica, sans-serif;
 }
 
 /* ========================================
@@ -560,7 +570,7 @@ a.btn:active {
 
 /* Smooth focus ring for accessibility */
 *:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid #14b8a6;
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -630,16 +640,16 @@ html.dark {
   --text-secondary: #A0A0A0;
   --text-tertiary: #666666;
   --text-inverse: #18181B;
-  --text-link: #A78BFA;
+  --text-link: #2dd4bf;
   --text-on-primary: #FFFFFF;
 
   --border-default: #2a2a2a;
   --border-strong: #333333;
   --border-subtle: #1f1f1f;
-  --border-focus: #8B5CF6;
+  --border-focus: #14b8a6;
 
-  --accent-purple-bg: rgba(139, 92, 246, 0.15);
-  --accent-purple-text: #A78BFA;
+  --accent-purple-bg: rgba(20, 184, 166, 0.15);
+  --accent-purple-text: #2dd4bf;
   --accent-green-bg: rgba(34, 197, 94, 0.15);
   --accent-green-text: #86EFAC;
   --accent-amber-bg: rgba(245, 158, 11, 0.15);
@@ -770,7 +780,7 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
    ======================================== */
 
 .font-display {
-  font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+  font-family: Fraunces, Georgia, serif;
   font-weight: 700;
 }
 
