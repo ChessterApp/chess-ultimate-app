@@ -65,6 +65,19 @@ def build_tree(nodes: list) -> dict:
                 root = n
                 break
 
+    # Sort children recursively: main line (highest priority, earliest created) first
+    def sort_children(node):
+        """Recursively sort children by priority DESC, created_at ASC."""
+        if node and node.get('children'):
+            node['children'].sort(
+                key=lambda c: (-c.get('priority', 0), c.get('created_at', ''))
+            )
+            for child in node['children']:
+                sort_children(child)
+
+    if root:
+        sort_children(root)
+
     return root
 
 

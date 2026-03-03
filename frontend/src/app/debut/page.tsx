@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
@@ -106,6 +106,11 @@ export default function DebutPage() {
     searchGamesStream, linkGame, getNodeGames, deleteGameLink,
     fetchCandidateMoves,
   } = useOpeningRepertoire();
+
+  // ─── Refs for temp ID tracking and move queue ───
+  const tempToRealIdRef = useRef<Map<string, string>>(new Map());
+  const moveQueueRef = useRef<Array<() => Promise<void>>>([]);
+  const isProcessingMoveRef = useRef(false);
 
   // ─── Fetch repertoires on mount ───
   useEffect(() => { fetchRepertoires(); }, [fetchRepertoires]);
@@ -316,86 +321,130 @@ export default function DebutPage() {
       return;
     }
 
-    // ── Optimistic tree update: notation appears INSTANTLY ──
-    // Parse move number from FEN (fullmove counter is last field)
-    const fenParts = newFen.split(' ');
-    const isWhiteMove = fenParts[1] === 'b'; // if it's black's turn now, white just moved
-    const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
-    const tempId = `temp-${Date.now()}`;
+    // ── Move queue: prevent race conditions when moves come in faster than backend responds ──
+    const executeMoveLogic = async () => {
+      // ── Optimistic tree update: notation appears INSTANTLY ──
+      // Parse move number from FEN (fullmove counter is last field)
+      const fenParts = newFen.split(' ');
+      const isWhiteMove = fenParts[1] === 'b'; // if it's black's turn now, white just moved
+      const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
+      const tempId = `temp-${Date.now()}`;
 
-    const optimisticNode: OpeningNode = {
-      id: tempId,
-      repertoire_id: selectedRepertoireId,
-      parent_id: selectedNode.id,
-      fen: newFen,
-      move_san: moveSan,
-      move_uci: moveUci,
-      move_number: moveNumber || 1,
-      is_white_move: isWhiteMove,
-      opening_name: null,
-      eco_code: null,
-      notes: null,
-      priority: 1,
-      is_critical: false,
-      times_trained: 0,
-      times_correct: 0,
-      last_trained_at: null,
-      next_review_at: null,
-      ease_factor: 2.5,
-      interval_days: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      children: [],
-    };
+      const optimisticNode: OpeningNode = {
+        id: tempId,
+        repertoire_id: selectedRepertoireId,
+        parent_id: selectedNode.id,
+        fen: newFen,
+        move_san: moveSan,
+        move_uci: moveUci,
+        move_number: moveNumber || 1,
+        is_white_move: isWhiteMove,
+        opening_name: null,
+        eco_code: null,
+        notes: null,
+        priority: 1,
+        is_critical: false,
+        times_trained: 0,
+        times_correct: 0,
+        last_trained_at: null,
+        next_review_at: null,
+        ease_factor: 2.5,
+        interval_days: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        children: [],
+      };
 
-    // Clone tree and splice in the new node (skip if FEN already exists)
-    const cloneAndInsert = (node: OpeningNode): OpeningNode => {
-      const cloned = { ...node, children: (node.children || []).map(cloneAndInsert) };
-      if (node.id === selectedNode.id) {
-        const alreadyHasFen = (cloned.children || []).some(fenMatch);
-        if (!alreadyHasFen) {
-          cloned.children = [...(cloned.children || []), optimisticNode];
+      // Clone tree and splice in the new node (skip if FEN already exists)
+      const cloneAndInsert = (node: OpeningNode): OpeningNode => {
+        const cloned = { ...node, children: (node.children || []).map(cloneAndInsert) };
+        if (node.id === selectedNode.id) {
+          const alreadyHasFen = (cloned.children || []).some(fenMatch);
+          if (!alreadyHasFen) {
+            // Use unshift instead of push when parent has NO children from real tree
+            // This ensures optimistic nodes become children[0] (main line)
+            const isParentTemp = selectedNode.id.startsWith('temp-');
+            const hasRealChildren = (cloned.children || []).some(c => !c.id.startsWith('temp-'));
+            if (isParentTemp || !hasRealChildren) {
+              cloned.children = [optimisticNode, ...(cloned.children || [])];
+            } else {
+              cloned.children = [...(cloned.children || []), optimisticNode];
+            }
+          }
+        }
+        return cloned;
+      };
+      const optimisticTree = cloneAndInsert(currentTree);
+
+      // Update tree + selection IMMEDIATELY — notation renders instantly
+      setCurrentTree(optimisticTree);
+      setSelectedNodeId(tempId);
+      setSelectedNode(optimisticNode);
+
+      // ── Background: persist to DB and reconcile ──
+      // Use the REAL parent ID (not temp) — resolve through tempToRealIdRef map
+      let realParentId = selectedNode.id;
+      if (selectedNode.id.startsWith('temp-')) {
+        // Check if this temp ID has been resolved to a real ID
+        const resolvedId = tempToRealIdRef.current.get(selectedNode.id);
+        if (resolvedId) {
+          realParentId = resolvedId;
+        } else {
+          // If not resolved yet, use parent_id (but this should rarely happen with queue)
+          realParentId = selectedNode.parent_id!;
         }
       }
-      return cloned;
+
+      try {
+        const newNode = await addNode(realParentId, moveSan, moveUci, newFen);
+        // Store temp-to-real mapping
+        tempToRealIdRef.current.set(tempId, newNode.id);
+
+        // Replace temp ID with real ID in tree and selection
+        const realNode: OpeningNode = { ...newNode, children: [] };
+        setCurrentTree(prev => {
+          if (!prev) return prev;
+          const replaceTempId = (node: OpeningNode): OpeningNode => {
+            const cloned = { ...node, children: (node.children || []).map(replaceTempId) };
+            if (cloned.id === tempId) {
+              return { ...realNode, children: cloned.children };
+            }
+            return cloned;
+          };
+          return replaceTempId(prev);
+        });
+        setSelectedNodeId(newNode.id);
+        setSelectedNode(realNode);
+        // Silently refresh tree in background (no loading spinner)
+        fetchTree(selectedRepertoireId, true).catch(() => {});
+      } catch (e: any) {
+        // Revert optimistic update on error
+        setBoardFen(selectedNode.fen);
+        const revertId = selectedNode.id.startsWith('temp-')
+          ? (tempToRealIdRef.current.get(selectedNode.id) || selectedNode.parent_id!)
+          : selectedNode.id;
+        setSelectedNodeId(revertId);
+        fetchTree(selectedRepertoireId, true).catch(() => {});
+        setSnackbar({ open: true, msg: e.message, severity: 'error' });
+      }
     };
-    const optimisticTree = cloneAndInsert(currentTree);
 
-    // Update tree + selection IMMEDIATELY — notation renders instantly
-    setCurrentTree(optimisticTree);
-    setSelectedNodeId(tempId);
-    setSelectedNode(optimisticNode);
+    // Add to queue and process
+    moveQueueRef.current.push(executeMoveLogic);
 
-    // ── Background: persist to DB and reconcile ──
-    // Use the REAL parent ID (not temp) — if selectedNode was temp, use its parent_id
-    const realParentId = selectedNode.id.startsWith('temp-') ? selectedNode.parent_id! : selectedNode.id;
+    const processQueue = async () => {
+      if (isProcessingMoveRef.current) return; // Already processing
+      isProcessingMoveRef.current = true;
 
-    try {
-      const newNode = await addNode(realParentId, moveSan, moveUci, newFen);
-      // Replace temp ID with real ID in tree and selection
-      const realNode: OpeningNode = { ...newNode, children: [] };
-      setCurrentTree(prev => {
-        if (!prev) return prev;
-        const replaceTempId = (node: OpeningNode): OpeningNode => {
-          const cloned = { ...node, children: (node.children || []).map(replaceTempId) };
-          if (cloned.id === tempId) {
-            return { ...realNode, children: cloned.children };
-          }
-          return cloned;
-        };
-        return replaceTempId(prev);
-      });
-      setSelectedNodeId(newNode.id);
-      setSelectedNode(realNode);
-      // Silently refresh tree in background (no loading spinner)
-      fetchTree(selectedRepertoireId, true).catch(() => {});
-    } catch (e: any) {
-      // Revert optimistic update on error
-      setBoardFen(selectedNode.fen);
-      setSelectedNodeId(selectedNode.id.startsWith('temp-') ? selectedNode.parent_id! : selectedNode.id);
-      fetchTree(selectedRepertoireId, true).catch(() => {});
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
+      while (moveQueueRef.current.length > 0) {
+        const moveLogic = moveQueueRef.current.shift()!;
+        await moveLogic();
+      }
+
+      isProcessingMoveRef.current = false;
+    };
+
+    processQueue();
   }, [selectedNode, selectedRepertoireId, currentTree, addNode, fetchTree, setCurrentTree]);
 
   // Handle move tree click — navigate to the child node matching the clicked move
