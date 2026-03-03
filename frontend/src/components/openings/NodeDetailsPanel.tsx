@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import {
   Box, Typography, Button, Chip, Divider, IconButton,
   List, ListItem, ListItemText,
-  CircularProgress,
+  LinearProgress,
 } from '@mui/material';
 import {
   Storage, ChevronLeft, ChevronRight,
@@ -64,24 +64,10 @@ export default function NodeDetailsPanel({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 1.5, overflow: 'auto' }}>
-      {/* Opening info */}
-      {(node.opening_name || node.eco_code) && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-          {node.eco_code && (
-            <Chip label={node.eco_code} size="small" sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', fontWeight: 600, fontSize: 12 }} />
-          )}
-          {node.opening_name && (
-            <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 500 }}>
-              {node.opening_name}
-            </Typography>
-          )}
-        </Box>
-      )}
-
       {/* Master Games (auto-fetched from TWIC) */}
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-          <Storage sx={{ fontSize: 14, color: 'primary.light' }} />
+          <Storage sx={{ fontSize: 14, color: '#14b8a6' }} />
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
             {t('masterGames')}
           </Typography>
@@ -89,7 +75,7 @@ export default function NodeDetailsPanel({
             <Chip
               label={masterGamesTotal.toLocaleString()}
               size="small"
-              sx={{ height: 16, fontSize: 10, bgcolor: 'primary.dark', color: 'primary.contrastText', ml: 'auto' }}
+              sx={{ height: 16, fontSize: 10, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
             />
           )}
         </Box>
@@ -101,14 +87,17 @@ export default function NodeDetailsPanel({
           />
         )}
 
-        {masterGamesLoading ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
-            <CircularProgress size={14} sx={{ color: 'primary.light' }} />
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>{t('searchingPosition')}</Typography>
-          </Box>
-        ) : masterGames.length > 0 ? (
-          <Box>
-            <List dense sx={{ p: 0 }}>
+        {masterGames.length > 0 || masterGamesLoading ? (
+          <Box sx={{ position: 'relative' }}>
+            {masterGamesLoading && (
+              <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, '& .MuiLinearProgress-bar': { bgcolor: '#14b8a6' }, bgcolor: 'transparent', zIndex: 1 }} />
+            )}
+            {masterGames.length === 0 && masterGamesLoading ? (
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, opacity: 0.5, py: 0.5, display: 'block' }}>
+                {t('searchingPosition')}
+              </Typography>
+            ) : (
+            <List dense sx={{ p: 0, opacity: masterGamesLoading ? 0.5 : 1, transition: 'opacity 0.15s ease' }}>
               {masterGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE).map((g, idx) => (
                 <ListItem
                   key={`master-${g.id || idx}`}
@@ -136,7 +125,7 @@ export default function NodeDetailsPanel({
                     secondary={
                       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
                         <Chip label={g.result || '?'} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                        {g.eco && <Chip label={g.eco} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'primary.dark', color: 'primary.contrastText' }} />}
+                        {g.eco && <Chip label={g.eco} size="small" sx={{ height: 14, fontSize: 9, bgcolor: '#1f2937', color: '#fff' }} />}
                         {(g.date || g.year) && (
                           <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
                             {g.date || g.year}
@@ -148,6 +137,7 @@ export default function NodeDetailsPanel({
                 </ListItem>
               ))}
             </List>
+            )}
 
             {/* Pagination controls */}
             {masterGames.length > GAMES_PER_PAGE && (
@@ -178,7 +168,7 @@ export default function NodeDetailsPanel({
               <Button
                 size="small"
                 onClick={() => onSearchGames(node!.fen)}
-                sx={{ color: 'primary.light', fontSize: 11, textTransform: 'none', mt: 0.5 }}
+                sx={{ color: '#14b8a6', fontSize: 11, textTransform: 'none', mt: 0.5 }}
               >
                 {t('viewAllGames', { count: masterGamesTotal.toLocaleString() })}
               </Button>
