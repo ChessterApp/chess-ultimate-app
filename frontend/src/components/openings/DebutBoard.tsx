@@ -3,15 +3,15 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Box } from '@mui/material';
 import { SvgIcon, SvgIconProps } from '@mui/material';
-import { Chessboard } from 'react-chessboard';
+import ChessgroundBoard from '@/components/chess/ChessgroundBoard';
 import { Chess, Square } from 'chess.js';
 import { useLocalStorage } from 'usehooks-ts';
+import type { Key } from 'chessground/types';
 import {
   BOARD_THEMES,
   getCurrentThemeColors,
   DEFAULT_BOARD_SHOW_COORDINATE,
 } from '@/libs/setting/helper';
-import type { Arrow, BoardOrientation } from 'react-chessboard/dist/chessboard/types';
 
 // ─── ChessBase-style SVG icons ───
 
@@ -62,9 +62,9 @@ const CBFlipBoardIcon = (props: SvgIconProps) => (
 
 interface DebutBoardProps {
   fen: string;
-  orientation: BoardOrientation;
+  orientation: 'white' | 'black';
   onMove: (from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string) => void;
-  customArrows?: Arrow[];
+  customArrows?: Array<{ from: Key; to: Key; brush: string }>;
   onReset: () => void;
   onGoToStart: () => void;
   onPrev: () => void;
@@ -76,19 +76,13 @@ interface DebutBoardProps {
 // ─── Component ───
 
 export default function DebutBoard({
-  fen, orientation, onMove, customArrows,
+  fen, orientation, onMove, customArrows = [],
   onReset, onGoToStart, onPrev, onNext, onGoToEnd, onFlip,
 }: DebutBoardProps) {
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
-  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
-  const [legalMoves, setLegalMoves] = useState<string[]>([]);
 
-  const [pieceType] = useLocalStorage<string>('board_piece_type', 'Fritz');
-  const [boardTheme] = useLocalStorage<string>('board_theme', 'chessbase');
   const [showCoordinates] = useLocalStorage<boolean>('board_show_coordinates', DEFAULT_BOARD_SHOW_COORDINATE);
-  const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', 300);
-
-  const themeColors = useMemo(() => getCurrentThemeColors(boardTheme), [boardTheme]);
+  const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', 200);
 
   // Responsive board size
   useEffect(() => {
@@ -105,126 +99,34 @@ export default function DebutBoard({
     return 520;
   }, [windowWidth]);
 
-  // Piece images — map names to actual folder (filesystem is case-sensitive)
-  const ASSET_VERSION = process.env.NEXT_PUBLIC_ASSET_VERSION || '';
-  const customPieces = useMemo(() => {
-    const folderMap: Record<string, string> = { cburnett: 'Cburnett', fritz: 'Fritz', Fritz: 'Fritz' };
-    const folder = folderMap[pieceType] || pieceType || 'Fritz';
-    const svgSets = ['cburnett', 'fritz'];
-    const isSvg = svgSets.includes(pieceType.toLowerCase());
-    const ext = isSvg ? 'svg' : 'png';
-    const pieces: Record<string, any> = {};
-    const pieceTypes = ['wP', 'wN', 'wB', 'wR', 'wQ', 'wK', 'bP', 'bN', 'bB', 'bR', 'bQ', 'bK'];
-    pieceTypes.forEach(p => {
-      pieces[p] = ({ squareWidth }: { squareWidth: number }) => (
-        <img
-          src={`/static/pieces/${folder}/${p}.${ext}?v=${ASSET_VERSION}`}
-          alt={p}
-          style={{ width: squareWidth, height: squareWidth }}
-          onError={(e) => {
-            const img = e.currentTarget;
-            if (!img.dataset.retried) {
-              img.dataset.retried = '1';
-              img.src = `${img.src.split('?')[0]}?v=${ASSET_VERSION}&t=${Date.now()}`;
-            }
-          }}
-        />
-      );
-    });
-    return pieces;
-  }, [pieceType, ASSET_VERSION]);
-
-  // Legal move squares styling
-  const moveSquares = useMemo(() => {
-    const styles: Record<string, React.CSSProperties> = {};
-    if (selectedSquare) {
-      styles[selectedSquare] = {
-        backgroundColor: themeColors.selectedSquareColor || 'rgba(255, 215, 0, 0.6)',
-      };
-    }
-    legalMoves.forEach(sq => {
-      styles[sq] = {
-        background: `radial-gradient(circle, ${themeColors.squareClickLegalColor || 'rgba(86, 65, 6, 0.5)'} 25%, transparent 25%)`,
-        borderRadius: '50%',
-      };
-    });
-    return styles;
-  }, [selectedSquare, legalMoves, themeColors]);
-
-  // Handle square click for move selection
-  const handleSquareClick = useCallback((square: Square) => {
-    try {
-      const game = new Chess(fen);
-
-      // If we already have a selected square, try to make the move
-      if (selectedSquare) {
-        try {
-          const move = game.move({ from: selectedSquare as Square, to: square, promotion: 'q' });
-          if (move) {
-            onMove(selectedSquare, square, move.piece, game.fen(), move.san, move.from + move.to);
-            setSelectedSquare(null);
-            setLegalMoves([]);
-            return;
-          }
-        } catch {
-          // Invalid move — fall through to select new piece
-        }
-      }
-
-      // Select new piece
-      const moves = game.moves({ square, verbose: true });
-      if (moves.length > 0) {
-        setSelectedSquare(square);
-        setLegalMoves(moves.map(m => m.to));
-      } else {
-        setSelectedSquare(null);
-        setLegalMoves([]);
-      }
-    } catch {
-      setSelectedSquare(null);
-      setLegalMoves([]);
-    }
-  }, [fen, selectedSquare, onMove]);
-
-  // Handle drop
-  const handleDrop = useCallback((sourceSquare: Square, targetSquare: Square, piece: string): boolean => {
+  // Handle chessground move
+  const handleMove = useCallback((from: Key, to: Key) => {
     try {
       const game = new Chess(fen);
       const move = game.move({
-        from: sourceSquare,
-        to: targetSquare,
-        promotion: piece[1]?.toLowerCase() === 'q' ? 'q' : 'q',
+        from,
+        to,
+        promotion: 'q', // Auto-queen promotion for simplicity
       });
       if (move) {
-        onMove(sourceSquare, targetSquare, piece, game.fen(), move.san, move.from + move.to);
-        setSelectedSquare(null);
-        setLegalMoves([]);
-        return true;
+        onMove(from, to, move.piece, game.fen(), move.san, move.from + move.to);
       }
-    } catch { /* invalid move */ }
-    return false;
+    } catch (err) {
+      console.error('Invalid move:', err);
+    }
   }, [fen, onMove]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <Chessboard
-        id="debut-board"
-        position={fen}
-        boardOrientation={orientation}
-        boardWidth={boardSize}
-        onSquareClick={handleSquareClick}
-        onPieceDrop={handleDrop}
-        customBoardStyle={{
-          borderRadius: '2px',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
-        }}
-        customDarkSquareStyle={{ backgroundColor: themeColors.darkSquareColor }}
-        customLightSquareStyle={{ backgroundColor: themeColors.lightSquareColor }}
-        customSquareStyles={moveSquares}
-        customArrows={customArrows}
-        customPieces={customPieces}
-        showBoardNotation={showCoordinates}
+      <ChessgroundBoard
+        fen={fen}
+        orientation={orientation}
+        boardSize={boardSize}
+        onMove={handleMove}
+        arrows={customArrows}
+        showCoordinates={showCoordinates}
         animationDuration={animationDuration}
+        movable={true}
       />
 
       {/* Board Control Bar — matches Analysis board exactly */}
@@ -233,7 +135,7 @@ export default function DebutBoard({
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
-          backgroundColor: 'background.paper',
+          backgroundColor: 'rgba(255,255,255,0.95)',
           borderRadius: 0,
           height: 38,
           width: boardSize,
@@ -263,7 +165,7 @@ export default function DebutBoard({
               padding: '5px',
               transition: 'background-color 0.15s, color 0.15s',
               '&:hover': {
-                backgroundColor: 'rgba(255,255,255,0.08)',
+                backgroundColor: 'rgba(31,41,55,0.06)',
                 color: 'text.primary',
               },
             }}

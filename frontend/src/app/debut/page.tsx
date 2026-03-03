@@ -7,7 +7,7 @@ import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
 import type { OpeningNode, GameSearchResult, GameLink, MoveCandidate, CandidatesResponse } from '@/hooks/useOpeningRepertoire';
-import type { Arrow } from 'react-chessboard/dist/chessboard/types';
+import type { Key } from 'chessground/types';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -54,8 +54,7 @@ export default function DebutPage() {
   const session = { isLoaded: true, isSignedIn: true };
   const backendHealthy = useBackendHealth();
 
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
+  // mounted guard removed — dynamic imports with ssr:false handle this
 
   // ─── Core state ───
   const [selectedRepertoireId, setSelectedRepertoireId] = useState<string | null>(null);
@@ -393,14 +392,26 @@ export default function DebutPage() {
       selectedNodeRef.current = optimisticNode;
       currentTreeRef.current = optimisticTree;
 
-      // Resolve real parent ID (temp → real via map)
+      // Resolve real parent ID (temp → real via map, with retry for in-flight saves)
       let realParentId = curSelectedNode.id;
       if (curSelectedNode.id.startsWith('temp-')) {
-        const resolvedId = tempToRealIdRef.current.get(curSelectedNode.id);
+        let resolvedId = tempToRealIdRef.current.get(curSelectedNode.id);
+        if (!resolvedId) {
+          // Wait for the previous move's API call to resolve the temp ID
+          for (let attempt = 0; attempt < 50; attempt++) {
+            await new Promise(r => setTimeout(r, 100));
+            resolvedId = tempToRealIdRef.current.get(curSelectedNode.id);
+            if (resolvedId) break;
+          }
+        }
         if (resolvedId) {
           realParentId = resolvedId;
         } else {
-          realParentId = curSelectedNode.parent_id!;
+          // Still unresolved after 5s — skip this move
+          console.error('Could not resolve temp parent ID:', curSelectedNode.id);
+          setBoardFen(curSelectedNode.fen);
+          setSnackbar({ open: true, msg: 'Move failed — parent not saved yet', severity: 'error' });
+          continue;
         }
       }
 
@@ -744,9 +755,13 @@ export default function DebutPage() {
   }, [selectedNode, linkGame, getNodeGames]);
 
   // ─── Arrow annotations for the board ───
-  const boardArrows: Arrow[] = useMemo(() => {
+  const boardArrows = useMemo(() => {
     if (!selectedNode?.arrows?.length) return [];
-    return selectedNode.arrows.map(a => [a.from_square, a.to_square, a.color || 'green'] as Arrow);
+    return selectedNode.arrows.map(a => ({
+      from: a.from_square as Key,
+      to: a.to_square as Key,
+      brush: a.color || 'green'
+    }));
   }, [selectedNode?.arrows]);
 
   // ─── Keyboard navigation ───
@@ -763,14 +778,6 @@ export default function DebutPage() {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [handlePrev, handleNext, handleGoToStart, handleGoToEnd]);
-
-  if (!mounted) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', bgcolor: 'var(--surface-page)' }}>
-        <Typography sx={{ color: 'var(--text-tertiary)' }}>Loading...</Typography>
-      </Box>
-    );
-  }
 
   const selectedRep = repertoires.find(r => r.id === selectedRepertoireId);
 

@@ -32,10 +32,11 @@ import {
   // SkipPrevious, SkipNext, Replay, SwapVert removed — using ChessBase SVG icons
 } from "@mui/icons-material";
 import OpenInFullIcon from "@mui/icons-material/OpenInFull";
-import { Chessboard } from "react-chessboard";
+import ChessgroundBoard from "@/components/chess/ChessgroundBoard";
 import { UciEngine } from "@/stockfish/engine/UciEngine";
 import { SvgIcon, SvgIconProps } from "@mui/material";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import type { Key } from 'chessground/types';
 
 // ChessBase-style SVG icons (extracted from database.chessbase.com)
 const CBResetIcon = (props: SvgIconProps) => (
@@ -83,10 +84,6 @@ const CBFlipBoardIcon = (props: SvgIconProps) => (
 import { Chess, Square } from "chess.js";
 import { PositionEval } from "@/stockfish/engine/engine";
 import { MasterGames } from "../../libs/openingdatabase/helper";
-import {
-  Arrow,
-  BoardOrientation,
-} from "react-chessboard/dist/chessboard/types";
 import { MoveAnalysis } from "../../hooks/useGameReview";
 import { getMoveClassificationStyle } from "../tabs/GameReviewTab";
 import PGNView from "../tabs/PgnView";
@@ -135,7 +132,7 @@ interface AiChessboardPanelProps {
     [square: string]: CSSProperties;
   };
   game: Chess;
-  side?: BoardOrientation;
+  side?: 'white' | 'black';
   moves?: string[];
   stockfishAnalysisResult?: PositionEval | null;
   gameInfo?: Record<string, string>;
@@ -193,8 +190,6 @@ export default function AiChessboardPanel({
   );
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(-1);
-  const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
-  const [legalMoves, setLegalMoves] = useState<string[]>([]);
   const [showArrows, setShowArrows] = useState(
     puzzleMode || playMode ? false : true
   );
@@ -226,20 +221,22 @@ export default function AiChessboardPanel({
     if (windowWidth < 1024) return { width: Math.min(windowWidth - 24, 540), height: 'auto' };
     return { width: panelDimensions.width, height: panelDimensions.height };
   }, [windowWidth, panelDimensions]);
-  const [pieceType, setPieceType] = useLocalStorage<string>(
-    "board_piece_type",
-    "Fritz"
-  );
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showCoordinates, setShowCoordinates] = useLocalStorage<boolean>(
     "board_show_coordinates",
     DEFAULT_BOARD_SHOW_COORDINATE
   );
 
+  // Keep theme settings for UI even though chessground uses CSS theming
+  const [pieceType, setPieceType] = useLocalStorage<string>(
+    "board_piece_type",
+    "Fritz"
+  );
   const [boardTheme, setBoardTheme] = useLocalStorage<string>(
     "board_theme",
-    "chessbase" // Default to ChessBase theme
+    "chessbase"
   );
+
   const [animationDuration, setAnimationDuration] = useLocalStorage<number>(
     "board_ui_animation_duration",
     DEFAULT_BOARD_ANIMATION_DURATION
@@ -474,16 +471,16 @@ export default function AiChessboardPanel({
     );
   }, [playMode, gameStatus, game, playerSide, engineThinking]);
 
-  // Custom onDrop handler for gameplay
+  // Custom onDrop handler for gameplay - adapted for chessground
   const handlePlayerMove = useCallback(
-    (source: string, target: string) => {
+    (from: Key, to: Key) => {
       if (playMode) {
-        if (!canPlayerMove()) return false;
+        if (!canPlayerMove()) return;
 
         try {
           const move = game.move({
-            from: source,
-            to: target,
+            from,
+            to,
             promotion: "q",
           });
 
@@ -493,32 +490,25 @@ export default function AiChessboardPanel({
             const newGame = new Chess(game.fen());
             setGame(newGame);
             setFen(newGame.fen());
-            setSelectedSquare(null);
-            setLegalMoves([]);
             setMoveSquares({});
-            return true;
           }
         } catch (error) {
           console.log("Invalid move:", error);
         }
-        return false;
       } else {
-        let moveMade = false;
         safeGameMutate((gameInstance) => {
           const move = gameInstance.move({
-            from: source,
-            to: target,
+            from,
+            to,
             promotion: "q",
           });
           if (move) {
             playSound(move.captured ? 'capture' : 'move');
             haptic.vibrate(move.captured ? 'capture' : move.san.includes('+') ? 'check' : 'move');
-            moveMade = true;
             clearAnalysis();
           }
         });
         setMoveSquares({});
-        return moveMade;
       }
     },
     [
@@ -531,6 +521,7 @@ export default function AiChessboardPanel({
       safeGameMutate,
       clearAnalysis,
       playSound,
+      haptic,
     ]
   );
 
@@ -576,113 +567,36 @@ export default function AiChessboardPanel({
         setGame(newGame);
         setFen(newFen);
         setCurrentMoveIndex(historyIndex);
-        setSelectedSquare(null);
-        setLegalMoves([]);
         clearAnalysis();
       }
     },
     [moveHistory, setGame, setFen, clearAnalysis]
   );
 
-  // Optimized square click handler
-  const handleSquareClick = useCallback(
-    (square: string) => {
-      if (selectedSquare === square) {
-        setSelectedSquare(null);
-        setLegalMoves([]);
-        return;
+  // Puzzle mode move handler - adapted for chessground
+  const handlePuzzleMove = useCallback(
+    (from: Key, to: Key) => {
+      if (onDropPuzzle) {
+        onDropPuzzle(from, to);
       }
-
-      if (selectedSquare && legalMoves.includes(square)) {
-        if (playMode) {
-          try {
-            const move = game.move({
-              from: selectedSquare,
-              to: square,
-              promotion: "q",
-            });
-
-            if (move) {
-              const newGame = new Chess(game.fen());
-              setGame(newGame);
-              setFen(newGame.fen());
-            }
-          } catch (error) {
-            console.log("Invalid move:", error);
-          }
-        } else {
-          safeGameMutate((newGame) => {
-            try {
-              const move = newGame.move({
-                from: selectedSquare,
-                to: square,
-                promotion: "q",
-              });
-
-              if (move) {
-                clearAnalysis();
-              }
-            } catch (error) {
-              console.log("Invalid move:", error);
-            }
-          });
-        }
-
-        setSelectedSquare(null);
-        setLegalMoves([]);
-        return;
-      }
-
-      const piece = game.get(square as Square);
-      if (!piece || piece.color !== game.turn()) {
-        setSelectedSquare(null);
-        setLegalMoves([]);
-        return;
-      }
-
-      if (playMode) {
-        const playerColor = side === "white" ? "w" : "b";
-        if (piece.color !== playerColor) {
-          setSelectedSquare(null);
-          setLegalMoves([]);
-          return;
-        }
-      }
-
-      const moves = game.moves({ square: square as Square, verbose: true });
-      const targetSquares = moves.map((move) => move.to);
-
-      setSelectedSquare(square);
-      setLegalMoves(targetSquares);
     },
-    [
-      playMode,
-      canPlayerMove,
-      selectedSquare,
-      legalMoves,
-      game,
-      playerSide,
-      setGame,
-      setFen,
-      safeGameMutate,
-      clearAnalysis,
-    ]
+    [onDropPuzzle]
   );
 
-  const customArrows = useMemo((): Arrow[] => {
+  const customArrows = useMemo((): Array<{ from: Key; to: Key; brush: string }> => {
     if (!showArrows) {
       return [];
     }
 
-    const arrows: Arrow[] = [];
+    const arrows: Array<{ from: Key; to: Key; brush: string }> = [];
 
     // Only show review arrow if reviewMove exists and corresponds to current position
     if (reviewMove) {
-      const reviewArrow: Arrow = [
-        reviewMove.arrowMove.from,
-        reviewMove.arrowMove.to,
-        getMoveClassificationStyle(reviewMove.quality).color,
-      ];
+      const reviewArrow = {
+        from: reviewMove.arrowMove.from as Key,
+        to: reviewMove.arrowMove.to as Key,
+        brush: getMoveClassificationStyle(reviewMove.quality).color,
+      };
       arrows.push(reviewArrow);
 
       // Only add engine arrow if reviewMove quality is not "Best"
@@ -699,11 +613,11 @@ export default function AiChessboardPanel({
             const reviewArrowKey = `${reviewMove.arrowMove.from}-${reviewMove.arrowMove.to}`;
 
             if (arrowKey !== reviewArrowKey) {
-              const engineArrow: Arrow = [
-                from as Square,
-                to as Square,
-                "#4caf50",
-              ];
+              const engineArrow = {
+                from: from as Key,
+                to: to as Key,
+                brush: "#4caf50",
+              };
               arrows.push(engineArrow);
             }
           }
@@ -717,7 +631,7 @@ export default function AiChessboardPanel({
         if (move && move.length >= 4) {
           const from = move.substring(0, 2);
           const to = move.substring(2, 4);
-          const engineArrow: Arrow = [from as Square, to as Square, "#4caf50"];
+          const engineArrow = { from: from as Key, to: to as Key, brush: "#4caf50" };
           arrows.push(engineArrow);
         }
       }
@@ -725,47 +639,6 @@ export default function AiChessboardPanel({
 
     return arrows;
   }, [showArrows, reviewMove, stockfishAnalysisResult, currentMoveIndex]);
-
-  // Memoized custom square styles with piece highlighting
-  const customSquareStyles = useMemo(() => {
-    const styles: { [square: string]: React.CSSProperties } = {};
-
-    // First apply piece highlighting styles
-    Object.entries(pieceHighlightStyles).forEach(([square, style]) => {
-      styles[square] = { ...style };
-    });
-
-    // Then apply move squares
-    Object.entries(moveSquares).forEach(([square, color]) => {
-      styles[square] = {
-        ...styles[square],
-        backgroundColor: color,
-      };
-    });
-
-    // Selected square highlighting
-    if (selectedSquare) {
-      styles[selectedSquare] = {
-        backgroundColor: "rgba(156, 39, 176, 0.6)",
-        ...styles[selectedSquare],
-      };
-    }
-
-    // Legal moves highlighting
-    legalMoves.forEach((square) => {
-      const piece = game.get(square as Square);
-      const background = piece
-        ? "radial-gradient(circle, rgba(156, 39, 176, 0.8) 85%, transparent 85%)"
-        : "radial-gradient(circle, rgba(156, 39, 176, 0.4) 25%, transparent 25%)";
-
-      styles[square] = {
-        background,
-        ...styles[square],
-      };
-    });
-
-    return styles;
-  }, [pieceHighlightStyles, moveSquares, selectedSquare, legalMoves, game]);
 
   // Navigation callbacks
   const goToPreviousMove = useCallback(() => {
@@ -777,8 +650,6 @@ export default function AiChessboardPanel({
       setGame(newGame);
       setFen(newFen);
       setCurrentMoveIndex(newIndex);
-      setSelectedSquare(null);
-      setLegalMoves([]);
     }
   }, [currentMoveIndex, moveHistory, setGame, setFen]);
 
@@ -791,8 +662,6 @@ export default function AiChessboardPanel({
       setGame(newGame);
       setFen(newFen);
       setCurrentMoveIndex(newIndex);
-      setSelectedSquare(null);
-      setLegalMoves([]);
     }
   }, [currentMoveIndex, moveHistory, setGame, setFen]);
 
@@ -803,8 +672,6 @@ export default function AiChessboardPanel({
       setGame(newGame);
       setFen(newFen);
       setCurrentMoveIndex(0);
-      setSelectedSquare(null);
-      setLegalMoves([]);
     }
   }, [moveHistory, currentMoveIndex, setGame, setFen]);
 
@@ -816,8 +683,6 @@ export default function AiChessboardPanel({
       setGame(newGame);
       setFen(newFen);
       setCurrentMoveIndex(lastIndex);
-      setSelectedSquare(null);
-      setLegalMoves([]);
     }
   }, [moveHistory, currentMoveIndex, setGame, setFen]);
 
@@ -829,8 +694,6 @@ export default function AiChessboardPanel({
     setMoveHistory([startingFen]);
     setCurrentMoveIndex(0);
     clearAnalysis();
-    setSelectedSquare(null);
-    setLegalMoves([]);
   }, [setGame, setFen, clearAnalysis]);
 
   // Load custom FEN callback
@@ -974,58 +837,33 @@ export default function AiChessboardPanel({
     boardOrientation: getBoardOrientation(),
   });
 
-  const getCustomPieces = (
-    pieceSet: string
-  ): Record<
-    string,
-    ({ squareWidth }: { squareWidth: number }) => JSX.Element
-  > => {
-    const pieces = ["P", "N", "B", "R", "Q", "K"];
-    const colors = ["w", "b"];
-    const customPieces: Record<
-      string,
-      ({ squareWidth }: { squareWidth: number }) => JSX.Element
-    > = {};
+  // Get last move for chessground highlighting
+  const getLastMove = useCallback((): [Key, Key] | null => {
+    if (moveHistory.length < 2) return null;
 
-    const assetVersion = process.env.NEXT_PUBLIC_ASSET_VERSION || 'dev';
+    try {
+      const prevFen = moveHistory[currentMoveIndex - 1];
+      const currentFen = moveHistory[currentMoveIndex];
 
-    colors.forEach((color) => {
-      pieces.forEach((piece) => {
-        const pieceKey = `${color}${piece}`;
+      if (!prevFen || !currentFen) return null;
 
-        let src: string;
-        const svgSets = ['cburnett', 'fritz'];
-        // Map piece set keys to actual folder names (filesystem is case-sensitive)
-        const folderMap: Record<string, string> = { cburnett: 'Cburnett', fritz: 'Fritz', Fritz: 'Fritz' };
-        if (!pieceSet || svgSets.includes(pieceSet.toLowerCase())) {
-          const folder = folderMap[pieceSet] || pieceSet || 'Cburnett';
-          src = `/static/pieces/${folder}/${pieceKey}.svg`;
-        } else {
-          src = `/static/pieces/${pieceSet}/${pieceKey}.png`;
+      const prevGame = new Chess(prevFen);
+      const possibleMoves = prevGame.moves({ verbose: true });
+
+      for (const move of possibleMoves) {
+        const testGame = new Chess(prevFen);
+        testGame.move(move);
+
+        if (testGame.fen() === currentFen) {
+          return [move.from as Key, move.to as Key];
         }
-        // Append build-time version to bust stale cached responses
-        src = `${src}?v=${assetVersion}`;
+      }
+    } catch {
+      return null;
+    }
 
-        customPieces[pieceKey] = ({ squareWidth }) => (
-          <img
-            src={src}
-            style={{ width: squareWidth, height: squareWidth }}
-            onError={(e) => {
-              // If the image fails to load (e.g. stale COEP-blocked cache),
-              // force a refetch by appending a timestamp
-              const img = e.currentTarget;
-              if (!img.dataset.retried) {
-                img.dataset.retried = '1';
-                img.src = src + '&t=' + Date.now();
-              }
-            }}
-          />
-        );
-      });
-    });
-
-    return customPieces;
-  };
+    return null;
+  }, [moveHistory, currentMoveIndex]);
 
   // Prevent hydration mismatch - don't render until mounted
   if (!mounted) {
@@ -1192,30 +1030,18 @@ export default function AiChessboardPanel({
                 />
               )}
               <Box sx={{ width: responsiveBoardSize, flexShrink: 0 }}>
-                <Chessboard
-                  position={fen}
-                  onPieceDrop={puzzleMode ? onDropPuzzle : handlePlayerMove}
-                  onSquareClick={
-                    puzzleMode ? handleSquarePuzzleClick : handleSquareClick
-                  }
-                  allowDragOutsideBoard={false}
+                <ChessgroundBoard
+                  fen={fen}
+                  orientation={getBoardOrientation()}
+                  boardSize={responsiveBoardSize}
+                  onMove={puzzleMode ? handlePuzzleMove : handlePlayerMove}
+                  arrows={customArrows}
+                  lastMove={getLastMove()}
+                  showCoordinates={showCoordinates}
                   animationDuration={animationDuration}
-                  showBoardNotation={showCoordinates}
-                  customSquareStyles={
-                    puzzleMode ? puzzleCustomSquareStyle : customSquareStyles
-                  }
-                  customDarkSquareStyle={{
-                    backgroundColor:
-                      getCurrentThemeColors(boardTheme).darkSquareColor,
-                  }}
-                  customLightSquareStyle={{
-                    backgroundColor:
-                      getCurrentThemeColors(boardTheme).lightSquareColor,
-                  }}
-                  customArrows={customArrows}
-                  boardWidth={responsiveBoardSize}
-                  boardOrientation={getBoardOrientation()}
-                  customPieces={getCustomPieces(pieceType)}
+                  movable={puzzleMode || playMode || !gameReviewMode}
+                  viewOnly={gameReviewMode || false}
+                  premovable={playMode}
                 />
                 {/* Board Control Bar — same width as board */}
                 {!playMode && !gameReviewMode && !puzzleMode && (
