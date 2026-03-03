@@ -109,8 +109,16 @@ export default function DebutPage() {
 
   // ─── Refs for temp ID tracking and move queue ───
   const tempToRealIdRef = useRef<Map<string, string>>(new Map());
-  const moveQueueRef = useRef<Array<() => Promise<void>>>([]);
+  const moveQueueRef = useRef<Array<{ from: string; to: string; piece: string; newFen: string; moveSan: string; moveUci: string }>>(
+    []
+  );
   const isProcessingMoveRef = useRef(false);
+
+  // ─── Refs for latest state (used by move queue to avoid stale closures) ───
+  const selectedNodeRef = useRef(selectedNode);
+  selectedNodeRef.current = selectedNode;
+  const currentTreeRef = useRef(currentTree);
+  currentTreeRef.current = currentTree;
 
   // ─── Fetch repertoires on mount ───
   useEffect(() => { fetchRepertoires(); }, [fetchRepertoires]);
@@ -290,50 +298,52 @@ export default function DebutPage() {
     return findDeepestMainLine(node.children[0]);
   }, []);
 
-  const handleBoardMove = useCallback(async (
-    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
-  ) => {
-    if (!selectedNode || !selectedRepertoireId || !currentTree) return;
+  // ── Process queued moves sequentially, reading FRESH state from refs ──
+  const processQueue = useCallback(async () => {
+    if (isProcessingMoveRef.current) return;
+    isProcessingMoveRef.current = true;
 
-    // Optimistic: update board FEN immediately so the piece stays in place
-    setBoardFen(newFen);
+    while (moveQueueRef.current.length > 0) {
+      const move = moveQueueRef.current.shift()!;
+      const { newFen, moveSan, moveUci } = move;
 
-    // Check if child with this FEN already exists — search both selectedNode
-    // AND currentTree (selectedNode may be optimistic with empty children)
-    const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
-    const fenMatch = (c: OpeningNode) => c.fen.split(' ').slice(0, 4).join(' ') === newFenParts;
+      // Read FRESH state from refs (not stale closure)
+      const curSelectedNode = selectedNodeRef.current;
+      const curTree = currentTreeRef.current;
+      if (!curSelectedNode || !selectedRepertoireId || !curTree) continue;
 
-    let existingChild = selectedNode.children?.find(fenMatch) || null;
-    if (!existingChild && currentTree) {
-      // Deep search: find selectedNode in currentTree and check ITS children
-      const findNode = (node: OpeningNode, id: string): OpeningNode | null => {
-        if (node.id === id) return node;
-        for (const ch of node.children || []) { const f = findNode(ch, id); if (f) return f; }
-        return null;
-      };
-      const treeParent = findNode(currentTree, selectedNode.id);
-      existingChild = treeParent?.children?.find(fenMatch) || null;
-    }
+      const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
+      const fenMatch = (c: OpeningNode) => c.fen.split(' ').slice(0, 4).join(' ') === newFenParts;
 
-    if (existingChild) {
-      setSelectedNodeId(existingChild.id);
-      setSelectedNode(existingChild);
-      return;
-    }
+      // Check if child with this FEN already exists
+      let existingChild = curSelectedNode.children?.find(fenMatch) || null;
+      if (!existingChild) {
+        const findInTree = (node: OpeningNode, id: string): OpeningNode | null => {
+          if (node.id === id) return node;
+          for (const ch of node.children || []) { const f = findInTree(ch, id); if (f) return f; }
+          return null;
+        };
+        const treeParent = findInTree(curTree, curSelectedNode.id);
+        existingChild = treeParent?.children?.find(fenMatch) || null;
+      }
 
-    // ── Move queue: prevent race conditions when moves come in faster than backend responds ──
-    const executeMoveLogic = async () => {
-      // ── Optimistic tree update: notation appears INSTANTLY ──
-      // Parse move number from FEN (fullmove counter is last field)
+      if (existingChild) {
+        setSelectedNodeId(existingChild.id);
+        setSelectedNode(existingChild);
+        setBoardFen(existingChild.fen);
+        continue;
+      }
+
+      // Build optimistic node
       const fenParts = newFen.split(' ');
-      const isWhiteMove = fenParts[1] === 'b'; // if it's black's turn now, white just moved
+      const isWhiteMove = fenParts[1] === 'b';
       const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
-      const tempId = `temp-${Date.now()}`;
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
       const optimisticNode: OpeningNode = {
         id: tempId,
         repertoire_id: selectedRepertoireId,
-        parent_id: selectedNode.id,
+        parent_id: curSelectedNode.id,
         fen: newFen,
         move_san: moveSan,
         move_uci: moveUci,
@@ -355,52 +365,49 @@ export default function DebutPage() {
         children: [],
       };
 
-      // Clone tree and splice in the new node (skip if FEN already exists)
+      // Clone tree and insert as first child (main line) if no existing children,
+      // or as last child (variation) if parent already has children
       const cloneAndInsert = (node: OpeningNode): OpeningNode => {
         const cloned = { ...node, children: (node.children || []).map(cloneAndInsert) };
-        if (node.id === selectedNode.id) {
+        if (node.id === curSelectedNode.id) {
           const alreadyHasFen = (cloned.children || []).some(fenMatch);
           if (!alreadyHasFen) {
-            // Use unshift instead of push when parent has NO children from real tree
-            // This ensures optimistic nodes become children[0] (main line)
-            const isParentTemp = selectedNode.id.startsWith('temp-');
-            const hasRealChildren = (cloned.children || []).some(c => !c.id.startsWith('temp-'));
-            if (isParentTemp || !hasRealChildren) {
-              cloned.children = [optimisticNode, ...(cloned.children || [])];
+            if ((cloned.children || []).length === 0) {
+              // No children yet — this becomes the main line (children[0])
+              cloned.children = [optimisticNode];
             } else {
+              // Parent already has children — new move is a variation
               cloned.children = [...(cloned.children || []), optimisticNode];
             }
           }
         }
         return cloned;
       };
-      const optimisticTree = cloneAndInsert(currentTree);
+      const optimisticTree = cloneAndInsert(curTree);
 
-      // Update tree + selection IMMEDIATELY — notation renders instantly
+      // Update tree + selection IMMEDIATELY
       setCurrentTree(optimisticTree);
       setSelectedNodeId(tempId);
       setSelectedNode(optimisticNode);
+      // Also update refs so next queued move sees this node as parent
+      selectedNodeRef.current = optimisticNode;
+      currentTreeRef.current = optimisticTree;
 
-      // ── Background: persist to DB and reconcile ──
-      // Use the REAL parent ID (not temp) — resolve through tempToRealIdRef map
-      let realParentId = selectedNode.id;
-      if (selectedNode.id.startsWith('temp-')) {
-        // Check if this temp ID has been resolved to a real ID
-        const resolvedId = tempToRealIdRef.current.get(selectedNode.id);
+      // Resolve real parent ID (temp → real via map)
+      let realParentId = curSelectedNode.id;
+      if (curSelectedNode.id.startsWith('temp-')) {
+        const resolvedId = tempToRealIdRef.current.get(curSelectedNode.id);
         if (resolvedId) {
           realParentId = resolvedId;
         } else {
-          // If not resolved yet, use parent_id (but this should rarely happen with queue)
-          realParentId = selectedNode.parent_id!;
+          realParentId = curSelectedNode.parent_id!;
         }
       }
 
       try {
         const newNode = await addNode(realParentId, moveSan, moveUci, newFen);
-        // Store temp-to-real mapping
         tempToRealIdRef.current.set(tempId, newNode.id);
 
-        // Replace temp ID with real ID in tree and selection
         const realNode: OpeningNode = { ...newNode, children: [] };
         setCurrentTree(prev => {
           if (!prev) return prev;
@@ -411,41 +418,62 @@ export default function DebutPage() {
             }
             return cloned;
           };
-          return replaceTempId(prev);
+          const updated = replaceTempId(prev);
+          currentTreeRef.current = updated;
+          return updated;
         });
         setSelectedNodeId(newNode.id);
         setSelectedNode(realNode);
-        // Silently refresh tree in background (no loading spinner)
+        selectedNodeRef.current = realNode;
         fetchTree(selectedRepertoireId, true).catch(() => {});
       } catch (e: any) {
-        // Revert optimistic update on error
-        setBoardFen(selectedNode.fen);
-        const revertId = selectedNode.id.startsWith('temp-')
-          ? (tempToRealIdRef.current.get(selectedNode.id) || selectedNode.parent_id!)
-          : selectedNode.id;
+        setBoardFen(curSelectedNode.fen);
+        const revertId = curSelectedNode.id.startsWith('temp-')
+          ? (tempToRealIdRef.current.get(curSelectedNode.id) || curSelectedNode.parent_id!)
+          : curSelectedNode.id;
         setSelectedNodeId(revertId);
         fetchTree(selectedRepertoireId, true).catch(() => {});
         setSnackbar({ open: true, msg: e.message, severity: 'error' });
       }
-    };
+    }
 
-    // Add to queue and process
-    moveQueueRef.current.push(executeMoveLogic);
+    isProcessingMoveRef.current = false;
+  }, [selectedRepertoireId, addNode, fetchTree, setCurrentTree]);
 
-    const processQueue = async () => {
-      if (isProcessingMoveRef.current) return; // Already processing
-      isProcessingMoveRef.current = true;
+  const handleBoardMove = useCallback(async (
+    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
+  ) => {
+    if (!selectedNodeRef.current || !selectedRepertoireId || !currentTreeRef.current) return;
 
-      while (moveQueueRef.current.length > 0) {
-        const moveLogic = moveQueueRef.current.shift()!;
-        await moveLogic();
-      }
+    // Optimistic: update board FEN immediately so the piece stays in place
+    setBoardFen(newFen);
 
-      isProcessingMoveRef.current = false;
-    };
+    // Quick check for existing child (navigate instead of creating)
+    const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
+    const fenMatch = (c: OpeningNode) => c.fen.split(' ').slice(0, 4).join(' ') === newFenParts;
+    const curSelectedNode = selectedNodeRef.current;
+    let existingChild = curSelectedNode.children?.find(fenMatch) || null;
+    if (!existingChild && currentTreeRef.current) {
+      const findInTree = (node: OpeningNode, id: string): OpeningNode | null => {
+        if (node.id === id) return node;
+        for (const ch of node.children || []) { const f = findInTree(ch, id); if (f) return f; }
+        return null;
+      };
+      const treeParent = findInTree(currentTreeRef.current, curSelectedNode.id);
+      existingChild = treeParent?.children?.find(fenMatch) || null;
+    }
 
+    if (existingChild) {
+      setSelectedNodeId(existingChild.id);
+      setSelectedNode(existingChild);
+      setBoardFen(existingChild.fen);
+      return;
+    }
+
+    // Queue the move data (NOT a closure) and process
+    moveQueueRef.current.push({ from, to, piece, newFen, moveSan, moveUci });
     processQueue();
-  }, [selectedNode, selectedRepertoireId, currentTree, addNode, fetchTree, setCurrentTree]);
+  }, [selectedRepertoireId, processQueue]);
 
   // Handle move tree click — navigate to the child node matching the clicked move
   const handleMoveTreeClick = useCallback((move: MoveCandidate) => {
