@@ -237,6 +237,7 @@ export default function ChessgroundBoard({
         height: boardSize,
         borderRadius: '2px',
         boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+        ['--cg-animation-duration' as any]: `${animationDuration}ms`,
       }}
     />
   );

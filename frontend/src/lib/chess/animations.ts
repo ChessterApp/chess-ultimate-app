@@ -28,9 +28,10 @@ export const ANIMATION_CLASSES = {
 
 /**
  * Animation durations in milliseconds
+ * Note: PIECE_MOVE duration is now controlled via CSS variable --cg-animation-duration
+ * See animationConfig.ts for piece movement animation configuration
  */
 export const ANIMATION_DURATIONS = {
-  PIECE_MOVE: 400,
   PIECE_CAPTURE: 300,
   PIECE_CORRECT_GLOW: 600,
   PIECE_INCORRECT_SHAKE: 400,

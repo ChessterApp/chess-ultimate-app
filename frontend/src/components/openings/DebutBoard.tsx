@@ -117,7 +117,10 @@ export default function DebutBoard({
   }, [fen, onMove]);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+    <Box
+      sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+      style={{ ['--cg-animation-duration' as any]: `${animationDuration}ms` }}
+    >
       <ChessgroundBoard
         fen={fen}
         orientation={orientation}

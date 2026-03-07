@@ -1,8 +1,12 @@
+import { PIECE_ANIMATION_CONFIG, getAnimationDuration, type AnimationSpeed } from '@/lib/chess/animationConfig';
 
 export const ANALYSIS_DELAY = 300;
 export const DEFAULT_ENGINE_DEPTH = 15;
 export const DEFAULT_ENGINE_LINES = 3;
 export const MAX_PV_MOVES = 6;
+
+// Re-export animation config for backwards compatibility
+export { PIECE_ANIMATION_CONFIG, getAnimationDuration, type AnimationSpeed };
 
 
 export const DEFAULT_CHAT_DIMENSIONS = {

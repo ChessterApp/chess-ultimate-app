@@ -15,7 +15,7 @@
 
 /**
  * Arc Trajectory Movement
- * Duration: 400ms
+ * Duration: Uses --cg-animation-duration CSS variable (default: 200ms)
  * Easing: cubic-bezier(0.4, 0, 0.2, 1) - ease-in-out
  * Description: Pieces hop in a gentle arc when moved
  */
@@ -39,7 +39,7 @@
 }
 
 .piece-move-arc {
-  animation: piece-move-arc 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: piece-move-arc var(--cg-animation-duration, 200ms) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /**
