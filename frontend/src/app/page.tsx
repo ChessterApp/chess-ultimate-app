@@ -581,7 +581,7 @@ export default function HomePage() {
       <section className="py-20 bg-gradient-to-br from-purple-600 to-indigo-700 text-white relative overflow-hidden">
         {/* Background decorations */}
         <div className="absolute inset-0 opacity-10 hidden lg:block">
-          <div className="absolute top-10 left-10"><Image src="/static/images/chesster-logo-v3.png" alt="" width={96} height={96} className="w-24 h-24 opacity-20" /></div>
+          <div className="absolute top-10 left-10"><Image src="/static/images/chesster-logo-v3.png" alt="" width={96} height={96} className="w-24 h-24 opacity-20" loading="lazy" /></div>
           <div className="absolute bottom-10 right-10 text-9xl">♞</div>
           <div className="absolute top-1/2 left-1/4 text-6xl">♜</div>
           <div className="absolute top-1/3 right-1/4 text-7xl">♛</div>

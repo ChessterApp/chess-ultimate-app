@@ -19,9 +19,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://chesster.io"),
   title: "Chesster - AI-Powered Chess Training",
   description: "Plug-and-play chess training with your choice of AI provider. Convert OpenAI, Claude, or Gemini model into chess-aware Chessbuddy and get personalized live chat training. Chesster integrates with Stockfish 17.1 engine, chess databases and to better align with position context, making LLMs chess aware.",
-  
+
   // Open Graph metadata (for Facebook, LinkedIn, Discord, etc.)
   openGraph: {
     title: "Chesster - AI-Powered Chess Training",
@@ -124,7 +125,7 @@ export default async function RootLayout({
           <link rel="dns-prefetch" href="https://clerk.chesster.io" />
           <link rel="manifest" href="/manifest.json" />
           <meta name="theme-color" content="#9333ea" />
-          <meta name="apple-mobile-web-app-capable" content="yes" />
+          <meta name="mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
