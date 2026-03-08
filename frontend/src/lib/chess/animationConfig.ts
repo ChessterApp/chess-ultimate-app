@@ -5,8 +5,8 @@
 
 export const PIECE_ANIMATION_CONFIG = {
   INSTANT: 0,
-  FAST: 100,
-  NORMAL: 200,
+  FAST: 50,
+  NORMAL: 100,
   SLOW: 400,
 } as const;
 

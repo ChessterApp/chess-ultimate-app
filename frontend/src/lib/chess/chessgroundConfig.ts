@@ -11,6 +11,7 @@ export interface ChessgroundConfigOptions {
   orientation?: 'white' | 'black';
   movable?: boolean;
   premovable?: boolean;
+  animationDuration?: number;
 }
 
 /**
@@ -22,6 +23,7 @@ export function getChessgroundConfig({
   orientation = 'white',
   movable = true,
   premovable = false,
+  animationDuration = 50,
 }: ChessgroundConfigOptions): Config {
   return {
     fen,
@@ -64,7 +66,7 @@ export function getChessgroundConfig({
     // Animation settings
     animation: {
       enabled: true,
-      duration: 200, // Chessground's internal animation
+      duration: animationDuration,
     },
 
     // Drag settings
