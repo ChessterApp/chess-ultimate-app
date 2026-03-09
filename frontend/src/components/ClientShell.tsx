@@ -71,7 +71,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
 
           {/* Main content area */}
           <main className={`flex-1 min-w-0 ${hideNav ? '' : 'pb-16 md:pb-0'}`}>
-            <PageTransition>{children}</PageTransition>
+            {hideNav ? children : <PageTransition>{children}</PageTransition>}
           </main>
 
           {/* Mobile bottom nav — hidden on desktop, hidden on auth pages */}
