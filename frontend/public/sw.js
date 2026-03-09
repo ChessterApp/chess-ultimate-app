@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chesster-v1';
+const CACHE_NAME = 'chesster-v2';
 const SHELL_ASSETS = [
   '/',
   '/dashboard',
@@ -38,7 +38,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Cache-first for static assets
+  // Network-first for Next.js build assets (content-hashed, must bust on deploy)
+  if (event.request.url.includes('/_next/')) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Cache-first for other static assets
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request))
   );
