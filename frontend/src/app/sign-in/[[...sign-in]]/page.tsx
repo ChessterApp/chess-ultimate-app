@@ -8,7 +8,7 @@ export default function SignInPage() {
   const t = useTranslations()
 
   return (
-    <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)] overflow-x-hidden">
+    <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">
       {/* Hide default Clerk branding and apply Duolingo-style design */}
       <style dangerouslySetInnerHTML={{ __html: `
         /* Hide Clerk branding */
@@ -26,7 +26,7 @@ export default function SignInPage() {
           padding: 1rem !important;
           max-width: 100% !important;
           width: 100% !important;
-          overflow: hidden !important;
+          overflow: visible !important;
           box-sizing: border-box !important;
           margin: 0 !important;
         }
@@ -202,6 +202,45 @@ export default function SignInPage() {
           gap: 0 !important;
         }
 
+        /* OTP Verification - Mobile responsive styles */
+        .cl-otpCodeFieldInput {
+          min-width: 40px !important;
+          min-height: 40px !important;
+          width: 48px !important;
+          height: 48px !important;
+          font-size: 1.25rem !important;
+          border: 2px solid var(--border-default, #E4E4E7) !important;
+          border-radius: 12px !important;
+          background: var(--surface-input, #FFFFFF) !important;
+          color: var(--text-primary, #18181B) !important;
+          text-align: center !important;
+          transition: border-color 0.2s ease !important;
+        }
+
+        .cl-otpCodeFieldInput:focus {
+          border-color: var(--primary, #8B5CF6) !important;
+          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1) !important;
+          outline: none !important;
+        }
+
+        .cl-otpCodeField {
+          gap: 8px !important;
+          justify-content: center !important;
+          flex-wrap: nowrap !important;
+        }
+
+        /* Verification step container needs proper spacing */
+        .cl-signIn-verifyEmailAddress,
+        .cl-signIn-verifyPhoneNumber {
+          overflow: visible !important;
+          min-height: 400px !important;
+        }
+
+        .cl-signIn-verifyEmailAddress .cl-form,
+        .cl-signIn-verifyPhoneNumber .cl-form {
+          gap: 16px !important;
+        }
+
         /* Error messages */
         .cl-formFieldErrorText {
           color: var(--error, #EF4444) !important;
@@ -239,7 +278,7 @@ export default function SignInPage() {
         }
       `}} />
 
-      <div className="w-full max-w-sm bg-white md:bg-transparent rounded-3xl md:rounded-none p-4 md:p-0 mt-4 md:mt-0 shadow-xl md:shadow-none overflow-hidden">
+      <div className="w-full max-w-md bg-white md:bg-transparent rounded-3xl md:rounded-none p-4 md:p-0 mt-4 md:mt-0 shadow-xl md:shadow-none">
         {/* Chesster branding above the form */}
         <div className="text-center mb-4 md:mb-6">
           <div className="bg-white rounded-full p-3 md:p-4 inline-block shadow-lg"><Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={64} height={64} className="w-10 h-10 md:w-16 md:h-16" /></div>
@@ -265,7 +304,7 @@ export default function SignInPage() {
             },
             elements: {
               rootBox: 'w-full',
-              card: 'shadow-none border-0 bg-white p-8 rounded-3xl',
+              card: 'shadow-none border-0 bg-white p-4 rounded-3xl',
               headerTitle: 'text-2xl font-bold text-gray-800 text-center',
               headerSubtitle: 'text-sm text-gray-500 text-center',
               formFieldInput: 'rounded-2xl border-2 border-gray-200 py-4 px-5 text-base focus:border-purple-500',

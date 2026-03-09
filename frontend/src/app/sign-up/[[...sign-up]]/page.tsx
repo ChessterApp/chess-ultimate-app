@@ -8,7 +8,7 @@ export default function SignUpPage() {
   const t = useTranslations()
 
   return (
-    <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)] overflow-x-hidden">
+    <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">
       {/* Hide default Clerk branding and apply Duolingo-style design */}
       <style dangerouslySetInnerHTML={{ __html: `
         /* Hide Clerk branding */
@@ -26,14 +26,19 @@ export default function SignUpPage() {
           padding: 1rem !important;
           max-width: 100% !important;
           width: 100% !important;
-          overflow: hidden !important;
+          overflow: visible !important;
           box-sizing: border-box !important;
           margin: 0 !important;
         }
 
-        /* Hide Clerk header — we use our own */
-        .cl-header {
+        /* Hide Clerk header on initial step — show on verification */
+        .cl-header:not(:has(+ * .cl-otpCodeFieldInput)):not(:has(~ * .cl-otpCodeFieldInput)) {
           display: none !important;
+        }
+        /* Show header when OTP verification is active */
+        .cl-signUp-verifyEmailAddress .cl-header,
+        .cl-signUp-verifyPhoneNumber .cl-header {
+          display: block !important;
         }
 
         /* Input fields - Duolingo style rounded */
@@ -59,9 +64,13 @@ export default function SignUpPage() {
           color: var(--text-tertiary, #A1A1AA) !important;
         }
 
-        /* Form field labels */
+        /* Form field labels - hide on initial step, show on verification */
         .cl-formFieldLabel {
           display: none !important;
+        }
+        .cl-signUp-verifyEmailAddress .cl-formFieldLabel,
+        .cl-signUp-verifyPhoneNumber .cl-formFieldLabel {
+          display: block !important;
         }
 
         /* Form field wrapper - tight spacing like Duolingo */
@@ -72,6 +81,45 @@ export default function SignUpPage() {
         /* Form container - reduce overall gaps */
         .cl-form {
           gap: 4px !important;
+        }
+
+        /* OTP Verification - Mobile responsive styles */
+        .cl-otpCodeFieldInput {
+          min-width: 40px !important;
+          min-height: 40px !important;
+          width: 48px !important;
+          height: 48px !important;
+          font-size: 1.25rem !important;
+          border: 2px solid var(--border-default, #E4E4E7) !important;
+          border-radius: 12px !important;
+          background: var(--surface-input, #FFFFFF) !important;
+          color: var(--text-primary, #18181B) !important;
+          text-align: center !important;
+          transition: border-color 0.2s ease !important;
+        }
+
+        .cl-otpCodeFieldInput:focus {
+          border-color: var(--primary, #8B5CF6) !important;
+          box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1) !important;
+          outline: none !important;
+        }
+
+        .cl-otpCodeField {
+          gap: 8px !important;
+          justify-content: center !important;
+          flex-wrap: nowrap !important;
+        }
+
+        /* Verification step container needs proper spacing */
+        .cl-signUp-verifyEmailAddress,
+        .cl-signUp-verifyPhoneNumber {
+          overflow: visible !important;
+          min-height: 400px !important;
+        }
+
+        .cl-signUp-verifyEmailAddress .cl-form,
+        .cl-signUp-verifyPhoneNumber .cl-form {
+          gap: 16px !important;
         }
 
         /* Password visibility toggle */
@@ -205,17 +253,25 @@ export default function SignUpPage() {
           margin-top: 4px !important;
         }
 
-        /* Hide "Secured by Clerk" and all Clerk footers */
+        /* Hide "Secured by Clerk" and all Clerk footers on initial step */
         .cl-internal-1dauvpw,
         .cl-internal-mxmka,
         [aria-label*="Clerk"],
         .cl-footerPages,
-        .cl-footerPagesLink,
-        .cl-footer,
-        .cl-footerAction,
-        .cl-footerActionText,
-        .cl-footerActionLink {
+        .cl-footerPagesLink {
           display: none !important;
+        }
+        /* Hide footer on initial sign-up step */
+        .cl-signUp-start .cl-footer,
+        .cl-signUp-start .cl-footerAction,
+        .cl-signUp-start .cl-footerActionText,
+        .cl-signUp-start .cl-footerActionLink {
+          display: none !important;
+        }
+        /* Show footer during verification (resend code link) */
+        .cl-signUp-verifyEmailAddress .cl-footer,
+        .cl-signUp-verifyPhoneNumber .cl-footer {
+          display: block !important;
         }
 
         /* Card box - prevent overflow */
@@ -270,7 +326,7 @@ export default function SignUpPage() {
         }
       `}} />
 
-      <div className="w-full max-w-sm bg-white md:bg-transparent rounded-3xl md:rounded-none p-4 md:p-0 mt-4 md:mt-0 shadow-xl md:shadow-none overflow-hidden">
+      <div className="w-full max-w-md bg-white md:bg-transparent rounded-3xl md:rounded-none p-4 md:p-0 mt-4 md:mt-0 shadow-xl md:shadow-none">
         {/* Optional: Add Chesster branding above the form */}
         <div className="text-center mb-4 md:mb-6">
           <div className="bg-white rounded-full p-3 md:p-4 inline-block shadow-lg"><Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={64} height={64} className="w-10 h-10 md:w-16 md:h-16" /></div>
@@ -298,7 +354,7 @@ export default function SignUpPage() {
             },
             elements: {
               rootBox: 'w-full',
-              card: 'shadow-none border-0 bg-white p-8 rounded-3xl',
+              card: 'shadow-none border-0 bg-white p-4 rounded-3xl',
               headerTitle: 'text-2xl font-bold text-gray-800 text-center',
               headerSubtitle: 'text-sm text-gray-500 text-center',
               formFieldInput: 'rounded-2xl border-2 border-gray-200 py-4 px-5 text-base focus:border-purple-500',
@@ -308,8 +364,7 @@ export default function SignUpPage() {
               socialButtonsBlockButtonText: 'font-bold uppercase text-sm text-gray-700',
               dividerLine: 'bg-gray-200',
               dividerText: 'text-gray-400 uppercase font-semibold text-sm',
-              footer: 'hidden',
-              footerAction: 'hidden',
+              footerAction: '',
             },
           }}
         />
