@@ -16,6 +16,14 @@ const nextConfig = {
         // Expose build hash to client-side code for cache-busting query params
         NEXT_PUBLIC_ASSET_VERSION: ASSET_VERSION,
     },
+    async rewrites() {
+        return [
+            {
+                source: '/api/openings/:path*',
+                destination: 'http://localhost:5001/api/openings/:path*',
+            },
+        ];
+    },
     async redirects() {
         return [
             {
@@ -67,6 +75,16 @@ const nextConfig = {
                     {
                         key: 'Cross-Origin-Resource-Policy',
                         value: 'same-origin',
+                    },
+                ],
+            },
+            {
+                // Service worker must never be cached (always fetch fresh copy)
+                source: '/sw.js',
+                headers: [
+                    {
+                        key: 'Cache-Control',
+                        value: 'no-store, no-cache, must-revalidate, max-age=0',
                     },
                 ],
             },

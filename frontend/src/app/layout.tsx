@@ -7,6 +7,7 @@ import "./globals.css";
 import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
+import LocalStorageMigration from "@/components/LocalStorageMigration";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -130,6 +131,7 @@ export default async function RootLayout({
         </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
           <NextIntlClientProvider messages={messages}>
+            <LocalStorageMigration />
             <ServiceWorkerRegistration />
             <ClientShell>
               {children}
