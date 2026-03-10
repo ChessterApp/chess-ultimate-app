@@ -70,7 +70,6 @@ function LoadLichessGameUrl({
     setLoadingGame(true);
     try {
       const fetchedPgn = await fetchLichessGame(gameId);
-      console.log("Fetched PGN:", fetchedPgn);
 
       try {
         const tempGame = new Chess();
@@ -94,13 +93,6 @@ function LoadLichessGameUrl({
         generateGameReview(moveList);
         analyzeGameTheme(fetchedPgn);
         setInputsVisible(false);
-
-        console.log("Game loaded successfully:", {
-          moves: moveList.length,
-          gameInfo: info,
-          white: info.White,
-          black: info.Black,
-        });
       } catch (pgnError) {
         console.error("Error parsing PGN:", pgnError);
         alert(t('invalidPGN'));

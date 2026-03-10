@@ -274,8 +274,6 @@ export default function useChesster(fen: string) {
       // Update state with loaded messages
       updateState({ chatMessages: loadedMessages });
       conversationIdRef.current = conversationId;
-
-      console.log(`Loaded ${loadedMessages.length} messages from conversation ${conversationId.substring(0, 8)}...`);
     } catch (error) {
       console.error('Error loading conversation history:', error);
     }
@@ -562,7 +560,6 @@ export default function useChesster(fen: string) {
   // ==================== CHAT FUNCTIONS ====================
   const abortChatMessage = useCallback((): void => {
     if (abortControllerRef.current) {
-      console.log("Aborting chat message...");
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
 
@@ -897,7 +894,6 @@ ${candidateMoves}
     conversationIdRef.current = null;
     try {
       localStorage.removeItem('current_conversation_id');
-      console.log('Cleared conversation history and started new conversation');
     } catch (e) {
       console.warn('Failed to clear conversation ID from localStorage:', e);
     }

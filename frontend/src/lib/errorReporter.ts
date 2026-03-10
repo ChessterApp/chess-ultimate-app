@@ -85,13 +85,8 @@ export function initErrorReporting() {
     );
   });
 
-  window.addEventListener('unhandledrejection', (event) => {
-    const error = event.reason;
-    reportError(
-      error instanceof Error ? error : String(error),
-      'unhandledrejection'
-    );
-  });
+  // Note: unhandledrejection listener is in UnhandledErrorBoundary.tsx
+  // to avoid duplicate reporting
 
   // Flush on page unload
   window.addEventListener('visibilitychange', () => {

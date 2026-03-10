@@ -28,11 +28,11 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Chesster - AI-Powered Chess Training",
     description: "Transform any AI model into your personal chessbuddy. Get live training with OpenAI, Claude, or Gemini integrated with Stockfish 17.1 engine.",
-    url: "https://www.chessempire.com/", // Replace with your actual domain
+    url: "https://chesster.io",
     siteName: "Chesster",
     images: [
       {
-        url: "static/images/chesster-logo-og.png", // Chess knight mascot logo (1024x1024px)
+        url: "/static/images/chesster-logo-og.png", // Chess knight mascot logo (1024x1024px)
         width: 1200,
         height: 1200,
         alt: "Chesster Logo",
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Chesster - AI-Powered Chess Training",
     description: "Transform any AI model into your personal chess coach. Get live training with OpenAI, Claude, or Gemini integrated with Stockfish 17.1.",
-    images: ["static/images/chesster-logo-og.png"], // Chess knight mascot logo
+    images: ["/static/images/chesster-logo-og.png"], // Chess knight mascot logo
   },
   
   // Additional metadata

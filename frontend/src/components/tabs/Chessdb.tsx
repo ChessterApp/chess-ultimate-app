@@ -19,6 +19,8 @@ import { validateFen } from "chess.js";
 import { useLocalStorage } from "usehooks-ts";
 import { apiFetch } from '@/lib/api';
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
+
 export interface CandidateMove {
   uci: string;
   san: string;
@@ -53,7 +55,7 @@ export function useChessDB(fen: string) {
 
     try {
       // Primary: local TWIC indexed DB candidates
-      const localUrl = `/api/openings/positions/candidates?fen=${encodeURIComponent(fenString)}&limit=12`;
+      const localUrl = `${BACKEND_URL}/api/openings/positions/candidates?fen=${encodeURIComponent(fenString)}&limit=12`;
       const localData = await apiFetch<any>(localUrl);
 
       if (localData?.status === 'ok' && Array.isArray(localData?.moves) && localData.moves.length > 0) {
@@ -108,7 +110,6 @@ export function useChessDB(fen: string) {
 
       setData(processedMoves);
     } catch (err) {
-      console.log('error!', err)
       setData([]);
       setError(err instanceof Error ? err.message : "Failed to fetch data");
     } finally {
@@ -132,9 +133,6 @@ export function useChessDB(fen: string) {
         throw new Error(`Failed to queue position: ${responseData.status}`);
       }
 
-      // Optionally show success message or handle response
-      console.log('Position queued successfully');
-      
     } catch (err) {
       console.error('Failed to queue analysis:', err);
       setError(err instanceof Error ? err.message : "Failed to queue analysis");

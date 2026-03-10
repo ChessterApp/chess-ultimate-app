@@ -33,9 +33,6 @@ const useGameReview = (
   stockfishEngine: UciEngine | undefined,
   searchDepth: number
 ) => {
-  if (!stockfishEngine) {
-    console.log("invalid engine waiting for it to start");
-  }
 
   const [gameReview, setGameReview] = useState<MoveAnalysis[]>([]);
   const [gameReviewLoading, setGameReviewLoading] = useState(false);
@@ -187,7 +184,6 @@ const useGameReview = (
 
       return processedMoves;
     } catch (err) {
-      console.log("error!", err);
       throw err;
     }
   }, []);
@@ -453,7 +449,6 @@ const useGameReview = (
           setGameReviewProgress(Math.round(phase2Progress));
         }
 
-        console.log("Analysis Complete:", moveEvaluations);
         setGameReview(moveEvaluations);
         setGameReviewProgress(100);
       } catch (error) {

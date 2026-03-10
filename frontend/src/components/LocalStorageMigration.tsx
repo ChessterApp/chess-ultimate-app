@@ -19,7 +19,7 @@ export default function LocalStorageMigration() {
         // Remove it so the new default (50ms) takes effect
         if (!isNaN(value) && value > 100) {
           localStorage.removeItem('board_ui_animation_duration');
-          console.log('[Migration] Removed stale animation duration:', value);
+          // Migration is silent in production
         }
       }
     } catch (err) {

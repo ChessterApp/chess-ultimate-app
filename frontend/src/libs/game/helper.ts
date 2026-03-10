@@ -66,7 +66,7 @@ export function getValidGameId(url: string): string {
 
     return "";
   } catch (error) {
-    console.log(error);
+    console.warn("Failed to parse Lichess URL:", error);
     const parts = url.split("/");
     if (parts.length >= 4) {
       const gameId = parts[3];

@@ -50,7 +50,6 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
         if (mountedRef.current) {
           engineRef.current = engine
           engineReadyRef.current = true
-          console.log('Replay Stockfish engine initialized')
         } else {
           // Component unmounted during init, cleanup
           engine.shutdown()

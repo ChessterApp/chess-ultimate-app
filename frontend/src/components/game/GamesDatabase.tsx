@@ -87,19 +87,15 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
 
   // Handle sort
   const handleSort = (field: SortField) => {
-    console.log(`[Sort] Clicked field: ${field}, current: ${sortField}, direction: ${sortDirection}`);
-
     if (sortField === field) {
       const newDirection = sortDirection === "asc" ? "desc" : "asc";
       setSortDirection(newDirection);
-      console.log(`[Sort] Toggling direction to: ${newDirection}`);
     } else {
       setSortField(field);
       // For Elo columns, default to descending (highest first)
       // For other columns, default to ascending
       const defaultDirection = (field === "whiteElo" || field === "blackElo") ? "desc" : "asc";
       setSortDirection(defaultDirection);
-      console.log(`[Sort] Changing field to: ${field}, direction: ${defaultDirection}`);
     }
     setPage(0); // Reset to first page when sort changes
   };
@@ -179,19 +175,6 @@ const GamesDatabase: React.FC<GamesDatabaseProps> = ({ games, onGameSelect }) =>
       if (aValue > bValue) return sortDirection === "asc" ? 1 : -1;
       return 0;
     });
-
-    console.log(`[Sort] After sorting by ${sortField} ${sortDirection}:`);
-    if (sortField === "whiteElo" || sortField === "blackElo") {
-      console.log(`[Sort] First 3 games:`, sorted.slice(0, 3).map(g => ({
-        white: g.white, whiteElo: g.whiteElo, black: g.black, blackElo: g.blackElo
-      })));
-      console.log(`[Sort] Last 3 games:`, sorted.slice(-3).map(g => ({
-        white: g.white, whiteElo: g.whiteElo, black: g.black, blackElo: g.blackElo
-      })));
-    } else {
-      console.log(`[Sort] First 3 games:`, sorted.slice(0, 3).map(g => ({ date: g.date, time: g.time, white: g.white })));
-      console.log(`[Sort] Last 3 games:`, sorted.slice(-3).map(g => ({ date: g.date, time: g.time, white: g.white })));
-    }
 
     return sorted;
   }, [games, filterValues, sortField, sortDirection]);

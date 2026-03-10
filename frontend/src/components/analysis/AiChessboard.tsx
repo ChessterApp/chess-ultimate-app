@@ -389,7 +389,6 @@ export default function AiChessboardPanel({
           baseGame.move(move);
           history.push(baseGame.fen());
         } catch (err) {
-          console.log(err);
           console.warn("Invalid move in provided history:", move);
           break;
         }
@@ -493,7 +492,7 @@ export default function AiChessboardPanel({
             setMoveSquares({});
           }
         } catch (error) {
-          console.log("Invalid move:", error);
+          // Invalid move - silently ignore
         }
       } else {
         safeGameMutate((gameInstance) => {
@@ -707,7 +706,6 @@ export default function AiChessboardPanel({
       clearAnalysis();
       setCustomFen("");
     } catch (error) {
-      console.log(error);
       alert("Invalid FEN string.");
     }
   }, [customFen, setGame, setFen, clearAnalysis]);
