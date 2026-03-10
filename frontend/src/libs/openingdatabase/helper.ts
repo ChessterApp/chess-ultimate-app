@@ -30,7 +30,7 @@ export interface Moves {
 }
 
 export interface MasterGames {
-  opening: Opening;
+  opening: Opening | null;
   white: number;
   draws: number;
   black: number;
