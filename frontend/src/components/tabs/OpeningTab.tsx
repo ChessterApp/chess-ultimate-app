@@ -735,7 +735,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
           <Stack spacing={1}>
             {currentData.topGames.slice(0, 3).map((game, index) => (
               <Box
-                key={`${game.id}-${index}`}
+                key={`${game?.id ?? index}-${index}`}
                 sx={{
                   p: 1.5,
                   backgroundColor: "rgba(255,255,255,0.05)",
@@ -753,7 +753,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
                     </Typography>
                   </Box>
                   <Link
-                    href={`https://lichess.org/${game.id}`}
+                    href={`https://lichess.org/${game?.id ?? ""}`}
                     target="_blank"
                     rel="noopener"
                     sx={{ 
