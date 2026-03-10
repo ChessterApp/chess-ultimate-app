@@ -22,6 +22,14 @@ const nextConfig = {
                 source: '/api/openings/:path*',
                 destination: 'http://localhost:5001/api/openings/:path*',
             },
+            {
+                source: '/api/chat/analysis',
+                destination: 'http://localhost:5001/api/chat/analysis',
+            },
+            {
+                source: '/api/chat/history/:path*',
+                destination: 'http://localhost:5001/api/chat/history/:path*',
+            },
         ];
     },
     async redirects() {

@@ -19,7 +19,9 @@ import { validateFen } from "chess.js";
 import { useLocalStorage } from "usehooks-ts";
 import { apiFetch } from '@/lib/api';
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
+// Use the Next.js rewrite proxy (/api/openings -> localhost:5001/api/openings)
+// instead of calling the backend directly from the browser
+const BACKEND_URL = '';
 
 export interface CandidateMove {
   uci: string;

@@ -244,10 +244,9 @@ export default function useChesster(fen: string) {
         return;
       }
 
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
       let data: any;
       try {
-        data = await apiFetch<any>(`${BACKEND_URL}/api/chat/history/${conversationId}`, {
+        data = await apiFetch<any>(`/api/chat/history/${conversationId}`, {
           method: "GET",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -295,9 +294,6 @@ export default function useChesster(fen: string) {
         throw new Error('Please sign in to use AI chat features');
       }
 
-      // Backend URL - uses environment variable or defaults to localhost
-      const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
-
       // Determine context type based on mode
       const contextType = mode === 'position' ? 'position' :
                           mode === 'game' ? 'game' :
@@ -305,7 +301,7 @@ export default function useChesster(fen: string) {
 
       let data: any;
       try {
-        data = await apiFetch<any>(`${BACKEND_URL}/api/chat/analysis`, {
+        data = await apiFetch<any>(`/api/chat/analysis`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
