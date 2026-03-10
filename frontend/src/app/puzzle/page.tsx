@@ -29,6 +29,9 @@ import {
 } from "@mui/material";
 import { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";
+import 'chessground/assets/chessground.base.css';
+import 'chessground/assets/chessground.brown.css';
+import '@/styles/chessground-theme.css';
 import { TabPanel } from "@/components/tabs/tab";
 import StockfishAnalysisTab from "@/components/tabs/StockfishTab";
 import ChatTab from "@/components/tabs/ChatTab";
@@ -249,7 +252,6 @@ export default function PuzzlePage() {
       setLegalMoves([]);
       
     } catch (err) {
-      console.log(puzzleQuery);
       console.error("Error fetching puzzle:", err);
       if (err instanceof ApiError) {
         if (err.status === 429) {
@@ -691,7 +693,7 @@ export default function PuzzlePage() {
                     minWidth: { xs: "auto", sm: 90 },
                     px: { xs: 1, sm: 2 },
                   },
-                  "& .Mui-selected": { color: "white !important" },
+                  "& .Mui-selected": { color: "var(--text-primary) !important" },
                 }}
               >
                 <Tab label={t('tabs.puzzleInfo')} />

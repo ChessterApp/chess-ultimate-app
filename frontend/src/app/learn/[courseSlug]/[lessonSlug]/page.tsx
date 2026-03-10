@@ -326,7 +326,7 @@ export default function LessonPage() {
                   targetSquares={lesson.exercise_solution?.targets}
                   onCorrectMove={handleCorrectMove}
                   onIncorrectMove={(move) => {
-                    console.log('Incorrect move attempted:', move)
+                    // Move validation handled internally
                   }}
                   showHints={true}
                   enableAnimations={true}
