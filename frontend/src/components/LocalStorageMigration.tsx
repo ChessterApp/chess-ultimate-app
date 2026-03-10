@@ -24,7 +24,7 @@ export default function LocalStorageMigration() {
       }
     } catch (err) {
       // Ignore errors in SSR or if localStorage is unavailable
-      console.error('[Migration] Failed to migrate animation duration:', err);
+      // Migration is silent in production
     }
   }, []);
 
