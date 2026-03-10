@@ -47,8 +47,14 @@ export const getOpeningStats = async (fen: string): Promise<MasterGames | null> 
     const masterData = await apiFetch<MasterGames>(masterEndpoint);
     return masterData;
   } catch (error) {
-    console.error("Error fetching opening stats:", error);
-    return null;
+    return {
+      white: 0,
+      draws: 0,
+      black: 0,
+      moves: [],
+      topGames: [],
+      opening: null
+    };
   }
 };
 
@@ -58,8 +64,14 @@ export const getLichessOpeningStats = async (fen: string): Promise<MasterGames |
     const masterData = await apiFetch<MasterGames>(masterEndpoint);
     return masterData;
   } catch (error) {
-    console.error("Error fetching opening stats:", error);
-    return null;
+    return {
+      white: 0,
+      draws: 0,
+      black: 0,
+      moves: [],
+      topGames: [],
+      opening: null
+    };
   }
 };
 

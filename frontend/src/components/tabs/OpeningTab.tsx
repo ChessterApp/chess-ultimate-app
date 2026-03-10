@@ -379,7 +379,7 @@ export const OpeningExplorer: React.FC<OpeningExplorerProps> = ({
         {/* No Data State */}
         <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
           <Typography variant="body2" sx={{ color: "grey.400", textAlign: "center" }}>
-            No {explorerType} games found for this position.
+            Explorer data temporarily unavailable
           </Typography>
         </Box>
       </Box>
