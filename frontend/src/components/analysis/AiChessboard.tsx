@@ -582,6 +582,19 @@ export default function AiChessboardPanel({
     [onDropPuzzle]
   );
 
+  const qualityToBrush = (quality: string): string => {
+    const map: Record<string, string> = {
+      Best: "green",
+      "Very Good": "blue",
+      Good: "paleGreen",
+      Dubious: "yellow",
+      Mistake: "red",
+      Blunder: "paleRed",
+      Book: "yellow",
+    };
+    return map[quality] || "green";
+  };
+
   const customArrows = useMemo((): Array<{ from: Key; to: Key; brush: string }> => {
     if (!showArrows) {
       return [];
@@ -594,7 +607,7 @@ export default function AiChessboardPanel({
       const reviewArrow = {
         from: reviewMove.arrowMove.from as Key,
         to: reviewMove.arrowMove.to as Key,
-        brush: getMoveClassificationStyle(reviewMove.quality).color,
+        brush: qualityToBrush(reviewMove.quality),
       };
       arrows.push(reviewArrow);
 
@@ -615,7 +628,7 @@ export default function AiChessboardPanel({
               const engineArrow = {
                 from: from as Key,
                 to: to as Key,
-                brush: "#4caf50",
+                brush: "green",
               };
               arrows.push(engineArrow);
             }
@@ -630,7 +643,7 @@ export default function AiChessboardPanel({
         if (move && move.length >= 4) {
           const from = move.substring(0, 2);
           const to = move.substring(2, 4);
-          const engineArrow = { from: from as Key, to: to as Key, brush: "#4caf50" };
+          const engineArrow = { from: from as Key, to: to as Key, brush: "green" };
           arrows.push(engineArrow);
         }
       }
