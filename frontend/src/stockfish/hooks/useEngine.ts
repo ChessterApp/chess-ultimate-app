@@ -13,10 +13,10 @@ export const useEngine = (enabled: boolean, engineName: EngineName | undefined) 
         if (!enabled || !engineName) return;
 
         const engine = pickEngine(engineName);
-        console.log('Initializing engine');
         void engine.init().then(() => {
-            console.log('Engine initialized');
             setEngine(engine);
+        }).catch(() => {
+            // Engine init can fail if WASM/SharedArrayBuffer unavailable
         });
 
         return () => {

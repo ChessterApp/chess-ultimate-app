@@ -38,8 +38,8 @@ export abstract class UciEngine {
             uci(command) {
                 worker.postMessage(command);
             },
-            listen(data) {
-                console.log(data);
+            listen(_data) {
+                // Default no-op; reassigned to publishMessage during init
             },
             onError(msg) {
                 console.error(msg);
