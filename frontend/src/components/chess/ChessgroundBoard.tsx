@@ -9,6 +9,7 @@ import { Chess } from 'chess.js';
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
+import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/libs/setting/helper';
 
 interface ChessgroundBoardProps {
   fen: string;
@@ -42,7 +43,7 @@ export default function ChessgroundBoard({
   lastMove = null,
   check = true, // Enable check highlighting by default
   boardSize = 520,
-  animationDuration = 200,
+  animationDuration = DEFAULT_BOARD_ANIMATION_DURATION,
   showCoordinates = true,
   premovable = false,
   onRightClick,
@@ -113,7 +114,7 @@ export default function ChessgroundBoard({
 
       movable: {
         free: false, // Only allow legal moves
-        color: movable && !viewOnly ? 'both' : undefined,
+        color: movable && !viewOnly ? getTurnColor(fen) : undefined,
         dests: movable && !viewOnly ? getLegalMoves(fen) : new Map(),
         showDests: true, // Show legal move indicators
         events: {
@@ -188,8 +189,15 @@ export default function ChessgroundBoard({
       fen,
       turnColor: getTurnColor(fen),
       movable: {
-        color: movable && !viewOnly ? 'both' : undefined,
+        color: movable && !viewOnly ? getTurnColor(fen) : undefined,
         dests: movable && !viewOnly ? getLegalMoves(fen) : new Map(),
+      },
+      draggable: {
+        enabled: movable && !viewOnly,
+        showGhost: true,
+      },
+      selectable: {
+        enabled: movable && !viewOnly,
       },
       check: check ? isInCheck(fen) : false,
     });
@@ -227,6 +235,25 @@ export default function ChessgroundBoard({
       },
     });
   }, [highlightSquares]);
+
+  // Update animation duration
+  useEffect(() => {
+    if (!cgRef.current || !boardRef.current) return;
+    cgRef.current.set({
+      animation: {
+        enabled: true,
+        duration: animationDuration,
+      },
+    });
+    // Also update the CSS variable
+    (boardRef.current.style as any)['--cg-animation-duration'] = `${animationDuration}ms`;
+  }, [animationDuration]);
+
+  // Update coordinates visibility
+  useEffect(() => {
+    if (!cgRef.current) return;
+    cgRef.current.set({ coordinates: showCoordinates });
+  }, [showCoordinates]);
 
   return (
     <div
