@@ -5,15 +5,15 @@ export const chessterLightTheme = createTheme({
   palette: {
     mode: 'light',
     primary: {
-      main: '#8B5CF6',
-      dark: '#7C3AED',
-      light: '#A78BFA',
+      main: '#1f2937',
+      dark: '#111827',
+      light: '#14b8a6',
     },
     secondary: {
       main: '#AB47BC',
     },
     background: {
-      default: '#FAFAFA',
+      default: '#fafaf9',
       paper: '#FFFFFF',
     },
     text: {
@@ -23,33 +23,63 @@ export const chessterLightTheme = createTheme({
     success: { main: '#22C55E' },
     error: { main: '#EF4444' },
     warning: { main: '#F59E0B' },
-    divider: '#E4E4E7',
+    divider: '#e5e7eb',
   },
   shape: { borderRadius: 12 },
   components: {
     MuiCard: {
       styleOverrides: {
-        root: { borderRadius: 16 },
+        root: { borderRadius: 32 },
       },
     },
     MuiPaper: {
       styleOverrides: {
-        root: { borderRadius: 12 },
+        root: { borderRadius: 24 },
       },
     },
     MuiButton: {
       styleOverrides: {
-        root: { borderRadius: 8, textTransform: 'none' as const },
+        root: { borderRadius: 9999, textTransform: 'none' as const },
       },
     },
     MuiChip: {
       styleOverrides: {
-        root: { borderRadius: 6 },
+        root: { borderRadius: 9999 },
       },
     },
     MuiDialog: {
       styleOverrides: {
-        paper: { borderRadius: 16 },
+        paper: { borderRadius: 24 },
+      },
+    },
+    MuiMenu: {
+      styleOverrides: {
+        paper: {
+          backgroundImage: 'none !important',
+          backgroundColor: '#FFFFFF !important',
+          border: '1px solid #e5e7eb',
+        },
+      },
+    },
+    MuiPopover: {
+      styleOverrides: {
+        paper: {
+          backgroundImage: 'none !important',
+          backgroundColor: '#FFFFFF !important',
+        },
+      },
+    },
+    MuiSelect: {
+      defaultProps: {
+        MenuProps: {
+          PaperProps: {
+            sx: {
+              backgroundImage: 'none !important',
+              backgroundColor: '#FFFFFF !important',
+              border: '1px solid #e5e7eb',
+            },
+          },
+        },
       },
     },
   },
@@ -60,9 +90,9 @@ export const chessterDarkTheme = createTheme({
   palette: {
     mode: 'dark',
     primary: {
-      main: '#A78BFA',
-      dark: '#8B5CF6',
-      light: '#C4B5FD',
+      main: '#14b8a6',
+      dark: '#0d9488',
+      light: '#2dd4bf',
     },
     secondary: {
       main: '#CE93D8',
@@ -84,29 +114,58 @@ export const chessterDarkTheme = createTheme({
   components: {
     MuiCard: {
       styleOverrides: {
-        root: { borderRadius: 16 },
+        root: { borderRadius: 32 },
       },
     },
     MuiPaper: {
       styleOverrides: {
-        root: { borderRadius: 12 },
+        root: { borderRadius: 24 },
       },
     },
     MuiButton: {
       styleOverrides: {
-        root: { borderRadius: 8, textTransform: 'none' as const },
+        root: { borderRadius: 9999, textTransform: 'none' as const },
       },
     },
     MuiChip: {
       styleOverrides: {
-        root: { borderRadius: 6 },
+        root: { borderRadius: 9999 },
       },
     },
     MuiDialog: {
       styleOverrides: {
-        paper: { borderRadius: 16 },
+        paper: { borderRadius: 24 },
+      },
+    },
+    MuiMenu: {
+      styleOverrides: {
+        paper: {
+          backgroundImage: 'none !important',
+          backgroundColor: '#1a1a1a !important',
+          border: '1px solid #2a2a2a',
+        },
+      },
+    },
+    MuiPopover: {
+      styleOverrides: {
+        paper: {
+          backgroundImage: 'none !important',
+          backgroundColor: '#1a1a1a !important',
+        },
+      },
+    },
+    MuiSelect: {
+      defaultProps: {
+        MenuProps: {
+          PaperProps: {
+            sx: {
+              backgroundImage: 'none !important',
+              backgroundColor: '#1a1a1a !important',
+              border: '1px solid #2a2a2a',
+            },
+          },
+        },
       },
     },
   },
 });
-

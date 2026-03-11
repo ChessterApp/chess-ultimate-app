@@ -853,7 +853,10 @@
     "newestFirst": "Сначала новые",
     "oldestFirst": "Сначала старые",
     "whiteRating": "Рейтинг белых",
-    "blackRating": "Рейтинг чёрных"
+    "blackRating": "Рейтинг чёрных",
+    "anyColor": "Любой цвет",
+    "whiteGames": "Партии белыми",
+    "blackGames": "Партии чёрными"
   },
   "onboarding": {
     "continue": "Продолжить",

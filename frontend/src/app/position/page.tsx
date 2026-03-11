@@ -4,6 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { Box, Stack } from "@mui/material";
 import { Chess } from "chess.js";
 import dynamic from "next/dynamic";
+import 'chessground/assets/chessground.base.css';
+import 'chessground/assets/chessground.brown.css';
+import '@/styles/chessground-theme.css';
 import useChesster from "@/hooks/useChesster";
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";

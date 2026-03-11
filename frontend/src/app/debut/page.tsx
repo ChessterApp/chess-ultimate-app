@@ -5,6 +5,11 @@ import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
+// Import chessground CSS at page level to ensure it's included in the page's CSS bundle
+// (dynamic imports with ssr:false may not reliably load CSS chunks in turbopack)
+import 'chessground/assets/chessground.base.css';
+import 'chessground/assets/chessground.brown.css';
+import '@/styles/chessground-theme.css';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
 import type { OpeningNode, GameSearchResult, GameLink, MoveCandidate, CandidatesResponse } from '@/hooks/useOpeningRepertoire';
 import type { Key } from 'chessground/types';
@@ -814,7 +819,7 @@ export default function DebutPage() {
               label={`♟ ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
               onClick={() => setActiveTab(g.id)}
               onDelete={() => handleCloseGame(g.id)}
-              deleteIcon={<Close sx={{ fontSize: 14, color: 'var(--text-tertiary)', '&:hover': { color: 'var(--text-primary)' } }} />}
+              deleteIcon={<Close sx={{ fontSize: 14 }} />}
               sx={{
                 height: 28, fontSize: 11, maxWidth: 200,
                 borderRadius: '9999px',
@@ -824,6 +829,10 @@ export default function DebutPage() {
                 '&:hover': { bgcolor: activeTab === g.id ? 'primary.dark' : 'var(--surface-card-hover)' },
                 cursor: 'pointer', flexShrink: 0,
                 '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                '& .MuiChip-deleteIcon': {
+                  color: activeTab === g.id ? '#D1D5DB' : 'var(--text-tertiary)',
+                  '&:hover': { color: activeTab === g.id ? '#F3F4F6' : 'var(--text-primary)' },
+                },
               }}
             />
           ))}

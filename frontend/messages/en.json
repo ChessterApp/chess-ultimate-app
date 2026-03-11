@@ -853,7 +853,10 @@
     "newestFirst": "Newest first",
     "oldestFirst": "Oldest first",
     "whiteRating": "White rating",
-    "blackRating": "Black rating"
+    "blackRating": "Black rating",
+    "anyColor": "Any color",
+    "whiteGames": "White games",
+    "blackGames": "Black games"
   },
   "onboarding": {
     "continue": "Continue",

@@ -27,6 +27,8 @@ import TargetStar from './TargetStar';
 import { useHaptic } from '@/hooks/useHaptic';
 import ArrowOverlay from './ArrowOverlay';
 import LottieCelebration from './LottieCelebration';
+import { useLocalStorage } from 'usehooks-ts';
+import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/libs/setting/helper';
 
 // Import chessground CSS
 import 'chessground/assets/chessground.base.css';
@@ -109,6 +111,7 @@ export default function AnimatedChessBoard({
   strictValidation = false,
 }: AnimatedChessBoardProps) {
   const haptic = useHaptic();
+  const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', DEFAULT_BOARD_ANIMATION_DURATION);
   const boardRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<Api | null>(null);
   const validatorRef = useRef<MoveValidator>(new MoveValidator(fen));
@@ -162,6 +165,7 @@ export default function AnimatedChessBoard({
             orientation,
             movable: true,
             premovable: false,
+            animationDuration,
           }),
         });
 

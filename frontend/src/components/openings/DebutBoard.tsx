@@ -11,6 +11,7 @@ import {
   BOARD_THEMES,
   getCurrentThemeColors,
   DEFAULT_BOARD_SHOW_COORDINATE,
+  DEFAULT_BOARD_ANIMATION_DURATION,
 } from '@/libs/setting/helper';
 
 // ─── ChessBase-style SVG icons ───
@@ -82,7 +83,7 @@ export default function DebutBoard({
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
   const [showCoordinates] = useLocalStorage<boolean>('board_show_coordinates', DEFAULT_BOARD_SHOW_COORDINATE);
-  const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', 200);
+  const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', DEFAULT_BOARD_ANIMATION_DURATION);
 
   // Responsive board size
   useEffect(() => {

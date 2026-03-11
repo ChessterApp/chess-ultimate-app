@@ -84,7 +84,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
             value={filters.playerColor}
             onChange={(e) => onFilterChange({ ...filters, playerColor: e.target.value })}
             sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: 'action.hover', color: 'text.secondary' } } }}
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
           >
             {colorOptions.map(opt => (
               <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
@@ -99,7 +99,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
             value={filters.sortBy}
             onChange={(e) => onFilterChange({ ...filters, sortBy: e.target.value })}
             sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: 'action.hover', color: 'text.secondary' } } }}
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
           >
             {sortOptions.map(opt => (
               <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>

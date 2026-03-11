@@ -4,7 +4,8 @@
  */
 
 import { useState, useCallback } from 'react';
-import { apiFetch as globalApiFetch, ApiError } from '@/lib/api';
+import { useAuth } from '@clerk/nextjs';
+import { apiFetch as globalApiFetch } from '@/lib/api';
 
 const API_BASE = '/api/openings';
 
@@ -110,33 +111,54 @@ export interface GameSearchResult {
   url?: string;
 }
 
-// ─── Helper: build auth headers ──────────
-
-function getHeaders(): HeadersInit {
-  // Auth is disabled in local development — use a dummy JWT
-  // In production, get token from Clerk's useAuth().getToken()
-  const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsb2NhbF91c2VyIn0.FakeTokenForLocalDev';
-  return {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-  };
+export interface MoveCandidate {
+  uci: string;
+  san: string;
+  count: number;
+  percentage: number;
+  white_wins: number;
+  draws: number;
+  black_wins: number;
+  avg_elo: number | null;
+  avg_year: number | null;
+  score: string;
+  winrate: string;
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  return globalApiFetch<T>(`${API_BASE}${path}`, {
-    headers: getHeaders(),
-    ...options,
-  });
+export interface CandidatesResponse {
+  status: string;
+  total_games: number;
+  moves: MoveCandidate[];
+}
+
+export interface TopPlayer {
+  name: string;
+  elo: number;
+  title: string;
+  games: number;
 }
 
 // ─── Hook ────────────────────────────────
 
 export function useOpeningRepertoire() {
+  const { getToken } = useAuth();
   const [repertoires, setRepertoires] = useState<Repertoire[]>([]);
   const [currentTree, setCurrentTree] = useState<OpeningNode | null>(null);
   const [loading, setLoading] = useState(false);
   const [treeLoading, setTreeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchWithAuth = useCallback(async <T>(path: string, options?: RequestInit & { timeout?: number }): Promise<T> => {
+    const token = await getToken() || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsb2NhbF91c2VyIn0.FakeTokenForLocalDev';
+    const headers: HeadersInit = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    };
+    return globalApiFetch<T>(`${API_BASE}${path}`, {
+      ...options,
+      headers: { ...headers, ...options?.headers },
+    });
+  }, [getToken]);
 
   // ── Repertoire CRUD ──────────
 
@@ -144,7 +166,7 @@ export function useOpeningRepertoire() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<{ repertoires: Repertoire[] }>('/repertoires');
+      const data = await fetchWithAuth<{ repertoires: Repertoire[] }>('/repertoires');
       setRepertoires(data.repertoires);
     } catch (e: any) {
       setError(e.message);
@@ -158,7 +180,7 @@ export function useOpeningRepertoire() {
     color: 'w' | 'b',
     opts?: { description?: string; startingFen?: string; startingMoveLine?: string }
   ): Promise<Repertoire> => {
-    const data = await apiFetch<{ repertoire: Repertoire }>('/repertoires', {
+    const data = await fetchWithAuth<{ repertoire: Repertoire }>('/repertoires', {
       method: 'POST',
       body: JSON.stringify({ name, color, ...opts }),
     });
@@ -167,7 +189,7 @@ export function useOpeningRepertoire() {
   }, [fetchRepertoires]);
 
   const updateRepertoire = useCallback(async (id: string, updates: Partial<Repertoire>) => {
-    await apiFetch(`/repertoires/${id}`, {
+    await fetchWithAuth(`/repertoires/${id}`, {
       method: 'PUT',
       body: JSON.stringify(updates),
     });
@@ -175,7 +197,7 @@ export function useOpeningRepertoire() {
   }, [fetchRepertoires]);
 
   const deleteRepertoire = useCallback(async (id: string) => {
-    await apiFetch(`/repertoires/${id}`, { method: 'DELETE' });
+    await fetchWithAuth(`/repertoires/${id}`, { method: 'DELETE' });
     await fetchRepertoires();
   }, [fetchRepertoires]);
 
@@ -184,7 +206,7 @@ export function useOpeningRepertoire() {
   const fetchTree = useCallback(async (repertoireId: string, silent = false) => {
     if (!silent) setTreeLoading(true);
     try {
-      const data = await apiFetch<{ repertoire: Repertoire; tree: OpeningNode }>(`/repertoires/${repertoireId}`);
+      const data = await fetchWithAuth<{ repertoire: Repertoire; tree: OpeningNode }>(`/repertoires/${repertoireId}`);
       setCurrentTree(data.tree);
     } catch (e: any) {
       if (!silent) setError(e.message);
@@ -199,7 +221,7 @@ export function useOpeningRepertoire() {
     moveUci: string,
     newFen: string
   ): Promise<OpeningNode> => {
-    const data = await apiFetch<OpeningNode>('/nodes', {
+    const data = await fetchWithAuth<OpeningNode>('/nodes', {
       method: 'POST',
       body: JSON.stringify({ parentId, moveSan, moveUci, newFen }),
     });
@@ -210,14 +232,14 @@ export function useOpeningRepertoire() {
     nodeId: string,
     data: { notes?: string; priority?: number; isCritical?: boolean }
   ) => {
-    await apiFetch(`/nodes/${nodeId}`, {
+    await fetchWithAuth(`/nodes/${nodeId}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }, []);
 
   const deleteNode = useCallback(async (nodeId: string) => {
-    await apiFetch(`/nodes/${nodeId}`, { method: 'DELETE' });
+    await fetchWithAuth(`/nodes/${nodeId}`, { method: 'DELETE' });
   }, []);
 
   // ── Starting position ────────
@@ -227,7 +249,7 @@ export function useOpeningRepertoire() {
     fen: string,
     moveLine?: string
   ) => {
-    await apiFetch(`/repertoires/${repertoireId}/starting-position`, {
+    await fetchWithAuth(`/repertoires/${repertoireId}/starting-position`, {
       method: 'PUT',
       body: JSON.stringify({ fen, moveLine }),
     });
@@ -240,7 +262,7 @@ export function useOpeningRepertoire() {
     pgn: string,
     maxPly?: number
   ): Promise<ImportPgnResult> => {
-    return apiFetch(`/repertoires/${repertoireId}/import`, {
+    return fetchWithAuth(`/repertoires/${repertoireId}/import`, {
       method: 'POST',
       body: JSON.stringify({ pgn, maxPly: maxPly || 30 }),
     });
@@ -251,7 +273,7 @@ export function useOpeningRepertoire() {
     includeNotes?: boolean
   ): Promise<string> => {
     const notes = includeNotes !== false ? 'true' : 'false';
-    return apiFetch<string>(`/repertoires/${repertoireId}/pgn?include_notes=${notes}`);
+    return fetchWithAuth<string>(`/repertoires/${repertoireId}/pgn?include_notes=${notes}`);
   }, []);
 
   // ── Arrows ───────────────────
@@ -262,14 +284,14 @@ export function useOpeningRepertoire() {
     toSquare: string,
     color?: string
   ): Promise<ArrowAnnotation> => {
-    return apiFetch(`/nodes/${nodeId}/arrows`, {
+    return fetchWithAuth(`/nodes/${nodeId}/arrows`, {
       method: 'POST',
       body: JSON.stringify({ fromSquare, toSquare, color: color || 'green' }),
     });
   }, []);
 
   const deleteArrow = useCallback(async (nodeId: string, arrowId: string) => {
-    await apiFetch(`/nodes/${nodeId}/arrows/${arrowId}`, { method: 'DELETE' });
+    await fetchWithAuth(`/nodes/${nodeId}/arrows/${arrowId}`, { method: 'DELETE' });
   }, []);
 
   // ── Game search & linking ────
@@ -285,18 +307,18 @@ export function useOpeningRepertoire() {
     if (playerColor) params.set('player_color', playerColor);
     if (playerName) params.set('player_name', playerName);
     if (sortBy && sortBy !== 'rating') params.set('sort_by', sortBy);
-    const data = await apiFetch<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`);
+    const data = await fetchWithAuth<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`);
     return data;
   }, []);
 
   const fetchPositionCount = useCallback(async (fen: string): Promise<number> => {
     const params = new URLSearchParams({ fen });
-    const data = await apiFetch<{ count: number }>(`/games/position-count?${params}`);
+    const data = await fetchWithAuth<{ count: number }>(`/games/position-count?${params}`);
     return data.count;
   }, []);
 
   const fetchGamePgn = useCallback(async (gameId: number): Promise<string> => {
-    const data = await apiFetch<{ pgn: string }>(`/games/${gameId}/pgn`);
+    const data = await fetchWithAuth<{ pgn: string }>(`/games/${gameId}/pgn`);
     return data.pgn;
   }, []);
 
@@ -308,7 +330,7 @@ export function useOpeningRepertoire() {
     const params = new URLSearchParams({ source, fen });
     if (opts?.username) params.set('username', opts.username);
     if (opts?.maxGames) params.set('max_games', String(opts.maxGames));
-    const data = await apiFetch<{ games: GameSearchResult[] }>(`/games/search?${params}`);
+    const data = await fetchWithAuth<{ games: GameSearchResult[] }>(`/games/search?${params}`);
     return data.games;
   }, []);
 
@@ -325,12 +347,18 @@ export function useOpeningRepertoire() {
     if (opts?.username) params.set('username', opts.username);
     if (opts?.maxGames) params.set('max_games', String(opts.maxGames));
 
-    const headers = getHeaders();
     const controller = new AbortController();
 
-    fetch(`${API_BASE}/games/search/stream?${params}`, {
-      headers,
-      signal: controller.signal,
+    getToken().then(async (clerkToken) => {
+      const token = clerkToken || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsb2NhbF91c2VyIn0.FakeTokenForLocalDev';
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      };
+      return fetch(`${API_BASE}/games/search/stream?${params}`, {
+        headers,
+        signal: controller.signal,
+      });
     }).then(async (res) => {
       if (!res.body) return;
       const reader = res.body.getReader();
@@ -367,10 +395,10 @@ export function useOpeningRepertoire() {
     });
 
     return () => controller.abort();
-  }, []);
+  }, [getToken]);
 
   const linkGame = useCallback(async (nodeId: string, data: Partial<GameLink>) => {
-    await apiFetch(`/nodes/${nodeId}/games`, {
+    await fetchWithAuth(`/nodes/${nodeId}/games`, {
       method: 'POST',
       body: JSON.stringify({
         gameSource: data.game_source,
@@ -388,12 +416,12 @@ export function useOpeningRepertoire() {
   }, []);
 
   const getNodeGames = useCallback(async (nodeId: string): Promise<GameLink[]> => {
-    const data = await apiFetch<{ games: GameLink[] }>(`/nodes/${nodeId}/games`);
+    const data = await fetchWithAuth<{ games: GameLink[] }>(`/nodes/${nodeId}/games`);
     return data.games;
   }, []);
 
   const deleteGameLink = useCallback(async (gameLinkId: string) => {
-    await apiFetch(`/games/${gameLinkId}`, { method: 'DELETE' });
+    await fetchWithAuth(`/games/${gameLinkId}`, { method: 'DELETE' });
   }, []);
 
   // ── Training ─────────────────
@@ -405,7 +433,7 @@ export function useOpeningRepertoire() {
     const params = new URLSearchParams();
     if (repertoireId) params.set('repertoire_id', repertoireId);
     if (limit) params.set('limit', String(limit));
-    const data = await apiFetch<{ nodes: OpeningNode[] }>(`/training/due?${params}`);
+    const data = await fetchWithAuth<{ nodes: OpeningNode[] }>(`/training/due?${params}`);
     return data.nodes;
   }, []);
 
@@ -414,7 +442,7 @@ export function useOpeningRepertoire() {
     correct: boolean,
     timeMs?: number
   ) => {
-    await apiFetch('/training/result', {
+    await fetchWithAuth('/training/result', {
       method: 'POST',
       body: JSON.stringify({ nodeId, correct, timeMs }),
     });
@@ -425,7 +453,25 @@ export function useOpeningRepertoire() {
   ): Promise<TrainingStats> => {
     const params = new URLSearchParams();
     if (repertoireId) params.set('repertoire_id', repertoireId);
-    return apiFetch(`/training/stats?${params}`);
+    return fetchWithAuth(`/training/stats?${params}`);
+  }, []);
+
+  // ─── Move Tree: Candidate moves ───
+  const fetchCandidateMoves = useCallback(async (fen: string): Promise<CandidatesResponse> => {
+    const params = new URLSearchParams({ fen, limit: '20' });
+    const data = await fetchWithAuth<any>(`/positions/candidates?${params}`, { timeout: 60000 });
+    return {
+      status: data.status || 'ok',
+      total_games: data.total_games || 0,
+      moves: Array.isArray(data.moves) ? data.moves : [],
+    };
+  }, []);
+
+  // ─── Move Tree: Top players at position ───
+  const fetchTopPlayers = useCallback(async (fen: string): Promise<TopPlayer[]> => {
+    const params = new URLSearchParams({ fen, limit: '10' });
+    const data = await fetchWithAuth<any>(`/positions/top-players?${params}`, { timeout: 60000 });
+    return Array.isArray(data.players) ? data.players : [];
   }, []);
 
   return {
@@ -466,5 +512,8 @@ export function useOpeningRepertoire() {
     getDueNodes,
     recordTrainingResult,
     getTrainingStats,
+    // Move tree
+    fetchCandidateMoves,
+    fetchTopPlayers,
   };
 }

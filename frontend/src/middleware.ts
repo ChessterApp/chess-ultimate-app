@@ -40,10 +40,10 @@ export default async function middleware(request: NextRequest, event: NextFetchE
   try {
     const response = await clerk(request, event)
     // If Clerk returned a 500 (e.g., kid mismatch during handshake), clear cookies
-    if (response.status >= 500) {
+    if (response && response.status >= 500) {
       return clearClerkCookies(request, request.nextUrl.pathname)
     }
-    return response
+    return response ?? NextResponse.next()
   } catch {
     // Stale Clerk session (key rotation, instance change) — clear cookies and redirect
     return clearClerkCookies(request, request.nextUrl.pathname)

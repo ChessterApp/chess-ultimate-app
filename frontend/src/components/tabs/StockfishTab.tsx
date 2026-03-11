@@ -64,13 +64,13 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
 
     // Engine display names mapping (using translations)
     const getEngineDisplayName = (engine: EngineName) => {
-        const key = engine.replace(/-/g, '').replace(/\./g, 'Point') as 'stockfish17' | 'stockfish17Point' | 'stockfish16' | 'stockfish11';
+        const key = engine.replace(/[-_]/g, '').replace(/\./g, 'Point') as 'stockfish17' | 'stockfish17Point' | 'stockfish16' | 'stockfish11';
         return t(`engines.${key}`);
     };
 
     // Engine descriptions (using translations)
     const getEngineDescription = (engine: EngineName) => {
-        const key = engine.replace(/-/g, '').replace(/\./g, 'Point') as 'stockfish17' | 'stockfish17Point' | 'stockfish16' | 'stockfish11';
+        const key = engine.replace(/[-_]/g, '').replace(/\./g, 'Point') as 'stockfish17' | 'stockfish17Point' | 'stockfish16' | 'stockfish11';
         return t(`engineDescriptions.${key}`);
     };
 

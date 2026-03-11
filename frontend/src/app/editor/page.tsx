@@ -2,6 +2,9 @@
 
 import React, { Suspense } from "react";
 import dynamic from "next/dynamic";
+import 'chessground/assets/chessground.base.css';
+import 'chessground/assets/chessground.brown.css';
+import '@/styles/chessground-theme.css';
 import { useTranslations } from "next-intl";
 
 const BoardEditor = dynamic(() => import("@/components/editor/BoardEditor"), {

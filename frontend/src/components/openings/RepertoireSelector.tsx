@@ -73,6 +73,17 @@ export default function RepertoireSelector({
           '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.secondary' },
           '.MuiSvgIcon-root': { color: 'text.secondary' },
         }}
+        MenuProps={{
+          PaperProps: {
+            sx: {
+              bgcolor: 'background.paper',
+              backgroundImage: 'none',
+              border: '1px solid',
+              borderColor: 'divider',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+            },
+          },
+        }}
         displayEmpty
         renderValue={(val) => {
           if (!val) return <em style={{ color: 'var(--text-secondary)' }}>Select repertoire...</em>;
@@ -116,7 +127,19 @@ export default function RepertoireSelector({
       </IconButton>
 
       {/* Kebab Menu */}
-      <Menu anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={() => setMenuAnchor(null)}>
+      <Menu
+        anchorEl={menuAnchor}
+        open={Boolean(menuAnchor)}
+        onClose={() => setMenuAnchor(null)}
+        PaperProps={{
+          sx: {
+            bgcolor: 'action.hover',
+            backgroundImage: 'none',
+            border: '1px solid',
+            borderColor: 'divider',
+          },
+        }}
+      >
         <MenuItem onClick={() => {
           setEditingId(selectedId);
           setNewName(selected?.name || '');

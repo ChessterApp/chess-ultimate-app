@@ -46,7 +46,7 @@
 /* Piece animations */
 .chessground-board piece {
   z-index: 2;
-  transition: transform 0.2s, opacity 0.2s;
+  transition: opacity 0.2s;
 }
 
 .chessground-board piece.dragging {
@@ -61,6 +61,11 @@
 .chessground-board piece.fading {
   z-index: 1;
   opacity: 0.5;
+}
+
+/* Override chessground base opacity (base sets cg-auto-pieces piece to 0.3) */
+.chessground-board.cg-wrap piece {
+  opacity: 1 !important;
 }
 
 /* Piece set - Using Fritz pieces from /static/pieces/Fritz/

@@ -844,7 +844,10 @@
     "newestFirst": "Жаңалары алдымен",
     "oldestFirst": "Ескілері алдымен",
     "whiteRating": "Ақ рейтингі",
-    "blackRating": "Қара рейтингі"
+    "blackRating": "Қара рейтингі",
+    "anyColor": "Кез келген түс",
+    "whiteGames": "Ақпен партиялар",
+    "blackGames": "Қарамен партиялар"
   },
   "onboarding": {
     "continue": "Жалғастыру",
