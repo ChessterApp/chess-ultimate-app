@@ -36,8 +36,8 @@ interface NodeDetailsPanelProps {
   onMasterGamesFilterChange?: (filters: MasterGamesFilterState) => void;
   explorerTab?: ExplorerTab;
   onExplorerTabChange?: (tab: ExplorerTab) => void;
-  lichessDatabase?: 'masters' | 'lichess';
-  onLichessDatabaseChange?: (db: 'masters' | 'lichess') => void;
+  lichessDatabase?: 'masters' | 'lichess' | 'player';
+  onLichessDatabaseChange?: (db: 'masters' | 'lichess' | 'player') => void;
 }
 
 export default function NodeDetailsPanel({

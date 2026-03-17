@@ -861,6 +861,25 @@
         "classical": "Классикалық",
         "correspondence": "Хат алмасу"
       }
+    },
+    "lichessDatabase": {
+      "masters": "Шеберлер",
+      "players": "Ойыншылар",
+      "player": "Ойыншы"
+    },
+    "lichessPlayer": {
+      "usernamePlaceholder": "Lichess пайдаланушы аты",
+      "search": "Іздеу",
+      "color": "Ойнау түсі",
+      "white": "Ақ",
+      "black": "Қара",
+      "mode": "Режим",
+      "rated": "Рейтингті",
+      "casual": "Еркін",
+      "both": "Барлығы",
+      "recentGames": "Соңғы ойындар",
+      "enterUsername": "Lichess ойыншысын іздеу",
+      "enterUsernameHint": "Олардың дебют репертуарын зерттеу үшін Lichess пайдаланушы атын енгізіңіз"
     }
   },
   "onboarding": {

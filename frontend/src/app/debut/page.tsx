@@ -100,7 +100,7 @@ export default function DebutPage() {
 
   // ─── Explorer tabs state ───
   const [explorerTab, setExplorerTab] = useState<ExplorerTab>('twic');
-  const [lichessDatabase, setLichessDatabase] = useState<'masters' | 'lichess'>('masters');
+  const [lichessDatabase, setLichessDatabase] = useState<'masters' | 'lichess' | 'player'>('masters');
   const [moveTreeSource, setMoveTreeSource] = useState<MoveTreeSource>('twic');
 
   // ─── Snackbar ───

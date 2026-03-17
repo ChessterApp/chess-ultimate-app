@@ -45,11 +45,16 @@ export interface LichessExplorerResponse {
 
 export interface UseLichessExplorerOptions {
   fen: string;
-  database: 'masters' | 'lichess';
+  database: 'masters' | 'lichess' | 'player';
   enabled?: boolean;
   // Lichess Players DB options
   ratings?: string; // e.g., "2200,2500"
   speeds?: string; // e.g., "rapid,classical"
+  // Lichess Player options
+  player?: string; // Lichess username
+  color?: 'white' | 'black'; // Required for player database
+  modes?: string; // e.g., "rated,casual"
+  recentGames?: number; // Number of recent games to return (default 8)
 }
 
 export interface UseLichessExplorerResult {
@@ -66,6 +71,10 @@ export function useLichessExplorer({
   enabled = true,
   ratings = '2200,2500',
   speeds = 'rapid,classical',
+  player,
+  color,
+  modes,
+  recentGames = 8,
 }: UseLichessExplorerOptions): UseLichessExplorerResult {
   const [data, setData] = useState<LichessExplorerResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -97,15 +106,32 @@ export function useLichessExplorer({
         // Build query params
         const params = new URLSearchParams();
         params.set('fen', fen);
-        params.set('topGames', '15');
-        params.set('moves', '12');
 
-        if (database === 'lichess') {
-          params.set('ratings', ratings);
-          params.set('speeds', speeds);
+        if (database === 'player') {
+          // Player database requires different params
+          if (!player || !color) {
+            throw new Error('Player and color are required for player database');
+          }
+          params.set('player', player);
+          params.set('color', color);
+          params.set('recentGames', recentGames.toString());
+          if (speeds) {
+            params.set('speeds', speeds);
+          }
+          if (modes) {
+            params.set('modes', modes);
+          }
+        } else {
+          params.set('topGames', '15');
+          params.set('moves', '12');
+
+          if (database === 'lichess') {
+            params.set('ratings', ratings);
+            params.set('speeds', speeds);
+          }
         }
 
-        const endpoint = database === 'masters' ? 'masters' : 'lichess';
+        const endpoint = database === 'masters' ? 'masters' : database === 'player' ? 'player' : 'lichess';
         const cacheKey = `${endpoint}?${params.toString()}`;
 
         // Check session cache first
@@ -161,7 +187,7 @@ export function useLichessExplorer({
     return () => {
       cancelled = true;
     };
-  }, [fen, database, enabled, ratings, speeds, retryTrigger]);
+  }, [fen, database, enabled, ratings, speeds, player, color, modes, recentGames, retryTrigger]);
 
   return { data, loading, error, upstreamDown, retry };
 }

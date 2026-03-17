@@ -18,10 +18,15 @@ import {
   ListItemText,
   Chip,
   IconButton,
+  TextField,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
   useMediaQuery,
   useTheme,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, Refresh } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, Refresh, Search } from '@mui/icons-material';
 import { useLichessExplorer, LichessExplorerResponse, LichessMove, LichessTopGame } from '@/hooks/useLichessExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
 import GameCard from './GameCard';
@@ -29,8 +34,8 @@ import EmptyState from './EmptyState';
 
 interface LichessExplorerTabProps {
   fen: string;
-  database: 'masters' | 'lichess';
-  onDatabaseChange: (db: 'masters' | 'lichess') => void;
+  database: 'masters' | 'lichess' | 'player';
+  onDatabaseChange: (db: 'masters' | 'lichess' | 'player') => void;
   onOpenGame?: (game: GameSearchResult) => void;
 }
 
@@ -57,12 +62,24 @@ export default function LichessExplorerTab({
   const [selectedRatings, setSelectedRatings] = useState<string[]>(DEFAULT_RATINGS);
   const [selectedSpeeds, setSelectedSpeeds] = useState<string[]>(DEFAULT_SPEEDS);
 
+  // Player search state (only for player database)
+  const [username, setUsername] = useState('');
+  const [searchUsername, setSearchUsername] = useState('');
+  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
+  const [playerSpeeds, setPlayerSpeeds] = useState<string[]>(DEFAULT_SPEEDS);
+  const [playerMode, setPlayerMode] = useState<string>('rated');
+  const [recentGamesCount, setRecentGamesCount] = useState<number>(8);
+
   const { data, loading, error, upstreamDown, retry } = useLichessExplorer({
     fen,
     database,
-    enabled: true,
+    enabled: database === 'player' ? !!searchUsername : true,
     ratings: database === 'lichess' ? selectedRatings.join(',') : undefined,
-    speeds: database === 'lichess' ? selectedSpeeds.join(',') : undefined,
+    speeds: database === 'lichess' ? selectedSpeeds.join(',') : database === 'player' ? playerSpeeds.join(',') : undefined,
+    player: database === 'player' ? searchUsername : undefined,
+    color: database === 'player' ? playerColor : undefined,
+    modes: database === 'player' ? playerMode : undefined,
+    recentGames: database === 'player' ? recentGamesCount : undefined,
   });
 
   // Reset page when FEN or database changes
@@ -70,11 +87,15 @@ export default function LichessExplorerTab({
     setGamesPage(0);
   }, [fen, database]);
 
-  // Reset filters to defaults when switching to lichess database
+  // Reset filters to defaults when switching databases
   useEffect(() => {
     if (database === 'lichess') {
       setSelectedRatings(DEFAULT_RATINGS);
       setSelectedSpeeds(DEFAULT_SPEEDS);
+    } else if (database === 'player') {
+      setPlayerSpeeds(DEFAULT_SPEEDS);
+      setPlayerMode('rated');
+      setRecentGamesCount(8);
     }
   }, [database]);
 
@@ -90,6 +111,26 @@ export default function LichessExplorerTab({
     setSelectedSpeeds((prev) =>
       prev.includes(speed) ? prev.filter((s) => s !== speed) : [...prev, speed]
     );
+  };
+
+  // Handle player speed toggle
+  const togglePlayerSpeed = (speed: string) => {
+    setPlayerSpeeds((prev) =>
+      prev.includes(speed) ? prev.filter((s) => s !== speed) : [...prev, speed]
+    );
+  };
+
+  // Handle player search
+  const handleSearch = () => {
+    if (username.trim()) {
+      setSearchUsername(username.trim());
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
   };
 
   // Transform LichessTopGame to GameSearchResult format
@@ -158,8 +199,9 @@ export default function LichessExplorerTab({
             },
           }}
         >
-          <ToggleButton value="masters">Masters</ToggleButton>
-          <ToggleButton value="lichess">Players</ToggleButton>
+          <ToggleButton value="masters">{t('lichessDatabase.masters')}</ToggleButton>
+          <ToggleButton value="lichess">{t('lichessDatabase.players')}</ToggleButton>
+          <ToggleButton value="player">{t('lichessDatabase.player')}</ToggleButton>
         </ToggleButtonGroup>
         {totalGames > 0 && (
           <Chip
@@ -169,6 +211,168 @@ export default function LichessExplorerTab({
           />
         )}
       </Box>
+
+      {/* Player username search - only show for player database */}
+      {database === 'player' && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <TextField
+            size="small"
+            placeholder={t('lichessPlayer.usernamePlaceholder')}
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            onKeyDown={handleKeyDown}
+            sx={{
+              flex: 1,
+              '& .MuiInputBase-root': {
+                fontSize: 12,
+                height: 32,
+                bgcolor: 'rgba(255,255,255,0.03)',
+                color: 'text.primary',
+                borderRadius: 1,
+              },
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: 'rgba(255,255,255,0.1)',
+              },
+              '& .MuiInputBase-input::placeholder': {
+                color: 'text.secondary',
+                opacity: 0.7,
+              },
+            }}
+          />
+          <Button
+            size="small"
+            variant="contained"
+            startIcon={<Search sx={{ fontSize: 14 }} />}
+            onClick={handleSearch}
+            disabled={loading}
+            sx={{
+              height: 32,
+              fontSize: 11,
+              fontWeight: 600,
+              textTransform: 'none',
+              bgcolor: '#14b8a6',
+              color: '#fff',
+              '&:hover': { bgcolor: '#0d9488' },
+              '&:disabled': { bgcolor: 'rgba(20, 184, 166, 0.3)' },
+              px: 1.5,
+            }}
+          >
+            {t('lichessPlayer.search')}
+          </Button>
+        </Box>
+      )}
+
+      {/* Player filters - only show for player database with username */}
+      {database === 'player' && searchUsername && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, py: 0.5 }}>
+          {/* Color selector */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
+              {t('lichessPlayer.color')}
+            </Typography>
+            <ToggleButtonGroup
+              value={playerColor}
+              exclusive
+              onChange={(_, val) => val && setPlayerColor(val)}
+              size="small"
+              sx={{
+                '& .MuiToggleButton-root': {
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: 'none',
+                  px: 1.5,
+                  py: 0.5,
+                  color: 'text.secondary',
+                  '&.Mui-selected': {
+                    bgcolor: '#14b8a6',
+                    color: '#fff',
+                    '&:hover': { bgcolor: '#0d9488' },
+                  },
+                },
+              }}
+            >
+              <ToggleButton value="white">{t('lichessPlayer.white')}</ToggleButton>
+              <ToggleButton value="black">{t('lichessPlayer.black')}</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
+
+          {/* Speed filters */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
+              {t('lichessFilters.speed')}
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {ALL_SPEEDS.map((speed) => (
+                <Chip
+                  key={speed}
+                  label={t(`lichessFilters.speeds.${speed}`)}
+                  size="small"
+                  onClick={() => togglePlayerSpeed(speed)}
+                  sx={{
+                    height: 22,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    bgcolor: playerSpeeds.includes(speed) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
+                    color: playerSpeeds.includes(speed) ? '#fff' : 'text.secondary',
+                    '&:hover': {
+                      bgcolor: playerSpeeds.includes(speed) ? '#0d9488' : 'rgba(255,255,255,0.12)',
+                    },
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+
+          {/* Mode selector and Recent games count */}
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+            <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+              <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>{t('lichessPlayer.mode')}</InputLabel>
+              <Select
+                value={playerMode}
+                onChange={(e) => setPlayerMode(e.target.value)}
+                label={t('lichessPlayer.mode')}
+                sx={{
+                  fontSize: 11,
+                  height: 32,
+                  bgcolor: 'rgba(255,255,255,0.03)',
+                  color: 'text.primary',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                  },
+                }}
+              >
+                <MenuItem value="rated" sx={{ fontSize: 11 }}>{t('lichessPlayer.rated')}</MenuItem>
+                <MenuItem value="casual" sx={{ fontSize: 11 }}>{t('lichessPlayer.casual')}</MenuItem>
+                <MenuItem value="rated,casual" sx={{ fontSize: 11 }}>{t('lichessPlayer.both')}</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+              <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>{t('lichessPlayer.recentGames')}</InputLabel>
+              <Select
+                value={recentGamesCount}
+                onChange={(e) => setRecentGamesCount(e.target.value as number)}
+                label={t('lichessPlayer.recentGames')}
+                sx={{
+                  fontSize: 11,
+                  height: 32,
+                  bgcolor: 'rgba(255,255,255,0.03)',
+                  color: 'text.primary',
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                  },
+                }}
+              >
+                <MenuItem value={4} sx={{ fontSize: 11 }}>4</MenuItem>
+                <MenuItem value={8} sx={{ fontSize: 11 }}>8</MenuItem>
+                <MenuItem value={12} sx={{ fontSize: 11 }}>12</MenuItem>
+                <MenuItem value={15} sx={{ fontSize: 11 }}>15</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </Box>
+      )}
 
       {/* Player filters - only show for lichess database */}
       {database === 'lichess' && (
@@ -419,8 +623,17 @@ export default function LichessExplorerTab({
         </Box>
       )}
 
-      {/* Empty state */}
-      {!loading && !error && totalGames === 0 && (
+      {/* Empty state - no username for player database */}
+      {!loading && !error && database === 'player' && !searchUsername && (
+        <EmptyState
+          type="position-search-unavailable"
+          message={t('lichessPlayer.enterUsername')}
+          hint={t('lichessPlayer.enterUsernameHint')}
+        />
+      )}
+
+      {/* Empty state - no games found */}
+      {!loading && !error && totalGames === 0 && (database !== 'player' || searchUsername) && (
         <EmptyState type="no-games" />
       )}
     </Box>

@@ -870,6 +870,25 @@
         "classical": "Classical",
         "correspondence": "Correspondence"
       }
+    },
+    "lichessDatabase": {
+      "masters": "Masters",
+      "players": "Players",
+      "player": "Player"
+    },
+    "lichessPlayer": {
+      "usernamePlaceholder": "Lichess username",
+      "search": "Search",
+      "color": "Play As",
+      "white": "White",
+      "black": "Black",
+      "mode": "Mode",
+      "rated": "Rated",
+      "casual": "Casual",
+      "both": "Both",
+      "recentGames": "Recent Games",
+      "enterUsername": "Search a Lichess player",
+      "enterUsernameHint": "Enter a Lichess username to explore their opening repertoire"
     }
   },
   "onboarding": {

@@ -870,6 +870,25 @@
         "classical": "Классика",
         "correspondence": "Переписка"
       }
+    },
+    "lichessDatabase": {
+      "masters": "Мастера",
+      "players": "Игроки",
+      "player": "Игрок"
+    },
+    "lichessPlayer": {
+      "usernamePlaceholder": "Имя пользователя Lichess",
+      "search": "Поиск",
+      "color": "Играть за",
+      "white": "Белых",
+      "black": "Чёрных",
+      "mode": "Режим",
+      "rated": "Рейтинговые",
+      "casual": "Свободные",
+      "both": "Все",
+      "recentGames": "Последние партии",
+      "enterUsername": "Поиск игрока Lichess",
+      "enterUsernameHint": "Введите имя пользователя Lichess для изучения его дебютного репертуара"
     }
   },
   "onboarding": {
