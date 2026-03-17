@@ -297,7 +297,42 @@ export default function LessonPage() {
           </span>
 
           <div className="prose dark:prose-invert max-w-none mb-6">
-            <ReactMarkdown>{lesson.content}</ReactMarkdown>
+            <ReactMarkdown
+              components={{
+                p: ({ children }) => {
+                  // Check if paragraph contains only a YouTube URL
+                  const childArray = Array.isArray(children) ? children : [children]
+                  const child = childArray[0]
+                  if (typeof child === 'string') {
+                    const text = child.trim()
+
+                    // Detect YouTube URLs
+                    const youtubeRegex = /^https?:\/\/(?:www\.)?(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\?.*)?$/
+                    const match = text.match(youtubeRegex)
+
+                    if (match) {
+                      const videoId = match[1]
+                      return (
+                        <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
+                          <iframe
+                            src={`https://www.youtube.com/embed/${videoId}`}
+                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+                            frameBorder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      )
+                    }
+                  }
+
+                  // Default paragraph rendering
+                  return <p>{children}</p>
+                }
+              }}
+            >
+              {lesson.content}
+            </ReactMarkdown>
           </div>
 
           {/* Multi-puzzle lesson - show PuzzleSequence */}
