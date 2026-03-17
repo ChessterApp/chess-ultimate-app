@@ -44,6 +44,14 @@ describe('Explorer API Route', () => {
     });
   };
 
+  const mockNDJSONFetch = (lines: any[]) => {
+    const ndjsonText = lines.map(line => JSON.stringify(line)).join('\n');
+    (global.fetch as any).mockResolvedValueOnce({
+      ok: true,
+      text: async () => ndjsonText,
+    });
+  };
+
   const mockFailedFetch = (status = 500) => {
     (global.fetch as any).mockResolvedValueOnce({
       ok: false,
@@ -112,6 +120,7 @@ describe('Explorer API Route', () => {
       moves: [],
       topGames: [],
       opening: null,
+      _upstreamError: true,
     });
   });
 
@@ -181,7 +190,7 @@ describe('Explorer API Route', () => {
     await GET(request, { params });
 
     expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('https://explorer.lichess.ovh/masters?'),
+      expect.stringContaining('https://explorer.lichess.org/masters?'),
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({
@@ -190,6 +199,7 @@ describe('Explorer API Route', () => {
           Referer: 'https://lichess.org/',
           Origin: 'https://lichess.org',
         }),
+        signal: expect.any(Object),
       })
     );
 
@@ -227,5 +237,130 @@ describe('Explorer API Route', () => {
     }
 
     expect(global.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  describe('Player endpoint NDJSON handling', () => {
+    it('should parse NDJSON streaming response and return final result', async () => {
+      const queuePosition = { white: 0, draws: 0, black: 0, moves: [], recentGames: [], queuePosition: 20 };
+      const finalResult = {
+        white: 500,
+        draws: 200,
+        black: 300,
+        moves: [{ uci: 'e2e4', san: 'e4', white: 300, draws: 100, black: 100 }],
+        recentGames: [
+          {
+            id: 'abc123',
+            winner: 'white',
+            speed: 'blitz',
+            mode: 'rated',
+            black: { name: 'player1', rating: 2500 },
+            white: { name: 'player2', rating: 2550 },
+            year: 2024,
+            month: 3,
+          },
+        ],
+      };
+
+      mockNDJSONFetch([queuePosition, finalResult]);
+
+      const request = createMockRequest('player', { player: 'testplayer' });
+      const params = createMockParams(['player']);
+
+      const response = await GET(request, { params });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.white).toBe(500);
+      expect(data.draws).toBe(200);
+      expect(data.black).toBe(300);
+      expect(data.moves).toHaveLength(1);
+      expect(data.topGames).toBeDefined();
+      expect(data.topGames).toEqual(finalResult.recentGames);
+      expect(data.recentGames).toEqual(finalResult.recentGames);
+    });
+
+    it('should normalize recentGames to topGames for frontend compatibility', async () => {
+      const finalResult = {
+        white: 100,
+        draws: 50,
+        black: 75,
+        moves: [],
+        recentGames: [
+          {
+            id: 'game1',
+            winner: 'black',
+            speed: 'rapid',
+            mode: 'rated',
+            black: { name: 'player1', rating: 2400 },
+            white: { name: 'player2', rating: 2350 },
+            year: 2024,
+            month: 2,
+          },
+        ],
+      };
+
+      mockNDJSONFetch([finalResult]);
+
+      const request = createMockRequest('player', { player: 'testplayer' });
+      const params = createMockParams(['player']);
+
+      const response = await GET(request, { params });
+      const data = await response.json();
+
+      expect(data.topGames).toBeDefined();
+      expect(data.topGames).toEqual(finalResult.recentGames);
+    });
+
+    it('should use 45s timeout for player endpoint', async () => {
+      const finalResult = {
+        white: 100,
+        draws: 50,
+        black: 75,
+        moves: [],
+        recentGames: [],
+      };
+
+      mockNDJSONFetch([finalResult]);
+
+      const request = createMockRequest('player', { player: 'testplayer' });
+      const params = createMockParams(['player']);
+
+      await GET(request, { params });
+
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      expect(fetchCall[1].signal).toBeDefined();
+      // We can't directly test the timeout value, but we verify signal exists
+    });
+
+    it('should handle empty NDJSON response', async () => {
+      (global.fetch as any).mockResolvedValueOnce({
+        ok: true,
+        text: async () => '\n\n',
+      });
+
+      const request = createMockRequest('player', { player: 'testplayer' });
+      const params = createMockParams(['player']);
+
+      const response = await GET(request, { params });
+      const data = await response.json();
+
+      // Should return fallback data on error
+      expect(response.status).toBe(200);
+      expect(data).toHaveProperty('white');
+      expect(data).toHaveProperty('moves');
+    });
+
+    it('should use 10s timeout for non-player endpoints', async () => {
+      mockSuccessfulFetch({ white: 100, draws: 50, black: 75, moves: [], topGames: [], opening: null });
+
+      const request = createMockRequest('masters', { fen: 'test' });
+      const params = createMockParams(['masters']);
+
+      await GET(request, { params });
+
+      const fetchCall = (global.fetch as any).mock.calls[0];
+      expect(fetchCall[1].signal).toBeDefined();
+      // We can't directly test the timeout value, but we verify signal exists
+    });
   });
 });

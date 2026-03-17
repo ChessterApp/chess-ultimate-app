@@ -104,10 +104,14 @@ export async function GET(
             fetchHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
           }
 
+          // Player endpoint needs longer timeout (45s) for queue processing
+          const isPlayerEndpoint = path === 'player';
+          const timeout = isPlayerEndpoint ? 45000 : 10000;
+
           const response = await fetch(targetUrl, {
           method: 'GET',
           headers: fetchHeaders,
-          signal: AbortSignal.timeout(10000), // 10s timeout
+          signal: AbortSignal.timeout(timeout),
         });
 
         upstreamStatus = response.status;
@@ -115,6 +119,23 @@ export async function GET(
         if (!response.ok) {
           upstreamError = true;
           throw new Error(`Upstream error: ${response.status}`);
+        }
+
+        // Player endpoint returns NDJSON (newline-delimited JSON streaming)
+        // Parse all lines and return the last non-empty one (final result)
+        if (isPlayerEndpoint) {
+          const text = await response.text();
+          const lines = text.split('\n').filter(line => line.trim());
+          if (lines.length === 0) {
+            throw new Error('Empty NDJSON response');
+          }
+          // Parse the last line (final result with all data)
+          const finalResult = JSON.parse(lines[lines.length - 1]);
+          // Normalize: map recentGames to topGames for frontend compatibility
+          if (finalResult.recentGames && !finalResult.topGames) {
+            finalResult.topGames = finalResult.recentGames;
+          }
+          return finalResult;
         }
 
         return response.json();
@@ -195,14 +216,35 @@ async function backgroundRevalidate(
         revalidateHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
       }
 
+      // Player endpoint needs longer timeout (45s) for queue processing
+      const isPlayerEndpoint = path === 'player';
+      const timeout = isPlayerEndpoint ? 45000 : 10000;
+
       const response = await fetch(targetUrl, {
         method: 'GET',
         headers: revalidateHeaders,
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(timeout),
       });
 
       if (!response.ok) {
         throw new Error(`Upstream error: ${response.status}`);
+      }
+
+      // Player endpoint returns NDJSON (newline-delimited JSON streaming)
+      // Parse all lines and return the last non-empty one (final result)
+      if (isPlayerEndpoint) {
+        const text = await response.text();
+        const lines = text.split('\n').filter(line => line.trim());
+        if (lines.length === 0) {
+          throw new Error('Empty NDJSON response');
+        }
+        // Parse the last line (final result with all data)
+        const finalResult = JSON.parse(lines[lines.length - 1]);
+        // Normalize: map recentGames to topGames for frontend compatibility
+        if (finalResult.recentGames && !finalResult.topGames) {
+          finalResult.topGames = finalResult.recentGames;
+        }
+        return finalResult;
       }
 
       return response.json();
