@@ -7,6 +7,7 @@ import {
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, FirstPage, LastPage } from '@mui/icons-material';
 import { Chess } from 'chess.js';
+import SourceBadge, { GameSource } from './SourceBadge';
 
 export interface OpenedGame {
   id: string;
@@ -22,6 +23,7 @@ export interface OpenedGame {
   moves: string[];         // SAN moves parsed from PGN
   fens: string[];           // FEN at each move index (index 0 = after move 1)
   startingFen: string;
+  source?: GameSource | string;
 }
 
 interface GameViewerPanelProps {
@@ -105,6 +107,7 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
           {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+          {game.source && <SourceBadge source={game.source} />}
           <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'divider', color: 'text.secondary' }} />
           {game.eco && <Chip label={game.eco} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'primary.dark', color: 'primary.contrastText' }} />}
           {game.date && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10 }}>{game.date}</Typography>}

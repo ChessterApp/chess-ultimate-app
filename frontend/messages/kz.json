@@ -847,7 +847,9 @@
     "blackRating": "Қара рейтингі",
     "anyColor": "Кез келген түс",
     "whiteGames": "Ақпен партиялар",
-    "blackGames": "Қарамен партиялар"
+    "blackGames": "Қарамен партиялар",
+    "searchOpponent": "қарсы Қарсылас (міндетті емес)",
+    "typeAtLeast": "Іздеу үшін кем дегенде 3 таңба енгізіңіз"
   },
   "onboarding": {
     "continue": "Жалғастыру",

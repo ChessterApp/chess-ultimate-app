@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Box, Typography, LinearProgress } from '@mui/material';
+import { Box, Typography, LinearProgress, Select, MenuItem } from '@mui/material';
 import type { MoveCandidate } from '@/hooks/useOpeningRepertoire';
+
+export type MoveTreeSource = 'twic' | 'lichess-masters' | 'lichess-players';
 
 interface MoveTreeProps {
   moves: MoveCandidate[];
@@ -10,6 +12,8 @@ interface MoveTreeProps {
   loading: boolean;
   onMoveClick: (move: MoveCandidate) => void;
   fen?: string; // Current position FEN — used for move numbering
+  source?: MoveTreeSource;
+  onSourceChange?: (source: MoveTreeSource) => void;
 }
 
 type SortField = 'count' | 'percentage' | 'avg_elo' | 'avg_year' | 'san';
@@ -17,7 +21,7 @@ type SortDir = 'asc' | 'desc';
 
 const DEFAULT_VISIBLE = 5;
 
-export default function MoveTree({ moves, totalGames, loading, onMoveClick, fen }: MoveTreeProps) {
+export default function MoveTree({ moves, totalGames, loading, onMoveClick, fen, source = 'twic', onSourceChange }: MoveTreeProps) {
   // Parse move number and side to play from FEN
   const movePrefix = useMemo(() => {
     if (!fen) return '';
@@ -104,6 +108,31 @@ export default function MoveTree({ moves, totalGames, loading, onMoveClick, fen 
       {loading && (
         <LinearProgress sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, '& .MuiLinearProgress-bar': { bgcolor: '#14b8a6' }, bgcolor: 'transparent' }} />
       )}
+
+      {/* Source toggle dropdown */}
+      {onSourceChange && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 0.5, px: 0.5 }}>
+          <Select
+            value={source}
+            onChange={(e) => onSourceChange(e.target.value as MoveTreeSource)}
+            size="small"
+            sx={{
+              fontSize: 11,
+              fontWeight: 600,
+              height: 24,
+              '& .MuiSelect-select': { py: 0.3, px: 1 },
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'var(--border-subtle)' },
+              '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#14b8a6' },
+              '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#14b8a6' },
+            }}
+          >
+            <MenuItem value="twic" sx={{ fontSize: 11 }}>Masters (TWIC)</MenuItem>
+            <MenuItem value="lichess-masters" sx={{ fontSize: 11 }}>Lichess Masters</MenuItem>
+            <MenuItem value="lichess-players" sx={{ fontSize: 11 }}>Lichess Players</MenuItem>
+          </Select>
+        </Box>
+      )}
+
       <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, opacity: loading ? 0.5 : 1, transition: 'opacity 0.15s ease' }}>
         <Box component="thead">
           <Box component="tr" sx={{ borderBottom: '1px solid var(--border-strong)' }}>

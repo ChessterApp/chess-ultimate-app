@@ -13,6 +13,9 @@ import '@/styles/chessground-theme.css';
 import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
 import type { OpeningNode, GameSearchResult, GameLink, MoveCandidate, CandidatesResponse } from '@/hooks/useOpeningRepertoire';
 import type { Key } from 'chessground/types';
+import type { ExplorerTab } from '@/components/openings/ExplorerTabs';
+import type { MoveTreeSource } from '@/components/openings/MoveTree';
+import { useLichessExplorer } from '@/hooks/useLichessExplorer';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -82,7 +85,7 @@ export default function DebutPage() {
   const [masterGamesLoading, setMasterGamesLoading] = useState(false);
 
   // ─── Master games filters ───
-  const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', playerColor: '', sortBy: 'rating' });
+  const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', opponentName: '', playerColor: '', sortBy: 'rating' });
 
   // ─── Move tree (candidates) ───
   const [candidateMoves, setCandidateMoves] = useState<MoveCandidate[]>([]);
@@ -94,6 +97,11 @@ export default function DebutPage() {
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
   const [activeTab, setActiveTab] = useState<string>('debut');
   const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
+
+  // ─── Explorer tabs state ───
+  const [explorerTab, setExplorerTab] = useState<ExplorerTab>('twic');
+  const [lichessDatabase, setLichessDatabase] = useState<'masters' | 'lichess'>('masters');
+  const [moveTreeSource, setMoveTreeSource] = useState<MoveTreeSource>('twic');
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
@@ -111,6 +119,15 @@ export default function DebutPage() {
     fetchCandidateMoves,
   } = useOpeningRepertoire();
 
+  // ─── Lichess Explorer for move tree ───
+  const lichessExplorerFen = moveTreeSource !== 'twic' && selectedNode ? selectedNode.fen : '';
+  const lichessExplorerDb = moveTreeSource === 'lichess-masters' ? 'masters' : 'lichess';
+  const { data: lichessExplorerData, loading: lichessExplorerLoading } = useLichessExplorer({
+    fen: lichessExplorerFen,
+    database: lichessExplorerDb,
+    enabled: moveTreeSource !== 'twic' && !!selectedNode,
+  });
+
   // ─── Refs for temp ID tracking and move queue ───
   const tempToRealIdRef = useRef<Map<string, string>>(new Map());
   const moveQueueRef = useRef<Array<{ from: string; to: string; piece: string; newFen: string; moveSan: string; moveUci: string }>>(
@@ -126,6 +143,36 @@ export default function DebutPage() {
 
   // ─── Fetch repertoires on mount ───
   useEffect(() => { fetchRepertoires(); }, [fetchRepertoires]);
+
+  // ─── URL state management ───
+  useEffect(() => {
+    // Read URL params on mount
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const urlExplorer = params.get('explorer') as ExplorerTab | null;
+    const urlDb = params.get('db') as 'masters' | 'lichess' | null;
+
+    if (urlExplorer && ['twic', 'lichess', 'chesscom'].includes(urlExplorer)) {
+      setExplorerTab(urlExplorer);
+    }
+    if (urlDb && ['masters', 'lichess'].includes(urlDb)) {
+      setLichessDatabase(urlDb);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Update URL when explorer state changes
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('explorer', explorerTab);
+    if (explorerTab === 'lichess') {
+      params.set('db', lichessDatabase);
+    } else {
+      params.delete('db');
+    }
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', newUrl);
+  }, [explorerTab, lichessDatabase]);
 
   // ─── Auto-select first repertoire ───
   useEffect(() => {
@@ -216,7 +263,8 @@ export default function DebutPage() {
       50,
       masterGamesFilters.playerColor,
       masterGamesFilters.playerName,
-      masterGamesFilters.sortBy
+      masterGamesFilters.sortBy,
+      masterGamesFilters.opponentName
     )
       .then((data) => {
         if (!cancelled) {
@@ -252,6 +300,13 @@ export default function DebutPage() {
       return;
     }
 
+    // Only fetch TWIC data if using TWIC source
+    if (moveTreeSource !== 'twic') {
+      setCandidateMoves([]);
+      setCandidatesTotalGames(0);
+      return;
+    }
+
     let cancelled = false;
     setCandidatesLoading(true);
 
@@ -273,7 +328,40 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, fetchCandidateMoves]);
+  }, [selectedNode?.fen, fetchCandidateMoves, moveTreeSource]);
+
+  // ─── Transform Lichess data to MoveCandidate format ───
+  const lichessCandidateMoves = useMemo(() => {
+    if (!lichessExplorerData || moveTreeSource === 'twic') return [];
+
+    const total = lichessExplorerData.white + lichessExplorerData.draws + lichessExplorerData.black;
+
+    return lichessExplorerData.moves.map(m => {
+      const moveTotal = m.white + m.draws + m.black;
+      const percentage = total > 0 ? (moveTotal / total) * 100 : 0;
+
+      return {
+        uci: m.uci,
+        san: m.san,
+        count: moveTotal,
+        percentage,
+        white_wins: m.white,
+        draws: m.draws,
+        black_wins: m.black,
+        avg_elo: m.averageRating || null,
+        avg_year: null,
+        score: `${((m.white + m.draws * 0.5) / moveTotal * 100).toFixed(1)}%`,
+        winrate: `${(m.white / moveTotal * 100).toFixed(1)}%`,
+      } as MoveCandidate;
+    });
+  }, [lichessExplorerData, moveTreeSource]);
+
+  // ─── Determine which moves to show in MoveTree ───
+  const displayedMoves = moveTreeSource === 'twic' ? candidateMoves : lichessCandidateMoves;
+  const displayedTotalGames = moveTreeSource === 'twic'
+    ? candidatesTotalGames
+    : (lichessExplorerData ? lichessExplorerData.white + lichessExplorerData.draws + lichessExplorerData.black : 0);
+  const displayedLoading = moveTreeSource === 'twic' ? candidatesLoading : lichessExplorerLoading;
 
 
   // ─── Handlers ───
@@ -282,7 +370,7 @@ export default function DebutPage() {
     setSelectedNodeId(node.id);
     setSelectedNode(node);
     setBoardFen(node.fen);
-    setMasterGamesFilters({ playerName: '', playerColor: '', sortBy: 'rating' });
+    setMasterGamesFilters({ playerName: '', opponentName: '', playerColor: '', sortBy: 'rating' });
   }, []);
 
   // Find node by id in tree
@@ -706,6 +794,7 @@ export default function DebutPage() {
       moves: parsed.moves,
       fens: parsed.fens,
       startingFen: parsed.startingFen,
+      source: game.source || 'twic',
     };
 
     setOpenedGames(prev => [...prev, newGame]);
@@ -940,11 +1029,13 @@ export default function DebutPage() {
               <Box sx={{ flex: 1, overflow: 'auto' }}>
                 {/* Move Tree (ChessBase-style) */}
                 <MoveTree
-                  moves={candidateMoves}
-                  totalGames={candidatesTotalGames}
-                  loading={candidatesLoading}
+                  moves={displayedMoves}
+                  totalGames={displayedTotalGames}
+                  loading={displayedLoading}
                   onMoveClick={handleMoveTreeClick}
                   fen={selectedNode?.fen}
+                  source={moveTreeSource}
+                  onSourceChange={setMoveTreeSource}
                 />
 
                 {/* Position Summary (ECO + aggregate W/D/L) */}
@@ -971,6 +1062,10 @@ export default function DebutPage() {
                   onOpenGame={handleOpenGame}
                   masterGamesFilters={masterGamesFilters}
                   onMasterGamesFilterChange={setMasterGamesFilters}
+                  explorerTab={explorerTab}
+                  onExplorerTabChange={setExplorerTab}
+                  lichessDatabase={lichessDatabase}
+                  onLichessDatabaseChange={setLichessDatabase}
                 />
               </Box>
             </>

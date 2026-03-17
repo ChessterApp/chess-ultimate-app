@@ -856,7 +856,9 @@
     "blackRating": "Рейтинг чёрных",
     "anyColor": "Любой цвет",
     "whiteGames": "Партии белыми",
-    "blackGames": "Партии чёрными"
+    "blackGames": "Партии чёрными",
+    "searchOpponent": "против Соперника (необязательно)",
+    "typeAtLeast": "Введите не менее 3 символов для поиска"
   },
   "onboarding": {
     "continue": "Продолжить",

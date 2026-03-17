@@ -856,7 +856,9 @@
     "blackRating": "Black rating",
     "anyColor": "Any color",
     "whiteGames": "White games",
-    "blackGames": "Black games"
+    "blackGames": "Black games",
+    "searchOpponent": "vs Opponent (optional)",
+    "typeAtLeast": "Type at least 3 characters to search"
   },
   "onboarding": {
     "continue": "Continue",

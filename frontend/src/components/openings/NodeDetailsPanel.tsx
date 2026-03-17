@@ -12,6 +12,8 @@ import {
 } from '@mui/icons-material';
 import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
 import MasterGamesFilter, { MasterGamesFilterState } from './MasterGamesFilter';
+import ExplorerTabs, { ExplorerTab } from './ExplorerTabs';
+import LichessExplorerTab from './LichessExplorerTab';
 
 interface NodeDetailsPanelProps {
   node: OpeningNode | null;
@@ -27,6 +29,10 @@ interface NodeDetailsPanelProps {
   onOpenGame?: (game: any) => void;
   masterGamesFilters?: MasterGamesFilterState;
   onMasterGamesFilterChange?: (filters: MasterGamesFilterState) => void;
+  explorerTab?: ExplorerTab;
+  onExplorerTabChange?: (tab: ExplorerTab) => void;
+  lichessDatabase?: 'masters' | 'lichess';
+  onLichessDatabaseChange?: (db: 'masters' | 'lichess') => void;
 }
 
 export default function NodeDetailsPanel({
@@ -36,6 +42,10 @@ export default function NodeDetailsPanel({
   onOpenGame,
   masterGamesFilters,
   onMasterGamesFilterChange,
+  explorerTab = 'twic',
+  onExplorerTabChange,
+  lichessDatabase = 'masters',
+  onLichessDatabaseChange,
 }: NodeDetailsPanelProps) {
   const t = useTranslations('debut');
   const [gamesPage, setGamesPage] = useState(0);
@@ -62,8 +72,9 @@ export default function NodeDetailsPanel({
       : `${node.move_number}... ${node.move_san}`;
   }
 
-  return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 1.5, overflow: 'auto' }}>
+  // TWIC tab content
+  const twicContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       {/* Master Games (auto-fetched from TWIC) */}
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
@@ -205,7 +216,31 @@ export default function NodeDetailsPanel({
           </Box>
         </>
       )}
+    </Box>
+  );
 
+  // Lichess tab content
+  const lichessContent = (
+    <LichessExplorerTab
+      fen={node.fen}
+      database={lichessDatabase}
+      onDatabaseChange={(db) => onLichessDatabaseChange?.(db)}
+      onOpenGame={onOpenGame}
+    />
+  );
+
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+      {onExplorerTabChange ? (
+        <ExplorerTabs
+          activeTab={explorerTab}
+          onTabChange={onExplorerTabChange}
+          twicContent={twicContent}
+          lichessContent={lichessContent}
+        />
+      ) : (
+        <Box sx={{ p: 1.5, overflow: 'auto' }}>{twicContent}</Box>
+      )}
     </Box>
   );
 }
