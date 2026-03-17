@@ -85,7 +85,7 @@ def detect_opening(fen: str) -> Optional[Dict]:
     """Query Lichess masters DB for opening name. Returns {'name': ..., 'eco': ...} or None."""
     try:
         resp = requests.get(
-            'https://explorer.lichess.ovh/masters',
+            'https://explorer.lichess.org/masters',
             params={'fen': fen},
             timeout=5
         )
@@ -94,6 +94,9 @@ def detect_opening(fen: str) -> Optional[Dict]:
             opening = data.get('opening')
             if opening:
                 return {'name': opening.get('name', ''), 'eco': opening.get('eco', '')}
+        elif resp.status_code == 401:
+            logger.warning(f"Lichess Explorer returned 401 for FEN: {fen}")
+            return None
     except Exception as e:
         logger.debug(f"Opening detection failed for {fen}: {e}")
     return None
@@ -269,7 +272,7 @@ def find_moves_to_fen(target_fen: str, max_depth: int = 30) -> List[str]:
             # Query Lichess for top moves
             try:
                 resp = requests.get(
-                    'https://explorer.lichess.ovh/masters',
+                    'https://explorer.lichess.org/masters',
                     params={'fen': current_board.fen()},
                     timeout=3
                 )
@@ -283,6 +286,8 @@ def find_moves_to_fen(target_fen: str, max_depth: int = 30) -> List[str]:
                             queue.append((new_board, moves + [m['san']]))
                         except Exception:
                             pass
+                elif resp.status_code == 401:
+                    logger.warning(f"Lichess Explorer returned 401 during BFS for FEN: {current_board.fen()}")
             except Exception:
                 pass
 

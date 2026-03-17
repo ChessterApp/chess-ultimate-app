@@ -87,8 +87,11 @@ export async function GET(
       await rateLimiter.acquire();
 
       // Fetch from upstream with circuit breaker
+      let upstreamError = false;
+      let upstreamStatus = 200;
+
       const data = await circuitBreaker.execute(async () => {
-        const targetUrl = `https://explorer.lichess.ovh/${path}${queryString ? `?${queryString}` : ''}`;
+        const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
         const response = await fetch(targetUrl, {
           method: 'GET',
@@ -102,7 +105,10 @@ export async function GET(
           signal: AbortSignal.timeout(10000), // 10s timeout
         });
 
+        upstreamStatus = response.status;
+
         if (!response.ok) {
+          upstreamError = true;
           throw new Error(`Upstream error: ${response.status}`);
         }
 
@@ -112,31 +118,41 @@ export async function GET(
       // Cache the result
       explorerCache.set(cacheKey, data);
 
-      return NextResponse.json(data, {
+      // Add upstream error indicator if applicable
+      const responseData = upstreamError ? { ...data, _upstreamError: true } : data;
+
+      const headers: Record<string, string> = {
+        'Cache-Control': 'public, max-age=3600',
+        'X-Cache': 'MISS',
+      };
+      if (upstreamError) {
+        headers['X-Explorer-Status'] = `upstream-error-${upstreamStatus}`;
+      }
+
+      return NextResponse.json(responseData, {
         status: 200,
-        headers: {
-          'Cache-Control': 'public, max-age=3600',
-          'X-Cache': 'MISS',
-        },
+        headers,
       });
     } catch (error) {
       // On error, return cached data if available, or empty fallback
-      const fallbackData = cached?.value || EMPTY_EXPLORER_RESPONSE;
+      const fallbackData = { ...(cached?.value || EMPTY_EXPLORER_RESPONSE), _upstreamError: true };
       return NextResponse.json(fallbackData, {
         status: 200,
         headers: {
           'Cache-Control': 'public, max-age=60',
           'X-Cache': 'ERROR',
+          'X-Explorer-Status': 'upstream-error',
         },
       });
     }
   } catch (error) {
     // Outer error handler - return empty response
-    return NextResponse.json(EMPTY_EXPLORER_RESPONSE, {
+    return NextResponse.json({ ...EMPTY_EXPLORER_RESPONSE, _upstreamError: true }, {
       status: 200,
       headers: {
         'Cache-Control': 'public, max-age=60',
         'X-Cache': 'ERROR',
+        'X-Explorer-Status': 'upstream-error',
       },
     });
   }
@@ -161,7 +177,7 @@ async function backgroundRevalidate(
 
     // Fetch fresh data
     const data = await circuitBreaker.execute(async () => {
-      const targetUrl = `https://explorer.lichess.ovh/${path}${queryString ? `?${queryString}` : ''}`;
+      const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
       const response = await fetch(targetUrl, {
         method: 'GET',

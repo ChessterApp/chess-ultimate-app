@@ -56,6 +56,7 @@ export interface UseLichessExplorerResult {
   data: LichessExplorerResponse | null;
   loading: boolean;
   error: string | null;
+  upstreamDown: boolean;
   retry: () => void;
 }
 
@@ -69,6 +70,7 @@ export function useLichessExplorer({
   const [data, setData] = useState<LichessExplorerResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [upstreamDown, setUpstreamDown] = useState(false);
   const [retryTrigger, setRetryTrigger] = useState(0);
 
   const retry = useCallback(() => {
@@ -80,6 +82,7 @@ export function useLichessExplorer({
       setData(null);
       setLoading(false);
       setError(null);
+      setUpstreamDown(false);
       return;
     }
 
@@ -88,6 +91,7 @@ export function useLichessExplorer({
     const fetchData = async () => {
       setLoading(true);
       setError(null);
+      setUpstreamDown(false);
 
       try {
         // Build query params
@@ -127,6 +131,14 @@ export function useLichessExplorer({
         const result = await response.json();
 
         if (!cancelled) {
+          // Check for upstream error indicators
+          const explorerStatus = response.headers.get('X-Explorer-Status');
+          const hasUpstreamError = explorerStatus?.includes('upstream-error') || result._upstreamError === true;
+
+          if (hasUpstreamError) {
+            setUpstreamDown(true);
+          }
+
           setData(result);
           // Cache for 5 minutes (uses default TTL from cache config)
           explorerSessionCache.lichess.set(cacheKey, result);
@@ -135,6 +147,7 @@ export function useLichessExplorer({
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to fetch explorer data');
           setData(null);
+          setUpstreamDown(false);
         }
       } finally {
         if (!cancelled) {
@@ -150,5 +163,5 @@ export function useLichessExplorer({
     };
   }, [fen, database, enabled, ratings, speeds, retryTrigger]);
 
-  return { data, loading, error, retry };
+  return { data, loading, error, upstreamDown, retry };
 }

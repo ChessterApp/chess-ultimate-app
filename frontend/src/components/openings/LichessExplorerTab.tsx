@@ -47,7 +47,7 @@ export default function LichessExplorerTab({
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [gamesPage, setGamesPage] = useState(0);
 
-  const { data, loading, error, retry } = useLichessExplorer({
+  const { data, loading, error, upstreamDown, retry } = useLichessExplorer({
     fen,
     database,
     enabled: true,
@@ -145,6 +145,15 @@ export default function LichessExplorerTab({
             bgcolor: 'rgba(20, 184, 166, 0.1)',
           }}
         />
+      )}
+
+      {/* Upstream down warning (amber) */}
+      {upstreamDown && !loading && !error && (
+        <Box sx={{ py: 1, px: 1.5, bgcolor: 'rgba(251, 191, 36, 0.1)', borderRadius: 1, border: '1px solid rgba(251, 191, 36, 0.4)' }}>
+          <Typography variant="caption" sx={{ color: '#f59e0b', fontSize: 11, display: 'block', mb: 0.5 }}>
+            ⚠️ Lichess Explorer is currently unavailable. Showing cached data if available.
+          </Typography>
+        </Box>
       )}
 
       {/* Error state */}
