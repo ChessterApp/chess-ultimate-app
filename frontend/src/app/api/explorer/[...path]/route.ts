@@ -93,15 +93,20 @@ export async function GET(
       const data = await circuitBreaker.execute(async () => {
         const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
-        const response = await fetch(targetUrl, {
-          method: 'GET',
-          headers: {
+        const fetchHeaders: Record<string, string> = {
             Accept: 'application/json',
             'User-Agent':
               'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             Referer: 'https://lichess.org/',
             Origin: 'https://lichess.org',
-          },
+          };
+          if (process.env.LICHESS_API_TOKEN) {
+            fetchHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
+          }
+
+          const response = await fetch(targetUrl, {
+          method: 'GET',
+          headers: fetchHeaders,
           signal: AbortSignal.timeout(10000), // 10s timeout
         });
 
@@ -179,15 +184,20 @@ async function backgroundRevalidate(
     const data = await circuitBreaker.execute(async () => {
       const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
+      const revalidateHeaders: Record<string, string> = {
+        Accept: 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Referer: 'https://lichess.org/',
+        Origin: 'https://lichess.org',
+      };
+      if (process.env.LICHESS_API_TOKEN) {
+        revalidateHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
+      }
+
       const response = await fetch(targetUrl, {
         method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          'User-Agent':
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-          Referer: 'https://lichess.org/',
-          Origin: 'https://lichess.org',
-        },
+        headers: revalidateHeaders,
         signal: AbortSignal.timeout(10000),
       });
 
