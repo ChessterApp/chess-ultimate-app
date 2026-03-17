@@ -62,8 +62,10 @@ export default function ExplorerTabs({
               bgcolor: { xs: 'rgba(255,255,255,0.05)', sm: 'transparent' },
               mx: { xs: 0, sm: 0 },
               '&.Mui-selected': {
-                color: { xs: '#fff', sm: '#14b8a6' },
-                bgcolor: { xs: '#14b8a6', sm: 'transparent' },
+                color: '#fff',
+                bgcolor: '#14b8a6',
+                borderRadius: '16px',
+                '&:hover': { bgcolor: '#0d9488' },
               },
               '&:hover': {
                 bgcolor: { xs: 'rgba(255,255,255,0.08)', sm: 'transparent' },
