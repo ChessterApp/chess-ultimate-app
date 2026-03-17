@@ -858,7 +858,19 @@
     "whiteGames": "White games",
     "blackGames": "Black games",
     "searchOpponent": "vs Opponent (optional)",
-    "typeAtLeast": "Type at least 3 characters to search"
+    "typeAtLeast": "Type at least 3 characters to search",
+    "lichessFilters": {
+      "rating": "Rating Range",
+      "speed": "Game Speed",
+      "speeds": {
+        "ultraBullet": "UltraBullet",
+        "bullet": "Bullet",
+        "blitz": "Blitz",
+        "rapid": "Rapid",
+        "classical": "Classical",
+        "correspondence": "Correspondence"
+      }
+    }
   },
   "onboarding": {
     "continue": "Continue",

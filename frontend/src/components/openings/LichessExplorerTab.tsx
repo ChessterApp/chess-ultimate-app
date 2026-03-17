@@ -36,6 +36,12 @@ interface LichessExplorerTabProps {
 
 const GAMES_PER_PAGE = 10;
 
+const DEFAULT_RATINGS = ['1600', '1800', '2000', '2200', '2500'];
+const DEFAULT_SPEEDS = ['blitz', 'rapid', 'classical'];
+
+const ALL_RATINGS = ['1000', '1200', '1400', '1600', '1800', '2000', '2200', '2500'];
+const ALL_SPEEDS = ['ultraBullet', 'bullet', 'blitz', 'rapid', 'classical', 'correspondence'];
+
 export default function LichessExplorerTab({
   fen,
   database,
@@ -47,16 +53,44 @@ export default function LichessExplorerTab({
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [gamesPage, setGamesPage] = useState(0);
 
+  // Player filter state (only for lichess database)
+  const [selectedRatings, setSelectedRatings] = useState<string[]>(DEFAULT_RATINGS);
+  const [selectedSpeeds, setSelectedSpeeds] = useState<string[]>(DEFAULT_SPEEDS);
+
   const { data, loading, error, upstreamDown, retry } = useLichessExplorer({
     fen,
     database,
     enabled: true,
+    ratings: database === 'lichess' ? selectedRatings.join(',') : undefined,
+    speeds: database === 'lichess' ? selectedSpeeds.join(',') : undefined,
   });
 
   // Reset page when FEN or database changes
   useEffect(() => {
     setGamesPage(0);
   }, [fen, database]);
+
+  // Reset filters to defaults when switching to lichess database
+  useEffect(() => {
+    if (database === 'lichess') {
+      setSelectedRatings(DEFAULT_RATINGS);
+      setSelectedSpeeds(DEFAULT_SPEEDS);
+    }
+  }, [database]);
+
+  // Handle rating toggle
+  const toggleRating = (rating: string) => {
+    setSelectedRatings((prev) =>
+      prev.includes(rating) ? prev.filter((r) => r !== rating) : [...prev, rating].sort()
+    );
+  };
+
+  // Handle speed toggle
+  const toggleSpeed = (speed: string) => {
+    setSelectedSpeeds((prev) =>
+      prev.includes(speed) ? prev.filter((s) => s !== speed) : [...prev, speed]
+    );
+  };
 
   // Transform LichessTopGame to GameSearchResult format
   const transformedGames = useMemo(() => {
@@ -135,6 +169,67 @@ export default function LichessExplorerTab({
           />
         )}
       </Box>
+
+      {/* Player filters - only show for lichess database */}
+      {database === 'lichess' && (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, py: 0.5 }}>
+          {/* Rating filters */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
+              {t('lichessFilters.rating')}
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {ALL_RATINGS.map((rating) => (
+                <Chip
+                  key={rating}
+                  label={`${rating}+`}
+                  size="small"
+                  onClick={() => toggleRating(rating)}
+                  sx={{
+                    height: 22,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    bgcolor: selectedRatings.includes(rating) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
+                    color: selectedRatings.includes(rating) ? '#fff' : 'text.secondary',
+                    '&:hover': {
+                      bgcolor: selectedRatings.includes(rating) ? '#0d9488' : 'rgba(255,255,255,0.12)',
+                    },
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+
+          {/* Speed filters */}
+          <Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
+              {t('lichessFilters.speed')}
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+              {ALL_SPEEDS.map((speed) => (
+                <Chip
+                  key={speed}
+                  label={t(`lichessFilters.speeds.${speed}`)}
+                  size="small"
+                  onClick={() => toggleSpeed(speed)}
+                  sx={{
+                    height: 22,
+                    fontSize: 10,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    bgcolor: selectedSpeeds.includes(speed) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
+                    color: selectedSpeeds.includes(speed) ? '#fff' : 'text.secondary',
+                    '&:hover': {
+                      bgcolor: selectedSpeeds.includes(speed) ? '#0d9488' : 'rgba(255,255,255,0.12)',
+                    },
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+        </Box>
+      )}
 
       {/* Loading state */}
       {loading && (

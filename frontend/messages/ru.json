@@ -858,7 +858,19 @@
     "whiteGames": "Партии белыми",
     "blackGames": "Партии чёрными",
     "searchOpponent": "против Соперника (необязательно)",
-    "typeAtLeast": "Введите не менее 3 символов для поиска"
+    "typeAtLeast": "Введите не менее 3 символов для поиска",
+    "lichessFilters": {
+      "rating": "Диапазон рейтинга",
+      "speed": "Скорость игры",
+      "speeds": {
+        "ultraBullet": "Ультрабулет",
+        "bullet": "Пуля",
+        "blitz": "Блиц",
+        "rapid": "Рапид",
+        "classical": "Классика",
+        "correspondence": "Переписка"
+      }
+    }
   },
   "onboarding": {
     "continue": "Продолжить",

@@ -849,7 +849,19 @@
     "whiteGames": "Ақпен партиялар",
     "blackGames": "Қарамен партиялар",
     "searchOpponent": "қарсы Қарсылас (міндетті емес)",
-    "typeAtLeast": "Іздеу үшін кем дегенде 3 таңба енгізіңіз"
+    "typeAtLeast": "Іздеу үшін кем дегенде 3 таңба енгізіңіз",
+    "lichessFilters": {
+      "rating": "Рейтинг диапазоны",
+      "speed": "Ойын жылдамдығы",
+      "speeds": {
+        "ultraBullet": "Ультрабулет",
+        "bullet": "Оқ",
+        "blitz": "Блиц",
+        "rapid": "Жылдам",
+        "classical": "Классикалық",
+        "correspondence": "Хат алмасу"
+      }
+    }
   },
   "onboarding": {
     "continue": "Жалғастыру",
