@@ -105,7 +105,7 @@ export function useLichessExplorer({
         const cacheKey = `${endpoint}?${params.toString()}`;
 
         // Check session cache first
-        const cached = explorerSessionCache.get<LichessExplorerResponse>(cacheKey);
+        const cached = explorerSessionCache.lichess.get<LichessExplorerResponse>(cacheKey);
         if (cached && !cancelled) {
           setData(cached);
           setLoading(false);
@@ -128,8 +128,8 @@ export function useLichessExplorer({
 
         if (!cancelled) {
           setData(result);
-          // Cache for 5 minutes
-          explorerSessionCache.set(cacheKey, result, 5 * 60 * 1000);
+          // Cache for 5 minutes (uses default TTL from cache config)
+          explorerSessionCache.lichess.set(cacheKey, result);
         }
       } catch (err) {
         if (!cancelled) {

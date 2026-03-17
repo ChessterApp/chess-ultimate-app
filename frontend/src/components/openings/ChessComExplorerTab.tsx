@@ -21,10 +21,15 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Collapse,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, Refresh, Search } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
 import { useChessComExplorer } from '@/hooks/useChessComExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import GameCard from './GameCard';
+import EmptyState from './EmptyState';
 
 interface ChessComExplorerTabProps {
   onOpenGame?: (game: GameSearchResult) => void;
@@ -36,9 +41,12 @@ export default function ChessComExplorerTab({
   onOpenGame,
 }: ChessComExplorerTabProps) {
   const t = useTranslations('debut');
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [username, setUsername] = useState('');
   const [searchUsername, setSearchUsername] = useState('');
   const [gamesPage, setGamesPage] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(!isMobile); // Collapsed by default on mobile
 
   // Filters
   const [timeControl, setTimeControl] = useState<string>('all');
@@ -145,64 +153,85 @@ export default function ChessComExplorerTab({
         </Button>
       </Box>
 
-      {/* Filters */}
+      {/* Filters - collapsible on mobile */}
       {searchUsername && !error && (
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-          <FormControl size="small" sx={{ minWidth: 100 }}>
-            <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>Time Control</InputLabel>
-            <Select
-              value={timeControl}
-              onChange={(e) => setTimeControl(e.target.value)}
-              label="Time Control"
+        <Box>
+          {/* Filter toggle button (mobile only) */}
+          {isMobile && (
+            <Button
+              size="small"
+              startIcon={<FilterList sx={{ fontSize: 14 }} />}
+              onClick={() => setFiltersOpen(!filtersOpen)}
               sx={{
                 fontSize: 11,
-                height: 32,
-                bgcolor: 'rgba(255,255,255,0.03)',
-                color: 'text.primary',
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: 'rgba(255,255,255,0.1)',
-                },
+                textTransform: 'none',
+                color: 'text.secondary',
+                mb: filtersOpen ? 0.5 : 0,
               }}
             >
-              <MenuItem value="all" sx={{ fontSize: 11 }}>All</MenuItem>
-              <MenuItem value="bullet" sx={{ fontSize: 11 }}>Bullet</MenuItem>
-              <MenuItem value="blitz" sx={{ fontSize: 11 }}>Blitz</MenuItem>
-              <MenuItem value="rapid" sx={{ fontSize: 11 }}>Rapid</MenuItem>
-              <MenuItem value="classical" sx={{ fontSize: 11 }}>Classical</MenuItem>
-            </Select>
-          </FormControl>
-
-          <TextField
-            size="small"
-            type="number"
-            placeholder="Min rating"
-            value={minRating}
-            onChange={(e) => setMinRating(e.target.value)}
-            sx={{
-              width: 100,
-              '& .MuiInputBase-root': {
-                fontSize: 11,
-                height: 32,
-                bgcolor: 'rgba(255,255,255,0.03)',
-                color: 'text.primary',
-              },
-              '& .MuiOutlinedInput-notchedOutline': {
-                borderColor: 'rgba(255,255,255,0.1)',
-              },
-              '& .MuiInputBase-input::placeholder': {
-                color: 'text.secondary',
-                opacity: 0.7,
-              },
-            }}
-          />
-
-          {filteredGames.length > 0 && (
-            <Chip
-              label={`${filteredGames.length} games`}
-              size="small"
-              sx={{ height: 20, fontSize: 11, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
-            />
+              Filters {filteredGames.length > 0 && `(${filteredGames.length})`}
+            </Button>
           )}
+
+          <Collapse in={filtersOpen} timeout="auto">
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+              <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>Time Control</InputLabel>
+                <Select
+                  value={timeControl}
+                  onChange={(e) => setTimeControl(e.target.value)}
+                  label="Time Control"
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(255,255,255,0.1)',
+                    },
+                  }}
+                >
+                  <MenuItem value="all" sx={{ fontSize: 11 }}>All</MenuItem>
+                  <MenuItem value="bullet" sx={{ fontSize: 11 }}>Bullet</MenuItem>
+                  <MenuItem value="blitz" sx={{ fontSize: 11 }}>Blitz</MenuItem>
+                  <MenuItem value="rapid" sx={{ fontSize: 11 }}>Rapid</MenuItem>
+                  <MenuItem value="classical" sx={{ fontSize: 11 }}>Classical</MenuItem>
+                </Select>
+              </FormControl>
+
+              <TextField
+                size="small"
+                type="number"
+                placeholder="Min rating"
+                value={minRating}
+                onChange={(e) => setMinRating(e.target.value)}
+                sx={{
+                  width: { xs: '48%', sm: 100 },
+                  '& .MuiInputBase-root': {
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                  },
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                  },
+                  '& .MuiInputBase-input::placeholder': {
+                    color: 'text.secondary',
+                    opacity: 0.7,
+                  },
+                }}
+              />
+
+              {filteredGames.length > 0 && !isMobile && (
+                <Chip
+                  label={`${filteredGames.length} games`}
+                  size="small"
+                  sx={{ height: 20, fontSize: 11, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
+                />
+              )}
+            </Box>
+          </Collapse>
         </Box>
       )}
 
@@ -241,50 +270,66 @@ export default function ChessComExplorerTab({
         </Box>
       )}
 
-      {/* Games list */}
+      {/* Games list - card layout on mobile, list on desktop */}
       {!loading && !error && filteredGames.length > 0 && (
         <Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
             Games
           </Typography>
-          <List dense sx={{ p: 0 }}>
-            {visibleGames.map((g) => (
-              <ListItem
-                key={g.id}
-                sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
-                onClick={() => onOpenGame?.(g)}
-              >
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                        {g.white}
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        ({g.white_elo || '?'})
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
-                      <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                        {g.black}
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        ({g.black_elo || '?'})
-                      </Typography>
-                    </Box>
-                  }
-                  secondary={
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
-                      <Chip label={g.result} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                      <Chip label={g.event || 'Unknown'} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        {g.date}
-                      </Typography>
-                    </Box>
-                  }
+
+          {isMobile ? (
+            // Mobile: Card layout
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {visibleGames.map((g) => (
+                <GameCard
+                  key={g.id}
+                  game={g}
+                  onClick={() => onOpenGame?.(g)}
+                  showSource={false}
                 />
-              </ListItem>
-            ))}
-          </List>
+              ))}
+            </Box>
+          ) : (
+            // Desktop: List layout
+            <List dense sx={{ p: 0 }}>
+              {visibleGames.map((g) => (
+                <ListItem
+                  key={g.id}
+                  sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
+                  onClick={() => onOpenGame?.(g)}
+                >
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
+                          {g.white}
+                        </Typography>
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          ({g.white_elo || '?'})
+                        </Typography>
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
+                        <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
+                          {g.black}
+                        </Typography>
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          ({g.black_elo || '?'})
+                        </Typography>
+                      </Box>
+                    }
+                    secondary={
+                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
+                        <Chip label={g.result} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
+                        <Chip label={g.event || 'Unknown'} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          {g.date}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -315,27 +360,25 @@ export default function ChessComExplorerTab({
 
       {/* Empty state (no username entered) */}
       {!searchUsername && !loading && (
-        <Box sx={{ py: 2, textAlign: 'center' }}>
-          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 12, fontStyle: 'italic' }}>
-            Position search not available for Chess.com
-          </Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 11, mt: 0.5 }}>
-            Enter a Chess.com username to search their games
-          </Typography>
-        </Box>
+        <EmptyState
+          type="position-search-unavailable"
+          message="Position search not available for Chess.com"
+          hint="Enter a Chess.com username to search their games"
+        />
       )}
 
-      {/* Empty state (no games found) */}
+      {/* Empty state (no games match filters) */}
       {!loading && !error && searchUsername && filteredGames.length === 0 && games.length > 0 && (
-        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 12, fontStyle: 'italic', py: 1 }}>
-          No games match the selected filters
-        </Typography>
+        <EmptyState type="no-results" />
       )}
 
+      {/* Empty state (no games found for player) */}
       {!loading && !error && searchUsername && games.length === 0 && (
-        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 12, fontStyle: 'italic', py: 1 }}>
-          No games found for this player
-        </Typography>
+        <EmptyState
+          type="no-games"
+          message="No games found for this player"
+          hint="Try a different Chess.com username"
+        />
       )}
     </Box>
   );

@@ -136,8 +136,8 @@ export function useChessComExplorer({
 
       try {
         // Check cache first (cache by username)
-        const cacheKey = `chesscom:${username}`;
-        const cached = explorerSessionCache.get<GameSearchResult[]>(cacheKey);
+        const cacheKey = username;
+        const cached = explorerSessionCache.chesscom.get<GameSearchResult[]>(cacheKey);
         if (cached && !cancelled) {
           setGames(cached);
           setLoading(false);
@@ -215,8 +215,8 @@ export function useChessComExplorer({
         }
 
         if (!cancelled) {
-          // Cache for 10 minutes
-          explorerSessionCache.set(cacheKey, allGames, 10 * 60 * 1000);
+          // Cache for 10 minutes (uses default TTL from cache config)
+          explorerSessionCache.chesscom.set(cacheKey, allGames);
           setLoading(false);
         }
       } catch (err) {

@@ -18,10 +18,14 @@ import {
   ListItemText,
   Chip,
   IconButton,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, Refresh } from '@mui/icons-material';
 import { useLichessExplorer, LichessExplorerResponse, LichessMove, LichessTopGame } from '@/hooks/useLichessExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import GameCard from './GameCard';
+import EmptyState from './EmptyState';
 
 interface LichessExplorerTabProps {
   fen: string;
@@ -39,6 +43,8 @@ export default function LichessExplorerTab({
   onOpenGame,
 }: LichessExplorerTabProps) {
   const t = useTranslations('debut');
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [gamesPage, setGamesPage] = useState(0);
 
   const { data, loading, error, retry } = useLichessExplorer({
@@ -223,49 +229,64 @@ export default function LichessExplorerTab({
         </Box>
       )}
 
-      {/* Games list */}
+      {/* Games list - card layout on mobile, list on desktop */}
       {!loading && !error && transformedGames.length > 0 && (
         <Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
             Top Games
           </Typography>
-          <List dense sx={{ p: 0 }}>
-            {visibleGames.map((g) => (
-              <ListItem
-                key={g.id}
-                sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
-                onClick={() => onOpenGame?.(g)}
-              >
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                        {g.white}
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        ({g.white_elo || '?'})
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
-                      <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                        {g.black}
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        ({g.black_elo || '?'})
-                      </Typography>
-                    </Box>
-                  }
-                  secondary={
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
-                      <Chip label={g.result} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        {g.date}
-                      </Typography>
-                    </Box>
-                  }
+
+          {isMobile ? (
+            // Mobile: Card layout
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {visibleGames.map((g) => (
+                <GameCard
+                  key={g.id}
+                  game={g}
+                  onClick={() => onOpenGame?.(g)}
                 />
-              </ListItem>
-            ))}
-          </List>
+              ))}
+            </Box>
+          ) : (
+            // Desktop: List layout
+            <List dense sx={{ p: 0 }}>
+              {visibleGames.map((g) => (
+                <ListItem
+                  key={g.id}
+                  sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
+                  onClick={() => onOpenGame?.(g)}
+                >
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
+                          {g.white}
+                        </Typography>
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          ({g.white_elo || '?'})
+                        </Typography>
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
+                        <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
+                          {g.black}
+                        </Typography>
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          ({g.black_elo || '?'})
+                        </Typography>
+                      </Box>
+                    }
+                    secondary={
+                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
+                        <Chip label={g.result} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
+                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
+                          {g.date}
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -296,9 +317,7 @@ export default function LichessExplorerTab({
 
       {/* Empty state */}
       {!loading && !error && totalGames === 0 && (
-        <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: 12, fontStyle: 'italic', py: 1 }}>
-          No games found for this position
-        </Typography>
+        <EmptyState type="no-games" />
       )}
     </Box>
   );
