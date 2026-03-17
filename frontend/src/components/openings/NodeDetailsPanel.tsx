@@ -14,6 +14,7 @@ import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpening
 import MasterGamesFilter, { MasterGamesFilterState } from './MasterGamesFilter';
 import ExplorerTabs, { ExplorerTab } from './ExplorerTabs';
 import LichessExplorerTab from './LichessExplorerTab';
+import ChessComExplorerTab from './ChessComExplorerTab';
 
 interface NodeDetailsPanelProps {
   node: OpeningNode | null;
@@ -229,6 +230,13 @@ export default function NodeDetailsPanel({
     />
   );
 
+  // Chess.com tab content
+  const chesscomContent = (
+    <ChessComExplorerTab
+      onOpenGame={onOpenGame}
+    />
+  );
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {onExplorerTabChange ? (
@@ -237,6 +245,7 @@ export default function NodeDetailsPanel({
           onTabChange={onExplorerTabChange}
           twicContent={twicContent}
           lichessContent={lichessContent}
+          chesscomContent={chesscomContent}
         />
       ) : (
         <Box sx={{ p: 1.5, overflow: 'auto' }}>{twicContent}</Box>

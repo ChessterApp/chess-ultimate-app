@@ -60,13 +60,7 @@ export default function ExplorerTabs({
       <Box sx={{ flex: 1, overflow: 'auto', px: 1.5 }}>
         {activeTab === 'twic' && twicContent}
         {activeTab === 'lichess' && lichessContent}
-        {activeTab === 'chesscom' && (chesscomContent || (
-          <Box sx={{ py: 2, textAlign: 'center' }}>
-            <Box sx={{ color: 'text.secondary', fontSize: 12, fontStyle: 'italic' }}>
-              Chess.com player search coming soon
-            </Box>
-          </Box>
-        ))}
+        {activeTab === 'chesscom' && chesscomContent}
       </Box>
     </Box>
   );
