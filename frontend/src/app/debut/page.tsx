@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
+import { Chess } from 'chess.js';
 // Import chessground CSS at page level to ensure it's included in the page's CSS bundle
 // (dynamic imports with ssr:false may not reliably load CSS chunks in turbopack)
 import 'chessground/assets/chessground.base.css';
@@ -50,6 +51,10 @@ const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPa
   ssr: false,
   loading: () => null
 });
+const TwicExplorer = dynamic(() => import('@/components/analysis/TwicExplorer'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-96 bg-stone-200 rounded-xl" />
+});
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
 import { Close } from '@mui/icons-material';
@@ -64,11 +69,18 @@ export default function DebutPage() {
 
   // mounted guard removed — dynamic imports with ssr:false handle this
 
+  // ─── Mode state ───
+  const [mode, setMode] = useState<'repertoire' | 'browse'>('repertoire');
+
   // ─── Core state ───
   const [selectedRepertoireId, setSelectedRepertoireId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<OpeningNode | null>(null);
   const [boardFen, setBoardFen] = useState(STARTING_FEN);
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
+
+  // ─── Browse mode state ───
+  const [browseFen, setBrowseFen] = useState(STARTING_FEN);
+  const [browseMoveHistory, setBrowseMoveHistory] = useState<Array<{ san: string; fen: string }>>([]);
 
   // ─── Modal state ───
   const [pgnImporterOpen, setPgnImporterOpen] = useState(false);
@@ -592,13 +604,11 @@ export default function DebutPage() {
     if (move.uci && move.uci.length >= 4) {
       const from = move.uci.substring(0, 2);
       const to = move.uci.substring(2, 4);
-      import('chess.js').then(({ Chess }) => {
-        const chess = new Chess(selectedNode.fen);
-        const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
-        if (result) {
-          handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
-        }
-      }).catch(() => {});
+      const chess = new Chess(selectedNode.fen);
+      const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
+      if (result) {
+        handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
+      }
     }
   }, [selectedNode, currentTree, handleNodeSelect, handleBoardMove]);
 
@@ -634,6 +644,45 @@ export default function DebutPage() {
 
   const handleFlip = useCallback(() => {
     setBoardOrientation(o => o === 'white' ? 'black' : 'white');
+  }, []);
+
+  // ─── Browse mode handlers ───
+  const handleBrowseMoveClick = useCallback((san: string) => {
+    const chess = new Chess(browseFen);
+    const move = chess.move(san);
+    if (move) {
+      const newFen = chess.fen();
+      setBrowseFen(newFen);
+      setBrowseMoveHistory(prev => [...prev, { san, fen: newFen }]);
+    }
+  }, [browseFen]);
+
+  const handleBrowseReset = useCallback(() => {
+    setBrowseFen(STARTING_FEN);
+    setBrowseMoveHistory([]);
+  }, []);
+
+  const handleBrowsePrev = useCallback(() => {
+    if (browseMoveHistory.length === 0) return;
+    const newHistory = browseMoveHistory.slice(0, -1);
+    setBrowseMoveHistory(newHistory);
+    if (newHistory.length === 0) {
+      setBrowseFen(STARTING_FEN);
+    } else {
+      setBrowseFen(newHistory[newHistory.length - 1].fen);
+    }
+  }, [browseMoveHistory]);
+
+  const handleBrowseNext = useCallback(() => {
+    // In browse mode, "next" doesn't make sense since we don't have a predetermined line
+    // This could be implemented later if we track forward/backward through history
+  }, []);
+
+  const handleBrowseBoardMove = useCallback((
+    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
+  ) => {
+    setBrowseFen(newFen);
+    setBrowseMoveHistory(prev => [...prev, { san: moveSan, fen: newFen }]);
   }, []);
 
   // CRUD handlers
@@ -886,22 +935,54 @@ export default function DebutPage() {
         </Box>
       )}
 
-      {/* Tab bar — always visible */}
+      {/* Mode switcher + Tab bar */}
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
-        <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'var(--text-tertiary)', borderRadius: 2 } }}>
+        {/* Mode tabs (My Repertoires | Browse Database) */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 1, borderBottom: '1px solid var(--border-strong)', pb: 0.5 }}>
           <Chip
-            label={t('debutTab')}
-            onClick={() => setActiveTab('debut')}
+            label={t('tabs.myRepertoires')}
+            onClick={() => setMode('repertoire')}
             sx={{
-              height: 28, fontSize: 12, fontWeight: 600,
-              borderRadius: '9999px',
-              bgcolor: activeTab === 'debut' ? 'primary.main' : 'rgba(255,255,255,0.95)',
-              color: activeTab === 'debut' ? '#fff' : 'var(--text-secondary)',
-              border: activeTab === 'debut' ? 'none' : '1px solid rgba(31,41,55,0.1)',
-              '&:hover': { bgcolor: activeTab === 'debut' ? 'primary.dark' : 'var(--surface-card-hover)' },
-              cursor: 'pointer', flexShrink: 0,
+              height: 32, fontSize: 13, fontWeight: 600,
+              borderRadius: '8px 8px 0 0',
+              bgcolor: mode === 'repertoire' ? 'primary.main' : 'transparent',
+              color: mode === 'repertoire' ? '#fff' : 'var(--text-secondary)',
+              border: 'none',
+              '&:hover': { bgcolor: mode === 'repertoire' ? 'primary.dark' : 'rgba(0,0,0,0.05)' },
+              cursor: 'pointer',
             }}
           />
+          <Chip
+            label={t('tabs.browseDatabase')}
+            onClick={() => setMode('browse')}
+            sx={{
+              height: 32, fontSize: 13, fontWeight: 600,
+              borderRadius: '8px 8px 0 0',
+              bgcolor: mode === 'browse' ? 'primary.main' : 'transparent',
+              color: mode === 'browse' ? '#fff' : 'var(--text-secondary)',
+              border: 'none',
+              '&:hover': { bgcolor: mode === 'browse' ? 'primary.dark' : 'rgba(0,0,0,0.05)' },
+              cursor: 'pointer',
+            }}
+          />
+        </Box>
+
+        {/* Game tabs — only show in repertoire mode */}
+        {mode === 'repertoire' && (
+          <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'var(--text-tertiary)', borderRadius: 2 } }}>
+            <Chip
+              label={t('debutTab')}
+              onClick={() => setActiveTab('debut')}
+              sx={{
+                height: 28, fontSize: 12, fontWeight: 600,
+                borderRadius: '9999px',
+                bgcolor: activeTab === 'debut' ? 'primary.main' : 'rgba(255,255,255,0.95)',
+                color: activeTab === 'debut' ? '#fff' : 'var(--text-secondary)',
+                border: activeTab === 'debut' ? 'none' : '1px solid rgba(31,41,55,0.1)',
+                '&:hover': { bgcolor: activeTab === 'debut' ? 'primary.dark' : 'var(--surface-card-hover)' },
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            />
           {openedGames.map(g => (
             <Chip
               key={g.id}
@@ -925,159 +1006,248 @@ export default function DebutPage() {
               }}
             />
           ))}
-        </Box>
+          </Box>
+        )}
       </Box>
 
       {/* Main content */}
-      <Box sx={{
-        display: 'flex',
-        flexDirection: { xs: 'column', lg: 'row' },
-        flex: { xs: 'none', lg: 1 },
-        p: { xs: 0, sm: 1, lg: 2 },
-        gap: { xs: 0, lg: 2 },
-        pb: { xs: 0, md: 2 },
-      }}>
-        {/* Left: Board + Notation */}
+      {mode === 'browse' ? (
+        // ─── Browse Database Mode ───
         <Box sx={{
           display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          flexShrink: 0,
+          flexDirection: { xs: 'column', lg: 'row' },
+          flex: { xs: 'none', lg: 1 },
+          p: { xs: 0, sm: 1, lg: 2 },
+          gap: { xs: 1, lg: 2 },
+          pb: { xs: 0, md: 2 },
         }}>
-          <DebutBoard
-            fen={activeGameFen || boardFen}
-            orientation={boardOrientation}
-            onMove={activeTab === 'debut' ? handleBoardMove : (() => {})}
-            customArrows={boardArrows}
-            onReset={activeTab === 'debut' ? handleReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
-            onGoToStart={activeTab === 'debut' ? handleGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
-            onPrev={activeTab === 'debut' ? handlePrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))}
-            onNext={activeTab === 'debut' ? handleNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))}
-            onGoToEnd={activeTab === 'debut' ? handleGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)}
-            onFlip={handleFlip}
-          />
+          {/* Left: Board + Move History */}
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <DebutBoard
+              fen={browseFen}
+              orientation={boardOrientation}
+              onMove={handleBrowseBoardMove}
+              customArrows={[]}
+              onReset={handleBrowseReset}
+              onGoToStart={handleBrowseReset}
+              onPrev={handleBrowsePrev}
+              onNext={handleBrowseNext}
+              onGoToEnd={() => {}}
+              onFlip={handleFlip}
+            />
 
-          {/* Move notation — only show in Debut tab */}
-          {activeTab === 'debut' && (
+            {/* Move history breadcrumb */}
             <Box sx={{
               width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
               maxWidth: 520,
-              maxHeight: { xs: 88, lg: 240 },
-              mx: 'auto',
               mt: 0.5,
-              overflow: 'auto',
+              p: 1.5,
               bgcolor: 'var(--surface-card)',
-              borderRadius: '24px',
+              borderRadius: '16px',
               border: '1px solid var(--border-strong)',
-              '&::-webkit-scrollbar': { width: '6px' },
-              '&::-webkit-scrollbar-track': { background: 'var(--surface-page)', borderRadius: '3px' },
-              '&::-webkit-scrollbar-thumb': { background: 'var(--text-tertiary)', borderRadius: '3px', '&:hover': { background: 'var(--text-secondary)' } },
+              minHeight: 48,
             }}>
-              <MoveNotation
-                tree={currentTree}
-                selectedNodeId={selectedNode?.id || null}
-                onNodeSelect={handleNodeSelect}
-                onDeleteLast={handleDeleteLastMove}
-                onDeleteAll={handleDeleteAllMoves}
-                loading={treeLoading}
-              />
+              <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontWeight: 600, mb: 0.5, display: 'block' }}>
+                {t('browseMode.moveHistory')}
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                {browseMoveHistory.length === 0 ? (
+                  <Typography variant="body2" sx={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
+                    {t('startingPosition')}
+                  </Typography>
+                ) : (
+                  browseMoveHistory.map((move, idx) => (
+                    <Chip
+                      key={idx}
+                      label={`${Math.floor(idx / 2) + 1}${idx % 2 === 0 ? '.' : '...'} ${move.san}`}
+                      size="small"
+                      sx={{
+                        height: 24,
+                        fontSize: 12,
+                        bgcolor: 'rgba(0,0,0,0.05)',
+                        fontFamily: 'monospace',
+                        '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
+                      }}
+                    />
+                  ))
+                )}
+              </Box>
             </Box>
-          )}
+          </Box>
 
-          {/* Game viewer notation — when viewing a game tab */}
-          {activeTab !== 'debut' && activeGame && (
-            <Box sx={{
-              width: '100%',
-              maxWidth: { xs: '100%', lg: 520 },
-              maxHeight: { xs: 150, lg: 280 },
-              overflow: 'auto',
-            }}>
-              <GameViewerPanel
-                game={activeGame}
-                currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
-                onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
-              />
-            </Box>
-          )}
+          {/* Right: TwicExplorer */}
+          <Box sx={{
+            flex: { xs: 'none', lg: 1 },
+            display: 'flex',
+            flexDirection: 'column',
+            bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
+            borderRadius: { xs: 0, lg: '24px' },
+            border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
+            overflow: { xs: 'visible', lg: 'auto' },
+            minWidth: 0,
+            maxHeight: { lg: 'calc(100vh - 32px)' },
+            p: { xs: 1, lg: 2 },
+          }}>
+            <TwicExplorer fen={browseFen} onMoveClick={handleBrowseMoveClick} />
+          </Box>
         </Box>
-
-        {/* Right: Repertoire + Details */}
+      ) : (
+        // ─── Repertoire Mode ───
         <Box sx={{
-          flex: { xs: 'none', lg: 1 },
           display: 'flex',
-          flexDirection: 'column',
-          bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
-          borderRadius: { xs: 0, lg: '24px' },
-          border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
-          overflow: { xs: 'visible', lg: 'hidden' },
-          minWidth: 0,
-          maxHeight: { lg: 'calc(100vh - 32px)' },
+          flexDirection: { xs: 'column', lg: 'row' },
+          flex: { xs: 'none', lg: 1 },
+          p: { xs: 0, sm: 1, lg: 2 },
+          gap: { xs: 0, lg: 2 },
+          pb: { xs: 0, md: 2 },
         }}>
-          {activeTab === 'debut' ? (
-            <>
-              <RepertoireSelector
-                repertoires={repertoires}
-                selectedId={selectedRepertoireId}
-                onSelect={setSelectedRepertoireId}
-                onCreate={handleCreateRepertoire}
-                onRename={handleRenameRepertoire}
-                onDelete={handleDeleteRepertoire}
-                onImportPgn={() => setPgnImporterOpen(true)}
-                onExportPgn={handleExportPgn}
-                loading={loading}
-              />
-              <Box sx={{ flex: 1, overflow: 'auto' }}>
-                {/* Move Tree (ChessBase-style) */}
-                <MoveTree
-                  moves={displayedMoves}
-                  totalGames={displayedTotalGames}
-                  loading={displayedLoading}
-                  onMoveClick={handleMoveTreeClick}
-                  fen={selectedNode?.fen}
-                  source={moveTreeSource}
-                  onSourceChange={setMoveTreeSource}
-                />
+          {/* Left: Board + Notation */}
+          <Box sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            flexShrink: 0,
+          }}>
+            <DebutBoard
+              fen={activeGameFen || boardFen}
+              orientation={boardOrientation}
+              onMove={activeTab === 'debut' ? handleBoardMove : (() => {})}
+              customArrows={boardArrows}
+              onReset={activeTab === 'debut' ? handleReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
+              onGoToStart={activeTab === 'debut' ? handleGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
+              onPrev={activeTab === 'debut' ? handlePrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))}
+              onNext={activeTab === 'debut' ? handleNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))}
+              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)}
+              onFlip={handleFlip}
+            />
 
-                {/* Position Summary (ECO + aggregate W/D/L) */}
-                <PositionSummary
-                  ecoCode={selectedNode?.eco_code || null}
-                  openingName={selectedNode?.opening_name || null}
-                  totalGames={candidatesTotalGames}
-                  moves={candidateMoves}
-                />
-
-
-                {/* Master Games + Linked Games */}
-                <NodeDetailsPanel
-                  node={selectedNode}
-                  onUpdateNotes={handleUpdateNotes}
-                  onToggleCritical={handleToggleCritical}
-                  onDeleteNode={handleDeleteNode}
-                  onSearchGames={handleSearchGames}
-                  gameLinks={gameLinks}
-                  gameLinksLoading={gameLinksLoading}
-                  masterGames={masterGames}
-                  masterGamesTotal={masterGamesTotal}
-                  masterGamesLoading={masterGamesLoading}
-                  onOpenGame={handleOpenGame}
-                  masterGamesFilters={masterGamesFilters}
-                  onMasterGamesFilterChange={setMasterGamesFilters}
-                  explorerTab={explorerTab}
-                  onExplorerTabChange={setExplorerTab}
-                  lichessDatabase={lichessDatabase}
-                  onLichessDatabaseChange={setLichessDatabase}
+            {/* Move notation — only show in Debut tab */}
+            {activeTab === 'debut' && (
+              <Box sx={{
+                width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
+                maxWidth: 520,
+                maxHeight: { xs: 88, lg: 240 },
+                mx: 'auto',
+                mt: 0.5,
+                overflow: 'auto',
+                bgcolor: 'var(--surface-card)',
+                borderRadius: '24px',
+                border: '1px solid var(--border-strong)',
+                '&::-webkit-scrollbar': { width: '6px' },
+                '&::-webkit-scrollbar-track': { background: 'var(--surface-page)', borderRadius: '3px' },
+                '&::-webkit-scrollbar-thumb': { background: 'var(--text-tertiary)', borderRadius: '3px', '&:hover': { background: 'var(--text-secondary)' } },
+              }}>
+                <MoveNotation
+                  tree={currentTree}
+                  selectedNodeId={selectedNode?.id || null}
+                  onNodeSelect={handleNodeSelect}
+                  onDeleteLast={handleDeleteLastMove}
+                  onDeleteAll={handleDeleteAllMoves}
+                  loading={treeLoading}
                 />
               </Box>
-            </>
-          ) : activeGame ? (
-            <Box sx={{ p: 2, color: 'var(--text-tertiary)' }}>
-              <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                Viewing game: {activeGame.white} vs {activeGame.black}
-              </Typography>
-            </Box>
-          ) : null}
+            )}
+
+            {/* Game viewer notation — when viewing a game tab */}
+            {activeTab !== 'debut' && activeGame && (
+              <Box sx={{
+                width: '100%',
+                maxWidth: { xs: '100%', lg: 520 },
+                maxHeight: { xs: 150, lg: 280 },
+                overflow: 'auto',
+              }}>
+                <GameViewerPanel
+                  game={activeGame}
+                  currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
+                  onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+                />
+              </Box>
+            )}
+          </Box>
+
+          {/* Right: Repertoire + Details */}
+          <Box sx={{
+            flex: { xs: 'none', lg: 1 },
+            display: 'flex',
+            flexDirection: 'column',
+            bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
+            borderRadius: { xs: 0, lg: '24px' },
+            border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
+            overflow: { xs: 'visible', lg: 'hidden' },
+            minWidth: 0,
+            maxHeight: { lg: 'calc(100vh - 32px)' },
+          }}>
+            {activeTab === 'debut' ? (
+              <>
+                <RepertoireSelector
+                  repertoires={repertoires}
+                  selectedId={selectedRepertoireId}
+                  onSelect={setSelectedRepertoireId}
+                  onCreate={handleCreateRepertoire}
+                  onRename={handleRenameRepertoire}
+                  onDelete={handleDeleteRepertoire}
+                  onImportPgn={() => setPgnImporterOpen(true)}
+                  onExportPgn={handleExportPgn}
+                  loading={loading}
+                />
+                <Box sx={{ flex: 1, overflow: 'auto' }}>
+                  {/* Move Tree (ChessBase-style) */}
+                  <MoveTree
+                    moves={displayedMoves}
+                    totalGames={displayedTotalGames}
+                    loading={displayedLoading}
+                    onMoveClick={handleMoveTreeClick}
+                    fen={selectedNode?.fen}
+                    source={moveTreeSource}
+                    onSourceChange={setMoveTreeSource}
+                  />
+
+                  {/* Position Summary (ECO + aggregate W/D/L) */}
+                  <PositionSummary
+                    ecoCode={selectedNode?.eco_code || null}
+                    openingName={selectedNode?.opening_name || null}
+                    totalGames={candidatesTotalGames}
+                    moves={candidateMoves}
+                  />
+
+
+                  {/* Master Games + Linked Games */}
+                  <NodeDetailsPanel
+                    node={selectedNode}
+                    onUpdateNotes={handleUpdateNotes}
+                    onToggleCritical={handleToggleCritical}
+                    onDeleteNode={handleDeleteNode}
+                    onSearchGames={handleSearchGames}
+                    gameLinks={gameLinks}
+                    gameLinksLoading={gameLinksLoading}
+                    masterGames={masterGames}
+                    masterGamesTotal={masterGamesTotal}
+                    masterGamesLoading={masterGamesLoading}
+                    onOpenGame={handleOpenGame}
+                    masterGamesFilters={masterGamesFilters}
+                    onMasterGamesFilterChange={setMasterGamesFilters}
+                    explorerTab={explorerTab}
+                    onExplorerTabChange={setExplorerTab}
+                    lichessDatabase={lichessDatabase}
+                    onLichessDatabaseChange={setLichessDatabase}
+                  />
+                </Box>
+              </>
+            ) : activeGame ? (
+              <Box sx={{ p: 2, color: 'var(--text-tertiary)' }}>
+                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
+                  Viewing game: {activeGame.white} vs {activeGame.black}
+                </Typography>
+              </Box>
+            ) : null}
+          </Box>
         </Box>
-      </Box>
+      )}
 
       {/* Modals */}
       <PgnImporter

@@ -890,6 +890,15 @@
       "recentGames": "Последние партии",
       "enterUsername": "Поиск игрока Lichess",
       "enterUsernameHint": "Введите имя пользователя Lichess для изучения его дебютного репертуара"
+    },
+    "tabs": {
+      "myRepertoires": "Мои репертуары",
+      "browseDatabase": "База данных"
+    },
+    "browseMode": {
+      "title": "База партий мастеров",
+      "subtitle": "Изучайте 100М+ позиций из партий мастеров",
+      "moveHistory": "История ходов"
     }
   },
   "onboarding": {

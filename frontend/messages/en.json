@@ -890,6 +890,15 @@
       "recentGames": "Recent Games",
       "enterUsername": "Search a Lichess player",
       "enterUsernameHint": "Enter a Lichess username to explore their opening repertoire"
+    },
+    "tabs": {
+      "myRepertoires": "My Repertoires",
+      "browseDatabase": "Browse Database"
+    },
+    "browseMode": {
+      "title": "Browse Master Games Database",
+      "subtitle": "Explore 100M+ positions from master games",
+      "moveHistory": "Move history"
     }
   },
   "onboarding": {

@@ -881,6 +881,15 @@
       "recentGames": "Соңғы ойындар",
       "enterUsername": "Lichess ойыншысын іздеу",
       "enterUsernameHint": "Олардың дебют репертуарын зерттеу үшін Lichess пайдаланушы атын енгізіңіз"
+    },
+    "tabs": {
+      "myRepertoires": "Менің репертуарларым",
+      "browseDatabase": "Дерекқор"
+    },
+    "browseMode": {
+      "title": "Шеберлер ойындарының дерекқоры",
+      "subtitle": "Шеберлер ойындарынан 100М+ позицияларды зерттеңіз",
+      "moveHistory": "Жүрістер тарихы"
     }
   },
   "onboarding": {
