@@ -1913,29 +1913,64 @@ def games_by_position():
         return jsonify({'games': [], 'total': 0, 'indexed': False})
 
     conn = get_internal_db_connection()
+    query_timeout = [False, time.time()]  # [timed_out flag, start_time]
+
+    def progress_handler():
+        """Progress handler to interrupt long-running queries after 3 seconds."""
+        if time.time() - query_timeout[1] > 3.0:
+            query_timeout[0] = True
+            return 1  # Non-zero return aborts query
+        return 0
+
     try:
+        # Set 3-second timeout for all queries
+        conn.execute("PRAGMA busy_timeout = 3000")
+        conn.set_progress_handler(progress_handler, 10000)  # Check every 10k VM instructions
+
         if not _has_position_index(conn):
             conn.close()
             return jsonify({'games': [], 'total': 0, 'indexed': False})
 
         board_hash = _get_board_hash(fen)
 
-        # Estimate total count from cache or a capped probe
+        # Estimate total count from cache or move_stats table (instant)
         cached_count = _position_count_cache.get(board_hash)
         if cached_count is not None:
             total = cached_count
         else:
-            # Quick probe to estimate
-            pool_size = min(max(limit * 40, 200), 2000)
-            probe = conn.execute(
-                "SELECT COUNT(*) as cnt FROM (SELECT 1 FROM game_positions gp INNER JOIN games g ON g.id = gp.game_id WHERE gp.board_hash = ? LIMIT ?)",
-                [board_hash, pool_size]
-            ).fetchone()['cnt']
-            if probe < pool_size:
-                total = probe
-                _position_count_cache[board_hash] = total
-            else:
-                total = pool_size  # Will be updated by deferred count endpoint
+            # Use move_stats table for instant count (pre-computed)
+            try:
+                query_timeout[1] = time.time()  # Reset timeout for this query
+                move_stats_row = conn.execute(
+                    "SELECT SUM(games) as total FROM move_stats WHERE board_hash = ?",
+                    [board_hash]
+                ).fetchone()
+                if move_stats_row and move_stats_row['total']:
+                    total = move_stats_row['total']
+                    _position_count_cache[board_hash] = total
+                else:
+                    # Fallback: simple count on game_positions without JOIN
+                    query_timeout[1] = time.time()  # Reset timeout for fallback query
+                    probe = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM (SELECT 1 FROM game_positions WHERE board_hash = ? LIMIT 2001)",
+                        [board_hash]
+                    ).fetchone()['cnt']
+                    if probe <= 2000:
+                        total = probe
+                        _position_count_cache[board_hash] = total
+                    else:
+                        total = 2000  # Will be updated by deferred count endpoint
+            except sqlite3.OperationalError as e:
+                if query_timeout[0]:
+                    logger.warning(f"Count query timed out for board_hash={board_hash}, using default")
+                    pool_size = min(max(limit * 40, 200), 2000)
+                    total = pool_size
+                else:
+                    raise
+            except Exception as e:
+                logger.warning(f"Error getting count from move_stats: {e}, using fallback")
+                pool_size = min(max(limit * 40, 200), 2000)
+                total = pool_size
 
         # 2-step approach: get limited IDs first, then fetch+sort the small set.
         # For player search, avoid expensive JOIN on the full position set (can take >2 min).
@@ -1975,11 +2010,27 @@ def games_by_position():
                 game_ids = matched_ids
                 total = len(matched_ids)  # Player-specific count
         else:
-            id_rows = conn.execute(
-                "SELECT gp.game_id FROM game_positions gp INNER JOIN games g ON g.id = gp.game_id WHERE gp.board_hash = ? ORDER BY gp.game_id DESC LIMIT ?",
-                [board_hash, pool_size]
-            ).fetchall()
-            game_ids = [r['game_id'] for r in id_rows]
+            # Optimized: avoid expensive JOIN by getting game_ids from game_positions only
+            try:
+                query_timeout[1] = time.time()  # Reset timeout for this query
+                id_rows = conn.execute(
+                    "SELECT game_id FROM game_positions WHERE board_hash = ? ORDER BY game_id DESC LIMIT ?",
+                    [board_hash, pool_size]
+                ).fetchall()
+                game_ids = [r['game_id'] for r in id_rows]
+            except sqlite3.OperationalError as e:
+                if query_timeout[0]:
+                    logger.warning(f"Query timed out for board_hash={board_hash}, returning empty result")
+                    conn.close()
+                    return jsonify({
+                        'games': [],
+                        'total': total,
+                        'indexed': True,
+                        'timeout': True,
+                        'count_exact': cached_count is not None,
+                    })
+                else:
+                    raise
 
         if not game_ids:
             if not player_name:
@@ -2027,21 +2078,39 @@ def games_by_position():
         query += f" ORDER BY {order} LIMIT ?"
         params.append(limit)
 
-        cursor = conn.execute(query, params)
+        # Execute query with timeout handling
+        timed_out = False
         games = []
-        for row in cursor.fetchall():
-            game_data = _normalize_game_row(dict(row))
-            # No PGN — frontend fetches on demand via /games/<id>/pgn
-            games.append(game_data)
+        try:
+            query_timeout[1] = time.time()  # Reset timeout for final query
+            cursor = conn.execute(query, params)
+            for row in cursor.fetchall():
+                game_data = _normalize_game_row(dict(row))
+                # No PGN — frontend fetches on demand via /games/<id>/pgn
+                games.append(game_data)
+        except sqlite3.OperationalError as e:
+            # If query times out, return partial results
+            if query_timeout[0]:
+                logger.warning(f"Final query timed out in games_by_position")
+                timed_out = True
+            else:
+                raise
+        except Exception as e:
+            # If query fails for other reasons, return partial results
+            logger.warning(f"Query error in games_by_position: {e}")
+            timed_out = True
 
-        logger.info(f"games_by_position result: board_hash={board_hash} player_name='{player_name}' player_color='{player_color}' sort_by={sort_by} returned={len(games)} total_est={total}")
+        logger.info(f"games_by_position result: board_hash={board_hash} player_name='{player_name}' player_color='{player_color}' sort_by={sort_by} returned={len(games)} total_est={total} timed_out={timed_out}")
         conn.close()
-        return jsonify({
+        response_data = {
             'games': games,
             'total': total,
             'indexed': True,
             'count_exact': cached_count is not None,
-        })
+        }
+        if timed_out:
+            response_data['timeout'] = True
+        return jsonify(response_data)
     except Exception as e:
         logger.error(f"Error in games_by_position: {e}")
         conn.close()
