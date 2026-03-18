@@ -501,6 +501,7 @@
       "stockfishAnalysis": "Stockfish талдауы",
       "openingExplorer": "Дебют шолушы",
       "chessDatabase": "Шахмат базасы",
+      "twicDatabase": "TWIC шебер ойындары",
       "legalMoveAnalysis": "Рұқсат етілген жүрістер талдауы"
     },
     "stockfish": {
@@ -688,9 +689,9 @@
     "chatMode": "Чат режимі"
   },
   "puzzles": {
-    "lessonTitle": "Ладьямен маттар",
-    "lessonDescription": "Ладьямен мат қою",
-    "instruction": "Ладьяны басыңыз, содан кейін мат үшін торкөзді басыңыз!",
+    "lessonTitle": "Практикалық тапсырмалар",
+    "lessonDescription": "Сабақты бекіту үшін тапсырмаларды шешіңіз",
+    "instruction": "Тақтадағы ең жақсы жүрісті табыңыз!",
     "progress": "Прогресс",
     "puzzleNumber": "Тапсырма {number}",
     "completed": "орындалды",

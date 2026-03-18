@@ -510,6 +510,7 @@
       "stockfishAnalysis": "Анализ Stockfish",
       "openingExplorer": "Обзор дебютов",
       "chessDatabase": "Шахматная база",
+      "twicDatabase": "Мастерские партии TWIC",
       "legalMoveAnalysis": "Анализ возможных ходов"
     },
     "stockfish": {
@@ -697,9 +698,9 @@
     "chatMode": "Режим чата"
   },
   "puzzles": {
-    "lessonTitle": "Маты ладьёй",
-    "lessonDescription": "Поставьте мат ладьёй",
-    "instruction": "Нажмите на ладью, затем на клетку для мата!",
+    "lessonTitle": "Практические задачи",
+    "lessonDescription": "Решайте задачи для закрепления урока",
+    "instruction": "Найдите лучший ход на доске!",
     "progress": "Прогресс",
     "puzzleNumber": "Задача {number}",
     "completed": "выполнено",

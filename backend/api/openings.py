@@ -1893,10 +1893,11 @@ def delete_game_link(game_link_id):
 _position_count_cache = {}
 
 @openings_bp.route('/games/by-position', methods=['GET'])
-@verify_clerk_token
 def games_by_position():
     """Fast lookup: find games that reach a given FEN using the position hash index.
-    Returns game metadata only (no PGN). PGN is fetched on demand via /games/<id>/pgn."""
+    Returns game metadata only (no PGN). PGN is fetched on demand via /games/<id>/pgn.
+
+    Note: This endpoint is public (no auth required) to support the position analysis page."""
     fen = request.args.get('fen', '')
     if not fen:
         return jsonify({'error': 'Missing fen parameter'}), 400

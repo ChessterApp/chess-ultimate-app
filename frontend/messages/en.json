@@ -510,6 +510,7 @@
       "stockfishAnalysis": "Stockfish Analysis",
       "openingExplorer": "Opening Explorer",
       "chessDatabase": "Chess Database",
+      "twicDatabase": "TWIC Master Games",
       "legalMoveAnalysis": "Legal Move Analysis"
     },
     "stockfish": {
@@ -697,9 +698,9 @@
     "chatMode": "Chat Mode"
   },
   "puzzles": {
-    "lessonTitle": "Rook Checkmates",
-    "lessonDescription": "Deliver checkmate with the rook",
-    "instruction": "Click on the rook, then click on the square to deliver checkmate!",
+    "lessonTitle": "Practice Puzzles",
+    "lessonDescription": "Solve puzzles to master this lesson",
+    "instruction": "Find the best move on the board!",
     "progress": "Progress",
     "puzzleNumber": "Puzzle {number}",
     "completed": "completed",

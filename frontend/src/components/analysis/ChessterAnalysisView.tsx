@@ -26,6 +26,7 @@ import OpeningExplorer from "../tabs/OpeningTab";
 import ChessDBDisplay from "../tabs/Chessdb";
 import LegalMoveTab from "../tabs/LegalMoveTab";
 import ChatTab from "../tabs/ChatTab";
+import TwicExplorer from "./TwicExplorer";
 import { PositionEval, LineEval } from "@/stockfish/engine/engine";
 import { MasterGames, Moves } from "@/libs/openingdatabase/helper";
 import { CandidateMove, } from "../tabs/Chessdb";
@@ -580,16 +581,63 @@ function ChessterAnalysisView({
               </AccordionDetails>
             </Accordion>
 
+            {/* TWIC Master Games Database */}
+            {!isGameReviewMode && (
+              <Accordion
+                expanded={activeAnalysisTab === 3}
+                onChange={() =>
+                  setActiveAnalysisTab(activeAnalysisTab === 3 ? -1 : 3)
+                }
+                sx={{
+                  backgroundColor: 'background.paper',
+                  "&:before": { display: "none" },
+                  borderRadius: 2,
+                  overflow: "hidden",
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={
+                    <ExpandMoreIcon sx={{ color: 'text.primary' }} />
+                  }
+                  sx={{
+                    backgroundColor: 'background.paper',
+                    "&:hover": {
+                      backgroundColor: 'action.hover',
+                    },
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center" }}>
+                    <Typography
+                      variant="h6"
+                      sx={{
+                        color: 'text.primary',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {t("sections.twicDatabase")}
+                    </Typography>
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails
+                  sx={{ backgroundColor: 'background.paper' }}
+                >
+                  <TwicExplorer
+                    fen={fen ?? ""}
+                  />
+                </AccordionDetails>
+              </Accordion>
+            )}
+
             {/* Legal Move Analysis */}
             <Accordion
-              expanded={activeAnalysisTab === (isGameReviewMode ? 4 : 3)}
+              expanded={activeAnalysisTab === (isGameReviewMode ? 4 : 4)}
               onChange={() =>
                 setActiveAnalysisTab(
-                  activeAnalysisTab === (isGameReviewMode ? 4 : 3)
+                  activeAnalysisTab === (isGameReviewMode ? 4 : 4)
                     ? -1
                     : isGameReviewMode
                     ? 4
-                    : 3
+                    : 4
                 )
               }
               sx={{
