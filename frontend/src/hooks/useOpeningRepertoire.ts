@@ -301,13 +301,15 @@ export function useOpeningRepertoire() {
     limit: number = 5,
     playerColor: string = '',
     playerName: string = '',
-    sortBy: string = 'rating'
+    sortBy: string = 'rating',
+    opponentName: string = ''
   ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }> => {
     const params = new URLSearchParams({ fen, limit: String(limit) });
     if (playerColor) params.set('player_color', playerColor);
     if (playerName) params.set('player_name', playerName);
+    if (opponentName) params.set('opponent_name', opponentName);
     if (sortBy && sortBy !== 'rating') params.set('sort_by', sortBy);
-    const data = await fetchWithAuth<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`);
+    const data = await fetchWithAuth<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`, { timeout: 120000 });
     return data;
   }, []);
 
