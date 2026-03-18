@@ -81,7 +81,7 @@ export default function NodeDetailsPanel({
 
   // TWIC tab content
   const twicContent = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
       {/* Master Games (auto-fetched from TWIC) */}
       <Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
