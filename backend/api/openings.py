@@ -2010,9 +2010,54 @@ def games_by_position():
                 game_ids = matched_ids
                 total = len(matched_ids)  # Player-specific count
         else:
-            # Optimized: avoid expensive JOIN by getting game_ids from game_positions only
+            # For very common positions (>50K games), skip game_positions entirely
+            # and query the games table directly using indexed columns.
+            # game_positions returns arbitrary rows without ORDER BY, so sorting
+            # within that subset gives wrong results (e.g., "newest" shows 2025
+            # instead of 2026 because only the first 2000 inserted rows are fetched).
+            DIRECT_QUERY_THRESHOLD = 50000
+            if total > DIRECT_QUERY_THRESHOLD:
+                # Query games table directly — indexes on date, elo exist
+                # For the direct path, use indexed columns only to avoid full-table scans.
+                # 'rating' (combined elo) has no index, so fall back to white_elo DESC.
+                sort_clauses = {
+                    'rating': 'white_elo DESC',
+                    'date_desc': 'date DESC',
+                    'date_asc': 'date ASC',
+                    'elo_white': 'white_elo DESC',
+                    'elo_black': 'black_elo DESC',
+                }
+                order = sort_clauses.get(sort_by, sort_clauses['rating'])
+                query = f"SELECT * FROM games ORDER BY {order} LIMIT ?"
+                params = [limit]
+
+                timed_out = False
+                games = []
+                try:
+                    query_timeout[1] = time.time()
+                    cursor = conn.execute(query, params)
+                    for row in cursor.fetchall():
+                        games.append(_normalize_game_row(dict(row)))
+                except sqlite3.OperationalError:
+                    if query_timeout[0]:
+                        logger.warning(f"Direct query timed out for common position board_hash={board_hash}")
+                        timed_out = True
+                    else:
+                        raise
+
+                logger.info(f"games_by_position DIRECT: board_hash={board_hash} sort_by={sort_by} returned={len(games)} total_est={total} timed_out={timed_out}")
+                conn.close()
+                return jsonify({
+                    'games': games,
+                    'total': total,
+                    'indexed': True,
+                    'count_exact': cached_count is not None,
+                    'timeout': timed_out,
+                })
+
+            # For less common positions, use game_positions table
             try:
-                query_timeout[1] = time.time()  # Reset timeout for this query
+                query_timeout[1] = time.time()
                 id_rows = conn.execute(
                     "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
                     [board_hash, pool_size]
@@ -2056,16 +2101,10 @@ def games_by_position():
             if player_name:
                 query += " AND white_name_normalized LIKE ?"
                 params.append(name_pattern)
-            else:
-                # When filtering by white only without player name, still need the games table
-                pass
         elif player_color == 'black':
             if player_name:
                 query += " AND black_name_normalized LIKE ?"
                 params.append(name_pattern)
-            else:
-                # When filtering by black only without player name, still need the games table
-                pass
 
         sort_clauses = {
             'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
@@ -2082,21 +2121,17 @@ def games_by_position():
         timed_out = False
         games = []
         try:
-            query_timeout[1] = time.time()  # Reset timeout for final query
+            query_timeout[1] = time.time()
             cursor = conn.execute(query, params)
             for row in cursor.fetchall():
-                game_data = _normalize_game_row(dict(row))
-                # No PGN — frontend fetches on demand via /games/<id>/pgn
-                games.append(game_data)
+                games.append(_normalize_game_row(dict(row)))
         except sqlite3.OperationalError as e:
-            # If query times out, return partial results
             if query_timeout[0]:
                 logger.warning(f"Final query timed out in games_by_position")
                 timed_out = True
             else:
                 raise
         except Exception as e:
-            # If query fails for other reasons, return partial results
             logger.warning(f"Query error in games_by_position: {e}")
             timed_out = True
 
