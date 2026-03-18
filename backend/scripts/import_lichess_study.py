@@ -80,7 +80,7 @@ def fetch_lichess_study_pgn(study_id: str) -> str:
     return response.text
 
 
-def parse_pgn_chapters(pgn_content: str) -> list:
+def parse_pgn_chapters(pgn_content: str, chapter_id: str = None) -> list:
     """
     Parse PGN content into individual chapters (puzzles).
 
@@ -89,6 +89,10 @@ def parse_pgn_chapters(pgn_content: str) -> list:
     - FEN position (starting position)
     - First move as solution
     - Chapter name
+
+    Args:
+        pgn_content: PGN text content
+        chapter_id: Optional chapter ID to filter (e.g., 'hja8zqts')
 
     Returns:
         List of dicts with puzzle data
@@ -124,9 +128,14 @@ def parse_pgn_chapters(pgn_content: str) -> list:
         event = headers.get('Event', f'Puzzle {game_idx + 1}')
 
         # Lichess study chapter name is usually in Event or extracted from Site
+        current_chapter_id = None
         if 'lichess.org/study' in site:
-            chapter_id = site.split('/')[-1] if '/' in site else None
-            puzzle['source_id'] = chapter_id
+            current_chapter_id = site.split('/')[-1] if '/' in site else None
+            puzzle['source_id'] = current_chapter_id
+
+        # If chapter_id filter is specified, skip chapters that don't match
+        if chapter_id and current_chapter_id != chapter_id:
+            continue
 
         puzzle['source_name'] = event
 
@@ -291,6 +300,7 @@ def main():
     parser.add_argument('--lesson-id', help='Target lesson UUID directly')
     parser.add_argument('--lesson-slug', help='Target lesson slug (e.g., rook-mate-in-1)')
     parser.add_argument('--course-slug', help='Course slug (e.g., checkmate-patterns)')
+    parser.add_argument('--chapter-id', help='Import only specific chapter ID (e.g., hja8zqts)')
     parser.add_argument('--dry-run', action='store_true', help='Parse but do not insert')
 
     args = parser.parse_args()
@@ -320,7 +330,9 @@ def main():
 
     # Parse chapters into puzzles
     print(f"\nParsing chapters...")
-    puzzles = parse_pgn_chapters(pgn_content)
+    if args.chapter_id:
+        print(f"  Filtering to chapter: {args.chapter_id}")
+    puzzles = parse_pgn_chapters(pgn_content, chapter_id=args.chapter_id)
     print(f"✓ Found {len(puzzles)} puzzles")
 
     if not puzzles:
