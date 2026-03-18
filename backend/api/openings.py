@@ -2014,7 +2014,7 @@ def games_by_position():
             try:
                 query_timeout[1] = time.time()  # Reset timeout for this query
                 id_rows = conn.execute(
-                    "SELECT game_id FROM game_positions WHERE board_hash = ? ORDER BY game_id DESC LIMIT ?",
+                    "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
                     [board_hash, pool_size]
                 ).fetchall()
                 game_ids = [r['game_id'] for r in id_rows]
