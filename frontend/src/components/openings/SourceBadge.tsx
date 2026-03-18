@@ -14,7 +14,7 @@ interface SourceBadgeProps {
 }
 
 const SOURCE_LABELS: Record<string, string> = {
-  twic: 'TWIC',
+  twic: 'Master Games',
   lichess: 'Lichess',
   chesscom: 'Chess.com',
   pgn: 'PGN',

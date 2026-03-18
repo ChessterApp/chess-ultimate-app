@@ -103,7 +103,7 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
             '& .MuiTabs-indicator': { bgcolor: 'primary.light' },
           }}
         >
-          <Tab label="TWIC Database" />
+          <Tab label="Master Games" />
           <Tab label="Lichess" />
           <Tab label="Chess.com" />
         </Tabs>

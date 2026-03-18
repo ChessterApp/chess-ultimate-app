@@ -126,7 +126,7 @@ export default function MoveTree({ moves, totalGames, loading, onMoveClick, fen,
               '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: '#14b8a6' },
             }}
           >
-            <MenuItem value="twic" sx={{ fontSize: 11 }}>Masters (TWIC)</MenuItem>
+            <MenuItem value="twic" sx={{ fontSize: 11 }}>Master Games</MenuItem>
             <MenuItem value="lichess-masters" sx={{ fontSize: 11 }}>Lichess Masters</MenuItem>
             <MenuItem value="lichess-players" sx={{ fontSize: 11 }}>Lichess Players</MenuItem>
           </Select>

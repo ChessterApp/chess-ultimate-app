@@ -78,7 +78,7 @@ export default function ExplorerTabs({
             },
           }}
         >
-          <Tab label="TWIC" value="twic" />
+          <Tab label="Master Games" value="twic" />
           <Tab label="Lichess" value="lichess" />
           <Tab label="Chess.com" value="chesscom" />
         </Tabs>
