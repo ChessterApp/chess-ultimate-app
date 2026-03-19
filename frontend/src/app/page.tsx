@@ -13,6 +13,9 @@ import { CTAButton } from '@/components/landing/CTAButton'
 import { HeroAnimatedBackground } from '@/components/landing/HeroAnimatedBackground'
 import { SocialButtons } from '@/components/landing/SocialButtons'
 
+// Enable ISR: regenerate page every hour
+export const revalidate = 3600
+
 // Mascot placeholder component
 const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { size?: 'sm' | 'md' | 'lg' | 'xl', className?: string, label?: string }) => {
   const sizes = {
