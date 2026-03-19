@@ -108,7 +108,7 @@ if flask_env == 'development':
 else:
     logger.info(f"CORS enabled for production origins: {cors_origins}")
 
-CORS(app, origins=cors_origins)
+CORS(app, origins=cors_origins, supports_credentials=True)
 
 # Setup performance monitoring middleware
 try:
