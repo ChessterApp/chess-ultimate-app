@@ -1,12 +1,6 @@
 "use server";
-import { openai } from "@ai-sdk/openai";
 import { Agent } from "@mastra/core/agent";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createOllama } from "ollama-ai-provider-v2";
 import { RequestContext } from "@mastra/core/request-context";
-import { createOpenRouter} from "@openrouter/ai-sdk-provider";
 import {
   aginePuzzleSystemPrompt,
   agineQuestionMode,
@@ -16,11 +10,12 @@ import {
 import { OpenAIModel, GoogleModel, AnthropicModel, OllamaModel, ChessterCloudModel } from "./types";
 import { ChessterTools } from "../tools";
 
-function createModelFromRouter(requestContext: RequestContext) {
+async function createModelFromRouter(requestContext: RequestContext) {
   const provider = requestContext.get("provider") as string;
   const modelName = requestContext.get("model") as string;
   const apiKey = requestContext.get("apiKey") as string;
 
+  const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
   const openRouter = createOpenRouter({
     apiKey: apiKey,
   });
@@ -28,11 +23,12 @@ function createModelFromRouter(requestContext: RequestContext) {
   return openRouter(`${provider}/${modelName}`);
 }
 
-function createChessterCloudModel(requestContext: RequestContext) {
+async function createChessterCloudModel(requestContext: RequestContext) {
   const modelName = requestContext.get("model") as string;
 
   const apiKey = process.env.AGINE_KEY;
 
+  const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
   const agineCloudRouter = createOpenRouter({
     apiKey: apiKey
   })
@@ -58,7 +54,7 @@ function createAgentInstruction(requestContext: RequestContext) {
   }
 }
 
-function createModelFromContext(requestContext: RequestContext) {
+async function createModelFromContext(requestContext: RequestContext) {
   const provider = requestContext.get("provider") as string;
   const modelName = requestContext.get("model") as string;
   const apiKey = requestContext.get("apiKey") as string;
@@ -68,37 +64,42 @@ function createModelFromContext(requestContext: RequestContext) {
     | undefined;
 
   if(isRouted){
-    return createModelFromRouter(requestContext);
-  }     
+    return await createModelFromRouter(requestContext);
+  }
 
   switch (provider) {
     case "openai":
+      const { createOpenAI } = await import("@ai-sdk/openai");
       const openAi = createOpenAI({
         apiKey: apiKey,
       });
       return openAi(modelName as OpenAIModel);
 
     case "anthropic":
+      const { createAnthropic } = await import("@ai-sdk/anthropic");
       const claude = createAnthropic({
         apiKey: apiKey,
       });
       return claude(modelName as AnthropicModel);
 
     case "google":
+      const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
       const gemini = createGoogleGenerativeAI({
         apiKey: apiKey,
       });
       return gemini(modelName as GoogleModel);
 
     case "ollama":
+      const { createOllama } = await import("ollama-ai-provider-v2");
       const ollama = createOllama({
         baseURL: ollamaBaseUrl || "http://localhost:11434/api",
       });
       return ollama(modelName as OllamaModel);
-    case "agineCloud": 
-      return createChessterCloudModel(requestContext);
+    case "agineCloud":
+      return await createChessterCloudModel(requestContext);
 
     default:
+      const { openai } = await import("@ai-sdk/openai");
       return openai("gpt-4o-mini");
   }
 }
@@ -107,6 +108,6 @@ export const chessChesster = new Agent({
   id: "chesster",
   name: "Chesster",
   instructions: ({ requestContext }) => createAgentInstruction(requestContext),
-  model: ({ requestContext }) => createModelFromContext(requestContext),
+  model: async ({ requestContext }) => await createModelFromContext(requestContext),
   tools: ChessterTools,
 });
