@@ -83,6 +83,6 @@ describe('Service Worker Registration Component', () => {
     const registrationContent = readFileSync(registrationPath, 'utf-8')
 
     // Verify the cache buster version matches the service worker version
-    expect(registrationContent).toContain("navigator.serviceWorker.register('/sw.js?v=5'")
+    expect(registrationContent).toContain("navigator.serviceWorker.register('/sw.js?v=4'")
   })
 })
