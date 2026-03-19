@@ -1,7 +1,10 @@
-const CACHE_NAME = 'chesster-v4';
+const CACHE_NAME = 'chesster-v5';
 const SHELL_ASSETS = [
   '/',
   '/dashboard',
+  '/debut',
+  '/learn',
+  '/puzzle',
   '/static/images/chesster-logo.png',
 ];
 
