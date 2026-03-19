@@ -24,8 +24,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
-  // Network-first for API calls and HTML
-  if (event.request.url.includes('/api/') || event.request.mode === 'navigate') {
+  // Network-first for API calls
+  if (event.request.url.includes('/api/')) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
@@ -38,6 +38,21 @@ self.addEventListener('fetch', (event) => {
             cached || new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
           )
         )
+    );
+    return;
+  }
+
+  // Stale-while-revalidate for navigation (HTML pages)
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        const fetchPromise = fetch(event.request).then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return response;
+        });
+        return cached || fetchPromise;
+      })
     );
     return;
   }
