@@ -10,13 +10,15 @@ const ASSET_VERSION = crypto.randomBytes(8).toString('hex');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    output: 'standalone' as const,
+    output: process.env.VERCEL ? undefined : ('standalone' as const),
     productionBrowserSourceMaps: process.env.ENABLE_SOURCE_MAPS === 'true',
     env: {
         // Expose build hash to client-side code for cache-busting query params
         NEXT_PUBLIC_ASSET_VERSION: ASSET_VERSION,
     },
     async rewrites() {
+        // On Vercel, rewrites are handled by vercel.json (proxies to api.chesster.io)
+        if (process.env.VERCEL) return [];
         return [
             {
                 source: '/api/openings/:path*',
@@ -152,7 +154,7 @@ const SECURITY_HEADERS = [
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data: blob: https://lichess1.org https://images.clerk.dev https://img.clerk.com",
             "font-src 'self' data:",
-            "connect-src 'self' https://chesster.io https://*.chesster.io https://qtzujwiqzbgyhdgulvcd.supabase.co https://*.supabase.co https://*.clerk.accounts.dev https://clerk.chesster.io http://localhost:5001 wss://*.supabase.co https://*.posthog.com",
+            "connect-src 'self' https://chesster.io https://*.chesster.io https://qtzujwiqzbgyhdgulvcd.supabase.co https://*.supabase.co https://*.clerk.accounts.dev https://clerk.chesster.io https://www.chessdb.cn wss://*.supabase.co https://*.posthog.com",
             "frame-src 'self' https://*.clerk.accounts.dev https://challenges.cloudflare.com",
             "worker-src 'self' blob:",
             "child-src 'self' blob:",
