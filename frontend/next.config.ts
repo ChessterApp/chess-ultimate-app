@@ -44,9 +44,21 @@ const nextConfig = {
     headers() {
         const headers = [
             {
-                // Apply COEP headers to all routes EXCEPT sign-in and sign-up
-                // (Clerk needs cross-origin resources that COEP blocks)
-                source: '/((?!sign-in|sign-up).*)',
+                // Global security headers for all routes
+                source: '/:path*',
+                headers: SECURITY_HEADERS,
+            },
+            {
+                // COEP only on pages that use SharedArrayBuffer (chess engine)
+                source: '/game/:path*',
+                headers: ENGINE_HEADERS,
+            },
+            {
+                source: '/position/:path*',
+                headers: ENGINE_HEADERS,
+            },
+            {
+                source: '/puzzle/:path*',
                 headers: ENGINE_HEADERS,
             },
             {
@@ -87,6 +99,16 @@ const nextConfig = {
                 ],
             },
             {
+                // Lottie animations need CORP header when COEP is enabled
+                source: '/animations/:path*',
+                headers: [
+                    {
+                        key: 'Cross-Origin-Resource-Policy',
+                        value: 'same-origin',
+                    },
+                ],
+            },
+            {
                 // Service worker must never be cached (always fetch fresh copy)
                 source: '/sw.js',
                 headers: [
@@ -113,6 +135,33 @@ const ENGINE_HEADERS = [
     },
 ];
 
-
+const SECURITY_HEADERS = [
+    {
+        key: 'X-Frame-Options',
+        value: 'DENY',
+    },
+    {
+        key: 'X-Content-Type-Options',
+        value: 'nosniff',
+    },
+    {
+        key: 'Content-Security-Policy',
+        value: [
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.clerk.accounts.dev https://challenges.cloudflare.com",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: blob: https://lichess1.org https://images.clerk.dev https://img.clerk.com",
+            "font-src 'self' data:",
+            "connect-src 'self' https://chesster.io https://*.chesster.io https://qtzujwiqzbgyhdgulvcd.supabase.co https://*.supabase.co https://*.clerk.accounts.dev https://clerk.chesster.io http://localhost:5001 wss://*.supabase.co",
+            "frame-src 'self' https://*.clerk.accounts.dev https://challenges.cloudflare.com",
+            "worker-src 'self' blob:",
+            "child-src 'self' blob:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+            "frame-ancestors 'none'",
+        ].join('; '),
+    },
+];
 
 export default withNextIntl(nextConfig);

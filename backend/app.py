@@ -89,13 +89,26 @@ app = Flask(__name__)
 
 # +++ Basic Logging Configuration +++
 # This will help capture logs from other modules like RouterAgent if they use logging.getLogger()
-logging.basicConfig(level=logging.INFO, 
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(levelname)s %(name)s %(module)s: %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
 # You might want to direct Flask's default logger to use this too, or customize further.
 # For now, this sets up basicConfig which other modules using logging.getLogger() will pick up.
 
-CORS(app)  # Allow requests from the frontend
+# Configure CORS with environment-based origins
+flask_env = os.getenv('FLASK_ENV', 'production')
+cors_origins_str = os.getenv('CORS_ALLOWED_ORIGINS', 'https://chesster.io,https://www.chesster.io')
+cors_origins = [origin.strip() for origin in cors_origins_str.split(',')]
+
+# Allow localhost in development only
+if flask_env == 'development':
+    if 'http://localhost:3000' not in cors_origins:
+        cors_origins.append('http://localhost:3000')
+    logger.info(f"CORS enabled for development origins: {cors_origins}")
+else:
+    logger.info(f"CORS enabled for production origins: {cors_origins}")
+
+CORS(app, origins=cors_origins)
 
 # Setup performance monitoring middleware
 try:
@@ -807,4 +820,4 @@ def legacy_set_fen_endpoint():
 # ============================================
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001, host='0.0.0.0', use_reloader=False)
+    app.run(debug=False, port=5001, host='0.0.0.0', use_reloader=False, threaded=True)
