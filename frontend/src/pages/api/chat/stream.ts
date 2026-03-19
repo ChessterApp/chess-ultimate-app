@@ -238,8 +238,12 @@ async function handleClawdbot(
     throw new Error(response.error || "Clawdbot returned no content");
   }
 
-  // Clawdbot is request-response, send full content as one chunk
-  sendEvent({ delta: response.content });
+  // Clawdbot is request-response, simulate streaming word-by-word
+  const words = response.content.split(/(\s+)/);
+  for (const word of words) {
+    sendEvent({ delta: word });
+    await new Promise(r => setTimeout(r, 15));
+  }
   return response.content;
 }
 

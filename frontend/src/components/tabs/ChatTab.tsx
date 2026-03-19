@@ -52,6 +52,7 @@ export interface ChatTabProps {
   clearChatHistory: () => void;
   chatMessages: ChatMessage[];
   chatLoading: boolean;
+  isStreaming: boolean;
   gameInfo?: string;
   currentMove?: string;
   chatInput: string;
@@ -113,6 +114,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
   clearChatHistory,
   chatMessages,
   chatLoading,
+  isStreaming,
   chatInput,
   setChatInput,
   handleChatKeyPress,
@@ -286,6 +288,17 @@ export const ChatTab: React.FC<ChatTabProps> = ({
       }
     };
   }, []);
+
+  // Smooth auto-scroll during streaming
+  useEffect(() => {
+    if (!isStreaming || !autoScroll) return;
+
+    const interval = setInterval(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [isStreaming, autoScroll]);
 
   // Position Library functions
   const savePositionToLibrary = (message: ChatMessage) => {
@@ -757,14 +770,23 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 );
 
   return (
-    <Box
-      ref={containerRef}
-      sx={{
-        width: "100%",
-        maxWidth: `${dimensions.width}px`,
-        flex: 1,
-        minHeight: 0,
-        display: "flex",
+    <>
+      <style>
+        {`
+          @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+          }
+        `}
+      </style>
+      <Box
+        ref={containerRef}
+        sx={{
+          width: "100%",
+          maxWidth: `${dimensions.width}px`,
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
         flexDirection: "column",
         backgroundColor: "background.paper",
         overflow: "hidden",
@@ -1019,7 +1041,13 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           </Box>
         ) : (
           <Stack spacing={compactView ? 0.5 : 1} sx={{ width: "100%", minWidth: 0 }}>
-            {chatMessages.map((message) => (
+            {chatMessages.map((message, index) => {
+              const isLastMessage = index === chatMessages.length - 1;
+              const isLastAssistantMessage = message.role === "assistant" && isLastMessage;
+              const shouldShowCursor = isStreaming && isLastAssistantMessage;
+              const shouldDeferMarkdown = isStreaming && isLastAssistantMessage;
+
+              return (
               <Box
                 key={message.id}
                 sx={{
@@ -1167,52 +1195,79 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                   )}
                   
                   {message.role === "assistant" ? (
-                    <ReactMarkdown
-                      components={{
-                        p: ({ children }) => (
-                          <Typography
-                            variant="body2"
-                            component="p"
-                            sx={{
+                    shouldDeferMarkdown ? (
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: `${fontSize}px`,
+                          lineHeight: compactView ? 1.2 : 1.4,
+                          wordWrap: "break-word",
+                          overflowWrap: "break-word",
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {message.content}
+                        {shouldShowCursor && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              width: "8px",
+                              height: "1em",
+                              marginLeft: "2px",
+                              backgroundColor: "currentColor",
+                              animation: "blink 530ms step-end infinite",
+                            }}
+                          />
+                        )}
+                      </Typography>
+                    ) : (
+                      <ReactMarkdown
+                        components={{
+                          p: ({ children }) => (
+                            <Typography
+                              variant="body2"
+                              component="p"
+                              sx={{
+                                mb: 0.5,
+                                "&:last-child": { mb: 0 },
+                                fontSize: `${fontSize}px`,
+                                lineHeight: compactView ? 1.2 : 1.4,
+                                wordWrap: "break-word",
+                                overflowWrap: "break-word",
+                              }}
+                            >
+                              {children}
+                            </Typography>
+                          ),
+                          ul: ({ children }) => (
+                            <Box component="ul" sx={{
+                              pl: 2,
                               mb: 0.5,
-                              "&:last-child": { mb: 0 },
-                              fontSize: `${fontSize}px`,
-                              lineHeight: compactView ? 1.2 : 1.4,
-                              wordWrap: "break-word",
-                              overflowWrap: "break-word",
-                            }}
-                          >
-                            {children}
-                          </Typography>
-                        ),
-                        ul: ({ children }) => (
-                          <Box component="ul" sx={{
-                            pl: 2,
-                            mb: 0.5,
-                            maxWidth: "100%",
-                            overflow: "hidden"
-                          }}>
-                            {children}
-                          </Box>
-                        ),
-                        li: ({ children }) => (
-                          <Typography
-                            component="li"
-                            variant="body2"
-                            sx={{
-                              mb: 0.25,
-                              fontSize: `${fontSize}px`,
-                              wordWrap: "break-word",
-                              overflowWrap: "break-word",
-                            }}
-                          >
-                            {children}
-                          </Typography>
-                        ),
-                      }}
-                    >
-                      {message.content}
-                    </ReactMarkdown>
+                              maxWidth: "100%",
+                              overflow: "hidden"
+                            }}>
+                              {children}
+                            </Box>
+                          ),
+                          li: ({ children }) => (
+                            <Typography
+                              component="li"
+                              variant="body2"
+                              sx={{
+                                mb: 0.25,
+                                fontSize: `${fontSize}px`,
+                                wordWrap: "break-word",
+                                overflowWrap: "break-word",
+                              }}
+                            >
+                              {children}
+                            </Typography>
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    )
                   ) : (
                     <Typography
                       variant="body2"
@@ -1260,8 +1315,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
                 </Paper>
               </Box>
-            ))}
-            {chatLoading && (
+            );
+            })}
+            {chatLoading && !isStreaming && (
               <Box
                 sx={{
                   display: "flex",
@@ -2006,7 +2062,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
       >
         {drawerContent}
       </Drawer>
-    </Box>
+      </Box>
+    </>
   );
 };
 

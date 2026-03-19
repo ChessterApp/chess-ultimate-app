@@ -53,6 +53,7 @@ interface ChessterState {
   chatMessages: ChatMessage[];
   chatInput: string;
   chatLoading: boolean;
+  isStreaming: boolean;
   sessionMode: boolean;
 }
 
@@ -118,6 +119,7 @@ export default function useChesster(fen: string) {
     chatMessages: [],
     chatInput: "",
     chatLoading: false,
+    isStreaming: false,
     sessionMode: true,
   });
 
@@ -839,7 +841,8 @@ ${candidateMoves}
             if (lastMsg && lastMsg.id === assistantMessageId) {
               lastMsg.content += token;
             }
-            return { ...prev, chatMessages: updatedMessages };
+            // Set isStreaming on first token arrival
+            return { ...prev, chatMessages: updatedMessages, isStreaming: true };
           });
         },
         // onComplete - update metadata and stop loading
@@ -852,7 +855,7 @@ ${candidateMoves}
               if (data.model) lastMsg.model = data.model;
               if (data.provider) lastMsg.provider = data.provider;
             }
-            return { ...prev, chatMessages: updatedMessages, chatLoading: false };
+            return { ...prev, chatMessages: updatedMessages, chatLoading: false, isStreaming: false };
           });
         },
         // onError - show error message
@@ -865,7 +868,7 @@ ${candidateMoves}
               if (lastMsg && lastMsg.id === assistantMessageId) {
                 lastMsg.content = error || "An error occurred";
               }
-              return { ...prev, chatMessages: updatedMessages, chatLoading: false };
+              return { ...prev, chatMessages: updatedMessages, chatLoading: false, isStreaming: false };
             });
           }
         }
@@ -1551,6 +1554,7 @@ Be concise but thorough, and use clear chess language.`;
       setChatInput: (input: string) => updateState({ chatInput: input }),
       chatLoading: state.chatLoading,
       setChatLoading: (loading: boolean) => updateState({ chatLoading: loading }),
+      isStreaming: state.isStreaming,
       sessionMode: state.sessionMode,
       setSessionMode: (mode: boolean) => updateState({ sessionMode: mode }),
 
