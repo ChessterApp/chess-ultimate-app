@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic"
 import { usePathname } from "next/navigation"
-import type { ReactNode } from "react"
+import { Suspense, type ReactNode } from "react"
 import { ThemeProvider } from "@mui/material/styles"
 import CssBaseline from "@mui/material/CssBaseline"
 import PageTransition from "@/components/PageTransition"
@@ -10,6 +10,7 @@ import OfflineBanner from "@/components/OfflineBanner"
 import ToastProvider from "@/components/ToastProvider"
 import SubscriptionProvider from "@/components/SubscriptionProvider"
 import UnhandledErrorCatcher from "@/components/UnhandledErrorBoundary"
+import PageSkeleton from "@/components/PageSkeleton"
 import { useDarkMode } from "@/hooks/useDarkMode"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp"
@@ -71,7 +72,9 @@ export default function ClientShell({ children }: { children: ReactNode }) {
 
           {/* Main content area */}
           <main className={`flex-1 min-w-0 ${hideNav ? '' : 'pb-16 md:pb-0'}`}>
-            {hideNav ? children : <PageTransition>{children}</PageTransition>}
+            <Suspense fallback={<PageSkeleton />}>
+              {hideNav ? children : <PageTransition>{children}</PageTransition>}
+            </Suspense>
           </main>
 
           {/* Mobile bottom nav — hidden on desktop, hidden on auth pages */}
