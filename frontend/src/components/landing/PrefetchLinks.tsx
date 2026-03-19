@@ -1,18 +1,23 @@
 'use client'
 
-import Link from 'next/link'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 /**
- * Invisible prefetch links for main navigation routes.
- * These links are hidden but allow Next.js to prefetch the routes in the background.
+ * Programmatically prefetch top 3 navigation routes after initial page load.
+ * Uses router.prefetch() for better control over prefetch timing.
  */
 export function PrefetchLinks() {
-  return (
-    <div style={{ display: 'none' }}>
-      <Link href="/dashboard" prefetch={true}>Dashboard</Link>
-      <Link href="/debut" prefetch={true}>Debut</Link>
-      <Link href="/learn" prefetch={true}>Learn</Link>
-      <Link href="/puzzle" prefetch={true}>Puzzle</Link>
-    </div>
-  )
+  const router = useRouter()
+
+  useEffect(() => {
+    // Prefetch top 3 routes after initial page load
+    const routes = ['/dashboard', '/debut', '/learn']
+
+    routes.forEach(route => {
+      router.prefetch(route)
+    })
+  }, [router])
+
+  return null
 }
