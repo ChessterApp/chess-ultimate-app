@@ -49,6 +49,16 @@ const nextConfig = {
                 headers: SECURITY_HEADERS,
             },
             {
+                // ISR pages - Cache for 1 hour with stale-while-revalidate
+                source: '/',
+                headers: [
+                    {
+                        key: 'Cache-Control',
+                        value: 'public, s-maxage=3600, stale-while-revalidate=7200',
+                    },
+                ],
+            },
+            {
                 // COEP only on pages that use SharedArrayBuffer (chess engine)
                 source: '/game/:path*',
                 headers: ENGINE_HEADERS,
