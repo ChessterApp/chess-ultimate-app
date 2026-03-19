@@ -1,0 +1,13 @@
+{
+  "rewrites": [
+    { "source": "/api/openings/:path*", "destination": "https://api.chesster.io/api/openings/:path*" },
+    { "source": "/api/chat/analysis", "destination": "https://api.chesster.io/api/chat/analysis" },
+    { "source": "/api/chat/analysis/stream", "destination": "https://api.chesster.io/api/chat/analysis/stream" },
+    { "source": "/api/chat/history/:path*", "destination": "https://api.chesster.io/api/chat/history/:path*" },
+    { "source": "/api/courses/:path*", "destination": "https://api.chesster.io/api/courses/:path*" },
+    { "source": "/api/learn/:path*", "destination": "https://api.chesster.io/api/learn/:path*" },
+    { "source": "/api/puzzles/:path*", "destination": "https://api.chesster.io/api/puzzles/:path*" },
+    { "source": "/api/opponent/:path*", "destination": "https://api.chesster.io/api/opponent/:path*" },
+    { "source": "/api/user/:path*", "destination": "https://api.chesster.io/api/user/:path*" }
+  ]
+}
