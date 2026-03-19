@@ -1,7 +1,7 @@
 import { useTranslations, useLocale } from 'next-intl'
 import Image from 'next/image'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
-import { LandingPageClientWrapper } from '@/components/landing/LandingPageClient'
+import { LandingPageRedirect } from '@/components/landing/LandingPageClient'
 import { AnimatedCounter } from '@/components/landing/AnimatedCounter'
 import { FeatureCard } from '@/components/landing/FeatureCard'
 import { ProductCard } from '@/components/landing/ProductCard'
@@ -55,7 +55,11 @@ export default function HomePage() {
   ]
 
   return (
-    <LandingPageClientWrapper>
+    <>
+      {/* Client island: handles redirect to dashboard if user is signed in */}
+      <LandingPageRedirect />
+
+      {/* Main HTML structure: rendered as server component for instant pre-rendering */}
       {/* Hide the global NavBar on landing page (landing has its own header) + Custom animations */}
       <style dangerouslySetInnerHTML={{ __html: `
         body > nav.bg-white,
@@ -417,6 +421,6 @@ export default function HomePage() {
       </footer>
 
     </main>
-    </LandingPageClientWrapper>
+    </>
   )
 }
