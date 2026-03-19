@@ -32,7 +32,7 @@ BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
 PGN_PATH = os.path.join(BACKEND_DIR, "data/twic/twic_master_database.pgn")
 DB_PATH = os.path.join(BACKEND_DIR, "data/twic/games_index.db")
 
-MAX_PLY = 80  # Index positions up to move 40 (80 half-moves)
+MAX_PLY = 50  # Index positions up to move 25 (50 half-moves)
 BATCH_SIZE = 2000  # Games per batch commit (reduced for memory)
 PROGRESS_INTERVAL = 10000
 
@@ -128,6 +128,7 @@ def main():
                 game_id INTEGER NOT NULL,
                 ply INTEGER NOT NULL,
                 board_hash TEXT NOT NULL,
+                move_san TEXT,
                 FOREIGN KEY (game_id) REFERENCES games(id)
             )
         ''')
@@ -206,11 +207,15 @@ def main():
                 board = game.board()
                 ply = 0
 
-                # Index starting position
-                board_hash = get_board_hash(board)
-                batch.append((game_id, ply, board_hash))
+                # Collect all mainline moves to look ahead for move_san
+                moves = list(game.mainline_moves())
 
-                for move in game.mainline_moves():
+                # Index starting position (move_san = the first move played)
+                board_hash = get_board_hash(board)
+                move_san = board.san(moves[0]) if moves else None
+                batch.append((game_id, ply, board_hash, move_san))
+
+                for i, move in enumerate(moves):
                     board.push(move)
                     ply += 1
 
@@ -218,7 +223,9 @@ def main():
                         break
 
                     board_hash = get_board_hash(board)
-                    batch.append((game_id, ply, board_hash))
+                    # move_san = the next move played from this position
+                    next_san = board.san(moves[i + 1]) if i + 1 < len(moves) else None
+                    batch.append((game_id, ply, board_hash, next_san))
 
                 positions_inserted += ply + 1
 
@@ -232,7 +239,7 @@ def main():
             # Batch insert (keep batches small to limit memory)
             if len(batch) >= BATCH_SIZE * 5:
                 conn.executemany(
-                    "INSERT INTO game_positions (game_id, ply, board_hash) VALUES (?, ?, ?)",
+                    "INSERT INTO game_positions (game_id, ply, board_hash, move_san) VALUES (?, ?, ?, ?)",
                     batch
                 )
                 conn.commit()
@@ -269,7 +276,7 @@ def main():
     # Final batch
     if batch:
         conn.executemany(
-            "INSERT INTO game_positions (game_id, ply, board_hash) VALUES (?, ?, ?)",
+            "INSERT INTO game_positions (game_id, ply, board_hash, move_san) VALUES (?, ?, ?, ?)",
             batch
         )
         conn.commit()
