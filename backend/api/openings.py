@@ -1960,17 +1960,23 @@ def games_by_position():
                         _position_count_cache[board_hash] = total
                     else:
                         total = 2000  # Will be updated by deferred count endpoint
-            except sqlite3.OperationalError as e:
-                if query_timeout[0]:
-                    logger.warning(f"Count query timed out for board_hash={board_hash}, using default")
+            except (sqlite3.OperationalError, Exception) as e:
+                logger.warning(f"Error getting count from move_stats: {e}, using fallback")
+                # Fallback: try counting from game_positions directly
+                try:
+                    query_timeout[1] = time.time()
+                    probe = conn.execute(
+                        "SELECT COUNT(*) as cnt FROM (SELECT 1 FROM game_positions WHERE board_hash = ? LIMIT 2001)",
+                        [board_hash]
+                    ).fetchone()['cnt']
+                    if probe <= 2000:
+                        total = probe
+                        _position_count_cache[board_hash] = total
+                    else:
+                        total = 2000
+                except Exception:
                     pool_size = min(max(limit * 40, 200), 2000)
                     total = pool_size
-                else:
-                    raise
-            except Exception as e:
-                logger.warning(f"Error getting count from move_stats: {e}, using fallback")
-                pool_size = min(max(limit * 40, 200), 2000)
-                total = pool_size
 
         # 2-step approach: get limited IDs first, then fetch+sort the small set.
         # For player search, avoid expensive JOIN on the full position set (can take >2 min).
