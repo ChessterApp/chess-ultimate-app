@@ -291,6 +291,7 @@ export default function PuzzlePage() {
     chatInput,
     setChatInput,
     chatLoading,
+    isStreaming,
     sessionMode,
     setSessionMode,
     engineDepth,
@@ -1048,6 +1049,7 @@ export default function PuzzlePage() {
                 abortChatMessage={abortChatMessage}
                 sendChatMessage={sendChatMessage}
                 chatLoading={chatLoading}
+                isStreaming={isStreaming}
                 puzzleMode={true}
                 puzzleQuery={puzzleQueryString}
                 handleChatKeyPress={handleChatKeyPress}

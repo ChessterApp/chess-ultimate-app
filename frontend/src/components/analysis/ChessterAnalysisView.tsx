@@ -88,6 +88,7 @@ interface BaseAnalysisViewProps {
     playMode?: boolean
   ) => Promise<void>;
   chatLoading: boolean;
+  isStreaming: boolean;
   abortChatMessage: () => void;
   handleChatKeyPress: (e: React.KeyboardEvent) => void;
   clearChatHistory: () => void;
@@ -170,6 +171,7 @@ function ChessterAnalysisView({
   setChatInput,
   sendChatMessage,
   chatLoading,
+  isStreaming,
   abortChatMessage,
   handleChatKeyPress,
   clearChatHistory,
@@ -689,6 +691,7 @@ function ChessterAnalysisView({
             setChatInput={setChatInput}
             sendChatMessage={sendChatMessage}
             chatLoading={chatLoading}
+            isStreaming={isStreaming}
             abortChatMessage={abortChatMessage}
             puzzleMode={false}
             handleChatKeyPress={handleChatKeyPress}

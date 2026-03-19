@@ -96,6 +96,7 @@ export default function PositionPage() {
     chatInput,
     setChatInput,
     chatLoading,
+    isStreaming,
     sessionMode,
     lichessOpeningData,
     lichessOpeningLoading,
@@ -335,6 +336,7 @@ export default function PositionPage() {
             setChatInput={setChatInput}
             sendChatMessage={sendChatMessage}
             chatLoading={chatLoading}
+            isStreaming={isStreaming}
             abortChatMessage={abortChatMessage}
             handleChatKeyPress={handleChatKeyPress}
             clearChatHistory={clearChatHistory}

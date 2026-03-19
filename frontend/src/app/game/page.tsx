@@ -103,6 +103,7 @@ export default function PGNUploaderPage() {
     chatInput,
     setChatInput,
     chatLoading,
+    isStreaming,
     sessionMode,
     setSessionMode,
     engineDepth,
@@ -988,6 +989,7 @@ export default function PGNUploaderPage() {
                   setChatInput={setChatInput}
                   sendChatMessage={sendChatMessage}
                   chatLoading={chatLoading}
+                  isStreaming={isStreaming}
                   abortChatMessage={abortChatMessage}
                   handleChatKeyPress={handleChatKeyPress}
                   clearChatHistory={clearChatHistory}
