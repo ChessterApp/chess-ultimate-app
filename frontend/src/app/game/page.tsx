@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Box,
   Button,
@@ -13,9 +13,9 @@ import {
   Tooltip,
 } from "@mui/material";
 import { Refresh as RefreshIcon, Save as SaveIcon, Speed as SpeedIcon } from "@mui/icons-material";
-import { Chess } from "chess.js";
+import type { Chess } from "chess.js";
+import dynamic from "next/dynamic";
 import useChesster from "@/hooks/useChesster";
-import AiChessboardPanel from "@/components/analysis/AiChessboard";
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
 import UserGameSelect from "@/components/lichess/UserGameSelect";
@@ -42,14 +42,20 @@ import ChessterAnalysisView from "@/components/analysis/ChessterAnalysisView";
 import ChatSidebar from "@/components/ChatSidebar";
 import { useChatSessions } from "@/hooks/useChatSessions";
 
+// Dynamic import to avoid SSR issues with chess.js
+const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboard"), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
+});
+
 export default function PGNUploaderPage() {
   // const session = useSession();
   // Simulated session for no-auth mode
   const session = { isLoaded: true, isSignedIn: true };
 
   const [pgnText, setPgnText] = useState("");
-  const [game, setGame] = useState(new Chess());
-  const [fen, setFen] = useState(game.fen());
+  const [game, setGame] = useState<Chess | null>(null);
+  const [fen, setFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
   const [moves, setMoves] = useState<string[]>([]);
   const [parsedMovesWithComments, setParsedMovesWithComments] = useState<
     ParsedComment[]
@@ -60,6 +66,9 @@ export default function PGNUploaderPage() {
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [comment, setComment] = useState("");
   const [gameInfo, setGameInfo] = useState<Record<string, string>>({});
+
+  // Store Chess constructor after dynamic import (client-side only)
+  const ChessRef = useRef<typeof Chess | null>(null);
 
   // Games database state
   const [allGames, setAllGames] = useState<GameMetadata[]>([]);
@@ -144,6 +153,16 @@ export default function PGNUploaderPage() {
 
   const { gameReviewTheme, analyzeGameTheme } = useGameTheme();
 
+  // Initialize chess on client only (dynamic import to avoid SSR issues)
+  useEffect(() => {
+    import('chess.js').then(({ Chess }) => {
+      ChessRef.current = Chess;
+      const initialGame = new ChessRef.current!();
+      setGame(initialGame);
+      setFen(initialGame.fen());
+    });
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft" && currentMoveIndex > 0) {
@@ -167,6 +186,8 @@ export default function PGNUploaderPage() {
   };
 
   const loadFromHistory = (savedGame: SavedGameReview) => {
+    if (!ChessRef.current) return;
+
     try {
       setPgnText(savedGame.pgn);
       setMoves(savedGame.moves);
@@ -177,7 +198,7 @@ export default function PGNUploaderPage() {
       setParsedMovesWithComments(parsed);
       setCurrentMoveIndex(0);
 
-      const resetGame = new Chess();
+      const resetGame = new ChessRef.current();
       setGame(resetGame);
       setFen(resetGame.fen());
       setLlmAnalysisResult(null);
@@ -308,7 +329,7 @@ export default function PGNUploaderPage() {
       const startingFen = fenMatch ? fenMatch[1] : undefined;
 
       // Create game from the correct starting position
-      const tempGame = startingFen ? new Chess(startingFen) : new Chess();
+      const tempGame = startingFen ? new ChessRef.current!(startingFen) : new ChessRef.current!();
       const cleanedPGN = cleanPGN(firstGame);
 
       // For PGN with custom FEN, we need to load moves differently
@@ -356,7 +377,7 @@ export default function PGNUploaderPage() {
       setPgnText(pgn); // Update pgnText state with the loaded PGN
 
       // Reset to the starting position (either custom FEN or standard)
-      const resetGame = startingFen ? new Chess(startingFen) : new Chess();
+      const resetGame = startingFen ? new ChessRef.current!(startingFen) : new ChessRef.current!();
       setGame(resetGame);
       setFen(resetGame.fen());
       setLlmAnalysisResult(null);
@@ -503,7 +524,7 @@ export default function PGNUploaderPage() {
       // Load first game
       const firstGame = extractFirstGame(pgn);
 
-      const tempGame = new Chess();
+      const tempGame = new ChessRef.current!();
       const cleanedPGN = cleanPGN(firstGame);
       tempGame.loadPgn(cleanedPGN);
       const moveList = tempGame.history();
@@ -516,7 +537,7 @@ export default function PGNUploaderPage() {
       setCurrentMoveIndex(0);
       setPgnText(firstGame);
 
-      const resetGame = new Chess();
+      const resetGame = new ChessRef.current!();
       setGame(resetGame);
       setFen(resetGame.fen());
       setLlmAnalysisResult(null);
@@ -541,7 +562,7 @@ export default function PGNUploaderPage() {
   // Function to load a selected game from the database
   const handleGameSelect = (selectedGame: GameMetadata) => {
     try {
-      const tempGame = new Chess();
+      const tempGame = new ChessRef.current!();
       const cleanedPGN = cleanPGN(selectedGame.pgn);
       tempGame.loadPgn(cleanedPGN);
       const moveList = tempGame.history();
@@ -554,7 +575,7 @@ export default function PGNUploaderPage() {
       setCurrentMoveIndex(0);
       setPgnText(selectedGame.pgn);
 
-      const resetGame = new Chess();
+      const resetGame = new ChessRef.current!();
       setGame(resetGame);
       setFen(resetGame.fen());
       setLlmAnalysisResult(null);
@@ -575,7 +596,7 @@ export default function PGNUploaderPage() {
   const goToMove = (index: number) => {
     // Use custom starting FEN if available (for puzzles/studies)
     const startingFen = gameInfo.FEN;
-    const tempGame = startingFen ? new Chess(startingFen) : new Chess();
+    const tempGame = startingFen ? new ChessRef.current!(startingFen) : new ChessRef.current!();
     for (let i = 0; i < index; i++) {
       try {
         tempGame.move(moves[i]);
@@ -596,7 +617,7 @@ export default function PGNUploaderPage() {
   const handleNewChat = () => {
     // Reset to starting position
     const startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    const resetGame = new Chess();
+    const resetGame = new ChessRef.current!();
     setGame(resetGame);
     setFen(startingFen);
     setMoves([]);
@@ -619,7 +640,7 @@ export default function PGNUploaderPage() {
   useEffect(() => {
     if (currentSession && currentSession.currentFen && currentSession.currentFen !== fen) {
       try {
-        const sessionGame = new Chess();
+        const sessionGame = new ChessRef.current!();
 
         // If PGN exists, load it to preserve move history
         if (currentSession.currentPgn) {
@@ -638,7 +659,7 @@ export default function PGNUploaderPage() {
         setMoves(sessionGame.history());
       } catch (error) {
         console.error('Invalid FEN in session, using default:', error);
-        const defaultGame = new Chess();
+        const defaultGame = new ChessRef.current!();
         setGame(defaultGame);
         setFen(defaultGame.fen());
         updateSessionFen(defaultGame.fen());
@@ -648,7 +669,7 @@ export default function PGNUploaderPage() {
 
   // Update session FEN when board changes
   useEffect(() => {
-    if (currentSessionId && fen) {
+    if (currentSessionId && fen && game) {
       const timeoutId = setTimeout(() => {
         updateSessionFen(fen);
         updateSessionPgn(game.pgn());
@@ -658,7 +679,7 @@ export default function PGNUploaderPage() {
     }
   }, [fen, currentSessionId, updateSessionFen, updateSessionPgn, game]);
 
-  if (!session.isLoaded) {
+  if (!session.isLoaded || !game) {
     return <LoadingScreen isVisible={true} />;
   }
 
@@ -900,7 +921,7 @@ export default function PGNUploaderPage() {
                     setGameInfo({});
                     setLlmAnalysisResult(null);
                     setComment("");
-                    const reset = new Chess();
+                    const reset = new ChessRef.current!();
                     setGame(reset);
                     setFen(reset.fen());
                   }}

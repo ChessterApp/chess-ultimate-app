@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
-import { Chess } from 'chess.js';
+import type { Chess } from 'chess.js';
 // Import chessground CSS at page level to ensure it's included in the page's CSS bundle
 // (dynamic imports with ssr:false may not reliably load CSS chunks in turbopack)
 import 'chessground/assets/chessground.base.css';
@@ -604,11 +604,13 @@ export default function DebutPage() {
     if (move.uci && move.uci.length >= 4) {
       const from = move.uci.substring(0, 2);
       const to = move.uci.substring(2, 4);
-      const chess = new Chess(selectedNode.fen);
-      const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
-      if (result) {
-        handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
-      }
+      import('chess.js').then(({ Chess }) => {
+        const chess = new Chess(selectedNode.fen);
+        const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
+        if (result) {
+          handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
+        }
+      });
     }
   }, [selectedNode, currentTree, handleNodeSelect, handleBoardMove]);
 
@@ -648,13 +650,15 @@ export default function DebutPage() {
 
   // ─── Browse mode handlers ───
   const handleBrowseMoveClick = useCallback((san: string) => {
-    const chess = new Chess(browseFen);
-    const move = chess.move(san);
-    if (move) {
-      const newFen = chess.fen();
-      setBrowseFen(newFen);
-      setBrowseMoveHistory(prev => [...prev, { san, fen: newFen }]);
-    }
+    import('chess.js').then(({ Chess }) => {
+      const chess = new Chess(browseFen);
+      const move = chess.move(san);
+      if (move) {
+        const newFen = chess.fen();
+        setBrowseFen(newFen);
+        setBrowseMoveHistory(prev => [...prev, { san, fen: newFen }]);
+      }
+    });
   }, [browseFen]);
 
   const handleBrowseReset = useCallback(() => {

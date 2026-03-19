@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Box, Stack } from "@mui/material";
-import { Chess } from "chess.js";
+import type { Chess } from "chess.js";
 import dynamic from "next/dynamic";
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
@@ -48,10 +48,16 @@ export default function PositionPage() {
   const [game, setGame] = useState<Chess | null>(null);
   const [fen, setFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
 
-  // Initialize chess on client only
+  // Store Chess constructor after dynamic import
+  const ChessConstructor = useRef<typeof Chess | null>(null);
+
+  // Initialize chess on client only (dynamic import to avoid SSR issues)
   useEffect(() => {
-    setGame(new Chess());
-    setMounted(true);
+    import('chess.js').then(({ Chess }) => {
+      ChessConstructor.current = Chess;
+      setGame(new Chess());
+      setMounted(true);
+    });
   }, []);
 
   // Ref to track if we're loading messages from session (prevent save loop)
@@ -127,9 +133,11 @@ export default function PositionPage() {
 
   // Chat session handlers
   const handleNewChat = () => {
+    if (!ChessConstructor.current) return;
+
     // Reset to starting position
     const startingFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-    const resetGame = new Chess();
+    const resetGame = new ChessConstructor.current();
     setGame(resetGame);
     setFen(startingFen);
     setLlmAnalysisResult(null);
@@ -147,21 +155,21 @@ export default function PositionPage() {
 
   // Sync board FEN with current session
   useEffect(() => {
-    if (currentSession && currentSession.currentFen && currentSession.currentFen !== fen) {
+    if (currentSession && currentSession.currentFen && currentSession.currentFen !== fen && ChessConstructor.current) {
       try {
-        const sessionGame = new Chess();
+        const sessionGame = new ChessConstructor.current();
         sessionGame.load(currentSession.currentFen);
         setGame(sessionGame);
         setFen(sessionGame.fen());
       } catch (error) {
         console.error('Invalid FEN in session, using default:', error);
-        const defaultGame = new Chess();
+        const defaultGame = new ChessConstructor.current();
         setGame(defaultGame);
         setFen(defaultGame.fen());
         updateSessionFen(defaultGame.fen());
       }
     }
-  }, [currentSessionId, currentSession]);
+  }, [currentSessionId, currentSession, fen, updateSessionFen]);
 
   // Load chat messages from current session when session changes
   useEffect(() => {

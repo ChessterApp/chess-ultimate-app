@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslations } from "next-intl";
 import {
   Box,
@@ -27,7 +27,7 @@ import {
   MenuItem,
   SelectChangeEvent,
 } from "@mui/material";
-import { Chess, Square } from "chess.js";
+import type { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
@@ -93,10 +93,16 @@ export default function PuzzlePage() {
   const [game, setGame] = useState<Chess | null>(null);
   const [fen, setFen] = useState("");
 
-  // Initialize on client only
+  // Store Chess constructor after dynamic import
+  const ChessRef = useRef<typeof Chess | null>(null);
+
+  // Initialize chess on client only (dynamic import to avoid SSR issues)
   useEffect(() => {
-    setGame(new Chess());
-    setMounted(true);
+    import('chess.js').then(({ Chess }) => {
+      ChessRef.current = Chess;
+      setGame(new ChessRef.current!());
+      setMounted(true);
+    });
   }, []);
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null);
   const [legalMoves, setLegalMoves] = useState<string[]>([]);
@@ -152,7 +158,7 @@ export default function PuzzlePage() {
   // Helper function to convert algebraic notation moves to SAN format
   const convertMovesToSAN = useCallback(
     (moves: string[], startingFEN: string): string[] => {
-      const tempGame = new Chess(startingFEN);
+      const tempGame = new ChessRef.current!(startingFEN);
       const sanMoves: string[] = [];
 
       moves.forEach((move) => {
@@ -216,7 +222,7 @@ export default function PuzzlePage() {
       setPuzzleData(data);
 
       // Set up game
-      const newGame = new Chess(data.FEN);
+      const newGame = new ChessRef.current!(data.FEN);
       setGame(newGame);
       setFen(data.FEN);
       
@@ -327,7 +333,7 @@ export default function PuzzlePage() {
     setSolutionViewIndex(0);
 
     // Create a game state from the starting position
-    const solutionGame = new Chess(puzzleData.FEN);
+    const solutionGame = new ChessRef.current!(puzzleData.FEN);
     setSolutionGameState(solutionGame);
     setGame(solutionGame);
     setFen(solutionGame.fen());
@@ -343,7 +349,7 @@ export default function PuzzlePage() {
 
       if (direction === "next" && solutionViewIndex < solutionMoves.length) {
         const move = solutionMoves[solutionViewIndex];
-        const newGame = new Chess(solutionGameState.fen());
+        const newGame = new ChessRef.current!(solutionGameState.fen());
 
         try {
           const moveObj = newGame.move({
@@ -369,7 +375,7 @@ export default function PuzzlePage() {
         }
       } else if (direction === "prev" && solutionViewIndex > 0) {
         // Rebuild game state up to previous move
-        const newGame = new Chess(puzzleData.FEN);
+        const newGame = new ChessRef.current!(puzzleData.FEN);
         const targetIndex = solutionViewIndex - 1;
 
         for (let i = 0; i < targetIndex; i++) {
@@ -412,7 +418,7 @@ export default function PuzzlePage() {
       if (puzzleComplete || puzzleFailed || showingSolution) return false;
 
       try {
-        const gameCopy = new Chess(fen);
+        const gameCopy = new ChessRef.current!(fen);
         const move = gameCopy.move({
           from: source,
           to: target,
@@ -450,7 +456,7 @@ export default function PuzzlePage() {
                 });
 
                 if (opponentMove) {
-                  setGame(new Chess(gameCopy.fen()));
+                  setGame(new ChessRef.current!(gameCopy.fen()));
                   setFen(gameCopy.fen());
                   setCurrentSolutionIndex(currentSolutionIndex + 2);
                 }
@@ -587,7 +593,7 @@ export default function PuzzlePage() {
   const resetPuzzle = useCallback(() => {
     if (!puzzleData) return;
 
-    const newGame = new Chess(puzzleData.FEN);
+    const newGame = new ChessRef.current!(puzzleData.FEN);
     setGame(newGame);
     setFen(puzzleData.FEN);
     setCurrentSolutionIndex(0);
@@ -612,7 +618,7 @@ export default function PuzzlePage() {
     setSolutionGameState(null);
 
     // Return to original puzzle state
-    const newGame = new Chess(puzzleData.FEN);
+    const newGame = new ChessRef.current!(puzzleData.FEN);
     setGame(newGame);
     setFen(puzzleData.FEN);
     setMoveSquares({});
@@ -654,7 +660,7 @@ export default function PuzzlePage() {
             llmLoading={llmLoading}
             side={
               puzzleData
-                ? new Chess(puzzleData.FEN).turn() === "w"
+                ? new ChessRef.current!(puzzleData.FEN).turn() === "w"
                   ? "white"
                   : "black"
                 : "white"
