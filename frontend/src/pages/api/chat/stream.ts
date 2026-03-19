@@ -10,7 +10,7 @@ import { getAuth } from "@clerk/nextjs/server";
 const PYTHON_BACKEND_URL =
   process.env.INTERNAL_BACKEND_URL ||
   process.env.NEXT_PUBLIC_BACKEND_URL ||
-  "http://localhost:5001";
+  "https://api.chesster.io";
 
 // Server-side Mastra agent config from env
 const MASTRA_PROVIDER = process.env.MASTRA_PROVIDER || "google";

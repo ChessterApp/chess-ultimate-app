@@ -16,7 +16,7 @@ import {
 } from '@/types/repertoire';
 import { apiFetch, ApiError } from '@/lib/api';
 
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.chesster.io';
 
 export function useRepertoire(): UseRepertoireReturn {
   const { getToken } = useAuth();

@@ -36,7 +36,7 @@ export default async function handler(
 
     // Proxy to Flask backend
     // Use INTERNAL_BACKEND_URL for Docker network, fallback to NEXT_PUBLIC_BACKEND_URL or localhost
-    const BACKEND_URL = process.env.INTERNAL_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5001';
+    const BACKEND_URL = process.env.INTERNAL_BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.chesster.io';
 
     const response = await fetch(`${BACKEND_URL}/api/convert-image`, {
       method: 'POST',
