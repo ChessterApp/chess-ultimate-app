@@ -17,21 +17,19 @@ const nextConfig = {
         NEXT_PUBLIC_ASSET_VERSION: ASSET_VERSION,
     },
     async rewrites() {
-        // On Vercel, rewrites are handled by vercel.json (proxies to api.chesster.io)
-        if (process.env.VERCEL) return [];
+        const backendUrl = process.env.VERCEL
+            ? 'https://api.chesster.io'
+            : 'http://localhost:5001';
         return [
-            {
-                source: '/api/openings/:path*',
-                destination: 'http://localhost:5001/api/openings/:path*',
-            },
-            {
-                source: '/api/chat/analysis',
-                destination: 'http://localhost:5001/api/chat/analysis',
-            },
-            {
-                source: '/api/chat/history/:path*',
-                destination: 'http://localhost:5001/api/chat/history/:path*',
-            },
+            { source: '/api/openings/:path*', destination: `${backendUrl}/api/openings/:path*` },
+            { source: '/api/chat/analysis', destination: `${backendUrl}/api/chat/analysis` },
+            { source: '/api/chat/analysis/stream', destination: `${backendUrl}/api/chat/analysis/stream` },
+            { source: '/api/chat/history/:path*', destination: `${backendUrl}/api/chat/history/:path*` },
+            { source: '/api/courses/:path*', destination: `${backendUrl}/api/courses/:path*` },
+            { source: '/api/learn/:path*', destination: `${backendUrl}/api/learn/:path*` },
+            { source: '/api/puzzles/:path*', destination: `${backendUrl}/api/puzzles/:path*` },
+            { source: '/api/opponent/:path*', destination: `${backendUrl}/api/opponent/:path*` },
+            { source: '/api/user/:path*', destination: `${backendUrl}/api/user/:path*` },
         ];
     },
     async redirects() {
