@@ -103,6 +103,7 @@ export function useLichessExplorer({
       setUpstreamDown(false);
 
       try {
+        // Network-first: try network, fallback to cache on failure
         // Build query params
         const params = new URLSearchParams();
         params.set('fen', fen);
@@ -134,15 +135,7 @@ export function useLichessExplorer({
         const endpoint = database === 'masters' ? 'masters' : database === 'player' ? 'player' : 'lichess';
         const cacheKey = `${endpoint}?${params.toString()}`;
 
-        // Stale-while-revalidate: serve cached immediately, fetch fresh in background
-        const cached = explorerSessionCache.lichess.get<LichessExplorerResponse>(cacheKey);
-        if (cached && !cancelled) {
-          setData(cached);
-          setLoading(false);
-          // Continue to fetch fresh data in background (don't return)
-        }
-
-        // Fetch from API (runs in background if cached data was served)
+        // Fetch from API (network-first)
         const response = await fetch(`/api/explorer/${endpoint}?${params.toString()}`, {
           method: 'GET',
           headers: {
@@ -171,8 +164,36 @@ export function useLichessExplorer({
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to fetch explorer data');
-          setData(null);
+          // Network failed - try cache fallback
+          const params = new URLSearchParams();
+          params.set('fen', fen);
+          if (database === 'player') {
+            if (player && color) {
+              params.set('player', player);
+              params.set('color', color);
+              params.set('recentGames', recentGames.toString());
+              if (speeds) params.set('speeds', speeds);
+              if (modes) params.set('modes', modes);
+            }
+          } else {
+            params.set('topGames', '15');
+            params.set('moves', '12');
+            if (database === 'lichess') {
+              params.set('ratings', ratings);
+              params.set('speeds', speeds);
+            }
+          }
+          const endpoint = database === 'masters' ? 'masters' : database === 'player' ? 'player' : 'lichess';
+          const cacheKey = `${endpoint}?${params.toString()}`;
+
+          const cached = explorerSessionCache.lichess.get<LichessExplorerResponse>(cacheKey);
+          if (cached) {
+            setData(cached);
+            setError(null);
+          } else {
+            setError(err instanceof Error ? err.message : 'Failed to fetch explorer data');
+            setData(null);
+          }
           setUpstreamDown(false);
         }
       } finally {

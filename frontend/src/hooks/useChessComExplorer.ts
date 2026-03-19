@@ -135,14 +135,8 @@ export function useChessComExplorer({
       setProgress(null);
 
       try {
-        // Stale-while-revalidate: serve cached immediately, fetch fresh in background
+        // Network-first: try network, fallback to cache on failure
         const cacheKey = username;
-        const cached = explorerSessionCache.chesscom.get<GameSearchResult[]>(cacheKey);
-        if (cached && !cancelled) {
-          setGames(cached);
-          setLoading(false);
-          // Continue to fetch fresh data in background (don't return)
-        }
 
         // Step 1: Fetch archives list
         const archivesRes = await fetch(`/api/chesscom/pub/player/${username}/games/archives`, {
@@ -221,8 +215,16 @@ export function useChessComExplorer({
         }
       } catch (err) {
         if (!cancelled && err instanceof Error && err.name !== 'AbortError') {
-          setError(err.message || 'Failed to fetch Chess.com games');
-          setGames([]);
+          // Network failed - try cache fallback
+          const cacheKey = username;
+          const cached = explorerSessionCache.chesscom.get<GameSearchResult[]>(cacheKey);
+          if (cached) {
+            setGames(cached);
+            setError(null);
+          } else {
+            setError(err.message || 'Failed to fetch Chess.com games');
+            setGames([]);
+          }
           setLoading(false);
         }
       }
