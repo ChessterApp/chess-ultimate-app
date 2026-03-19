@@ -1,6 +1,5 @@
 "use client"
 
-import dynamic from "next/dynamic"
 import { usePathname } from "next/navigation"
 import { Suspense, type ReactNode } from "react"
 import { ThemeProvider } from "@mui/material/styles"
@@ -11,25 +10,13 @@ import ToastProvider from "@/components/ToastProvider"
 import SubscriptionProvider from "@/components/SubscriptionProvider"
 import UnhandledErrorCatcher from "@/components/UnhandledErrorBoundary"
 import PageSkeleton from "@/components/PageSkeleton"
+import NavBar from "@/components/Navbar"
+import { BottomNavigation } from "@/components/ui/BottomNavigation"
+import DesktopSidebar from "@/components/ui/DesktopSidebar"
 import { useDarkMode } from "@/hooks/useDarkMode"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp"
 import { chessterLightTheme, chessterDarkTheme } from "@/theme/theme"
-
-// Load all client components with ssr:false to prevent hydration mismatches
-// from useAuth(), useLocalStorage(), and Clerk's injected HTML
-const NavBar = dynamic(() => import("@/components/Navbar"), {
-  ssr: false,
-  loading: () => <div className="h-14 bg-white dark:bg-[#141414] border-b border-gray-100 dark:border-[#2a2a2a]" />
-})
-const BottomNavigation = dynamic(
-  () => import("@/components/ui/BottomNavigation").then(mod => ({ default: mod.BottomNavigation })),
-  { ssr: false, loading: () => null }
-)
-const DesktopSidebar = dynamic(
-  () => import("@/components/ui/DesktopSidebar"),
-  { ssr: false, loading: () => <div className="hidden md:block w-16 flex-shrink-0 bg-white dark:bg-[#141414] border-r border-gray-200 dark:border-[#2a2a2a]" /> }
-)
 
 // Pages where the navigation should be hidden
 const HIDE_NAV_PATHS = ['/sign-in', '/sign-up', '/', '/onboarding']
