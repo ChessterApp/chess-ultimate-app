@@ -53,7 +53,7 @@ describe('Service Worker - sw.js', () => {
       const cachedPromise = cacheMock.match(request);
       const fetchPromise = fetchMock(request).then((response) => {
         const clone = response.clone();
-        cachesMock.open('chesster-v4').then((cache) => cache.put(request, clone));
+        cachesMock.open('chesster-v5').then((cache) => cache.put(request, clone));
         return response;
       });
 
@@ -76,7 +76,7 @@ describe('Service Worker - sw.js', () => {
       const cachedPromise = cacheMock.match(request);
       const fetchPromise = fetchMock(request).then((response) => {
         const clone = response.clone();
-        cachesMock.open('chesster-v4').then((cache) => cache.put(request, clone));
+        cachesMock.open('chesster-v5').then((cache) => cache.put(request, clone));
         return response;
       });
 
@@ -104,7 +104,7 @@ describe('Service Worker - sw.js', () => {
       const cachedPromise = cacheMock.match(request);
       const fetchPromise = fetchMock(request).then((response) => {
         const clone = response.clone();
-        cachesMock.open('chesster-v4').then((cache) => cache.put(request, clone));
+        cachesMock.open('chesster-v5').then((cache) => cache.put(request, clone));
         return response;
       });
 
@@ -113,7 +113,7 @@ describe('Service Worker - sw.js', () => {
       // Wait for background cache update
       await new Promise(resolve => setTimeout(resolve, 0));
 
-      expect(cachesMock.open).toHaveBeenCalledWith('chesster-v4');
+      expect(cachesMock.open).toHaveBeenCalledWith('chesster-v5');
       expect(networkResponse.clone).toHaveBeenCalled();
     });
   });
@@ -131,7 +131,7 @@ describe('Service Worker - sw.js', () => {
       // Simulate network-first strategy
       const result = await fetchMock(request).then((response) => {
         const clone = response.clone();
-        cachesMock.open('chesster-v4').then((cache) => cache.put(request, clone));
+        cachesMock.open('chesster-v5').then((cache) => cache.put(request, clone));
         return response;
       });
 
@@ -152,7 +152,7 @@ describe('Service Worker - sw.js', () => {
       const result = await fetchMock(request)
         .then((response) => {
           const clone = response.clone();
-          cachesMock.open('chesster-v4').then((cache) => cache.put(request, clone));
+          cachesMock.open('chesster-v5').then((cache) => cache.put(request, clone));
           return response;
         })
         .catch(() =>
