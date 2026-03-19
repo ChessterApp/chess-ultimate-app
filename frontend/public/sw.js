@@ -43,6 +43,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Stale-while-revalidate for navigation (HTML pages)
+  // Pattern: serve cached version immediately, fetch fresh in background, update cache
   if (event.request.mode === 'navigate') {
     event.respondWith(
       caches.match(event.request).then((cached) => {
@@ -50,7 +51,10 @@ self.addEventListener('fetch', (event) => {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
-        });
+        }).catch(() => null); // Ignore fetch errors in background update
+
+        // Return cached immediately if available, otherwise wait for network
+        // If cached exists, fetchPromise runs in background to update cache
         return cached || fetchPromise;
       })
     );

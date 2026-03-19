@@ -134,15 +134,15 @@ export function useLichessExplorer({
         const endpoint = database === 'masters' ? 'masters' : database === 'player' ? 'player' : 'lichess';
         const cacheKey = `${endpoint}?${params.toString()}`;
 
-        // Check session cache first
+        // Stale-while-revalidate: serve cached immediately, fetch fresh in background
         const cached = explorerSessionCache.lichess.get<LichessExplorerResponse>(cacheKey);
         if (cached && !cancelled) {
           setData(cached);
           setLoading(false);
-          return;
+          // Continue to fetch fresh data in background (don't return)
         }
 
-        // Fetch from API
+        // Fetch from API (runs in background if cached data was served)
         const response = await fetch(`/api/explorer/${endpoint}?${params.toString()}`, {
           method: 'GET',
           headers: {

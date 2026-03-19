@@ -135,13 +135,13 @@ export function useChessComExplorer({
       setProgress(null);
 
       try {
-        // Check cache first (cache by username)
+        // Stale-while-revalidate: serve cached immediately, fetch fresh in background
         const cacheKey = username;
         const cached = explorerSessionCache.chesscom.get<GameSearchResult[]>(cacheKey);
         if (cached && !cancelled) {
           setGames(cached);
           setLoading(false);
-          return;
+          // Continue to fetch fresh data in background (don't return)
         }
 
         // Step 1: Fetch archives list
