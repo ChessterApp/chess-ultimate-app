@@ -1,12 +1,15 @@
-'use client'
-
-import { useAuth } from '@clerk/nextjs'
-import { useRouter } from 'next/navigation'
-import { useEffect, useState, useRef } from 'react'
 import { useTranslations, useLocale } from 'next-intl'
 import Image from 'next/image'
-import LoadingScreen from '@/components/LoadingScreen'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { LandingPageClientWrapper } from '@/components/landing/LandingPageClient'
+import { AnimatedCounter } from '@/components/landing/AnimatedCounter'
+import { FeatureCard } from '@/components/landing/FeatureCard'
+import { ProductCard } from '@/components/landing/ProductCard'
+import { HeroButtons } from '@/components/landing/HeroButtons'
+import { FeatureCarousel } from '@/components/landing/FeatureCarousel'
+import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
+import { FooterButton } from '@/components/landing/FooterButtons'
+import { CTAButton } from '@/components/landing/CTAButton'
 
 // Mascot placeholder component
 const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { size?: 'sm' | 'md' | 'lg' | 'xl', className?: string, label?: string }) => {
@@ -29,147 +32,9 @@ const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { 
   )
 }
 
-// Animated counter component
-const AnimatedCounter = ({ target, suffix = '' }: { target: number, suffix?: string }) => {
-  const [count, setCount] = useState(target)
-  const ref = useRef<HTMLSpanElement>(null)
-  const [hasAnimated, setHasAnimated] = useState(false)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !hasAnimated) {
-          setHasAnimated(true)
-          setCount(0)
-        }
-      },
-      { threshold: 0.1 }
-    )
-
-    if (ref.current) {
-      observer.observe(ref.current)
-    }
-
-    return () => observer.disconnect()
-  }, [hasAnimated])
-
-  useEffect(() => {
-    if (!hasAnimated) return
-
-    const duration = 2000
-    const steps = 60
-    const increment = target / steps
-    let current = 0
-
-    const timer = setInterval(() => {
-      current += increment
-      if (current >= target) {
-        setCount(target)
-        clearInterval(timer)
-      } else {
-        setCount(Math.floor(current))
-      }
-    }, duration / steps)
-
-    return () => clearInterval(timer)
-  }, [hasAnimated, target])
-
-  return <span ref={ref}>{count.toLocaleString()}{suffix}</span>
-}
-
-// Feature card with hover animation
-const FeatureCard = ({ icon, title, description, delay = 0 }: { icon: string, title: string, description: string, delay?: number }) => {
-  const [isVisible, setIsVisible] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setTimeout(() => setIsVisible(true), delay)
-        }
-      },
-      { threshold: 0.2 }
-    )
-
-    if (ref.current) {
-      observer.observe(ref.current)
-    }
-
-    return () => observer.disconnect()
-  }, [delay])
-
-  return (
-    <div
-      ref={ref}
-      className={`bg-white rounded-2xl p-6 md:p-8 shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2 border-b-4 border-purple-500 ${
-        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'
-      }`}
-      style={{ transitionDelay: `${delay}ms` }}
-    >
-      <div className="text-5xl mb-4">{icon}</div>
-      <h3 className="text-xl font-bold text-gray-800 mb-3 lowercase">{title}</h3>
-      <p className="text-gray-600 leading-relaxed">{description}</p>
-    </div>
-  )
-}
-
-// Product card component
-const ProductCard = ({ icon, title, description, color, href }: { icon: string, title: string, description: string, color: string, href: string }) => {
-  const router = useRouter()
-
-  return (
-    <button
-      onClick={() => router.push(href)}
-      className={`${color} rounded-2xl p-6 text-left hover:scale-105 transition-all duration-300 shadow-lg hover:shadow-2xl group w-full`}
-    >
-      <div className="text-4xl mb-3 group-hover:scale-110 transition-transform duration-300">{icon}</div>
-      <h3 className="text-lg font-bold text-white mb-2">{title}</h3>
-      <p className="text-white/80 text-sm">{description}</p>
-    </button>
-  )
-}
-
 export default function HomePage() {
-  const { isSignedIn, isLoaded } = useAuth()
-  const router = useRouter()
-  const [activeFeature, setActiveFeature] = useState(0)
-  const [activeTestimonial, setActiveTestimonial] = useState(0)
   const t = useTranslations()
   const locale = useLocale()
-
-  // Feature carousel auto-rotate
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveFeature((prev) => (prev + 1) % 4)
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Testimonial auto-rotate on mobile
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveTestimonial((prev) => (prev + 1) % 6)
-    }, 4000)
-    return () => clearInterval(interval)
-  }, [])
-
-  // Redirect to dashboard if already signed in
-  useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      router.push('/dashboard')
-    }
-  }, [isLoaded, isSignedIn, router])
-
-  // Show loading animation if not loaded
-  if (!isLoaded) {
-    return <LoadingScreen isVisible={true} />
-  }
-
-  // Show loading animation while redirecting
-  if (isSignedIn) {
-    return <LoadingScreen isVisible={true} />
-  }
 
   const features = [
     { icon: '🧩', label: t('landing.features.puzzles'), description: t('landing.features.puzzlesDesc') },
@@ -188,7 +53,7 @@ export default function HomePage() {
   ]
 
   return (
-    <>
+    <LandingPageClientWrapper>
       {/* Hide the global NavBar on landing page (landing has its own header) + Custom animations */}
       <style dangerouslySetInnerHTML={{ __html: `
         body > nav.bg-white,
@@ -285,21 +150,7 @@ export default function HomePage() {
                 {t('landing.heroSubtitle')}
               </p>
 
-              <div className="flex flex-col gap-3 w-full max-w-md pb-8 lg:pb-0">
-                <button
-                  onClick={() => router.push('/sign-up')}
-                  className="w-full bg-white hover:bg-purple-50 text-purple-700 px-8 py-4 rounded-2xl font-bold text-base lg:text-lg uppercase tracking-wider transition-all duration-200 transform hover:scale-105 shadow-lg hover:shadow-xl active:scale-95 border-b-4 border-purple-200 active:border-b-2 active:translate-y-0.5"
-                >
-                  {t('common.getStarted')}
-                </button>
-
-                <button
-                  onClick={() => router.push('/sign-in')}
-                  className="w-full bg-transparent border-2 border-white/40 hover:bg-white/10 text-white px-8 py-4 rounded-2xl font-bold text-base lg:text-lg uppercase tracking-wider transition-all duration-200 active:translate-y-0.5"
-                >
-                  {t('landing.alreadyHaveAccount')}
-                </button>
-              </div>
+              <HeroButtons />
             </div>
           </div>
         </div>
@@ -313,31 +164,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== FEATURE CAROUSEL (Duolingo language selector style) ===== */}
-      <section className="py-8 bg-purple-50 border-y border-purple-100 hidden lg:block">
-        <div className="container mx-auto px-4">
-          <div className="flex overflow-x-auto gap-3 pb-2 snap-x snap-mandatory px-2 -mx-2 scrollbar-hide">
-            {features.map((feature, index) => (
-              <button
-                key={feature.label}
-                onClick={() => setActiveFeature(index)}
-                className={`flex-shrink-0 snap-start flex items-center gap-3 px-6 py-3 rounded-2xl transition-all duration-300 ${
-                  activeFeature === index
-                    ? 'bg-purple-600 text-white shadow-lg scale-105'
-                    : 'bg-white text-gray-700 hover:bg-purple-100'
-                }`}
-              >
-                <span className="text-2xl">{feature.icon}</span>
-                <div className="text-left">
-                  <div className="font-bold text-sm">{feature.label}</div>
-                  <div className={`text-xs ${activeFeature === index ? 'text-purple-200' : 'text-gray-500'}`}>
-                    {feature.description}
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
+      <FeatureCarousel features={features} />
 
       {/* ===== VALUE PROPOSITIONS (Duolingo 4-card layout) ===== */}
       <section className="py-20 bg-white">
@@ -502,80 +329,7 @@ export default function HomePage() {
       </section>
 
       {/* ===== TESTIMONIALS (Social proof) ===== */}
-      <section className="py-20 bg-purple-50">
-        <div className="container mx-auto px-4">
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-800 text-center lowercase mb-12">
-            {t('landing.testimonials.title')}
-          </h2>
-
-          {/* Mobile: slideshow */}
-          <div className="md:hidden relative">
-            <div className="overflow-hidden">
-              {testimonials.map((testimonial, index) => (
-                <div
-                  key={index}
-                  className={`transition-all duration-500 ${
-                    index === activeTestimonial ? 'block opacity-100' : 'hidden opacity-0'
-                  }`}
-                >
-                  <div className="bg-white rounded-2xl p-6 shadow-lg mx-4">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                        <span className="text-xl">👤</span>
-                      </div>
-                      <div>
-                        <div className="font-bold text-gray-800">{testimonial.name}</div>
-                        <div className="text-sm text-purple-600">{t('landing.testimonials.ratingLabel')}: {testimonial.rating}</div>
-                      </div>
-                    </div>
-                    <p className="text-gray-600 italic">&quot;{testimonial.quote}&quot;</p>
-                    <div className="mt-4 flex gap-1">
-                      {[...Array(5)].map((_, i) => (
-                        <span key={i} className="text-yellow-400">★</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-            {/* Dots */}
-            <div className="flex justify-center gap-2 mt-6">
-              {testimonials.map((_, index) => (
-                <button
-                  key={index}
-                  onClick={() => setActiveTestimonial(index)}
-                  className={`w-2.5 h-2.5 rounded-full transition-all duration-300 ${
-                    index === activeTestimonial ? 'bg-purple-600 w-6' : 'bg-purple-300'
-                  }`}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* Desktop: grid */}
-          <div className="hidden md:grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
-            {testimonials.slice(0, 3).map((testimonial, index) => (
-              <div key={index} className="bg-white rounded-2xl p-6 shadow-lg">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
-                    <span className="text-xl">👤</span>
-                  </div>
-                  <div>
-                    <div className="font-bold text-gray-800">{testimonial.name}</div>
-                    <div className="text-sm text-purple-600">{t('landing.testimonials.ratingLabel')}: {testimonial.rating}</div>
-                  </div>
-                </div>
-                <p className="text-gray-600 italic">&quot;{testimonial.quote}&quot;</p>
-                <div className="mt-4 flex gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <span key={i} className="text-yellow-400">★</span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <TestimonialsSection testimonials={testimonials} />
 
       {/* ===== FINAL CTA (Duolingo-style with mascot) ===== */}
       <section className="py-20 bg-gradient-to-br from-purple-600 to-indigo-700 text-white relative overflow-hidden">
@@ -603,12 +357,12 @@ export default function HomePage() {
                 {t('landing.cta.subtitle')}
               </p>
 
-              <button
-                onClick={() => router.push('/sign-up')}
+              <CTAButton
+                href="/sign-up"
                 className="bg-white text-purple-600 hover:bg-purple-50 px-12 py-4 rounded-2xl font-bold text-lg transition-all duration-200 transform hover:scale-105 shadow-xl hover:shadow-2xl active:scale-95"
               >
                 {t('landing.cta.button')}
-              </button>
+              </CTAButton>
             </div>
           </div>
         </div>
@@ -631,10 +385,10 @@ export default function HomePage() {
             <div>
               <h4 className="text-white font-bold mb-4">{t('landing.footer.products')}</h4>
               <ul className="space-y-2 text-sm">
-                <li><button onClick={() => router.push('/learn')} className="hover:text-white transition-colors">{t('landing.footer.courses')}</button></li>
-                <li><button onClick={() => router.push('/puzzle')} className="hover:text-white transition-colors">{t('landing.footer.puzzles')}</button></li>
-                <li><button onClick={() => router.push('/position')} className="hover:text-white transition-colors">{t('landing.footer.analysis')}</button></li>
-                <li><button onClick={() => router.push('/game')} className="hover:text-white transition-colors">{t('landing.footer.gameReview')}</button></li>
+                <li><FooterButton href="/learn">{t('landing.footer.courses')}</FooterButton></li>
+                <li><FooterButton href="/puzzle">{t('landing.footer.puzzles')}</FooterButton></li>
+                <li><FooterButton href="/position">{t('landing.footer.analysis')}</FooterButton></li>
+                <li><FooterButton href="/game">{t('landing.footer.gameReview')}</FooterButton></li>
               </ul>
             </div>
 
@@ -642,10 +396,10 @@ export default function HomePage() {
             <div className="hidden md:block">
               <h4 className="text-white font-bold mb-4">{t('landing.footer.company')}</h4>
               <ul className="space-y-2 text-sm">
-                <li><button className="hover:text-white transition-colors">{t('landing.footer.about')}</button></li>
-                <li><button className="hover:text-white transition-colors">{t('landing.footer.careers')}</button></li>
-                <li><button className="hover:text-white transition-colors">{t('landing.footer.blog')}</button></li>
-                <li><button className="hover:text-white transition-colors">{t('landing.footer.press')}</button></li>
+                <li><FooterButton>{t('landing.footer.about')}</FooterButton></li>
+                <li><FooterButton>{t('landing.footer.careers')}</FooterButton></li>
+                <li><FooterButton>{t('landing.footer.blog')}</FooterButton></li>
+                <li><FooterButton>{t('landing.footer.press')}</FooterButton></li>
               </ul>
             </div>
 
@@ -669,15 +423,15 @@ export default function HomePage() {
           <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-sm">{t('landing.footer.copyright')}</p>
             <div className="flex gap-6 text-sm">
-              <button className="hover:text-white transition-colors">{t('landing.footer.privacy')}</button>
-              <button className="hover:text-white transition-colors">{t('landing.footer.terms')}</button>
-              <button className="hover:text-white transition-colors">{t('landing.footer.cookies')}</button>
+              <FooterButton>{t('landing.footer.privacy')}</FooterButton>
+              <FooterButton>{t('landing.footer.terms')}</FooterButton>
+              <FooterButton>{t('landing.footer.cookies')}</FooterButton>
             </div>
           </div>
         </div>
       </footer>
 
     </main>
-    </>
+    </LandingPageClientWrapper>
   )
 }
