@@ -12,6 +12,7 @@ import { FooterButton } from '@/components/landing/FooterButtons'
 import { CTAButton } from '@/components/landing/CTAButton'
 import { HeroAnimatedBackground } from '@/components/landing/HeroAnimatedBackground'
 import { SocialButtons } from '@/components/landing/SocialButtons'
+import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
 
 // Enable ISR: regenerate page every hour
 export const revalidate = 3600
@@ -61,6 +62,9 @@ export default function HomePage() {
     <>
       {/* Client island: handles redirect to dashboard if user is signed in */}
       <LandingPageRedirect />
+
+      {/* Prefetch main navigation routes for better performance */}
+      <PrefetchLinks />
 
       {/* Main HTML structure: rendered as server component for instant pre-rendering */}
       {/* Hide the global NavBar on landing page (landing has its own header) + Custom animations */}

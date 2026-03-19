@@ -1,16 +1,23 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 
 export function FooterButton({ href, children }: { href?: string, children: React.ReactNode }) {
-  const router = useRouter()
+  if (!href) {
+    return (
+      <button className="hover:text-white transition-colors">
+        {children}
+      </button>
+    )
+  }
 
   return (
-    <button
-      onClick={() => href && router.push(href)}
+    <Link
+      href={href}
+      prefetch={true}
       className="hover:text-white transition-colors"
     >
       {children}
-    </button>
+    </Link>
   )
 }
