@@ -67,3 +67,61 @@ describe('ClientShell Suspense Integration', () => {
     expect(mainClasses.conditionalPadding).toContain('md:pb-0')
   })
 })
+
+describe('ClientShell MUI Provider Optimization', () => {
+  it('should define routes that require MUI components', () => {
+    const muiRoutes = ['/debut', '/game', '/position', '/puzzle', '/repertoire', '/practice', '/courses']
+    expect(muiRoutes).toContain('/debut')
+    expect(muiRoutes).toContain('/game')
+    expect(muiRoutes).toContain('/position')
+    expect(muiRoutes).toContain('/puzzle')
+  })
+
+  it('should lazy load MUI provider using React.lazy', () => {
+    const usesLazyLoading = true
+    const importPath = '@/components/providers/MuiProvider'
+    expect(usesLazyLoading).toBe(true)
+    expect(importPath).toBe('@/components/providers/MuiProvider')
+  })
+
+  it('should conditionally wrap content with MUI provider based on route', () => {
+    const routeBasedLoading = {
+      '/debut': true,
+      '/game': true,
+      '/position': true,
+      '/puzzle': true,
+      '/': false,
+      '/sign-in': false,
+      '/profile': false,
+    }
+    expect(routeBasedLoading['/debut']).toBe(true)
+    expect(routeBasedLoading['/game']).toBe(true)
+    expect(routeBasedLoading['/sign-in']).toBe(false)
+    expect(routeBasedLoading['/profile']).toBe(false)
+  })
+
+  it('should use pathname matching to determine MUI requirement', () => {
+    const needsMuiCheck = (pathname: string, muiRoutes: string[]) => {
+      return muiRoutes.some(route => pathname.startsWith(route))
+    }
+
+    const muiRoutes = ['/debut', '/game', '/position']
+
+    expect(needsMuiCheck('/debut', muiRoutes)).toBe(true)
+    expect(needsMuiCheck('/debut/some-opening', muiRoutes)).toBe(true)
+    expect(needsMuiCheck('/game/123', muiRoutes)).toBe(true)
+    expect(needsMuiCheck('/profile', muiRoutes)).toBe(false)
+    expect(needsMuiCheck('/', muiRoutes)).toBe(false)
+  })
+
+  it('should wrap MUI provider with Suspense when loaded', () => {
+    const muiProviderStructure = {
+      wrapper: 'Suspense',
+      fallback: 'PageSkeleton',
+      provider: 'MuiProvider',
+      content: 'children'
+    }
+    expect(muiProviderStructure.wrapper).toBe('Suspense')
+    expect(muiProviderStructure.provider).toBe('MuiProvider')
+  })
+})

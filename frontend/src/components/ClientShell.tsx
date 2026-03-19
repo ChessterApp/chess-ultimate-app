@@ -1,9 +1,7 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { Suspense, type ReactNode } from "react"
-import { ThemeProvider } from "@mui/material/styles"
-import CssBaseline from "@mui/material/CssBaseline"
+import { Suspense, type ReactNode, lazy } from "react"
 import PageTransition from "@/components/PageTransition"
 import OfflineBanner from "@/components/OfflineBanner"
 import ToastProvider from "@/components/ToastProvider"
@@ -16,30 +14,33 @@ import DesktopSidebar from "@/components/ui/DesktopSidebar"
 import { useDarkMode } from "@/hooks/useDarkMode"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp"
-import { chessterLightTheme, chessterDarkTheme } from "@/theme/theme"
+
+// Lazy load MUI provider only when needed
+const MuiProvider = lazy(() => import("@/components/providers/MuiProvider"))
 
 // Pages where the navigation should be hidden
 const HIDE_NAV_PATHS = ['/sign-in', '/sign-up', '/', '/onboarding']
+
+// Routes that use MUI components and need ThemeProvider
+const MUI_ROUTES = ['/debut', '/game', '/position', '/puzzle', '/repertoire', '/practice', '/courses']
 
 export default function ClientShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const hideNav = HIDE_NAV_PATHS.some(path => pathname === path || (path !== '/' && pathname?.startsWith(path)))
   const isLanding = pathname === '/'
-  
+
   // Apply dark mode class to <html> on every page load
   const { isDark } = useDarkMode()
-  
+
   // Keyboard shortcuts
   const { showHelp, setShowHelp } = useKeyboardShortcuts()
 
-  // Select MUI theme based on dark mode state
-  const muiTheme = isDark ? chessterDarkTheme : chessterLightTheme
+  // Check if current route needs MUI components
+  const needsMui = MUI_ROUTES.some(route => pathname?.startsWith(route))
 
-  return (
-    <ThemeProvider theme={muiTheme}>
-      <CssBaseline enableColorScheme />
-      <ToastProvider>
-        <SubscriptionProvider>
+  const content = (
+    <ToastProvider>
+      <SubscriptionProvider>
         <UnhandledErrorCatcher />
         <OfflineBanner />
         <div className={!hideNav && !isLanding ? "md:flex min-h-screen" : ""}>
@@ -72,8 +73,18 @@ export default function ClientShell({ children }: { children: ReactNode }) {
           )}
         </div>
         <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
-        </SubscriptionProvider>
-      </ToastProvider>
-    </ThemeProvider>
+      </SubscriptionProvider>
+    </ToastProvider>
   )
+
+  // Conditionally wrap with MUI provider only on routes that need it
+  if (needsMui) {
+    return (
+      <Suspense fallback={<PageSkeleton />}>
+        <MuiProvider>{content}</MuiProvider>
+      </Suspense>
+    )
+  }
+
+  return content
 }
