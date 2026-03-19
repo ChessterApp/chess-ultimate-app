@@ -6,6 +6,7 @@ Endpoints for fetching courses, modules, and lessons
 from flask import Blueprint, jsonify, request
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id
+from utils.cache import with_cache
 from concurrent.futures import ThreadPoolExecutor
 import time
 import logging
@@ -130,6 +131,7 @@ def get_cached_lessons_for_course(course_id):
 
 
 @lessons_bp.route('/api/courses', methods=['GET'])
+@with_cache(max_age=300)
 def get_courses():
     """
     Get all courses (public endpoint)
@@ -154,6 +156,7 @@ def get_courses():
 
 
 @lessons_bp.route('/api/courses/<course_id>/modules', methods=['GET'])
+@with_cache(max_age=300)
 def get_course_modules(course_id):
     """
     Get all modules for a specific course
@@ -696,6 +699,7 @@ def get_course_full(course_id):
 
 
 @lessons_bp.route('/api/modules/<module_id>/lessons', methods=['GET'])
+@with_cache(max_age=300)
 def get_module_lessons(module_id):
     """
     Get all lessons for a specific module

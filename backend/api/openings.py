@@ -24,6 +24,7 @@ import requests
 from flask import Blueprint, request, jsonify, Response, stream_with_context
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id
+from utils.cache import with_cache
 
 logger = logging.getLogger(__name__)
 
@@ -2160,6 +2161,7 @@ def games_by_position():
 
 @openings_bp.route('/games/<int:game_id>/pgn', methods=['GET'])
 @verify_clerk_token
+@with_cache(max_age=300)
 def get_game_pgn(game_id):
     """Fetch PGN for a single game on demand."""
     if not check_internal_db_exists():
@@ -2185,6 +2187,7 @@ def get_game_pgn(game_id):
 
 @openings_bp.route('/games/position-count', methods=['GET'])
 @verify_clerk_token
+@with_cache(max_age=300)
 def position_count():
     """Deferred COUNT endpoint — called async by frontend after games load."""
     fen = request.args.get('fen', '')
@@ -2227,6 +2230,7 @@ _candidates_cache = {}   # board_hash -> (timestamp, result_dict)
 _CANDIDATES_CACHE_TTL = 600  # 10 minutes
 
 @openings_bp.route('/positions/candidates', methods=['GET'])
+@with_cache(max_age=300)
 def position_candidates():
     """Return candidate next moves for a FEN using TWIC position index.
 
@@ -2475,6 +2479,7 @@ _TOP_PLAYERS_CACHE_TTL = 600  # 10 minutes
 
 @openings_bp.route('/positions/top-players', methods=['GET'])
 @verify_clerk_token
+@with_cache(max_age=300)
 def position_top_players():
     """Return top-rated players who played at a given position."""
     import time as _time
