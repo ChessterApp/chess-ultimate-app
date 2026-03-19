@@ -10,6 +10,8 @@ import { FeatureCarousel } from '@/components/landing/FeatureCarousel'
 import { TestimonialsSection } from '@/components/landing/TestimonialsSection'
 import { FooterButton } from '@/components/landing/FooterButtons'
 import { CTAButton } from '@/components/landing/CTAButton'
+import { HeroAnimatedBackground } from '@/components/landing/HeroAnimatedBackground'
+import { SocialButtons } from '@/components/landing/SocialButtons'
 
 // Mascot placeholder component
 const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { size?: 'sm' | 'md' | 'lg' | 'xl', className?: string, label?: string }) => {
@@ -104,14 +106,7 @@ export default function HomePage() {
       {/* ===== HERO SECTION (Redesigned — gradient bg, prominent mascot, subtle animation) ===== */}
       <section className="pt-20 min-h-[100dvh] lg:min-h-[90vh] flex items-center relative overflow-hidden bg-purple-600 lg:bg-gradient-to-br lg:from-purple-700 lg:via-indigo-600 lg:to-violet-800">
         {/* Animated background shapes */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none hidden lg:block">
-          <div className="absolute -top-24 -left-24 w-96 h-96 bg-purple-500/20 rounded-full blur-3xl animate-pulse" />
-          <div className="absolute -bottom-32 -right-32 w-[30rem] h-[30rem] bg-indigo-400/15 rounded-full blur-3xl" style={{ animation: 'pulse 4s ease-in-out infinite' }} />
-          <div className="absolute top-1/3 right-1/4 w-64 h-64 bg-violet-300/10 rounded-full blur-2xl" style={{ animation: 'pulse 6s ease-in-out infinite 1s' }} />
-          {/* Floating chess pieces */}
-          <div className="absolute top-20 right-[15%] text-white/5 text-8xl" style={{ animation: 'bounce-slow 5s ease-in-out infinite' }}>♞</div>
-          <div className="absolute bottom-20 left-[10%] text-white/5 text-7xl" style={{ animation: 'bounce-slow 7s ease-in-out infinite 2s' }}>♛</div>
-        </div>
+        <HeroAnimatedBackground />
 
         <div className="container mx-auto px-6 py-8 relative z-10 h-full">
           {/* Mobile: vertical layout — mascot top, text middle, CTAs bottom */}
@@ -406,17 +401,7 @@ export default function HomePage() {
             {/* Social */}
             <div className="hidden md:block">
               <h4 className="text-white font-bold mb-4">{t('landing.footer.connect')}</h4>
-              <div className="flex gap-4">
-                <button className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors">
-                  <span>𝕏</span>
-                </button>
-                <button className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors">
-                  <span>📸</span>
-                </button>
-                <button className="w-10 h-10 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors">
-                  <span>▶️</span>
-                </button>
-              </div>
+              <SocialButtons />
             </div>
           </div>
 
