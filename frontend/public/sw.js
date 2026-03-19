@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chesster-v3';
+const CACHE_NAME = 'chesster-v4';
 const SHELL_ASSETS = [
   '/',
   '/dashboard',
@@ -33,7 +33,11 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() =>
+          caches.match(event.request).then((cached) =>
+            cached || new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
+          )
+        )
     );
     return;
   }
@@ -47,7 +51,11 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() =>
+          caches.match(event.request).then((cached) =>
+            cached || new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
+          )
+        )
     );
     return;
   }
