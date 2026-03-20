@@ -205,7 +205,7 @@ export default function LichessExplorerTab({
         </ToggleButtonGroup>
         {totalGames > 0 && (
           <Chip
-            label={`${totalGames.toLocaleString()} games`}
+            label={`${(totalGames ?? 0).toLocaleString()} games`}
             size="small"
             sx={{ height: 20, fontSize: 11, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
           />

@@ -91,7 +91,7 @@ export default function NodeDetailsPanel({
           </Typography>
           {masterGamesTotal > 0 && (
             <Chip
-              label={masterGamesTotal.toLocaleString()}
+              label={(masterGamesTotal ?? 0).toLocaleString()}
               size="small"
               sx={{ height: 16, fontSize: 10, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
             />
@@ -200,7 +200,7 @@ export default function NodeDetailsPanel({
                 onClick={() => onSearchGames(node!.fen)}
                 sx={{ color: '#14b8a6', fontSize: 11, textTransform: 'none', mt: 0.5 }}
               >
-                {t('viewAllGames', { count: masterGamesTotal.toLocaleString() })}
+                {t('viewAllGames', { count: (masterGamesTotal ?? 0).toLocaleString() })}
               </Button>
             )}
           </Box>

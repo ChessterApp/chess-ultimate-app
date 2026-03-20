@@ -182,7 +182,7 @@ export default function MoveTree({ moves, totalGames, loading, onMoveClick, fen,
                 {/* Games */}
                 <Box component="td" sx={{ py: 0.4, px: 0.5, textAlign: 'right' }}>
                   <Typography component="span" sx={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
-                    {move.count.toLocaleString()}
+                    {(move.count ?? 0).toLocaleString()}
                   </Typography>
                 </Box>
 

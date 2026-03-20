@@ -60,7 +60,7 @@ export default function PositionSummary({ ecoCode, openingName, totalGames, move
         <Box>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
             <Typography sx={{ color: 'var(--text-tertiary)', fontSize: 11 }}>
-              {totalGames.toLocaleString()} games
+              {(totalGames ?? 0).toLocaleString()} games
             </Typography>
           </Box>
 
