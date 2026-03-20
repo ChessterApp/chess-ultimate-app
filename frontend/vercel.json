@@ -8,6 +8,7 @@
     { "source": "/api/learn/:path*", "destination": "https://api.chesster.io/api/learn/:path*" },
     { "source": "/api/puzzles/:path*", "destination": "https://api.chesster.io/api/puzzles/:path*" },
     { "source": "/api/opponent/:path*", "destination": "https://api.chesster.io/api/opponent/:path*" },
-    { "source": "/api/user/:path*", "destination": "https://api.chesster.io/api/user/:path*" }
+    { "source": "/api/user/:path*", "destination": "https://api.chesster.io/api/user/:path*" },
+    { "source": "/api/explorer/:path*", "destination": "https://api.chesster.io/api/explorer/:path*" }
   ]
 }
