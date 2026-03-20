@@ -2009,7 +2009,7 @@ def games_by_position():
                 player_filter = "WHERE black_name_normalized LIKE ?"
                 params = [name_pattern]
 
-            query = f"SELECT * FROM games {player_filter} ORDER BY {order} LIMIT ?"
+            query = f"SELECT DISTINCT * FROM games {player_filter} AND pgn_offset > 0 ORDER BY {order} LIMIT ?"
             params.append(limit)
 
             timed_out = False
@@ -2029,7 +2029,7 @@ def games_by_position():
             # Get total count estimate (limit to reasonable value to avoid timeout)
             total_count = 0
             try:
-                count_query = f"SELECT COUNT(*) as cnt FROM games {player_filter} LIMIT 50000"
+                count_query = f"SELECT COUNT(*) as cnt FROM games {player_filter} AND pgn_offset > 0 LIMIT 50000"
                 row = conn.execute(count_query, params[:-1]).fetchone()
                 total_count = row['cnt'] if row else len(games)
             except:

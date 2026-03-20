@@ -280,7 +280,14 @@ export default function DebutPage() {
     )
       .then((data) => {
         if (!cancelled) {
-          setMasterGames(data.games);
+          // Deduplicate by game ID to prevent visual duplicates
+          const seen = new Set<string | number>();
+          const unique = data.games.filter((g: GameSearchResult) => {
+            if (!g.id || seen.has(g.id)) return false;
+            seen.add(g.id);
+            return true;
+          });
+          setMasterGames(unique);
           setMasterGamesTotal(data.total);
 
           // If count is approximate, fetch exact count in background
