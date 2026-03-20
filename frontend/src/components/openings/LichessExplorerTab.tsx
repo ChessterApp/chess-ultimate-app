@@ -387,6 +387,61 @@ export default function LichessExplorerTab({
         )}
       </Box>
 
+      {/* Player username search field - only show for lichess database */}
+      {database === 'lichess' && (
+        <Box>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
+            {t('lichessDatabase.player')} — {t('lichessPlayer.enterUsername')}
+          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TextField
+              size="small"
+              placeholder={t('lichessPlayer.usernamePlaceholder')}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              onKeyDown={handleKeyDown}
+              sx={{
+                flex: 1,
+                '& .MuiInputBase-root': {
+                  fontSize: 12,
+                  height: 32,
+                  bgcolor: 'rgba(255,255,255,0.03)',
+                  color: 'text.primary',
+                  borderRadius: 1,
+                },
+                '& .MuiOutlinedInput-notchedOutline': {
+                  borderColor: 'rgba(255,255,255,0.1)',
+                },
+                '& .MuiInputBase-input::placeholder': {
+                  color: 'text.secondary',
+                  opacity: 0.7,
+                },
+              }}
+            />
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<Search sx={{ fontSize: 14 }} />}
+              onClick={handleSearch}
+              disabled={playerLoading}
+              sx={{
+                height: 32,
+                fontSize: 11,
+                fontWeight: 600,
+                textTransform: 'none',
+                bgcolor: '#14b8a6',
+                color: '#fff',
+                '&:hover': { bgcolor: '#0d9488' },
+                '&:disabled': { bgcolor: 'rgba(20, 184, 166, 0.3)' },
+                px: 1.5,
+              }}
+            >
+              {t('lichessPlayer.search')}
+            </Button>
+          </Box>
+        </Box>
+      )}
+
       {/* Aggregate filters - only show for lichess database */}
       {database === 'lichess' && (
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, py: 0.5 }}>
@@ -500,64 +555,9 @@ export default function LichessExplorerTab({
         <EmptyState type="no-games" />
       )}
 
-      {/* Player search section - only show for lichess database */}
+      {/* Player filters & results - only show for lichess database */}
       {database === 'lichess' && (
         <>
-          <Divider sx={{ borderColor: 'divider', my: 1 }} />
-
-          {/* Player username search field */}
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
-              {t('lichessDatabase.player')} — {t('lichessPlayer.enterUsername')}
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <TextField
-                size="small"
-                placeholder={t('lichessPlayer.usernamePlaceholder')}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                onKeyDown={handleKeyDown}
-                sx={{
-                  flex: 1,
-                  '& .MuiInputBase-root': {
-                    fontSize: 12,
-                    height: 32,
-                    bgcolor: 'rgba(255,255,255,0.03)',
-                    color: 'text.primary',
-                    borderRadius: 1,
-                  },
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: 'rgba(255,255,255,0.1)',
-                  },
-                  '& .MuiInputBase-input::placeholder': {
-                    color: 'text.secondary',
-                    opacity: 0.7,
-                  },
-                }}
-              />
-              <Button
-                size="small"
-                variant="contained"
-                startIcon={<Search sx={{ fontSize: 14 }} />}
-                onClick={handleSearch}
-                disabled={playerLoading}
-                sx={{
-                  height: 32,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  textTransform: 'none',
-                  bgcolor: '#14b8a6',
-                  color: '#fff',
-                  '&:hover': { bgcolor: '#0d9488' },
-                  '&:disabled': { bgcolor: 'rgba(20, 184, 166, 0.3)' },
-                  px: 1.5,
-                }}
-              >
-                {t('lichessPlayer.search')}
-              </Button>
-            </Box>
-          </Box>
-
           {/* Player filters - only show when username is searched */}
           {searchUsername && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, py: 0.5 }}>

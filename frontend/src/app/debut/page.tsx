@@ -17,6 +17,7 @@ import type { Key } from 'chessground/types';
 import type { ExplorerTab } from '@/components/openings/ExplorerTabs';
 import type { MoveTreeSource } from '@/components/openings/MoveTree';
 import { useLichessExplorer } from '@/hooks/useLichessExplorer';
+import { useReplayStockfish } from '@/hooks/useReplayStockfish';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -54,6 +55,10 @@ const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPa
 const TwicExplorer = dynamic(() => import('@/components/analysis/TwicExplorer'), {
   ssr: false,
   loading: () => <div className="animate-pulse h-96 bg-stone-200 rounded-xl" />
+});
+const ReplayEngineLines = dynamic(() => import('@/components/opponent/ReplayEngineLines'), {
+  ssr: false,
+  loading: () => null
 });
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
@@ -112,8 +117,32 @@ export default function DebutPage() {
 
   // ─── Explorer tabs state ───
   const [explorerTab, setExplorerTab] = useState<ExplorerTab>('twic');
-  const [lichessDatabase, setLichessDatabase] = useState<'masters' | 'lichess'>('masters');
+  const [lichessDatabase, setLichessDatabase] = useState<'masters' | 'lichess'>('lichess');
   const [moveTreeSource, setMoveTreeSource] = useState<MoveTreeSource>('twic');
+
+  // ─── Stockfish analysis toggle ───
+  const [stockfishEnabled, setStockfishEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('debut_stockfish') === 'true';
+  });
+  const { evaluation, isAnalyzing, depth, analyze, stopAnalysis } = useReplayStockfish();
+
+  // Auto-analyze when position changes and Stockfish is enabled
+  useEffect(() => {
+    if (stockfishEnabled && activeTab === 'debut') {
+      analyze(boardFen);
+    } else {
+      stopAnalysis();
+    }
+  }, [stockfishEnabled, boardFen, activeTab, analyze, stopAnalysis]);
+
+  const toggleStockfish = useCallback(() => {
+    setStockfishEnabled(prev => {
+      const next = !prev;
+      localStorage.setItem('debut_stockfish', String(next));
+      return next;
+    });
+  }, []);
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
@@ -948,35 +977,7 @@ export default function DebutPage() {
 
       {/* Mode switcher + Tab bar */}
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
-        {/* Mode tabs (My Repertoires | Browse Database) */}
-        <Box sx={{ display: 'flex', gap: 1, mb: 1, borderBottom: '1px solid var(--border-strong)', pb: 0.5 }}>
-          <Chip
-            label={t('tabs.myRepertoires')}
-            onClick={() => setMode('repertoire')}
-            sx={{
-              height: 32, fontSize: 13, fontWeight: 600,
-              borderRadius: '8px 8px 0 0',
-              bgcolor: mode === 'repertoire' ? 'primary.main' : 'transparent',
-              color: mode === 'repertoire' ? '#fff' : 'var(--text-secondary)',
-              border: 'none',
-              '&:hover': { bgcolor: mode === 'repertoire' ? 'primary.dark' : 'rgba(0,0,0,0.05)' },
-              cursor: 'pointer',
-            }}
-          />
-          <Chip
-            label={t('tabs.browseDatabase')}
-            onClick={() => setMode('browse')}
-            sx={{
-              height: 32, fontSize: 13, fontWeight: 600,
-              borderRadius: '8px 8px 0 0',
-              bgcolor: mode === 'browse' ? 'primary.main' : 'transparent',
-              color: mode === 'browse' ? '#fff' : 'var(--text-secondary)',
-              border: 'none',
-              '&:hover': { bgcolor: mode === 'browse' ? 'primary.dark' : 'rgba(0,0,0,0.05)' },
-              cursor: 'pointer',
-            }}
-          />
-        </Box>
+        {/* Mode tabs hidden — Browse Database disabled for now */}
 
         {/* Game tabs — only show in repertoire mode */}
         {mode === 'repertoire' && (
@@ -1136,6 +1137,57 @@ export default function DebutPage() {
               onGoToEnd={activeTab === 'debut' ? handleGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)}
               onFlip={handleFlip}
             />
+
+            {/* Stockfish toggle + engine lines — only in Debut tab */}
+            {activeTab === 'debut' && (
+              <Box sx={{
+                width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
+                maxWidth: 520,
+                mx: 'auto',
+                mt: 0.5,
+              }}>
+                {/* Toggle row */}
+                <Box
+                  onClick={toggleStockfish}
+                  sx={{
+                    display: 'flex', alignItems: 'center', gap: 1,
+                    px: 1.5, py: 0.75,
+                    cursor: 'pointer', userSelect: 'none',
+                    bgcolor: stockfishEnabled ? 'rgba(249,115,22,0.08)' : 'transparent',
+                    borderRadius: '12px',
+                    transition: 'background 0.15s',
+                    '&:hover': { bgcolor: stockfishEnabled ? 'rgba(249,115,22,0.12)' : 'rgba(0,0,0,0.04)' },
+                  }}
+                >
+                  <Box sx={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    bgcolor: stockfishEnabled ? (isAnalyzing ? '#f97316' : '#22c55e') : '#9ca3af',
+                    transition: 'background 0.15s',
+                    ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
+                  }} />
+                  <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
+                    Stockfish 16
+                  </Typography>
+                  {stockfishEnabled && depth > 0 && (
+                    <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
+                      d{depth}
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Engine lines */}
+                {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
+                  <Box sx={{ mt: 0.5 }}>
+                    <ReplayEngineLines
+                      lines={evaluation.lines}
+                      isAnalyzing={isAnalyzing}
+                      currentFen={boardFen}
+                      depth={depth}
+                    />
+                  </Box>
+                )}
+              </Box>
+            )}
 
             {/* Move notation — only show in Debut tab */}
             {activeTab === 'debut' && (
