@@ -7,6 +7,9 @@ import {
   EMPTY_EXPLORER_RESPONSE,
 } from '@/lib/explorer-cache';
 
+// Allow up to 120s for player endpoint (Lichess queue processing)
+export const maxDuration = 120;
+
 /**
  * Lichess Opening Explorer proxy with production-grade caching and rate limiting
  *
@@ -96,7 +99,10 @@ export async function GET(
         const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
         const fetchHeaders: Record<string, string> = {
-            Accept: 'application/json',
+            // Player endpoint MUST use NDJSON — with application/json, Lichess
+            // holds the connection open until full queue processing completes
+            // (can be 2+ minutes). NDJSON streams intermediate results.
+            Accept: isPlayerEndpoint ? 'application/x-ndjson' : 'application/json',
             'User-Agent':
               'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             Referer: 'https://lichess.org/',
@@ -106,8 +112,8 @@ export async function GET(
             fetchHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
           }
 
-          // Player endpoint needs longer timeout (60s) for queue processing
-          const timeout = isPlayerEndpoint ? 60000 : 10000;
+          // Player endpoint needs longer timeout (120s) for queue processing
+          const timeout = isPlayerEndpoint ? 120000 : 10000;
 
           const response = await fetch(targetUrl, {
           method: 'GET',
@@ -209,7 +215,7 @@ async function backgroundRevalidate(
       const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
       const revalidateHeaders: Record<string, string> = {
-        Accept: 'application/json',
+        Accept: isPlayerEndpoint ? 'application/x-ndjson' : 'application/json',
         'User-Agent':
           'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         Referer: 'https://lichess.org/',
@@ -219,8 +225,8 @@ async function backgroundRevalidate(
         revalidateHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
       }
 
-      // Player endpoint needs longer timeout (60s) for queue processing
-      const timeout = isPlayerEndpoint ? 60000 : 10000;
+      // Player endpoint needs longer timeout (120s) for queue processing
+      const timeout = isPlayerEndpoint ? 120000 : 10000;
 
       const response = await fetch(targetUrl, {
         method: 'GET',
