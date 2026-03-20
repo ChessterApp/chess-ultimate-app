@@ -138,7 +138,16 @@ export async function GET(
           return finalResult;
         }
 
-        return response.json();
+        // For lichess/masters endpoints: merge recentGames into topGames
+        const jsonData = await response.json();
+        if (jsonData.recentGames && Array.isArray(jsonData.recentGames)) {
+          // Merge recentGames into topGames, deduplicating by game ID
+          const topGames = jsonData.topGames || [];
+          const existingIds = new Set(topGames.map((g: any) => g.id));
+          const newGames = jsonData.recentGames.filter((g: any) => !existingIds.has(g.id));
+          jsonData.topGames = [...topGames, ...newGames];
+        }
+        return jsonData;
       });
 
       // Cache the result
@@ -247,7 +256,16 @@ async function backgroundRevalidate(
         return finalResult;
       }
 
-      return response.json();
+      // For lichess/masters endpoints: merge recentGames into topGames
+      const jsonData = await response.json();
+      if (jsonData.recentGames && Array.isArray(jsonData.recentGames)) {
+        // Merge recentGames into topGames, deduplicating by game ID
+        const topGames = jsonData.topGames || [];
+        const existingIds = new Set(topGames.map((g: any) => g.id));
+        const newGames = jsonData.recentGames.filter((g: any) => !existingIds.has(g.id));
+        jsonData.topGames = [...topGames, ...newGames];
+      }
+      return jsonData;
     });
 
     // Update cache with fresh data
