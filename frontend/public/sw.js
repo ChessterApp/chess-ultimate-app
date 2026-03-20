@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chesster-v5';
+const CACHE_NAME = 'chesster-v6';
 const SHELL_ASSETS = [
   '/',
   '/dashboard',
@@ -26,6 +26,10 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+
+  // Never intercept cross-origin requests (Clerk images, external APIs, etc.)
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
 
   // Network-first for API calls
   if (event.request.url.includes('/api/')) {
