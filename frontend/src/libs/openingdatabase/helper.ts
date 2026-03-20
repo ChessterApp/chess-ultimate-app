@@ -43,7 +43,7 @@ import { apiFetch } from '@/lib/api';
 // Opening Explorer Functions
 export const getOpeningStats = async (fen: string): Promise<MasterGames | null> => {
   try {
-    const masterEndpoint = `/api/explorer/masters?fen=${fen}&moves=12&topGames=15`;
+    const masterEndpoint = `/api/explorer/masters?fen=${fen}&moves=12&topGames=50`;
     const masterData = await apiFetch<MasterGames>(masterEndpoint);
     return masterData;
   } catch (error) {
@@ -60,7 +60,7 @@ export const getOpeningStats = async (fen: string): Promise<MasterGames | null> 
 
 export const getLichessOpeningStats = async (fen: string): Promise<MasterGames | null> => {
   try {
-    const masterEndpoint = `/api/explorer/lichess?fen=${fen}&moves=12&topGames=4`;
+    const masterEndpoint = `/api/explorer/lichess?fen=${fen}&moves=12&topGames=50`;
     const masterData = await apiFetch<MasterGames>(masterEndpoint);
     return masterData;
   } catch (error) {

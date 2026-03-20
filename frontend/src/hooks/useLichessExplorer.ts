@@ -123,7 +123,7 @@ export function useLichessExplorer({
             params.set('modes', modes);
           }
         } else {
-          params.set('topGames', '15');
+          params.set('topGames', '50');
           params.set('moves', '12');
 
           if (database === 'lichess') {
@@ -176,7 +176,7 @@ export function useLichessExplorer({
               if (modes) params.set('modes', modes);
             }
           } else {
-            params.set('topGames', '15');
+            params.set('topGames', '50');
             params.set('moves', '12');
             if (database === 'lichess') {
               params.set('ratings', ratings);

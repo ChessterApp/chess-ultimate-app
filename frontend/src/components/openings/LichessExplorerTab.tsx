@@ -144,7 +144,7 @@ export default function LichessExplorerTab({
       white_elo: g.white.rating,
       black_elo: g.black.rating,
       result: g.winner === 'white' ? '1-0' : g.winner === 'black' ? '0-1' : '½-½',
-      date: g.year && g.month ? `${g.year}.${g.month}` : (g.year?.toString() || '?'),
+      date: g.month ? g.month : (g.year?.toString() || '?'),
       eco: null,
       opening: null,
       event: null,
@@ -541,7 +541,7 @@ export default function LichessExplorerTab({
       {!loading && !error && transformedGames.length > 0 && (
         <Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
-            Top Games
+            Top Games{transformedGames.length < 5 && transformedGames.length > 0 ? ` (showing all ${transformedGames.length} available)` : ''}
           </Typography>
 
           {isMobile ? (
