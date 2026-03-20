@@ -3,6 +3,7 @@ import {
   explorerCache,
   rateLimiter,
   circuitBreaker,
+  playerCircuitBreaker,
   EMPTY_EXPLORER_RESPONSE,
 } from '@/lib/explorer-cache';
 
@@ -70,8 +71,12 @@ export async function GET(
 
     // Cache miss or no stale data - fetch from upstream
     try {
+      // Select circuit breaker based on endpoint type
+      const isPlayerEndpoint = path === 'player';
+      const breaker = isPlayerEndpoint ? playerCircuitBreaker : circuitBreaker;
+
       // Check circuit breaker
-      if (circuitBreaker.isOpen()) {
+      if (breaker.isOpen()) {
         // Circuit is open - return cached data if available, or empty fallback
         const fallbackData = cached?.value || EMPTY_EXPLORER_RESPONSE;
         return NextResponse.json(fallbackData, {
@@ -87,10 +92,7 @@ export async function GET(
       await rateLimiter.acquire();
 
       // Fetch from upstream with circuit breaker
-      let upstreamError = false;
-      let upstreamStatus = 200;
-
-      const data = await circuitBreaker.execute(async () => {
+      const data = await breaker.execute(async () => {
         const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
         const fetchHeaders: Record<string, string> = {
@@ -104,9 +106,8 @@ export async function GET(
             fetchHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
           }
 
-          // Player endpoint needs longer timeout (45s) for queue processing
-          const isPlayerEndpoint = path === 'player';
-          const timeout = isPlayerEndpoint ? 45000 : 10000;
+          // Player endpoint needs longer timeout (60s) for queue processing
+          const timeout = isPlayerEndpoint ? 60000 : 10000;
 
           const response = await fetch(targetUrl, {
           method: 'GET',
@@ -114,10 +115,7 @@ export async function GET(
           signal: AbortSignal.timeout(timeout),
         });
 
-        upstreamStatus = response.status;
-
         if (!response.ok) {
-          upstreamError = true;
           throw new Error(`Upstream error: ${response.status}`);
         }
 
@@ -150,31 +148,24 @@ export async function GET(
         return jsonData;
       });
 
-      // Cache the result
+      // Cache only successful responses (never cache errors)
       explorerCache.set(cacheKey, data);
 
-      // Add upstream error indicator if applicable
-      const responseData = upstreamError ? { ...data, _upstreamError: true } : data;
-
-      const headers: Record<string, string> = {
-        'Cache-Control': 'public, max-age=3600',
-        'X-Cache': 'MISS',
-      };
-      if (upstreamError) {
-        headers['X-Explorer-Status'] = `upstream-error-${upstreamStatus}`;
-      }
-
-      return NextResponse.json(responseData, {
+      return NextResponse.json(data, {
         status: 200,
-        headers,
+        headers: {
+          'Cache-Control': 'public, max-age=3600',
+          'X-Cache': 'MISS',
+        },
       });
     } catch (error) {
       // On error, return cached data if available, or empty fallback
+      // Do NOT cache error responses — let the next request retry fresh
       const fallbackData = { ...(cached?.value || EMPTY_EXPLORER_RESPONSE), _upstreamError: true };
       return NextResponse.json(fallbackData, {
         status: 200,
         headers: {
-          'Cache-Control': 'public, max-age=60',
+          'Cache-Control': 'no-cache',
           'X-Cache': 'ERROR',
           'X-Explorer-Status': 'upstream-error',
         },
@@ -202,8 +193,11 @@ async function backgroundRevalidate(
   queryString: string
 ): Promise<void> {
   try {
+    const isPlayerEndpoint = path === 'player';
+    const breaker = isPlayerEndpoint ? playerCircuitBreaker : circuitBreaker;
+
     // Skip if circuit breaker is open
-    if (circuitBreaker.isOpen()) {
+    if (breaker.isOpen()) {
       return;
     }
 
@@ -211,7 +205,7 @@ async function backgroundRevalidate(
     await rateLimiter.acquire();
 
     // Fetch fresh data
-    const data = await circuitBreaker.execute(async () => {
+    const data = await breaker.execute(async () => {
       const targetUrl = `https://explorer.lichess.org/${path}${queryString ? `?${queryString}` : ''}`;
 
       const revalidateHeaders: Record<string, string> = {
@@ -225,9 +219,8 @@ async function backgroundRevalidate(
         revalidateHeaders['Authorization'] = `Bearer ${process.env.LICHESS_API_TOKEN}`;
       }
 
-      // Player endpoint needs longer timeout (45s) for queue processing
-      const isPlayerEndpoint = path === 'player';
-      const timeout = isPlayerEndpoint ? 45000 : 10000;
+      // Player endpoint needs longer timeout (60s) for queue processing
+      const timeout = isPlayerEndpoint ? 60000 : 10000;
 
       const response = await fetch(targetUrl, {
         method: 'GET',
@@ -240,16 +233,13 @@ async function backgroundRevalidate(
       }
 
       // Player endpoint returns NDJSON (newline-delimited JSON streaming)
-      // Parse all lines and return the last non-empty one (final result)
       if (isPlayerEndpoint) {
         const text = await response.text();
         const lines = text.split('\n').filter(line => line.trim());
         if (lines.length === 0) {
           throw new Error('Empty NDJSON response');
         }
-        // Parse the last line (final result with all data)
         const finalResult = JSON.parse(lines[lines.length - 1]);
-        // Normalize: map recentGames to topGames for frontend compatibility
         if (finalResult.recentGames && !finalResult.topGames) {
           finalResult.topGames = finalResult.recentGames;
         }
@@ -259,7 +249,6 @@ async function backgroundRevalidate(
       // For lichess/masters endpoints: merge recentGames into topGames
       const jsonData = await response.json();
       if (jsonData.recentGames && Array.isArray(jsonData.recentGames)) {
-        // Merge recentGames into topGames, deduplicating by game ID
         const topGames = jsonData.topGames || [];
         const existingIds = new Set(topGames.map((g: any) => g.id));
         const newGames = jsonData.recentGames.filter((g: any) => !existingIds.has(g.id));

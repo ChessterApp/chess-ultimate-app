@@ -245,8 +245,12 @@ export const explorerCache = new LRUCache<any>(2000, 6 * 60 * 60 * 1000);
 // Rate limiter: 10 requests/second
 export const rateLimiter = new TokenBucketRateLimiter(10, 10);
 
-// Circuit breaker: 5 failures in 30s → open for 60s
+// Circuit breaker for masters/lichess: 5 failures in 30s → open for 60s
 export const circuitBreaker = new CircuitBreaker(5, 30000, 60000, 2);
+
+// Separate circuit breaker for player endpoint (slower, queue-based)
+// Higher tolerance: 10 failures in 60s → open for 120s
+export const playerCircuitBreaker = new CircuitBreaker(10, 60000, 120000, 2);
 
 // ============================================================================
 // Empty Fallback Response
