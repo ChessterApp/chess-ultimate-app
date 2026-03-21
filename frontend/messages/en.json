@@ -858,6 +858,10 @@
     "anyColor": "Any color",
     "whiteGames": "White games",
     "blackGames": "Black games",
+    "anyResult": "Any result",
+    "whiteWins": "White wins",
+    "blackWins": "Black wins",
+    "draw": "Draw",
     "searchOpponent": "vs Opponent (optional)",
     "typeAtLeast": "Type at least 3 characters to search",
     "lichessFilters": {

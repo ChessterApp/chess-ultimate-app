@@ -63,15 +63,20 @@ export const StockfishAnalysisTab: React.FC<StockfishAnalysisProps> = ({
     );
 
     // Engine display names mapping (using translations)
+    const engineKeyMap: Record<EngineName, string> = {
+        [EngineName.Stockfish17]: 'stockfish17',
+        [EngineName.Stockfish17Point]: 'stockfish17Point',
+        [EngineName.Stockfish16]: 'stockfish16',
+        [EngineName.Stockfish11]: 'stockfish11',
+    };
+
     const getEngineDisplayName = (engine: EngineName) => {
-        const key = engine.replace(/[-_]/g, '').replace(/\./g, 'Point') as 'stockfish17' | 'stockfish17Point' | 'stockfish16' | 'stockfish11';
-        return t(`engines.${key}`);
+        return t(`engines.${engineKeyMap[engine]}`);
     };
 
     // Engine descriptions (using translations)
     const getEngineDescription = (engine: EngineName) => {
-        const key = engine.replace(/[-_]/g, '').replace(/\./g, 'Point') as 'stockfish17' | 'stockfish17Point' | 'stockfish16' | 'stockfish11';
-        return t(`engineDescriptions.${key}`);
+        return t(`engineDescriptions.${engineKeyMap[engine]}`);
     };
 
     // Handle settings changes with smooth transitions

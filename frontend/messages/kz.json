@@ -849,6 +849,10 @@
     "anyColor": "Кез келген түс",
     "whiteGames": "Ақпен партиялар",
     "blackGames": "Қарамен партиялар",
+    "anyResult": "Кез келген нәтиже",
+    "whiteWins": "Ақ жеңісі",
+    "blackWins": "Қара жеңісі",
+    "draw": "Тең",
     "searchOpponent": "қарсы Қарсылас (міндетті емес)",
     "typeAtLeast": "Іздеу үшін кем дегенде 3 таңба енгізіңіз",
     "lichessFilters": {

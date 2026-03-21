@@ -102,7 +102,7 @@ export default function DebutPage() {
   const [masterGamesLoading, setMasterGamesLoading] = useState(false);
 
   // ─── Master games filters ───
-  const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', opponentName: '', playerColor: '', sortBy: 'rating' });
+  const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', opponentName: '', playerColor: '', result: '', sortBy: 'rating' });
 
   // ─── Move tree (candidates) ───
   const [candidateMoves, setCandidateMoves] = useState<MoveCandidate[]>([]);
@@ -305,7 +305,8 @@ export default function DebutPage() {
       masterGamesFilters.playerColor,
       masterGamesFilters.playerName,
       masterGamesFilters.sortBy,
-      masterGamesFilters.opponentName
+      masterGamesFilters.opponentName,
+      masterGamesFilters.result
     )
       .then((data) => {
         if (!cancelled) {
@@ -418,7 +419,7 @@ export default function DebutPage() {
     setSelectedNodeId(node.id);
     setSelectedNode(node);
     setBoardFen(node.fen);
-    setMasterGamesFilters({ playerName: '', opponentName: '', playerColor: '', sortBy: 'rating' });
+    setMasterGamesFilters({ playerName: '', opponentName: '', playerColor: '', result: '', sortBy: 'rating' });
   }, []);
 
   // Find node by id in tree

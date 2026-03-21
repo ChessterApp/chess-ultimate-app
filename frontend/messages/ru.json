@@ -858,6 +858,10 @@
     "anyColor": "Любой цвет",
     "whiteGames": "Партии белыми",
     "blackGames": "Партии чёрными",
+    "anyResult": "Любой результат",
+    "whiteWins": "Победа белых",
+    "blackWins": "Победа чёрных",
+    "draw": "Ничья",
     "searchOpponent": "против Соперника (необязательно)",
     "typeAtLeast": "Введите не менее 3 символов для поиска",
     "lichessFilters": {

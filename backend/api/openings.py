@@ -406,7 +406,7 @@ def _get_board_hash(fen: str) -> str:
 
 def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
                                       min_rating: int = 0, max_games: int = 10,
-                                      stop_after: int = 500):
+                                      stop_after: int = 500, result: str = None):
     """Generator: yield games progressively from TWIC DB that reach a given FEN."""
     if not check_internal_db_exists():
         return
@@ -422,9 +422,10 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
 
             # 2-step: get IDs first (fast index scan), then fetch details
             pool_size = min(max(max_games * 40, 200), 2000)
+            max_gid = _get_max_game_id(conn)
             id_rows = conn.execute(
-                "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
-                [board_hash, pool_size]
+                "SELECT game_id FROM game_positions WHERE board_hash = ? AND game_id <= ? ORDER BY rowid DESC LIMIT ?",
+                [board_hash, max_gid, pool_size]
             ).fetchall()
             game_ids = [r['game_id'] for r in id_rows]
 
@@ -444,6 +445,10 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
             if eco_filter:
                 query += " AND eco LIKE ?"
                 params.append(f"{eco_filter}%")
+
+            if result:
+                query += " AND result = ?"
+                params.append(result)
 
             query += " ORDER BY date DESC LIMIT ?"
             params.append(max_games)
@@ -480,6 +485,10 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
         if min_rating > 0:
             conditions.append("(white_elo >= ? OR black_elo >= ?)")
             params.extend([min_rating, min_rating])
+
+        if result:
+            conditions.append("result = ?")
+            params.append(result)
 
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
@@ -1893,6 +1902,21 @@ def delete_game_link(game_link_id):
 # In-memory cache for position counts (board_hash -> count)
 _position_count_cache = {}
 
+# Cached max game_id to filter orphaned game_positions entries
+_max_game_id_cache = {'value': None, 'ts': 0}
+
+def _get_max_game_id(conn) -> int:
+    """Get max game_id from games table, cached for 5 minutes."""
+    import time as _time
+    now = _time.time()
+    if _max_game_id_cache['value'] is not None and now - _max_game_id_cache['ts'] < 300:
+        return _max_game_id_cache['value']
+    row = conn.execute("SELECT MAX(id) FROM games").fetchone()
+    val = row[0] if row else 0
+    _max_game_id_cache['value'] = val
+    _max_game_id_cache['ts'] = now
+    return val
+
 @openings_bp.route('/games/by-position', methods=['GET'])
 def games_by_position():
     """Fast lookup: find games that reach a given FEN using the position hash index.
@@ -1909,6 +1933,9 @@ def games_by_position():
         player_color = ''
     player_name = request.args.get('player_name', '').strip()
     sort_by = request.args.get('sort_by', 'rating')
+    result = request.args.get('result', '').strip()
+    if result not in ('1-0', '0-1', '1/2-1/2', ''):
+        result = ''
 
     if not check_internal_db_exists():
         return jsonify({'games': [], 'total': 0, 'indexed': False})
@@ -1981,7 +2008,9 @@ def games_by_position():
 
         # 2-step approach: get limited IDs first, then fetch+sort the small set.
         # For player search, query games table directly to avoid expensive game_positions intersection.
-        pool_size = min(max(limit * 40, 200), 2000)
+        # When result filter is applied, increase pool size to ensure enough candidates
+        pool_multiplier = 80 if result else 40
+        pool_size = min(max(limit * pool_multiplier, 200), 2000)
         if player_name:
             name_pattern = f"%{player_name.lower()}%"
 
@@ -2009,6 +2038,11 @@ def games_by_position():
                 player_filter = "WHERE black_name_normalized LIKE ?"
                 params = [name_pattern]
 
+            # Add result filter if specified
+            if result:
+                player_filter += " AND result = ?"
+                params.append(result)
+
             query = f"SELECT DISTINCT * FROM games {player_filter} AND pgn_offset > 0 ORDER BY {order} LIMIT ?"
             params.append(limit)
 
@@ -2029,8 +2063,10 @@ def games_by_position():
             # Get total count estimate (limit to reasonable value to avoid timeout)
             total_count = 0
             try:
+                # params[:-1] excludes the LIMIT value from the main query
+                count_params = params[:-1]
                 count_query = f"SELECT COUNT(*) as cnt FROM games {player_filter} AND pgn_offset > 0 LIMIT 50000"
-                row = conn.execute(count_query, params[:-1]).fetchone()
+                row = conn.execute(count_query, count_params).fetchone()
                 total_count = row['cnt'] if row else len(games)
             except:
                 total_count = len(games)
@@ -2050,6 +2086,7 @@ def games_by_position():
             # game_positions returns arbitrary rows without ORDER BY, so sorting
             # within that subset gives wrong results (e.g., "newest" shows 2025
             # instead of 2026 because only the first 2000 inserted rows are fetched).
+            # Result filter is also supported here via WHERE result = ?.
             DIRECT_QUERY_THRESHOLD = 50000
             if total > DIRECT_QUERY_THRESHOLD:
                 # Query games table directly — indexes on date, elo exist
@@ -2063,8 +2100,13 @@ def games_by_position():
                     'elo_black': 'black_elo DESC',
                 }
                 order = sort_clauses.get(sort_by, sort_clauses['rating'])
-                query = f"SELECT * FROM games ORDER BY {order} LIMIT ?"
-                params = [limit]
+                where_clause = ""
+                params = []
+                if result:
+                    where_clause = "WHERE result = ?"
+                    params.append(result)
+                query = f"SELECT * FROM games {where_clause} ORDER BY {order} LIMIT ?"
+                params.append(limit)
 
                 timed_out = False
                 games = []
@@ -2093,9 +2135,10 @@ def games_by_position():
             # For less common positions, use game_positions table
             try:
                 query_timeout[1] = time.time()
+                max_gid = _get_max_game_id(conn)
                 id_rows = conn.execute(
-                    "SELECT game_id FROM game_positions WHERE board_hash = ? LIMIT ?",
-                    [board_hash, pool_size]
+                    "SELECT game_id FROM game_positions WHERE board_hash = ? AND game_id <= ? ORDER BY rowid DESC LIMIT ?",
+                    [board_hash, max_gid, pool_size]
                 ).fetchall()
                 game_ids = [r['game_id'] for r in id_rows]
             except sqlite3.OperationalError as e:
@@ -2140,6 +2183,10 @@ def games_by_position():
             if player_name:
                 query += " AND black_name_normalized LIKE ?"
                 params.append(name_pattern)
+
+        if result:
+            query += " AND result = ?"
+            params.append(result)
 
         sort_clauses = {
             'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',

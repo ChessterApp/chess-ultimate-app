@@ -113,7 +113,7 @@ export const TwicExplorer: React.FC<TwicExplorerProps> = ({
           </Typography>
           {candidatesData && (
             <Chip
-              label={`${candidatesData.total_games.toLocaleString()} games`}
+              label={`${(candidatesData.total_games ?? 0).toLocaleString()} games`}
               size="small"
               sx={{ ml: 1 }}
             />
@@ -191,7 +191,7 @@ export const TwicExplorer: React.FC<TwicExplorerProps> = ({
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2">
-                        {move.games.toLocaleString()}
+                        {(move.games ?? 0).toLocaleString()}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">

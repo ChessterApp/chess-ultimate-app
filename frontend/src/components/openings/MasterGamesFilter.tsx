@@ -11,6 +11,7 @@ export interface MasterGamesFilterState {
   playerName: string;
   opponentName: string;
   playerColor: string;
+  result: string;
   sortBy: string;
 }
 
@@ -61,6 +62,13 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
     { value: '', label: t('anyColor') || 'Any Color' },
     { value: 'white', label: t('whiteGames') || 'White Games' },
     { value: 'black', label: t('blackGames') || 'Black Games' },
+  ];
+
+  const resultOptions = [
+    { value: '', label: t('anyResult') || 'Any Result' },
+    { value: '1-0', label: t('whiteWins') || 'White Wins' },
+    { value: '0-1', label: t('blackWins') || 'Black Wins' },
+    { value: '1/2-1/2', label: t('draw') || 'Draw' },
   ];
 
   const sortOptions = [
@@ -157,7 +165,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
         )}
       </Box>
 
-      {/* Player Color + Sort row */}
+      {/* Player Color + Result + Sort row */}
       <Box sx={{ display: 'flex', gap: 0.75 }}>
         <FormControl size="small" sx={{ flex: 1 }}>
           <Select
@@ -167,6 +175,21 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
             MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
           >
             {colorOptions.map(opt => (
+              <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
+                {opt.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl size="small" sx={{ flex: 1 }}>
+          <Select
+            value={filters.result}
+            onChange={(e) => onFilterChange({ ...filters, result: e.target.value })}
+            sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
+            MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
+          >
+            {resultOptions.map(opt => (
               <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
                 {opt.label}
               </MenuItem>

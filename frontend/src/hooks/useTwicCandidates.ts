@@ -88,10 +88,12 @@ export function useTwicCandidates({
 
         if (!cancelled) {
           // Calculate percentages if not already present
-          const movesWithPercentages = result.moves?.map((move: TwicCandidate) => {
-            const total = move.games || 1;
+          const movesWithPercentages = result.moves?.map((move: any) => {
+            const games = move.games ?? move.count ?? 0;
+            const total = games || 1;
             return {
               ...move,
+              games,
               win_rate: ((move.white_wins || 0) / total) * 100,
               draw_rate: ((move.draws || 0) / total) * 100,
               loss_rate: ((move.black_wins || 0) / total) * 100,

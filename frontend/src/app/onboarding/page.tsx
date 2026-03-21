@@ -10,14 +10,14 @@ import { useGameData } from "@/lib/onboarding/GameDataContext";
 import { getMostPlayedOpenings } from "@/lib/onboarding/gameFetcher";
 import { translateOpeningName } from "@/lib/openings/openingNamesI18n";
 
-const TOTAL_STEPS = 19;
+const TOTAL_STEPS = 16;
 
 const STEP_GROUPS = [
   { start: 1, end: 3 },   // About You (welcome, attribution, experience)
   { start: 4, end: 8 },   // Your Game (platform, username, ELO rating, focus, challenge)
   { start: 9, end: 11 },  // Goals (practice time, goal, timeline)
   { start: 12, end: 15 }, // Assessment (puzzle, skill profile, building plan, opening DNA)
-  { start: 16, end: 19 }, // Your Plan (custom plan, paywalls)
+  { start: 16, end: 16 }, // Your Plan (custom plan)
 ];
 
 export default function OnboardingPage() {
