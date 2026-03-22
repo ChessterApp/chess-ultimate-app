@@ -4,8 +4,8 @@ import { useEffect } from 'react';
 export default function ServiceWorkerRegistration() {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
-      // v=4 cache buster forces refetch of sw.js (bypasses stale cache versions)
-      navigator.serviceWorker.register('/sw.js?v=4').catch(() => {});
+      const v = process.env.NEXT_PUBLIC_ASSET_VERSION || '1';
+      navigator.serviceWorker.register('/sw.js?v=' + v).catch(() => {});
     }
   }, []);
   return null;

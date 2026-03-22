@@ -19,8 +19,8 @@ describe('Service Worker Precaching', () => {
     swContent = readFileSync(swPath, 'utf-8')
   })
 
-  it('defines the correct cache version', () => {
-    expect(swContent).toContain("const CACHE_NAME = 'chesster-v5'")
+  it('defines the correct cache version placeholder', () => {
+    expect(swContent).toContain("const CACHE_NAME = 'chesster-__BUILD_HASH__'")
   })
 
   it('precaches the homepage', () => {
@@ -82,7 +82,7 @@ describe('Service Worker Registration Component', () => {
     const registrationPath = join(process.cwd(), 'src', 'components', 'ServiceWorkerRegistration.tsx')
     const registrationContent = readFileSync(registrationPath, 'utf-8')
 
-    // Verify the cache buster version matches the service worker version
-    expect(registrationContent).toContain("navigator.serviceWorker.register('/sw.js?v=4'")
+    // Verify the registration uses dynamic versioning
+    expect(registrationContent).toContain("process.env.NEXT_PUBLIC_ASSET_VERSION")
   })
 })

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'chesster-v6';
+const CACHE_NAME = 'chesster-__BUILD_HASH__';
 const SHELL_ASSETS = [
   '/',
   '/dashboard',
