@@ -2107,7 +2107,10 @@ def games_by_position():
                 params.append(result)
 
             where = " AND ".join(conditions) if conditions else "1=1"
-            candidate_query = f"SELECT id FROM games WHERE {where} ORDER BY {order} LIMIT 5000"
+            # Don't ORDER BY here — sorting happens in step 3. Omitting ORDER BY
+            # lets SQLite use the name index for LIKE queries instead of scanning
+            # the date index (which is O(total_rows) for rare names).
+            candidate_query = f"SELECT id FROM games WHERE {where} LIMIT 5000"
 
             timed_out = False
             candidate_ids = []
