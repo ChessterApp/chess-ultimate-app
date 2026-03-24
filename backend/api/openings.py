@@ -2311,6 +2311,24 @@ def get_game_pgn(game_id):
         return jsonify({'error': str(e)}), 500
 
 
+@openings_bp.route('/games/lichess/<game_id>/pgn', methods=['GET'])
+@verify_clerk_token
+@with_cache(max_age=3600)
+def get_lichess_game_pgn(game_id):
+    """Fetch PGN for a Lichess game on demand."""
+    try:
+        resp = requests.get(
+            f'https://lichess.org/game/export/{game_id}',
+            headers={'Accept': 'application/x-chess-pgn'},
+            timeout=10
+        )
+        if resp.status_code != 200:
+            return jsonify({'error': f'Lichess returned {resp.status_code}'}), resp.status_code
+        return jsonify({'pgn': resp.text})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @openings_bp.route('/games/position-count', methods=['GET'])
 @verify_clerk_token
 @with_cache(max_age=300)

@@ -326,6 +326,11 @@ export function useOpeningRepertoire() {
     return data.pgn;
   }, []);
 
+  const fetchLichessPgn = useCallback(async (gameId: string): Promise<string> => {
+    const data = await fetchWithAuth<{ pgn: string }>(`/games/lichess/${gameId}/pgn`);
+    return data.pgn;
+  }, []);
+
   const searchGames = useCallback(async (
     source: string,
     fen: string,
@@ -507,6 +512,7 @@ export function useOpeningRepertoire() {
     fetchGamesByPosition,
     fetchPositionCount,
     fetchGamePgn,
+    fetchLichessPgn,
     searchGames,
     searchGamesStream,
     linkGame,

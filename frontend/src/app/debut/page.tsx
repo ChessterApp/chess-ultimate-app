@@ -155,7 +155,7 @@ export default function DebutPage() {
     addNode, updateNode, deleteNode,
     importPgn, exportPgn,
     addArrow, deleteArrow,
-    fetchGamesByPosition, fetchPositionCount, fetchGamePgn,
+    fetchGamesByPosition, fetchPositionCount, fetchGamePgn, fetchLichessPgn,
     searchGamesStream, linkGame, getNodeGames, deleteGameLink,
     fetchCandidateMoves,
   } = useOpeningRepertoire();
@@ -860,6 +860,17 @@ export default function DebutPage() {
         pgnText = await fetchGamePgn(Number(game.id));
       } catch (e: any) {
         setSnackbar({ open: true, msg: e.message || 'Failed to load PGN', severity: 'error' });
+        return;
+      }
+    }
+
+    // Fetch PGN for Lichess games on demand
+    if (!pgnText && game.source === 'lichess' && game.id) {
+      try {
+        setSnackbar({ open: true, msg: 'Loading game from Lichess...', severity: 'success' });
+        pgnText = await fetchLichessPgn(String(game.id));
+      } catch (e: any) {
+        setSnackbar({ open: true, msg: e.message || 'Failed to load Lichess PGN', severity: 'error' });
         return;
       }
     }
