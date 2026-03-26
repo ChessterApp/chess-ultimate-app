@@ -171,6 +171,8 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
           <Select
             value={filters.playerColor}
             onChange={(e) => onFilterChange({ ...filters, playerColor: e.target.value })}
+            displayEmpty
+            renderValue={(val) => val === '' ? <span style={{ opacity: 1 }}>{t('anyColor') || 'Any Color'}</span> : colorOptions.find(o => o.value === val)?.label}
             sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
             MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
           >
@@ -186,6 +188,8 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
           <Select
             value={filters.result}
             onChange={(e) => onFilterChange({ ...filters, result: e.target.value })}
+            displayEmpty
+            renderValue={(val) => val === '' ? <span style={{ opacity: 1 }}>{t('anyResult') || 'Any Result'}</span> : resultOptions.find(o => o.value === val)?.label}
             sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
             MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
           >
