@@ -1942,6 +1942,12 @@ def games_by_position():
     if result not in ('1-0', '0-1', '1/2-1/2', ''):
         result = ''
 
+    # ELO range filters
+    white_elo_min = int(request.args.get('white_elo_min', 0))
+    white_elo_max = int(request.args.get('white_elo_max', 3500))
+    black_elo_min = int(request.args.get('black_elo_min', 0))
+    black_elo_max = int(request.args.get('black_elo_max', 3500))
+
     if not check_internal_db_exists():
         return jsonify({'games': [], 'total': 0, 'indexed': False})
 
@@ -2018,7 +2024,8 @@ def games_by_position():
         # Always use position intersection — even for player searches.
         # The old code skipped game_positions when player_name was set, returning
         # ALL games by that player regardless of board position.
-        has_filters = bool(player_name or opponent_name or player_color or result)
+        has_elo_filters = (white_elo_min != 0 or white_elo_max != 3500 or black_elo_min != 0 or black_elo_max != 3500)
+        has_filters = bool(player_name or opponent_name or player_color or result or has_elo_filters)
 
         # For very common positions (>50K games) WITHOUT filters, skip game_positions
         # and query games table directly. But when filters are active, always use
@@ -2029,8 +2036,6 @@ def games_by_position():
                 'rating': 'white_elo DESC',
                 'date_desc': 'date DESC',
                 'date_asc': 'date ASC',
-                'elo_white': 'white_elo DESC',
-                'elo_black': 'black_elo DESC',
             }
             order = sort_clauses.get(sort_by, sort_clauses['rating'])
             query = f"SELECT * FROM games ORDER BY {order} LIMIT ?"
@@ -2070,8 +2075,6 @@ def games_by_position():
                 'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
                 'date_desc': 'date DESC',
                 'date_asc': 'date ASC',
-                'elo_white': 'COALESCE(white_elo, 0) DESC',
-                'elo_black': 'COALESCE(black_elo, 0) DESC',
             }
             order = sort_clauses.get(sort_by, sort_clauses['rating'])
 
@@ -2106,6 +2109,20 @@ def games_by_position():
             if result:
                 conditions.append("result = ?")
                 params.append(result)
+
+            # ELO range filters
+            if white_elo_min != 0:
+                conditions.append("white_elo >= ?")
+                params.append(white_elo_min)
+            if white_elo_max != 3500:
+                conditions.append("white_elo <= ?")
+                params.append(white_elo_max)
+            if black_elo_min != 0:
+                conditions.append("black_elo >= ?")
+                params.append(black_elo_min)
+            if black_elo_max != 3500:
+                conditions.append("black_elo <= ?")
+                params.append(black_elo_max)
 
             where = " AND ".join(conditions) if conditions else "1=1"
             # Don't ORDER BY here — sorting happens in step 3. Omitting ORDER BY
@@ -2234,8 +2251,6 @@ def games_by_position():
             'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
             'date_desc': 'date DESC',
             'date_asc': 'date ASC',
-            'elo_white': 'COALESCE(white_elo, 0) DESC',
-            'elo_black': 'COALESCE(black_elo, 0) DESC',
         }
         order = sort_clauses.get(sort_by, sort_clauses['rating'])
         query += f" ORDER BY {order} LIMIT ?"

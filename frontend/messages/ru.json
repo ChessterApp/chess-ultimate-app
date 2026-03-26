@@ -864,6 +864,9 @@
     "draw": "Ничья",
     "searchOpponent": "против Соперника (необязательно)",
     "typeAtLeast": "Введите не менее 3 символов для поиска",
+    "rating": "Рейтинг",
+    "whiteElo": "ELO белых",
+    "blackElo": "ELO чёрных",
     "lichessFilters": {
       "rating": "Диапазон рейтинга",
       "speed": "Скорость игры",

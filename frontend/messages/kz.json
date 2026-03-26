@@ -855,6 +855,9 @@
     "draw": "Тең",
     "searchOpponent": "қарсы Қарсылас (міндетті емес)",
     "typeAtLeast": "Іздеу үшін кем дегенде 3 таңба енгізіңіз",
+    "rating": "Рейтинг",
+    "whiteElo": "Ақ ELO",
+    "blackElo": "Қара ELO",
     "lichessFilters": {
       "rating": "Рейтинг диапазоны",
       "speed": "Ойын жылдамдығы",

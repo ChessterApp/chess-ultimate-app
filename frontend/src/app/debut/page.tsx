@@ -102,7 +102,17 @@ export default function DebutPage() {
   const [masterGamesLoading, setMasterGamesLoading] = useState(false);
 
   // ─── Master games filters ───
-  const [masterGamesFilters, setMasterGamesFilters] = useState({ playerName: '', opponentName: '', playerColor: '', result: '', sortBy: 'rating' });
+  const [masterGamesFilters, setMasterGamesFilters] = useState({
+    playerName: '',
+    opponentName: '',
+    playerColor: '',
+    result: '',
+    sortBy: 'rating',
+    whiteEloMin: 0,
+    whiteEloMax: 3500,
+    blackEloMin: 0,
+    blackEloMax: 3500
+  });
 
   // ─── Move tree (candidates) ───
   const [candidateMoves, setCandidateMoves] = useState<MoveCandidate[]>([]);
@@ -306,7 +316,11 @@ export default function DebutPage() {
       masterGamesFilters.playerName,
       masterGamesFilters.sortBy,
       masterGamesFilters.opponentName,
-      masterGamesFilters.result
+      masterGamesFilters.result,
+      masterGamesFilters.whiteEloMin,
+      masterGamesFilters.whiteEloMax,
+      masterGamesFilters.blackEloMin,
+      masterGamesFilters.blackEloMax
     )
       .then((data) => {
         if (!cancelled) {
@@ -419,7 +433,17 @@ export default function DebutPage() {
     setSelectedNodeId(node.id);
     setSelectedNode(node);
     setBoardFen(node.fen);
-    setMasterGamesFilters({ playerName: '', opponentName: '', playerColor: '', result: '', sortBy: 'rating' });
+    setMasterGamesFilters({
+      playerName: '',
+      opponentName: '',
+      playerColor: '',
+      result: '',
+      sortBy: 'rating',
+      whiteEloMin: 0,
+      whiteEloMax: 3500,
+      blackEloMin: 0,
+      blackEloMax: 3500
+    });
   }, []);
 
   // Find node by id in tree

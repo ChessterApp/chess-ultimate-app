@@ -303,7 +303,11 @@ export function useOpeningRepertoire() {
     playerName: string = '',
     sortBy: string = 'rating',
     opponentName: string = '',
-    result: string = ''
+    result: string = '',
+    whiteEloMin: number = 0,
+    whiteEloMax: number = 3500,
+    blackEloMin: number = 0,
+    blackEloMax: number = 3500
   ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }> => {
     const params = new URLSearchParams({ fen, limit: String(limit) });
     if (playerColor) params.set('player_color', playerColor);
@@ -311,6 +315,11 @@ export function useOpeningRepertoire() {
     if (opponentName) params.set('opponent_name', opponentName);
     if (sortBy && sortBy !== 'rating') params.set('sort_by', sortBy);
     if (result) params.set('result', result);
+    // Only send ELO params when they differ from defaults
+    if (whiteEloMin !== 0) params.set('white_elo_min', String(whiteEloMin));
+    if (whiteEloMax !== 3500) params.set('white_elo_max', String(whiteEloMax));
+    if (blackEloMin !== 0) params.set('black_elo_min', String(blackEloMin));
+    if (blackEloMax !== 3500) params.set('black_elo_max', String(blackEloMax));
     const data = await fetchWithAuth<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`, { timeout: 120000 });
     return data;
   }, []);

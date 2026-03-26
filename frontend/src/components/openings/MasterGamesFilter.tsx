@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, TextField, InputAdornment, Select, MenuItem, FormControl,
+  Box, TextField, InputAdornment, Select, MenuItem, FormControl, Chip, Collapse, Slider, Typography,
 } from '@mui/material';
-import { Search } from '@mui/icons-material';
+import { Search, TuneRounded } from '@mui/icons-material';
 
 export interface MasterGamesFilterState {
   playerName: string;
@@ -13,6 +13,10 @@ export interface MasterGamesFilterState {
   playerColor: string;
   result: string;
   sortBy: string;
+  whiteEloMin: number;
+  whiteEloMax: number;
+  blackEloMin: number;
+  blackEloMax: number;
 }
 
 interface MasterGamesFilterProps {
@@ -24,6 +28,9 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   const t = useTranslations('debut');
   const [localPlayerName, setLocalPlayerName] = useState(filters.playerName);
   const [localOpponentName, setLocalOpponentName] = useState(filters.opponentName);
+  const [ratingExpanded, setRatingExpanded] = useState(false);
+  const [localWhiteElo, setLocalWhiteElo] = useState<[number, number]>([filters.whiteEloMin, filters.whiteEloMax]);
+  const [localBlackElo, setLocalBlackElo] = useState<[number, number]>([filters.blackEloMin, filters.blackEloMax]);
 
   // Debounce player name input: only fire API call after 300ms of no typing
   // AND only if length is 0 (cleared) OR >= 3 characters
@@ -58,6 +65,31 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
     setLocalOpponentName(filters.opponentName);
   }, [filters.opponentName]);
 
+  // Debounce white ELO slider (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onFilterChange({ ...filters, whiteEloMin: localWhiteElo[0], whiteEloMax: localWhiteElo[1] });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localWhiteElo]);
+
+  // Debounce black ELO slider (300ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onFilterChange({ ...filters, blackEloMin: localBlackElo[0], blackEloMax: localBlackElo[1] });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localBlackElo]);
+
+  // Sync ELO ranges from parent
+  useEffect(() => {
+    setLocalWhiteElo([filters.whiteEloMin, filters.whiteEloMax]);
+  }, [filters.whiteEloMin, filters.whiteEloMax]);
+
+  useEffect(() => {
+    setLocalBlackElo([filters.blackEloMin, filters.blackEloMax]);
+  }, [filters.blackEloMin, filters.blackEloMax]);
+
   const colorOptions = [
     { value: '', label: t('anyColor') || 'Any Color' },
     { value: 'white', label: t('whiteGames') || 'White Games' },
@@ -75,8 +107,6 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
     { value: 'rating', label: t('highestRated') },
     { value: 'date_desc', label: t('newestFirst') },
     { value: 'date_asc', label: t('oldestFirst') },
-    { value: 'elo_white', label: t('whiteRating') },
-    { value: 'elo_black', label: t('blackRating') },
   ];
 
   const selectSx = {
@@ -215,6 +245,104 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
             ))}
           </Select>
         </FormControl>
+      </Box>
+
+      {/* Rating section - collapsible */}
+      <Box sx={{ mt: 0.5 }}>
+        <Box sx={{ position: 'relative', display: 'inline-block' }}>
+          <Chip
+            icon={<TuneRounded sx={{ fontSize: 16 }} />}
+            label={t('rating')}
+            onClick={() => setRatingExpanded(!ratingExpanded)}
+            sx={{
+              height: 28,
+              fontSize: 12,
+              bgcolor: 'background.paper',
+              color: 'text.secondary',
+              border: '1px solid',
+              borderColor: 'divider',
+              cursor: 'pointer',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' },
+              '& .MuiChip-icon': { color: 'primary.main' },
+            }}
+          />
+          {/* Active indicator dot */}
+          {(localWhiteElo[0] !== 0 || localWhiteElo[1] !== 3500 || localBlackElo[0] !== 0 || localBlackElo[1] !== 3500) && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                bgcolor: 'primary.main',
+              }}
+            />
+          )}
+        </Box>
+
+        <Collapse in={ratingExpanded}>
+          <Box sx={{ mt: 1, px: 1, py: 1.5, bgcolor: 'background.paper', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
+            {/* White ELO slider */}
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 600, mb: 0.5, display: 'block' }}>
+                {t('whiteElo')}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.primary', fontSize: 12, mb: 1, display: 'block' }}>
+                {localWhiteElo[0]} - {localWhiteElo[1]}
+              </Typography>
+              <Slider
+                value={localWhiteElo}
+                onChange={(_, newValue) => setLocalWhiteElo(newValue as [number, number])}
+                min={0}
+                max={3500}
+                step={50}
+                valueLabelDisplay="auto"
+                sx={{
+                  color: 'primary.main',
+                  '& .MuiSlider-thumb': {
+                    width: 16,
+                    height: 16,
+                  },
+                  '& .MuiSlider-valueLabel': {
+                    fontSize: 11,
+                    bgcolor: 'primary.main',
+                  },
+                }}
+              />
+            </Box>
+
+            {/* Black ELO slider */}
+            <Box>
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 600, mb: 0.5, display: 'block' }}>
+                {t('blackElo')}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.primary', fontSize: 12, mb: 1, display: 'block' }}>
+                {localBlackElo[0]} - {localBlackElo[1]}
+              </Typography>
+              <Slider
+                value={localBlackElo}
+                onChange={(_, newValue) => setLocalBlackElo(newValue as [number, number])}
+                min={0}
+                max={3500}
+                step={50}
+                valueLabelDisplay="auto"
+                sx={{
+                  color: 'primary.main',
+                  '& .MuiSlider-thumb': {
+                    width: 16,
+                    height: 16,
+                  },
+                  '& .MuiSlider-valueLabel': {
+                    fontSize: 11,
+                    bgcolor: 'primary.main',
+                  },
+                }}
+              />
+            </Box>
+          </Box>
+        </Collapse>
       </Box>
     </Box>
   );

@@ -864,6 +864,9 @@
     "draw": "Draw",
     "searchOpponent": "vs Opponent (optional)",
     "typeAtLeast": "Type at least 3 characters to search",
+    "rating": "Rating",
+    "whiteElo": "White ELO",
+    "blackElo": "Black ELO",
     "lichessFilters": {
       "rating": "Rating Range",
       "speed": "Game Speed",
