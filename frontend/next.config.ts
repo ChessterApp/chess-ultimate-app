@@ -72,6 +72,10 @@ const nextConfig = {
                 headers: ENGINE_HEADERS,
             },
             {
+                source: '/debut/:path*',
+                headers: ENGINE_HEADERS,
+            },
+            {
                 // Other static assets (engines, etc.) — long cache is fine
                 source: '/static/:path*',
                 headers: ENGINE_HEADERS.concat(

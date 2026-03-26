@@ -10,6 +10,7 @@ import json
 import sqlite3
 import logging
 import time
+import traceback
 import uuid
 import math
 from datetime import datetime, timedelta
@@ -839,7 +840,7 @@ def list_repertoires():
 
         return jsonify({'repertoires': repertoires})
     except Exception as e:
-        logger.error(f"Error listing repertoires: {e}")
+        logger.error(f"Error listing repertoires: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -889,7 +890,7 @@ def create_repertoire():
             'root_node': root_result.data[0] if root_result.data else None,
         }), 201
     except Exception as e:
-        logger.error(f"Error creating repertoire: {e}")
+        logger.error(f"Error creating repertoire: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -946,7 +947,7 @@ def get_repertoire(repertoire_id):
             'tree': tree,
         })
     except Exception as e:
-        logger.error(f"Error getting repertoire: {e}")
+        logger.error(f"Error getting repertoire: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -1470,7 +1471,7 @@ def add_node():
             return jsonify({'error': 'Failed to create node'}), 500
 
     except Exception as e:
-        logger.error(f"Error adding node: {e}")
+        logger.error(f"Error adding node: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
