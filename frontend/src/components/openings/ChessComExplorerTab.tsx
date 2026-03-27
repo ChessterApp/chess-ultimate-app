@@ -51,16 +51,20 @@ export default function ChessComExplorerTab({
   // Filters
   const [timeControl, setTimeControl] = useState<string>('all');
   const [minRating, setMinRating] = useState<string>('');
+  const [archiveMonths, setArchiveMonths] = useState<number>(6); // Default 6 months
+  const [playerColor, setPlayerColor] = useState<string>(''); // white/black/both
+  const [resultFilter, setResultFilter] = useState<string>(''); // win/draw/loss/all
 
   const { games, loading, error, retry, progress } = useChessComExplorer({
     username: searchUsername,
     enabled: !!searchUsername,
+    maxMonths: archiveMonths >= 999 ? undefined : archiveMonths,
   });
 
   // Reset page when username or filters change
   useEffect(() => {
     setGamesPage(0);
-  }, [searchUsername, timeControl, minRating]);
+  }, [searchUsername, timeControl, minRating, playerColor, resultFilter]);
 
   // Client-side filtering
   const filteredGames = useMemo(() => {
@@ -85,8 +89,30 @@ export default function ChessComExplorerTab({
       }
     }
 
+    // Filter by player color
+    if (playerColor && searchUsername) {
+      const uLower = searchUsername.toLowerCase();
+      filtered = filtered.filter((g) => {
+        if (playerColor === 'white') return g.white?.toLowerCase() === uLower;
+        if (playerColor === 'black') return g.black?.toLowerCase() === uLower;
+        return true;
+      });
+    }
+
+    // Filter by result
+    if (resultFilter && searchUsername) {
+      const uLower = searchUsername.toLowerCase();
+      filtered = filtered.filter((g) => {
+        const isWhite = g.white?.toLowerCase() === uLower;
+        if (resultFilter === 'win') return (isWhite && g.result === '1-0') || (!isWhite && g.result === '0-1');
+        if (resultFilter === 'loss') return (isWhite && g.result === '0-1') || (!isWhite && g.result === '1-0');
+        if (resultFilter === 'draw') return g.result === '½-½' || g.result === '1/2-1/2';
+        return true;
+      });
+    }
+
     return filtered;
-  }, [games, timeControl, minRating]);
+  }, [games, timeControl, minRating, playerColor, resultFilter, searchUsername]);
 
   const visibleGames = filteredGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE);
   const totalPages = Math.ceil(filteredGames.length / GAMES_PER_PAGE);
@@ -151,6 +177,68 @@ export default function ChessComExplorerTab({
         >
           Search
         </Button>
+      </Box>
+
+      {/* Period selector - always visible */}
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+        <FormControl size="small" sx={{ minWidth: 120 }}>
+          <Select
+            value={archiveMonths}
+            onChange={(e) => setArchiveMonths(e.target.value as number)}
+            sx={{
+              fontSize: 11,
+              height: 32,
+              bgcolor: 'rgba(255,255,255,0.03)',
+              color: 'text.primary',
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <MenuItem value={1} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.period1Month', { defaultMessage: '1 month' })}</MenuItem>
+            <MenuItem value={3} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.period3Months', { defaultMessage: '3 months' })}</MenuItem>
+            <MenuItem value={6} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.period6Months', { defaultMessage: '6 months' })}</MenuItem>
+            <MenuItem value={12} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.period12Months', { defaultMessage: '12 months' })}</MenuItem>
+            <MenuItem value={24} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.period24Months', { defaultMessage: '24 months' })}</MenuItem>
+            <MenuItem value={36} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.period36Months', { defaultMessage: '36 months' })}</MenuItem>
+            <MenuItem value={999} sx={{ fontSize: 11 }}>{t('onlineSearchFilters.periodAll', { defaultMessage: 'All' })}</MenuItem>
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 100 }}>
+          <Select
+            value={playerColor}
+            onChange={(e) => setPlayerColor(e.target.value)}
+            displayEmpty
+            sx={{
+              fontSize: 11,
+              height: 32,
+              bgcolor: 'rgba(255,255,255,0.03)',
+              color: 'text.primary',
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <MenuItem value="" sx={{ fontSize: 11 }}>{t('anyColor', { defaultMessage: 'Any color' })}</MenuItem>
+            <MenuItem value="white" sx={{ fontSize: 11 }}>{t('white', { defaultMessage: 'White' })}</MenuItem>
+            <MenuItem value="black" sx={{ fontSize: 11 }}>{t('black', { defaultMessage: 'Black' })}</MenuItem>
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 100 }}>
+          <Select
+            value={resultFilter}
+            onChange={(e) => setResultFilter(e.target.value)}
+            displayEmpty
+            sx={{
+              fontSize: 11,
+              height: 32,
+              bgcolor: 'rgba(255,255,255,0.03)',
+              color: 'text.primary',
+              '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+            }}
+          >
+            <MenuItem value="" sx={{ fontSize: 11 }}>{t('anyResult', { defaultMessage: 'Any result' })}</MenuItem>
+            <MenuItem value="win" sx={{ fontSize: 11 }}>{t('resultWin', { defaultMessage: 'Win' })}</MenuItem>
+            <MenuItem value="draw" sx={{ fontSize: 11 }}>{t('resultDraw', { defaultMessage: 'Draw' })}</MenuItem>
+            <MenuItem value="loss" sx={{ fontSize: 11 }}>{t('resultLoss', { defaultMessage: 'Loss' })}</MenuItem>
+          </Select>
+        </FormControl>
       </Box>
 
       {/* Filters - collapsible on mobile */}

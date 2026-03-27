@@ -40,6 +40,7 @@ export interface ChessComMonthData {
 export interface UseChessComExplorerOptions {
   username: string;
   enabled?: boolean;
+  maxMonths?: number; // Limit how many months to fetch (default: all)
 }
 
 export interface UseChessComExplorerResult {
@@ -100,6 +101,7 @@ function transformGame(game: ChessComGame): GameSearchResult {
 export function useChessComExplorer({
   username,
   enabled = true,
+  maxMonths,
 }: UseChessComExplorerOptions): UseChessComExplorerResult {
   const [games, setGames] = useState<GameSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -164,15 +166,18 @@ export function useChessComExplorer({
 
         // Step 2: Fetch months progressively (newest first)
         const allGames: GameSearchResult[] = [];
-        const totalMonths = archives.length;
 
-        // Reverse to get newest first
+        // Reverse to get newest first, limit by maxMonths if set
         const reversedArchives = [...archives].reverse();
+        const limitedArchives = maxMonths && maxMonths < reversedArchives.length
+          ? reversedArchives.slice(0, maxMonths)
+          : reversedArchives;
+        const totalMonths = limitedArchives.length;
 
-        for (let i = 0; i < reversedArchives.length; i++) {
+        for (let i = 0; i < limitedArchives.length; i++) {
           if (cancelled) break;
 
-          const archiveUrl = reversedArchives[i];
+          const archiveUrl = limitedArchives[i];
           // Extract YYYY/MM from URL (e.g., "https://api.chess.com/pub/player/{username}/games/2024/03")
           const match = archiveUrl.match(/\/games\/(\d{4})\/(\d{2})$/);
           if (!match) continue;
@@ -236,7 +241,7 @@ export function useChessComExplorer({
       cancelled = true;
       controller.abort();
     };
-  }, [username, enabled, retryTrigger]);
+  }, [username, enabled, retryTrigger, maxMonths]);
 
   return { games, loading, error, retry, progress };
 }
