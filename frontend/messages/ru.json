@@ -906,7 +906,24 @@
       "title": "База партий мастеров",
       "subtitle": "Изучайте 100М+ позиций из партий мастеров",
       "moveHistory": "История ходов"
-    }
+    },
+    "onlineSearchFilters": {
+      "period1Month": "1 месяц",
+      "period3Months": "3 месяца",
+      "period6Months": "6 месяцев",
+      "period12Months": "12 месяцев",
+      "period24Months": "24 месяца",
+      "period36Months": "36 месяцев",
+      "periodAll": "Все",
+      "resultWin": "Победа",
+      "resultLoss": "Поражение"
+    },
+    "masterGamesAdvanced": "Расширенные фильтры",
+    "masterGamesDateFrom": "С года (напр. 2020)",
+    "masterGamesDateTo": "До года (напр. 2024)",
+    "masterGamesEcoCode": "ECO код (напр. B90)",
+    "masterGamesEvent": "Турнир (напр. ЧМ)",
+    "typeAtLeast2": "Введите не менее 2 символов"
   },
   "onboarding": {
     "continue": "Продолжить",

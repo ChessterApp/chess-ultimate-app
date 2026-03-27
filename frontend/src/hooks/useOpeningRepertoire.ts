@@ -307,7 +307,11 @@ export function useOpeningRepertoire() {
     whiteEloMin: number = 0,
     whiteEloMax: number = 3500,
     blackEloMin: number = 0,
-    blackEloMax: number = 3500
+    blackEloMax: number = 3500,
+    dateFrom: string = '',
+    dateTo: string = '',
+    ecoCode: string = '',
+    eventName: string = ''
   ): Promise<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }> => {
     const params = new URLSearchParams({ fen, limit: String(limit) });
     if (playerColor) params.set('player_color', playerColor);
@@ -320,6 +324,11 @@ export function useOpeningRepertoire() {
     if (whiteEloMax !== 3500) params.set('white_elo_max', String(whiteEloMax));
     if (blackEloMin !== 0) params.set('black_elo_min', String(blackEloMin));
     if (blackEloMax !== 3500) params.set('black_elo_max', String(blackEloMax));
+    // New filters
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    if (ecoCode) params.set('eco_code', ecoCode);
+    if (eventName) params.set('event_name', eventName);
     const data = await fetchWithAuth<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`, { timeout: 120000 });
     return data;
   }, []);
@@ -355,7 +364,15 @@ export function useOpeningRepertoire() {
   const searchGamesStream = useCallback((
     source: string,
     fen: string,
-    opts: { eco?: string; minRating?: number; username?: string; maxGames?: number } | undefined,
+    opts: {
+      eco?: string;
+      minRating?: number;
+      username?: string;
+      maxGames?: number;
+      archiveMonths?: number;
+      playerColor?: string;
+      resultFilter?: string;
+    } | undefined,
     onGame: (game: GameSearchResult) => void,
     onProgress: (progress: { checked: number; found: number }) => void
   ): (() => void) => {
@@ -364,6 +381,9 @@ export function useOpeningRepertoire() {
     if (opts?.minRating) params.set('min_rating', String(opts.minRating));
     if (opts?.username) params.set('username', opts.username);
     if (opts?.maxGames) params.set('max_games', String(opts.maxGames));
+    if (opts?.archiveMonths) params.set('archive_months', String(opts.archiveMonths));
+    if (opts?.playerColor) params.set('player_color', opts.playerColor);
+    if (opts?.resultFilter) params.set('result_filter', opts.resultFilter);
 
     const controller = new AbortController();
 

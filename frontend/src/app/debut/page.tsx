@@ -16,6 +16,7 @@ import type { OpeningNode, GameSearchResult, GameLink, MoveCandidate, Candidates
 import type { Key } from 'chessground/types';
 import type { ExplorerTab } from '@/components/openings/ExplorerTabs';
 import type { MoveTreeSource } from '@/components/openings/MoveTree';
+import type { MasterGamesFilterState } from '@/components/openings/MasterGamesFilter';
 import { useLichessExplorer } from '@/hooks/useLichessExplorer';
 import { useReplayStockfish } from '@/hooks/useReplayStockfish';
 
@@ -111,7 +112,11 @@ export default function DebutPage() {
     whiteEloMin: 0,
     whiteEloMax: 3500,
     blackEloMin: 0,
-    blackEloMax: 3500
+    blackEloMax: 3500,
+    dateFrom: '',
+    dateTo: '',
+    ecoCode: '',
+    eventName: ''
   });
 
   // ─── Move tree (candidates) ───
@@ -320,7 +325,11 @@ export default function DebutPage() {
       masterGamesFilters.whiteEloMin,
       masterGamesFilters.whiteEloMax,
       masterGamesFilters.blackEloMin,
-      masterGamesFilters.blackEloMax
+      masterGamesFilters.blackEloMax,
+      masterGamesFilters.dateFrom,
+      masterGamesFilters.dateTo,
+      masterGamesFilters.ecoCode,
+      masterGamesFilters.eventName
     )
       .then((data) => {
         if (!cancelled) {
@@ -442,7 +451,11 @@ export default function DebutPage() {
       whiteEloMin: 0,
       whiteEloMax: 3500,
       blackEloMin: 0,
-      blackEloMax: 3500
+      blackEloMax: 3500,
+      dateFrom: '',
+      dateTo: '',
+      ecoCode: '',
+      eventName: ''
     });
   }, []);
 

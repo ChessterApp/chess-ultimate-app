@@ -17,6 +17,10 @@ export interface MasterGamesFilterState {
   whiteEloMax: number;
   blackEloMin: number;
   blackEloMax: number;
+  dateFrom: string;
+  dateTo: string;
+  ecoCode: string;
+  eventName: string;
 }
 
 interface MasterGamesFilterProps {
@@ -31,6 +35,11 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   const [ratingExpanded, setRatingExpanded] = useState(false);
   const [localWhiteElo, setLocalWhiteElo] = useState<[number, number]>([filters.whiteEloMin, filters.whiteEloMax]);
   const [localBlackElo, setLocalBlackElo] = useState<[number, number]>([filters.blackEloMin, filters.blackEloMax]);
+  const [advancedExpanded, setAdvancedExpanded] = useState(false);
+  const [localDateFrom, setLocalDateFrom] = useState(filters.dateFrom);
+  const [localDateTo, setLocalDateTo] = useState(filters.dateTo);
+  const [localEcoCode, setLocalEcoCode] = useState(filters.ecoCode);
+  const [localEventName, setLocalEventName] = useState(filters.eventName);
 
   // Debounce player name input: only fire API call after 300ms of no typing
   // AND only if length is 0 (cleared) OR >= 3 characters
@@ -89,6 +98,59 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   useEffect(() => {
     setLocalBlackElo([filters.blackEloMin, filters.blackEloMax]);
   }, [filters.blackEloMin, filters.blackEloMax]);
+
+  // Debounce date from filter
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onFilterChange({ ...filters, dateFrom: localDateFrom });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localDateFrom]);
+
+  // Debounce date to filter
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      onFilterChange({ ...filters, dateTo: localDateTo });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localDateTo]);
+
+  // Debounce ECO code filter
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localEcoCode.length === 0 || localEcoCode.length >= 2) {
+        onFilterChange({ ...filters, ecoCode: localEcoCode });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localEcoCode]);
+
+  // Debounce event name filter
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localEventName.length === 0 || localEventName.length >= 3) {
+        onFilterChange({ ...filters, eventName: localEventName });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [localEventName]);
+
+  // Sync new filters from parent
+  useEffect(() => {
+    setLocalDateFrom(filters.dateFrom);
+  }, [filters.dateFrom]);
+
+  useEffect(() => {
+    setLocalDateTo(filters.dateTo);
+  }, [filters.dateTo]);
+
+  useEffect(() => {
+    setLocalEcoCode(filters.ecoCode);
+  }, [filters.ecoCode]);
+
+  useEffect(() => {
+    setLocalEventName(filters.eventName);
+  }, [filters.eventName]);
 
   const colorOptions = [
     { value: '', label: t('anyColor') || 'Any Color' },
@@ -341,6 +403,148 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
                 }}
               />
             </Box>
+          </Box>
+        </Collapse>
+      </Box>
+
+      {/* Advanced filters section - collapsible */}
+      <Box sx={{ mt: 0.5 }}>
+        <Box sx={{ position: 'relative', display: 'inline-block' }}>
+          <Chip
+            icon={<TuneRounded sx={{ fontSize: 16 }} />}
+            label={t('masterGamesAdvanced') || 'Advanced Filters'}
+            onClick={() => setAdvancedExpanded(!advancedExpanded)}
+            sx={{
+              height: 28,
+              fontSize: 12,
+              bgcolor: 'background.paper',
+              color: 'text.secondary',
+              border: '1px solid',
+              borderColor: 'divider',
+              cursor: 'pointer',
+              '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' },
+              '& .MuiChip-icon': { color: 'primary.main' },
+            }}
+          />
+          {/* Active indicator dot */}
+          {(localDateFrom || localDateTo || localEcoCode || localEventName) && (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                bgcolor: 'primary.main',
+              }}
+            />
+          )}
+        </Box>
+
+        <Collapse in={advancedExpanded}>
+          <Box sx={{ mt: 1, px: 1, py: 1.5, bgcolor: 'background.paper', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
+            {/* Date range filters */}
+            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+              <TextField
+                size="small"
+                placeholder={t('masterGamesDateFrom') || 'From year (e.g. 2020)'}
+                value={localDateFrom}
+                onChange={(e) => setLocalDateFrom(e.target.value)}
+                sx={{
+                  flex: 1,
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'background.default',
+                    height: 36,
+                    '& fieldset': { borderColor: 'divider' },
+                    '&:hover fieldset': { borderColor: 'text.secondary' },
+                    '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+                  },
+                  '& .MuiInputBase-input': {
+                    color: 'text.primary',
+                    fontSize: 13,
+                    '&::placeholder': { color: 'text.secondary', opacity: 1 },
+                  },
+                }}
+              />
+              <TextField
+                size="small"
+                placeholder={t('masterGamesDateTo') || 'To year (e.g. 2024)'}
+                value={localDateTo}
+                onChange={(e) => setLocalDateTo(e.target.value)}
+                sx={{
+                  flex: 1,
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'background.default',
+                    height: 36,
+                    '& fieldset': { borderColor: 'divider' },
+                    '&:hover fieldset': { borderColor: 'text.secondary' },
+                    '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+                  },
+                  '& .MuiInputBase-input': {
+                    color: 'text.primary',
+                    fontSize: 13,
+                    '&::placeholder': { color: 'text.secondary', opacity: 1 },
+                  },
+                }}
+              />
+            </Box>
+
+            {/* ECO code and Event name filters */}
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <TextField
+                size="small"
+                placeholder={t('masterGamesEcoCode') || 'ECO code (e.g. B90)'}
+                value={localEcoCode}
+                onChange={(e) => setLocalEcoCode(e.target.value)}
+                sx={{
+                  flex: 1,
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'background.default',
+                    height: 36,
+                    '& fieldset': { borderColor: 'divider' },
+                    '&:hover fieldset': { borderColor: 'text.secondary' },
+                    '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+                  },
+                  '& .MuiInputBase-input': {
+                    color: 'text.primary',
+                    fontSize: 13,
+                    '&::placeholder': { color: 'text.secondary', opacity: 1 },
+                  },
+                }}
+              />
+              <TextField
+                size="small"
+                placeholder={t('masterGamesEvent') || 'Event (e.g. World Ch)'}
+                value={localEventName}
+                onChange={(e) => setLocalEventName(e.target.value)}
+                sx={{
+                  flex: 1,
+                  '& .MuiOutlinedInput-root': {
+                    bgcolor: 'background.default',
+                    height: 36,
+                    '& fieldset': { borderColor: 'divider' },
+                    '&:hover fieldset': { borderColor: 'text.secondary' },
+                    '&.Mui-focused fieldset': { borderColor: 'primary.main' },
+                  },
+                  '& .MuiInputBase-input': {
+                    color: 'text.primary',
+                    fontSize: 13,
+                    '&::placeholder': { color: 'text.secondary', opacity: 1 },
+                  },
+                }}
+              />
+            </Box>
+            {localEcoCode.length > 0 && localEcoCode.length < 2 && (
+              <Box sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5, pl: 1 }}>
+                {t('typeAtLeast2') || 'Type at least 2 characters'}
+              </Box>
+            )}
+            {localEventName.length > 0 && localEventName.length < 3 && (
+              <Box sx={{ fontSize: 11, color: 'text.secondary', mt: 0.5, pl: 1 }}>
+                {t('typeAtLeast') || 'Type at least 3 characters to search'}
+              </Box>
+            )}
           </Box>
         </Collapse>
       </Box>

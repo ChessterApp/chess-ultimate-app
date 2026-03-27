@@ -602,11 +602,21 @@ def fetch_lichess_games(username: str, since: str = None, max_games: int = 10, f
 
 
 def fetch_lichess_games_progressive(username: str, filter_fen: str = None,
-                                     min_rating: int = 0, max_games: int = 10):
+                                     min_rating: int = 0, max_games: int = 10,
+                                     archive_months: int = 3, player_color: str = '',
+                                     result_filter: str = ''):
     """Generator: yield Lichess games progressively."""
     try:
         headers = {'Accept': 'application/x-ndjson'}
         params = {'max': 200, 'opening': 'true', 'pgnInJson': 'true'}
+
+        # Add time filter based on archive_months
+        if archive_months < 999:
+            # Calculate milliseconds since N months ago
+            from datetime import datetime, timedelta
+            cutoff_date = datetime.now() - timedelta(days=archive_months * 30)
+            cutoff_ms = int(cutoff_date.timestamp() * 1000)
+            params['since'] = cutoff_ms
 
         resp = requests.get(
             f'https://lichess.org/api/games/user/{username}',
@@ -648,6 +658,38 @@ def fetch_lichess_games_progressive(username: str, filter_fen: str = None,
                     if checked % 20 == 0:
                         yield {'type': 'progress', 'checked': checked, 'found': found}
                     continue
+
+                # Apply color filter
+                if player_color:
+                    player_white = game_data.get('white', '').lower() == username.lower()
+                    player_black = game_data.get('black', '').lower() == username.lower()
+                    if player_color == 'white' and not player_white:
+                        continue
+                    if player_color == 'black' and not player_black:
+                        continue
+
+                # Apply result filter
+                if result_filter:
+                    game_result = game_data.get('result', '')  # 'white', 'black', or 'draw'
+                    player_white = game_data.get('white', '').lower() == username.lower()
+
+                    if result_filter == 'win':
+                        # Win for the player
+                        if player_white and game_result != 'white':
+                            continue
+                        if not player_white and game_result != 'black':
+                            continue
+                    elif result_filter == 'loss':
+                        # Loss for the player
+                        if player_white and game_result == 'white':
+                            continue
+                        if not player_white and game_result == 'black':
+                            continue
+                        if game_result == 'draw':
+                            continue
+                    elif result_filter == 'draw':
+                        if game_result != 'draw':
+                            continue
 
                 if filter_fen and game_data.get('pgn'):
                     if check_game_reaches_fen(game_data['pgn'], filter_fen):
@@ -734,7 +776,9 @@ def fetch_chesscom_games(username: str, since: str = None, max_games: int = 10, 
 
 
 def fetch_chesscom_games_progressive(username: str, filter_fen: str = None,
-                                      min_rating: int = 0, max_games: int = 10):
+                                      min_rating: int = 0, max_games: int = 10,
+                                      archive_months: int = 3, player_color: str = '',
+                                      result_filter: str = ''):
     """Generator: yield Chess.com games progressively."""
     try:
         resp = requests.get(
@@ -748,9 +792,12 @@ def fetch_chesscom_games_progressive(username: str, filter_fen: str = None,
         archives = resp.json().get('archives', [])
         archives.reverse()
 
+        # Limit archives based on archive_months parameter
+        max_archives = archive_months if archive_months < 999 else len(archives)
+
         found = 0
         checked = 0
-        for archive_url in archives[:6]:
+        for archive_url in archives[:max_archives]:
             try:
                 arch_resp = requests.get(archive_url, timeout=10)
                 if arch_resp.status_code != 200:
@@ -781,6 +828,36 @@ def fetch_chesscom_games_progressive(username: str, filter_fen: str = None,
                         if checked % 20 == 0:
                             yield {'type': 'progress', 'checked': checked, 'found': found}
                         continue
+
+                    # Apply color filter
+                    if player_color:
+                        player_white = game_data.get('white', '').lower() == username.lower()
+                        player_black = game_data.get('black', '').lower() == username.lower()
+                        if player_color == 'white' and not player_white:
+                            continue
+                        if player_color == 'black' and not player_black:
+                            continue
+
+                    # Apply result filter
+                    if result_filter:
+                        game_result = game_data.get('result', '')
+                        player_white = game_data.get('white', '').lower() == username.lower()
+
+                        if result_filter == 'win':
+                            # Win for the player
+                            if player_white and game_result != 'win':
+                                continue
+                            if not player_white and game_result != 'checkmated':
+                                continue
+                        elif result_filter == 'loss':
+                            # Loss for the player
+                            if player_white and game_result != 'checkmated':
+                                continue
+                            if not player_white and game_result != 'win':
+                                continue
+                        elif result_filter == 'draw':
+                            if game_result not in ('agreed', 'stalemate', 'repetition', 'insufficient', 'timevsinsufficient'):
+                                continue
 
                     if filter_fen and game_data.get('pgn'):
                         if check_game_reaches_fen(game_data['pgn'], filter_fen):
@@ -1948,6 +2025,12 @@ def games_by_position():
     black_elo_min = int(request.args.get('black_elo_min', 0))
     black_elo_max = int(request.args.get('black_elo_max', 3500))
 
+    # New filters
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    eco_code = request.args.get('eco_code', '').strip().upper()
+    event_name = request.args.get('event_name', '').strip()
+
     if not check_internal_db_exists():
         return jsonify({'games': [], 'total': 0, 'indexed': False})
 
@@ -2123,6 +2206,32 @@ def games_by_position():
             if black_elo_max != 3500:
                 conditions.append("black_elo <= ?")
                 params.append(black_elo_max)
+
+            # Date range filters (year-based)
+            if date_from:
+                try:
+                    year_from = int(date_from)
+                    conditions.append("CAST(substr(date, 1, 4) AS INTEGER) >= ?")
+                    params.append(year_from)
+                except ValueError:
+                    pass
+            if date_to:
+                try:
+                    year_to = int(date_to)
+                    conditions.append("CAST(substr(date, 1, 4) AS INTEGER) <= ?")
+                    params.append(year_to)
+                except ValueError:
+                    pass
+
+            # ECO code filter
+            if eco_code:
+                conditions.append("eco LIKE ?")
+                params.append(f"{eco_code}%")
+
+            # Event name filter
+            if event_name:
+                conditions.append("event LIKE ?")
+                params.append(f"%{event_name}%")
 
             where = " AND ".join(conditions) if conditions else "1=1"
             # Don't ORDER BY here — sorting happens in step 3. Omitting ORDER BY
@@ -2741,6 +2850,11 @@ def search_games_stream():
     min_rating = int(request.args.get('min_rating', 0))
     max_games = min(int(request.args.get('max_games', 10)), 50)
 
+    # New parameters for Chess.com/Lichess
+    archive_months = int(request.args.get('archive_months', 3))
+    player_color = request.args.get('player_color', '').strip().lower()
+    result_filter = request.args.get('result_filter', '').strip().lower()
+
     def generate():
         try:
             if source == 'internal':
@@ -2756,7 +2870,7 @@ def search_games_stream():
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Username required'})}\n\n"
                     return
 
-                for event in fetch_lichess_games_progressive(username, fen, min_rating, max_games):
+                for event in fetch_lichess_games_progressive(username, fen, min_rating, max_games, archive_months, player_color, result_filter):
                     yield f"data: {json.dumps(event)}\n\n"
 
             elif source == 'chesscom':
@@ -2764,7 +2878,7 @@ def search_games_stream():
                     yield f"data: {json.dumps({'type': 'error', 'message': 'Username required'})}\n\n"
                     return
 
-                for event in fetch_chesscom_games_progressive(username, fen, min_rating, max_games):
+                for event in fetch_chesscom_games_progressive(username, fen, min_rating, max_games, archive_months, player_color, result_filter):
                     yield f"data: {json.dumps(event)}\n\n"
 
             else:

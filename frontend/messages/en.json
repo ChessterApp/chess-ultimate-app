@@ -906,7 +906,24 @@
       "title": "Browse Master Games Database",
       "subtitle": "Explore 100M+ positions from master games",
       "moveHistory": "Move history"
-    }
+    },
+    "onlineSearchFilters": {
+      "period1Month": "1 month",
+      "period3Months": "3 months",
+      "period6Months": "6 months",
+      "period12Months": "12 months",
+      "period24Months": "24 months",
+      "period36Months": "36 months",
+      "periodAll": "All",
+      "resultWin": "Win",
+      "resultLoss": "Loss"
+    },
+    "masterGamesAdvanced": "Advanced Filters",
+    "masterGamesDateFrom": "From year (e.g. 2020)",
+    "masterGamesDateTo": "To year (e.g. 2024)",
+    "masterGamesEcoCode": "ECO code (e.g. B90)",
+    "masterGamesEvent": "Event (e.g. World Ch)",
+    "typeAtLeast2": "Type at least 2 characters"
   },
   "onboarding": {
     "continue": "Continue",

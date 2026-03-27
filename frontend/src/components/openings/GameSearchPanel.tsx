@@ -4,9 +4,10 @@ import React, { useState, useRef } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, IconButton, Box, Typography,
   TextField, Button, Slider, Tabs, Tab, CircularProgress, Chip,
-  List, ListItem, ListItemText, Collapse, Divider,
+  List, ListItem, ListItemText, Collapse, Divider, Select, MenuItem, FormControl,
 } from '@mui/material';
 import { Close, Link as LinkIcon, ExpandMore, ExpandLess } from '@mui/icons-material';
+import { useTranslations } from 'next-intl';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
 
 interface GameSearchPanelProps {
@@ -17,7 +18,14 @@ interface GameSearchPanelProps {
   onSearch: (
     source: string,
     fen: string,
-    opts: { username?: string; minRating?: number; maxGames?: number } | undefined,
+    opts: {
+      username?: string;
+      minRating?: number;
+      maxGames?: number;
+      archiveMonths?: number;
+      playerColor?: string;
+      resultFilter?: string;
+    } | undefined,
     onGame: (game: GameSearchResult) => void,
     onProgress: (p: { checked: number; found: number }) => void,
   ) => () => void;
@@ -37,7 +45,13 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
   const [loadingPgnId, setLoadingPgnId] = useState<string | null>(null);
   const abortRef = useRef<(() => void) | null>(null);
 
+  // New filters for Lichess/Chess.com
+  const [archiveMonths, setArchiveMonths] = useState(3); // Default 3 months
+  const [playerColor, setPlayerColor] = useState(''); // white/black/both
+  const [resultFilter, setResultFilter] = useState(''); // win/draw/loss/all
+
   const sourceNames = ['internal', 'lichess', 'chesscom'];
+  const t = useTranslations('debut');
 
   const handleSearch = () => {
     setGames([]);
@@ -51,6 +65,9 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
         username: source > 0 ? username : undefined,
         minRating,
         maxGames,
+        archiveMonths: source > 0 ? archiveMonths : undefined,
+        playerColor: source > 0 ? playerColor : undefined,
+        resultFilter: source > 0 ? resultFilter : undefined,
       },
       (game) => setGames(prev => [...prev, game]),
       (p) => setProgress(p),
@@ -172,6 +189,72 @@ export default function GameSearchPanel({ fen, onLinkGame, open, onClose, onSear
             </Button>
           )}
         </Box>
+
+        {/* Additional filters for Lichess/Chess.com */}
+        {source > 0 && (
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 1 }}>
+            <FormControl size="small" sx={{ minWidth: 130 }}>
+              <Select
+                value={archiveMonths}
+                onChange={(e) => setArchiveMonths(e.target.value as number)}
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: 12,
+                  height: 32,
+                  bgcolor: 'action.hover',
+                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+                }}
+              >
+                <MenuItem value={1} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.period1Month') || '1 month'}</MenuItem>
+                <MenuItem value={3} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.period3Months') || '3 months'}</MenuItem>
+                <MenuItem value={6} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.period6Months') || '6 months'}</MenuItem>
+                <MenuItem value={12} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.period12Months') || '12 months'}</MenuItem>
+                <MenuItem value={24} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.period24Months') || '24 months'}</MenuItem>
+                <MenuItem value={36} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.period36Months') || '36 months'}</MenuItem>
+                <MenuItem value={999} sx={{ fontSize: 12 }}>{t('onlineSearchFilters.periodAll') || 'All'}</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 110 }}>
+              <Select
+                value={playerColor}
+                onChange={(e) => setPlayerColor(e.target.value)}
+                displayEmpty
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: 12,
+                  height: 32,
+                  bgcolor: 'action.hover',
+                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+                }}
+              >
+                <MenuItem value="" sx={{ fontSize: 12 }}>{t('anyColor') || 'Any Color'}</MenuItem>
+                <MenuItem value="white" sx={{ fontSize: 12 }}>{t('white') || 'White'}</MenuItem>
+                <MenuItem value="black" sx={{ fontSize: 12 }}>{t('black') || 'Black'}</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" sx={{ minWidth: 110 }}>
+              <Select
+                value={resultFilter}
+                onChange={(e) => setResultFilter(e.target.value)}
+                displayEmpty
+                sx={{
+                  color: 'text.secondary',
+                  fontSize: 12,
+                  height: 32,
+                  bgcolor: 'action.hover',
+                  '.MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+                }}
+              >
+                <MenuItem value="" sx={{ fontSize: 12 }}>{t('anyResult') || 'Any Result'}</MenuItem>
+                <MenuItem value="win" sx={{ fontSize: 12 }}>{t('onlineSearchFilters.resultWin') || 'Win'}</MenuItem>
+                <MenuItem value="draw" sx={{ fontSize: 12 }}>{t('draw') || 'Draw'}</MenuItem>
+                <MenuItem value="loss" sx={{ fontSize: 12 }}>{t('onlineSearchFilters.resultLoss') || 'Loss'}</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        )}
 
         {/* Progress */}
         {(searching || progress.checked > 0) && (
