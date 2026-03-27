@@ -10,7 +10,6 @@ import { useToast } from '@/components/ToastProvider'
 import { LessonPath } from '@/components/gamification/LessonPath'
 import { LevelProgressCard } from '@/components/gamification/LevelBadge'
 import { SpeechBubble } from '@/components/mascot/SpeechBubble'
-import UpgradePrompt from '@/components/UpgradePrompt'
 
 interface Course {
   id: string
@@ -154,7 +153,7 @@ export default function LearnPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 animate-page-enter">
-      <UpgradePrompt feature="Structured lessons" />
+
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
         <div className="container mx-auto px-4 py-6">
