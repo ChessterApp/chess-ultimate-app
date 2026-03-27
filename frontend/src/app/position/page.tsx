@@ -10,7 +10,6 @@ import '@/styles/chessground-theme.css';
 import useChesster from "@/hooks/useChesster";
 // Clerk authentication disabled for local development
 // import { useSession } from "@clerk/nextjs";
-
 import Loader from "@/components/loading/Loader";
 import Warning from "@/components/loading/SignUpWarning";
 import Breadcrumbs from "@/components/Breadcrumbs";
@@ -230,7 +229,6 @@ export default function PositionPage() {
         position: "relative",
       }}
     >
-
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: 1 }}><Breadcrumbs /></Box>
       <Box sx={{ display: "flex", flex: 1, position: "relative" }}>
       {/* Chat Sidebar */}

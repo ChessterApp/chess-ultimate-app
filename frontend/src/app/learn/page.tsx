@@ -153,7 +153,6 @@ export default function LearnPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 animate-page-enter">
-
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
         <div className="container mx-auto px-4 py-6">
