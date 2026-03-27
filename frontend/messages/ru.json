@@ -509,6 +509,7 @@
       "positionThemeAnalysis": "Тематический анализ позиции",
       "stockfishAnalysis": "Анализ Stockfish",
       "openingExplorer": "Обзор дебютов",
+      "scoresheetScanner": "Сканер партитуры",
       "chessDatabase": "Шахматная база",
       "twicDatabase": "Мастерские партии TWIC",
       "legalMoveAnalysis": "Анализ возможных ходов"
@@ -1163,5 +1164,31 @@
     "descriptionGeneric": "Получите неограниченный доступ ко всем урокам, анализу, задачам и многому другому.",
     "viewPlans": "Посмотреть планы",
     "maybeLater": "Может позже"
+  },
+  "scoresheet": {
+    "uploadTitle": "Загрузить фото партитуры",
+    "uploadSubtitle": "Перетащите или нажмите для загрузки (максимум 2 изображения)",
+    "imagesUploaded": "Загружено {count} изображений",
+    "optionalMetadata": "Дополнительная информация об игре",
+    "whitePlayer": "Белые",
+    "blackPlayer": "Черные",
+    "eventName": "Турнир",
+    "date": "Дата",
+    "scanButton": "Сканировать партитуру",
+    "scanning": "Сканирование...",
+    "scanningProgress": "Анализ почерка и проверка ходов...",
+    "noImagesError": "Пожалуйста, загрузите хотя бы одно изображение партитуры",
+    "scanError": "Не удалось отсканировать партитуру",
+    "networkError": "Ошибка сети. Попробуйте еще раз.",
+    "confidence": "Уверенность",
+    "moves": "ходов",
+    "corrected": "исправлено",
+    "corrections": "Исправления",
+    "moveNumber": "Ход {number}",
+    "copyPGN": "Копировать PGN",
+    "copied": "Скопировано!",
+    "downloadPGN": "Скачать PGN",
+    "loadIntoBoard": "Загрузить на доску",
+    "scanAnother": "Сканировать другую партитуру"
   }
 }

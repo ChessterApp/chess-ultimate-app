@@ -158,6 +158,13 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import photo-to-FEN API: {e}")
 
 try:
+    from api.scoresheet_to_pgn import scoresheet_bp
+    app.register_blueprint(scoresheet_bp)
+    logger.info("✅ Scoresheet Scanner API registered (scoresheet to PGN conversion)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import scoresheet scanner API: {e}")
+
+try:
     from api.openings import openings_bp
     app.register_blueprint(openings_bp)
     logger.info("✅ Openings API registered (repertoire management)")

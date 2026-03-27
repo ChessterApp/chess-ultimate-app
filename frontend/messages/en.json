@@ -509,6 +509,7 @@
       "positionThemeAnalysis": "Position Theme Analysis",
       "stockfishAnalysis": "Stockfish Analysis",
       "openingExplorer": "Opening Explorer",
+      "scoresheetScanner": "Scoresheet Scanner",
       "chessDatabase": "Chess Database",
       "twicDatabase": "TWIC Master Games",
       "legalMoveAnalysis": "Legal Move Analysis"
@@ -1163,5 +1164,31 @@
     "descriptionGeneric": "Get unlimited access to all lessons, analysis, puzzles, and more.",
     "viewPlans": "View Plans",
     "maybeLater": "Maybe later"
+  },
+  "scoresheet": {
+    "uploadTitle": "Upload Scoresheet Images",
+    "uploadSubtitle": "Drag & drop or click to upload (max 2 images)",
+    "imagesUploaded": "{count} image(s) uploaded",
+    "optionalMetadata": "Optional Game Information",
+    "whitePlayer": "White Player",
+    "blackPlayer": "Black Player",
+    "eventName": "Event",
+    "date": "Date",
+    "scanButton": "Scan Scoresheet",
+    "scanning": "Scanning...",
+    "scanningProgress": "Analyzing handwriting and validating moves...",
+    "noImagesError": "Please upload at least one scoresheet image",
+    "scanError": "Failed to scan scoresheet",
+    "networkError": "Network error. Please try again.",
+    "confidence": "Confidence",
+    "moves": "moves",
+    "corrected": "corrected",
+    "corrections": "Corrections",
+    "moveNumber": "Move {number}",
+    "copyPGN": "Copy PGN",
+    "copied": "Copied!",
+    "downloadPGN": "Download PGN",
+    "loadIntoBoard": "Load into Board",
+    "scanAnother": "Scan Another Scoresheet"
   }
 }

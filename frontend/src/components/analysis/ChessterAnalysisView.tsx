@@ -27,6 +27,7 @@ import ChessDBDisplay from "../tabs/Chessdb";
 import LegalMoveTab from "../tabs/LegalMoveTab";
 import ChatTab from "../tabs/ChatTab";
 import TwicExplorer from "./TwicExplorer";
+import ScoresheetScanner from "./ScoresheetScanner";
 import { PositionEval, LineEval } from "@/stockfish/engine/engine";
 import { MasterGames, Moves } from "@/libs/openingdatabase/helper";
 import { CandidateMove, } from "../tabs/Chessdb";
@@ -526,16 +527,57 @@ function ChessterAnalysisView({
               </AccordionDetails>
             </Accordion>
 
+            {/* Scoresheet Scanner */}
+            {!isGameReviewMode && (
+              <Accordion
+                expanded={activeAnalysisTab === 2}
+                onChange={() =>
+                  setActiveAnalysisTab(activeAnalysisTab === 2 ? -1 : 2)
+                }
+                sx={{
+                  backgroundColor: 'background.paper',
+                  "&:before": { display: "none" },
+                  borderRadius: 2,
+                  overflow: "hidden",
+                }}
+              >
+                <AccordionSummary
+                  expandIcon={
+                    <ExpandMoreIcon sx={{ color: 'text.primary' }} />
+                  }
+                  sx={{
+                    backgroundColor: 'background.paper',
+                    "&:hover": {
+                      backgroundColor: 'action.hover',
+                    },
+                  }}
+                >
+                  <Typography
+                    variant="h6"
+                    sx={{
+                      color: 'text.primary',
+                      fontWeight: 600,
+                    }}
+                  >
+                    📋 {t("sections.scoresheetScanner")}
+                  </Typography>
+                </AccordionSummary>
+                <AccordionDetails sx={{ backgroundColor: 'background.paper' }}>
+                  <ScoresheetScanner />
+                </AccordionDetails>
+              </Accordion>
+            )}
+
             {/* ChessDB */}
             <Accordion
-              expanded={activeAnalysisTab === (isGameReviewMode ? 3 : 2)}
+              expanded={activeAnalysisTab === (isGameReviewMode ? 3 : 3)}
               onChange={() =>
                 setActiveAnalysisTab(
-                  activeAnalysisTab === (isGameReviewMode ? 3 : 2)
+                  activeAnalysisTab === (isGameReviewMode ? 3 : 3)
                     ? -1
                     : isGameReviewMode
                     ? 3
-                    : 2
+                    : 3
                 )
               }
               sx={{
@@ -586,9 +628,9 @@ function ChessterAnalysisView({
             {/* TWIC Master Games Database */}
             {!isGameReviewMode && (
               <Accordion
-                expanded={activeAnalysisTab === 3}
+                expanded={activeAnalysisTab === 4}
                 onChange={() =>
-                  setActiveAnalysisTab(activeAnalysisTab === 3 ? -1 : 3)
+                  setActiveAnalysisTab(activeAnalysisTab === 4 ? -1 : 4)
                 }
                 sx={{
                   backgroundColor: 'background.paper',
