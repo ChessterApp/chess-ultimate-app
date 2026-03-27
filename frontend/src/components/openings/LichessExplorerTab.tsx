@@ -28,8 +28,9 @@ import {
   useMediaQuery,
   useTheme,
   Divider,
+  Collapse,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, Refresh, Search } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
 import { useLichessExplorer, LichessExplorerResponse, LichessMove, LichessTopGame } from '@/hooks/useLichessExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
 import GameCard from './GameCard';
@@ -44,11 +45,10 @@ interface LichessExplorerTabProps {
 
 const GAMES_PER_PAGE = 10;
 
-const DEFAULT_RATINGS = ['1600', '1800', '2000', '2200', '2500'];
 const DEFAULT_SPEEDS = ['blitz', 'rapid', 'classical'];
 
-const ALL_RATINGS = ['1000', '1200', '1400', '1600', '1800', '2000', '2200', '2500'];
 const ALL_SPEEDS = ['ultraBullet', 'bullet', 'blitz', 'rapid', 'classical', 'correspondence'];
+const ALL_RATINGS = ['1000', '1200', '1400', '1600', '1800', '2000', '2200', '2500'];
 
 export default function LichessExplorerTab({
   fen,
@@ -61,18 +61,29 @@ export default function LichessExplorerTab({
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [aggregateGamesPage, setAggregateGamesPage] = useState(0);
   const [playerGamesPage, setPlayerGamesPage] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(!isMobile); // Collapsed by default on mobile
 
   // Aggregate lichess filter state (only for database='lichess')
-  const [selectedRatings, setSelectedRatings] = useState<string[]>(DEFAULT_RATINGS);
+  const [minRating, setMinRating] = useState<string>('1000');
+  const [maxRating, setMaxRating] = useState<string>('2500');
   const [selectedSpeeds, setSelectedSpeeds] = useState<string[]>(DEFAULT_SPEEDS);
 
   // Player search state (only for database='lichess')
   const [username, setUsername] = useState('');
   const [searchUsername, setSearchUsername] = useState('');
-  const [playerColor, setPlayerColor] = useState<'white' | 'black'>('white');
+  const [playerColor, setPlayerColor] = useState<string>('white'); // white/black/'' for any
+  const [playerResultFilter, setPlayerResultFilter] = useState<string>(''); // win/draw/loss/'' for any
   const [playerSpeeds, setPlayerSpeeds] = useState<string[]>(DEFAULT_SPEEDS);
   const [playerMode, setPlayerMode] = useState<string>('rated');
   const [recentGamesCount, setRecentGamesCount] = useState<number>(8);
+
+  // Compute selected rating ranges based on min/max rating
+  const selectedRatings = useMemo(() => {
+    const minIdx = ALL_RATINGS.indexOf(minRating);
+    const maxIdx = ALL_RATINGS.indexOf(maxRating);
+    if (minIdx === -1 || maxIdx === -1) return [];
+    return ALL_RATINGS.slice(minIdx, maxIdx + 1);
+  }, [minRating, maxRating]);
 
   // Aggregate query (masters or lichess aggregate)
   const { data: aggregateData, loading: aggregateLoading, error: aggregateError, upstreamDown: aggregateUpstreamDown, retry: retryAggregate } = useLichessExplorer({
@@ -89,7 +100,7 @@ export default function LichessExplorerTab({
     database: 'player',
     enabled: database === 'lichess' && !!searchUsername,
     player: searchUsername,
-    color: playerColor,
+    color: playerColor as 'white' | 'black',
     speeds: playerSpeeds.join(','),
     modes: playerMode,
     recentGames: recentGamesCount,
@@ -104,34 +115,16 @@ export default function LichessExplorerTab({
   // Reset filters to defaults when switching databases
   useEffect(() => {
     if (database === 'lichess') {
-      setSelectedRatings(DEFAULT_RATINGS);
+      setMinRating('1000');
+      setMaxRating('2500');
       setSelectedSpeeds(DEFAULT_SPEEDS);
       setPlayerSpeeds(DEFAULT_SPEEDS);
       setPlayerMode('rated');
       setRecentGamesCount(8);
+      setPlayerColor('white');
+      setPlayerResultFilter('');
     }
   }, [database]);
-
-  // Handle rating toggle
-  const toggleRating = (rating: string) => {
-    setSelectedRatings((prev) =>
-      prev.includes(rating) ? prev.filter((r) => r !== rating) : [...prev, rating].sort()
-    );
-  };
-
-  // Handle speed toggle
-  const toggleSpeed = (speed: string) => {
-    setSelectedSpeeds((prev) =>
-      prev.includes(speed) ? prev.filter((s) => s !== speed) : [...prev, speed]
-    );
-  };
-
-  // Handle player speed toggle
-  const togglePlayerSpeed = (speed: string) => {
-    setPlayerSpeeds((prev) =>
-      prev.includes(speed) ? prev.filter((s) => s !== speed) : [...prev, speed]
-    );
-  };
 
   // Handle player search
   const handleSearch = () => {
@@ -165,7 +158,24 @@ export default function LichessExplorerTab({
   };
 
   const aggregateGames = useMemo(() => transformGames(aggregateData?.topGames || []), [aggregateData]);
-  const playerGames = useMemo(() => transformGames(playerData?.topGames || []), [playerData]);
+
+  // Client-side filtering for player result filter
+  const playerGames = useMemo(() => {
+    let games = transformGames(playerData?.topGames || []);
+
+    if (playerResultFilter && searchUsername) {
+      const uLower = searchUsername.toLowerCase();
+      games = games.filter((g) => {
+        const isWhite = g.white?.toLowerCase() === uLower;
+        if (playerResultFilter === 'win') return (isWhite && g.result === '1-0') || (!isWhite && g.result === '0-1');
+        if (playerResultFilter === 'loss') return (isWhite && g.result === '0-1') || (!isWhite && g.result === '1-0');
+        if (playerResultFilter === 'draw') return g.result === '½-½' || g.result === '1/2-1/2';
+        return true;
+      });
+    }
+
+    return games;
+  }, [playerData, playerResultFilter, searchUsername]);
 
   const visibleAggregateGames = aggregateGames.slice(aggregateGamesPage * GAMES_PER_PAGE, (aggregateGamesPage + 1) * GAMES_PER_PAGE);
   const visiblePlayerGames = playerGames.slice(playerGamesPage * GAMES_PER_PAGE, (playerGamesPage + 1) * GAMES_PER_PAGE);
@@ -390,9 +400,6 @@ export default function LichessExplorerTab({
       {/* Player username search field - only show for lichess database */}
       {database === 'lichess' && (
         <Box>
-          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
-            {t('lichessDatabase.player')} — {t('lichessPlayer.enterUsername')}
-          </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <TextField
               size="small"
@@ -439,67 +446,176 @@ export default function LichessExplorerTab({
               {t('lichessPlayer.search')}
             </Button>
           </Box>
+
+          {/* Color and Result filters - visible when username is entered */}
+          {searchUsername && (
+            <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+              <FormControl size="small" sx={{ minWidth: 100 }}>
+                <Select
+                  value={playerColor}
+                  onChange={(e) => setPlayerColor(e.target.value)}
+                  displayEmpty
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  <MenuItem value="white" sx={{ fontSize: 11 }}>{t('lichessPlayer.white')}</MenuItem>
+                  <MenuItem value="black" sx={{ fontSize: 11 }}>{t('lichessPlayer.black')}</MenuItem>
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ minWidth: 100 }}>
+                <Select
+                  value={playerResultFilter}
+                  onChange={(e) => setPlayerResultFilter(e.target.value)}
+                  displayEmpty
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  <MenuItem value="" sx={{ fontSize: 11 }}>{t('anyResult', { defaultMessage: 'Any result' })}</MenuItem>
+                  <MenuItem value="win" sx={{ fontSize: 11 }}>{t('onlineSearchFilters.resultWin', { defaultMessage: 'Win' })}</MenuItem>
+                  <MenuItem value="draw" sx={{ fontSize: 11 }}>{t('onlineSearchFilters.resultDraw', { defaultMessage: 'Draw' })}</MenuItem>
+                  <MenuItem value="loss" sx={{ fontSize: 11 }}>{t('onlineSearchFilters.resultLoss', { defaultMessage: 'Loss' })}</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
+          )}
         </Box>
       )}
 
       {/* Aggregate filters - only show for lichess database */}
       {database === 'lichess' && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, py: 0.5 }}>
-          {/* Rating filters */}
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
-              {t('lichessFilters.rating')}
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {ALL_RATINGS.map((rating) => (
-                <Chip
-                  key={rating}
-                  label={`${rating}+`}
-                  size="small"
-                  onClick={() => toggleRating(rating)}
-                  sx={{
-                    height: 22,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    bgcolor: selectedRatings.includes(rating) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
-                    color: selectedRatings.includes(rating) ? '#fff' : 'text.secondary',
-                    '&:hover': {
-                      bgcolor: selectedRatings.includes(rating) ? '#0d9488' : 'rgba(255,255,255,0.12)',
-                    },
-                  }}
-                />
-              ))}
-            </Box>
-          </Box>
+        <Box>
+          {/* Filter toggle button (mobile only) */}
+          {isMobile && (
+            <Button
+              size="small"
+              startIcon={<FilterList sx={{ fontSize: 14 }} />}
+              onClick={() => setFiltersOpen(!filtersOpen)}
+              sx={{
+                fontSize: 11,
+                textTransform: 'none',
+                color: 'text.secondary',
+                mb: filtersOpen ? 0.5 : 0,
+              }}
+            >
+              Filters
+            </Button>
+          )}
 
-          {/* Speed filters */}
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
-              {t('lichessFilters.speed')}
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-              {ALL_SPEEDS.map((speed) => (
-                <Chip
-                  key={speed}
-                  label={t(`lichessFilters.speeds.${speed}`)}
-                  size="small"
-                  onClick={() => toggleSpeed(speed)}
-                  sx={{
-                    height: 22,
-                    fontSize: 10,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    bgcolor: selectedSpeeds.includes(speed) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
-                    color: selectedSpeeds.includes(speed) ? '#fff' : 'text.secondary',
-                    '&:hover': {
-                      bgcolor: selectedSpeeds.includes(speed) ? '#0d9488' : 'rgba(255,255,255,0.12)',
-                    },
+          <Collapse in={filtersOpen} timeout="auto">
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+              {/* Rating Range - From */}
+              <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>Min Rating</InputLabel>
+                <Select
+                  value={minRating}
+                  onChange={(e) => {
+                    const newMin = e.target.value;
+                    setMinRating(newMin);
+                    // If new min is greater than max, adjust max
+                    if (ALL_RATINGS.indexOf(newMin) > ALL_RATINGS.indexOf(maxRating)) {
+                      setMaxRating(newMin);
+                    }
                   }}
+                  label="Min Rating"
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  {ALL_RATINGS.map((rating) => (
+                    <MenuItem key={rating} value={rating} sx={{ fontSize: 11 }}>
+                      {rating}+
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Rating Range - To */}
+              <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>Max Rating</InputLabel>
+                <Select
+                  value={maxRating}
+                  onChange={(e) => {
+                    const newMax = e.target.value;
+                    setMaxRating(newMax);
+                    // If new max is less than min, adjust min
+                    if (ALL_RATINGS.indexOf(newMax) < ALL_RATINGS.indexOf(minRating)) {
+                      setMinRating(newMax);
+                    }
+                  }}
+                  label="Max Rating"
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  {ALL_RATINGS.map((rating) => (
+                    <MenuItem key={rating} value={rating} sx={{ fontSize: 11 }}>
+                      {rating}+
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Speed Filter - Multi-select */}
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 120 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>Speed</InputLabel>
+                <Select
+                  multiple
+                  value={selectedSpeeds}
+                  onChange={(e) => setSelectedSpeeds(e.target.value as string[])}
+                  label="Speed"
+                  renderValue={(selected) => `${selected.length} selected`}
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  {ALL_SPEEDS.map((speed) => (
+                    <MenuItem key={speed} value={speed} sx={{ fontSize: 11 }}>
+                      <Chip
+                        label={t(`lichessFilters.speeds.${speed}`)}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: 9,
+                          bgcolor: selectedSpeeds.includes(speed) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
+                          color: selectedSpeeds.includes(speed) ? '#fff' : 'text.secondary',
+                        }}
+                      />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {aggregateTotalGames > 0 && !isMobile && (
+                <Chip
+                  label={`${aggregateTotalGames.toLocaleString()} games`}
+                  size="small"
+                  sx={{ height: 20, fontSize: 11, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
                 />
-              ))}
+              )}
             </Box>
-          </Box>
+          </Collapse>
         </Box>
       )}
 
@@ -560,113 +676,87 @@ export default function LichessExplorerTab({
         <>
           {/* Player filters - only show when username is searched */}
           {searchUsername && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, py: 0.5 }}>
-              {/* Color selector */}
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
-                  {t('lichessPlayer.color')}
-                </Typography>
-                <ToggleButtonGroup
-                  value={playerColor}
-                  exclusive
-                  onChange={(_, val) => val && setPlayerColor(val)}
-                  size="small"
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' }, mt: 1 }}>
+              {/* Speed Filter - Multi-select */}
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 120 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>Speed</InputLabel>
+                <Select
+                  multiple
+                  value={playerSpeeds}
+                  onChange={(e) => setPlayerSpeeds(e.target.value as string[])}
+                  label="Speed"
+                  renderValue={(selected) => `${selected.length} selected`}
                   sx={{
-                    '& .MuiToggleButton-root': {
-                      fontSize: 11,
-                      fontWeight: 600,
-                      textTransform: 'none',
-                      px: 1.5,
-                      py: 0.5,
-                      color: 'text.secondary',
-                      '&.Mui-selected': {
-                        bgcolor: '#14b8a6',
-                        color: '#fff',
-                        '&:hover': { bgcolor: '#0d9488' },
-                      },
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.1)' },
+                  }}
+                >
+                  {ALL_SPEEDS.map((speed) => (
+                    <MenuItem key={speed} value={speed} sx={{ fontSize: 11 }}>
+                      <Chip
+                        label={t(`lichessFilters.speeds.${speed}`)}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: 9,
+                          bgcolor: playerSpeeds.includes(speed) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
+                          color: playerSpeeds.includes(speed) ? '#fff' : 'text.secondary',
+                        }}
+                      />
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Mode selector */}
+              <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>{t('lichessPlayer.mode')}</InputLabel>
+                <Select
+                  value={playerMode}
+                  onChange={(e) => setPlayerMode(e.target.value)}
+                  label={t('lichessPlayer.mode')}
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(255,255,255,0.1)',
                     },
                   }}
                 >
-                  <ToggleButton value="white">{t('lichessPlayer.white')}</ToggleButton>
-                  <ToggleButton value="black">{t('lichessPlayer.black')}</ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
+                  <MenuItem value="rated" sx={{ fontSize: 11 }}>{t('lichessPlayer.rated')}</MenuItem>
+                  <MenuItem value="casual" sx={{ fontSize: 11 }}>{t('lichessPlayer.casual')}</MenuItem>
+                  <MenuItem value="rated,casual" sx={{ fontSize: 11 }}>{t('lichessPlayer.both')}</MenuItem>
+                </Select>
+              </FormControl>
 
-              {/* Speed filters */}
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', mb: 0.5, display: 'block' }}>
-                  {t('lichessFilters.speed')}
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {ALL_SPEEDS.map((speed) => (
-                    <Chip
-                      key={speed}
-                      label={t(`lichessFilters.speeds.${speed}`)}
-                      size="small"
-                      onClick={() => togglePlayerSpeed(speed)}
-                      sx={{
-                        height: 22,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        bgcolor: playerSpeeds.includes(speed) ? '#14b8a6' : 'rgba(255,255,255,0.08)',
-                        color: playerSpeeds.includes(speed) ? '#fff' : 'text.secondary',
-                        '&:hover': {
-                          bgcolor: playerSpeeds.includes(speed) ? '#0d9488' : 'rgba(255,255,255,0.12)',
-                        },
-                      }}
-                    />
-                  ))}
-                </Box>
-              </Box>
-
-              {/* Mode selector and Recent games count */}
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
-                <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
-                  <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>{t('lichessPlayer.mode')}</InputLabel>
-                  <Select
-                    value={playerMode}
-                    onChange={(e) => setPlayerMode(e.target.value)}
-                    label={t('lichessPlayer.mode')}
-                    sx={{
-                      fontSize: 11,
-                      height: 32,
-                      bgcolor: 'rgba(255,255,255,0.03)',
-                      color: 'text.primary',
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        borderColor: 'rgba(255,255,255,0.1)',
-                      },
-                    }}
-                  >
-                    <MenuItem value="rated" sx={{ fontSize: 11 }}>{t('lichessPlayer.rated')}</MenuItem>
-                    <MenuItem value="casual" sx={{ fontSize: 11 }}>{t('lichessPlayer.casual')}</MenuItem>
-                    <MenuItem value="rated,casual" sx={{ fontSize: 11 }}>{t('lichessPlayer.both')}</MenuItem>
-                  </Select>
-                </FormControl>
-
-                <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
-                  <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>{t('lichessPlayer.recentGames')}</InputLabel>
-                  <Select
-                    value={recentGamesCount}
-                    onChange={(e) => setRecentGamesCount(e.target.value as number)}
-                    label={t('lichessPlayer.recentGames')}
-                    sx={{
-                      fontSize: 11,
-                      height: 32,
-                      bgcolor: 'rgba(255,255,255,0.03)',
-                      color: 'text.primary',
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        borderColor: 'rgba(255,255,255,0.1)',
-                      },
-                    }}
-                  >
-                    <MenuItem value={4} sx={{ fontSize: 11 }}>4</MenuItem>
-                    <MenuItem value={8} sx={{ fontSize: 11 }}>8</MenuItem>
-                    <MenuItem value={12} sx={{ fontSize: 11 }}>12</MenuItem>
-                    <MenuItem value={15} sx={{ fontSize: 11 }}>15</MenuItem>
-                  </Select>
-                </FormControl>
-              </Box>
+              {/* Recent games count */}
+              <FormControl size="small" sx={{ minWidth: { xs: '48%', sm: 100 } }}>
+                <InputLabel sx={{ fontSize: 11, color: 'text.secondary' }}>{t('lichessPlayer.recentGames')}</InputLabel>
+                <Select
+                  value={recentGamesCount}
+                  onChange={(e) => setRecentGamesCount(e.target.value as number)}
+                  label={t('lichessPlayer.recentGames')}
+                  sx={{
+                    fontSize: 11,
+                    height: 32,
+                    bgcolor: 'rgba(255,255,255,0.03)',
+                    color: 'text.primary',
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'rgba(255,255,255,0.1)',
+                    },
+                  }}
+                >
+                  <MenuItem value={4} sx={{ fontSize: 11 }}>4</MenuItem>
+                  <MenuItem value={8} sx={{ fontSize: 11 }}>8</MenuItem>
+                  <MenuItem value={12} sx={{ fontSize: 11 }}>12</MenuItem>
+                  <MenuItem value={15} sx={{ fontSize: 11 }}>15</MenuItem>
+                </Select>
+              </FormControl>
             </Box>
           )}
 
