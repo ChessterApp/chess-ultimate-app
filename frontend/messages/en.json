@@ -916,6 +916,7 @@
       "period36Months": "36 months",
       "periodAll": "All",
       "resultWin": "Win",
+      "resultDraw": "Draw",
       "resultLoss": "Loss"
     },
     "masterGamesAdvanced": "Advanced Filters",

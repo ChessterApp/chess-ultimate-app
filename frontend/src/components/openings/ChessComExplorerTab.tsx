@@ -24,6 +24,7 @@ import {
   Collapse,
   useMediaQuery,
   useTheme,
+  Slider,
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
 import { useChessComExplorer } from '@/hooks/useChessComExplorer';
@@ -50,7 +51,7 @@ export default function ChessComExplorerTab({
 
   // Filters
   const [timeControl, setTimeControl] = useState<string>('all');
-  const [minRating, setMinRating] = useState<string>('');
+  const [minRating, setMinRating] = useState<number>(0);
   const [archiveMonths, setArchiveMonths] = useState<number>(6); // Default 6 months
   const [playerColor, setPlayerColor] = useState<string>(''); // white/black/both
   const [resultFilter, setResultFilter] = useState<string>(''); // win/draw/loss/all
@@ -79,14 +80,11 @@ export default function ChessComExplorerTab({
     }
 
     // Filter by min rating
-    if (minRating) {
-      const minRatingNum = parseInt(minRating, 10);
-      if (!isNaN(minRatingNum)) {
-        filtered = filtered.filter((g) => {
-          const maxRating = Math.max(g.white_elo || 0, g.black_elo || 0);
-          return maxRating >= minRatingNum;
-        });
-      }
+    if (minRating > 0) {
+      filtered = filtered.filter((g) => {
+        const maxRating = Math.max(g.white_elo || 0, g.black_elo || 0);
+        return maxRating >= minRating;
+      });
     }
 
     // Filter by player color
@@ -234,9 +232,9 @@ export default function ChessComExplorerTab({
             }}
           >
             <MenuItem value="" sx={{ fontSize: 11 }}>{t('anyResult', { defaultMessage: 'Any result' })}</MenuItem>
-            <MenuItem value="win" sx={{ fontSize: 11 }}>{t('resultWin', { defaultMessage: 'Win' })}</MenuItem>
-            <MenuItem value="draw" sx={{ fontSize: 11 }}>{t('resultDraw', { defaultMessage: 'Draw' })}</MenuItem>
-            <MenuItem value="loss" sx={{ fontSize: 11 }}>{t('resultLoss', { defaultMessage: 'Loss' })}</MenuItem>
+            <MenuItem value="win" sx={{ fontSize: 11 }}>{t('onlineSearchFilters.resultWin', { defaultMessage: 'Win' })}</MenuItem>
+            <MenuItem value="draw" sx={{ fontSize: 11 }}>{t('onlineSearchFilters.resultDraw', { defaultMessage: 'Draw' })}</MenuItem>
+            <MenuItem value="loss" sx={{ fontSize: 11 }}>{t('onlineSearchFilters.resultLoss', { defaultMessage: 'Loss' })}</MenuItem>
           </Select>
         </FormControl>
       </Box>
@@ -287,29 +285,30 @@ export default function ChessComExplorerTab({
                 </Select>
               </FormControl>
 
-              <TextField
-                size="small"
-                type="number"
-                placeholder="Min rating"
-                value={minRating}
-                onChange={(e) => setMinRating(e.target.value)}
-                sx={{
-                  width: { xs: '48%', sm: 100 },
-                  '& .MuiInputBase-root': {
-                    fontSize: 11,
-                    height: 32,
-                    bgcolor: 'rgba(255,255,255,0.03)',
-                    color: 'text.primary',
-                  },
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: 'rgba(255,255,255,0.1)',
-                  },
-                  '& .MuiInputBase-input::placeholder': {
-                    color: 'text.secondary',
-                    opacity: 0.7,
-                  },
-                }}
-              />
+              <Box sx={{ width: { xs: '100%', sm: 150 }, px: 1 }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, fontWeight: 600, mb: 0.5, display: 'block' }}>
+                  Min Rating: {minRating}
+                </Typography>
+                <Slider
+                  value={minRating}
+                  onChange={(_, newValue) => setMinRating(newValue as number)}
+                  min={0}
+                  max={3000}
+                  step={100}
+                  valueLabelDisplay="auto"
+                  sx={{
+                    color: 'primary.main',
+                    '& .MuiSlider-thumb': {
+                      width: 16,
+                      height: 16,
+                    },
+                    '& .MuiSlider-valueLabel': {
+                      fontSize: 11,
+                      bgcolor: 'primary.main',
+                    },
+                  }}
+                />
+              </Box>
 
               {filteredGames.length > 0 && !isMobile && (
                 <Chip
