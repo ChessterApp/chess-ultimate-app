@@ -103,7 +103,7 @@ export default function DebutPage() {
   const [masterGamesLoading, setMasterGamesLoading] = useState(false);
 
   // ─── Master games filters ───
-  const [masterGamesFilters, setMasterGamesFilters] = useState({
+  const [masterGamesFilters, setMasterGamesFilters] = useState<MasterGamesFilterState>({
     playerName: '',
     opponentName: '',
     playerColor: '',
