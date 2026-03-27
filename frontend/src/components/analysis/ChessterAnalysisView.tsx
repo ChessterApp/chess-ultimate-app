@@ -129,6 +129,7 @@ interface GameReviewProps {
 // Main interface that combines all props
 interface ChessterAnalysisViewProps extends GameReviewProps, BaseAnalysisViewProps {
     isGameReviewMode: boolean;
+    onGameLoaded?: (pgn: string, fen: string) => void;
 }
 
 function ChessterAnalysisView({
@@ -198,6 +199,9 @@ function ChessterAnalysisView({
   handleMoveCoachClick,
   gameReview,
   pgnText,
+
+  // Scoresheet Scanner props
+  onGameLoaded,
   currentMove,
 
   // Games Database props
@@ -563,7 +567,7 @@ function ChessterAnalysisView({
                   </Typography>
                 </AccordionSummary>
                 <AccordionDetails sx={{ backgroundColor: 'background.paper' }}>
-                  <ScoresheetScanner />
+                  <ScoresheetScanner onGameLoaded={onGameLoaded} />
                 </AccordionDetails>
               </Accordion>
             )}

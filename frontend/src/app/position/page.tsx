@@ -211,6 +211,20 @@ export default function PositionPage() {
     }
   }, [fen, currentSessionId, updateSessionFen]);
 
+  // Handler for loading a game from scoresheet scanner
+  const handleGameLoaded = (pgn: string, fenString: string) => {
+    if (!ChessConstructor.current) return;
+
+    try {
+      const newGame = new ChessConstructor.current();
+      newGame.loadPgn(pgn);
+      setGame(newGame);
+      setFen(newGame.fen());
+    } catch (error) {
+      console.error('Failed to load game from PGN:', error);
+    }
+  };
+
   if (!session.isLoaded || !mounted || !game) {
     return <Loader />;
   }
@@ -350,6 +364,7 @@ export default function PositionPage() {
             gameReviewTheme={null}
             setSessionMode={setSessionMode}
             llmLoading={llmLoading}
+            onGameLoaded={handleGameLoaded}
           />
           )}
         </Box>

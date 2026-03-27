@@ -1189,6 +1189,11 @@
     "copied": "Copied!",
     "downloadPGN": "Download PGN",
     "loadIntoBoard": "Load into Board",
-    "scanAnother": "Scan Another Scoresheet"
+    "scanAnother": "Scan Another Scoresheet",
+    "savedGames": "Saved Scanned Games",
+    "noSavedGames": "No saved games yet",
+    "deleteGame": "Delete game",
+    "loadGame": "Load game",
+    "gameSaved": "Game saved!"
   }
 }

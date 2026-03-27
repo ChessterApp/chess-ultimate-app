@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Box,
@@ -15,6 +15,8 @@ import {
   List,
   ListItem,
   ListItemText,
+  ListItemSecondaryAction,
+  Divider,
 } from '@mui/material';
 import {
   Upload,
@@ -23,6 +25,8 @@ import {
   Download,
   Check,
   Warning,
+  Delete,
+  PlayArrow,
 } from '@mui/icons-material';
 import { apiFetch, ApiError } from '@/lib/api';
 
@@ -46,6 +50,17 @@ interface ScoresheetResult {
   fen_final: string;
 }
 
+interface SavedGame {
+  id: string;
+  pgn: string;
+  fen: string;
+  label: string;
+  date: string;
+  confidence: number;
+}
+
+const STORAGE_KEY = 'chess-scanned-games';
+
 export default function ScoresheetScanner({ onGameLoaded }: ScoresheetScannerProps) {
   const t = useTranslations('scoresheet');
 
@@ -64,6 +79,28 @@ export default function ScoresheetScanner({ onGameLoaded }: ScoresheetScannerPro
   const [error, setError] = useState<string>('');
   const [result, setResult] = useState<ScoresheetResult | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // Saved games state
+  const [savedGames, setSavedGames] = useState<SavedGame[]>([]);
+
+  // Load saved games from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        setSavedGames(JSON.parse(stored));
+      }
+    } catch (error) {
+      console.error('Failed to load saved games:', error);
+    }
+  }, []);
+
+  // Auto-scan when images are uploaded
+  useEffect(() => {
+    if (images.length > 0 && !result && !loading) {
+      handleScan();
+    }
+  }, [images]);
 
   // Handle file upload
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -129,6 +166,21 @@ export default function ScoresheetScanner({ onGameLoaded }: ScoresheetScannerPro
       });
 
       setResult(data);
+
+      // Auto-save the scanned game
+      if (data.pgn && data.fen_final) {
+        const newGame: SavedGame = {
+          id: Date.now().toString(),
+          pgn: data.pgn,
+          fen: data.fen_final,
+          label: `Game ${savedGames.length + 1}`,
+          date: new Date().toISOString(),
+          confidence: data.confidence,
+        };
+        const updatedGames = [...savedGames, newGame];
+        setSavedGames(updatedGames);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedGames));
+      }
     } catch (e) {
       if (e instanceof ApiError) {
         setError(e.message || t('scanError'));
@@ -138,7 +190,7 @@ export default function ScoresheetScanner({ onGameLoaded }: ScoresheetScannerPro
     } finally {
       setLoading(false);
     }
-  }, [images, metadata, t]);
+  }, [images, metadata, t, savedGames]);
 
   // Copy PGN to clipboard
   const handleCopyPGN = useCallback(() => {
@@ -178,9 +230,68 @@ export default function ScoresheetScanner({ onGameLoaded }: ScoresheetScannerPro
     setMetadata({ white: '', black: '', event: '', date: '' });
   }, []);
 
+  // Load saved game
+  const handleLoadSavedGame = useCallback((game: SavedGame) => {
+    if (onGameLoaded) {
+      onGameLoaded(game.pgn, game.fen);
+    }
+  }, [onGameLoaded]);
+
+  // Delete saved game
+  const handleDeleteSavedGame = useCallback((id: string) => {
+    const updatedGames = savedGames.filter(game => game.id !== id);
+    setSavedGames(updatedGames);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedGames));
+  }, [savedGames]);
+
   return (
     <Box sx={{ width: '100%' }}>
       <Stack spacing={3}>
+        {/* Saved Games List */}
+        {savedGames.length > 0 && (
+          <Box>
+            <Typography variant="subtitle2" gutterBottom>
+              {t('savedGames')}
+            </Typography>
+            <Paper sx={{ backgroundColor: 'background.default' }}>
+              <List dense>
+                {savedGames.map((game, idx) => (
+                  <React.Fragment key={game.id}>
+                    {idx > 0 && <Divider />}
+                    <ListItem>
+                      <ListItemText
+                        primary={game.label}
+                        secondary={`${t('confidence')}: ${Math.round(game.confidence * 100)}% • ${new Date(game.date).toLocaleDateString()}`}
+                      />
+                      <ListItemSecondaryAction>
+                        <Tooltip title={t('loadGame')}>
+                          <IconButton
+                            edge="end"
+                            size="small"
+                            onClick={() => handleLoadSavedGame(game)}
+                            sx={{ mr: 1 }}
+                          >
+                            <PlayArrow />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title={t('deleteGame')}>
+                          <IconButton
+                            edge="end"
+                            size="small"
+                            onClick={() => handleDeleteSavedGame(game.id)}
+                          >
+                            <Delete />
+                          </IconButton>
+                        </Tooltip>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  </React.Fragment>
+                ))}
+              </List>
+            </Paper>
+          </Box>
+        )}
+
         {/* Upload Area */}
         {images.length === 0 ? (
           <Paper
