@@ -69,6 +69,44 @@ def fuzzy_correct_move(board: chess.Board, move_str: str) -> Optional[str]:
     return None
 
 
+def parse_moves_from_raw_text(raw_moves: str) -> List[str]:
+    """
+    Parse moves from raw text, handling multi-column scoresheets and move numbers.
+
+    Returns list of individual moves in order (white, black, white, black, ...)
+    Strips [?] markers for uncertain moves but preserves the move.
+    """
+    moves = []
+
+    # Strip [?] markers but keep the moves
+    cleaned = re.sub(r'\[\?\]', '', raw_moves)
+
+    # Split by move numbers (e.g., "1.", "2.", "42.")
+    # This pattern captures everything between move numbers
+    move_sections = re.split(r'(?=\d+\.)', cleaned)
+
+    for section in move_sections:
+        section = section.strip()
+        if not section:
+            continue
+
+        # Remove the move number prefix (e.g., "1. ")
+        section = re.sub(r'^\d+\.?\s*', '', section)
+
+        # Split remaining text into tokens (words/moves)
+        # Match chess moves: piece letters, coordinates, captures, castling, promotions
+        # Also match malformed moves (OCR errors) to allow fuzzy correction later
+        move_tokens = re.findall(r'[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8B](?:=[QRBN])?[+#]?|O-O(?:-O)?[+#]?', section, re.IGNORECASE)
+
+        # Take up to 2 moves (white + black)
+        for token in move_tokens[:2]:
+            token = token.strip()
+            if token and token not in ['...', '--']:
+                moves.append(token)
+
+    return moves
+
+
 def validate_and_build_pgn(
     raw_moves: str,
     metadata: Dict[str, str],
@@ -87,10 +125,8 @@ def validate_and_build_pgn(
     corrections = []
     move_number = 0
 
-    # Parse raw moves (format: "1. e4 e5 2. Nf3 Nc6 ...")
-    # Remove move numbers and split into individual moves
-    move_pattern = r'\d+\.?\s*([a-hO-KRNBQP][a-h0-8xO=+#-]*)'
-    matches = re.findall(move_pattern, raw_moves)
+    # Parse raw moves into individual move strings
+    matches = parse_moves_from_raw_text(raw_moves)
 
     validated_moves = []
 
@@ -105,8 +141,10 @@ def validate_and_build_pgn(
         try:
             # Try to parse the move as-is
             move = board.parse_san(move_str)
+            # Get SAN BEFORE pushing (board.san needs the move to be legal on current board)
+            san = board.san(move)
             board.push(move)
-            validated_moves.append(board.san(move))
+            validated_moves.append(san)
         except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError) as e:
             logger.warning(f"Move {move_number} '{move_str}' is illegal: {e}")
 
@@ -116,8 +154,10 @@ def validate_and_build_pgn(
             if corrected:
                 logger.info(f"Fuzzy-corrected move {move_number}: '{move_str}' -> '{corrected}'")
                 move = board.parse_san(corrected)
+                # Get SAN BEFORE pushing
+                san = board.san(move)
                 board.push(move)
-                validated_moves.append(board.san(move))
+                validated_moves.append(san)
                 corrections.append({
                     'move_number': move_number,
                     'original': move_str,
@@ -137,8 +177,10 @@ def validate_and_build_pgn(
                 if corrected_move:
                     try:
                         move = board.parse_san(corrected_move)
+                        # Get SAN BEFORE pushing
+                        san = board.san(move)
                         board.push(move)
-                        validated_moves.append(board.san(move))
+                        validated_moves.append(san)
                         corrections.append({
                             'move_number': move_number,
                             'original': move_str,
@@ -181,7 +223,8 @@ def re_ask_llm_for_move(
     fen: str,
     move_number: int,
     illegal_move: str,
-    openrouter_key: str
+    openrouter_key: str,
+    model: str = "google/gemini-2.5-pro"
 ) -> Optional[str]:
     """
     Re-ask LLM to correct a specific illegal move given the current position.
@@ -203,7 +246,7 @@ Do not include move numbers or explanations."""
                 "X-Title": "Chesster - Scoresheet Scanner"
             },
             json={
-                "model": "google/gemini-2.5-flash-preview",
+                "model": model,
                 "messages": [
                     {
                         "role": "user",
@@ -211,7 +254,7 @@ Do not include move numbers or explanations."""
                     }
                 ]
             },
-            timeout=15
+            timeout=30
         )
 
         response_data = response.json()
@@ -231,7 +274,8 @@ Do not include move numbers or explanations."""
 
 def extract_moves_from_images(
     images: List[str],
-    openrouter_key: str
+    openrouter_key: str,
+    model: str = "google/gemini-2.5-pro"
 ) -> str:
     """
     Extract moves from scoresheet images using Gemini vision model.
@@ -239,25 +283,53 @@ def extract_moves_from_images(
     Args:
         images: List of base64-encoded image strings
         openrouter_key: OpenRouter API key
+        model: Model to use (defaults to gemini-2.5-pro)
 
     Returns:
         Raw move text extracted by LLM
     """
-    # Build multi-image prompt
+    # Build multi-image prompt with detailed instructions for multi-column scoresheets
     content = [
         {
             "type": "text",
-            "text": """You are a chess scoresheet OCR expert. Extract all moves from this handwritten chess score sheet.
+            "text": """You are a chess scoresheet OCR expert. Extract all moves from this handwritten chess scoresheet.
 
-Output format: numbered move pairs, one per line.
-Example: 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6
+SCORESHEET LAYOUT:
+Typical scoresheets have 3 column pairs:
+- Columns 1-2: Moves 1-25 (White | Black)
+- Columns 3-4: Moves 26-50 (White | Black)
+- Columns 5-6: Moves 51-75 (White | Black)
 
-Rules:
-- Include move numbers
+INSTRUCTIONS:
+1. Identify the White and Black columns for each move number
+2. Read moves sequentially: 1.White, 1.Black, 2.White, 2.Black, etc.
+3. Output as numbered move pairs in standard format
+
+OUTPUT FORMAT:
+1. e4 e5
+2. Nf3 Nc6
+3. Bb5 a6
+
+NOTATION RULES:
 - Use standard algebraic notation (SAN)
-- If a move is unclear, give your best guess with [?] marker
-- Output moves sequentially, preserving the order
-- Do NOT add commentary or explanations
+- Pieces: K=King, Q=Queen, R=Rook, B=Bishop, N=Knight
+- Castling: O-O (kingside), O-O-O (queenside)
+- Promotion: e8=Q
+- Captures: use 'x' (e.g., Nxe4)
+- Check: + suffix, Checkmate: # suffix
+
+COMMON HANDWRITING ERRORS TO WATCH FOR:
+- 1 vs l (one vs lowercase L)
+- 0 vs O (zero vs letter O, especially in castling O-O)
+- 5 vs S
+- 8 vs B
+- If a move is uncertain, mark it with [?] but still include your best guess
+
+IMPORTANT:
+- Extract ALL moves from the scoresheet, across all columns
+- Preserve move order (sequential numbering)
+- Do NOT add explanations or commentary
+- Output ONLY the moves
 
 Extract all moves now:"""
         }
@@ -272,49 +344,57 @@ Extract all moves now:"""
             }
         })
 
-    # Call OpenRouter API
-    try:
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {openrouter_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://chesster.io",
-                "X-Title": "Chesster - Scoresheet Scanner"
-            },
-            json={
-                "model": "google/gemini-2.5-flash-preview",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": content
-                    }
-                ]
-            },
-            timeout=30
-        )
+    # Fallback chain: try primary model, then fallback
+    models_to_try = [model, "google/gemini-3-pro-image-preview"]
 
-        response_data = response.json()
+    for current_model in models_to_try:
+        try:
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://chesster.io",
+                    "X-Title": "Chesster - Scoresheet Scanner"
+                },
+                json={
+                    "model": current_model,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": content
+                        }
+                    ]
+                },
+                timeout=90
+            )
 
-        # Log usage for monitoring
-        if response_data.get('usage'):
-            logger.info(f"Scoresheet OCR token usage: {response_data['usage']}")
+            response_data = response.json()
 
-        if response.ok and response_data.get('choices'):
-            raw_moves = response_data['choices'][0]['message']['content'].strip()
-            logger.info(f"Raw moves extracted: {raw_moves[:200]}...")
-            return raw_moves
-        else:
-            error_msg = response_data.get('error', {}).get('message', 'Failed to extract moves')
-            logger.error(f"OpenRouter API error: {error_msg}")
-            raise Exception(error_msg)
+            # Log usage for monitoring
+            if response_data.get('usage'):
+                logger.info(f"Scoresheet OCR (model={current_model}) token usage: {response_data['usage']}")
 
-    except requests.Timeout:
-        logger.error("OpenRouter API timeout")
-        raise Exception("Scoresheet analysis timed out. Please try again.")
-    except Exception as e:
-        logger.error(f"Error extracting moves: {str(e)}")
-        raise
+            if response.ok and response_data.get('choices'):
+                raw_moves = response_data['choices'][0]['message']['content'].strip()
+                logger.info(f"Raw moves extracted with {current_model}: {raw_moves[:200]}...")
+                return raw_moves
+            else:
+                error_msg = response_data.get('error', {}).get('message', 'Failed to extract moves')
+                logger.warning(f"Model {current_model} failed: {error_msg}")
+                # Try next model in fallback chain
+                continue
+
+        except requests.Timeout:
+            logger.warning(f"Model {current_model} timed out, trying fallback...")
+            continue
+        except Exception as e:
+            logger.warning(f"Model {current_model} error: {str(e)}, trying fallback...")
+            continue
+
+    # If all models failed
+    logger.error("All vision models failed")
+    raise Exception("Scoresheet analysis failed with all available models. Please try again.")
 
 
 @scoresheet_bp.route('/convert', methods=['POST'])
