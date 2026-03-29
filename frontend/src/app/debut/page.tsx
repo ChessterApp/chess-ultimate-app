@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslations } from 'next-intl';
-import { Box, Typography, Snackbar, Alert, Chip } from '@mui/material';
+import { Box, Typography, Snackbar, Alert, Chip, Switch } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
 import type { Chess } from 'chess.js';
@@ -1222,6 +1222,17 @@ export default function DebutPage() {
                       d{depth}
                     </Typography>
                   )}
+                  <Box sx={{ flexGrow: 1 }} />
+                  <Switch
+                    size="small"
+                    checked={stockfishEnabled}
+                    onChange={toggleStockfish}
+                    onClick={(e) => e.stopPropagation()}
+                    sx={{
+                      '& .MuiSwitch-switchBase.Mui-checked': { color: '#f97316' },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#f97316' },
+                    }}
+                  />
                 </Box>
 
                 {/* Engine lines */}
