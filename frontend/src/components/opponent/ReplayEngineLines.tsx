@@ -103,9 +103,9 @@ export default function ReplayEngineLines({
   // Rank indicator colors
   const getRankColor = (rank: number): string => {
     switch (rank) {
-      case 1: return 'bg-orange-500 text-white'
-      case 2: return 'bg-gray-400 text-white'
-      case 3: return 'bg-amber-700 text-white'
+      case 1: return 'bg-zinc-600 text-white'
+      case 2: return 'bg-zinc-400 text-white'
+      case 3: return 'bg-zinc-300 text-zinc-700'
       default: return 'bg-gray-300 text-gray-700'
     }
   }
@@ -189,7 +189,7 @@ export default function ReplayEngineLines({
       {/* Analyzing indicator */}
       {isAnalyzing && formattedLines.length > 0 && (
         <div className="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-          <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+          <div className="w-2 h-2 rounded-full bg-zinc-500 animate-pulse" />
           {t('engine.analyzing')}
         </div>
       )}

@@ -1202,15 +1202,15 @@ export default function DebutPage() {
                     display: 'flex', alignItems: 'center', gap: 1,
                     px: 1.5, py: 0.75,
                     cursor: 'pointer', userSelect: 'none',
-                    bgcolor: stockfishEnabled ? 'rgba(249,115,22,0.08)' : 'transparent',
+                    bgcolor: stockfishEnabled ? 'rgba(0,0,0,0.04)' : 'transparent',
                     borderRadius: '12px',
                     transition: 'background 0.15s',
-                    '&:hover': { bgcolor: stockfishEnabled ? 'rgba(249,115,22,0.12)' : 'rgba(0,0,0,0.04)' },
+                    '&:hover': { bgcolor: 'rgba(0,0,0,0.06)' },
                   }}
                 >
                   <Box sx={{
                     width: 8, height: 8, borderRadius: '50%',
-                    bgcolor: stockfishEnabled ? (isAnalyzing ? '#f97316' : '#22c55e') : '#9ca3af',
+                    bgcolor: stockfishEnabled ? (isAnalyzing ? '#71717A' : '#22c55e') : '#9ca3af',
                     transition: 'background 0.15s',
                     ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
                   }} />
@@ -1229,8 +1229,8 @@ export default function DebutPage() {
                     onChange={toggleStockfish}
                     onClick={(e) => e.stopPropagation()}
                     sx={{
-                      '& .MuiSwitch-switchBase.Mui-checked': { color: '#f97316' },
-                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#f97316' },
+                      '& .MuiSwitch-switchBase.Mui-checked': { color: '#52525B' },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#A1A1AA' },
                     }}
                   />
                 </Box>
