@@ -256,11 +256,18 @@ def parse_moves_from_structured(raw_text: str) -> List[Tuple[int, str, str]]:
 def extract_moves_from_images(
     images: List[str],
     openrouter_key: str,
-    model: str = PRIMARY_MODEL
+    model: str = PRIMARY_MODEL,
+    temperature: float = 0.1
 ) -> str:
     """
     Extract moves from scoresheet images using Gemini vision model.
     Uses a detailed, structured prompt optimized for handwritten chess scoresheets.
+
+    Args:
+        images: List of base64-encoded images
+        openrouter_key: OpenRouter API key
+        model: Model to use for extraction
+        temperature: Sampling temperature (0.0-1.0)
     """
     content = [
         {
@@ -338,7 +345,7 @@ Return ONLY the numbered moves. NO explanations, NO notes, NO markdown blocks.""
                             "content": content
                         }
                     ],
-                    "temperature": 0.1,
+                    "temperature": temperature,
                     "max_tokens": 32000,
                     "reasoning": {"effort": "low"},  # Minimize reasoning tokens, maximize output
                 },
@@ -371,6 +378,186 @@ Return ONLY the numbered moves. NO explanations, NO notes, NO markdown blocks.""
 
     logger.error("All vision models failed")
     raise Exception("Scoresheet analysis failed with all available models. Please try again.")
+
+
+def multi_pass_extract(
+    images: List[str],
+    openrouter_key: str,
+    model: str = PRIMARY_MODEL
+) -> List[List[Tuple[int, str, str]]]:
+    """
+    Run 3 independent extractions with varied temperatures for voting.
+
+    Returns:
+        List of 3 parsed move lists, each containing [(move_num, white, black), ...]
+    """
+    temperatures = [0.1, 0.3, 0.5]
+    results = []
+
+    for i, temp in enumerate(temperatures):
+        logger.info(f"Pass {i+1}/3: Extracting with temperature={temp}")
+        raw_text = extract_moves_from_images(images, openrouter_key, model, temperature=temp)
+        parsed = parse_moves_from_structured(raw_text)
+        results.append(parsed)
+        logger.info(f"Pass {i+1} extracted {len(parsed)} move pairs")
+
+    return results
+
+
+def vote_on_moves(
+    extractions: List[List[Tuple[int, str, str]]],
+    board: chess.Board
+) -> Tuple[List[str], List[Dict]]:
+    """
+    Perform per-move majority voting across 3 extractions.
+
+    Args:
+        extractions: List of 3 parsed move lists from multi_pass_extract()
+        board: Starting chess board position
+
+    Returns:
+        (validated_moves, corrections) where:
+        - validated_moves: List of SAN moves that passed voting
+        - corrections: List of correction metadata dicts
+    """
+    # Flatten all extractions to sequential moves
+    flattened = []
+    for extraction in extractions:
+        moves = []
+        for num, white, black in extraction:
+            if white and white not in ['...', '--', '']:
+                moves.append((num, 'white', white))
+            if black and black not in ['...', '--', '']:
+                moves.append((num, 'black', black))
+        flattened.append(moves)
+
+    # Determine max length across all extractions
+    max_len = max(len(m) for m in flattened)
+
+    validated_moves = []
+    corrections = []
+    move_index = 0
+
+    for pos in range(max_len):
+        # Gather the 3 candidates for this position
+        candidates = []
+        for extraction in flattened:
+            if pos < len(extraction):
+                move_num, color, move_str = extraction[pos]
+                candidates.append((move_num, color, move_str.strip()))
+
+        if not candidates:
+            continue
+
+        # Use the first candidate's metadata as reference
+        move_num, color, _ = candidates[0]
+
+        # Clean candidates
+        cleaned_candidates = []
+        for _, _, move_str in candidates:
+            move_str = move_str.replace('0-0-0', 'O-O-O').replace('0-0', 'O-O')
+            move_str = re.sub(r'[.!?]$', '', move_str)
+            cleaned_candidates.append(move_str)
+
+        # Voting logic
+        from collections import Counter
+        vote_count = Counter(cleaned_candidates)
+        most_common = vote_count.most_common()
+
+        selected_move = None
+        confidence = "unknown"
+
+        # Case 1: All 3 agree (high confidence)
+        if len(most_common) == 1 and most_common[0][1] == 3:
+            selected_move = most_common[0][0]
+            confidence = "high"
+        # Case 2: 2/3 agree (medium confidence)
+        elif len(most_common) >= 1 and most_common[0][1] >= 2:
+            selected_move = most_common[0][0]
+            confidence = "medium"
+        # Case 3: All different - try all through fuzzy correction
+        else:
+            for candidate in cleaned_candidates:
+                # Try direct validation
+                try:
+                    move = board.parse_san(candidate)
+                    selected_move = candidate
+                    confidence = "low"
+                    break
+                except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+                    # Try fuzzy correction
+                    corrected = fuzzy_correct_move(board, candidate)
+                    if corrected:
+                        try:
+                            board.parse_san(corrected)
+                            selected_move = corrected
+                            confidence = "low_corrected"
+                            corrections.append({
+                                'move_number': move_num,
+                                'color': color,
+                                'original': candidate,
+                                'corrected': corrected,
+                                'reason': 'fuzzy_match_voting'
+                            })
+                            break
+                        except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+                            continue
+
+        # If we found a move, try to validate and push it
+        if selected_move:
+            try:
+                move = board.parse_san(selected_move)
+                san = board.san(move)
+                board.push(move)
+                validated_moves.append(san)
+                move_index += 1
+
+                # Log correction if it wasn't unanimous
+                if confidence in ["medium", "low", "low_corrected"] and confidence != "low_corrected":
+                    corrections.append({
+                        'move_number': move_num,
+                        'color': color,
+                        'original': f"votes: {vote_count}",
+                        'corrected': san,
+                        'reason': f'majority_vote_{confidence}'
+                    })
+
+                logger.debug(f"Move {move_index} validated: {san} (confidence: {confidence})")
+                continue
+            except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError) as e:
+                logger.warning(f"Move {move_num} ({color}) '{selected_move}' failed validation: {e}")
+
+        # Move failed - try re-sync
+        logger.warning(f"Move {move_num} ({color}) failed all voting strategies, attempting re-sync")
+
+        # Try the next position's moves from each extraction to re-sync
+        resync_success = False
+        for next_offset in range(1, min(3, max_len - pos)):
+            next_pos = pos + next_offset
+            for extraction in flattened:
+                if next_pos < len(extraction):
+                    _, _, next_move = extraction[next_pos]
+                    next_move = next_move.replace('0-0-0', 'O-O-O').replace('0-0', 'O-O')
+                    next_move = re.sub(r'[.!?]$', '', next_move)
+                    try:
+                        move = board.parse_san(next_move)
+                        san = board.san(move)
+                        board.push(move)
+                        validated_moves.append(san)
+                        move_index += 1
+                        logger.info(f"Re-synced at position {next_pos} with move: {san}")
+                        resync_success = True
+                        break
+                    except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+                        continue
+            if resync_success:
+                break
+
+        if not resync_success:
+            # Could not re-sync, skip this move
+            logger.error(f"Failed to re-sync after move {move_num}, continuing to next position")
+
+    return validated_moves, corrections
 
 
 def re_ask_llm_for_moves(
@@ -527,88 +714,110 @@ def validate_and_build_pgn(
     raw_moves_text: str,
     metadata: Dict[str, str],
     openrouter_key: str,
-    images: Optional[List[str]] = None
+    images: Optional[List[str]] = None,
+    use_voting: bool = False
 ) -> Tuple[str, List[Dict], int, int]:
     """
-    Two-pass validation pipeline:
-    Pass 1: Parse and validate moves sequentially with fuzzy correction
-    Pass 2: For remaining failures, batch re-ask the LLM with image + FEN context
+    Validation pipeline with optional 3-pass voting.
+
+    When use_voting=True:
+      - Ignores raw_moves_text and uses images instead
+      - Runs 3 independent extractions with different temperatures
+      - Uses majority voting for each move position
+      - Never breaks on failure, attempts re-sync instead
+
+    When use_voting=False (legacy):
+      - Uses raw_moves_text with single-pass fuzzy correction
+      - Breaks on first unrecoverable failure
+
+    Returns: (pgn_string, corrections, moves_total, moves_corrected)
     """
-    board = chess.Board()
-    corrections = []
-    validated_moves = []
+    if use_voting and images:
+        # NEW: 3-pass voting pipeline
+        logger.info("Using 3-pass voting pipeline")
 
-    # Parse structured moves
-    structured_moves = parse_moves_from_structured(raw_moves_text)
+        # Step 1: Run 3 extractions
+        extractions = multi_pass_extract(images, openrouter_key)
 
-    if not structured_moves:
-        logger.warning("No structured moves found, trying legacy text parsing")
-        # Fallback to legacy text parsing
-        return _validate_legacy(raw_moves_text, metadata, openrouter_key)
+        # Step 2: Vote on moves
+        board = chess.Board()
+        validated_moves, corrections = vote_on_moves(extractions, board)
 
-    # Flatten to sequential move list: [(move_num, color, move_str), ...]
-    flat_moves = []
-    for num, white, black in structured_moves:
-        if white and white not in ['...', '--', '']:
-            flat_moves.append((num, 'white', white))
-        if black and black not in ['...', '--', '']:
-            flat_moves.append((num, 'black', black))
+        logger.info(f"Voting pipeline: {len(validated_moves)} moves validated, {len(corrections)} corrections")
 
-    # Pass 1: Validate each move with fuzzy correction
-    failed_in_pass1 = []
-    move_index = 0
+    else:
+        # LEGACY: Single-pass with fuzzy correction
+        board = chess.Board()
+        corrections = []
+        validated_moves = []
 
-    for move_num, color, move_str in flat_moves:
-        move_str = move_str.strip()
-        if not move_str:
-            continue
+        # Parse structured moves
+        structured_moves = parse_moves_from_structured(raw_moves_text)
 
-        # Clean common formatting issues
-        move_str = move_str.replace('0-0-0', 'O-O-O').replace('0-0', 'O-O')
-        move_str = re.sub(r'[.!?]$', '', move_str)  # Remove trailing punctuation
+        if not structured_moves:
+            logger.warning("No structured moves found, trying legacy text parsing")
+            # Fallback to legacy text parsing
+            return _validate_legacy(raw_moves_text, metadata, openrouter_key)
 
-        try:
-            move = board.parse_san(move_str)
-            san = board.san(move)
-            board.push(move)
-            validated_moves.append(san)
-            move_index += 1
-        except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
-            # Try fuzzy correction
-            corrected = fuzzy_correct_move(board, move_str)
+        # Flatten to sequential move list: [(move_num, color, move_str), ...]
+        flat_moves = []
+        for num, white, black in structured_moves:
+            if white and white not in ['...', '--', '']:
+                flat_moves.append((num, 'white', white))
+            if black and black not in ['...', '--', '']:
+                flat_moves.append((num, 'black', black))
 
-            if corrected:
-                try:
-                    move = board.parse_san(corrected)
-                    san = board.san(move)
-                    board.push(move)
-                    validated_moves.append(san)
-                    corrections.append({
-                        'move_number': move_num,
-                        'color': color,
-                        'original': move_str,
-                        'corrected': corrected,
-                        'reason': 'fuzzy_match'
-                    })
-                    move_index += 1
-                    continue
-                except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
-                    pass
+        # Pass 1: Validate each move with fuzzy correction
+        failed_in_pass1 = []
+        move_index = 0
 
-            # Fuzzy correction failed — log and stop
-            # (LLM correction without image is too slow and unreliable)
-            # All correction attempts failed — log and stop
-            logger.error(f"Move {move_num} ({color}) '{move_str}' — all corrections failed, skipping")
-            failed_in_pass1.append({
-                'move_number': move_num,
-                'color': color,
-                'original': move_str,
-                'board_fen': board.fen()
-            })
-            # Don't advance the board — this move is skipped
-            # But future moves will be wrong because the board is out of sync
-            # So we should stop here if we can't correct
-            break
+        for move_num, color, move_str in flat_moves:
+            move_str = move_str.strip()
+            if not move_str:
+                continue
+
+            # Clean common formatting issues
+            move_str = move_str.replace('0-0-0', 'O-O-O').replace('0-0', 'O-O')
+            move_str = re.sub(r'[.!?]$', '', move_str)  # Remove trailing punctuation
+
+            try:
+                move = board.parse_san(move_str)
+                san = board.san(move)
+                board.push(move)
+                validated_moves.append(san)
+                move_index += 1
+            except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+                # Try fuzzy correction
+                corrected = fuzzy_correct_move(board, move_str)
+
+                if corrected:
+                    try:
+                        move = board.parse_san(corrected)
+                        san = board.san(move)
+                        board.push(move)
+                        validated_moves.append(san)
+                        corrections.append({
+                            'move_number': move_num,
+                            'color': color,
+                            'original': move_str,
+                            'corrected': corrected,
+                            'reason': 'fuzzy_match'
+                        })
+                        move_index += 1
+                        continue
+                    except (chess.InvalidMoveError, chess.IllegalMoveError, chess.AmbiguousMoveError):
+                        pass
+
+                # All correction attempts failed — log and stop
+                logger.error(f"Move {move_num} ({color}) '{move_str}' — all corrections failed, skipping")
+                failed_in_pass1.append({
+                    'move_number': move_num,
+                    'color': color,
+                    'original': move_str,
+                    'board_fen': board.fen()
+                })
+                # Legacy behavior: break on first failure
+                break
 
     # Build PGN
     game = chess.pgn.Game()
@@ -736,17 +945,14 @@ def convert_scoresheet_to_pgn():
             logger.error("OPENROUTER_API_KEY not configured")
             return jsonify({'error': 'OpenRouter API key not configured'}), 500
 
-        # Step 1: Extract moves from images
-        logger.info(f"Extracting moves from {len(images)} image(s) using {PRIMARY_MODEL}")
-        raw_moves = extract_moves_from_images(images, openrouter_key)
-
-        # Step 2: Validate and build PGN (with two-pass correction)
-        logger.info("Validating moves and building PGN (two-pass pipeline)")
+        # Use 3-pass voting pipeline for better accuracy
+        logger.info(f"Starting 3-pass voting pipeline with {len(images)} image(s)")
         pgn, corrections, moves_total, moves_corrected = validate_and_build_pgn(
-            raw_moves,
+            "",  # raw_moves_text not needed for voting
             metadata,
             openrouter_key,
-            images
+            images,
+            use_voting=True
         )
 
         # Calculate confidence score

@@ -225,6 +225,77 @@ class TestScoresheetScanner(unittest.TestCase):
         self.assertTrue(any("x" in move for move in moves))
         self.assertIn("Bxc6", moves)
 
+    def test_voting_pipeline_integration(self):
+        """
+        Integration test for 3-pass voting pipeline with accuracy measurement.
+        This test loads test_scoresheet.jpg and measures OCR accuracy.
+
+        NOTE: This test requires OPENROUTER_API_KEY and makes real API calls.
+        Skip if the key is not available.
+        """
+        import base64
+
+        # Check if API key is available
+        openrouter_key = os.getenv('OPENROUTER_API_KEY')
+        if not openrouter_key:
+            self.skipTest("OPENROUTER_API_KEY not set, skipping integration test")
+
+        # Load test image
+        test_image_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'test_scoresheet.jpg'
+        )
+
+        if not os.path.exists(test_image_path):
+            self.skipTest(f"Test image not found at {test_image_path}")
+
+        with open(test_image_path, 'rb') as f:
+            image_data = base64.b64encode(f.read()).decode('utf-8')
+
+        images = [image_data]
+        metadata = {
+            "white": "Test Player 1",
+            "black": "Test Player 2",
+            "event": "Test Game",
+            "date": "2026.03.29"
+        }
+
+        # Run voting pipeline
+        pgn, corrections, moves_total, moves_corrected = validate_and_build_pgn(
+            "",  # raw_moves_text not used in voting mode
+            metadata,
+            openrouter_key,
+            images,
+            use_voting=True
+        )
+
+        # Calculate accuracy
+        if moves_total > 0:
+            accuracy = (moves_total - moves_corrected) / moves_total * 100
+        else:
+            accuracy = 0.0
+
+        print(f"\n=== Voting Pipeline Accuracy Test ===")
+        print(f"Total moves validated: {moves_total}")
+        print(f"Moves corrected: {moves_corrected}")
+        print(f"Accuracy: {accuracy:.1f}%")
+        print(f"Target: 90%+")
+        print(f"\nPGN Preview:\n{pgn[:500]}...")
+
+        # Assertions
+        self.assertGreater(moves_total, 0, "Should extract at least some moves")
+        self.assertIsNotNone(pgn)
+        self.assertIn("Test Player 1", pgn)
+        self.assertIn("Test Player 2", pgn)
+
+        # Target: 90%+ accuracy
+        # For now, just log the result - we'll see how close we get
+        if accuracy >= 90.0:
+            print(f"✓ SUCCESS: Achieved {accuracy:.1f}% accuracy (target: 90%+)")
+        else:
+            print(f"⚠ BELOW TARGET: {accuracy:.1f}% accuracy (target: 90%+)")
+            print(f"  This may be expected on first run. Review corrections to improve.")
+
 
 if __name__ == '__main__':
     unittest.main()
