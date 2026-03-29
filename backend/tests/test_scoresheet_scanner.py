@@ -21,7 +21,19 @@ spec.loader.exec_module(scoresheet_module)
 
 fuzzy_correct_move = scoresheet_module.fuzzy_correct_move
 validate_and_build_pgn = scoresheet_module.validate_and_build_pgn
-parse_moves_from_raw_text = scoresheet_module.parse_moves_from_raw_text
+parse_moves_from_structured = scoresheet_module.parse_moves_from_structured
+
+# Backward compatibility alias for tests
+def parse_moves_from_raw_text(raw_text: str):
+    """Parse moves from text into flat list."""
+    structured = parse_moves_from_structured(raw_text)
+    moves = []
+    for num, white, black in structured:
+        if white:
+            moves.append(white)
+        if black:
+            moves.append(black)
+    return moves
 
 
 class TestScoresheetScanner(unittest.TestCase):
