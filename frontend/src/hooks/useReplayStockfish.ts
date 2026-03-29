@@ -8,6 +8,7 @@ import { UciEngine } from '@/stockfish/engine/UciEngine'
 interface UseReplayStockfishReturn {
   evaluation: PositionEval | null
   isAnalyzing: boolean
+  isReady: boolean
   depth: number
   analyze: (fen: string) => void
   stopAnalysis: () => void
@@ -24,6 +25,7 @@ const DEBOUNCE_MS = 300 // Debounce rapid position changes
 export function useReplayStockfish(): UseReplayStockfishReturn {
   const [evaluation, setEvaluation] = useState<PositionEval | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isReady, setIsReady] = useState(false)
   const [depth, setDepth] = useState(0)
 
   const engineRef = useRef<UciEngine | null>(null)
@@ -50,6 +52,7 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
         if (mountedRef.current) {
           engineRef.current = engine
           engineReadyRef.current = true
+          setIsReady(true)
         } else {
           // Component unmounted during init, cleanup
           engine.shutdown()
@@ -74,6 +77,7 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
         engineRef.current.shutdown()
         engineRef.current = null
         engineReadyRef.current = false
+        setIsReady(false)
       }
     }
   }, [])
@@ -150,6 +154,7 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
   return {
     evaluation,
     isAnalyzing,
+    isReady,
     depth,
     analyze,
     stopAnalysis

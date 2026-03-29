@@ -140,16 +140,16 @@ export default function DebutPage() {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('debut_stockfish') === 'true';
   });
-  const { evaluation, isAnalyzing, depth, analyze, stopAnalysis } = useReplayStockfish();
+  const { evaluation, isAnalyzing, isReady, depth, analyze, stopAnalysis } = useReplayStockfish();
 
   // Auto-analyze when position changes and Stockfish is enabled
   useEffect(() => {
-    if (stockfishEnabled && activeTab === 'debut') {
+    if (stockfishEnabled && activeTab === 'debut' && isReady) {
       analyze(boardFen);
-    } else {
+    } else if (!stockfishEnabled) {
       stopAnalysis();
     }
-  }, [stockfishEnabled, boardFen, activeTab, analyze, stopAnalysis]);
+  }, [stockfishEnabled, boardFen, activeTab, isReady, analyze, stopAnalysis]);
 
   const toggleStockfish = useCallback(() => {
     setStockfishEnabled(prev => {
