@@ -1,4 +1,4 @@
-const CACHE_VERSION = '2';
+const CACHE_VERSION = '4';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 
 self.addEventListener('install', (event) => {

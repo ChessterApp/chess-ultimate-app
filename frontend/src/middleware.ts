@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   '/debut(.*)',
   '/profile(.*)',
   '/puzzle(.*)',
+  '/play(.*)',
   '/settings(.*)',
   '/onboarding(.*)',
   '/api/(.*)',  // Allow all API routes without auth
