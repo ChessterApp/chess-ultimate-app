@@ -6,7 +6,8 @@ export default function Loading() {
         <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-6" />
       </div>
       {/* Stats cards */}
-      <div className="animate-pulse grid grid-cols-3 gap-3 mb-6">
+      <div className="animate-pulse grid grid-cols-2 gap-3 mb-6">
+        <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-xl" />
         <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-xl" />
         <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-xl" />
         <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded-xl" />
