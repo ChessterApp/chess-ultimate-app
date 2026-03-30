@@ -272,7 +272,7 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <div className="mb-8 md:col-span-1 lg:col-span-1">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('dashboard.quickActions')}</h2>
-          <div className="grid grid-cols-3 md:grid-cols-1 gap-3 stagger-children">
+          <div className="grid grid-cols-2 md:grid-cols-1 gap-3 stagger-children">
             {analysisTools.map((tool) => (
               <Link
                 key={tool.id}
