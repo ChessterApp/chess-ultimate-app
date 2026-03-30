@@ -147,6 +147,14 @@ export default function DashboardPage() {
       icon: '📖',
       href: '/debut',
       gradient: 'from-orange-500 to-orange-600'
+    },
+    {
+      id: 'play',
+      title: 'Play vs Maia',
+      description: 'Play against human-like AI',
+      icon: '🤖',
+      href: '/play',
+      gradient: 'from-green-500 to-green-600'
     }
   ]
 

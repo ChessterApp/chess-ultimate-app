@@ -37,6 +37,7 @@
     "next": "^16.1.6",
     "next-intl": "^4.5.5",
     "ollama-ai-provider-v2": "^1.5.1",
+    "onnxruntime-web": "^1.24.3",
     "playwright": "^1.58.2",
     "posthog-js": "^1.362.0",
     "react": "^19.0.3",
