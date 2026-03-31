@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Chess } from 'chess.js'
 import {
   Box,
@@ -15,10 +15,6 @@ import {
   Paper,
   LinearProgress,
   Alert,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
 } from '@mui/material'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import { useMaia } from '@/hooks/useMaia'
@@ -71,23 +67,15 @@ export default function PlayPage() {
   const [lastMove, setLastMove] = useState<[Key, Key] | undefined>(undefined)
   const [playerCanMove, setPlayerCanMove] = useState(true)
 
-  // Download dialog
-  const [showDownloadDialog, setShowDownloadDialog] = useState(false)
+  // Auto-download model when not cached
+  const downloadTriggered = useRef(false)
 
   useEffect(() => {
-    if (status === 'no-cache') {
-      setShowDownloadDialog(true)
+    if (status === 'no-cache' && !downloadTriggered.current) {
+      downloadTriggered.current = true
+      downloadModel().catch((err) => console.error('Auto-download failed:', err))
     }
-  }, [status])
-
-  const handleDownload = async () => {
-    try {
-      await downloadModel()
-      setShowDownloadDialog(false)
-    } catch (err) {
-      console.error('Download failed:', err)
-    }
-  }
+  }, [status, downloadModel])
 
   const startGame = () => {
     // Determine actual player color
@@ -233,29 +221,23 @@ export default function PlayPage() {
         </Alert>
       )}
 
-      {/* Download Dialog */}
-      <Dialog open={showDownloadDialog} onClose={() => {}}>
-        <DialogTitle>Download Maia Model</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Maia requires a one-time download of a 45MB AI model. This will be
-            cached in your browser for future use.
+      {/* Inline loading indicator */}
+      {(status === 'no-cache' || status === 'downloading' || status === 'loading') && (
+        <Paper sx={{ p: 3, mb: 3 }}>
+          <Typography variant="subtitle1" gutterBottom>
+            {status === 'loading' ? 'Initializing Maia engine...' : 'Loading Maia engine...'}
           </Typography>
+          <LinearProgress
+            variant={status === 'downloading' ? 'determinate' : 'indeterminate'}
+            value={status === 'downloading' ? progress : undefined}
+          />
           {status === 'downloading' && (
-            <Box sx={{ mt: 2 }}>
-              <LinearProgress variant="determinate" value={progress} />
-              <Typography variant="body2" sx={{ mt: 1 }}>
-                {progress.toFixed(0)}% downloaded
-              </Typography>
-            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {progress.toFixed(0)}% — one-time download, cached for future visits
+            </Typography>
           )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleDownload} disabled={status === 'downloading'}>
-            {status === 'downloading' ? 'Downloading...' : 'Download'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </Paper>
+      )}
 
       {gamePhase === 'setup' && (
         <Paper sx={{ p: 3, mb: 3 }}>
