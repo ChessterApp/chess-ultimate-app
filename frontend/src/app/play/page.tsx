@@ -251,7 +251,7 @@ export default function PlayPage() {
               value={maiaRating}
               onChange={(_, value) => setMaiaRating(value as number)}
               min={1100}
-              max={1900}
+              max={2000}
               step={100}
               marks
               valueLabelDisplay="auto"
