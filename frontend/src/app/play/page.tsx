@@ -235,9 +235,9 @@ export default function PlayPage() {
       {(status === 'no-cache' || status === 'downloading' || status === 'loading' || stockfishPlay.status === 'loading') && (
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="subtitle1" gutterBottom>
-            {status === 'loading' ? 'Initializing Maia engine...' :
-             stockfishPlay.status === 'loading' ? 'Initializing Stockfish engine...' :
-             'Loading Maia engine...'}
+            {status === 'loading' || stockfishPlay.status === 'loading'
+              ? 'Initializing engine...'
+              : 'Downloading engine...'}
           </Typography>
           <LinearProgress
             variant={status === 'downloading' ? 'determinate' : 'indeterminate'}
@@ -275,7 +275,7 @@ export default function PlayPage() {
               valueLabelDisplay="auto"
             />
             <Typography variant="caption" color="text.secondary">
-              Higher rating = stronger play (1100-2000: Maia, 2100-2600: Stockfish)
+              Higher rating = stronger play
             </Typography>
           </FormControl>
 
@@ -332,7 +332,7 @@ export default function PlayPage() {
                   You: {actualPlayerColor === 'w' ? 'White' : 'Black'}
                 </Typography>
                 <Typography variant="body2">
-                  Bot Rating: {botRating} {botRating <= 2000 ? '(Maia)' : '(Stockfish)'}
+                  Bot Rating: {botRating}
                 </Typography>
                 {thinking && (
                   <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
