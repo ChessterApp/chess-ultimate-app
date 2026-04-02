@@ -174,6 +174,13 @@ export default function ChessgroundBoard({
       cgRef.current.set({ lastMove });
     }
 
+    // Force a redraw after the browser has laid out the board.
+    // This ensures piece positions are calculated from the final
+    // rendered dimensions, fixing sub-pixel alignment issues.
+    requestAnimationFrame(() => {
+      cgRef.current?.redrawAll();
+    });
+
     // Cleanup on unmount
     return () => {
       cgRef.current?.destroy();
@@ -262,6 +269,7 @@ export default function ChessgroundBoard({
       style={{
         width: boardSize,
         height: boardSize,
+        aspectRatio: '1 / 1',
         borderRadius: '2px',
         boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
         ['--cg-animation-duration' as any]: `${animationDuration}ms`,

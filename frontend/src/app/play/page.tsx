@@ -299,7 +299,7 @@ export default function PlayPage() {
         <Box>
           <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
             {/* Board */}
-            <Box sx={{ flex: 1 }}>
+            <Box sx={{ flexShrink: 0 }}>
               <ChessgroundBoard
                 fen={fen}
                 onMove={handleMove}
