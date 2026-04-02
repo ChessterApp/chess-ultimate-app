@@ -6,19 +6,17 @@ import {
   Box,
   Button,
   Typography,
-  Slider,
-  FormControl,
-  FormLabel,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
   Paper,
   LinearProgress,
   Alert,
 } from '@mui/material'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
+import BotGrid from '@/components/play/BotGrid'
+import GameSetup from '@/components/play/GameSetup'
 import { useMaia } from '@/hooks/useMaia'
 import { useStockfishPlay } from '@/hooks/useStockfishPlay'
+import type { Bot } from '@/data/bots'
+import { getBotById } from '@/data/bots'
 import type { Key } from 'chessground/types'
 
 // Import chessground CSS
@@ -26,7 +24,7 @@ import 'chessground/assets/chessground.base.css'
 import 'chessground/assets/chessground.brown.css'
 import '@/styles/chessground-theme.css'
 
-type GamePhase = 'setup' | 'playing' | 'ended'
+type GamePhase = 'selecting' | 'setup' | 'playing' | 'ended'
 type PlayerColor = 'white' | 'black' | 'random'
 
 // Temperature-based move selection
@@ -56,9 +54,9 @@ export default function PlayPage() {
   const stockfishPlay = useStockfishPlay()
 
   // Setup state
-  const [botRating, setBotRating] = useState(1500)
+  const [selectedBot, setSelectedBot] = useState<Bot | null>(null)
   const [playerColor, setPlayerColor] = useState<PlayerColor>('white')
-  const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
+  const [gamePhase, setGamePhase] = useState<GamePhase>('selecting')
 
   // Game state
   const [chess] = useState(new Chess())
@@ -79,7 +77,18 @@ export default function PlayPage() {
     }
   }, [status, downloadModel])
 
+  const handleBotSelect = (bot: Bot) => {
+    setSelectedBot(bot)
+    setGamePhase('setup')
+  }
+
+  const handleChangeBot = () => {
+    setGamePhase('selecting')
+  }
+
   const startGame = () => {
+    if (!selectedBot) return
+
     // Determine actual player color
     let actualColor: 'w' | 'b' = 'w'
     if (playerColor === 'random') {
@@ -105,7 +114,7 @@ export default function PlayPage() {
   }
 
   const makeBotMove = async () => {
-    if (chess.isGameOver()) {
+    if (chess.isGameOver() || !selectedBot) {
       checkGameOver()
       return
     }
@@ -115,9 +124,9 @@ export default function PlayPage() {
       const currentFen = chess.fen()
       let selectedMove: string
 
-      if (botRating <= 2000) {
+      if (selectedBot.rating <= 2000) {
         // Use Maia for ELO 1100-2000
-        const evaluation = await evaluatePosition(currentFen, botRating, 1500)
+        const evaluation = await evaluatePosition(currentFen, selectedBot.rating, 1500)
 
         if (!evaluation || !evaluation.policy) {
           console.error('No evaluation returned')
@@ -129,7 +138,7 @@ export default function PlayPage() {
         selectedMove = selectMove(evaluation.policy, 1.0)
       } else {
         // Use Stockfish for ELO 2100-2600
-        const move = await stockfishPlay.getMove(currentFen, botRating)
+        const move = await stockfishPlay.getMove(currentFen, selectedBot.rating)
         if (!move) {
           console.error('No move returned from Stockfish')
           setThinking(false)
@@ -220,10 +229,18 @@ export default function PlayPage() {
   const resetGame = () => {
     chess.reset()
     setFen(chess.fen())
-    setGamePhase('setup')
+    setGamePhase('selecting')
     setGameResult(null)
     setLastMove(undefined)
+    setSelectedBot(null)
   }
+
+  // Check if engines are ready for selected bot
+  const isEngineReady = selectedBot
+    ? selectedBot.rating <= 2000
+      ? status === 'ready'
+      : stockfishPlay.status === 'ready'
+    : false
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
@@ -257,58 +274,28 @@ export default function PlayPage() {
         </Alert>
       )}
 
-      {gamePhase === 'setup' && (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Game Settings
-          </Typography>
-
-          <FormControl fullWidth sx={{ mb: 3 }}>
-            <FormLabel>Bot Rating: {botRating}</FormLabel>
-            <Slider
-              value={botRating}
-              onChange={(_, value) => setBotRating(value as number)}
-              min={1100}
-              max={2600}
-              step={100}
-              marks
-              valueLabelDisplay="auto"
-            />
-            <Typography variant="caption" color="text.secondary">
-              Higher rating = stronger play
-            </Typography>
-          </FormControl>
-
-          <FormControl component="fieldset">
-            <FormLabel>Play as</FormLabel>
-            <RadioGroup
-              value={playerColor}
-              onChange={(e) => setPlayerColor(e.target.value as PlayerColor)}
-            >
-              <FormControlLabel value="white" control={<Radio />} label="White" />
-              <FormControlLabel value="black" control={<Radio />} label="Black" />
-              <FormControlLabel value="random" control={<Radio />} label="Random" />
-            </RadioGroup>
-          </FormControl>
-
-          <Button
-            variant="contained"
-            size="large"
-            onClick={startGame}
-            disabled={
-              (botRating <= 2000 && status !== 'ready') ||
-              (botRating > 2000 && stockfishPlay.status !== 'ready')
-            }
-            sx={{ mt: 3 }}
-          >
-            {(botRating <= 2000 && status === 'ready') || (botRating > 2000 && stockfishPlay.status === 'ready')
-              ? 'Start Game'
-              : 'Loading...'}
-          </Button>
-        </Paper>
+      {/* Bot selection phase */}
+      {gamePhase === 'selecting' && (
+        <BotGrid
+          selectedBotId={selectedBot?.id || null}
+          onSelectBot={handleBotSelect}
+        />
       )}
 
-      {(gamePhase === 'playing' || gamePhase === 'ended') && (
+      {/* Game setup phase */}
+      {gamePhase === 'setup' && selectedBot && (
+        <GameSetup
+          bot={selectedBot}
+          playerColor={playerColor}
+          onColorChange={setPlayerColor}
+          onPlay={startGame}
+          onChangeBot={handleChangeBot}
+          disabled={!isEngineReady}
+        />
+      )}
+
+      {/* Playing/ended phase */}
+      {(gamePhase === 'playing' || gamePhase === 'ended') && selectedBot && (
         <Box>
           <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
             {/* Board */}
@@ -332,11 +319,11 @@ export default function PlayPage() {
                   You: {actualPlayerColor === 'w' ? 'White' : 'Black'}
                 </Typography>
                 <Typography variant="body2">
-                  Bot Rating: {botRating}
+                  {selectedBot.name} ({selectedBot.rating})
                 </Typography>
                 {thinking && (
                   <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                    Bot is thinking...
+                    {selectedBot.name} is thinking...
                   </Typography>
                 )}
               </Paper>
