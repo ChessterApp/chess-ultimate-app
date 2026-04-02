@@ -18,6 +18,7 @@ import {
 } from '@mui/material'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import { useMaia } from '@/hooks/useMaia'
+import { useStockfishPlay } from '@/hooks/useStockfishPlay'
 import type { Key } from 'chessground/types'
 
 // Import chessground CSS
@@ -52,9 +53,10 @@ function selectMove(
 
 export default function PlayPage() {
   const { status, progress, error, evaluatePosition, downloadModel } = useMaia()
+  const stockfishPlay = useStockfishPlay()
 
   // Setup state
-  const [maiaRating, setMaiaRating] = useState(1500)
+  const [botRating, setBotRating] = useState(1500)
   const [playerColor, setPlayerColor] = useState<PlayerColor>('white')
   const [gamePhase, setGamePhase] = useState<GamePhase>('setup')
 
@@ -93,16 +95,16 @@ export default function PlayPage() {
     setGamePhase('playing')
     setLastMove(undefined)
 
-    // If player is black, Maia moves first
+    // If player is black, bot moves first
     if (actualColor === 'b') {
       setPlayerCanMove(false)
-      setTimeout(() => makeMaiaMove(), 500)
+      setTimeout(() => makeBotMove(), 500)
     } else {
       setPlayerCanMove(true)
     }
   }
 
-  const makeMaiaMove = async () => {
+  const makeBotMove = async () => {
     if (chess.isGameOver()) {
       checkGameOver()
       return
@@ -111,16 +113,30 @@ export default function PlayPage() {
     setThinking(true)
     try {
       const currentFen = chess.fen()
-      const evaluation = await evaluatePosition(currentFen, maiaRating, 1500)
+      let selectedMove: string
 
-      if (!evaluation || !evaluation.policy) {
-        console.error('No evaluation returned')
-        setThinking(false)
-        return
+      if (botRating <= 2000) {
+        // Use Maia for ELO 1100-2000
+        const evaluation = await evaluatePosition(currentFen, botRating, 1500)
+
+        if (!evaluation || !evaluation.policy) {
+          console.error('No evaluation returned')
+          setThinking(false)
+          return
+        }
+
+        // Select move with temperature sampling
+        selectedMove = selectMove(evaluation.policy, 1.0)
+      } else {
+        // Use Stockfish for ELO 2100-2600
+        const move = await stockfishPlay.getMove(currentFen, botRating)
+        if (!move) {
+          console.error('No move returned from Stockfish')
+          setThinking(false)
+          return
+        }
+        selectedMove = move
       }
-
-      // Select move with temperature sampling
-      const selectedMove = selectMove(evaluation.policy, 1.0)
 
       // Apply move
       const from = selectedMove.substring(0, 2) as Key
@@ -138,7 +154,7 @@ export default function PlayPage() {
       setPlayerCanMove(true)
       checkGameOver()
     } catch (err) {
-      console.error('Maia move error:', err)
+      console.error('Bot move error:', err)
       setPlayerCanMove(true)
     } finally {
       setThinking(false)
@@ -174,8 +190,8 @@ export default function PlayPage() {
         return true
       }
 
-      // Maia's turn after a delay
-      setTimeout(() => makeMaiaMove(), 500)
+      // Bot's turn after a delay
+      setTimeout(() => makeBotMove(), 500)
       return true
     } catch (err) {
       console.error('Move error:', err)
@@ -212,20 +228,16 @@ export default function PlayPage() {
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
       <Typography variant="h4" gutterBottom>
-        Play vs Maia Bot
+        Play vs Bot
       </Typography>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-
       {/* Inline loading indicator */}
-      {(status === 'no-cache' || status === 'downloading' || status === 'loading') && (
+      {(status === 'no-cache' || status === 'downloading' || status === 'loading' || stockfishPlay.status === 'loading') && (
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="subtitle1" gutterBottom>
-            {status === 'loading' ? 'Initializing Maia engine...' : 'Loading Maia engine...'}
+            {status === 'loading' ? 'Initializing Maia engine...' :
+             stockfishPlay.status === 'loading' ? 'Initializing Stockfish engine...' :
+             'Loading Maia engine...'}
           </Typography>
           <LinearProgress
             variant={status === 'downloading' ? 'determinate' : 'indeterminate'}
@@ -239,6 +251,12 @@ export default function PlayPage() {
         </Paper>
       )}
 
+      {(error || stockfishPlay.error) && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error || stockfishPlay.error}
+        </Alert>
+      )}
+
       {gamePhase === 'setup' && (
         <Paper sx={{ p: 3, mb: 3 }}>
           <Typography variant="h6" gutterBottom>
@@ -246,18 +264,18 @@ export default function PlayPage() {
           </Typography>
 
           <FormControl fullWidth sx={{ mb: 3 }}>
-            <FormLabel>Maia Rating: {maiaRating}</FormLabel>
+            <FormLabel>Bot Rating: {botRating}</FormLabel>
             <Slider
-              value={maiaRating}
-              onChange={(_, value) => setMaiaRating(value as number)}
+              value={botRating}
+              onChange={(_, value) => setBotRating(value as number)}
               min={1100}
-              max={2000}
+              max={2600}
               step={100}
               marks
               valueLabelDisplay="auto"
             />
             <Typography variant="caption" color="text.secondary">
-              Higher rating = stronger play
+              Higher rating = stronger play (1100-2000: Maia, 2100-2600: Stockfish)
             </Typography>
           </FormControl>
 
@@ -277,10 +295,15 @@ export default function PlayPage() {
             variant="contained"
             size="large"
             onClick={startGame}
-            disabled={status !== 'ready'}
+            disabled={
+              (botRating <= 2000 && status !== 'ready') ||
+              (botRating > 2000 && stockfishPlay.status !== 'ready')
+            }
             sx={{ mt: 3 }}
           >
-            {status === 'ready' ? 'Start Game' : 'Loading...'}
+            {(botRating <= 2000 && status === 'ready') || (botRating > 2000 && stockfishPlay.status === 'ready')
+              ? 'Start Game'
+              : 'Loading...'}
           </Button>
         </Paper>
       )}
@@ -309,11 +332,11 @@ export default function PlayPage() {
                   You: {actualPlayerColor === 'w' ? 'White' : 'Black'}
                 </Typography>
                 <Typography variant="body2">
-                  Maia Rating: {maiaRating}
+                  Bot Rating: {botRating} {botRating <= 2000 ? '(Maia)' : '(Stockfish)'}
                 </Typography>
                 {thinking && (
                   <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                    Maia is thinking...
+                    Bot is thinking...
                   </Typography>
                 )}
               </Paper>
