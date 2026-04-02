@@ -6,24 +6,6 @@
 /* Don't override inline width/height on the board wrapper —
    the component sets explicit pixel dimensions via inline style */
 
-/* Clip pieces at board edges — prevents rank 1/8 pieces from
-   visually overflowing the board boundary */
-.chessground-board.cg-wrap {
-  overflow: hidden;
-}
-
-/* Force container to fill the wrap exactly.
-   Chessground's updateBounds pixel-snaps the container width/height
-   to align to 8 device-pixel boundaries, which can leave a 1-3px gap
-   between the container/board and the wrap at non-integer devicePixelRatios.
-   This gap shifts pieces relative to the visible board boundary.
-   Overriding to 100% eliminates the gap at the cost of possible sub-pixel
-   square boundaries — acceptable since we use an SVG board pattern. */
-.chessground-board.cg-wrap cg-container {
-  width: 100% !important;
-  height: 100% !important;
-}
-
 /* Selected square highlight */
 .chessground-board cg-board square.selected {
   background-color: rgba(255, 215, 0, 0.6) !important;
