@@ -55,7 +55,7 @@ class Maia {
       return
     }
 
-    this.worker = new Worker('/maia-worker.js')
+    this.worker = new Worker('/maia-worker.js', { type: 'module' })
 
     this.worker.onmessage = (e) => {
       const msg = e.data

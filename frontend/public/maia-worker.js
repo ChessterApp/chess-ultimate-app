@@ -1,5 +1,6 @@
 /**
  * Maia3 Web Worker — runs ONNX inference off the main thread.
+ * ES module worker (type: 'module').
  *
  * Messages FROM main thread:
  *   { type: 'init', modelUrl, modelVersion }
@@ -13,9 +14,8 @@
  *   { type: 'inference-result', id, logitsMove, logitsValue }
  */
 
-importScripts('/ort/ort.wasm.min.js')
+import * as ORT from '/ort/ort.wasm.min.mjs'
 
-const ORT = ort
 ORT.env.wasm.wasmPaths = '/ort/'
 
 // ── IndexedDB storage (mirrors MaiaModelStorage) ─────────────────────────────

@@ -77,6 +77,49 @@ const nextConfig = {
                 headers: ENGINE_HEADERS,
             },
             {
+                source: '/play/:path*',
+                headers: ENGINE_HEADERS,
+            },
+            {
+                // Worker is a separate browsing context under COEP — needs both COEP + CORP
+                source: '/maia-worker.js',
+                headers: [
+                    {
+                        key: 'Cross-Origin-Embedder-Policy',
+                        value: 'require-corp',
+                    },
+                    {
+                        key: 'Cross-Origin-Resource-Policy',
+                        value: 'same-origin',
+                    },
+                ],
+            },
+            {
+                // ORT runtime files — the threaded .mjs spawns sub-workers (pthreads)
+                // which are also browsing contexts needing COEP, plus CORP for COEP parent
+                source: '/ort/:path*',
+                headers: [
+                    {
+                        key: 'Cross-Origin-Embedder-Policy',
+                        value: 'require-corp',
+                    },
+                    {
+                        key: 'Cross-Origin-Resource-Policy',
+                        value: 'same-origin',
+                    },
+                ],
+            },
+            {
+                // Maia model files need CORP header when COEP is enabled
+                source: '/maia3/:path*',
+                headers: [
+                    {
+                        key: 'Cross-Origin-Resource-Policy',
+                        value: 'same-origin',
+                    },
+                ],
+            },
+            {
                 // Other static assets (engines, etc.) — long cache is fine
                 source: '/static/:path*',
                 headers: ENGINE_HEADERS.concat(

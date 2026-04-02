@@ -1,4 +1,4 @@
-const CACHE_VERSION = '4';
+const CACHE_VERSION = '5';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 
 self.addEventListener('install', (event) => {
@@ -19,6 +19,16 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
+
+  // Never intercept worker scripts, WASM, or ONNX model files —
+  // these need exact headers (CORP) for cross-origin isolation.
+  if (
+    url.pathname.endsWith('.wasm') ||
+    url.pathname.endsWith('.onnx') ||
+    url.pathname.endsWith('.mjs') ||
+    url.pathname === '/maia-worker.js' ||
+    url.pathname.startsWith('/ort/')
+  ) return;
 
   // Network-first for everything important: navigation, API, Next.js assets
   if (
