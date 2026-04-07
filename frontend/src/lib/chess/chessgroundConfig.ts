@@ -28,6 +28,7 @@ export function getChessgroundConfig({
   return {
     fen,
     orientation,
+    turnColor: orientation,
 
     // Movement settings
     movable: {
