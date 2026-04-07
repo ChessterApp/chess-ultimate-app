@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { DotLottieReact } from '@lottiefiles/dotlottie-react';
+import { DotLottieReact, setWasmUrl } from '@lottiefiles/dotlottie-react';
+
+setWasmUrl('/animations/dotlottie-player.wasm');
 
 interface LottieCelebrationProps {
   /** Whether the celebration animation is visible */
