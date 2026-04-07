@@ -6,6 +6,7 @@ Endpoints for fetching and tracking progress on multiple puzzles within a lesson
 from flask import Blueprint, jsonify, request
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id
+from api.lessons import resolve_course_and_lesson
 import logging
 import time
 
@@ -63,8 +64,8 @@ def get_lesson_puzzles(course_slug, lesson_slug):
     try:
         user_id = get_current_user_id()
 
-        # Find lesson by slug
-        lesson = _find_lesson_by_slugs(course_slug, lesson_slug)
+        # Find lesson by slug (uses proven resolver from lessons.py)
+        _, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
 
@@ -179,8 +180,8 @@ def complete_puzzle(course_slug, lesson_slug, puzzle_index):
         user_id = get_current_user_id()
         data = request.get_json() or {}
 
-        # Find lesson
-        lesson = _find_lesson_by_slugs(course_slug, lesson_slug)
+        # Find lesson (uses proven resolver from lessons.py)
+        _, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
 
@@ -267,8 +268,8 @@ def get_single_puzzle(course_slug, lesson_slug, puzzle_index):
     try:
         user_id = get_current_user_id()
 
-        # Find lesson
-        lesson = _find_lesson_by_slugs(course_slug, lesson_slug)
+        # Find lesson (uses proven resolver from lessons.py)
+        _, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
 
@@ -311,11 +312,6 @@ def get_single_puzzle(course_slug, lesson_slug, puzzle_index):
         return jsonify({"error": f"Failed to fetch puzzle: {str(e)}"}), 500
 
 
-# Simple in-memory cache for lesson lookups
-_lesson_cache = {}
-_cache_ttl = 300  # 5 minutes
-
-
 @puzzles_bp.route('/api/learn/<course_slug>/<lesson_slug>/puzzles/reset', methods=['POST'])
 @verify_clerk_token
 def reset_lesson_progress(course_slug, lesson_slug):
@@ -336,8 +332,8 @@ def reset_lesson_progress(course_slug, lesson_slug):
     try:
         user_id = get_current_user_id()
 
-        # Find lesson
-        lesson = _find_lesson_by_slugs(course_slug, lesson_slug)
+        # Find lesson (uses proven resolver from lessons.py)
+        _, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
 
@@ -381,122 +377,3 @@ def reset_lesson_progress(course_slug, lesson_slug):
         return jsonify({"error": f"Failed to reset progress: {str(e)}"}), 500
 
 
-def _find_lesson_by_slugs(course_slug: str, lesson_slug: str):
-    """
-    Helper to find lesson by course and lesson slugs.
-    Uses caching and optimized single-query lookup for fast performance.
-    """
-    import re
-
-    cache_key = f"{course_slug}:{lesson_slug}"
-
-    # Check cache first
-    if cache_key in _lesson_cache:
-        cached_data, cached_time = _lesson_cache[cache_key]
-        if time.time() - cached_time < _cache_ttl:
-            logger.debug(f"Cache hit for lesson: {cache_key}")
-            return cached_data
-
-    def generate_slug(title):
-        slug = title.lower()
-        slug = re.sub(r'\s+', '-', slug)
-        slug = re.sub(r'[^a-z0-9-]', '', slug)
-        slug = re.sub(r'-+', '-', slug)
-        return slug.strip('-')
-
-    # OPTIMIZED: Single query with joins instead of 3 sequential queries
-    # NOTE: courses table does NOT have a slug column - we generate it from title
-    try:
-        # Try direct slug lookup first (single query)
-        lesson_result = retry_supabase_query(
-            lambda: supabase.table('lessons')
-                .select('*, modules!inner(course_id, courses!inner(id, title))')
-                .eq('slug', lesson_slug)
-                .execute()
-        )
-
-        # Filter by course slug (generated from title)
-        for lesson in lesson_result.data:
-            module = lesson.get('modules', {})
-            course = module.get('courses', {})
-            c_slug = generate_slug(course.get('title', ''))
-            if c_slug == course_slug:
-                # Remove nested data, keep just lesson fields
-                clean_lesson = {k: v for k, v in lesson.items() if k != 'modules'}
-                _lesson_cache[cache_key] = (clean_lesson, time.time())
-                logger.debug(f"Found lesson via direct slug lookup: {lesson_slug}")
-                return clean_lesson
-    except Exception as e:
-        logger.debug(f"Direct slug lookup failed, trying fallback: {e}")
-
-    # Fallback: title-based lookup if slug column doesn't exist or no match
-    try:
-        # Convert slug to title pattern (rook-checkmates -> %rook%checkmates%)
-        title_pattern = '%' + '%'.join(lesson_slug.split('-')) + '%'
-
-        lesson_result = retry_supabase_query(
-            lambda: supabase.table('lessons')
-                .select('*, modules!inner(course_id, courses!inner(id, title))')
-                .ilike('title', title_pattern)
-                .execute()
-        )
-
-        for lesson in lesson_result.data:
-            module = lesson.get('modules', {})
-            course = module.get('courses', {})
-            c_slug = generate_slug(course.get('title', ''))
-            l_slug = lesson.get('slug') or generate_slug(lesson.get('title', ''))
-
-            if c_slug == course_slug and l_slug == lesson_slug:
-                clean_lesson = {k: v for k, v in lesson.items() if k != 'modules'}
-                _lesson_cache[cache_key] = (clean_lesson, time.time())
-                logger.debug(f"Found lesson via title pattern: {lesson_slug}")
-                return clean_lesson
-    except Exception as e:
-        logger.warning(f"Optimized query failed, using sequential fallback: {e}")
-
-    # Ultimate fallback: original sequential method (should rarely hit this)
-    logger.warning(f"Using slow sequential lookup for: {course_slug}/{lesson_slug}")
-
-    courses_result = retry_supabase_query(
-        lambda: supabase.table('courses').select('id, title').execute()
-    )
-    course = None
-    for c in courses_result.data:
-        c_slug = generate_slug(c.get('title', ''))
-        if c_slug == course_slug:
-            course = c
-            break
-
-    if not course:
-        _lesson_cache[cache_key] = (None, time.time())
-        return None
-
-    modules_result = retry_supabase_query(
-        lambda: supabase.table('modules')
-            .select('id')
-            .eq('course_id', course['id'])
-            .execute()
-    )
-
-    if not modules_result.data:
-        _lesson_cache[cache_key] = (None, time.time())
-        return None
-
-    module_ids = [m['id'] for m in modules_result.data]
-
-    lessons_result = retry_supabase_query(
-        lambda: supabase.table('lessons')
-            .select('*')
-            .in_('module_id', module_ids)
-            .execute()
-    )
-
-    for lesson in lessons_result.data:
-        l_slug = lesson.get('slug') or generate_slug(lesson.get('title', ''))
-        if l_slug == lesson_slug:
-            _lesson_cache[cache_key] = (lesson, time.time())
-            return lesson
-
-    _lesson_cache[cache_key] = (None, time.time())
-    return None
