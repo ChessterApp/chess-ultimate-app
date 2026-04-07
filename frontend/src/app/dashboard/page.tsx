@@ -19,7 +19,7 @@ interface Course {
   id: string
   title: string
   description: string
-  level: 'beginner' | 'intermediate' | 'advanced'
+  level: 'beginner' | 'intermediate' | 'advanced' | 'master'
   order_index: number
   slug?: string
 }
@@ -162,7 +162,8 @@ export default function DashboardPage() {
     const levels: Record<string, string> = {
       'beginner': t('dashboard.levels.beginner'),
       'intermediate': t('dashboard.levels.intermediate'),
-      'advanced': t('dashboard.levels.advanced')
+      'advanced': t('dashboard.levels.advanced'),
+      'master': t('dashboard.levels.master')
     }
     return levels[level] || level
   }
@@ -237,6 +238,7 @@ export default function DashboardPage() {
                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                   currentCourse.level === 'beginner' ? 'bg-green-100 text-green-700' :
                   currentCourse.level === 'intermediate' ? 'bg-amber-100 text-amber-700' :
+                  currentCourse.level === 'master' ? 'bg-purple-100 text-purple-700' :
                   'bg-red-100 text-red-700'
                 }`}>
                   {getLevelTranslation(currentCourse.level)}

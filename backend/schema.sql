@@ -14,7 +14,7 @@ CREATE TABLE courses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   title TEXT NOT NULL,
   description TEXT,
-  level TEXT CHECK (level IN ('beginner', 'intermediate', 'advanced')),
+  level TEXT CHECK (level IN ('beginner', 'intermediate', 'advanced', 'master')),
   order_index INT NOT NULL,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()

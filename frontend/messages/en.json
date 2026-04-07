@@ -142,9 +142,10 @@
     "checkBack": "Check back soon for new content!",
     "errorLoading": "Error loading courses",
     "levels": {
-      "beginner": "beginner",
-      "intermediate": "intermediate",
-      "advanced": "advanced"
+      "beginner": "Level 1",
+      "intermediate": "Level 2",
+      "advanced": "Level 3",
+      "master": "Level 4"
     },
     "continueLearning": "Continue Learning",
     "quickActions": "Quick Actions",
@@ -226,9 +227,10 @@
   "learn": {
     "title": "Learning Path",
     "subtitle": "Master chess step by step",
-    "beginner": "Beginner",
-    "intermediate": "Intermediate",
-    "advanced": "Advanced",
+    "beginner": "Level 1",
+    "intermediate": "Level 2",
+    "advanced": "Level 3",
+    "master": "Level 4",
     "complete": "complete",
     "signInToLearn": "Sign In to Learn",
     "startJourney": "Start Your Chess Journey",

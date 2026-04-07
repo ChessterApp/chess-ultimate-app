@@ -202,7 +202,8 @@ export default function CoursePage() {
     const levels: Record<string, string> = {
       'beginner': t('dashboard.levels.beginner'),
       'intermediate': t('dashboard.levels.intermediate'),
-      'advanced': t('dashboard.levels.advanced')
+      'advanced': t('dashboard.levels.advanced'),
+      'master': t('dashboard.levels.master')
     }
     return levels[level] || level
   }
@@ -220,6 +221,7 @@ export default function CoursePage() {
         <span className={`px-3 py-1 rounded-full text-sm ${
           course.level === 'beginner' ? 'bg-green-100 text-green-800' :
           course.level === 'intermediate' ? 'bg-yellow-100 text-yellow-800' :
+          course.level === 'master' ? 'bg-purple-100 text-purple-800' :
           'bg-red-100 text-red-800'
         }`}>
           {getLevelLabel(course.level)}

@@ -133,9 +133,10 @@
     "checkBack": "Жаңа мазмұн үшін кейінірек қайта келіңіз!",
     "errorLoading": "Курстарды жүктеу қатесі",
     "levels": {
-      "beginner": "бастаушы",
-      "intermediate": "орта",
-      "advanced": "жоғары"
+      "beginner": "1-деңгей",
+      "intermediate": "2-деңгей",
+      "advanced": "3-деңгей",
+      "master": "4-деңгей"
     },
     "continueLearning": "Оқуды жалғастыру",
     "quickActions": "Жылдам әрекеттер",
@@ -217,9 +218,10 @@
   "learn": {
     "title": "Оқу жолы",
     "subtitle": "Шахматты қадам-қадаммен меңгеріңіз",
-    "beginner": "Бастаушы",
-    "intermediate": "Орта",
-    "advanced": "Жоғары",
+    "beginner": "1-деңгей",
+    "intermediate": "2-деңгей",
+    "advanced": "3-деңгей",
+    "master": "4-деңгей",
     "complete": "аяқталды",
     "signInToLearn": "Үйрену үшін кіріңіз",
     "startJourney": "Шахмат саяхатыңызды бастаңыз",

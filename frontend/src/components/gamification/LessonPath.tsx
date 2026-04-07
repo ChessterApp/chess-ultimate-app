@@ -15,7 +15,7 @@ interface Course {
   id: string;
   slug: string;
   title: string;
-  level: 'beginner' | 'intermediate' | 'advanced';
+  level: 'beginner' | 'intermediate' | 'advanced' | 'master';
   progress: number;
   lessons: Lesson[];
   isLocked: boolean;
@@ -44,6 +44,12 @@ const levelColors = {
     border: 'border-red-500',
     text: 'text-red-600',
     light: 'bg-red-100',
+  },
+  master: {
+    bg: 'bg-purple-500',
+    border: 'border-purple-500',
+    text: 'text-purple-600',
+    light: 'bg-purple-100',
   },
 };
 
@@ -199,7 +205,7 @@ function LessonNode({ lesson, courseSlug, colors }: LessonNodeProps) {
 interface HorizontalLessonPathProps {
   lessons: Lesson[];
   courseSlug: string;
-  level: 'beginner' | 'intermediate' | 'advanced';
+  level: 'beginner' | 'intermediate' | 'advanced' | 'master';
 }
 
 export function HorizontalLessonPath({ lessons, courseSlug, level }: HorizontalLessonPathProps) {

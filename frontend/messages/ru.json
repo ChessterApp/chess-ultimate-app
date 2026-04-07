@@ -142,9 +142,10 @@
     "checkBack": "Загляните позже за новым контентом!",
     "errorLoading": "Ошибка загрузки курсов",
     "levels": {
-      "beginner": "начинающий",
-      "intermediate": "средний",
-      "advanced": "продвинутый"
+      "beginner": "Уровень 1",
+      "intermediate": "Уровень 2",
+      "advanced": "Уровень 3",
+      "master": "Уровень 4"
     },
     "continueLearning": "Продолжить обучение",
     "quickActions": "Быстрые действия",
@@ -226,9 +227,10 @@
   "learn": {
     "title": "Путь обучения",
     "subtitle": "Осваивайте шахматы шаг за шагом",
-    "beginner": "Начинающий",
-    "intermediate": "Средний",
-    "advanced": "Продвинутый",
+    "beginner": "Уровень 1",
+    "intermediate": "Уровень 2",
+    "advanced": "Уровень 3",
+    "master": "Уровень 4",
     "complete": "завершено",
     "signInToLearn": "Войти для обучения",
     "startJourney": "Начните своё шахматное путешествие",
