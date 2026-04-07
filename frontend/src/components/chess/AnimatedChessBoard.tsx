@@ -100,7 +100,7 @@ export default function AnimatedChessBoard({
   targetSquares,
   onCorrectMove,
   onIncorrectMove,
-  orientation = 'white',
+  orientation: orientationProp,
   showHints = true,
   enableAnimations = true,
   className = '',
@@ -110,6 +110,8 @@ export default function AnimatedChessBoard({
   showStar = true,
   strictValidation = false,
 }: AnimatedChessBoardProps) {
+  // Auto-derive orientation from FEN active color if not explicitly provided
+  const orientation = orientationProp ?? (fen.split(' ')[1] === 'b' ? 'black' : 'white');
   const haptic = useHaptic();
   const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', DEFAULT_BOARD_ANIMATION_DURATION);
   const boardRef = useRef<HTMLDivElement>(null);
