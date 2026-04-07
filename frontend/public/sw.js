@@ -1,4 +1,4 @@
-const CACHE_VERSION = '5';
+const CACHE_VERSION = '6';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 
 self.addEventListener('install', (event) => {
@@ -54,6 +54,12 @@ self.addEventListener('fetch', (event) => {
 
   // Cache-first for other static assets (images, fonts)
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.match(event.request).then((cached) =>
+      cached || fetch(event.request).then((response) => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return response;
+      })
+    ).catch(() => new Response('', { status: 404 }))
   );
 });
