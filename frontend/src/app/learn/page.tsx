@@ -104,7 +104,7 @@ export default function LearnPage() {
       .sort((a, b) => a.order_index - b.order_index)
       .map((course, index) => {
         const progress = courseProgress[course.id]
-        const isLocked = index > 0 && (courseProgress[courses[index - 1]?.id]?.progress || 0) < 100
+        const isLocked = false
 
         return {
           id: course.id,
