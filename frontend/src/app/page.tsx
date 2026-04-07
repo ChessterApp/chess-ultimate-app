@@ -134,7 +134,6 @@ export default function HomePage() {
                       width={280}
                       height={280}
                       className="w-36 h-36 md:w-40 md:h-40 lg:w-60 lg:h-60"
-                      priority
                     />
                   </div>
                 </div>
