@@ -11,7 +11,7 @@ const isPublicRoute = createRouteMatcher([
   '/dashboard(.*)',
   '/game(.*)',
   '/learn(.*)',
-  '/debut(.*)',
+  '/database(.*)',
   '/profile(.*)',
   '/puzzle(.*)',
   '/play(.*)',

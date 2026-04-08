@@ -10,43 +10,43 @@ import { describe, it, expect } from 'vitest'
 
 describe('PrefetchLinks', () => {
   it('should define exactly 3 routes to prefetch', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
     expect(topRoutes).toHaveLength(3)
   })
 
   it('should include dashboard route in prefetch list', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
     expect(topRoutes).toContain('/dashboard')
   })
 
-  it('should include debut route in prefetch list', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+  it('should include database route in prefetch list', () => {
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
-    expect(topRoutes).toContain('/debut')
+    expect(topRoutes).toContain('/database')
   })
 
   it('should include learn route in prefetch list', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
     expect(topRoutes).toContain('/learn')
   })
 
   it('should prioritize dashboard as first route to prefetch', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
     expect(topRoutes[0]).toBe('/dashboard')
   })
 
-  it('should prioritize debut as second route to prefetch', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+  it('should prioritize database as second route to prefetch', () => {
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
-    expect(topRoutes[1]).toBe('/debut')
+    expect(topRoutes[1]).toBe('/database')
   })
 
   it('should prioritize learn as third route to prefetch', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+    const topRoutes = ['/dashboard', '/database', '/learn']
 
     expect(topRoutes[2]).toBe('/learn')
   })
@@ -73,9 +73,9 @@ describe('PrefetchLinks', () => {
   })
 
   it('should prefetch routes in priority order', () => {
-    const topRoutes = ['/dashboard', '/debut', '/learn']
+    const topRoutes = ['/dashboard', '/database', '/learn']
     const prefetchOrder = topRoutes
 
-    expect(prefetchOrder).toEqual(['/dashboard', '/debut', '/learn'])
+    expect(prefetchOrder).toEqual(['/dashboard', '/database', '/learn'])
   })
 })

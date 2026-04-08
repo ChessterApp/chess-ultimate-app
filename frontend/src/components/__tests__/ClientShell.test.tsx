@@ -70,8 +70,8 @@ describe('ClientShell Suspense Integration', () => {
 
 describe('ClientShell MUI Provider Optimization', () => {
   it('should define routes that require MUI components', () => {
-    const muiRoutes = ['/debut', '/game', '/position', '/puzzle', '/repertoire', '/practice', '/courses']
-    expect(muiRoutes).toContain('/debut')
+    const muiRoutes = ['/database', '/game', '/position', '/puzzle', '/repertoire', '/practice', '/courses']
+    expect(muiRoutes).toContain('/database')
     expect(muiRoutes).toContain('/game')
     expect(muiRoutes).toContain('/position')
     expect(muiRoutes).toContain('/puzzle')
@@ -86,7 +86,7 @@ describe('ClientShell MUI Provider Optimization', () => {
 
   it('should conditionally wrap content with MUI provider based on route', () => {
     const routeBasedLoading = {
-      '/debut': true,
+      '/database': true,
       '/game': true,
       '/position': true,
       '/puzzle': true,
@@ -94,7 +94,7 @@ describe('ClientShell MUI Provider Optimization', () => {
       '/sign-in': false,
       '/profile': false,
     }
-    expect(routeBasedLoading['/debut']).toBe(true)
+    expect(routeBasedLoading['/database']).toBe(true)
     expect(routeBasedLoading['/game']).toBe(true)
     expect(routeBasedLoading['/sign-in']).toBe(false)
     expect(routeBasedLoading['/profile']).toBe(false)
@@ -105,10 +105,10 @@ describe('ClientShell MUI Provider Optimization', () => {
       return muiRoutes.some(route => pathname.startsWith(route))
     }
 
-    const muiRoutes = ['/debut', '/game', '/position']
+    const muiRoutes = ['/database', '/game', '/position']
 
-    expect(needsMuiCheck('/debut', muiRoutes)).toBe(true)
-    expect(needsMuiCheck('/debut/some-opening', muiRoutes)).toBe(true)
+    expect(needsMuiCheck('/database', muiRoutes)).toBe(true)
+    expect(needsMuiCheck('/database/some-opening', muiRoutes)).toBe(true)
     expect(needsMuiCheck('/game/123', muiRoutes)).toBe(true)
     expect(needsMuiCheck('/profile', muiRoutes)).toBe(false)
     expect(needsMuiCheck('/', muiRoutes)).toBe(false)

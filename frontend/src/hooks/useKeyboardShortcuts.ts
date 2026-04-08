@@ -84,7 +84,7 @@ export function useKeyboardShortcuts() {
         }
 
         // Arrow keys for move navigation on analysis/game pages
-        const chessPages = ['/position', '/analyze', '/game', '/opponent', '/debut'];
+        const chessPages = ['/position', '/analyze', '/game', '/opponent', '/database'];
         const onChessPage = chessPages.some(p => pathname?.startsWith(p));
         if (onChessPage) {
           if (key === 'arrowleft') {

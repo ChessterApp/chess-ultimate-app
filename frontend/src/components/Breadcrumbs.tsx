@@ -24,7 +24,7 @@ const ROUTE_LABELS: Record<string, string> = {
   dashboard: 'Dashboard',
   profile: 'Profile',
   settings: 'Settings',
-  debut: 'Openings',
+  database: 'Openings',
   editor: 'Board Editor',
   opponent: 'Opponent Prep',
 }

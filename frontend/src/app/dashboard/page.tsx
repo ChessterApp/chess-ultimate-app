@@ -19,7 +19,7 @@ interface Course {
   id: string
   title: string
   description: string
-  level: 'beginner' | 'intermediate' | 'advanced' | 'master'
+  level: 'beginner' | 'intermediate' | 'advanced' | 'master' | 'expert'
   order_index: number
   slug?: string
 }
@@ -141,11 +141,11 @@ export default function DashboardPage() {
       gradient: 'from-purple-500 to-purple-600'
     },
     {
-      id: 'debut',
-      title: t('dashboard.debut'),
-      description: t('dashboard.debutDesc'),
+      id: 'database',
+      title: t('dashboard.database'),
+      description: t('dashboard.databaseDesc'),
       icon: '📖',
-      href: '/debut',
+      href: '/database',
       gradient: 'from-orange-500 to-orange-600'
     },
     {
@@ -163,7 +163,8 @@ export default function DashboardPage() {
       'beginner': t('dashboard.levels.beginner'),
       'intermediate': t('dashboard.levels.intermediate'),
       'advanced': t('dashboard.levels.advanced'),
-      'master': t('dashboard.levels.master')
+      'master': t('dashboard.levels.master'),
+      'expert': t('dashboard.levels.expert')
     }
     return levels[level] || level
   }

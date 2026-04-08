@@ -11,8 +11,8 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('Debut error:', error);
-    reportError(error, 'component', { page: 'debut', digest: error.digest });
+    console.error('Database error:', error);
+    reportError(error, 'component', { page: 'database', digest: error.digest });
   }, [error]);
 
   return (

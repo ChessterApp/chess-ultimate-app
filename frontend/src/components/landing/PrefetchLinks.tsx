@@ -12,7 +12,7 @@ export function PrefetchLinks() {
 
   useEffect(() => {
     // Prefetch top 3 routes after initial page load
-    const routes = ['/dashboard', '/debut', '/learn']
+    const routes = ['/dashboard', '/database', '/learn']
 
     routes.forEach(route => {
       router.prefetch(route)

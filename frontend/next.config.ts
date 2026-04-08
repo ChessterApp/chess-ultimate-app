@@ -40,6 +40,16 @@ const nextConfig = {
                 destination: '/position',
                 permanent: true,
             },
+            {
+                source: '/debut',
+                destination: '/database',
+                permanent: true,
+            },
+            {
+                source: '/debut/:path*',
+                destination: '/database/:path*',
+                permanent: true,
+            },
         ];
     },
     headers() {
@@ -73,7 +83,7 @@ const nextConfig = {
                 headers: ENGINE_HEADERS,
             },
             {
-                source: '/debut/:path*',
+                source: '/database/:path*',
                 headers: ENGINE_HEADERS,
             },
             {

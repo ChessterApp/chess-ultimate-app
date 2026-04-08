@@ -31,8 +31,8 @@ describe('Service Worker Precaching', () => {
     expect(swContent).toContain("'/dashboard'")
   })
 
-  it('precaches the debut page', () => {
-    expect(swContent).toContain("'/debut'")
+  it('precaches the database page', () => {
+    expect(swContent).toContain("'/database'")
   })
 
   it('precaches the learn page', () => {
@@ -44,7 +44,7 @@ describe('Service Worker Precaching', () => {
   })
 
   it('includes all critical shell assets in SHELL_ASSETS array', () => {
-    const criticalPages = ['/', '/dashboard', '/debut', '/learn', '/puzzle']
+    const criticalPages = ['/', '/dashboard', '/database', '/learn', '/puzzle']
 
     // Extract SHELL_ASSETS array from the service worker content
     const shellAssetsMatch = swContent.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)
