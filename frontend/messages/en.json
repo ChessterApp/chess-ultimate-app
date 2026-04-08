@@ -146,7 +146,8 @@
       "intermediate": "Level 2",
       "advanced": "Level 3",
       "master": "Level 4",
-      "expert": "Level 5"
+      "expert": "Level 5",
+      "legendary": "Level 6"
     },
     "continueLearning": "Continue Learning",
     "quickActions": "Quick Actions",
@@ -233,6 +234,7 @@
     "advanced": "Level 3",
     "master": "Level 4",
     "expert": "Level 5",
+    "legendary": "Level 6",
     "complete": "complete",
     "signInToLearn": "Sign In to Learn",
     "startJourney": "Start Your Chess Journey",

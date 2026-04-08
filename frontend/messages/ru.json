@@ -146,7 +146,8 @@
       "intermediate": "Уровень 2",
       "advanced": "Уровень 3",
       "master": "Уровень 4",
-      "expert": "Уровень 5"
+      "expert": "Уровень 5",
+      "legendary": "Уровень 6"
     },
     "continueLearning": "Продолжить обучение",
     "quickActions": "Быстрые действия",
@@ -233,6 +234,7 @@
     "advanced": "Уровень 3",
     "master": "Уровень 4",
     "expert": "Уровень 5",
+    "legendary": "Уровень 6",
     "complete": "завершено",
     "signInToLearn": "Войти для обучения",
     "startJourney": "Начните своё шахматное путешествие",
