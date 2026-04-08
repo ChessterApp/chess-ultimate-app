@@ -138,7 +138,8 @@
       "advanced": "3-деңгей",
       "master": "4-деңгей",
       "expert": "5-деңгей",
-      "legendary": "6-деңгей"
+      "legendary": "6-деңгей",
+      "grandmaster": "7-деңгей"
     },
     "continueLearning": "Оқуды жалғастыру",
     "quickActions": "Жылдам әрекеттер",
@@ -226,6 +227,7 @@
     "master": "4-деңгей",
     "expert": "5-деңгей",
     "legendary": "6-деңгей",
+    "grandmaster": "7-деңгей",
     "complete": "аяқталды",
     "signInToLearn": "Үйрену үшін кіріңіз",
     "startJourney": "Шахмат саяхатыңызды бастаңыз",

@@ -15,7 +15,7 @@ interface Course {
   id: string
   title: string
   description: string
-  level: 'beginner' | 'intermediate' | 'advanced' | 'master' | 'expert' | 'legendary'
+  level: 'beginner' | 'intermediate' | 'advanced' | 'master' | 'expert' | 'legendary' | 'grandmaster'
   order_index: number
   slug?: string
 }
@@ -127,6 +127,7 @@ export default function LearnPage() {
       master: lessonPathCourses.filter(c => c.level === 'master'),
       expert: lessonPathCourses.filter(c => c.level === 'expert'),
       legendary: lessonPathCourses.filter(c => c.level === 'legendary'),
+      grandmaster: lessonPathCourses.filter(c => c.level === 'grandmaster'),
     }
     return grouped
   }, [lessonPathCourses])
@@ -267,6 +268,20 @@ export default function LearnPage() {
                   </span>
                 </div>
                 <LessonPath courses={coursesByLevel.legendary} />
+              </div>
+            )}
+
+            {/* Grandmaster Section */}
+            {coursesByLevel.grandmaster.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-md p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="w-3 h-3 bg-indigo-500 rounded-full"></span>
+                  <h2 className="text-lg font-bold text-gray-900">{t('learn.grandmaster')}</h2>
+                  <span className="text-sm text-gray-500">
+                    ({coursesByLevel.grandmaster.filter(c => c.progress === 100).length}/{coursesByLevel.grandmaster.length} {t('learn.complete')})
+                  </span>
+                </div>
+                <LessonPath courses={coursesByLevel.grandmaster} />
               </div>
             )}
           </div>
