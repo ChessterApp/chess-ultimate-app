@@ -203,7 +203,8 @@ export default function CoursePage() {
       'beginner': t('dashboard.levels.beginner'),
       'intermediate': t('dashboard.levels.intermediate'),
       'advanced': t('dashboard.levels.advanced'),
-      'master': t('dashboard.levels.master')
+      'master': t('dashboard.levels.master'),
+      'expert': t('dashboard.levels.expert')
     }
     return levels[level] || level
   }
@@ -222,6 +223,7 @@ export default function CoursePage() {
           course.level === 'beginner' ? 'bg-green-100 text-green-800' :
           course.level === 'intermediate' ? 'bg-yellow-100 text-yellow-800' :
           course.level === 'master' ? 'bg-purple-100 text-purple-800' :
+          course.level === 'expert' ? 'bg-amber-100 text-amber-800' :
           'bg-red-100 text-red-800'
         }`}>
           {getLevelLabel(course.level)}

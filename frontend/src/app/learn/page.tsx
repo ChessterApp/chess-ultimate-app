@@ -15,7 +15,7 @@ interface Course {
   id: string
   title: string
   description: string
-  level: 'beginner' | 'intermediate' | 'advanced' | 'master'
+  level: 'beginner' | 'intermediate' | 'advanced' | 'master' | 'expert'
   order_index: number
   slug?: string
 }
@@ -125,6 +125,7 @@ export default function LearnPage() {
       intermediate: lessonPathCourses.filter(c => c.level === 'intermediate'),
       advanced: lessonPathCourses.filter(c => c.level === 'advanced'),
       master: lessonPathCourses.filter(c => c.level === 'master'),
+      expert: lessonPathCourses.filter(c => c.level === 'expert'),
     }
     return grouped
   }, [lessonPathCourses])
@@ -237,6 +238,20 @@ export default function LearnPage() {
                   </span>
                 </div>
                 <LessonPath courses={coursesByLevel.master} />
+              </div>
+            )}
+
+            {/* Expert Section */}
+            {coursesByLevel.expert.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-md p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="w-3 h-3 bg-amber-500 rounded-full"></span>
+                  <h2 className="text-lg font-bold text-gray-900">{t('learn.expert')}</h2>
+                  <span className="text-sm text-gray-500">
+                    ({coursesByLevel.expert.filter(c => c.progress === 100).length}/{coursesByLevel.expert.length} {t('learn.complete')})
+                  </span>
+                </div>
+                <LessonPath courses={coursesByLevel.expert} />
               </div>
             )}
           </div>
