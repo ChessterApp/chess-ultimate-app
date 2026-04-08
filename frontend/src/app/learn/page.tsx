@@ -61,7 +61,7 @@ export default function LearnPage() {
 
       try {
         const token = await getToken()
-        const data = await apiFetch<Course[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/courses?locale=${locale}`, {
+        const data = await apiFetch<Course[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/courses?locale=${locale}&_v=${Date.now()}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -96,7 +96,7 @@ export default function LearnPage() {
     }
 
     fetchCourses()
-  }, [getToken, isLoaded, isSignedIn, showToast])
+  }, [getToken, isLoaded, isSignedIn, showToast, locale])
 
   // Transform courses for LessonPath component
   const lessonPathCourses = useMemo(() => {
