@@ -140,7 +140,7 @@ export default function DebutPage() {
     if (typeof window === 'undefined') return false;
     return localStorage.getItem('debut_stockfish') === 'true';
   });
-  const { evaluation, isAnalyzing, isReady, depth, analyze, stopAnalysis } = useReplayStockfish();
+  const { evaluation, isAnalyzing, isReady, depth, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled });
 
   // Auto-analyze when position changes and Stockfish is enabled
   useEffect(() => {

@@ -18,11 +18,17 @@ const ANALYSIS_DEPTH = 18 // Moderate depth for fast response
 const MULTI_PV = 3 // Top 3 lines
 const DEBOUNCE_MS = 300 // Debounce rapid position changes
 
+interface UseReplayStockfishOptions {
+  enabled?: boolean
+}
+
 /**
  * Hook to manage Stockfish Web Worker for game replay analysis.
  * Uses Stockfish 16 (mobile-friendly, 6MB) for fast loading.
+ * Only initializes the WASM engine when enabled=true.
  */
-export function useReplayStockfish(): UseReplayStockfishReturn {
+export function useReplayStockfish(options: UseReplayStockfishOptions = {}): UseReplayStockfishReturn {
+  const { enabled = false } = options
   const [evaluation, setEvaluation] = useState<PositionEval | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isReady, setIsReady] = useState(false)
@@ -34,13 +40,26 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
   const currentFenRef = useRef<string | null>(null)
   const mountedRef = useRef(true)
 
-  // Initialize engine on mount
+  // Initialize engine only when enabled
   useEffect(() => {
     mountedRef.current = true
 
+    if (!enabled) {
+      // Shutdown engine if it was running
+      if (engineRef.current) {
+        engineRef.current.shutdown()
+        engineRef.current = null
+        engineReadyRef.current = false
+        setIsReady(false)
+      }
+      return
+    }
+
     const initEngine = async () => {
+      // Skip if already initialized
+      if (engineRef.current) return
+
       try {
-        // Check if WebAssembly is supported
         if (typeof WebAssembly !== 'object') {
           console.warn('WebAssembly not supported, Stockfish analysis disabled')
           return
@@ -54,7 +73,6 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
           engineReadyRef.current = true
           setIsReady(true)
         } else {
-          // Component unmounted during init, cleanup
           engine.shutdown()
         }
       } catch (error) {
@@ -67,12 +85,10 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
     return () => {
       mountedRef.current = false
 
-      // Clear debounce timer
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
       }
 
-      // Shutdown engine
       if (engineRef.current) {
         engineRef.current.shutdown()
         engineRef.current = null
@@ -80,7 +96,7 @@ export function useReplayStockfish(): UseReplayStockfishReturn {
         setIsReady(false)
       }
     }
-  }, [])
+  }, [enabled])
 
   // Update depth from evaluation
   useEffect(() => {
