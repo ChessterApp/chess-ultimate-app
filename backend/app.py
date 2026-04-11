@@ -178,6 +178,13 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import user games API: {e}")
 
+try:
+    from api.repertoire import repertoire_bp
+    app.register_blueprint(repertoire_bp)
+    logger.info("✅ Repertoire API registered (opening collection management)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import repertoire API: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}
