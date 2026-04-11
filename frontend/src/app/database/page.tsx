@@ -61,9 +61,13 @@ const ReplayEngineLines = dynamic(() => import('@/components/opponent/ReplayEngi
   ssr: false,
   loading: () => null
 });
+const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-60 bg-stone-200 rounded-xl" />
+});
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
-import { Close } from '@mui/icons-material';
+import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -129,6 +133,13 @@ export default function DebutPage() {
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
   const [activeTab, setActiveTab] = useState<string>('debut');
   const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
+  // Track the last non-game tab so closing a game returns to the right place
+  const lastHomeTabRef = useRef<string>('debut');
+  useEffect(() => {
+    if (activeTab === 'debut' || activeTab === 'my-games') {
+      lastHomeTabRef.current = activeTab;
+    }
+  }, [activeTab]);
 
   // ─── Explorer tabs state ───
   const [explorerTab, setExplorerTab] = useState<ExplorerTab>('twic');
@@ -948,7 +959,7 @@ export default function DebutPage() {
       delete next[gameId];
       return next;
     });
-    if (activeTab === gameId) setActiveTab('debut');
+    if (activeTab === gameId) setActiveTab(lastHomeTabRef.current);
   }, [activeTab]);
 
   const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
@@ -1041,6 +1052,21 @@ export default function DebutPage() {
                 color: activeTab === 'debut' ? '#fff' : 'var(--text-secondary)',
                 border: activeTab === 'debut' ? 'none' : '1px solid rgba(31,41,55,0.1)',
                 '&:hover': { bgcolor: activeTab === 'debut' ? 'primary.dark' : 'var(--surface-card-hover)' },
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            />
+            <Chip
+              icon={<FolderOpen sx={{ fontSize: 14 }} />}
+              label={t('myGamesTab')}
+              onClick={() => setActiveTab('my-games')}
+              sx={{
+                height: 28, fontSize: 12, fontWeight: 600,
+                borderRadius: '9999px',
+                bgcolor: activeTab === 'my-games' ? 'primary.main' : 'rgba(255,255,255,0.95)',
+                color: activeTab === 'my-games' ? '#fff' : 'var(--text-secondary)',
+                border: activeTab === 'my-games' ? 'none' : '1px solid rgba(31,41,55,0.1)',
+                '&:hover': { bgcolor: activeTab === 'my-games' ? 'primary.dark' : 'var(--surface-card-hover)' },
+                '& .MuiChip-icon': { color: activeTab === 'my-games' ? '#fff' : 'var(--text-secondary)' },
                 cursor: 'pointer', flexShrink: 0,
               }}
             />
@@ -1361,6 +1387,10 @@ export default function DebutPage() {
                   />
                 </Box>
               </>
+            ) : activeTab === 'my-games' ? (
+              <Box sx={{ flex: 1, overflow: 'auto' }}>
+                <MyGamesPanel onOpenGame={handleOpenGame} />
+              </Box>
             ) : activeGame ? (
               <Box sx={{ p: 2, color: 'var(--text-tertiary)' }}>
                 <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>

@@ -55,7 +55,7 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
   const [resultFilter, setResultFilter] = useState<ResultFilter>('');
   const [favoriteFilter, setFavoriteFilter] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const buildFilters = useCallback((): ListGamesFilters => {
     const filters: ListGamesFilters = {};
