@@ -29,7 +29,7 @@ export const DEFAULT_CHAPTER_DIMENIONS = {
 }
 
 export const DEFAULT_BOARD_FLIPPED = false;
-export const DEFAULT_BOARD_SIZE = 550;
+export const DEFAULT_BOARD_SIZE = 552;
 export const DEFAULT_BOARD_SHOW_COORDINATE = true;
 export const DEFAULT_BOARD_ANIMATION_DURATION = 50;
 export const DEFAULT_BOARD_SHOW_FEN = false;

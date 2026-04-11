@@ -205,12 +205,14 @@ export default function AiChessboardPanel({
   }>("board_ui_show_panel_dimensions", DEFAULT_BOARD_PANEL_DIMENSIONS);
 
   // Calculate responsive board size based on window width
+  // Snap to nearest multiple of 8 so chessground's pixel-snapping doesn't create gaps
+  const snapTo8 = (size: number) => Math.floor(size / 8) * 8;
   const responsiveBoardSize = useMemo(() => {
-    if (windowWidth < 400) return windowWidth - 8; // Very small phones — full width
-    if (windowWidth < 600) return windowWidth - 12; // Small phones — near full width
-    if (windowWidth < 768) return Math.min(windowWidth - 24, 440); // Large phones
-    if (windowWidth < 1024) return Math.min(windowWidth - 48, 500); // Tablets
-    return boardSize; // Desktop - use user preference
+    if (windowWidth < 400) return snapTo8(windowWidth - 8); // Very small phones — full width
+    if (windowWidth < 600) return snapTo8(windowWidth - 12); // Small phones — near full width
+    if (windowWidth < 768) return snapTo8(Math.min(windowWidth - 24, 440)); // Large phones
+    if (windowWidth < 1024) return snapTo8(Math.min(windowWidth - 48, 500)); // Tablets
+    return snapTo8(boardSize); // Desktop - use user preference
   }, [windowWidth, boardSize]);
 
   // Calculate responsive panel dimensions
