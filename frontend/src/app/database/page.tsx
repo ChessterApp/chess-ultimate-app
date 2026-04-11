@@ -67,6 +67,7 @@ const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'),
 });
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
+import { useUserGames } from '@/hooks/useUserGames';
 import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -172,6 +173,36 @@ export default function DebutPage() {
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
+
+  // ─── My Games (save bookmark) ───
+  const { createGame: createUserGame } = useUserGames();
+  const [savedGameIds, setSavedGameIds] = useState<Set<string>>(new Set());
+
+  const handleSaveToMyGames = useCallback(async (game: OpenedGame): Promise<boolean> => {
+    try {
+      const result = await createUserGame(game.pgn, {
+        white: game.white,
+        black: game.black,
+        white_elo: game.whiteElo ?? null,
+        black_elo: game.blackElo ?? null,
+        result: game.result,
+        date: game.date ?? null,
+        event: game.event ?? null,
+        eco: game.eco ?? null,
+        source: typeof game.source === 'string' ? game.source : 'database',
+      });
+      if (result) {
+        setSavedGameIds(prev => new Set(prev).add(game.id));
+        setSnackbar({ open: true, msg: t('gameSavedToMyGames'), severity: 'success' });
+        return true;
+      }
+      setSnackbar({ open: true, msg: t('gameSaveFailed'), severity: 'error' });
+      return false;
+    } catch {
+      setSnackbar({ open: true, msg: t('gameSaveFailed'), severity: 'error' });
+      return false;
+    }
+  }, [createUserGame, t]);
 
   // ─── Hook ───
   const {
@@ -1314,6 +1345,8 @@ export default function DebutPage() {
                   game={activeGame}
                   currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+                  onSaveToMyGames={handleSaveToMyGames}
+                  isSaved={savedGameIds.has(activeGame.id)}
                 />
               </Box>
             )}

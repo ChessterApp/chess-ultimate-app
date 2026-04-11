@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, Typography, Chip, Divider, IconButton, Tooltip,
+  Box, Typography, Chip, IconButton, Tooltip, CircularProgress,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, FirstPage, LastPage } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark } from '@mui/icons-material';
 import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
 
@@ -30,6 +30,8 @@ interface GameViewerPanelProps {
   game: OpenedGame;
   currentMoveIndex: number;  // -1 = starting position
   onMoveIndexChange: (index: number) => void;
+  onSaveToMyGames?: (game: OpenedGame) => Promise<boolean>;
+  isSaved?: boolean;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -69,8 +71,20 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
   };
 }
 
-export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange }: GameViewerPanelProps) {
+export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange, onSaveToMyGames, isSaved = false }: GameViewerPanelProps) {
   const t = useTranslations('debut');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(isSaved);
+
+  useEffect(() => { setSaved(isSaved); }, [isSaved]);
+
+  const handleSave = useCallback(async () => {
+    if (!onSaveToMyGames || saving || saved) return;
+    setSaving(true);
+    const success = await onSaveToMyGames(game);
+    setSaving(false);
+    if (success) setSaved(true);
+  }, [onSaveToMyGames, saving, saved, game]);
   // Keyboard navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -103,9 +117,32 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
       {/* Game header */}
       <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-        <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: 13 }}>
-          {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
-        </Typography>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0 }}>
+            {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
+          </Typography>
+          {onSaveToMyGames && (
+            <Tooltip title={saved ? t('savedToMyGames') : t('saveToMyGames')}>
+              <span>
+                <IconButton
+                  size="small"
+                  onClick={handleSave}
+                  disabled={saving || saved}
+                  aria-label={saved ? t('savedToMyGames') : t('saveToMyGames')}
+                  sx={{ p: 0.5, ml: 0.5 }}
+                >
+                  {saving ? (
+                    <CircularProgress size={16} />
+                  ) : saved ? (
+                    <Bookmark sx={{ fontSize: 18, color: 'primary.main' }} />
+                  ) : (
+                    <BookmarkBorder sx={{ fontSize: 18, color: 'text.secondary' }} />
+                  )}
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+        </Box>
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
           {game.source && <SourceBadge source={game.source} />}
           <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'divider', color: 'text.secondary' }} />
