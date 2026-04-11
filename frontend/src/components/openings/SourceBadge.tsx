@@ -18,8 +18,13 @@ const SOURCE_LABELS: Record<string, string> = {
   lichess: 'Lichess',
   chesscom: 'Chess.com',
   pgn: 'PGN',
-  user: 'User',
+  user: 'My Game',
   internal: 'Internal',
+  pgn_import: 'My Game',
+  board_entry: 'My Game',
+  scoresheet: 'My Game',
+  manual: 'My Game',
+  database: 'Saved',
 };
 
 const SOURCE_COLORS: Record<string, { bg: string; color: string }> = {
@@ -29,6 +34,11 @@ const SOURCE_COLORS: Record<string, { bg: string; color: string }> = {
   pgn: { bg: '#6b7280', color: '#fff' },
   user: { bg: '#3b82f6', color: '#fff' },
   internal: { bg: '#6b7280', color: '#fff' },
+  pgn_import: { bg: '#3b82f6', color: '#fff' },
+  board_entry: { bg: '#3b82f6', color: '#fff' },
+  scoresheet: { bg: '#3b82f6', color: '#fff' },
+  manual: { bg: '#3b82f6', color: '#fff' },
+  database: { bg: '#7c3aed', color: '#fff' },
 };
 
 export default function SourceBadge({ source }: SourceBadgeProps) {

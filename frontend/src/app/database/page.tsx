@@ -974,7 +974,7 @@ export default function DebutPage() {
       moves: parsed.moves,
       fens: parsed.fens,
       startingFen: parsed.startingFen,
-      source: game.source || 'twic',
+      source: game.user_id ? 'user' : (game.source || 'twic'),
     };
 
     setOpenedGames(prev => [...prev, newGame]);
@@ -1333,12 +1333,13 @@ export default function DebutPage() {
               </Box>
             )}
 
-            {/* Game viewer notation — when viewing a game tab */}
+            {/* Game viewer notation — below board on small screens only */}
             {activeTab !== 'debut' && activeGame && (
               <Box sx={{
+                display: { xs: 'block', lg: 'none' },
                 width: '100%',
-                maxWidth: { xs: '100%', lg: 520 },
-                maxHeight: { xs: 150, lg: 280 },
+                maxWidth: { xs: '100%' },
+                maxHeight: { xs: 150 },
                 overflow: 'auto',
               }}>
                 <GameViewerPanel
@@ -1425,10 +1426,14 @@ export default function DebutPage() {
                 <MyGamesPanel onOpenGame={handleOpenGame} />
               </Box>
             ) : activeGame ? (
-              <Box sx={{ p: 2, color: 'var(--text-tertiary)' }}>
-                <Typography variant="body2" sx={{ color: 'var(--text-secondary)' }}>
-                  Viewing game: {activeGame.white} vs {activeGame.black}
-                </Typography>
+              <Box sx={{ display: { xs: 'none', lg: 'flex' }, flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+                <GameViewerPanel
+                  game={activeGame}
+                  currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
+                  onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+                  onSaveToMyGames={handleSaveToMyGames}
+                  isSaved={savedGameIds.has(activeGame.id)}
+                />
               </Box>
             ) : null}
           </Box>
