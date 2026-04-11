@@ -171,6 +171,13 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import openings API: {e}")
 
+try:
+    from api.user_games import user_games_bp
+    app.register_blueprint(user_games_bp)
+    logger.info("✅ User Games API registered (My Games CRUD)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import user games API: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}
