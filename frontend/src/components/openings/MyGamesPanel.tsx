@@ -16,6 +16,7 @@ import {
   CircularProgress,
   InputAdornment,
   Pagination,
+  Button,
 } from '@mui/material';
 import {
   Search,
@@ -23,9 +24,11 @@ import {
   StarBorder,
   Delete,
   FolderOpen,
+  Add,
 } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { useUserGames, type UserGame, type ListGamesFilters } from '@/hooks/useUserGames';
+import AddGameModal from './AddGameModal';
 
 type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
@@ -43,6 +46,7 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
     loading,
     error,
     fetchGames,
+    createGame,
     deleteGame,
     toggleFavorite,
   } = useUserGames();
@@ -50,6 +54,7 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [resultFilter, setResultFilter] = useState<ResultFilter>('');
   const [favoriteFilter, setFavoriteFilter] = useState(false);
+  const [addModalOpen, setAddModalOpen] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   const buildFilters = useCallback((): ListGamesFilters => {
@@ -92,6 +97,14 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
     await toggleFavorite(gameId);
   };
 
+  const handleSaveGame = useCallback(async (
+    pgn: string,
+    metadata?: Parameters<typeof createGame>[1]
+  ) => {
+    const game = await createGame(pgn, metadata);
+    return game !== null;
+  }, [createGame]);
+
   const totalPages = Math.ceil(total / perPage);
 
   const resultFilters: { value: ResultFilter; label: string }[] = [
@@ -103,6 +116,29 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 1 }}>
+      {/* Add Game button */}
+      <Button
+        variant="contained"
+        size="small"
+        startIcon={<Add />}
+        onClick={() => setAddModalOpen(true)}
+        sx={{
+          fontSize: 12,
+          textTransform: 'none',
+          py: 0.75,
+          background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+          '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #4f46e5)' },
+        }}
+      >
+        {t('myGames.addGame')}
+      </Button>
+
+      <AddGameModal
+        open={addModalOpen}
+        onClose={() => setAddModalOpen(false)}
+        onSave={handleSaveGame}
+      />
+
       {/* Search */}
       <TextField
         size="small"
