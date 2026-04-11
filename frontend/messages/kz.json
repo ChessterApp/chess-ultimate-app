@@ -904,6 +904,19 @@
       "title": "Шеберлер ойындарының дерекқоры",
       "subtitle": "Шеберлер ойындарынан 100М+ позицияларды зерттеңіз",
       "moveHistory": "Жүрістер тарихы"
+    },
+    "myGamesTab": "Менің ойындарым",
+    "myGames": {
+      "title": "Менің ойындарым",
+      "addGame": "Ойын қосу",
+      "noGames": "Сақталған ойындар жоқ",
+      "noGamesSubtitle": "Бірінші ойыныңызды қосыңыз!",
+      "searchPlaceholder": "Ойыншы, атауы, дебют бойынша іздеу...",
+      "filterAll": "Барлығы",
+      "filterFavorites": "Таңдаулылар",
+      "confirmDelete": "Бұл ойынды жою керек пе?",
+      "savedSuccessfully": "Ойын сақталды!",
+      "deletedSuccessfully": "Ойын жойылды"
     }
   },
   "onboarding": {

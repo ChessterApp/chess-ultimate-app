@@ -932,7 +932,20 @@
     "masterGamesDateTo": "To year (e.g. 2024)",
     "masterGamesEcoCode": "ECO code (e.g. B90)",
     "masterGamesEvent": "Event (e.g. World Ch)",
-    "typeAtLeast2": "Type at least 2 characters"
+    "typeAtLeast2": "Type at least 2 characters",
+    "myGamesTab": "My Games",
+    "myGames": {
+      "title": "My Games",
+      "addGame": "Add Game",
+      "noGames": "No saved games yet",
+      "noGamesSubtitle": "Add your first game!",
+      "searchPlaceholder": "Search by player, title, opening...",
+      "filterAll": "All",
+      "filterFavorites": "Favorites",
+      "confirmDelete": "Delete this game?",
+      "savedSuccessfully": "Game saved!",
+      "deletedSuccessfully": "Game deleted"
+    }
   },
   "onboarding": {
     "continue": "Continue",

@@ -932,7 +932,20 @@
     "masterGamesDateTo": "До года (напр. 2024)",
     "masterGamesEcoCode": "ECO код (напр. B90)",
     "masterGamesEvent": "Турнир (напр. ЧМ)",
-    "typeAtLeast2": "Введите не менее 2 символов"
+    "typeAtLeast2": "Введите не менее 2 символов",
+    "myGamesTab": "Мои партии",
+    "myGames": {
+      "title": "Мои партии",
+      "addGame": "Добавить партию",
+      "noGames": "Сохранённых партий пока нет",
+      "noGamesSubtitle": "Добавьте свою первую партию!",
+      "searchPlaceholder": "Поиск по игроку, названию, дебюту...",
+      "filterAll": "Все",
+      "filterFavorites": "Избранное",
+      "confirmDelete": "Удалить эту партию?",
+      "savedSuccessfully": "Партия сохранена!",
+      "deletedSuccessfully": "Партия удалена"
+    }
   },
   "onboarding": {
     "continue": "Продолжить",
