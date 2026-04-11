@@ -113,15 +113,18 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
       const match = line.match(/\[(\w+)\s+"(.*)"\]/);
       if (match) headers[match[1]] = match[2];
     }
+    // Filter out placeholder values from OCR results
+    const placeholders = new Set(['?', '??', '???', '????.??.??', 'Casual Game']);
+    const clean = (val: string | undefined) => val && !placeholders.has(val) ? val : '';
     setForm(prev => ({
       ...prev,
-      white: headers.White || prev.white,
-      black: headers.Black || prev.black,
-      whiteElo: headers.WhiteElo || prev.whiteElo,
-      blackElo: headers.BlackElo || prev.blackElo,
-      result: headers.Result || prev.result,
-      date: headers.Date || prev.date,
-      event: headers.Event || prev.event,
+      white: clean(headers.White) || prev.white,
+      black: clean(headers.Black) || prev.black,
+      whiteElo: clean(headers.WhiteElo) || prev.whiteElo,
+      blackElo: clean(headers.BlackElo) || prev.blackElo,
+      result: clean(headers.Result) || prev.result,
+      date: clean(headers.Date) || prev.date,
+      event: clean(headers.Event) || prev.event,
     }));
   }, []);
 

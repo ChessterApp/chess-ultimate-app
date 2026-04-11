@@ -31,6 +31,8 @@ const nextConfig = {
             { source: '/api/opponent/:path*', destination: `${backendUrl}/api/opponent/:path*` },
             { source: '/api/user/:path*', destination: `${backendUrl}/api/user/:path*` },
             { source: '/api/scoresheet/:path*', destination: `${backendUrl}/api/scoresheet/:path*` },
+            { source: '/api/games/:path*', destination: `${backendUrl}/api/games/:path*` },
+            { source: '/api/games', destination: `${backendUrl}/api/games` },
         ];
     },
     async redirects() {
