@@ -79,6 +79,15 @@
       "quote3": "Ақырында, оқуды қызықты және қорқытпайтын шахмат қосымшасы.",
       "name3": "Майк Р.",
       "rating3": "1600",
+      "quote4": "Менің балам 6 айда ережелерді білмеуден мектеп турнирлерінде жеңіске дейін жетті!",
+      "name4": "Елена П.",
+      "rating4": "Ата-ана",
+      "quote5": "Жұмбақтар тартымды. Мен күніне 20 шешемін, тактикалық көру қабілетім айтарлықтай жақсарды.",
+      "name5": "Дәулет Л.",
+      "rating5": "1800",
+      "quote6": "Ең жақсы тегін шахмат ресурсы. AI талдауы таңғажайып дәл.",
+      "name6": "Жәнібек Қ.",
+      "rating6": "1550",
       "ratingLabel": "Рейтинг"
     },
     "cta": {
@@ -509,7 +518,8 @@
       "openingExplorer": "Дебют шолушы",
       "chessDatabase": "Шахмат базасы",
       "twicDatabase": "TWIC шебер ойындары",
-      "legalMoveAnalysis": "Рұқсат етілген жүрістер талдауы"
+      "legalMoveAnalysis": "Рұқсат етілген жүрістер талдауы",
+      "scoresheetScanner": "Бланк сканері"
     },
     "stockfish": {
       "stockfishOn": "Stockfish қосулы",
@@ -909,6 +919,24 @@
       "subtitle": "Шеберлер ойындарынан 100М+ позицияларды зерттеңіз",
       "moveHistory": "Жүрістер тарихы"
     },
+    "onlineSearchFilters": {
+      "period1Month": "1 ай",
+      "period3Months": "3 ай",
+      "period6Months": "6 ай",
+      "period12Months": "12 ай",
+      "period24Months": "24 ай",
+      "period36Months": "36 ай",
+      "periodAll": "Барлығы",
+      "resultWin": "Жеңіс",
+      "resultDraw": "Тең",
+      "resultLoss": "Жеңіліс"
+    },
+    "masterGamesAdvanced": "Кеңейтілген сүзгілер",
+    "masterGamesDateFrom": "Жылдан (мыс. 2020)",
+    "masterGamesDateTo": "Жылға дейін (мыс. 2024)",
+    "masterGamesEcoCode": "ECO коды (мыс. B90)",
+    "masterGamesEvent": "Турнир (мыс. Әлем чемп.)",
+    "typeAtLeast2": "Кем дегенде 2 таңба енгізіңіз",
     "myGamesTab": "Менің ойындарым",
     "myGames": {
       "title": "Менің ойындарым",
@@ -1144,7 +1172,8 @@
       "day3": {
         "label": "3-күн",
         "text": "Жалғастыруды таңдаңыз"
-      }
+      },
+      "noCharge": "3 күн ішінде ешқандай төлем алынбайды"
     },
     "paywall": {
       "choosePlan": "Жоспарыңызды таңдаңыз",
@@ -1191,5 +1220,36 @@
     "descriptionGeneric": "Барлық сабақтар, талдау, жұмбақтар және т.б. шексіз қол жеткізіңіз.",
     "viewPlans": "Жоспарларды көру",
     "maybeLater": "Кейінірек"
+  },
+  "scoresheet": {
+    "uploadTitle": "Бланк суреттерін жүктеу",
+    "uploadSubtitle": "Сүйреп әкеліңіз немесе жүктеу үшін басыңыз (макс. 2 сурет)",
+    "imagesUploaded": "{count} сурет жүктелді",
+    "optionalMetadata": "Қосымша ойын ақпараты",
+    "whitePlayer": "Ақ ойыншы",
+    "blackPlayer": "Қара ойыншы",
+    "eventName": "Турнир",
+    "date": "Күні",
+    "scanButton": "Бланкті сканерлеу",
+    "scanning": "Сканерленуде...",
+    "scanningProgress": "Қолжазба талданып, жүрістер тексерілуде...",
+    "noImagesError": "Кем дегенде бір бланк суретін жүктеңіз",
+    "scanError": "Бланкті сканерлеу мүмкін болмады",
+    "networkError": "Желі қатесі. Қайталап көріңіз.",
+    "confidence": "Сенімділік",
+    "moves": "жүріс",
+    "corrected": "түзетілді",
+    "corrections": "Түзетулер",
+    "moveNumber": "{number}-жүріс",
+    "copyPGN": "PGN көшіру",
+    "copied": "Көшірілді!",
+    "downloadPGN": "PGN жүктеп алу",
+    "loadIntoBoard": "Тақтаға жүктеу",
+    "scanAnother": "Басқа бланкті сканерлеу",
+    "savedGames": "Сақталған сканерленген ойындар",
+    "noSavedGames": "Сақталған ойындар жоқ",
+    "deleteGame": "Ойынды жою",
+    "loadGame": "Ойынды жүктеу",
+    "gameSaved": "Ойын сақталды!"
   }
 }
