@@ -20,7 +20,7 @@ const nextConfig = {
         const backendUrl = process.env.VERCEL
             ? 'https://api.chesster.io'
             : 'http://localhost:5001';
-        return [
+        const rules = [
             { source: '/api/openings/:path*', destination: `${backendUrl}/api/openings/:path*` },
             { source: '/api/chat/analysis', destination: `${backendUrl}/api/chat/analysis` },
             { source: '/api/chat/analysis/stream', destination: `${backendUrl}/api/chat/analysis/stream` },
@@ -31,9 +31,14 @@ const nextConfig = {
             { source: '/api/opponent/:path*', destination: `${backendUrl}/api/opponent/:path*` },
             { source: '/api/user/:path*', destination: `${backendUrl}/api/user/:path*` },
             { source: '/api/scoresheet/:path*', destination: `${backendUrl}/api/scoresheet/:path*` },
-            { source: '/api/games/:path*', destination: `${backendUrl}/api/games/:path*` },
             { source: '/api/games', destination: `${backendUrl}/api/games` },
+            { source: '/api/games/:path*', destination: `${backendUrl}/api/games/:path*` },
         ];
+        // On Vercel, use beforeFiles so rewrites run before Next.js file resolution
+        if (process.env.VERCEL) {
+            return { beforeFiles: rules, afterFiles: [], fallback: [] };
+        }
+        return rules;
     },
     async redirects() {
         return [
