@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import {
   Box, Typography, Chip, IconButton, Tooltip, CircularProgress,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark, Edit } from '@mui/icons-material';
 import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
 
@@ -32,6 +32,7 @@ interface GameViewerPanelProps {
   onMoveIndexChange: (index: number) => void;
   onSaveToMyGames?: (game: OpenedGame) => Promise<boolean>;
   isSaved?: boolean;
+  onEditGame?: () => void;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -71,7 +72,7 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
   };
 }
 
-export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange, onSaveToMyGames, isSaved = false }: GameViewerPanelProps) {
+export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange, onSaveToMyGames, isSaved = false, onEditGame }: GameViewerPanelProps) {
   const t = useTranslations('debut');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(isSaved);
@@ -121,27 +122,41 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
           <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0 }}>
             {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
           </Typography>
-          {onSaveToMyGames && (
-            <Tooltip title={saved ? t('savedToMyGames') : t('saveToMyGames')}>
-              <span>
+          <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            {onEditGame && (
+              <Tooltip title={t('myGames.editModal.title')}>
                 <IconButton
                   size="small"
-                  onClick={handleSave}
-                  disabled={saving || saved}
-                  aria-label={saved ? t('savedToMyGames') : t('saveToMyGames')}
+                  onClick={onEditGame}
+                  aria-label="edit game"
                   sx={{ p: 0.5, ml: 0.5 }}
                 >
-                  {saving ? (
-                    <CircularProgress size={16} />
-                  ) : saved ? (
-                    <Bookmark sx={{ fontSize: 18, color: 'primary.main' }} />
-                  ) : (
-                    <BookmarkBorder sx={{ fontSize: 18, color: 'text.secondary' }} />
-                  )}
+                  <Edit sx={{ fontSize: 18, color: 'text.secondary' }} />
                 </IconButton>
-              </span>
-            </Tooltip>
-          )}
+              </Tooltip>
+            )}
+            {onSaveToMyGames && (
+              <Tooltip title={saved ? t('savedToMyGames') : t('saveToMyGames')}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={handleSave}
+                    disabled={saving || saved}
+                    aria-label={saved ? t('savedToMyGames') : t('saveToMyGames')}
+                    sx={{ p: 0.5, ml: 0.5 }}
+                  >
+                    {saving ? (
+                      <CircularProgress size={16} />
+                    ) : saved ? (
+                      <Bookmark sx={{ fontSize: 18, color: 'primary.main' }} />
+                    ) : (
+                      <BookmarkBorder sx={{ fontSize: 18, color: 'text.secondary' }} />
+                    )}
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
+          </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
           {game.source && <SourceBadge source={game.source} />}

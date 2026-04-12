@@ -67,7 +67,8 @@ const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'),
 });
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
-import { useUserGames } from '@/hooks/useUserGames';
+import EditGameModal from '@/components/openings/EditGameModal';
+import { useUserGames, type UserGame } from '@/hooks/useUserGames';
 import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -177,9 +178,11 @@ export default function DebutPage() {
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
 
-  // ─── My Games (save bookmark) ───
-  const { createGame: createUserGame } = useUserGames();
+  // ─── My Games (save bookmark + edit) ───
+  const { createGame: createUserGame, updateGame: updateUserGame } = useUserGames();
   const [savedGameIds, setSavedGameIds] = useState<Set<string>>(new Set());
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingGame, setEditingGame] = useState<UserGame | null>(null);
 
   const handleSaveToMyGames = useCallback(async (game: OpenedGame): Promise<boolean> => {
     try {
@@ -206,6 +209,59 @@ export default function DebutPage() {
       return false;
     }
   }, [createUserGame, t]);
+
+  const handleEditGameFromViewer = useCallback((game: OpenedGame) => {
+    // Build a UserGame-like object from the OpenedGame so the modal can pre-populate
+    const userGame: UserGame = {
+      id: game.id,
+      user_id: '',
+      title: null,
+      white: game.white,
+      black: game.black,
+      white_elo: game.whiteElo ?? null,
+      black_elo: game.blackElo ?? null,
+      result: game.result,
+      date: game.date ?? null,
+      event: game.event ?? null,
+      eco: game.eco ?? null,
+      opening_name: null,
+      pgn: game.pgn,
+      notes: null,
+      tags: [],
+      is_favorite: false,
+      source: typeof game.source === 'string' ? game.source : 'user',
+      created_at: '',
+      updated_at: '',
+    };
+    setEditingGame(userGame);
+    setEditModalOpen(true);
+  }, []);
+
+  const handleEditGameSave = useCallback(async (
+    id: string,
+    updates: Partial<Omit<UserGame, 'id' | 'user_id' | 'created_at'>>
+  ): Promise<UserGame | null> => {
+    const result = await updateUserGame(id, updates);
+    if (result) {
+      // Update the opened game tab metadata to reflect the edit
+      setOpenedGames(prev => prev.map(g => {
+        if (g.id !== id) return g;
+        return {
+          ...g,
+          white: result.white ?? g.white,
+          black: result.black ?? g.black,
+          whiteElo: result.white_elo ?? g.whiteElo,
+          blackElo: result.black_elo ?? g.blackElo,
+          result: result.result ?? g.result,
+          date: result.date ?? g.date,
+          event: result.event ?? g.event,
+          eco: result.eco ?? g.eco,
+        };
+      }));
+      setSnackbar({ open: true, msg: t('myGames.editModal.updateSuccess'), severity: 'success' });
+    }
+    return result;
+  }, [updateUserGame, t]);
 
   // ─── Hook ───
   const {
@@ -1351,6 +1407,7 @@ export default function DebutPage() {
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
                   onSaveToMyGames={handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
+                  onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
                 />
               </Box>
             )}
@@ -1436,6 +1493,7 @@ export default function DebutPage() {
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
                   onSaveToMyGames={handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
+                  onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
                 />
               </Box>
             ) : null}
@@ -1458,6 +1516,13 @@ export default function DebutPage() {
         onClose={() => setGameSearchOpen(false)}
         onSearch={searchGamesStream}
         fetchGamePgn={fetchGamePgn}
+      />
+
+      <EditGameModal
+        open={editModalOpen}
+        onClose={() => { setEditModalOpen(false); setEditingGame(null); }}
+        game={editingGame}
+        onSave={handleEditGameSave}
       />
 
       {/* Snackbar */}

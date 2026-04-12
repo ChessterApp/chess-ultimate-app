@@ -980,6 +980,13 @@
         "scanning": "Scanning scoresheet...",
         "scanFailed": "Failed to scan scoresheet",
         "scoresheetReady": "Scoresheet scanned"
+      },
+      "editModal": {
+        "title": "Edit Game",
+        "saveChanges": "Save Changes",
+        "updateSuccess": "Game updated successfully",
+        "updateFailed": "Failed to update game",
+        "noChanges": "No changes to save"
       }
     }
   },

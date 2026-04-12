@@ -25,10 +25,12 @@ import {
   Delete,
   FolderOpen,
   Add,
+  Edit,
 } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { useUserGames, type UserGame, type ListGamesFilters } from '@/hooks/useUserGames';
 import AddGameModal from './AddGameModal';
+import EditGameModal from './EditGameModal';
 
 type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
@@ -47,6 +49,7 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
     error,
     fetchGames,
     createGame,
+    updateGame,
     deleteGame,
     toggleFavorite,
   } = useUserGames();
@@ -55,6 +58,8 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
   const [resultFilter, setResultFilter] = useState<ResultFilter>('');
   const [favoriteFilter, setFavoriteFilter] = useState(false);
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingGame, setEditingGame] = useState<UserGame | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const buildFilters = useCallback((): ListGamesFilters => {
@@ -97,6 +102,12 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
     await toggleFavorite(gameId);
   };
 
+  const handleEditGame = useCallback((e: React.MouseEvent, game: UserGame) => {
+    e.stopPropagation();
+    setEditingGame(game);
+    setEditModalOpen(true);
+  }, []);
+
   const handleSaveGame = useCallback(async (
     pgn: string,
     metadata?: Parameters<typeof createGame>[1]
@@ -137,6 +148,13 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
         onSave={handleSaveGame}
+      />
+
+      <EditGameModal
+        open={editModalOpen}
+        onClose={() => { setEditModalOpen(false); setEditingGame(null); }}
+        game={editingGame}
+        onSave={updateGame}
       />
 
       {/* Search */}
@@ -244,6 +262,7 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
               game={game}
               onClick={() => onOpenGame?.(game)}
               onToggleFavorite={handleToggleFavorite}
+              onEdit={handleEditGame}
               onDelete={handleDelete}
             />
           ))}
@@ -274,10 +293,11 @@ interface GameRowProps {
   game: UserGame;
   onClick?: () => void;
   onToggleFavorite: (e: React.MouseEvent, id: string) => void;
+  onEdit: (e: React.MouseEvent, game: UserGame) => void;
   onDelete: (e: React.MouseEvent, id: string) => void;
 }
 
-function GameRow({ game, onClick, onToggleFavorite, onDelete }: GameRowProps) {
+function GameRow({ game, onClick, onToggleFavorite, onEdit, onDelete }: GameRowProps) {
   const resultColor =
     game.result === '1-0' ? '#f0f0f0' :
     game.result === '0-1' ? '#333' :
@@ -409,6 +429,14 @@ function GameRow({ game, onClick, onToggleFavorite, onDelete }: GameRowProps) {
                 ? <Star sx={{ fontSize: 18, color: '#f59e0b' }} />
                 : <StarBorder sx={{ fontSize: 18, color: 'text.secondary' }} />
               }
+            </IconButton>
+            <IconButton
+              size="small"
+              onClick={(e) => onEdit(e, game)}
+              sx={{ p: 0.5 }}
+              aria-label="edit game"
+            >
+              <Edit sx={{ fontSize: 16, color: 'text.secondary' }} />
             </IconButton>
             <IconButton
               size="small"
