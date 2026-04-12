@@ -245,8 +245,9 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
       fullWidth
       PaperProps={{
         sx: {
-          bgcolor: '#0f0f1a',
-          border: '1px solid rgba(139, 92, 246, 0.3)',
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'divider',
           borderRadius: 2,
           maxHeight: '90vh',
         },
@@ -254,14 +255,14 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
       slotProps={{
         backdrop: {
           sx: {
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
             backdropFilter: 'blur(4px)',
           },
         },
       }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
-        <Typography sx={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>
+        <Typography sx={{ fontSize: 16, fontWeight: 600, color: 'text.primary' }}>
           {t('myGames.addGame')}
         </Typography>
         <IconButton onClick={handleClose} size="small" sx={{ color: 'text.secondary' }}>
@@ -283,13 +284,13 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
                 height: 28,
                 fontSize: 11,
                 fontWeight: method === m.key ? 700 : 400,
-                bgcolor: method === m.key ? 'primary.main' : 'rgba(255,255,255,0.06)',
+                bgcolor: method === m.key ? 'primary.main' : 'action.hover',
                 color: method === m.key ? '#fff' : 'text.secondary',
                 '& .MuiChip-icon': {
                   color: method === m.key ? '#fff' : 'text.secondary',
                 },
                 '&:hover': {
-                  bgcolor: method === m.key ? 'primary.dark' : 'rgba(255,255,255,0.1)',
+                  bgcolor: method === m.key ? 'primary.dark' : 'action.selected',
                 },
               }}
             />
@@ -346,7 +347,7 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
               color: 'text.secondary',
               fontSize: 12,
               textTransform: 'none',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
+              '&:hover': { bgcolor: 'action.hover' },
             }}
           >
             {t('myGames.cancel')}
@@ -410,7 +411,7 @@ function PgnImportTab({ pgn, onPgnChange, t }: PgnImportTabProps) {
           '& .MuiOutlinedInput-root': {
             fontSize: 12,
             fontFamily: 'monospace',
-            bgcolor: 'rgba(255,255,255,0.03)',
+            bgcolor: 'action.hover',
           },
         }}
       />
@@ -426,7 +427,7 @@ function PgnImportTab({ pgn, onPgnChange, t }: PgnImportTabProps) {
             <Chip
               label={`${Math.ceil(preview.moves / 2)} ${t('myGames.addModal.movesCount')}`}
               size="small"
-              sx={{ height: 20, fontSize: 10, bgcolor: 'rgba(255,255,255,0.1)' }}
+              sx={{ height: 20, fontSize: 10, bgcolor: 'action.selected' }}
             />
           )}
         </Box>
@@ -537,16 +538,16 @@ function BoardEntryTab({ fen, moves, onMove, onUndo, onReset, t }: BoardEntryTab
         <Box sx={{
           mt: 1.5,
           p: 1,
-          bgcolor: 'rgba(255,255,255,0.03)',
+          bgcolor: 'action.hover',
           borderRadius: 1,
           maxHeight: 80,
           overflow: 'auto',
         }}>
-          <Typography sx={{ fontSize: 11, fontFamily: 'monospace', color: 'text.secondary', lineHeight: 1.6 }}>
+          <Typography component="div" sx={{ fontSize: 11, fontFamily: 'monospace', color: 'text.secondary', lineHeight: 1.6 }}>
             {moves.map((m, i) => (
               <React.Fragment key={i}>
-                {i % 2 === 0 && <span style={{ color: 'rgba(255,255,255,0.4)' }}>{Math.floor(i / 2) + 1}. </span>}
-                <span style={{ color: '#fff' }}>{m} </span>
+                {i % 2 === 0 && <Typography component="span" sx={{ color: 'text.disabled', fontSize: 'inherit', fontFamily: 'inherit' }}>{Math.floor(i / 2) + 1}. </Typography>}
+                <Typography component="span" sx={{ color: 'text.primary', fontSize: 'inherit', fontFamily: 'inherit' }}>{m} </Typography>
               </React.Fragment>
             ))}
           </Typography>
@@ -665,13 +666,14 @@ function ScoresheetTab({ scoresheetPgn, onResult, t }: ScoresheetTabProps) {
                 flexDirection: 'column',
                 alignItems: 'center',
                 p: 4,
-                border: '2px dashed rgba(255,255,255,0.15)',
+                border: '2px dashed',
+                borderColor: 'divider',
                 borderRadius: 2,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 '&:hover': {
                   borderColor: 'primary.main',
-                  bgcolor: 'rgba(139, 92, 246, 0.05)',
+                  bgcolor: 'action.hover',
                 },
               }}
             >
@@ -688,7 +690,7 @@ function ScoresheetTab({ scoresheetPgn, onResult, t }: ScoresheetTabProps) {
             <Box>
               <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
                 {previews.map((url, i) => (
-                  <Box key={i} sx={{ width: 80, height: 80, borderRadius: 1, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <Box key={i} sx={{ width: 80, height: 80, borderRadius: 1, overflow: 'hidden', border: '1px solid', borderColor: 'divider' }}>
                     <img src={url} alt={`Scoresheet ${i + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                   </Box>
                 ))}
@@ -710,7 +712,7 @@ function ScoresheetTab({ scoresheetPgn, onResult, t }: ScoresheetTabProps) {
           )}
         </>
       ) : (
-        <Box sx={{ p: 1.5, bgcolor: 'rgba(255,255,255,0.03)', borderRadius: 1 }}>
+        <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
             <Chip label={t('myGames.addModal.scoresheetReady')} size="small" color="success" sx={{ height: 20, fontSize: 10 }} />
           </Box>
@@ -791,7 +793,7 @@ function GameDetailsForm({ form, setForm, t }: GameDetailsFormProps) {
             value={form.result}
             onChange={(e) => updateField('result', e.target.value)}
             label={t('myGames.addModal.resultLabel')}
-            sx={{ fontSize: 12, bgcolor: 'rgba(255,255,255,0.03)' }}
+            sx={{ fontSize: 12, bgcolor: 'action.hover' }}
           >
             <MenuItem value="*">*</MenuItem>
             <MenuItem value="1-0">1-0</MenuItem>
@@ -833,7 +835,7 @@ function GameDetailsForm({ form, setForm, t }: GameDetailsFormProps) {
 const fieldSx = {
   '& .MuiOutlinedInput-root': {
     fontSize: 12,
-    bgcolor: 'rgba(255,255,255,0.03)',
+    bgcolor: 'action.hover',
   },
   '& .MuiInputLabel-root': {
     fontSize: 12,

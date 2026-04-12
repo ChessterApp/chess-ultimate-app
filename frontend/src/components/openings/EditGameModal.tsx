@@ -1,6 +1,5 @@
 /**
  * EditGameModal — Modal for editing game metadata (title, players, result, etc.)
- * Reuses the same dark theme and form field styling as AddGameModal.
  */
 
 'use client';
@@ -49,7 +48,7 @@ interface EditGameModalProps {
 const fieldSx = {
   '& .MuiOutlinedInput-root': {
     fontSize: 12,
-    bgcolor: 'rgba(255,255,255,0.03)',
+    bgcolor: 'action.hover',
   },
   '& .MuiInputLabel-root': {
     fontSize: 12,
@@ -150,8 +149,9 @@ export default function EditGameModal({ open, onClose, game, onSave }: EditGameM
       fullWidth
       PaperProps={{
         sx: {
-          bgcolor: '#0f0f1a',
-          border: '1px solid rgba(139, 92, 246, 0.3)',
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: 'divider',
           borderRadius: 2,
           maxHeight: '90vh',
         },
@@ -159,14 +159,14 @@ export default function EditGameModal({ open, onClose, game, onSave }: EditGameM
       slotProps={{
         backdrop: {
           sx: {
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
             backdropFilter: 'blur(4px)',
           },
         },
       }}
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
-        <Typography sx={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>
+        <Typography sx={{ fontSize: 16, fontWeight: 600, color: 'text.primary' }}>
           {t('myGames.editModal.title')}
         </Typography>
         <IconButton onClick={handleClose} size="small" sx={{ color: 'text.secondary' }}>
@@ -229,7 +229,7 @@ export default function EditGameModal({ open, onClose, game, onSave }: EditGameM
                 value={form.result}
                 onChange={(e) => updateField('result', e.target.value)}
                 label={t('myGames.addModal.resultLabel')}
-                sx={{ fontSize: 12, bgcolor: 'rgba(255,255,255,0.03)' }}
+                sx={{ fontSize: 12, bgcolor: 'action.hover' }}
               >
                 <MenuItem value="*">*</MenuItem>
                 <MenuItem value="1-0">1-0</MenuItem>
@@ -282,7 +282,7 @@ export default function EditGameModal({ open, onClose, game, onSave }: EditGameM
               color: 'text.secondary',
               fontSize: 12,
               textTransform: 'none',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
+              '&:hover': { bgcolor: 'action.hover' },
             }}
           >
             {t('myGames.cancel')}
