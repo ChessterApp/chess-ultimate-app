@@ -987,6 +987,15 @@
         "updateSuccess": "Game updated successfully",
         "updateFailed": "Failed to update game",
         "noChanges": "No changes to save"
+      },
+      "moveEdit": {
+        "deleteFromHere": "Delete from here",
+        "deleteVariation": "Delete variation",
+        "promoteVariation": "Promote variation",
+        "makeMainLine": "Make main line",
+        "saveChanges": "Save Changes",
+        "unsavedChanges": "Unsaved changes",
+        "savedSuccessfully": "Changes saved successfully"
       }
     }
   },

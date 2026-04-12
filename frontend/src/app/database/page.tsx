@@ -69,6 +69,8 @@ const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'),
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
 import EditGameModal from '@/components/openings/EditGameModal';
 import { useUserGames, type UserGame } from '@/hooks/useUserGames';
+import { useGameMoveTree, findNodeById as findGameTreeNode } from '@/hooks/useGameMoveTree';
+import type { MoveContextMenuActions } from '@/components/openings/MoveNotation';
 import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -184,6 +186,11 @@ export default function DebutPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingGame, setEditingGame] = useState<UserGame | null>(null);
 
+  // ─── Game move tree editing (for user games) ───
+  const gameMoveTree = useGameMoveTree();
+  const [editTreeSelectedNodeId, setEditTreeSelectedNodeId] = useState<string | null>(null);
+  const [editTreeGameId, setEditTreeGameId] = useState<string | null>(null);
+
   const handleSaveToMyGames = useCallback(async (game: OpenedGame): Promise<boolean> => {
     try {
       const result = await createUserGame(game.pgn, {
@@ -262,6 +269,127 @@ export default function DebutPage() {
     }
     return result;
   }, [updateUserGame, t]);
+
+  // ─── Game move tree: init when opening a user game ───
+  const activeGameForTree = openedGames.find(g => g.id === activeTab);
+  const isActiveGameEditable = activeGameForTree?.source === 'user';
+
+  // Initialize tree when switching to a user game tab
+  useEffect(() => {
+    if (isActiveGameEditable && activeGameForTree && editTreeGameId !== activeGameForTree.id) {
+      gameMoveTree.initFromPgn(activeGameForTree.pgn);
+      setEditTreeGameId(activeGameForTree.id);
+      setEditTreeSelectedNodeId(null);
+    }
+  }, [isActiveGameEditable, activeGameForTree?.id, activeGameForTree?.pgn, editTreeGameId, gameMoveTree]);
+
+  const handleEditNodeSelect = useCallback((node: OpeningNode) => {
+    setEditTreeSelectedNodeId(node.id);
+  }, []);
+
+  const handleGameBoardMove = useCallback((
+    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
+  ) => {
+    if (!gameMoveTree.tree || !editTreeSelectedNodeId) {
+      // If no node selected, try to add from root
+      if (gameMoveTree.tree) {
+        const result = gameMoveTree.addMove(gameMoveTree.tree.id, moveSan, moveUci, newFen);
+        if (result) setEditTreeSelectedNodeId(result.id);
+      }
+      return;
+    }
+
+    // Check if current node already has this move as a child
+    const currentNode = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    if (!currentNode) return;
+
+    const fenKey = newFen.split(' ').slice(0, 4).join(' ');
+    const existing = (currentNode.children || []).find(
+      c => c.fen.split(' ').slice(0, 4).join(' ') === fenKey
+    );
+
+    if (existing) {
+      // Navigate to existing child
+      setEditTreeSelectedNodeId(existing.id);
+    } else {
+      // Add new move (may create variation)
+      const result = gameMoveTree.addMove(currentNode.id, moveSan, moveUci, newFen);
+      if (result) setEditTreeSelectedNodeId(result.id);
+    }
+  }, [gameMoveTree, editTreeSelectedNodeId]);
+
+  const handleEditTreeSave = useCallback(async () => {
+    if (!activeGameForTree || !gameMoveTree.isDirty) return;
+    const newPgn = gameMoveTree.getPgn();
+    const result = await updateUserGame(activeGameForTree.id, { pgn: newPgn });
+    if (result) {
+      // Update the opened game with new PGN + re-parsed moves
+      const parsed = parseGamePgn(newPgn);
+      setOpenedGames(prev => prev.map(g => {
+        if (g.id !== activeGameForTree.id) return g;
+        return { ...g, pgn: newPgn, moves: parsed.moves, fens: parsed.fens };
+      }));
+      gameMoveTree.markClean();
+      setSnackbar({ open: true, msg: t('myGames.moveEdit.savedSuccessfully'), severity: 'success' });
+    } else {
+      setSnackbar({ open: true, msg: t('myGames.editModal.updateFailed'), severity: 'error' });
+    }
+  }, [activeGameForTree, gameMoveTree, updateUserGame, t]);
+
+  const editContextMenuActions: MoveContextMenuActions | undefined = isActiveGameEditable ? {
+    onDeleteFromHere: (node) => {
+      gameMoveTree.deleteFromHere(node.id);
+      // Navigate to parent
+      if (gameMoveTree.tree) {
+        const findParent = (root: OpeningNode, targetId: string): OpeningNode | null => {
+          for (const child of root.children || []) {
+            if (child.id === targetId) return root;
+            const found = findParent(child, targetId);
+            if (found) return found;
+          }
+          return null;
+        };
+        const parent = findParent(gameMoveTree.tree, node.id);
+        setEditTreeSelectedNodeId(parent?.id || gameMoveTree.tree.id);
+      }
+    },
+    onDeleteVariation: (node) => {
+      gameMoveTree.deleteVariation(node.id);
+      if (gameMoveTree.tree) {
+        const findParent = (root: OpeningNode, targetId: string): OpeningNode | null => {
+          for (const child of root.children || []) {
+            if (child.id === targetId) return root;
+            const found = findParent(child, targetId);
+            if (found) return found;
+          }
+          return null;
+        };
+        const parent = findParent(gameMoveTree.tree, node.id);
+        setEditTreeSelectedNodeId(parent?.id || gameMoveTree.tree.id);
+      }
+    },
+    onPromoteVariation: (node) => {
+      gameMoveTree.promoteVariation(node.id);
+    },
+    onMakeMainLine: (node) => {
+      gameMoveTree.makeMainLine(node.id);
+    },
+    labels: {
+      deleteFromHere: t('myGames.moveEdit.deleteFromHere'),
+      deleteVariation: t('myGames.moveEdit.deleteVariation'),
+      promoteVariation: t('myGames.moveEdit.promoteVariation'),
+      makeMainLine: t('myGames.moveEdit.makeMainLine'),
+    },
+  } : undefined;
+
+  // Get the FEN for the selected tree node (when viewing an editable game)
+  const editTreeFen = useMemo(() => {
+    if (!isActiveGameEditable || !gameMoveTree.tree || !editTreeSelectedNodeId) {
+      return null;
+    }
+    const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    return node?.fen || null;
+  }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
 
   // ─── Hook ───
   const {
@@ -1291,9 +1419,9 @@ export default function DebutPage() {
             flexShrink: 0,
           }}>
             <DebutBoard
-              fen={activeGameFen || boardFen}
+              fen={editTreeFen || activeGameFen || boardFen}
               orientation={boardOrientation}
-              onMove={activeTab === 'debut' ? handleBoardMove : (() => {})}
+              onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (() => {}))}
               customArrows={boardArrows}
               onReset={activeTab === 'debut' ? handleReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
               onGoToStart={activeTab === 'debut' ? handleGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
@@ -1408,6 +1536,13 @@ export default function DebutPage() {
                   onSaveToMyGames={handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
                   onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  isEditable={isActiveGameEditable}
+                  editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
+                  editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
+                  onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
+                  onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
+                  editIsDirty={isActiveGameEditable ? gameMoveTree.isDirty : undefined}
+                  editContextMenuActions={editContextMenuActions}
                 />
               </Box>
             )}
@@ -1494,6 +1629,13 @@ export default function DebutPage() {
                   onSaveToMyGames={handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
                   onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  isEditable={isActiveGameEditable}
+                  editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
+                  editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
+                  onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
+                  onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
+                  editIsDirty={isActiveGameEditable ? gameMoveTree.isDirty : undefined}
+                  editContextMenuActions={editContextMenuActions}
                 />
               </Box>
             ) : null}

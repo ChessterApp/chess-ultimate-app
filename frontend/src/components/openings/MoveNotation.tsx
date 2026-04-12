@@ -1,9 +1,22 @@
 'use client';
 
-import React, { useMemo, useRef, useEffect } from 'react';
-import { Box, Typography, IconButton, Tooltip } from '@mui/material';
-import { Backspace, DeleteSweep } from '@mui/icons-material';
+import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
+import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
+import { Backspace, DeleteSweep, Delete, TrendingUp, ArrowUpward, Star } from '@mui/icons-material';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+
+export interface MoveContextMenuActions {
+  onDeleteFromHere?: (node: OpeningNode) => void;
+  onDeleteVariation?: (node: OpeningNode) => void;
+  onPromoteVariation?: (node: OpeningNode) => void;
+  onMakeMainLine?: (node: OpeningNode) => void;
+  labels?: {
+    deleteFromHere?: string;
+    deleteVariation?: string;
+    promoteVariation?: string;
+    makeMainLine?: string;
+  };
+}
 
 interface MoveNotationProps {
   tree: OpeningNode | null;
@@ -12,6 +25,7 @@ interface MoveNotationProps {
   onDeleteLast?: () => void;
   onDeleteAll?: () => void;
   loading: boolean;
+  contextMenuActions?: MoveContextMenuActions;
 }
 
 function MoveSpan({
@@ -19,17 +33,20 @@ function MoveSpan({
   isSelected,
   selectedRef,
   onNodeSelect,
+  onContextMenu,
 }: {
   node: OpeningNode;
   isSelected: boolean;
   selectedRef: React.RefObject<HTMLSpanElement | null>;
   onNodeSelect: (node: OpeningNode) => void;
+  onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void;
 }) {
   return (
     <Typography
       ref={isSelected ? selectedRef : null}
       component="span"
       onClick={() => onNodeSelect(node)}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, node) : undefined}
       sx={{
         color: isSelected ? 'text.primary' : 'text.secondary',
         bgcolor: isSelected ? 'action.hover' : 'transparent',
@@ -78,6 +95,7 @@ function renderNode(
   selectedNodeId: string | null,
   onNodeSelect: (node: OpeningNode) => void,
   selectedRef: React.RefObject<HTMLSpanElement | null>,
+  onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void,
 ): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
   const key = node.id;
@@ -96,6 +114,7 @@ function renderNode(
       isSelected={isSelected}
       selectedRef={selectedRef}
       onNodeSelect={onNodeSelect}
+      onContextMenu={onContextMenu}
     />
   );
 
@@ -103,7 +122,7 @@ function renderNode(
   if (children.length === 0) return elements;
 
   elements.push(
-    ...renderNode(children[0], depth, false, selectedNodeId, onNodeSelect, selectedRef)
+    ...renderNode(children[0], depth, false, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -129,7 +148,7 @@ function renderNode(
         >
           (
         </Typography>
-        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef)}
+        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -148,6 +167,7 @@ function renderTree(
   selectedNodeId: string | null,
   onNodeSelect: (node: OpeningNode) => void,
   selectedRef: React.RefObject<HTMLSpanElement | null>,
+  onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void,
 ): React.ReactNode[] {
   const children = root.children || [];
   if (children.length === 0) return [];
@@ -155,7 +175,7 @@ function renderTree(
   const elements: React.ReactNode[] = [];
 
   elements.push(
-    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef)
+    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -181,7 +201,7 @@ function renderTree(
         >
           (
         </Typography>
-        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef)}
+        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -195,8 +215,9 @@ function renderTree(
   return elements;
 }
 
-export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading }: MoveNotationProps) {
+export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading, contextMenuActions }: MoveNotationProps) {
   const selectedRef = useRef<HTMLSpanElement>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: OpeningNode } | null>(null);
 
   useEffect(() => {
     if (selectedRef.current) {
@@ -204,11 +225,37 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     }
   }, [selectedNodeId]);
 
+  const handleContextMenu = useCallback((e: React.MouseEvent, node: OpeningNode) => {
+    if (!contextMenuActions) return;
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, node });
+  }, [contextMenuActions]);
+
+  const handleCloseMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // Check if the context menu node is a variation (not children[0] of its parent)
+  const isVariation = useCallback((node: OpeningNode): boolean => {
+    if (!tree) return false;
+    const findParent = (root: OpeningNode, targetId: string): OpeningNode | null => {
+      for (const child of root.children || []) {
+        if (child.id === targetId) return root;
+        const found = findParent(child, targetId);
+        if (found) return found;
+      }
+      return null;
+    };
+    const parent = findParent(tree, node.id);
+    if (!parent || !parent.children || parent.children.length <= 1) return false;
+    return parent.children[0].id !== node.id;
+  }, [tree]);
+
   const elements = useMemo(() => {
     if (!tree) return [];
-    return renderTree(tree, selectedNodeId, onNodeSelect, selectedRef);
+    return renderTree(tree, selectedNodeId, onNodeSelect, selectedRef, contextMenuActions ? handleContextMenu : undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tree, selectedNodeId, onNodeSelect]);
+  }, [tree, selectedNodeId, onNodeSelect, contextMenuActions, handleContextMenu]);
 
   if (loading) {
     return (
@@ -227,6 +274,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   }
 
   const hasContent = elements.length > 0;
+  const labels = contextMenuActions?.labels || {};
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
@@ -284,6 +332,73 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             </Tooltip>
           )}
         </Box>
+      )}
+
+      {/* Context menu for move editing */}
+      {contextMenuActions && (
+        <Menu
+          open={!!contextMenu}
+          onClose={handleCloseMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={contextMenu ? { top: contextMenu.y, left: contextMenu.x } : undefined}
+          slotProps={{
+            paper: {
+              sx: {
+                bgcolor: 'background.paper',
+                minWidth: 180,
+              },
+            },
+          }}
+        >
+          {contextMenuActions.onDeleteFromHere && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu) contextMenuActions.onDeleteFromHere!(contextMenu.node);
+                handleCloseMenu();
+              }}
+              sx={{ fontSize: 13 }}
+            >
+              <ListItemIcon><Delete fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.deleteFromHere || 'Delete from here'}</ListItemText>
+            </MenuItem>
+          )}
+          {contextMenuActions.onDeleteVariation && contextMenu && isVariation(contextMenu.node) && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu) contextMenuActions.onDeleteVariation!(contextMenu.node);
+                handleCloseMenu();
+              }}
+              sx={{ fontSize: 13 }}
+            >
+              <ListItemIcon><Delete fontSize="small" sx={{ color: 'warning.main' }} /></ListItemIcon>
+              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.deleteVariation || 'Delete variation'}</ListItemText>
+            </MenuItem>
+          )}
+          {contextMenuActions.onPromoteVariation && contextMenu && isVariation(contextMenu.node) && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu) contextMenuActions.onPromoteVariation!(contextMenu.node);
+                handleCloseMenu();
+              }}
+              sx={{ fontSize: 13 }}
+            >
+              <ListItemIcon><TrendingUp fontSize="small" sx={{ color: 'info.main' }} /></ListItemIcon>
+              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.promoteVariation || 'Promote variation'}</ListItemText>
+            </MenuItem>
+          )}
+          {contextMenuActions.onMakeMainLine && contextMenu && isVariation(contextMenu.node) && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu) contextMenuActions.onMakeMainLine!(contextMenu.node);
+                handleCloseMenu();
+              }}
+              sx={{ fontSize: 13 }}
+            >
+              <ListItemIcon><Star fontSize="small" sx={{ color: 'success.main' }} /></ListItemIcon>
+              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.makeMainLine || 'Make main line'}</ListItemText>
+            </MenuItem>
+          )}
+        </Menu>
       )}
     </Box>
   );

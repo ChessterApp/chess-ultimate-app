@@ -987,6 +987,15 @@
         "updateSuccess": "Партия обновлена",
         "updateFailed": "Не удалось обновить партию",
         "noChanges": "Нет изменений для сохранения"
+      },
+      "moveEdit": {
+        "deleteFromHere": "Удалить отсюда",
+        "deleteVariation": "Удалить вариант",
+        "promoteVariation": "Повысить вариант",
+        "makeMainLine": "Сделать основным",
+        "saveChanges": "Сохранить изменения",
+        "unsavedChanges": "Несохранённые изменения",
+        "savedSuccessfully": "Изменения сохранены"
       }
     }
   },

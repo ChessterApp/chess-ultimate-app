@@ -3,11 +3,13 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, Typography, Chip, IconButton, Tooltip, CircularProgress,
+  Box, Typography, Chip, IconButton, Tooltip, CircularProgress, Button,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark, Edit } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark, Edit, Save } from '@mui/icons-material';
 import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
+import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { MoveContextMenuActions } from './MoveNotation';
 
 export interface OpenedGame {
   id: string;
@@ -33,6 +35,14 @@ interface GameViewerPanelProps {
   onSaveToMyGames?: (game: OpenedGame) => Promise<boolean>;
   isSaved?: boolean;
   onEditGame?: () => void;
+  // Editing props (active for source===user only)
+  isEditable?: boolean;
+  editTree?: OpeningNode | null;
+  editSelectedNodeId?: string | null;
+  onEditNodeSelect?: (node: OpeningNode) => void;
+  onEditSave?: () => void;
+  editIsDirty?: boolean;
+  editContextMenuActions?: MoveContextMenuActions;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -55,7 +65,7 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
     }
     return { moves, fens, startingFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' };
   }
-  
+
   const history = chess.history();
   // Replay to get FENs at each position
   const fens: string[] = [];
@@ -64,7 +74,7 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
     replay.move(move);
     fens.push(replay.fen());
   }
-  
+
   return {
     moves: history,
     fens,
@@ -72,7 +82,11 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
   };
 }
 
-export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexChange, onSaveToMyGames, isSaved = false, onEditGame }: GameViewerPanelProps) {
+export default function GameViewerPanel({
+  game, currentMoveIndex, onMoveIndexChange,
+  onSaveToMyGames, isSaved = false, onEditGame,
+  isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, editContextMenuActions,
+}: GameViewerPanelProps) {
   const t = useTranslations('debut');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(isSaved);
@@ -86,8 +100,10 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
     setSaving(false);
     if (success) setSaved(true);
   }, [onSaveToMyGames, saving, saved, game]);
-  // Keyboard navigation
+
+  // Keyboard navigation (only for non-editable / flat mode)
   useEffect(() => {
+    if (isEditable && editTree) return; // Tree mode handles its own nav
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       switch (e.key) {
@@ -99,7 +115,7 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [currentMoveIndex, game.moves.length, onMoveIndexChange]);
+  }, [currentMoveIndex, game.moves.length, onMoveIndexChange, isEditable, editTree]);
 
   // Build move pairs for display (1. e4 e5  2. Nf3 Nc6 ...)
   const movePairs = useMemo(() => {
@@ -113,6 +129,16 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
     }
     return pairs;
   }, [game.moves]);
+
+  // Use tree-based notation when editing
+  const useTreeMode = isEditable && editTree && onEditNodeSelect;
+
+  // Lazy-load MoveNotation only when needed
+  const MoveNotation = useMemo(() => {
+    if (!useTreeMode) return null;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('./MoveNotation').default;
+  }, [useTreeMode]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
@@ -167,35 +193,26 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
         </Box>
       </Box>
 
-      {/* Move list */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, alignItems: 'baseline' }}>
-          {movePairs.map(pair => (
-            <Box key={pair.num} sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.3 }}>
-              <Typography component="span" sx={{ color: 'text.disabled', fontSize: 12, minWidth: 20, textAlign: 'right', mr: 0.2 }}>
-                {pair.num}.
-              </Typography>
-              <Typography
-                component="span"
-                onClick={() => onMoveIndexChange(pair.white.idx)}
-                sx={{
-                  fontSize: 13,
-                  fontFamily: 'monospace',
-                  cursor: 'pointer',
-                  px: 0.4,
-                  py: 0.1,
-                  borderRadius: 0.5,
-                  color: currentMoveIndex === pair.white.idx ? 'primary.contrastText' : 'text.secondary',
-                  bgcolor: currentMoveIndex === pair.white.idx ? 'primary.main' : 'transparent',
-                  '&:hover': { bgcolor: currentMoveIndex === pair.white.idx ? 'primary.main' : 'rgba(255,255,255,0.08)' },
-                }}
-              >
-                {pair.white.san}
-              </Typography>
-              {pair.black && (
+      {/* Move list — tree mode (editable) or flat mode */}
+      <Box sx={{ flex: 1, overflow: 'auto', p: useTreeMode ? 0 : 1 }}>
+        {useTreeMode && MoveNotation ? (
+          <MoveNotation
+            tree={editTree}
+            selectedNodeId={editSelectedNodeId || null}
+            onNodeSelect={onEditNodeSelect}
+            loading={false}
+            contextMenuActions={editContextMenuActions}
+          />
+        ) : (
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, alignItems: 'baseline' }}>
+            {movePairs.map(pair => (
+              <Box key={pair.num} sx={{ display: 'inline-flex', alignItems: 'baseline', gap: 0.3 }}>
+                <Typography component="span" sx={{ color: 'text.disabled', fontSize: 12, minWidth: 20, textAlign: 'right', mr: 0.2 }}>
+                  {pair.num}.
+                </Typography>
                 <Typography
                   component="span"
-                  onClick={() => onMoveIndexChange(pair.black!.idx)}
+                  onClick={() => onMoveIndexChange(pair.white.idx)}
                   sx={{
                     fontSize: 13,
                     fontFamily: 'monospace',
@@ -203,51 +220,104 @@ export default function GameViewerPanel({ game, currentMoveIndex, onMoveIndexCha
                     px: 0.4,
                     py: 0.1,
                     borderRadius: 0.5,
-                    color: currentMoveIndex === pair.black.idx ? 'primary.contrastText' : 'text.secondary',
-                    bgcolor: currentMoveIndex === pair.black.idx ? 'primary.main' : 'transparent',
-                    '&:hover': { bgcolor: currentMoveIndex === pair.black.idx ? 'primary.main' : 'rgba(255,255,255,0.08)' },
-                    mr: 0.5,
+                    color: currentMoveIndex === pair.white.idx ? 'primary.contrastText' : 'text.secondary',
+                    bgcolor: currentMoveIndex === pair.white.idx ? 'primary.main' : 'transparent',
+                    '&:hover': { bgcolor: currentMoveIndex === pair.white.idx ? 'primary.main' : 'action.hover' },
                   }}
                 >
-                  {pair.black.san}
+                  {pair.white.san}
                 </Typography>
-              )}
-            </Box>
-          ))}
-          {game.result && game.result !== '*' && (
-            <Typography component="span" sx={{ color: 'text.disabled', fontSize: 12, fontWeight: 600, ml: 0.5 }}>
-              {game.result}
-            </Typography>
-          )}
-        </Box>
+                {pair.black && (
+                  <Typography
+                    component="span"
+                    onClick={() => onMoveIndexChange(pair.black!.idx)}
+                    sx={{
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                      cursor: 'pointer',
+                      px: 0.4,
+                      py: 0.1,
+                      borderRadius: 0.5,
+                      color: currentMoveIndex === pair.black.idx ? 'primary.contrastText' : 'text.secondary',
+                      bgcolor: currentMoveIndex === pair.black.idx ? 'primary.main' : 'transparent',
+                      '&:hover': { bgcolor: currentMoveIndex === pair.black.idx ? 'primary.main' : 'action.hover' },
+                      mr: 0.5,
+                    }}
+                  >
+                    {pair.black.san}
+                  </Typography>
+                )}
+              </Box>
+            ))}
+            {game.result && game.result !== '*' && (
+              <Typography component="span" sx={{ color: 'text.disabled', fontSize: 12, fontWeight: 600, ml: 0.5 }}>
+                {game.result}
+              </Typography>
+            )}
+          </Box>
+        )}
       </Box>
 
-      {/* Navigation controls */}
-      <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, p: 0.5, borderTop: 1, borderColor: 'divider' }}>
-        <Tooltip title={t('navStart')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(-1)} disabled={currentMoveIndex === -1} sx={{ color: 'text.secondary' }}>
-            <FirstPage fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title={t('navPrevious')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(Math.max(-1, currentMoveIndex - 1))} disabled={currentMoveIndex === -1} sx={{ color: 'text.secondary' }}>
-            <ChevronLeft fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Typography variant="caption" sx={{ color: 'text.disabled', alignSelf: 'center', minWidth: 50, textAlign: 'center' }}>
-          {currentMoveIndex + 1} / {game.moves.length}
+      {/* Save button (only shown when editable and dirty) */}
+      {isEditable && editIsDirty && onEditSave && (
+        <Box sx={{ px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<Save sx={{ fontSize: 16 }} />}
+            onClick={onEditSave}
+            fullWidth
+            sx={{
+              textTransform: 'none',
+              fontSize: 12,
+              fontWeight: 600,
+              background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+              '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #5b21b6)' },
+            }}
+          >
+            {t('myGames.moveEdit.saveChanges')}
+          </Button>
+        </Box>
+      )}
+
+      {/* Unsaved indicator */}
+      {isEditable && editIsDirty && (
+        <Typography
+          variant="caption"
+          sx={{ textAlign: 'center', color: 'warning.main', fontSize: 10, pb: 0.5 }}
+        >
+          {t('myGames.moveEdit.unsavedChanges')}
         </Typography>
-        <Tooltip title={t('navNext')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1))} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: 'text.secondary' }}>
-            <ChevronRight fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <Tooltip title={t('navEnd')}>
-          <IconButton size="small" onClick={() => onMoveIndexChange(game.moves.length - 1)} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: 'text.secondary' }}>
-            <LastPage fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      </Box>
+      )}
+
+      {/* Navigation controls (only for flat mode) */}
+      {!useTreeMode && (
+        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5, p: 0.5, borderTop: 1, borderColor: 'divider' }}>
+          <Tooltip title={t('navStart')}>
+            <IconButton size="small" onClick={() => onMoveIndexChange(-1)} disabled={currentMoveIndex === -1} sx={{ color: 'text.secondary' }}>
+              <FirstPage fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={t('navPrevious')}>
+            <IconButton size="small" onClick={() => onMoveIndexChange(Math.max(-1, currentMoveIndex - 1))} disabled={currentMoveIndex === -1} sx={{ color: 'text.secondary' }}>
+              <ChevronLeft fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Typography variant="caption" sx={{ color: 'text.disabled', alignSelf: 'center', minWidth: 50, textAlign: 'center' }}>
+            {currentMoveIndex + 1} / {game.moves.length}
+          </Typography>
+          <Tooltip title={t('navNext')}>
+            <IconButton size="small" onClick={() => onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1))} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: 'text.secondary' }}>
+              <ChevronRight fontSize="small" />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title={t('navEnd')}>
+            <IconButton size="small" onClick={() => onMoveIndexChange(game.moves.length - 1)} disabled={currentMoveIndex >= game.moves.length - 1} sx={{ color: 'text.secondary' }}>
+              <LastPage fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
     </Box>
   );
 }

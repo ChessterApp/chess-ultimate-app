@@ -987,6 +987,15 @@
         "updateSuccess": "Ойын жаңартылды",
         "updateFailed": "Ойынды жаңарту сәтсіз аяқталды",
         "noChanges": "Сақтайтын өзгерістер жоқ"
+      },
+      "moveEdit": {
+        "deleteFromHere": "Осы жерден жою",
+        "deleteVariation": "Нұсқаны жою",
+        "promoteVariation": "Нұсқаны көтеру",
+        "makeMainLine": "Негізгі қылу",
+        "saveChanges": "Өзгерістерді сақтау",
+        "unsavedChanges": "Сақталмаған өзгерістер",
+        "savedSuccessfully": "Өзгерістер сақталды"
       }
     }
   },
