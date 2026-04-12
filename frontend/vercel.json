@@ -25,6 +25,9 @@
     { "source": "/api/puzzles/:path*", "destination": "https://api.chesster.io/api/puzzles/:path*" },
     { "source": "/api/opponent/:path*", "destination": "https://api.chesster.io/api/opponent/:path*" },
     { "source": "/api/user/:path*", "destination": "https://api.chesster.io/api/user/:path*" },
+    { "source": "/api/scoresheet/:path*", "destination": "https://api.chesster.io/api/scoresheet/:path*" },
+    { "source": "/api/games/:path*", "destination": "https://api.chesster.io/api/games/:path*" },
+    { "source": "/api/games", "destination": "https://api.chesster.io/api/games" },
     { "source": "/api/explorer/:path*", "destination": "https://api.chesster.io/api/explorer/:path*" }
   ]
 }

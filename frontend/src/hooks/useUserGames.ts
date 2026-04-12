@@ -69,7 +69,10 @@ export function useUserGames() {
     path: string,
     options?: RequestInit & { timeout?: number }
   ): Promise<T> => {
-    const token = await getToken() || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJsb2NhbF91c2VyIn0.FakeTokenForLocalDev';
+    const token = await getToken();
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
     const headers: HeadersInit = {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
