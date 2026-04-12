@@ -148,10 +148,13 @@ export default function DebutPage() {
   const [moveTreeSource, setMoveTreeSource] = useState<MoveTreeSource>('twic');
 
   // ─── Stockfish analysis toggle ───
-  const [stockfishEnabled, setStockfishEnabled] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('debut_stockfish') === 'true';
-  });
+  const [stockfishEnabled, setStockfishEnabled] = useState(false);
+
+  // Sync with localStorage after mount to avoid hydration mismatch
+  useEffect(() => {
+    const stored = localStorage.getItem('debut_stockfish') === 'true';
+    if (stored) setStockfishEnabled(true);
+  }, []);
   const { evaluation, isAnalyzing, isReady, depth, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled });
 
   // Auto-analyze when position changes and Stockfish is enabled
