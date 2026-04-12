@@ -43,6 +43,11 @@ interface GameViewerPanelProps {
   onEditSave?: () => void;
   editIsDirty?: boolean;
   editContextMenuActions?: MoveContextMenuActions;
+  // Tree navigation (for keyboard support in tree mode)
+  onTreePrev?: () => void;
+  onTreeNext?: () => void;
+  onTreeGoToStart?: () => void;
+  onTreeGoToEnd?: () => void;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -86,6 +91,7 @@ export default function GameViewerPanel({
   game, currentMoveIndex, onMoveIndexChange,
   onSaveToMyGames, isSaved = false, onEditGame,
   isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, editContextMenuActions,
+  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd,
 }: GameViewerPanelProps) {
   const t = useTranslations('debut');
   const [saving, setSaving] = useState(false);
@@ -101,21 +107,30 @@ export default function GameViewerPanel({
     if (success) setSaved(true);
   }, [onSaveToMyGames, saving, saved, game]);
 
-  // Keyboard navigation (only for non-editable / flat mode)
+  // Keyboard navigation (flat mode + tree mode)
   useEffect(() => {
-    if (isEditable && editTree) return; // Tree mode handles its own nav
+    const inTreeMode = isEditable && editTree;
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      switch (e.key) {
-        case 'ArrowLeft': e.preventDefault(); onMoveIndexChange(Math.max(-1, currentMoveIndex - 1)); break;
-        case 'ArrowRight': e.preventDefault(); onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1)); break;
-        case 'Home': e.preventDefault(); onMoveIndexChange(-1); break;
-        case 'End': e.preventDefault(); onMoveIndexChange(game.moves.length - 1); break;
+      if (inTreeMode) {
+        switch (e.key) {
+          case 'ArrowLeft': e.preventDefault(); onTreePrev?.(); break;
+          case 'ArrowRight': e.preventDefault(); onTreeNext?.(); break;
+          case 'Home': e.preventDefault(); onTreeGoToStart?.(); break;
+          case 'End': e.preventDefault(); onTreeGoToEnd?.(); break;
+        }
+      } else {
+        switch (e.key) {
+          case 'ArrowLeft': e.preventDefault(); onMoveIndexChange(Math.max(-1, currentMoveIndex - 1)); break;
+          case 'ArrowRight': e.preventDefault(); onMoveIndexChange(Math.min(game.moves.length - 1, currentMoveIndex + 1)); break;
+          case 'Home': e.preventDefault(); onMoveIndexChange(-1); break;
+          case 'End': e.preventDefault(); onMoveIndexChange(game.moves.length - 1); break;
+        }
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [currentMoveIndex, game.moves.length, onMoveIndexChange, isEditable, editTree]);
+  }, [currentMoveIndex, game.moves.length, onMoveIndexChange, isEditable, editTree, onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd]);
 
   // Build move pairs for display (1. e4 e5  2. Nf3 Nc6 ...)
   const movePairs = useMemo(() => {

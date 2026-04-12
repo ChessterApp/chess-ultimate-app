@@ -69,7 +69,7 @@ const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'),
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
 import EditGameModal from '@/components/openings/EditGameModal';
 import { useUserGames, type UserGame } from '@/hooks/useUserGames';
-import { useGameMoveTree, findNodeById as findGameTreeNode } from '@/hooks/useGameMoveTree';
+import { useGameMoveTree, findNodeById as findGameTreeNode, findParentOf as findGameTreeParent } from '@/hooks/useGameMoveTree';
 import type { MoveContextMenuActions } from '@/components/openings/MoveNotation';
 import { Close, FolderOpen } from '@mui/icons-material';
 
@@ -390,6 +390,32 @@ export default function DebutPage() {
     const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
     return node?.fen || null;
   }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
+
+  // ─── Tree navigation callbacks (for DebutBoard arrows + keyboard in tree mode) ───
+  const handleEditTreePrev = useCallback(() => {
+    if (!gameMoveTree.tree || !editTreeSelectedNodeId) return;
+    const parent = findGameTreeParent(gameMoveTree.tree, editTreeSelectedNodeId);
+    if (parent) setEditTreeSelectedNodeId(parent.id);
+  }, [gameMoveTree.tree, editTreeSelectedNodeId]);
+
+  const handleEditTreeNext = useCallback(() => {
+    if (!gameMoveTree.tree || !editTreeSelectedNodeId) return;
+    const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    if (node?.children?.length) setEditTreeSelectedNodeId(node.children[0].id);
+  }, [gameMoveTree.tree, editTreeSelectedNodeId]);
+
+  const handleEditTreeGoToStart = useCallback(() => {
+    if (!gameMoveTree.tree) return;
+    setEditTreeSelectedNodeId(gameMoveTree.tree.id);
+  }, [gameMoveTree.tree]);
+
+  const handleEditTreeGoToEnd = useCallback(() => {
+    if (!gameMoveTree.tree || !editTreeSelectedNodeId) return;
+    let node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    if (!node) return;
+    while (node.children?.length) node = node.children[0];
+    setEditTreeSelectedNodeId(node.id);
+  }, [gameMoveTree.tree, editTreeSelectedNodeId]);
 
   // ─── Hook ───
   const {
@@ -1423,11 +1449,11 @@ export default function DebutPage() {
               orientation={boardOrientation}
               onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (() => {}))}
               customArrows={boardArrows}
-              onReset={activeTab === 'debut' ? handleReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
-              onGoToStart={activeTab === 'debut' ? handleGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1)}
-              onPrev={activeTab === 'debut' ? handlePrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))}
-              onNext={activeTab === 'debut' ? handleNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))}
-              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)}
+              onReset={activeTab === 'debut' ? handleReset : (isActiveGameEditable ? handleEditTreeGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1))}
+              onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameEditable ? handleEditTreeGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1))}
+              onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameEditable ? handleEditTreePrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1)))}
+              onNext={activeTab === 'debut' ? handleNext : (isActiveGameEditable ? handleEditTreeNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1)))}
+              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameEditable ? handleEditTreeGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1))}
               onFlip={handleFlip}
             />
 
@@ -1543,6 +1569,10 @@ export default function DebutPage() {
                   onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
                   editIsDirty={isActiveGameEditable ? gameMoveTree.isDirty : undefined}
                   editContextMenuActions={editContextMenuActions}
+                  onTreePrev={isActiveGameEditable ? handleEditTreePrev : undefined}
+                  onTreeNext={isActiveGameEditable ? handleEditTreeNext : undefined}
+                  onTreeGoToStart={isActiveGameEditable ? handleEditTreeGoToStart : undefined}
+                  onTreeGoToEnd={isActiveGameEditable ? handleEditTreeGoToEnd : undefined}
                 />
               </Box>
             )}
