@@ -15,9 +15,6 @@ import {
   Button,
   ToggleButton,
   ToggleButtonGroup,
-  List,
-  ListItem,
-  ListItemText,
   Chip,
   IconButton,
   TextField,
@@ -27,13 +24,12 @@ import {
   InputLabel,
   useMediaQuery,
   useTheme,
-  Divider,
   Collapse,
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
 import { useLichessExplorer, LichessExplorerResponse, LichessMove, LichessTopGame } from '@/hooks/useLichessExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
-import GameCard from './GameCard';
+import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 
 interface LichessExplorerTabProps {
@@ -272,62 +268,16 @@ export default function LichessExplorerTab({
     const visibleGames = games.slice(page * GAMES_PER_PAGE, (page + 1) * GAMES_PER_PAGE);
 
     return (
-      <Box sx={{ opacity: loading ? 0.5 : 1, transition: 'opacity 0.15s ease' }}>
+      <Box>
         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
           {games.length < 5 && games.length > 0 ? `Top Games (showing all ${games.length} available)` : 'Top Games'}
         </Typography>
 
-        {isMobile ? (
-          // Mobile: Card layout
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {visibleGames.map((g) => (
-              <GameCard
-                key={g.id}
-                game={g}
-                onClick={() => onOpenGame?.(g)}
-              />
-            ))}
-          </Box>
-        ) : (
-          // Desktop: List layout
-          <List dense sx={{ p: 0 }}>
-            {visibleGames.map((g) => (
-              <ListItem
-                key={g.id}
-                sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
-                onClick={() => onOpenGame?.(g)}
-              >
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                        {g.white}
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        ({g.white_elo || '?'})
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
-                      <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                        {g.black}
-                      </Typography>
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        ({g.black_elo || '?'})
-                      </Typography>
-                    </Box>
-                  }
-                  secondary={
-                    <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
-                      <Chip label={g.result} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                      <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                        {g.date}
-                      </Typography>
-                    </Box>
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
-        )}
+        <GameTable
+          games={visibleGames}
+          onOpenGame={onOpenGame}
+          loading={loading}
+        />
 
         {/* Pagination */}
         {totalPages > 1 && (

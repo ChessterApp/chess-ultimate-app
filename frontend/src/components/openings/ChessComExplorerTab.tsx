@@ -12,9 +12,6 @@ import {
   LinearProgress,
   Button,
   TextField,
-  List,
-  ListItem,
-  ListItemText,
   Chip,
   IconButton,
   Select,
@@ -29,7 +26,7 @@ import {
 import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
 import { useChessComExplorer } from '@/hooks/useChessComExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
-import GameCard from './GameCard';
+import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 
 interface ChessComExplorerTabProps {
@@ -357,66 +354,17 @@ export default function ChessComExplorerTab({
         </Box>
       )}
 
-      {/* Games list - card layout on mobile, list on desktop */}
+      {/* Games table */}
       {!loading && !error && filteredGames.length > 0 && (
         <Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
             Games
           </Typography>
 
-          {isMobile ? (
-            // Mobile: Card layout
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {visibleGames.map((g) => (
-                <GameCard
-                  key={g.id}
-                  game={g}
-                  onClick={() => onOpenGame?.(g)}
-                  showSource={false}
-                />
-              ))}
-            </Box>
-          ) : (
-            // Desktop: List layout
-            <List dense sx={{ p: 0 }}>
-              {visibleGames.map((g) => (
-                <ListItem
-                  key={g.id}
-                  sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
-                  onClick={() => onOpenGame?.(g)}
-                >
-                  <ListItemText
-                    primary={
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                          {g.white}
-                        </Typography>
-                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                          ({g.white_elo || '?'})
-                        </Typography>
-                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
-                        <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                          {g.black}
-                        </Typography>
-                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                          ({g.black_elo || '?'})
-                        </Typography>
-                      </Box>
-                    }
-                    secondary={
-                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
-                        <Chip label={g.result} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                        <Chip label={g.event || 'Unknown'} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                        <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                          {g.date}
-                        </Typography>
-                      </Box>
-                    }
-                  />
-                </ListItem>
-              ))}
-            </List>
-          )}
+          <GameTable
+            games={visibleGames}
+            onOpenGame={onOpenGame}
+          />
 
           {/* Pagination */}
           {totalPages > 1 && (

@@ -6,8 +6,6 @@ import {
   Box, Typography, Button, Chip, Divider, IconButton,
   List, ListItem, ListItemText,
   LinearProgress,
-  useMediaQuery,
-  useTheme,
 } from '@mui/material';
 import {
   Storage, ChevronLeft, ChevronRight,
@@ -17,7 +15,7 @@ import MasterGamesFilter, { MasterGamesFilterState } from './MasterGamesFilter';
 import ExplorerTabs, { ExplorerTab } from './ExplorerTabs';
 import LichessExplorerTab from './LichessExplorerTab';
 import ChessComExplorerTab from './ChessComExplorerTab';
-import GameCard from './GameCard';
+import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 
 interface NodeDetailsPanelProps {
@@ -53,8 +51,6 @@ export default function NodeDetailsPanel({
   onLichessDatabaseChange,
 }: NodeDetailsPanelProps) {
   const t = useTranslations('debut');
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [gamesPage, setGamesPage] = useState(0);
   const GAMES_PER_PAGE = 10;
 
@@ -114,59 +110,12 @@ export default function NodeDetailsPanel({
               <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11, opacity: 0.5, py: 0.5, display: 'block' }}>
                 {t('searchingPosition')}
               </Typography>
-            ) : isMobile ? (
-              // Mobile: Card layout
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, opacity: masterGamesLoading ? 0.5 : 1, transition: 'opacity 0.15s ease' }}>
-                {masterGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE).map((g, idx) => (
-                  <GameCard
-                    key={`master-${g.id || idx}`}
-                    game={g}
-                    onClick={() => onOpenGame?.(g)}
-                  />
-                ))}
-              </Box>
             ) : (
-              // Desktop: List layout
-              <List dense sx={{ p: 0, opacity: masterGamesLoading ? 0.5 : 1, transition: 'opacity 0.15s ease' }}>
-                {masterGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE).map((g, idx) => (
-                  <ListItem
-                    key={`master-${g.id || idx}`}
-                    sx={{ px: 0, py: 0.3, cursor: onOpenGame ? 'pointer' : 'default', '&:hover': onOpenGame ? { bgcolor: 'rgba(255,255,255,0.04)' } : {} }}
-                    onClick={() => onOpenGame?.(g)}
-                  >
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                            {g.white_name || g.white || '?'}
-                          </Typography>
-                          <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                            ({g.white_elo || '?'})
-                          </Typography>
-                          <Typography component="span" sx={{ color: 'text.secondary', fontSize: 11 }}>{t('vs')}</Typography>
-                          <Typography component="span" sx={{ color: 'text.primary', fontSize: 12 }}>
-                            {g.black_name || g.black || '?'}
-                          </Typography>
-                          <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                            ({g.black_elo || '?'})
-                          </Typography>
-                        </Box>
-                      }
-                      secondary={
-                        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.2 }}>
-                          <Chip label={g.result || '?'} size="small" sx={{ height: 14, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                          {g.eco && <Chip label={g.eco} size="small" sx={{ height: 14, fontSize: 9, bgcolor: '#1f2937', color: '#fff' }} />}
-                          {(g.date || g.year) && (
-                            <Typography component="span" sx={{ color: 'text.secondary', fontSize: 10 }}>
-                              {g.date || g.year}
-                            </Typography>
-                          )}
-                        </Box>
-                      }
-                    />
-                  </ListItem>
-                ))}
-              </List>
+              <GameTable
+                games={masterGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE)}
+                onOpenGame={onOpenGame}
+                loading={masterGamesLoading}
+              />
             )}
 
             {/* Pagination controls */}
