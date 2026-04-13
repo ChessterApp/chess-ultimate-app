@@ -50,7 +50,7 @@ export function useTwicGames({
   limit = 10,
   playerName = '',
   playerColor = '',
-  sortBy = 'rating',
+  sortBy = 'date_desc',
   debounceMs = 300,
 }: UseTwicGamesOptions): UseTwicGamesResult {
   const [data, setData] = useState<TwicGamesResponse | null>(null);

@@ -134,7 +134,7 @@ export default function DebutPage() {
     opponentName: '',
     playerColor: '',
     result: '',
-    sortBy: 'rating',
+    sortBy: 'date_desc',
     whiteEloMin: 0,
     whiteEloMax: 3500,
     blackEloMin: 0,

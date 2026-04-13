@@ -67,7 +67,7 @@ export const TwicExplorer: React.FC<TwicExplorerProps> = ({
     limit: 15,
     playerName: playerSearch,
     playerColor,
-    sortBy: "rating",
+    sortBy: "date_desc",
   });
 
   const handlePlayerColorChange = (

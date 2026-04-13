@@ -304,7 +304,7 @@ export function useOpeningRepertoire() {
     limit: number = 5,
     playerColor: string = '',
     playerName: string = '',
-    sortBy: string = 'rating',
+    sortBy: string = 'date_desc',
     opponentName: string = '',
     result: string = '',
     whiteEloMin: number = 0,
@@ -320,7 +320,7 @@ export function useOpeningRepertoire() {
     if (playerColor) params.set('player_color', playerColor);
     if (playerName) params.set('player_name', playerName);
     if (opponentName) params.set('opponent_name', opponentName);
-    if (sortBy && sortBy !== 'rating') params.set('sort_by', sortBy);
+    if (sortBy && sortBy !== 'date_desc') params.set('sort_by', sortBy);
     if (result) params.set('result', result);
     // Only send ELO params when they differ from defaults
     if (whiteEloMin !== 0) params.set('white_elo_min', String(whiteEloMin));

@@ -2014,7 +2014,7 @@ def games_by_position():
         player_color = ''
     player_name = request.args.get('player_name', '').strip()
     opponent_name = request.args.get('opponent_name', '').strip()
-    sort_by = request.args.get('sort_by', 'rating')
+    sort_by = request.args.get('sort_by', 'date_desc')
     result = request.args.get('result', '').strip()
     if result not in ('1-0', '0-1', '1/2-1/2', ''):
         result = ''
