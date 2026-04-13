@@ -213,7 +213,8 @@ export default function DebutPage() {
     const line = evaluation.lines[0];
     const sanMoves: string[] = [];
     try {
-      const chess = new Chess(boardFen);
+      // Use the line's own FEN (guaranteed to match its PV), not boardFen which may lag
+      const chess = new Chess(line.fen || boardFen);
       const movesToShow = Math.min(line.pv.length, 8);
       for (let i = 0; i < movesToShow; i++) {
         const uci = line.pv[i];
@@ -1707,7 +1708,7 @@ export default function DebutPage() {
                 </Box>
 
                 {/* Best line display */}
-                {stockfishEnabled && bestLine && bestLine.sanMoves.length > 0 && (
+                {stockfishEnabled && bestLine && (
                   <Box sx={{
                     mt: 0.5, px: 1.5, py: 1,
                     bgcolor: 'rgba(0,0,0,0.03)',
@@ -1721,12 +1722,14 @@ export default function DebutPage() {
                     }}>
                       {bestLine.evalText}
                     </Typography>
-                    <Typography component="span" sx={{
-                      fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>
-                      {bestLine.sanMoves.join(' ')}
-                    </Typography>
+                    {bestLine.sanMoves.length > 0 && (
+                      <Typography component="span" sx={{
+                        fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {bestLine.sanMoves.join(' ')}
+                      </Typography>
+                    )}
                   </Box>
                 )}
 
