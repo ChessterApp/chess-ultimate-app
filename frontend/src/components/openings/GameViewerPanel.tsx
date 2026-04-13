@@ -5,7 +5,8 @@ import { useTranslations } from 'next-intl';
 import {
   Box, Typography, Chip, IconButton, Tooltip, CircularProgress, Button,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark, Edit, Save } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark, Edit, Save, Star, StarBorder, Delete } from '@mui/icons-material';
+import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
@@ -35,6 +36,10 @@ interface GameViewerPanelProps {
   onSaveToMyGames?: (game: OpenedGame) => Promise<boolean>;
   isSaved?: boolean;
   onEditGame?: () => void;
+  // Favorite/delete actions (for user games in viewer)
+  onToggleFavorite?: () => void;
+  onDeleteGame?: () => void;
+  isFavorite?: boolean;
   // Editing props (active for source===user only)
   isEditable?: boolean;
   editTree?: OpeningNode | null;
@@ -90,6 +95,7 @@ export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; st
 export default function GameViewerPanel({
   game, currentMoveIndex, onMoveIndexChange,
   onSaveToMyGames, isSaved = false, onEditGame,
+  onToggleFavorite, onDeleteGame, isFavorite = false,
   isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, editContextMenuActions,
   onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd,
 }: GameViewerPanelProps) {
@@ -106,6 +112,13 @@ export default function GameViewerPanel({
     setSaving(false);
     if (success) setSaved(true);
   }, [onSaveToMyGames, saving, saved, game]);
+
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const handleDeleteConfirm = useCallback(() => {
+    setDeleteDialogOpen(false);
+    onDeleteGame?.();
+  }, [onDeleteGame]);
 
   // Keyboard navigation (flat mode + tree mode)
   useEffect(() => {
@@ -164,6 +177,21 @@ export default function GameViewerPanel({
             {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            {onToggleFavorite && (
+              <Tooltip title={isFavorite ? 'Unfavorite' : 'Favorite'}>
+                <IconButton
+                  size="small"
+                  onClick={onToggleFavorite}
+                  aria-label="toggle favorite"
+                  sx={{ p: 0.5, ml: 0.5 }}
+                >
+                  {isFavorite
+                    ? <Star sx={{ fontSize: 18, color: '#f59e0b' }} />
+                    : <StarBorder sx={{ fontSize: 18, color: 'text.secondary' }} />
+                  }
+                </IconButton>
+              </Tooltip>
+            )}
             {onEditGame && (
               <Tooltip title={t('myGames.editModal.title')}>
                 <IconButton
@@ -173,6 +201,18 @@ export default function GameViewerPanel({
                   sx={{ p: 0.5, ml: 0.5 }}
                 >
                   <Edit sx={{ fontSize: 18, color: 'text.secondary' }} />
+                </IconButton>
+              </Tooltip>
+            )}
+            {onDeleteGame && (
+              <Tooltip title="Delete game">
+                <IconButton
+                  size="small"
+                  onClick={() => setDeleteDialogOpen(true)}
+                  aria-label="delete game"
+                  sx={{ p: 0.5, ml: 0.5 }}
+                >
+                  <Delete sx={{ fontSize: 18, color: 'text.secondary', '&:hover': { color: 'error.main' } }} />
                 </IconButton>
               </Tooltip>
             )}
@@ -333,6 +373,20 @@ export default function GameViewerPanel({
           </Tooltip>
         </Box>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+        <DialogTitle>Delete Game</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this game? This action cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)}>Cancel</Button>
+          <Button onClick={handleDeleteConfirm} color="error" variant="contained">Delete</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

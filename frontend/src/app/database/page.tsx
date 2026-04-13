@@ -199,8 +199,9 @@ export default function DebutPage() {
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
 
   // ─── My Games (save bookmark + edit) ───
-  const { createGame: createUserGame, updateGame: updateUserGame } = useUserGames();
+  const { createGame: createUserGame, updateGame: updateUserGame, toggleFavorite: toggleUserFavorite, deleteGame: deleteUserGame } = useUserGames();
   const [savedGameIds, setSavedGameIds] = useState<Set<string>>(new Set());
+  const [favoriteGameIds, setFavoriteGameIds] = useState<Set<string>>(new Set());
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingGame, setEditingGame] = useState<UserGame | null>(null);
 
@@ -287,6 +288,35 @@ export default function DebutPage() {
     }
     return result;
   }, [updateUserGame, t]);
+
+  // ─── Viewer actions: toggle favorite / delete game ───
+  const handleViewerToggleFavorite = useCallback(async () => {
+    if (!activeTab) return;
+    const success = await toggleUserFavorite(activeTab);
+    if (success) {
+      setFavoriteGameIds(prev => {
+        const next = new Set(prev);
+        if (next.has(activeTab)) { next.delete(activeTab); } else { next.add(activeTab); }
+        return next;
+      });
+    }
+  }, [activeTab, toggleUserFavorite]);
+
+  const handleViewerDeleteGame = useCallback(async () => {
+    if (!activeTab) return;
+    const success = await deleteUserGame(activeTab);
+    if (success) {
+      // Close the viewer tab
+      setOpenedGames(prev => prev.filter(g => g.id !== activeTab));
+      setGameMoveIndices(prev => {
+        const next = { ...prev };
+        delete next[activeTab];
+        return next;
+      });
+      setActiveTab(lastHomeTabRef.current);
+      setSnackbar({ open: true, msg: 'Game deleted', severity: 'success' });
+    }
+  }, [activeTab, deleteUserGame]);
 
   // ─── Game move tree: init when opening a user game ───
   const activeGameForTree = openedGames.find(g => g.id === activeTab);
@@ -1289,6 +1319,11 @@ export default function DebutPage() {
     setOpenedGames(prev => [...prev, newGame]);
     setGameMoveIndices(prev => ({ ...prev, [gameId]: -1 }));
     setActiveTab(gameId);
+
+    // Track favorite state for user games
+    if (game.is_favorite) {
+      setFavoriteGameIds(prev => new Set(prev).add(gameId));
+    }
   }, [openedGames, setSnackbar, fetchGamePgn]);
 
   const handleCloseGame = useCallback((gameId: string, e?: React.MouseEvent) => {
@@ -1680,6 +1715,9 @@ export default function DebutPage() {
                   onSaveToMyGames={handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
                   onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  onToggleFavorite={activeGame.source === 'user' ? handleViewerToggleFavorite : undefined}
+                  onDeleteGame={activeGame.source === 'user' ? handleViewerDeleteGame : undefined}
+                  isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
                   editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
@@ -1782,6 +1820,9 @@ export default function DebutPage() {
                   onSaveToMyGames={handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
                   onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  onToggleFavorite={activeGame.source === 'user' ? handleViewerToggleFavorite : undefined}
+                  onDeleteGame={activeGame.source === 'user' ? handleViewerDeleteGame : undefined}
+                  isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
                   editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
