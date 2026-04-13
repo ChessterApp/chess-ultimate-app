@@ -1,13 +1,15 @@
 /**
- * AddGameModal — Modal with 3 input methods for adding games:
- * 1. Enter on Board — play moves on a chessboard
- * 2. Upload Scoresheet — reuse ScoresheetScanner for OCR
- * 3. Import PGN — paste PGN text
+ * AddGameModal — Modal with 2 input methods for adding games:
+ * 1. Upload Scoresheet — reuse ScoresheetScanner for OCR
+ * 2. Import PGN — paste PGN text
+ *
+ * When boardHasMoves is true, the modal shows a preview of moves from the main board
+ * and uses those as the PGN source by default.
  */
 
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -25,11 +27,11 @@ import {
   InputLabel,
   CircularProgress,
 } from '@mui/material';
-import { Close, GridOn, CameraAlt, Description } from '@mui/icons-material';
+import { Close, CameraAlt, Description } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
 
-type InputMethod = 'board' | 'scoresheet' | 'pgn';
+type InputMethod = 'scoresheet' | 'pgn';
 
 interface GameFormData {
   title: string;
@@ -58,6 +60,9 @@ interface AddGameModalProps {
     notes: string;
     source: string;
   }>) => Promise<boolean>;
+  boardPgn?: string;
+  boardHasMoves?: boolean;
+  onBoardReset?: () => void;
 }
 
 const INITIAL_FORM: GameFormData = {
@@ -72,21 +77,23 @@ const INITIAL_FORM: GameFormData = {
   notes: '',
 };
 
-export default function AddGameModal({ open, onClose, onSave }: AddGameModalProps) {
+export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHasMoves, onBoardReset }: AddGameModalProps) {
   const t = useTranslations('debut');
   const [method, setMethod] = useState<InputMethod>('pgn');
   const [form, setForm] = useState<GameFormData>(INITIAL_FORM);
   const [pgn, setPgn] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-
-  // Board entry state
-  const [boardMoves, setBoardMoves] = useState<string[]>([]);
-  const [boardFen, setBoardFen] = useState('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
-  const chessRef = useRef(new Chess());
+  // Track whether user explicitly overrode board moves with a method input
+  const [boardOverridden, setBoardOverridden] = useState(false);
+  // Show replace warning dialog
+  const [showReplaceWarning, setShowReplaceWarning] = useState(false);
+  const [pendingMethod, setPendingMethod] = useState<InputMethod | null>(null);
 
   // Scoresheet state
   const [scoresheetPgn, setScoresheetPgn] = useState('');
+
+  const useBoardPgn = boardHasMoves && !boardOverridden;
 
   const resetState = useCallback(() => {
     setMethod('pgn');
@@ -94,10 +101,10 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
     setPgn('');
     setError('');
     setSaving(false);
-    setBoardMoves([]);
-    setBoardFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
-    chessRef.current = new Chess();
     setScoresheetPgn('');
+    setBoardOverridden(false);
+    setShowReplaceWarning(false);
+    setPendingMethod(null);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -113,7 +120,6 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
       const match = line.match(/\[(\w+)\s+"(.*)"\]/);
       if (match) headers[match[1]] = match[2];
     }
-    // Filter out placeholder values from OCR results
     const placeholders = new Set(['?', '??', '???', '????.??.??', 'Casual Game']);
     const clean = (val: string | undefined) => val && !placeholders.has(val) ? val : '';
     setForm(prev => ({
@@ -128,37 +134,26 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
     }));
   }, []);
 
-  // ── Board Entry Methods ──
-
-  const handleBoardMove = useCallback((from: string, to: string, promotion?: string) => {
-    const chess = chessRef.current;
-    try {
-      const move = chess.move({ from, to, promotion: promotion || undefined });
-      if (move) {
-        setBoardMoves(prev => [...prev, move.san]);
-        setBoardFen(chess.fen());
-      }
-    } catch {
-      // Invalid move — ignore
+  // Handle method switching — warn if board has moves
+  const handleMethodSwitch = useCallback((newMethod: InputMethod) => {
+    if (boardHasMoves && !boardOverridden) {
+      setPendingMethod(newMethod);
+      setShowReplaceWarning(true);
+    } else {
+      setMethod(newMethod);
     }
-  }, []);
+  }, [boardHasMoves, boardOverridden]);
 
-  const handleBoardUndo = useCallback(() => {
-    const chess = chessRef.current;
-    chess.undo();
-    setBoardMoves(prev => prev.slice(0, -1));
-    setBoardFen(chess.fen());
-  }, []);
+  const handleReplaceConfirm = useCallback(() => {
+    setBoardOverridden(true);
+    if (pendingMethod) setMethod(pendingMethod);
+    setShowReplaceWarning(false);
+    setPendingMethod(null);
+  }, [pendingMethod]);
 
-  const handleBoardReset = useCallback(() => {
-    chessRef.current = new Chess();
-    setBoardMoves([]);
-    setBoardFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
-  }, []);
-
-  // Build PGN from board moves
-  const buildBoardPgn = useCallback(() => {
-    return chessRef.current.pgn();
+  const handleReplaceCancel = useCallback(() => {
+    setShowReplaceWarning(false);
+    setPendingMethod(null);
   }, []);
 
   // ── Scoresheet Callback ──
@@ -176,12 +171,19 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
     let finalPgn = '';
     let source = 'manual';
 
-    if (method === 'pgn') {
+    if (useBoardPgn) {
+      // Use PGN from main board
+      if (!boardPgn) {
+        setError(t('myGames.addModal.noMoves'));
+        return;
+      }
+      finalPgn = boardPgn;
+      source = 'board_entry';
+    } else if (method === 'pgn') {
       if (!pgn.trim()) {
         setError(t('myGames.addModal.pgnRequired'));
         return;
       }
-      // Validate PGN
       try {
         const chess = new Chess();
         chess.loadPgn(pgn.trim());
@@ -191,13 +193,6 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
       }
       finalPgn = pgn.trim();
       source = 'pgn_import';
-    } else if (method === 'board') {
-      if (boardMoves.length === 0) {
-        setError(t('myGames.addModal.noMoves'));
-        return;
-      }
-      finalPgn = buildBoardPgn();
-      source = 'board_entry';
     } else if (method === 'scoresheet') {
       if (!scoresheetPgn) {
         setError(t('myGames.addModal.noScoresheet'));
@@ -222,6 +217,10 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
 
       const success = await onSave(finalPgn, metadata as Parameters<typeof onSave>[1]);
       if (success) {
+        // Clear the main board after successful save if we used board PGN
+        if (useBoardPgn) {
+          onBoardReset?.();
+        }
         handleClose();
       }
     } catch {
@@ -229,10 +228,9 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
     } finally {
       setSaving(false);
     }
-  }, [method, pgn, boardMoves, scoresheetPgn, form, buildBoardPgn, onSave, handleClose, t]);
+  }, [useBoardPgn, boardPgn, method, pgn, scoresheetPgn, form, onSave, onBoardReset, handleClose, t]);
 
   const methods: { key: InputMethod; label: string; icon: React.ReactNode }[] = [
-    { key: 'board', label: t('myGames.addModal.enterOnBoard'), icon: <GridOn sx={{ fontSize: 16 }} /> },
     { key: 'scoresheet', label: t('myGames.addModal.uploadScoresheet'), icon: <CameraAlt sx={{ fontSize: 16 }} /> },
     { key: 'pgn', label: t('myGames.addModal.importPgn'), icon: <Description sx={{ fontSize: 16 }} /> },
   ];
@@ -271,62 +269,130 @@ export default function AddGameModal({ open, onClose, onSave }: AddGameModalProp
       </DialogTitle>
 
       <DialogContent sx={{ px: 3, pb: 3 }}>
-        {/* Method selector chips */}
-        <Box sx={{ display: 'flex', gap: 0.75, mb: 2.5 }}>
-          {methods.map((m) => (
-            <Chip
-              key={m.key}
-              icon={m.icon as React.ReactElement}
-              label={m.label}
-              size="small"
-              onClick={() => setMethod(m.key)}
-              sx={{
-                height: 28,
-                fontSize: 11,
-                fontWeight: method === m.key ? 700 : 400,
-                bgcolor: method === m.key ? 'primary.main' : 'action.hover',
-                color: method === m.key ? '#fff' : 'text.secondary',
-                '& .MuiChip-icon': {
-                  color: method === m.key ? '#fff' : 'text.secondary',
-                },
-                '&:hover': {
-                  bgcolor: method === m.key ? 'primary.dark' : 'action.selected',
-                },
-              }}
-            />
-          ))}
-        </Box>
+        {/* Board moves preview — show when board has moves and not overridden */}
+        {boardHasMoves && !boardOverridden && boardPgn && (
+          <Box sx={{
+            mb: 2,
+            p: 1.5,
+            bgcolor: 'rgba(255,255,255,0.03)',
+            borderRadius: 1,
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+              <Chip
+                label={t('myGames.movesFromBoard')}
+                size="small"
+                color="success"
+                sx={{ height: 20, fontSize: 10 }}
+              />
+            </Box>
+            <Typography sx={{
+              fontSize: 11,
+              fontFamily: 'monospace',
+              color: 'text.secondary',
+              maxHeight: 60,
+              overflow: 'auto',
+              lineHeight: 1.6,
+            }}>
+              {boardPgn}
+            </Typography>
+          </Box>
+        )}
 
-        {/* Input area based on method */}
-        <Box sx={{ mb: 2.5 }}>
-          {method === 'pgn' && (
-            <PgnImportTab
-              pgn={pgn}
-              onPgnChange={(val) => {
-                setPgn(val);
-                if (val.trim()) populateFormFromPgn(val);
-              }}
-              t={t}
-            />
-          )}
-          {method === 'board' && (
-            <BoardEntryTab
-              fen={boardFen}
-              moves={boardMoves}
-              onMove={handleBoardMove}
-              onUndo={handleBoardUndo}
-              onReset={handleBoardReset}
-              t={t}
-            />
-          )}
-          {method === 'scoresheet' && (
-            <ScoresheetTab
-              scoresheetPgn={scoresheetPgn}
-              onResult={handleScoresheetResult}
-              t={t}
-            />
-          )}
-        </Box>
+        {/* Replace warning */}
+        {showReplaceWarning && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2, fontSize: 12 }}
+            action={
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <Button size="small" onClick={handleReplaceCancel} sx={{ fontSize: 11, textTransform: 'none' }}>
+                  {t('myGames.cancelBtn')}
+                </Button>
+                <Button size="small" onClick={handleReplaceConfirm} sx={{ fontSize: 11, textTransform: 'none', fontWeight: 600 }}>
+                  {t('myGames.continueBtn')}
+                </Button>
+              </Box>
+            }
+          >
+            {t('myGames.replaceWarning')}
+          </Alert>
+        )}
+
+        {/* Method selector chips — show when no board moves or when overridden */}
+        {(!boardHasMoves || boardOverridden) && (
+          <Box sx={{ display: 'flex', gap: 0.75, mb: 2.5 }}>
+            {methods.map((m) => (
+              <Chip
+                key={m.key}
+                icon={m.icon as React.ReactElement}
+                label={m.label}
+                size="small"
+                onClick={() => handleMethodSwitch(m.key)}
+                sx={{
+                  height: 28,
+                  fontSize: 11,
+                  fontWeight: method === m.key ? 700 : 400,
+                  bgcolor: method === m.key ? 'primary.main' : 'action.hover',
+                  color: method === m.key ? '#fff' : 'text.secondary',
+                  '& .MuiChip-icon': {
+                    color: method === m.key ? '#fff' : 'text.secondary',
+                  },
+                  '&:hover': {
+                    bgcolor: method === m.key ? 'primary.dark' : 'action.selected',
+                  },
+                }}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* Method chips shown even when board has moves — for switching */}
+        {boardHasMoves && !boardOverridden && (
+          <Box sx={{ display: 'flex', gap: 0.75, mb: 2.5 }}>
+            {methods.map((m) => (
+              <Chip
+                key={m.key}
+                icon={m.icon as React.ReactElement}
+                label={m.label}
+                size="small"
+                onClick={() => handleMethodSwitch(m.key)}
+                sx={{
+                  height: 28,
+                  fontSize: 11,
+                  fontWeight: 400,
+                  bgcolor: 'action.hover',
+                  color: 'text.secondary',
+                  '& .MuiChip-icon': { color: 'text.secondary' },
+                  '&:hover': { bgcolor: 'action.selected' },
+                }}
+              />
+            ))}
+          </Box>
+        )}
+
+        {/* Input area based on method — only show when not using board PGN */}
+        {!useBoardPgn && (
+          <Box sx={{ mb: 2.5 }}>
+            {method === 'pgn' && (
+              <PgnImportTab
+                pgn={pgn}
+                onPgnChange={(val) => {
+                  setPgn(val);
+                  if (val.trim()) populateFormFromPgn(val);
+                }}
+                t={t}
+              />
+            )}
+            {method === 'scoresheet' && (
+              <ScoresheetTab
+                scoresheetPgn={scoresheetPgn}
+                onResult={handleScoresheetResult}
+                t={t}
+              />
+            )}
+          </Box>
+        )}
 
         {/* Game details form */}
         <GameDetailsForm form={form} setForm={setForm} t={t} />
@@ -434,147 +500,6 @@ function PgnImportTab({ pgn, onPgnChange, t }: PgnImportTabProps) {
       )}
     </Box>
   );
-}
-
-// ─── Board Entry Tab ────────────────────
-
-interface BoardEntryTabProps {
-  fen: string;
-  moves: string[];
-  onMove: (from: string, to: string, promotion?: string) => void;
-  onUndo: () => void;
-  onReset: () => void;
-  t: ReturnType<typeof useTranslations>;
-}
-
-function BoardEntryTab({ fen, moves, onMove, onUndo, onReset, t }: BoardEntryTabProps) {
-  const boardRef = useRef<HTMLDivElement>(null);
-  const cgRef = useRef<ReturnType<typeof import('chessground')['Chessground']> | null>(null);
-  const chessRef = useRef(new Chess());
-
-  // Keep chess instance in sync
-  useEffect(() => {
-    chessRef.current.load(fen);
-  }, [fen]);
-
-  // Initialize chessground
-  useEffect(() => {
-    if (!boardRef.current) return;
-
-    let cleanup: (() => void) | undefined;
-
-    import('chessground').then(({ Chessground }) => {
-      if (!boardRef.current) return;
-
-      const chess = chessRef.current;
-      const dests = getLegalMoves(chess);
-      const turnColor = chess.turn() === 'w' ? 'white' : 'black';
-
-      const cg = Chessground(boardRef.current, {
-        fen,
-        orientation: 'white',
-        turnColor,
-        movable: {
-          free: false,
-          color: 'both',
-          dests,
-        },
-        animation: { enabled: true, duration: 150 },
-        premovable: { enabled: false },
-        events: {
-          move: (orig: string, dest: string) => {
-            // Check if promotion
-            const chess = chessRef.current;
-            const piece = chess.get(orig as never);
-            if (piece?.type === 'p' && (dest[1] === '8' || dest[1] === '1')) {
-              onMove(orig, dest, 'q');
-            } else {
-              onMove(orig, dest);
-            }
-          },
-        },
-      });
-
-      cgRef.current = cg;
-      cleanup = () => cg.destroy();
-    });
-
-    return () => cleanup?.();
-  // Only initialize once
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Update board when fen changes
-  useEffect(() => {
-    if (!cgRef.current) return;
-    const chess = chessRef.current;
-    const dests = getLegalMoves(chess);
-    const turnColor = chess.turn() === 'w' ? 'white' : 'black';
-
-    cgRef.current.set({
-      fen,
-      turnColor,
-      movable: {
-        dests,
-        color: 'both',
-      },
-    });
-  }, [fen]);
-
-  return (
-    <Box>
-      <Box
-        ref={boardRef}
-        sx={{
-          width: '100%',
-          maxWidth: 320,
-          aspectRatio: '1/1',
-          mx: 'auto',
-          '& .cg-wrap': { width: '100%', height: '100%' },
-        }}
-      />
-      {/* Move list */}
-      {moves.length > 0 && (
-        <Box sx={{
-          mt: 1.5,
-          p: 1,
-          bgcolor: 'action.hover',
-          borderRadius: 1,
-          maxHeight: 80,
-          overflow: 'auto',
-        }}>
-          <Typography component="div" sx={{ fontSize: 11, fontFamily: 'monospace', color: 'text.secondary', lineHeight: 1.6 }}>
-            {moves.map((m, i) => (
-              <React.Fragment key={i}>
-                {i % 2 === 0 && <Typography component="span" sx={{ color: 'text.disabled', fontSize: 'inherit', fontFamily: 'inherit' }}>{Math.floor(i / 2) + 1}. </Typography>}
-                <Typography component="span" sx={{ color: 'text.primary', fontSize: 'inherit', fontFamily: 'inherit' }}>{m} </Typography>
-              </React.Fragment>
-            ))}
-          </Typography>
-        </Box>
-      )}
-      {/* Controls */}
-      <Box sx={{ display: 'flex', gap: 1, mt: 1, justifyContent: 'center' }}>
-        <Button size="small" onClick={onUndo} disabled={moves.length === 0} sx={{ fontSize: 11, textTransform: 'none' }}>
-          {t('myGames.addModal.undo')}
-        </Button>
-        <Button size="small" onClick={onReset} disabled={moves.length === 0} sx={{ fontSize: 11, textTransform: 'none', color: 'error.main' }}>
-          {t('myGames.addModal.reset')}
-        </Button>
-      </Box>
-    </Box>
-  );
-}
-
-function getLegalMoves(chess: Chess) {
-  const dests = new Map();
-  const moves = chess.moves({ verbose: true });
-  for (const move of moves) {
-    const existing = dests.get(move.from) || [];
-    existing.push(move.to);
-    dests.set(move.from, existing);
-  }
-  return dests;
 }
 
 // ─── Scoresheet Tab ─────────────────────

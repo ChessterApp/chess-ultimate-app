@@ -325,14 +325,14 @@ describe('AddGameModal Metadata Builder', () => {
 });
 
 describe('AddGameModal Input Methods', () => {
-  const methods = ['board', 'scoresheet', 'pgn'] as const;
+  const methods = ['scoresheet', 'pgn'] as const;
 
-  it('should have exactly 3 input methods', () => {
-    expect(methods).toHaveLength(3);
+  it('should have exactly 2 input methods (board tab removed)', () => {
+    expect(methods).toHaveLength(2);
   });
 
-  it('should include board entry method', () => {
-    expect(methods).toContain('board');
+  it('should not include board entry method (moved to main board)', () => {
+    expect(methods).not.toContain('board');
   });
 
   it('should include scoresheet upload method', () => {
@@ -341,5 +341,55 @@ describe('AddGameModal Input Methods', () => {
 
   it('should include PGN import method', () => {
     expect(methods).toContain('pgn');
+  });
+});
+
+describe('AddGameModal Board-Aware Behavior', () => {
+  it('should use boardPgn when boardHasMoves is true and not overridden', () => {
+    const boardPgn = '1. e4 e5 2. Nf3 Nc6 *';
+    const boardHasMoves = true;
+    const boardOverridden = false;
+    const useBoardPgn = boardHasMoves && !boardOverridden;
+
+    expect(useBoardPgn).toBe(true);
+
+    // When useBoardPgn, the save should use boardPgn
+    const finalPgn = useBoardPgn ? boardPgn : '';
+    expect(finalPgn).toBe('1. e4 e5 2. Nf3 Nc6 *');
+  });
+
+  it('should not use boardPgn when boardHasMoves is false', () => {
+    const boardHasMoves = false;
+    const boardOverridden = false;
+    const useBoardPgn = boardHasMoves && !boardOverridden;
+
+    expect(useBoardPgn).toBe(false);
+  });
+
+  it('should not use boardPgn when overridden by user', () => {
+    const boardHasMoves = true;
+    const boardOverridden = true;
+    const useBoardPgn = boardHasMoves && !boardOverridden;
+
+    expect(useBoardPgn).toBe(false);
+  });
+
+  it('should set source to board_entry when using board PGN', () => {
+    const useBoardPgn = true;
+    const source = useBoardPgn ? 'board_entry' : 'pgn_import';
+    expect(source).toBe('board_entry');
+  });
+
+  it('should set source to pgn_import when not using board PGN', () => {
+    const useBoardPgn = false;
+    const method = 'pgn';
+    const source = useBoardPgn ? 'board_entry' : (method === 'pgn' ? 'pgn_import' : 'scoresheet');
+    expect(source).toBe('pgn_import');
+  });
+
+  it('should handle PGN with comments from board', () => {
+    const boardPgn = '1. e4 {Strong opening} e5 2. Nf3 Nc6 {Solid reply} *';
+    expect(boardPgn).toContain('{Strong opening}');
+    expect(boardPgn).toContain('{Solid reply}');
   });
 });

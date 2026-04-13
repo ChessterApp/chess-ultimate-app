@@ -36,9 +36,12 @@ type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
 interface MyGamesPanelProps {
   onOpenGame?: (game: UserGame) => void;
+  boardPgn?: string;
+  boardHasMoves?: boolean;
+  onBoardReset?: () => void;
 }
 
-export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
+export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset }: MyGamesPanelProps) {
   const t = useTranslations('debut');
   const {
     games,
@@ -148,6 +151,9 @@ export default function MyGamesPanel({ onOpenGame }: MyGamesPanelProps) {
         open={addModalOpen}
         onClose={() => setAddModalOpen(false)}
         onSave={handleSaveGame}
+        boardPgn={boardPgn}
+        boardHasMoves={boardHasMoves}
+        onBoardReset={onBoardReset}
       />
 
       <EditGameModal

@@ -65,6 +65,10 @@ const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'),
   ssr: false,
   loading: () => <div className="animate-pulse h-60 bg-stone-200 rounded-xl" />
 });
+const MyGamesMoveList = dynamic(() => import('@/components/openings/MyGamesMoveList'), {
+  ssr: false,
+  loading: () => <div className="animate-pulse h-20 bg-stone-200 rounded-xl" />
+});
 
 import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
 import EditGameModal from '@/components/openings/EditGameModal';
@@ -99,6 +103,8 @@ export default function DebutPage() {
   // ─── My Games tab board interaction state ───
   const [myGamesMoveHistory, setMyGamesMoveHistory] = useState<string[]>([STARTING_FEN]);
   const [myGamesMoveIndex, setMyGamesMoveIndex] = useState(0);
+  const [myGamesSanMoves, setMyGamesSanMoves] = useState<string[]>([]);
+  const [myGamesComments, setMyGamesComments] = useState<Record<number, string>>({});
 
   // ─── Modal state ───
   const [pgnImporterOpen, setPgnImporterOpen] = useState(false);
@@ -425,16 +431,34 @@ export default function DebutPage() {
   const myGamesFen = myGamesMoveHistory[myGamesMoveIndex];
 
   const handleMyGamesBoardMove = useCallback((
-    _from: string, _to: string, _piece: string, newFen: string, _moveSan: string, _moveUci: string
+    _from: string, _to: string, _piece: string, newFen: string, moveSan: string, _moveUci: string
   ) => {
     // DebutBoard already validated the move via Chess.js and provides the new FEN
+    // Truncate history if branching from a non-end position
     setMyGamesMoveHistory(prev => [...prev.slice(0, myGamesMoveIndex + 1), newFen]);
+    setMyGamesSanMoves(prev => {
+      const truncated = prev.slice(0, myGamesMoveIndex);
+      return [...truncated, moveSan];
+    });
+    // Remove comments for any truncated moves
+    setMyGamesComments(prev => {
+      const next = { ...prev };
+      // Remove comments for moves beyond the new length
+      for (const key of Object.keys(next)) {
+        if (Number(key) > myGamesMoveIndex) {
+          delete next[Number(key)];
+        }
+      }
+      return next;
+    });
     setMyGamesMoveIndex(prev => prev + 1);
   }, [myGamesMoveIndex]);
 
   const handleMyGamesReset = useCallback(() => {
     setMyGamesMoveHistory([STARTING_FEN]);
     setMyGamesMoveIndex(0);
+    setMyGamesSanMoves([]);
+    setMyGamesComments({});
   }, []);
 
   const handleMyGamesPrev = useCallback(() => {
@@ -448,6 +472,38 @@ export default function DebutPage() {
   const handleMyGamesGoToEnd = useCallback(() => {
     setMyGamesMoveIndex(myGamesMoveHistory.length - 1);
   }, [myGamesMoveHistory.length]);
+
+  const handleMyGamesComment = useCallback((moveIndex: number, comment: string) => {
+    setMyGamesComments(prev => {
+      if (!comment.trim()) {
+        const next = { ...prev };
+        delete next[moveIndex];
+        return next;
+      }
+      return { ...prev, [moveIndex]: comment };
+    });
+  }, []);
+
+  const buildMyGamesPgn = useCallback(() => {
+    if (myGamesSanMoves.length === 0) return '';
+    let pgn = '';
+    for (let i = 0; i < myGamesSanMoves.length; i++) {
+      const moveNum = Math.floor(i / 2) + 1;
+      const isWhite = i % 2 === 0;
+      if (isWhite) {
+        pgn += `${moveNum}. `;
+      }
+      pgn += myGamesSanMoves[i];
+      // Comment uses 1-based index (moveIndex = i + 1)
+      const comment = myGamesComments[i + 1];
+      if (comment) {
+        pgn += ` {${comment}}`;
+      }
+      pgn += ' ';
+    }
+    pgn += '*';
+    return pgn.trim();
+  }, [myGamesSanMoves, myGamesComments]);
 
   // ─── Hook ───
   const {
@@ -1489,6 +1545,28 @@ export default function DebutPage() {
               onFlip={handleFlip}
             />
 
+            {/* My Games move list — below board when on My Games tab with no game open */}
+            {activeTab === 'my-games' && !activeGame && (
+              <MyGamesMoveList
+                moves={myGamesSanMoves}
+                currentIndex={myGamesMoveIndex}
+                comments={myGamesComments}
+                onNavigate={(index) => setMyGamesMoveIndex(index)}
+                onComment={handleMyGamesComment}
+                onUndo={() => {
+                  setMyGamesSanMoves(prev => prev.slice(0, -1));
+                  setMyGamesMoveHistory(prev => prev.slice(0, -1));
+                  setMyGamesMoveIndex(prev => Math.max(0, prev - 1));
+                  setMyGamesComments(prev => {
+                    const next = { ...prev };
+                    delete next[myGamesSanMoves.length];
+                    return next;
+                  });
+                }}
+                onReset={handleMyGamesReset}
+              />
+            )}
+
             {/* Stockfish toggle + engine lines — only in Debut tab */}
             {activeTab === 'debut' && (
               <Box sx={{
@@ -1680,7 +1758,12 @@ export default function DebutPage() {
               </>
             ) : activeTab === 'my-games' ? (
               <Box sx={{ flex: 1, overflow: 'auto' }}>
-                <MyGamesPanel onOpenGame={handleOpenGame} />
+                <MyGamesPanel
+                  onOpenGame={handleOpenGame}
+                  boardPgn={buildMyGamesPgn()}
+                  boardHasMoves={myGamesSanMoves.length > 0}
+                  onBoardReset={handleMyGamesReset}
+                />
               </Box>
             ) : activeGame ? (
               <Box sx={{ display: { xs: 'none', lg: 'flex' }, flex: 1, flexDirection: 'column', overflow: 'auto' }}>

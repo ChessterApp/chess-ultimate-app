@@ -988,6 +988,13 @@
         "updateFailed": "Failed to update game",
         "noChanges": "No changes to save"
       },
+      "movesFromBoard": "Moves from board",
+      "replaceWarning": "This will replace the moves you entered on the board. Continue?",
+      "continueBtn": "Continue",
+      "cancelBtn": "Cancel",
+      "commentPlaceholder": "Add a comment for this move...",
+      "undoMove": "Undo",
+      "resetMoves": "Reset",
       "moveEdit": {
         "deleteFromHere": "Delete from here",
         "deleteVariation": "Delete variation",
