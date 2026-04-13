@@ -70,8 +70,16 @@ const MyGamesMoveList = dynamic(() => import('@/components/openings/MyGamesMoveL
   loading: () => <div className="animate-pulse h-20 bg-stone-200 rounded-xl" />
 });
 
-import GameViewerPanel, { OpenedGame, parseGamePgn } from '@/components/openings/GameViewerPanel';
-import EditGameModal from '@/components/openings/EditGameModal';
+import type { OpenedGame } from '@/components/openings/GameViewerPanel';
+import { parseGamePgn } from '@/components/openings/GameViewerPanel';
+const GameViewerPanel = dynamic(() => import('@/components/openings/GameViewerPanel'), {
+  ssr: false,
+  loading: () => null
+});
+const EditGameModal = dynamic(() => import('@/components/openings/EditGameModal'), {
+  ssr: false,
+  loading: () => null
+});
 import { useUserGames, type UserGame } from '@/hooks/useUserGames';
 import { useGameMoveTree, findNodeById as findGameTreeNode, findParentOf as findGameTreeParent } from '@/hooks/useGameMoveTree';
 import type { MoveContextMenuActions } from '@/components/openings/MoveNotation';
