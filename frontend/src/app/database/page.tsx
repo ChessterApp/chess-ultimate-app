@@ -61,6 +61,10 @@ const ReplayEngineLines = dynamic(() => import('@/components/opponent/ReplayEngi
   ssr: false,
   loading: () => null
 });
+const ReplayEvalBar = dynamic(() => import('@/components/opponent/ReplayEvalBar'), {
+  ssr: false,
+  loading: () => null
+});
 const MyGamesPanel = dynamic(() => import('@/components/openings/MyGamesPanel'), {
   ssr: false,
   loading: () => <div className="animate-pulse h-60 bg-stone-200 rounded-xl" />
@@ -187,6 +191,21 @@ export default function DebutPage() {
   const toggleStockfish = useCallback(() => {
     setStockfishEnabled(prev => !prev);
   }, []);
+
+  // ─── Board size (mirrors DebutBoard logic for eval bar height) ───
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  const boardSize = useMemo(() => {
+    if (windowWidth < 400) return Math.min(windowWidth - 32, 320);
+    if (windowWidth < 600) return Math.min(windowWidth - 24, 360);
+    if (windowWidth < 768) return Math.min(windowWidth - 32, 420);
+    if (windowWidth < 1024) return Math.min(windowWidth - 48, 480);
+    return 520;
+  }, [windowWidth]);
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
@@ -1568,6 +1587,17 @@ export default function DebutPage() {
             alignItems: 'center',
             flexShrink: 0,
           }}>
+            {/* Board + Eval bar row */}
+            <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 0.5 }}>
+              {stockfishEnabled && activeTab === 'debut' && (
+                <ReplayEvalBar
+                  evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
+                  isAnalyzing={isAnalyzing}
+                  depth={depth}
+                  orientation={boardOrientation}
+                  height={boardSize}
+                />
+              )}
             <DebutBoard
               fen={activeTab === 'my-games' && !activeGame ? myGamesFen : (editTreeFen || activeGameFen || boardFen)}
               orientation={boardOrientation}
@@ -1580,6 +1610,7 @@ export default function DebutPage() {
               onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameEditable ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
               onFlip={handleFlip}
             />
+            </Box>
 
             {/* My Games move list — below board when on My Games tab with no game open */}
             {activeTab === 'my-games' && !activeGame && (
