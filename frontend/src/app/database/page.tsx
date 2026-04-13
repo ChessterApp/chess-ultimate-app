@@ -96,6 +96,10 @@ export default function DebutPage() {
   const [browseFen, setBrowseFen] = useState(STARTING_FEN);
   const [browseMoveHistory, setBrowseMoveHistory] = useState<Array<{ san: string; fen: string }>>([]);
 
+  // ─── My Games tab board interaction state ───
+  const [myGamesMoveHistory, setMyGamesMoveHistory] = useState<string[]>([STARTING_FEN]);
+  const [myGamesMoveIndex, setMyGamesMoveIndex] = useState(0);
+
   // ─── Modal state ───
   const [pgnImporterOpen, setPgnImporterOpen] = useState(false);
   const [gameSearchOpen, setGameSearchOpen] = useState(false);
@@ -416,6 +420,34 @@ export default function DebutPage() {
     while (node.children?.length) node = node.children[0];
     setEditTreeSelectedNodeId(node.id);
   }, [gameMoveTree.tree, editTreeSelectedNodeId]);
+
+  // ─── My Games tab board interaction handlers ───
+  const myGamesFen = myGamesMoveHistory[myGamesMoveIndex];
+
+  const handleMyGamesBoardMove = useCallback((
+    _from: string, _to: string, _piece: string, newFen: string, _moveSan: string, _moveUci: string
+  ) => {
+    // DebutBoard already validated the move via Chess.js and provides the new FEN
+    setMyGamesMoveHistory(prev => [...prev.slice(0, myGamesMoveIndex + 1), newFen]);
+    setMyGamesMoveIndex(prev => prev + 1);
+  }, [myGamesMoveIndex]);
+
+  const handleMyGamesReset = useCallback(() => {
+    setMyGamesMoveHistory([STARTING_FEN]);
+    setMyGamesMoveIndex(0);
+  }, []);
+
+  const handleMyGamesPrev = useCallback(() => {
+    setMyGamesMoveIndex(prev => Math.max(0, prev - 1));
+  }, []);
+
+  const handleMyGamesNext = useCallback(() => {
+    setMyGamesMoveIndex(prev => Math.min(myGamesMoveHistory.length - 1, prev + 1));
+  }, [myGamesMoveHistory.length]);
+
+  const handleMyGamesGoToEnd = useCallback(() => {
+    setMyGamesMoveIndex(myGamesMoveHistory.length - 1);
+  }, [myGamesMoveHistory.length]);
 
   // ─── Hook ───
   const {
@@ -1445,15 +1477,15 @@ export default function DebutPage() {
             flexShrink: 0,
           }}>
             <DebutBoard
-              fen={editTreeFen || activeGameFen || boardFen}
+              fen={activeTab === 'my-games' && !activeGame ? myGamesFen : (editTreeFen || activeGameFen || boardFen)}
               orientation={boardOrientation}
-              onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (() => {}))}
+              onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (activeTab === 'my-games' && !activeGame ? handleMyGamesBoardMove : (() => {})))}
               customArrows={boardArrows}
-              onReset={activeTab === 'debut' ? handleReset : (isActiveGameEditable ? handleEditTreeGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1))}
-              onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameEditable ? handleEditTreeGoToStart : () => activeGame && handleGameMoveChange(activeGame.id, -1))}
-              onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameEditable ? handleEditTreePrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1)))}
-              onNext={activeTab === 'debut' ? handleNext : (isActiveGameEditable ? handleEditTreeNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1)))}
-              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameEditable ? handleEditTreeGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1))}
+              onReset={activeTab === 'debut' ? handleReset : (isActiveGameEditable ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
+              onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameEditable ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
+              onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameEditable ? handleEditTreePrev : (activeTab === 'my-games' && !activeGame ? handleMyGamesPrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))))}
+              onNext={activeTab === 'debut' ? handleNext : (isActiveGameEditable ? handleEditTreeNext : (activeTab === 'my-games' && !activeGame ? handleMyGamesNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))))}
+              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameEditable ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
               onFlip={handleFlip}
             />
 
