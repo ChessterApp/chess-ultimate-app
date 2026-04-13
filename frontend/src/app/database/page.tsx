@@ -743,7 +743,7 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, masterGamesFilters, fetchGamesByPosition, fetchPositionCount]);
+  }, [selectedNode?.fen, masterGamesFilters.playerColor, masterGamesFilters.playerName, masterGamesFilters.sortBy, masterGamesFilters.opponentName, masterGamesFilters.result, masterGamesFilters.whiteEloMin, masterGamesFilters.whiteEloMax, masterGamesFilters.blackEloMin, masterGamesFilters.blackEloMax, masterGamesFilters.dateFrom, masterGamesFilters.dateTo, masterGamesFilters.ecoCode, masterGamesFilters.eventName, fetchGamesByPosition, fetchPositionCount]);
 
   // ─── Auto-fetch candidate moves when node changes ───
   useEffect(() => {
@@ -828,7 +828,7 @@ export default function DebutPage() {
       opponentName: '',
       playerColor: '',
       result: '',
-      sortBy: 'rating',
+      sortBy: 'date_desc',
       whiteEloMin: 0,
       whiteEloMax: 3500,
       blackEloMin: 0,
