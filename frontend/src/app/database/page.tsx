@@ -169,13 +169,10 @@ export default function DebutPage() {
   const [moveTreeSource, setMoveTreeSource] = useState<MoveTreeSource>('twic');
 
   // ─── Stockfish analysis toggle ───
+  // Never auto-enable from localStorage — WASM SIGILL crashes kill the tab
+  // and localStorage persistence causes an unrecoverable crash loop on reload.
+  // User must explicitly click the toggle each session.
   const [stockfishEnabled, setStockfishEnabled] = useState(false);
-
-  // Sync with localStorage after mount to avoid hydration mismatch
-  useEffect(() => {
-    const stored = localStorage.getItem('debut_stockfish') === 'true';
-    if (stored) setStockfishEnabled(true);
-  }, []);
   const { evaluation, isAnalyzing, isReady, depth, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled });
 
   // Auto-analyze when position changes and Stockfish is enabled
@@ -188,11 +185,7 @@ export default function DebutPage() {
   }, [stockfishEnabled, boardFen, activeTab, isReady, analyze, stopAnalysis]);
 
   const toggleStockfish = useCallback(() => {
-    setStockfishEnabled(prev => {
-      const next = !prev;
-      localStorage.setItem('debut_stockfish', String(next));
-      return next;
-    });
+    setStockfishEnabled(prev => !prev);
   }, []);
 
   // ─── Snackbar ───

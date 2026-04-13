@@ -84,8 +84,6 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         }
       } catch (error) {
         console.error('Failed to initialize Stockfish:', error)
-        // Clear localStorage preference so the page doesn't crash-loop on reload
-        try { localStorage.removeItem('debut_stockfish') } catch {}
       }
     }
 
