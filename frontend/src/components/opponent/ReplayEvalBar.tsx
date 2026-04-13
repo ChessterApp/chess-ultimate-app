@@ -37,9 +37,11 @@ export default function ReplayEvalBar({
     }
 
     if (evaluation.cp !== undefined) {
-      // Clamp to -10 to +10 pawns, then map to 0-100%
-      const evalInPawns = Math.max(-10, Math.min(10, evaluation.cp / 100))
-      return 50 + evalInPawns * 5
+      // Sigmoid-like mapping: small advantages are visually amplified
+      // +1.0 pawn ≈ 65%, +2.0 ≈ 75%, +5.0 ≈ 90%
+      const evalInPawns = evaluation.cp / 100
+      const mapped = (2 / Math.PI) * Math.atan(evalInPawns / 2)  // range -1..+1
+      return 50 + mapped * 45  // range 5..95
     }
 
     return 50
@@ -73,7 +75,7 @@ export default function ReplayEvalBar({
 
   return (
     <div
-      className="relative w-6 rounded overflow-hidden border border-gray-300 dark:border-gray-600 bg-gray-900 flex-shrink-0"
+      className="relative w-8 rounded overflow-hidden border border-gray-300 dark:border-gray-600 bg-gray-900 flex-shrink-0"
       style={{ height }}
       title={`Eval: ${evalText}${depth > 0 ? ` | Depth: ${depth}` : ''}`}
     >

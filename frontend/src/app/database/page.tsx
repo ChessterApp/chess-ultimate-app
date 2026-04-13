@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip, Switch } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import dynamic from 'next/dynamic';
-import type { Chess } from 'chess.js';
+import { Chess } from 'chess.js';
 // Import chessground CSS at page level to ensure it's included in the page's CSS bundle
 // (dynamic imports with ssr:false may not reliably load CSS chunks in turbopack)
 import 'chessground/assets/chessground.base.css';
@@ -206,6 +206,30 @@ export default function DebutPage() {
     if (windowWidth < 1024) return Math.min(windowWidth - 48, 480);
     return 520;
   }, [windowWidth]);
+
+  // ─── Best Stockfish line (UCI → SAN + eval text) ───
+  const bestLine = useMemo(() => {
+    if (!evaluation?.lines?.[0]) return null;
+    const line = evaluation.lines[0];
+    const sanMoves: string[] = [];
+    try {
+      const chess = new Chess(boardFen);
+      const movesToShow = Math.min(line.pv.length, 8);
+      for (let i = 0; i < movesToShow; i++) {
+        const uci = line.pv[i];
+        if (!uci) break;
+        try {
+          const move = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+          if (move) sanMoves.push(move.san);
+          else break;
+        } catch { break; }
+      }
+    } catch {}
+    let evalText = '0.00';
+    if (line.mate !== undefined) evalText = line.mate > 0 ? `+M${line.mate}` : `-M${Math.abs(line.mate)}`;
+    else if (line.cp !== undefined) { const p = line.cp / 100; evalText = p >= 0 ? `+${p.toFixed(1)}` : p.toFixed(1); }
+    return { evalText, sanMoves };
+  }, [evaluation, boardFen]);
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
@@ -1681,6 +1705,30 @@ export default function DebutPage() {
                     }}
                   />
                 </Box>
+
+                {/* Best line display */}
+                {stockfishEnabled && bestLine && bestLine.sanMoves.length > 0 && (
+                  <Box sx={{
+                    mt: 0.5, px: 1.5, py: 1,
+                    bgcolor: 'rgba(0,0,0,0.03)',
+                    borderRadius: '10px',
+                    display: 'flex', alignItems: 'center', gap: 1,
+                    fontFamily: 'monospace',
+                  }}>
+                    <Typography component="span" sx={{
+                      fontWeight: 700, fontSize: 14, fontFamily: 'monospace',
+                      color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
+                    }}>
+                      {bestLine.evalText}
+                    </Typography>
+                    <Typography component="span" sx={{
+                      fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {bestLine.sanMoves.join(' ')}
+                    </Typography>
+                  </Box>
+                )}
 
                 {/* Engine lines */}
                 {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
