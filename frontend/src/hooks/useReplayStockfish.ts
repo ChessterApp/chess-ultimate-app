@@ -66,7 +66,14 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         }
 
         const engine = new Stockfish16()
-        await engine.init()
+
+        // Race engine init against a timeout — WASM crashes (SIGILL) can hang forever
+        const initPromise = engine.init()
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Stockfish init timed out')), 10000)
+        )
+
+        await Promise.race([initPromise, timeoutPromise])
 
         if (mountedRef.current) {
           engineRef.current = engine
@@ -77,6 +84,8 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         }
       } catch (error) {
         console.error('Failed to initialize Stockfish:', error)
+        // Clear localStorage preference so the page doesn't crash-loop on reload
+        try { localStorage.removeItem('debut_stockfish') } catch {}
       }
     }
 
