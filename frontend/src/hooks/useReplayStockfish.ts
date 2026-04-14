@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EngineName, PositionEval } from '@/stockfish/engine/engine'
 import { Stockfish16 } from '@/stockfish/engine/Stockfish16'
+import { Stockfish11 } from '@/stockfish/engine/Stockfish11'
 import { UciEngine } from '@/stockfish/engine/UciEngine'
 
 interface UseReplayStockfishReturn {
@@ -10,8 +11,10 @@ interface UseReplayStockfishReturn {
   isAnalyzing: boolean
   isReady: boolean
   depth: number
-  /** Non-null when Stockfish failed to init or crashed at runtime. */
+  /** Non-null when all engines failed to init. */
   engineError: string | null
+  /** Which engine is currently active, or null if none. */
+  activeEngine: EngineName | null
   analyze: (fen: string) => void
   stopAnalysis: () => void
 }
@@ -19,6 +22,7 @@ interface UseReplayStockfishReturn {
 const ANALYSIS_DEPTH = 18 // Moderate depth for fast response
 const MULTI_PV = 3 // Top 3 lines
 const DEBOUNCE_MS = 300 // Debounce rapid position changes
+const SF16_INIT_TIMEOUT_MS = 8_000
 
 interface UseReplayStockfishOptions {
   enabled?: boolean
@@ -27,8 +31,43 @@ interface UseReplayStockfishOptions {
 }
 
 /**
+ * Tries to create and init an engine within a timeout.
+ * Returns the initialized engine or throws on failure/timeout.
+ */
+async function tryInitEngine(
+  createEngine: () => UciEngine,
+  timeoutMs: number,
+  mountedRef: React.RefObject<boolean>,
+  onCrash: () => void,
+): Promise<UciEngine> {
+  const engine = createEngine()
+  engine.onCrash = onCrash
+
+  const initPromise = engine.init()
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Engine init timed out')), timeoutMs)
+  )
+
+  try {
+    await Promise.race([initPromise, timeoutPromise])
+  } catch (error) {
+    // Clean up the failed engine
+    try { engine.shutdown() } catch { /* already dead */ }
+    throw error
+  }
+
+  if (!mountedRef.current) {
+    engine.shutdown()
+    throw new Error('Component unmounted during init')
+  }
+
+  return engine
+}
+
+/**
  * Hook to manage Stockfish Web Worker for game replay analysis.
- * Uses Stockfish 16 (mobile-friendly, 6MB) for fast loading.
+ * Tries SF16 first (NNUE, 6MB). If it fails, crashes, or times out
+ * within 8s, automatically falls back to SF11 (HCE).
  * Only initializes the WASM engine when enabled=true.
  */
 export function useReplayStockfish(options: UseReplayStockfishOptions = {}): UseReplayStockfishReturn {
@@ -38,6 +77,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
   const [isReady, setIsReady] = useState(false)
   const [depth, setDepth] = useState(0)
   const [engineError, setEngineError] = useState<string | null>(null)
+  const [activeEngine, setActiveEngine] = useState<EngineName | null>(null)
 
   const engineRef = useRef<UciEngine | null>(null)
   const engineReadyRef = useRef(false)
@@ -49,6 +89,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
     setEngineError(message)
     setIsReady(false)
     setIsAnalyzing(false)
+    setActiveEngine(null)
     engineReadyRef.current = false
     if (engineRef.current) {
       try { engineRef.current.shutdown() } catch { /* already dead */ }
@@ -68,6 +109,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         engineRef.current = null
         engineReadyRef.current = false
         setIsReady(false)
+        setActiveEngine(null)
       }
       return
     }
@@ -79,45 +121,60 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
       // Skip if already initialized
       if (engineRef.current) return
 
-      try {
-        if (typeof WebAssembly !== 'object') {
-          handleEngineFailure('WebAssembly not supported')
-          return
-        }
+      if (typeof WebAssembly !== 'object') {
+        handleEngineFailure('WebAssembly not supported')
+        return
+      }
 
-        if (!Stockfish16.isSupported()) {
-          handleEngineFailure('SIMD not supported by this browser')
-          return
-        }
+      // Tier 1: Try SF16 (NNUE, requires SIMD)
+      if (Stockfish16.isSupported()) {
+        try {
+          const engine = await tryInitEngine(
+            () => new Stockfish16(),
+            SF16_INIT_TIMEOUT_MS,
+            mountedRef,
+            () => {
+              if (mountedRef.current) {
+                handleEngineFailure('Chess engine crashed unexpectedly')
+              }
+            },
+          )
 
-        const engine = new Stockfish16()
-
-        // Wire up crash handler so runtime SIGILL during analysis is caught
-        engine.onCrash = () => {
           if (mountedRef.current) {
-            handleEngineFailure('Chess engine crashed unexpectedly')
+            engineRef.current = engine
+            engineReadyRef.current = true
+            setActiveEngine(EngineName.Stockfish16)
+            setIsReady(true)
+            return
           }
+        } catch {
+          // SF16 failed — fall through to SF11
+          if (!mountedRef.current) return
         }
+      }
 
-        // Race engine init against a timeout — WASM crashes (SIGILL) can hang forever
-        const initPromise = engine.init()
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Stockfish init timed out')), 10000)
+      // Tier 2: Fallback to SF11 (HCE, no SIMD needed)
+      try {
+        const engine = await tryInitEngine(
+          () => new Stockfish11(),
+          SF16_INIT_TIMEOUT_MS,
+          mountedRef,
+          () => {
+            if (mountedRef.current) {
+              handleEngineFailure('Chess engine crashed unexpectedly')
+            }
+          },
         )
-
-        await Promise.race([initPromise, timeoutPromise])
 
         if (mountedRef.current) {
           engineRef.current = engine
           engineReadyRef.current = true
+          setActiveEngine(EngineName.Stockfish11)
           setIsReady(true)
-        } else {
-          engine.shutdown()
         }
-      } catch (error) {
+      } catch {
         if (mountedRef.current) {
-          const msg = error instanceof Error ? error.message : 'Engine init failed'
-          handleEngineFailure(msg)
+          handleEngineFailure('All engine versions failed to initialize')
         }
       }
     }
@@ -136,6 +193,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         engineRef.current = null
         engineReadyRef.current = false
         setIsReady(false)
+        setActiveEngine(null)
       }
     }
   }, [enabled, engineError, handleEngineFailure])
@@ -227,6 +285,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
     isReady,
     depth,
     engineError,
+    activeEngine,
     analyze,
     stopAnalysis
   }
