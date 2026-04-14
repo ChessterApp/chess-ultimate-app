@@ -207,28 +207,27 @@ export default function DebutPage() {
     return 520;
   }, [windowWidth]);
 
-  // ─── Best Stockfish line (UCI → SAN + eval text) ───
+  // ─── Best Stockfish line (eval text + first move) ───
   const bestLine = useMemo(() => {
-    if (!evaluation?.lines?.[0]) return null;
-    const line = evaluation.lines[0];
-    const sanMoves: string[] = [];
-    try {
-      // Use the line's own FEN (guaranteed to match its PV), not boardFen which may lag
-      const chess = new Chess(line.fen || boardFen);
-      const movesToShow = Math.min(line.pv.length, 8);
-      for (let i = 0; i < movesToShow; i++) {
-        const uci = line.pv[i];
-        if (!uci) break;
-        try {
-          const move = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-          if (move) sanMoves.push(move.san);
-          else break;
-        } catch { break; }
-      }
-    } catch {}
-    let evalText = '0.00';
+    const line = evaluation?.lines?.[0];
+    if (!line) return null;
+    // Eval text
+    let evalText = '0.0';
     if (line.mate !== undefined) evalText = line.mate > 0 ? `+M${line.mate}` : `-M${Math.abs(line.mate)}`;
     else if (line.cp !== undefined) { const p = line.cp / 100; evalText = p >= 0 ? `+${p.toFixed(1)}` : p.toFixed(1); }
+    // Convert PV to SAN using boardFen (same FEN that ReplayEngineLines uses successfully)
+    const sanMoves: string[] = [];
+    try {
+      const chess = new Chess(boardFen);
+      for (let i = 0; i < Math.min(line.pv.length, 10); i++) {
+        const uci = line.pv[i];
+        if (!uci || uci.length < 4) break;
+        try {
+          const m = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+          if (m) sanMoves.push(m.san); else break;
+        } catch { break; }
+      }
+    } catch { /* invalid FEN */ }
     return { evalText, sanMoves };
   }, [evaluation, boardFen]);
 
@@ -1710,14 +1709,14 @@ export default function DebutPage() {
                 {/* Best line display */}
                 {stockfishEnabled && bestLine && (
                   <Box sx={{
-                    mt: 0.5, px: 1.5, py: 1,
-                    bgcolor: 'rgba(0,0,0,0.03)',
+                    mt: 0.5, px: 1.5, py: 0.75,
+                    bgcolor: 'var(--surface-card)',
+                    border: '1px solid var(--border-strong)',
                     borderRadius: '10px',
                     display: 'flex', alignItems: 'center', gap: 1,
-                    fontFamily: 'monospace',
                   }}>
                     <Typography component="span" sx={{
-                      fontWeight: 700, fontSize: 14, fontFamily: 'monospace',
+                      fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
                       color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
                     }}>
                       {bestLine.evalText}
@@ -1725,7 +1724,7 @@ export default function DebutPage() {
                     {bestLine.sanMoves.length > 0 && (
                       <Typography component="span" sx={{
                         fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
                       }}>
                         {bestLine.sanMoves.join(' ')}
                       </Typography>
