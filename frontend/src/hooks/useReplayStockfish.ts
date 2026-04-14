@@ -90,13 +90,6 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
           return
         }
 
-        // Runtime SIMD smoke test — catches SIGILL before loading the 7MB binary
-        const simdOk = await Stockfish16.smokeTestSimd()
-        if (!simdOk) {
-          handleEngineFailure('SIMD instructions not supported by this device')
-          return
-        }
-
         const engine = new Stockfish16()
 
         // Wire up crash handler so runtime SIGILL during analysis is caught

@@ -181,7 +181,6 @@ export default function DebutPage() {
   const stockfishErrorMsgRef = useRef<string | null>(null);
   const handleStockfishError = useCallback((msg: string) => {
     stockfishErrorMsgRef.current = msg;
-    setStockfishEnabled(false);
   }, []);
   const { evaluation, isAnalyzing, isReady, depth, engineError, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, onError: handleStockfishError });
 
@@ -199,8 +198,9 @@ export default function DebutPage() {
   }, []);
 
   // ─── Board size (mirrors DebutBoard logic for eval bar height) ───
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [windowWidth, setWindowWidth] = useState(1024);
   useEffect(() => {
+    setWindowWidth(window.innerWidth);
     const handleResize = () => setWindowWidth(window.innerWidth);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -240,11 +240,10 @@ export default function DebutPage() {
 
   // Show snackbar when Stockfish error occurs
   useEffect(() => {
-    if (stockfishErrorMsgRef.current) {
-      setSnackbar({ open: true, msg: `Stockfish disabled: ${stockfishErrorMsgRef.current}`, severity: 'error' });
-      stockfishErrorMsgRef.current = null;
+    if (engineError) {
+      setSnackbar({ open: true, msg: `Stockfish: ${engineError}`, severity: 'error' });
     }
-  }, [stockfishEnabled]);
+  }, [engineError]);
 
   // ─── My Games (save bookmark + edit) ───
   const { createGame: createUserGame, updateGame: updateUserGame, toggleFavorite: toggleUserFavorite, deleteGame: deleteUserGame } = useUserGames();
