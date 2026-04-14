@@ -7,7 +7,6 @@ import { useReplayStockfish } from '../useReplayStockfish'
 import { EngineName } from '@/stockfish/engine/engine'
 
 // Controls for SF16
-let sf16Supported = true
 let sf16InitBehavior: 'resolve' | 'reject' | 'hang' = 'resolve'
 
 // Controls for SF11
@@ -34,8 +33,6 @@ vi.mock('@/stockfish/engine/Stockfish16', () => {
       evaluatePositionWithUpdate = vi.fn().mockResolvedValue({
         lines: [{ pv: ['e2e4'], cp: 30, depth: 18, multiPv: 1, fen: '' }]
       })
-
-      static isSupported() { return sf16Supported }
     }
   }
 })
@@ -63,7 +60,6 @@ vi.mock('@/stockfish/engine/Stockfish11', () => {
 describe('useReplayStockfish', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    sf16Supported = true
     sf16InitBehavior = 'resolve'
     sf11InitBehavior = 'resolve'
 
@@ -87,7 +83,7 @@ describe('useReplayStockfish', () => {
     expect(result.current.engineName).toBeNull()
   })
 
-  it('initializes SF16 when enabled and supported', async () => {
+  it('initializes SF16 when enabled', async () => {
     const { result } = renderHook(() => useReplayStockfish({ enabled: true }))
 
     await waitFor(() => {
@@ -101,23 +97,7 @@ describe('useReplayStockfish', () => {
     expect(mockSf11Init).not.toHaveBeenCalled()
   })
 
-  it('falls back to SF11 when SF16 is not supported', async () => {
-    sf16Supported = false
-
-    const { result } = renderHook(() => useReplayStockfish({ enabled: true }))
-
-    await waitFor(() => {
-      expect(result.current.isReady).toBe(true)
-    })
-
-    expect(result.current.engineError).toBeNull()
-    expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
-    expect(result.current.engineName).toBe('sf11')
-    expect(mockSf16Init).not.toHaveBeenCalled()
-    expect(mockSf11Init).toHaveBeenCalled()
-  })
-
-  it('falls back to SF11 when SF16 init throws', async () => {
+  it('falls back to SF11 when SF16 init fails', async () => {
     sf16InitBehavior = 'reject'
 
     const { result } = renderHook(() => useReplayStockfish({ enabled: true }))
@@ -126,6 +106,7 @@ describe('useReplayStockfish', () => {
       expect(result.current.isReady).toBe(true)
     })
 
+    expect(result.current.engineError).toBeNull()
     expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
     expect(result.current.engineName).toBe('sf11')
     expect(mockSf16Init).toHaveBeenCalled()
@@ -168,22 +149,6 @@ describe('useReplayStockfish', () => {
     expect(result.current.isReady).toBe(false)
     expect(result.current.activeEngine).toBeNull()
     expect(result.current.engineName).toBeNull()
-    expect(onError).toHaveBeenCalled()
-  })
-
-  it('reports error when SF16 unsupported and SF11 fails', async () => {
-    sf16Supported = false
-    sf11InitBehavior = 'reject'
-
-    const onError = vi.fn()
-    const { result } = renderHook(() => useReplayStockfish({ enabled: true, onError }))
-
-    await waitFor(() => {
-      expect(result.current.engineError).not.toBeNull()
-    })
-
-    expect(result.current.engineError).toBe('All engine versions failed to initialize')
-    expect(result.current.isReady).toBe(false)
     expect(onError).toHaveBeenCalled()
   })
 

@@ -142,31 +142,29 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
       }
 
       // Tier 1: Try SF16 (NNUE, requires SIMD)
-      if (Stockfish16.isSupported()) {
-        try {
-          const engine = await tryInitEngine(
-            () => new Stockfish16(),
-            SF16_INIT_TIMEOUT_MS,
-            mountedRef,
-            () => {
-              if (mountedRef.current) {
-                handleEngineFailure('Chess engine crashed unexpectedly')
-              }
-            },
-          )
+      try {
+        const engine = await tryInitEngine(
+          () => new Stockfish16(),
+          SF16_INIT_TIMEOUT_MS,
+          mountedRef,
+          () => {
+            if (mountedRef.current) {
+              handleEngineFailure('Chess engine crashed unexpectedly')
+            }
+          },
+        )
 
-          if (mountedRef.current) {
-            engineRef.current = engine
-            engineReadyRef.current = true
-            setActiveEngine(EngineName.Stockfish16)
-            setEngineName(toEngineVariant(EngineName.Stockfish16))
-            setIsReady(true)
-            return
-          }
-        } catch {
-          // SF16 failed — fall through to SF11
-          if (!mountedRef.current) return
+        if (mountedRef.current) {
+          engineRef.current = engine
+          engineReadyRef.current = true
+          setActiveEngine(EngineName.Stockfish16)
+          setEngineName(toEngineVariant(EngineName.Stockfish16))
+          setIsReady(true)
+          return
         }
+      } catch {
+        // SF16 failed — fall through to SF11
+        if (!mountedRef.current) return
       }
 
       // Tier 2: Fallback to SF11 (HCE, no SIMD needed)

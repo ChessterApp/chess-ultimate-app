@@ -6,10 +6,6 @@ import { UciEngine } from './UciEngine';
  */
 export class Stockfish16 extends UciEngine {
     constructor() {
-        if (!Stockfish16.isSupported()) {
-            throw new Error('Stockfish 16 is not supported');
-        }
-
         const enginePath =
             '/static/engine/stockfish-16.1-lite.js#/static/engine/stockfish-16.1-lite.wasm';
         const onCrash = (err: unknown) => this.handleCrash(err);
