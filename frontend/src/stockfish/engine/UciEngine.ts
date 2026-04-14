@@ -26,12 +26,19 @@ export abstract class UciEngine {
     private stopMutex = new Mutex();
     private runMutex = new Mutex();
 
+    /** True if the underlying worker has crashed (e.g. SIGILL from bad SIMD). */
+    public crashed = false;
+
+    /** Optional callback invoked when the worker crashes. */
+    public onCrash?: (error: unknown) => void;
+
     /**
      * Gets an EngineWorker from the given stockfish.js path.
      * @param path The stockfish.js path to create an EngineWorker from.
+     * @param onCrash Optional callback when the worker crashes.
      * @returns An EngineWorker using the given stockfish.js path.
      */
-    public static workerFromPath(path: string): EngineWorker {
+    public static workerFromPath(path: string, onCrash?: (error: unknown) => void): EngineWorker {
         const worker = new Worker(path);
 
         const engineWorker: EngineWorker = {
@@ -42,7 +49,7 @@ export abstract class UciEngine {
                 // Default no-op; reassigned to publishMessage during init
             },
             onError(msg) {
-                console.error(msg);
+                console.error('Stockfish worker error:', msg);
             },
             terminate() {
                 worker.terminate();
@@ -54,7 +61,12 @@ export abstract class UciEngine {
         };
         worker.onerror = (err) => {
             engineWorker.onError(err);
+            onCrash?.(err);
         };
+        worker.addEventListener('messageerror', (err) => {
+            engineWorker.onError(err);
+            onCrash?.(err);
+        });
 
         return engineWorker;
     }
@@ -232,6 +244,19 @@ export abstract class UciEngine {
         if (!this.ready) {
             throw new Error(`${this.engineName} is not ready`);
         }
+    }
+
+    /**
+     * Marks the engine as crashed and invokes the onCrash callback.
+     * Call this from the worker error handler.
+     */
+    public handleCrash(error: unknown): void {
+        if (this.crashed) return;
+        this.crashed = true;
+        this.ready = false;
+        this.worker?.terminate?.();
+        this.worker = undefined;
+        this.onCrash?.(error);
     }
 
     /**

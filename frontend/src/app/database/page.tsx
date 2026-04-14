@@ -19,6 +19,7 @@ import type { MoveTreeSource } from '@/components/openings/MoveTree';
 import type { MasterGamesFilterState } from '@/components/openings/MasterGamesFilter';
 import { useLichessExplorer } from '@/hooks/useLichessExplorer';
 import { useReplayStockfish } from '@/hooks/useReplayStockfish';
+import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -177,7 +178,12 @@ export default function DebutPage() {
   // and localStorage persistence causes an unrecoverable crash loop on reload.
   // User must explicitly click the toggle each session.
   const [stockfishEnabled, setStockfishEnabled] = useState(false);
-  const { evaluation, isAnalyzing, isReady, depth, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled });
+  const stockfishErrorMsgRef = useRef<string | null>(null);
+  const handleStockfishError = useCallback((msg: string) => {
+    stockfishErrorMsgRef.current = msg;
+    setStockfishEnabled(false);
+  }, []);
+  const { evaluation, isAnalyzing, isReady, depth, engineError, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, onError: handleStockfishError });
 
   // Auto-analyze when position changes and Stockfish is enabled
   useEffect(() => {
@@ -211,11 +217,9 @@ export default function DebutPage() {
   const bestLine = useMemo(() => {
     const line = evaluation?.lines?.[0];
     if (!line) return null;
-    // Eval text
     let evalText = '0.0';
     if (line.mate !== undefined) evalText = line.mate > 0 ? `+M${line.mate}` : `-M${Math.abs(line.mate)}`;
     else if (line.cp !== undefined) { const p = line.cp / 100; evalText = p >= 0 ? `+${p.toFixed(1)}` : p.toFixed(1); }
-    // Convert PV to SAN using boardFen (same FEN that ReplayEngineLines uses successfully)
     const sanMoves: string[] = [];
     try {
       const chess = new Chess(boardFen);
@@ -233,6 +237,14 @@ export default function DebutPage() {
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
+
+  // Show snackbar when Stockfish error occurs
+  useEffect(() => {
+    if (stockfishErrorMsgRef.current) {
+      setSnackbar({ open: true, msg: `Stockfish disabled: ${stockfishErrorMsgRef.current}`, severity: 'error' });
+      stockfishErrorMsgRef.current = null;
+    }
+  }, [stockfishEnabled]);
 
   // ─── My Games (save bookmark + edit) ───
   const { createGame: createUserGame, updateGame: updateUserGame, toggleFavorite: toggleUserFavorite, deleteGame: deleteUserGame } = useUserGames();
@@ -1614,13 +1626,15 @@ export default function DebutPage() {
             {/* Board + Eval bar row */}
             <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 0.5 }}>
               {stockfishEnabled && activeTab === 'debut' && (
-                <ReplayEvalBar
-                  evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
-                  isAnalyzing={isAnalyzing}
-                  depth={depth}
-                  orientation={boardOrientation}
-                  height={boardSize}
-                />
+                <StockfishErrorBoundary>
+                  <ReplayEvalBar
+                    evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
+                    isAnalyzing={isAnalyzing}
+                    depth={depth}
+                    orientation={boardOrientation}
+                    height={boardSize}
+                  />
+                </StockfishErrorBoundary>
               )}
             <DebutBoard
               fen={activeTab === 'my-games' && !activeGame ? myGamesFen : (editTreeFen || activeGameFen || boardFen)}
@@ -1706,43 +1720,54 @@ export default function DebutPage() {
                   />
                 </Box>
 
-                {/* Best line display */}
-                {stockfishEnabled && bestLine && (
-                  <Box sx={{
-                    mt: 0.5, px: 1.5, py: 0.75,
-                    bgcolor: 'var(--surface-card)',
-                    border: '1px solid var(--border-strong)',
-                    borderRadius: '10px',
-                    display: 'flex', alignItems: 'center', gap: 1,
-                  }}>
-                    <Typography component="span" sx={{
-                      fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
-                      color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
+                <StockfishErrorBoundary>
+                  {/* Best line display */}
+                  {stockfishEnabled && bestLine && (
+                    <Box sx={{
+                      mt: 0.5, px: 1.5, py: 0.75,
+                      bgcolor: 'var(--surface-card)',
+                      border: '1px solid var(--border-strong)',
+                      borderRadius: '10px',
+                      display: 'flex', alignItems: 'center', gap: 1,
                     }}>
-                      {bestLine.evalText}
-                    </Typography>
-                    {bestLine.sanMoves.length > 0 && (
                       <Typography component="span" sx={{
-                        fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                        fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
+                        color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
                       }}>
-                        {bestLine.sanMoves.join(' ')}
+                        {bestLine.evalText}
                       </Typography>
-                    )}
-                  </Box>
-                )}
+                      {bestLine.sanMoves.length > 0 && (
+                        <Typography component="span" sx={{
+                          fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
+                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                        }}>
+                          {bestLine.sanMoves.join(' ')}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
 
-                {/* Engine lines */}
-                {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
-                  <Box sx={{ mt: 0.5 }}>
-                    <ReplayEngineLines
-                      lines={evaluation.lines}
-                      isAnalyzing={isAnalyzing}
-                      currentFen={boardFen}
-                      depth={depth}
-                    />
-                  </Box>
-                )}
+                  {/* Engine error message */}
+                  {engineError && (
+                    <Box sx={{ mt: 0.5, px: 1.5, py: 0.75, bgcolor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '10px' }}>
+                      <Typography sx={{ fontSize: 12, color: '#dc2626' }}>
+                        Engine not available: {engineError}
+                      </Typography>
+                    </Box>
+                  )}
+
+                  {/* Engine lines */}
+                  {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
+                    <Box sx={{ mt: 0.5 }}>
+                      <ReplayEngineLines
+                        lines={evaluation.lines}
+                        isAnalyzing={isAnalyzing}
+                        currentFen={boardFen}
+                        depth={depth}
+                      />
+                    </Box>
+                  )}
+                </StockfishErrorBoundary>
               </Box>
             )}
 

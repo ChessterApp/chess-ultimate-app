@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { EngineName, LineEval, PositionEval } from '@/stockfish/engine/engine'
+import { EngineName, PositionEval } from '@/stockfish/engine/engine'
 import { Stockfish16 } from '@/stockfish/engine/Stockfish16'
 import { UciEngine } from '@/stockfish/engine/UciEngine'
 
@@ -10,6 +10,8 @@ interface UseReplayStockfishReturn {
   isAnalyzing: boolean
   isReady: boolean
   depth: number
+  /** Non-null when Stockfish failed to init or crashed at runtime. */
+  engineError: string | null
   analyze: (fen: string) => void
   stopAnalysis: () => void
 }
@@ -20,6 +22,8 @@ const DEBOUNCE_MS = 300 // Debounce rapid position changes
 
 interface UseReplayStockfishOptions {
   enabled?: boolean
+  /** Called when the engine fails — UI can auto-disable the toggle. */
+  onError?: (message: string) => void
 }
 
 /**
@@ -28,17 +32,30 @@ interface UseReplayStockfishOptions {
  * Only initializes the WASM engine when enabled=true.
  */
 export function useReplayStockfish(options: UseReplayStockfishOptions = {}): UseReplayStockfishReturn {
-  const { enabled = false } = options
+  const { enabled = false, onError } = options
   const [evaluation, setEvaluation] = useState<PositionEval | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isReady, setIsReady] = useState(false)
   const [depth, setDepth] = useState(0)
+  const [engineError, setEngineError] = useState<string | null>(null)
 
   const engineRef = useRef<UciEngine | null>(null)
   const engineReadyRef = useRef(false)
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const currentFenRef = useRef<string | null>(null)
   const mountedRef = useRef(true)
+
+  const handleEngineFailure = useCallback((message: string) => {
+    setEngineError(message)
+    setIsReady(false)
+    setIsAnalyzing(false)
+    engineReadyRef.current = false
+    if (engineRef.current) {
+      try { engineRef.current.shutdown() } catch { /* already dead */ }
+      engineRef.current = null
+    }
+    onError?.(message)
+  }, [onError])
 
   // Initialize engine only when enabled
   useEffect(() => {
@@ -55,17 +72,39 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
       return
     }
 
+    // If we already recorded a fatal error, don't re-try in this mount
+    if (engineError) return
+
     const initEngine = async () => {
       // Skip if already initialized
       if (engineRef.current) return
 
       try {
         if (typeof WebAssembly !== 'object') {
-          console.warn('WebAssembly not supported, Stockfish analysis disabled')
+          handleEngineFailure('WebAssembly not supported')
+          return
+        }
+
+        if (!Stockfish16.isSupported()) {
+          handleEngineFailure('SIMD not supported by this browser')
+          return
+        }
+
+        // Runtime SIMD smoke test — catches SIGILL before loading the 7MB binary
+        const simdOk = await Stockfish16.smokeTestSimd()
+        if (!simdOk) {
+          handleEngineFailure('SIMD instructions not supported by this device')
           return
         }
 
         const engine = new Stockfish16()
+
+        // Wire up crash handler so runtime SIGILL during analysis is caught
+        engine.onCrash = () => {
+          if (mountedRef.current) {
+            handleEngineFailure('Chess engine crashed unexpectedly')
+          }
+        }
 
         // Race engine init against a timeout — WASM crashes (SIGILL) can hang forever
         const initPromise = engine.init()
@@ -83,7 +122,10 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
           engine.shutdown()
         }
       } catch (error) {
-        console.error('Failed to initialize Stockfish:', error)
+        if (mountedRef.current) {
+          const msg = error instanceof Error ? error.message : 'Engine init failed'
+          handleEngineFailure(msg)
+        }
       }
     }
 
@@ -103,7 +145,14 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         setIsReady(false)
       }
     }
-  }, [enabled])
+  }, [enabled, engineError, handleEngineFailure])
+
+  // Reset error when user disables and re-enables
+  useEffect(() => {
+    if (!enabled && engineError) {
+      setEngineError(null)
+    }
+  }, [enabled, engineError])
 
   // Update depth from evaluation
   useEffect(() => {
@@ -120,6 +169,9 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
   }, [])
 
   const analyze = useCallback((fen: string) => {
+    // Don't attempt analysis if engine has errored
+    if (engineError) return
+
     // Clear any pending debounced analysis
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current)
@@ -131,7 +183,6 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
     // Debounce the analysis
     debounceTimerRef.current = setTimeout(async () => {
       if (!engineRef.current || !engineReadyRef.current) {
-        console.warn('Engine not ready')
         return
       }
 
@@ -166,19 +217,23 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
           setIsAnalyzing(false)
         }
       } catch (error) {
-        console.error('Analysis error:', error)
         if (mountedRef.current) {
           setIsAnalyzing(false)
+          // If the engine crashed, surface the error
+          if (engineRef.current?.crashed) {
+            handleEngineFailure('Chess engine crashed during analysis')
+          }
         }
       }
     }, DEBOUNCE_MS)
-  }, [])
+  }, [engineError, handleEngineFailure])
 
   return {
     evaluation,
     isAnalyzing,
     isReady,
     depth,
+    engineError,
     analyze,
     stopAnalysis
   }
