@@ -182,7 +182,7 @@ export default function DebutPage() {
   const handleStockfishError = useCallback((msg: string) => {
     stockfishErrorMsgRef.current = msg;
   }, []);
-  const { evaluation, isAnalyzing, isReady, depth, engineError, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, onError: handleStockfishError });
+  const { evaluation, isAnalyzing, isReady, depth, engineError, engineName, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, onError: handleStockfishError });
 
   // Auto-analyze when position changes and Stockfish is enabled
   useEffect(() => {
@@ -1699,7 +1699,7 @@ export default function DebutPage() {
                     ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
                   }} />
                   <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
-                    Stockfish 16
+                    {engineName === 'sf11' ? 'Stockfish 11' : 'Stockfish 16'}
                   </Typography>
                   {stockfishEnabled && depth > 0 && (
                     <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
