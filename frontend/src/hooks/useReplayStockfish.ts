@@ -6,6 +6,9 @@ import { Stockfish16 } from '@/stockfish/engine/Stockfish16'
 import { Stockfish11 } from '@/stockfish/engine/Stockfish11'
 import { UciEngine } from '@/stockfish/engine/UciEngine'
 
+/** Friendly short name for the active engine variant. */
+export type EngineVariant = 'sf16' | 'sf11' | null
+
 interface UseReplayStockfishReturn {
   evaluation: PositionEval | null
   isAnalyzing: boolean
@@ -15,8 +18,17 @@ interface UseReplayStockfishReturn {
   engineError: string | null
   /** Which engine is currently active, or null if none. */
   activeEngine: EngineName | null
+  /** Friendly name for the active engine variant. */
+  engineName: EngineVariant
   analyze: (fen: string) => void
   stopAnalysis: () => void
+}
+
+/** Map EngineName enum to friendly variant label. */
+function toEngineVariant(name: EngineName | null): EngineVariant {
+  if (name === EngineName.Stockfish16) return 'sf16'
+  if (name === EngineName.Stockfish11) return 'sf11'
+  return null
 }
 
 const ANALYSIS_DEPTH = 18 // Moderate depth for fast response
@@ -78,6 +90,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
   const [depth, setDepth] = useState(0)
   const [engineError, setEngineError] = useState<string | null>(null)
   const [activeEngine, setActiveEngine] = useState<EngineName | null>(null)
+  const [engineName, setEngineName] = useState<EngineVariant>(null)
 
   const engineRef = useRef<UciEngine | null>(null)
   const engineReadyRef = useRef(false)
@@ -90,6 +103,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
     setIsReady(false)
     setIsAnalyzing(false)
     setActiveEngine(null)
+    setEngineName(null)
     engineReadyRef.current = false
     if (engineRef.current) {
       try { engineRef.current.shutdown() } catch { /* already dead */ }
@@ -110,6 +124,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         engineReadyRef.current = false
         setIsReady(false)
         setActiveEngine(null)
+        setEngineName(null)
       }
       return
     }
@@ -144,6 +159,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
             engineRef.current = engine
             engineReadyRef.current = true
             setActiveEngine(EngineName.Stockfish16)
+            setEngineName(toEngineVariant(EngineName.Stockfish16))
             setIsReady(true)
             return
           }
@@ -170,6 +186,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
           engineRef.current = engine
           engineReadyRef.current = true
           setActiveEngine(EngineName.Stockfish11)
+          setEngineName(toEngineVariant(EngineName.Stockfish11))
           setIsReady(true)
         }
       } catch {
@@ -194,6 +211,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         engineReadyRef.current = false
         setIsReady(false)
         setActiveEngine(null)
+        setEngineName(null)
       }
     }
   }, [enabled, engineError, handleEngineFailure])
@@ -286,6 +304,7 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
     depth,
     engineError,
     activeEngine,
+    engineName,
     analyze,
     stopAnalysis
   }

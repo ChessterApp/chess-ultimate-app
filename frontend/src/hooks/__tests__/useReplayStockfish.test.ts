@@ -84,6 +84,7 @@ describe('useReplayStockfish', () => {
     expect(result.current.engineError).toBeNull()
     expect(result.current.evaluation).toBeNull()
     expect(result.current.activeEngine).toBeNull()
+    expect(result.current.engineName).toBeNull()
   })
 
   it('initializes SF16 when enabled and supported', async () => {
@@ -95,6 +96,7 @@ describe('useReplayStockfish', () => {
 
     expect(result.current.engineError).toBeNull()
     expect(result.current.activeEngine).toBe(EngineName.Stockfish16)
+    expect(result.current.engineName).toBe('sf16')
     expect(mockSf16Init).toHaveBeenCalled()
     expect(mockSf11Init).not.toHaveBeenCalled()
   })
@@ -110,6 +112,7 @@ describe('useReplayStockfish', () => {
 
     expect(result.current.engineError).toBeNull()
     expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
+    expect(result.current.engineName).toBe('sf11')
     expect(mockSf16Init).not.toHaveBeenCalled()
     expect(mockSf11Init).toHaveBeenCalled()
   })
@@ -124,6 +127,7 @@ describe('useReplayStockfish', () => {
     })
 
     expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
+    expect(result.current.engineName).toBe('sf11')
     expect(mockSf16Init).toHaveBeenCalled()
     expect(mockSf11Init).toHaveBeenCalled()
     expect(mockSf16Shutdown).toHaveBeenCalled() // SF16 should be cleaned up
@@ -145,6 +149,7 @@ describe('useReplayStockfish', () => {
     })
 
     expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
+    expect(result.current.engineName).toBe('sf11')
     expect(mockSf16Shutdown).toHaveBeenCalled()
   }, 15_000)
 
@@ -162,6 +167,7 @@ describe('useReplayStockfish', () => {
     expect(result.current.engineError).toBe('All engine versions failed to initialize')
     expect(result.current.isReady).toBe(false)
     expect(result.current.activeEngine).toBeNull()
+    expect(result.current.engineName).toBeNull()
     expect(onError).toHaveBeenCalled()
   })
 
@@ -196,6 +202,7 @@ describe('useReplayStockfish', () => {
     await waitFor(() => {
       expect(result.current.isReady).toBe(false)
       expect(result.current.activeEngine).toBeNull()
+      expect(result.current.engineName).toBeNull()
     })
   })
 
@@ -247,5 +254,6 @@ describe('useReplayStockfish', () => {
 
     // SF16 still rejects, so should fall back to SF11
     expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
+    expect(result.current.engineName).toBe('sf11')
   })
 })
