@@ -1,27 +1,71 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { UciEngine } from '@/stockfish/engine/UciEngine'
+import { Stockfish17Point } from '@/stockfish/engine/Stockfish17Point'
 import { Stockfish16 } from '@/stockfish/engine/Stockfish16'
+import { Stockfish11 } from '@/stockfish/engine/Stockfish11'
 
 interface UseStockfishPlayResult {
   status: 'loading' | 'ready' | 'error'
   error: string | null
+  engineName: string | null
   getMove: (fen: string, targetElo: number) => Promise<string | null>
+}
+
+/**
+ * Attempts to initialize engines in order: SF17.1 → SF16 → SF11.
+ * Returns the first engine that initializes successfully, or throws if all fail.
+ */
+async function initWithFallback(): Promise<UciEngine> {
+  // Try SF17.1 first (best quality)
+  if (Stockfish17Point.isSupported()) {
+    try {
+      const engine = new Stockfish17Point()
+      await engine.init()
+      if (!engine.crashed) return engine
+      engine.shutdown()
+    } catch (err) {
+      console.warn('SF17.1 init failed, trying SF16:', err)
+    }
+  }
+
+  // Try SF16 (good quality, smaller)
+  if (Stockfish16.isSupported()) {
+    try {
+      const engine = new Stockfish16()
+      await engine.init()
+      if (!engine.crashed) return engine
+      engine.shutdown()
+    } catch (err) {
+      console.warn('SF16 init failed, trying SF11:', err)
+    }
+  }
+
+  // Fall back to SF11 (always works, no SIMD)
+  const engine = new Stockfish11()
+  await engine.init()
+  return engine
 }
 
 export function useStockfishPlay(): UseStockfishPlayResult {
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [error, setError] = useState<string | null>(null)
-  const engineRef = useRef<Stockfish16 | null>(null)
+  const [engineName, setEngineName] = useState<string | null>(null)
+  const engineRef = useRef<UciEngine | null>(null)
   const currentEloRef = useRef<number>(2100)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
+    let cancelled = false
 
     const initEngine = async () => {
       try {
-        const engine = new Stockfish16()
-        await engine.init()
+        const engine = await initWithFallback()
+        if (cancelled) {
+          engine.shutdown()
+          return
+        }
 
         // Enable UCI_LimitStrength and set initial ELO
         await engine.sendUciCommands([
@@ -31,9 +75,10 @@ export function useStockfishPlay(): UseStockfishPlayResult {
         ], 'readyok')
 
         engineRef.current = engine
+        setEngineName(engine.constructor.name)
         setStatus('ready')
       } catch (err) {
-        console.error('Stockfish initialization error:', err)
+        console.error('All Stockfish engines failed to initialize:', err)
         setError(err instanceof Error ? err.message : 'Failed to initialize Stockfish')
         setStatus('error')
       }
@@ -42,6 +87,7 @@ export function useStockfishPlay(): UseStockfishPlayResult {
     initEngine()
 
     return () => {
+      cancelled = true
       if (engineRef.current) {
         engineRef.current.shutdown()
         engineRef.current = null
@@ -101,6 +147,7 @@ export function useStockfishPlay(): UseStockfishPlayResult {
   return {
     status,
     error,
+    engineName,
     getMove,
   }
 }
