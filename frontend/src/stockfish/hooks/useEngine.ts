@@ -1,42 +1,87 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EngineName } from '../engine/engine';
 import { Stockfish11 } from '../engine/Stockfish11';
 import { Stockfish16 } from '../engine/Stockfish16';
 import { Stockfish17 } from '../engine/Stockfish17';
-import { UciEngine } from '../engine/UciEngine';
 import { Stockfish17Point } from '../engine/Stockfish17Point';
+import { UciEngine } from '../engine/UciEngine';
+
+/** Ordered fallback chain from strongest to weakest. */
+const FALLBACK_ORDER: EngineName[] = [
+    EngineName.Stockfish17Point,
+    EngineName.Stockfish17,
+    EngineName.Stockfish16,
+    EngineName.Stockfish11,
+];
+
+/**
+ * Creates an engine instance for the given name, or null if unsupported.
+ * Returns null (skip) instead of throwing for `isSupported()` failures.
+ */
+function createEngine(name: EngineName): UciEngine | null {
+    switch (name) {
+        case EngineName.Stockfish17Point:
+            return Stockfish17Point.isSupported() ? new Stockfish17Point() : null;
+        case EngineName.Stockfish17:
+            return Stockfish17.isSupported() ? new Stockfish17() : null;
+        case EngineName.Stockfish16:
+            return Stockfish16.isSupported() ? new Stockfish16() : null;
+        case EngineName.Stockfish11:
+            return new Stockfish11();
+    }
+}
+
+/**
+ * Attempts to initialize engines starting from `preferred`, falling back
+ * through weaker engines until one succeeds. SF11 is the final fallback.
+ */
+async function initWithFallback(preferred: EngineName): Promise<UciEngine> {
+    const startIndex = FALLBACK_ORDER.indexOf(preferred);
+    const candidates = FALLBACK_ORDER.slice(startIndex);
+
+    for (const name of candidates) {
+        const engine = createEngine(name);
+        if (!engine) continue;
+
+        try {
+            await engine.init();
+            if (!engine.crashed) return engine;
+            engine.shutdown();
+        } catch (err) {
+            console.warn(`${name} init failed, trying next:`, err);
+        }
+    }
+
+    throw new Error('All Stockfish engines failed to initialize');
+}
 
 export const useEngine = (enabled: boolean, engineName: EngineName | undefined) => {
     const [engine, setEngine] = useState<UciEngine>();
+    const engineRef = useRef<UciEngine | undefined>(undefined);
 
     useEffect(() => {
         if (!enabled || !engineName) return;
 
-        const engine = pickEngine(engineName);
-        void engine.init().then(() => {
-            setEngine(engine);
-        }).catch(() => {
-            // Engine init can fail if WASM/SharedArrayBuffer unavailable
+        let cancelled = false;
+
+        initWithFallback(engineName).then((eng) => {
+            if (cancelled) {
+                eng.shutdown();
+                return;
+            }
+            engineRef.current = eng;
+            setEngine(eng);
+        }).catch((err) => {
+            console.error('Engine fallback chain exhausted:', err);
         });
 
         return () => {
-            engine.shutdown();
+            cancelled = true;
+            engineRef.current?.shutdown();
+            engineRef.current = undefined;
             setEngine(undefined);
         };
-    }, [engineName]);
+    }, [enabled, engineName]);
 
     return engine;
-};
-
-const pickEngine = (engine: EngineName): UciEngine => {
-    switch (engine) {
-        case EngineName.Stockfish17Point:
-            return new Stockfish17Point();
-        case EngineName.Stockfish17:
-            return new Stockfish17();
-        case EngineName.Stockfish16:
-            return new Stockfish16();
-        case EngineName.Stockfish11:
-            return new Stockfish11();
-    }
 };
