@@ -12,7 +12,8 @@ export class Stockfish17 extends UciEngine {
 
         const enginePath =
             '/static/engine/stockfish-17/stockfish-17-lite.js#/static/engine/stockfish-17/stockfish-17-lite.wasm';
-        const worker = UciEngine.workerFromPath(enginePath);
+        const onCrash = (err: unknown) => this.handleCrash(err);
+        const worker = UciEngine.workerFromPath(enginePath, onCrash);
         super(EngineName.Stockfish17, worker);
     }
 

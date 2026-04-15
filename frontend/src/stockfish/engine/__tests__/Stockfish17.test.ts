@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Stockfish17 } from '../Stockfish17'
+import { UciEngine } from '../UciEngine'
 
 const mockValidate = vi.fn()
 
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.restoreAllMocks()
   // @ts-expect-error - mocking global
   globalThis.WebAssembly = {
     validate: mockValidate,
@@ -46,5 +48,24 @@ describe('Stockfish17.isSupported', () => {
     expect(simdArg[1]).toBe(97)  // 'a'
     expect(simdArg[2]).toBe(115) // 's'
     expect(simdArg[3]).toBe(109) // 'm'
+  })
+})
+
+describe('Stockfish17 constructor', () => {
+  it('passes onCrash callback to workerFromPath', () => {
+    mockValidate.mockReturnValue(true)
+
+    const mockWorker = {
+      uci: vi.fn(),
+      listen: vi.fn(),
+      onError: vi.fn(),
+      terminate: vi.fn(),
+    }
+    const spy = vi.spyOn(UciEngine, 'workerFromPath').mockReturnValue(mockWorker)
+
+    new Stockfish17()
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy.mock.calls[0][1]).toBeTypeOf('function')
   })
 })
