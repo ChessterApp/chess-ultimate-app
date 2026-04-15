@@ -14,6 +14,8 @@ import DesktopSidebar from "@/components/ui/DesktopSidebar"
 import { useDarkMode } from "@/hooks/useDarkMode"
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts"
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp"
+import SyncBoundary from "@/components/SyncBoundary"
+import SyncIndicator from "@/components/SyncIndicator"
 
 // Lazy load MUI provider only when needed
 const MuiProvider = lazy(() => import("@/components/providers/MuiProvider"))
@@ -61,7 +63,9 @@ export default function ClientShell({ children }: { children: ReactNode }) {
           {/* Main content area */}
           <main className={`flex-1 min-w-0 ${hideNav ? '' : 'pb-16 md:pb-0'}`}>
             <Suspense fallback={<PageSkeleton />}>
-              {hideNav ? children : <PageTransition>{children}</PageTransition>}
+              <SyncBoundary>
+                {hideNav ? children : <PageTransition>{children}</PageTransition>}
+              </SyncBoundary>
             </Suspense>
           </main>
 
@@ -73,6 +77,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
           )}
         </div>
         <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
+        <SyncIndicator />
       </SubscriptionProvider>
     </ToastProvider>
   )

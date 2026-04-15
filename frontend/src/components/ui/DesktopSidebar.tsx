@@ -1,8 +1,8 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import PrefetchLink from '@/components/PrefetchLink';
 import { useLocalStorage } from 'usehooks-ts';
 import { useTranslations } from 'next-intl';
 import { UserButton, useAuth } from '@clerk/nextjs';
@@ -105,7 +105,7 @@ export default function DesktopSidebar() {
   const renderItem = (item: SidebarItem) => {
     const active = isActive(item.href);
     return (
-      <Link
+      <PrefetchLink
         key={item.href}
         href={item.href}
         title={collapsed ? `${t(item.labelKey)} (${item.shortcut || ''})` : undefined}
@@ -129,7 +129,7 @@ export default function DesktopSidebar() {
             {item.shortcut}
           </kbd>
         )}
-      </Link>
+      </PrefetchLink>
     );
   };
 

@@ -26,3 +26,6 @@ export const SMART_SERVICE_WORKER =
 
 export const PREFETCH_QUEUE =
   process.env.NEXT_PUBLIC_PREFETCH_QUEUE === 'true';
+
+export const INSTANT_LOADING =
+  process.env.NEXT_PUBLIC_INSTANT_LOADING === 'true';

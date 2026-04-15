@@ -1,7 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import PrefetchLink from '@/components/PrefetchLink';
 import { ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 
@@ -108,7 +108,7 @@ export function BottomNavigation({ className = '' }: BottomNavigationProps) {
         {navItems.map((item) => {
           const active = isActive(item.href);
           return (
-            <Link
+            <PrefetchLink
               key={item.href}
               href={item.href}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
@@ -123,7 +123,7 @@ export function BottomNavigation({ className = '' }: BottomNavigationProps) {
               <span className={`text-xs mt-1 ${active ? 'font-semibold' : 'font-medium'}`}>
                 {t(item.labelKey)}
               </span>
-            </Link>
+            </PrefetchLink>
           );
         })}
       </div>

@@ -1,4 +1,14 @@
+import { INSTANT_LOADING } from '@/lib/feature-flags';
+
 export default function Loading() {
+  // When instant loading is enabled, show a minimal stable placeholder
+  // that preserves layout dimensions without distracting pulse animations.
+  // On subsequent visits, PowerSync renders content from OPFS instantly
+  // and this loading state is never visible.
+  if (INSTANT_LOADING) {
+    return <div className="min-h-screen bg-gradient-to-b from-purple-50 to-white dark:from-[#141414] dark:to-[#141414] p-4 pb-20" />;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-50 to-white p-4 pb-20">
       <div className="animate-pulse">

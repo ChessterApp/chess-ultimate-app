@@ -1,4 +1,14 @@
+import { INSTANT_LOADING } from '@/lib/feature-flags';
+
 export default function Loading() {
+  if (INSTANT_LOADING) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-[#141414] pb-24">
+        <div className="bg-gradient-to-br from-purple-600 to-purple-800 h-[76px]" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
