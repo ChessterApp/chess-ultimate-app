@@ -2,12 +2,14 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { EngineName, PositionEval } from '@/stockfish/engine/engine'
+import { Stockfish17Point } from '@/stockfish/engine/Stockfish17Point'
+import { Stockfish17 } from '@/stockfish/engine/Stockfish17'
 import { Stockfish16 } from '@/stockfish/engine/Stockfish16'
 import { Stockfish11 } from '@/stockfish/engine/Stockfish11'
 import { UciEngine } from '@/stockfish/engine/UciEngine'
 
 /** Friendly short name for the active engine variant. */
-export type EngineVariant = 'sf16' | 'sf11' | null
+export type EngineVariant = 'sf17.1' | 'sf17' | 'sf16' | 'sf11' | null
 
 interface UseReplayStockfishReturn {
   evaluation: PositionEval | null
@@ -26,6 +28,8 @@ interface UseReplayStockfishReturn {
 
 /** Map EngineName enum to friendly variant label. */
 function toEngineVariant(name: EngineName | null): EngineVariant {
+  if (name === EngineName.Stockfish17Point) return 'sf17.1'
+  if (name === EngineName.Stockfish17) return 'sf17'
   if (name === EngineName.Stockfish16) return 'sf16'
   if (name === EngineName.Stockfish11) return 'sf11'
   return null
@@ -141,56 +145,45 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
         return
       }
 
-      // Tier 1: Try SF16 (NNUE, requires SIMD)
-      try {
-        const engine = await tryInitEngine(
-          () => new Stockfish16(),
-          SF16_INIT_TIMEOUT_MS,
-          mountedRef,
-          () => {
-            if (mountedRef.current) {
-              handleEngineFailure('Chess engine crashed unexpectedly')
-            }
-          },
-        )
+      // Tiered fallback: SF17.1 → SF17 → SF16 → SF11
+      const tiers: { name: EngineName; create: () => UciEngine; label: string }[] = [
+        { name: EngineName.Stockfish17Point, create: () => new Stockfish17Point(), label: 'SF17.1' },
+        { name: EngineName.Stockfish17, create: () => new Stockfish17(), label: 'SF17' },
+        { name: EngineName.Stockfish16, create: () => new Stockfish16(), label: 'SF16' },
+        { name: EngineName.Stockfish11, create: () => new Stockfish11(), label: 'SF11' },
+      ]
 
-        if (mountedRef.current) {
-          engineRef.current = engine
-          engineReadyRef.current = true
-          setActiveEngine(EngineName.Stockfish16)
-          setEngineName(toEngineVariant(EngineName.Stockfish16))
-          setIsReady(true)
-          return
-        }
-      } catch {
-        // SF16 failed — fall through to SF11
+      for (const tier of tiers) {
         if (!mountedRef.current) return
+        try {
+          const engine = await tryInitEngine(
+            tier.create,
+            SF16_INIT_TIMEOUT_MS,
+            mountedRef,
+            () => {
+              if (mountedRef.current) {
+                handleEngineFailure('Chess engine crashed unexpectedly')
+              }
+            },
+          )
+
+          if (mountedRef.current) {
+            engineRef.current = engine
+            engineReadyRef.current = true
+            setActiveEngine(tier.name)
+            setEngineName(toEngineVariant(tier.name))
+            setIsReady(true)
+            return
+          }
+        } catch {
+          // This tier failed — try next
+          if (!mountedRef.current) return
+        }
       }
 
-      // Tier 2: Fallback to SF11 (HCE, no SIMD needed)
-      try {
-        const engine = await tryInitEngine(
-          () => new Stockfish11(),
-          SF16_INIT_TIMEOUT_MS,
-          mountedRef,
-          () => {
-            if (mountedRef.current) {
-              handleEngineFailure('Chess engine crashed unexpectedly')
-            }
-          },
-        )
-
-        if (mountedRef.current) {
-          engineRef.current = engine
-          engineReadyRef.current = true
-          setActiveEngine(EngineName.Stockfish11)
-          setEngineName(toEngineVariant(EngineName.Stockfish11))
-          setIsReady(true)
-        }
-      } catch {
-        if (mountedRef.current) {
-          handleEngineFailure('All engine versions failed to initialize')
-        }
+      // All tiers failed
+      if (mountedRef.current) {
+        handleEngineFailure('All engine versions failed to initialize')
       }
     }
 
