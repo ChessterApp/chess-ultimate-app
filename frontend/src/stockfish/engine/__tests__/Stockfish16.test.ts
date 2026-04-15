@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { Stockfish16 } from '../Stockfish16'
+import { UciEngine } from '../UciEngine'
 
 // Mock WebAssembly globals
 const mockValidate = vi.fn()
@@ -87,5 +88,16 @@ describe('Stockfish16.smokeTestSimd', () => {
 
     const result = await Stockfish16.smokeTestSimd()
     expect(result).toBe(false)
+  })
+})
+
+describe('Stockfish16 sendUciCommands inheritance', () => {
+  it('does not define its own sendUciCommands method', () => {
+    // Stockfish16 should inherit sendUciCommands from UciEngine, not override it
+    expect(Stockfish16.prototype.hasOwnProperty('sendUciCommands')).toBe(false)
+  })
+
+  it('inherits sendUciCommands from UciEngine base class', () => {
+    expect(Stockfish16.prototype.sendUciCommands).toBe(UciEngine.prototype.sendUciCommands)
   })
 })
