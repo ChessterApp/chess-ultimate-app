@@ -8,6 +8,7 @@ import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import LocalStorageMigration from "@/components/LocalStorageMigration";
+import { PowerSyncProvider } from "@/lib/powersync/PowerSyncProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -174,11 +175,13 @@ export default async function RootLayout({
         </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
           <NextIntlClientProvider messages={messages}>
-            <LocalStorageMigration />
-            <ServiceWorkerRegistration />
-            <ClientShell>
-              {children}
-            </ClientShell>
+            <PowerSyncProvider>
+              <LocalStorageMigration />
+              <ServiceWorkerRegistration />
+              <ClientShell>
+                {children}
+              </ClientShell>
+            </PowerSyncProvider>
           </NextIntlClientProvider>
         </body>
       </html>
