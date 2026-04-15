@@ -90,8 +90,8 @@ export abstract class UciEngine {
     public async init(): Promise<void> {
         if (this.worker) {
             this.worker.listen = this.publishMessage;
-            await this.sendCommands(['uci'], 'uciok');
-            await this.sendCommands(
+            await this.sendUciCommands(['uci'], 'uciok');
+            await this.sendUciCommands(
                 ['setoption name UCI_ShowWDL value true', 'isready'],
                 'readyok',
             );
@@ -136,7 +136,7 @@ export abstract class UciEngine {
      * @param onNewMessage An optional function called with each new message from the engine.
      * @returns A Promise that resolves with all engine messages once finalMessage is detected.
      */
-    protected async sendCommands(
+    public async sendUciCommands(
         commands: string[],
         finalMessage: string,
         onNewMessage?: (messages: string[]) => void,
@@ -187,7 +187,7 @@ export abstract class UciEngine {
             multiPv = 1;
         }
 
-        await this.sendCommands([`setoption name MultiPV value ${multiPv}`, 'isready'], 'readyok');
+        await this.sendUciCommands([`setoption name MultiPV value ${multiPv}`, 'isready'], 'readyok');
 
         this.multiPv = multiPv;
     }
@@ -209,7 +209,7 @@ export abstract class UciEngine {
         if (threads < ENGINE_THREADS.Min || threads > ENGINE_THREADS.Max) {
            this.threads = ENGINE_THREADS.Min ;
         }
-        await this.sendCommands([`setoption name Threads value ${threads}`, 'isready'], 'readyok');
+        await this.sendUciCommands([`setoption name Threads value ${threads}`, 'isready'], 'readyok');
         this.threads = threads;
     }
 
@@ -233,7 +233,7 @@ export abstract class UciEngine {
             // );
             this.hash = Math.pow(2, ENGINE_HASH.Min)
         }
-        await this.sendCommands([`setoption name Hash value ${hash}`, 'isready'], 'readyok');
+        await this.sendUciCommands([`setoption name Hash value ${hash}`, 'isready'], 'readyok');
         this.hash = hash;
     }
 
@@ -282,7 +282,7 @@ export abstract class UciEngine {
      * @returns A Promise that resolves once the engine has stopped.
      */
     public async stopSearch(): Promise<string[]> {
-        return this.sendCommands(['stop', 'isready'], 'readyok');
+        return this.sendUciCommands(['stop', 'isready'], 'readyok');
     }
 
     /**
@@ -323,7 +323,7 @@ export abstract class UciEngine {
             };
 
             this.debug(`Started evaluating ${fen}`);
-            const promise = this.sendCommands(
+            const promise = this.sendUciCommands(
                 [`position fen ${fen}`, `go depth ${depth}`],
                 'bestmove',
                 onNewMessage,

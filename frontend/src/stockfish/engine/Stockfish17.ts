@@ -26,7 +26,7 @@ export class Stockfish17 extends UciEngine {
      */
     public async init() {
         await super.init();
-        await this.sendCommands(['position startpos', 'go depth 1'], 'bestmove');
+        await this.sendUciCommands(['position startpos', 'go depth 1'], 'bestmove');
     }
 
     /**

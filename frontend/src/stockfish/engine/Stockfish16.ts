@@ -22,18 +22,7 @@ export class Stockfish16 extends UciEngine {
      */
     public async init() {
         await super.init();
-        await this.sendCommands(['position startpos', 'go depth 1'], 'bestmove');
-    }
-
-    /**
-     * Public wrapper for sendCommands to allow external access for play mode.
-     */
-    public async sendUciCommands(
-        commands: string[],
-        finalMessage: string,
-        onNewMessage?: (messages: string[]) => void,
-    ): Promise<string[]> {
-        return this.sendCommands(commands, finalMessage, onNewMessage);
+        await this.sendUciCommands(['position startpos', 'go depth 1'], 'bestmove');
     }
 
     /**
