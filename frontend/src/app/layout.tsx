@@ -7,6 +7,7 @@ import "./globals.css";
 import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
+import PrefetchManager from "@/components/PrefetchManager";
 import LocalStorageMigration from "@/components/LocalStorageMigration";
 import { PowerSyncProvider } from "@/lib/powersync/PowerSyncProvider";
 
@@ -178,6 +179,7 @@ export default async function RootLayout({
             <PowerSyncProvider>
               <LocalStorageMigration />
               <ServiceWorkerRegistration />
+              <PrefetchManager />
               <ClientShell>
                 {children}
               </ClientShell>

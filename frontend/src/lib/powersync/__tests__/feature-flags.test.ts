@@ -17,6 +17,7 @@ describe('feature flags', () => {
     delete process.env.NEXT_PUBLIC_LOCAL_FIRST_GAMES;
     delete process.env.NEXT_PUBLIC_LOCAL_FIRST_REPERTOIRE;
     delete process.env.NEXT_PUBLIC_ENHANCED_SW;
+    delete process.env.NEXT_PUBLIC_SMART_SERVICE_WORKER;
     delete process.env.NEXT_PUBLIC_PREFETCH_QUEUE;
 
     const flags = await import('../../feature-flags');
@@ -25,6 +26,7 @@ describe('feature flags', () => {
     expect(flags.LOCAL_FIRST_GAMES).toBe(false);
     expect(flags.LOCAL_FIRST_REPERTOIRE).toBe(false);
     expect(flags.ENHANCED_SW).toBe(false);
+    expect(flags.SMART_SERVICE_WORKER).toBe(false);
     expect(flags.PREFETCH_QUEUE).toBe(false);
   });
 
@@ -52,6 +54,16 @@ describe('feature flags', () => {
     expect(flags.PREFETCH_QUEUE).toBe(true);
     expect(flags.POWERSYNC_ENABLED).toBe(false);
     expect(flags.LOCAL_FIRST_REPERTOIRE).toBe(false);
+    expect(flags.ENHANCED_SW).toBe(false);
+    expect(flags.SMART_SERVICE_WORKER).toBe(false);
+  });
+
+  it('enables SMART_SERVICE_WORKER when env var is "true"', async () => {
+    process.env.NEXT_PUBLIC_SMART_SERVICE_WORKER = 'true';
+
+    const flags = await import('../../feature-flags');
+
+    expect(flags.SMART_SERVICE_WORKER).toBe(true);
     expect(flags.ENHANCED_SW).toBe(false);
   });
 });

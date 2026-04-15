@@ -21,5 +21,8 @@ export const LOCAL_FIRST_CHAT =
 export const ENHANCED_SW =
   process.env.NEXT_PUBLIC_ENHANCED_SW === 'true';
 
+export const SMART_SERVICE_WORKER =
+  process.env.NEXT_PUBLIC_SMART_SERVICE_WORKER === 'true';
+
 export const PREFETCH_QUEUE =
   process.env.NEXT_PUBLIC_PREFETCH_QUEUE === 'true';
