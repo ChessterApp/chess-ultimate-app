@@ -1,63 +1,27 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
 /**
- * Tests for service worker precaching configuration.
+ * Tests for service worker configuration.
  *
  * These tests verify that:
- * 1. Critical page shells are precached on service worker install
- * 2. The cache name is correctly versioned
- * 3. All expected routes are included in the SHELL_ASSETS array
+ * 1. The cache name is correctly versioned
+ * 2. The service worker correctly handles install and activate events
+ * 3. Network-first strategy is used for navigation, API, and Next.js assets
+ * 4. WASM, ONNX, and worker files are excluded from interception
  */
-describe('Service Worker Precaching', () => {
+describe('Service Worker', () => {
   let swContent: string
 
   beforeEach(() => {
-    // Read the service worker file
     const swPath = join(process.cwd(), 'public', 'sw.js')
     swContent = readFileSync(swPath, 'utf-8')
   })
 
-  it('defines the correct cache version placeholder', () => {
-    expect(swContent).toContain("const CACHE_NAME = 'chesster-__BUILD_HASH__'")
-  })
-
-  it('precaches the homepage', () => {
-    expect(swContent).toContain("'/'")
-  })
-
-  it('precaches the dashboard page', () => {
-    expect(swContent).toContain("'/dashboard'")
-  })
-
-  it('precaches the database page', () => {
-    expect(swContent).toContain("'/database'")
-  })
-
-  it('precaches the learn page', () => {
-    expect(swContent).toContain("'/learn'")
-  })
-
-  it('precaches the puzzle page', () => {
-    expect(swContent).toContain("'/puzzle'")
-  })
-
-  it('includes all critical shell assets in SHELL_ASSETS array', () => {
-    const criticalPages = ['/', '/dashboard', '/database', '/learn', '/puzzle']
-
-    // Extract SHELL_ASSETS array from the service worker content
-    const shellAssetsMatch = swContent.match(/const SHELL_ASSETS = \[([\s\S]*?)\];/)
-    expect(shellAssetsMatch).toBeTruthy()
-
-    if (shellAssetsMatch) {
-      const shellAssetsContent = shellAssetsMatch[1]
-
-      // Verify each critical page is in the SHELL_ASSETS
-      for (const page of criticalPages) {
-        expect(shellAssetsContent).toContain(`'${page}'`)
-      }
-    }
+  it('defines a versioned cache name', () => {
+    expect(swContent).toContain("const CACHE_VERSION = '")
+    expect(swContent).toContain("const CACHE_NAME = 'chesster-v' + CACHE_VERSION")
   })
 
   it('uses skipWaiting for immediate activation', () => {
@@ -68,21 +32,40 @@ describe('Service Worker Precaching', () => {
     expect(swContent).toContain('self.clients.claim()')
   })
 
-  it('implements stale-while-revalidate for navigation requests', () => {
-    expect(swContent).toContain("if (event.request.mode === 'navigate')")
+  it('cleans up old caches on activation', () => {
+    expect(swContent).toContain('caches.keys()')
+    expect(swContent).toContain('caches.delete(k)')
+  })
+
+  it('only handles GET requests', () => {
+    expect(swContent).toContain("if (event.request.method !== 'GET') return")
+  })
+
+  it('skips cross-origin requests', () => {
+    expect(swContent).toContain('url.origin !== self.location.origin')
+  })
+
+  it('excludes WASM and ONNX files from interception', () => {
+    expect(swContent).toContain(".endsWith('.wasm')")
+    expect(swContent).toContain(".endsWith('.onnx')")
+  })
+
+  it('uses network-first for navigation requests', () => {
+    expect(swContent).toContain("event.request.mode === 'navigate'")
     expect(swContent).toContain('caches.match(event.request)')
   })
-})
 
-describe('Service Worker Registration Component', () => {
-  it('uses the correct cache buster version', async () => {
-    const { readFileSync } = await import('fs')
-    const { join } = await import('path')
+  it('uses network-first for API and Next.js assets', () => {
+    expect(swContent).toContain("event.request.url.includes('/api/')")
+    expect(swContent).toContain("event.request.url.includes('/_next/')")
+  })
 
-    const registrationPath = join(process.cwd(), 'src', 'components', 'ServiceWorkerRegistration.tsx')
-    const registrationContent = readFileSync(registrationPath, 'utf-8')
+  it('returns 503 when offline and no cache available for navigation', () => {
+    expect(swContent).toContain("new Response('Offline', { status: 503")
+  })
 
-    // Verify the registration uses dynamic versioning
-    expect(registrationContent).toContain("process.env.NEXT_PUBLIC_ASSET_VERSION")
+  it('uses cache-first for static assets', () => {
+    // The second respondWith block handles static assets with cache-first
+    expect(swContent).toContain('caches.match(event.request).then((cached)')
   })
 })

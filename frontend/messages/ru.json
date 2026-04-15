@@ -988,6 +988,13 @@
         "updateFailed": "Не удалось обновить партию",
         "noChanges": "Нет изменений для сохранения"
       },
+      "movesFromBoard": "Ходы с доски",
+      "replaceWarning": "Это заменит ходы, введённые на доске. Продолжить?",
+      "continueBtn": "Продолжить",
+      "cancelBtn": "Отмена",
+      "commentPlaceholder": "Добавьте комментарий к этому ходу...",
+      "undoMove": "Назад",
+      "resetMoves": "Сброс",
       "moveEdit": {
         "deleteFromHere": "Удалить отсюда",
         "deleteVariation": "Удалить вариант",

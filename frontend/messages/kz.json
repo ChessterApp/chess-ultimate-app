@@ -988,6 +988,13 @@
         "updateFailed": "Ойынды жаңарту сәтсіз аяқталды",
         "noChanges": "Сақтайтын өзгерістер жоқ"
       },
+      "movesFromBoard": "Тақтадағы жүрістер",
+      "replaceWarning": "Бұл тақтада енгізілген жүрістерді ауыстырады. Жалғастыру керек пе?",
+      "continueBtn": "Жалғастыру",
+      "cancelBtn": "Болдырмау",
+      "commentPlaceholder": "Бұл жүріске түсініктеме қосыңыз...",
+      "undoMove": "Артқа",
+      "resetMoves": "Қалпына келтіру",
       "moveEdit": {
         "deleteFromHere": "Осы жерден жою",
         "deleteVariation": "Нұсқаны жою",

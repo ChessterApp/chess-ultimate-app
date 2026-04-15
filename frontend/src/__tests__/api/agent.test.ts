@@ -65,7 +65,7 @@ describe('API Route: /api/agent', () => {
   });
 
   it('should successfully process a chess analysis request', async () => {
-    const handler = (await import('../agent')).default;
+    const handler = (await import('@/pages/api/agent')).default;
 
     await handler(
       mockReq as NextApiRequest,
@@ -84,7 +84,7 @@ describe('API Route: /api/agent', () => {
   });
 
   it('should reject requests without required fields', async () => {
-    const handler = (await import('../agent')).default;
+    const handler = (await import('@/pages/api/agent')).default;
 
     mockReq.body = {
       query: 'What is the best move?'
@@ -100,7 +100,7 @@ describe('API Route: /api/agent', () => {
   });
 
   it('should only accept POST requests', async () => {
-    const handler = (await import('../agent')).default;
+    const handler = (await import('@/pages/api/agent')).default;
 
     mockReq.method = 'GET';
 
