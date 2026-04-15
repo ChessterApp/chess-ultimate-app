@@ -1,4 +1,4 @@
-const CACHE_VERSION = '8';
+const CACHE_VERSION = '11';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 const STALE_CACHE = 'chesster-stale-v' + CACHE_VERSION;
 
@@ -119,7 +119,8 @@ function isExcludedFile(url) {
     url.pathname.endsWith('.onnx') ||
     url.pathname.endsWith('.mjs') ||
     url.pathname === '/maia-worker.js' ||
-    url.pathname.startsWith('/ort/')
+    url.pathname.startsWith('/ort/') ||
+    url.pathname.startsWith('/static/engine/')
   );
 }
 

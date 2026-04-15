@@ -1,11 +1,11 @@
 /**
  * useLichessExplorer — Hook for fetching Lichess Opening Explorer data
  *
- * Fetches data via /api/explorer/ proxy with browser-side session caching
+ * Fetches data via /api/explorer/ proxy. Caching is handled by the
+ * Service Worker (stale-while-revalidate, 5min TTL).
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { explorerSessionCache } from '@/lib/explorer-session-cache';
 
 export interface LichessMove {
   uci: string;
@@ -103,13 +103,10 @@ export function useLichessExplorer({
       setUpstreamDown(false);
 
       try {
-        // Network-first: try network, fallback to cache on failure
-        // Build query params
         const params = new URLSearchParams();
         params.set('fen', fen);
 
         if (database === 'player') {
-          // Player database requires different params
           if (!player || !color) {
             throw new Error('Player and color are required for player database');
           }
@@ -133,9 +130,7 @@ export function useLichessExplorer({
         }
 
         const endpoint = database === 'masters' ? 'masters' : database === 'player' ? 'player' : 'lichess';
-        const cacheKey = `${endpoint}?${params.toString()}`;
 
-        // Fetch from API (network-first)
         const response = await fetch(`/api/explorer/${endpoint}?${params.toString()}`, {
           method: 'GET',
           headers: {
@@ -150,7 +145,6 @@ export function useLichessExplorer({
         const result = await response.json();
 
         if (!cancelled) {
-          // Check for upstream error indicators
           const explorerStatus = response.headers.get('X-Explorer-Status');
           const hasUpstreamError = explorerStatus?.includes('upstream-error') || result._upstreamError === true;
 
@@ -159,41 +153,11 @@ export function useLichessExplorer({
           }
 
           setData(result);
-          // Cache for 5 minutes (uses default TTL from cache config)
-          explorerSessionCache.lichess.set(cacheKey, result);
         }
       } catch (err) {
         if (!cancelled) {
-          // Network failed - try cache fallback
-          const params = new URLSearchParams();
-          params.set('fen', fen);
-          if (database === 'player') {
-            if (player && color) {
-              params.set('player', player);
-              params.set('color', color);
-              params.set('recentGames', recentGames.toString());
-              if (speeds) params.set('speeds', speeds);
-              if (modes) params.set('modes', modes);
-            }
-          } else {
-            params.set('topGames', '50');
-            params.set('moves', '12');
-            if (database === 'lichess') {
-              params.set('ratings', ratings);
-              params.set('speeds', speeds);
-            }
-          }
-          const endpoint = database === 'masters' ? 'masters' : database === 'player' ? 'player' : 'lichess';
-          const cacheKey = `${endpoint}?${params.toString()}`;
-
-          const cached = explorerSessionCache.lichess.get<LichessExplorerResponse>(cacheKey);
-          if (cached) {
-            setData(cached);
-            setError(null);
-          } else {
-            setError(err instanceof Error ? err.message : 'Failed to fetch explorer data');
-            setData(null);
-          }
+          setError(err instanceof Error ? err.message : 'Failed to fetch explorer data');
+          setData(null);
           setUpstreamDown(false);
         }
       } finally {

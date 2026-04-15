@@ -29,3 +29,9 @@ export const PREFETCH_QUEUE =
 
 export const INSTANT_LOADING =
   process.env.NEXT_PUBLIC_INSTANT_LOADING === 'true';
+
+export const SYNC_INDICATOR =
+  process.env.NEXT_PUBLIC_SYNC_INDICATOR === 'true';
+
+export const OFFLINE_MODE =
+  process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true';

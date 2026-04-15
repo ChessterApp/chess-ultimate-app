@@ -19,6 +19,8 @@ describe('feature flags', () => {
     delete process.env.NEXT_PUBLIC_ENHANCED_SW;
     delete process.env.NEXT_PUBLIC_SMART_SERVICE_WORKER;
     delete process.env.NEXT_PUBLIC_PREFETCH_QUEUE;
+    delete process.env.NEXT_PUBLIC_SYNC_INDICATOR;
+    delete process.env.NEXT_PUBLIC_OFFLINE_MODE;
 
     const flags = await import('../../feature-flags');
 
@@ -28,6 +30,8 @@ describe('feature flags', () => {
     expect(flags.ENHANCED_SW).toBe(false);
     expect(flags.SMART_SERVICE_WORKER).toBe(false);
     expect(flags.PREFETCH_QUEUE).toBe(false);
+    expect(flags.SYNC_INDICATOR).toBe(false);
+    expect(flags.OFFLINE_MODE).toBe(false);
   });
 
   it('enables POWERSYNC_ENABLED when env var is "true"', async () => {
@@ -65,5 +69,21 @@ describe('feature flags', () => {
 
     expect(flags.SMART_SERVICE_WORKER).toBe(true);
     expect(flags.ENHANCED_SW).toBe(false);
+  });
+
+  it('enables SYNC_INDICATOR when env var is "true"', async () => {
+    process.env.NEXT_PUBLIC_SYNC_INDICATOR = 'true';
+
+    const flags = await import('../../feature-flags');
+
+    expect(flags.SYNC_INDICATOR).toBe(true);
+  });
+
+  it('enables OFFLINE_MODE when env var is "true"', async () => {
+    process.env.NEXT_PUBLIC_OFFLINE_MODE = 'true';
+
+    const flags = await import('../../feature-flags');
+
+    expect(flags.OFFLINE_MODE).toBe(true);
   });
 });

@@ -5,11 +5,10 @@
  * - Fetch player game archives list
  * - Progressive loading: fetch newest month first, then older months in background
  * - Client-side filtering by time control and rating
- * - Browser-side session caching
+ * - Caching handled by Service Worker (stale-while-revalidate, 10min TTL)
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { explorerSessionCache } from '@/lib/explorer-session-cache';
 import type { GameSearchResult } from './useOpeningRepertoire';
 
 export interface ChessComGame {
@@ -137,9 +136,6 @@ export function useChessComExplorer({
       setProgress(null);
 
       try {
-        // Network-first: try network, fallback to cache on failure
-        const cacheKey = username;
-
         // Step 1: Fetch archives list
         const archivesRes = await fetch(`/api/chesscom/pub/player/${username}/games/archives`, {
           signal: controller.signal,
@@ -214,22 +210,12 @@ export function useChessComExplorer({
         }
 
         if (!cancelled) {
-          // Cache for 10 minutes (uses default TTL from cache config)
-          explorerSessionCache.chesscom.set(cacheKey, allGames);
           setLoading(false);
         }
       } catch (err) {
         if (!cancelled && err instanceof Error && err.name !== 'AbortError') {
-          // Network failed - try cache fallback
-          const cacheKey = username;
-          const cached = explorerSessionCache.chesscom.get<GameSearchResult[]>(cacheKey);
-          if (cached) {
-            setGames(cached);
-            setError(null);
-          } else {
-            setError(err.message || 'Failed to fetch Chess.com games');
-            setGames([]);
-          }
+          setError(err.message || 'Failed to fetch Chess.com games');
+          setGames([]);
           setLoading(false);
         }
       }

@@ -44,40 +44,41 @@ export default function ClientShell({ children }: { children: ReactNode }) {
     <ToastProvider>
       <SubscriptionProvider>
         <UnhandledErrorCatcher />
-        <OfflineBanner />
-        <div className={!hideNav && !isLanding ? "md:flex min-h-screen" : ""}>
-          {/* Desktop sidebar — hidden on mobile, auth pages, and landing */}
-          {!hideNav && !isLanding && (
-            <div className="hidden md:block flex-shrink-0 overflow-visible relative z-20">
-              <DesktopSidebar />
-            </div>
-          )}
+        <OfflineBanner>
+          <div className={!hideNav && !isLanding ? "md:flex min-h-screen" : ""}>
+            {/* Desktop sidebar — hidden on mobile, auth pages, and landing */}
+            {!hideNav && !isLanding && (
+              <div className="hidden md:block flex-shrink-0 overflow-visible relative z-20">
+                <DesktopSidebar />
+              </div>
+            )}
 
-          {/* Mobile top navbar — hidden on desktop, hidden on auth pages */}
-          {!hideNav && (
-            <div className="md:hidden">
-              <NavBar />
-            </div>
-          )}
+            {/* Mobile top navbar — hidden on desktop, hidden on auth pages */}
+            {!hideNav && (
+              <div className="md:hidden">
+                <NavBar />
+              </div>
+            )}
 
-          {/* Main content area */}
-          <main className={`flex-1 min-w-0 ${hideNav ? '' : 'pb-16 md:pb-0'}`}>
-            <Suspense fallback={<PageSkeleton />}>
-              <SyncBoundary>
-                {hideNav ? children : <PageTransition>{children}</PageTransition>}
-              </SyncBoundary>
-            </Suspense>
-          </main>
+            {/* Main content area */}
+            <main className={`flex-1 min-w-0 ${hideNav ? '' : 'pb-16 md:pb-0'}`}>
+              <Suspense fallback={<PageSkeleton />}>
+                <SyncBoundary>
+                  {hideNav ? children : <PageTransition>{children}</PageTransition>}
+                </SyncBoundary>
+              </Suspense>
+            </main>
 
-          {/* Mobile bottom nav — hidden on desktop, hidden on auth pages */}
-          {!hideNav && (
-            <div className="md:hidden">
-              <BottomNavigation />
-            </div>
-          )}
-        </div>
-        <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
-        <SyncIndicator />
+            {/* Mobile bottom nav — hidden on desktop, hidden on auth pages */}
+            {!hideNav && (
+              <div className="md:hidden">
+                <BottomNavigation />
+              </div>
+            )}
+          </div>
+          <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
+          <SyncIndicator />
+        </OfflineBanner>
       </SubscriptionProvider>
     </ToastProvider>
   )
