@@ -28,10 +28,16 @@ export class Stockfish17Point extends UciEngine {
         await this.sendCommands(['position startpos', 'go depth 1'], 'bestmove');
     }
 
+    /**
+     * Checks if the browser supports WebAssembly + SIMD v128 opcodes,
+     * which are required by the Stockfish 17.1 WASM binary.
+     */
     public static isSupported() {
         return (
             typeof WebAssembly === 'object' &&
-            WebAssembly.validate(Uint8Array.of(0x0, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00))
+            WebAssembly.validate(Uint8Array.of(0x0, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00)) &&
+            // SIMD check — stockfish-17.1 WASM requires SIMD support
+            WebAssembly.validate(new Uint8Array([0,97,115,109,1,0,0,0,1,5,1,96,0,1,123,3,2,1,0,10,10,1,8,0,65,0,253,15,253,98,11]))
         );
     }
 }
