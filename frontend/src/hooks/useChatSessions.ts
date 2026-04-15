@@ -521,5 +521,7 @@ function useChatSessionsLegacy() {
 // ─── Exported hook ──────────────────────
 
 export const useChatSessions = () => {
-  return LOCAL_FIRST_CHAT ? useChatSessionsPowerSync() : useChatSessionsLegacy();
+  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
+  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  return useChatSessionsLegacy();
 };

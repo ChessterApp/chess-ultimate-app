@@ -6,6 +6,9 @@
  * This file tests the PowerSync integration path.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// PowerSync path disabled: @tanstack/react-db useLiveQuery lacks getServerSnapshot for SSR
+// These tests will be re-enabled when the PowerSync path is reactivated
 import { renderHook, act } from '@testing-library/react';
 
 // ─── Feature flag mock ──────────────────
@@ -92,7 +95,7 @@ const GAME_ROW = {
 
 // ─── Tests ──────────────────────────────
 
-describe('useUserGames (PowerSync mode)', () => {
+describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR crash', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLocalFirstGames = true;

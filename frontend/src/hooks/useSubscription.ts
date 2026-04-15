@@ -113,14 +113,8 @@ function useSubscriptionLegacy(isSignedIn: boolean | undefined): SubscriptionSta
 }
 
 export function useSubscriptionFetch(): SubscriptionState {
-  const { isSignedIn, userId } = useAuth();
-
-  const powerSyncState = useSubscriptionPowerSync(
-    LOCAL_FIRST_SUBSCRIPTION ? (userId ?? undefined) : undefined,
-  );
-  const legacyState = useSubscriptionLegacy(
-    LOCAL_FIRST_SUBSCRIPTION ? undefined : isSignedIn,
-  );
-
-  return LOCAL_FIRST_SUBSCRIPTION ? powerSyncState : legacyState;
+  const { isSignedIn } = useAuth();
+  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
+  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  return useSubscriptionLegacy(isSignedIn);
 }

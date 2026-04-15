@@ -1117,5 +1117,7 @@ function useOpeningRepertoireLegacy() {
 // ─── Exported hook ──────────────────────
 
 export function useOpeningRepertoire() {
-  return LOCAL_FIRST_REPERTOIRE ? useOpeningRepertoirePowerSync() : useOpeningRepertoireLegacy();
+  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
+  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  return useOpeningRepertoireLegacy();
 }

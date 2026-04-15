@@ -462,5 +462,7 @@ function useUserGamesLegacy() {
 // ─── Exported hook ──────────────────────
 
 export function useUserGames() {
-  return LOCAL_FIRST_GAMES ? useUserGamesPowerSync() : useUserGamesLegacy();
+  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
+  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  return useUserGamesLegacy();
 }
