@@ -43,6 +43,13 @@ export function createPowerSyncCollections(database: AbstractPowerSyncDatabase) 
     }),
   );
 
+  const subscriptions = createCollection(
+    powerSyncCollectionOptions({
+      database,
+      table: AppSchema.props.subscriptions,
+    }),
+  );
+
   const courses = createCollection(
     powerSyncCollectionOptions({
       database,
@@ -70,6 +77,7 @@ export function createPowerSyncCollections(database: AbstractPowerSyncDatabase) 
     repertoireNodes,
     chatSessions,
     userProgress,
+    subscriptions,
     courses,
     puzzles,
     lessons,

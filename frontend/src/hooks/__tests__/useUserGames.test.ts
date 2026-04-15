@@ -28,6 +28,23 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// Feature flag off → legacy mode
+vi.mock('@/lib/feature-flags', () => ({
+  LOCAL_FIRST_GAMES: false,
+}));
+
+vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
+  usePowerSyncContext: () => ({ database: null, collections: null, isReady: false }),
+}));
+
+vi.mock('@tanstack/react-db', () => ({
+  useLiveQuery: () => ({ data: undefined, isLoading: false, isReady: true }),
+}));
+
+vi.mock('@tanstack/db', () => ({
+  eq: vi.fn(),
+}));
+
 // ─── Fixtures ────────────────────────────
 
 const GAME_1: UserGame = {
@@ -384,16 +401,14 @@ describe('useUserGames', () => {
     expect(options.headers.Authorization).toBe('Bearer test-token');
   });
 
-  it('should use fallback token when getToken returns null', async () => {
+  it('should error when getToken returns null', async () => {
     mockGetToken.mockResolvedValueOnce(null);
-    mockApiFetch.mockResolvedValueOnce(LIST_RESPONSE);
     const { result } = renderHook(() => useUserGames());
 
     await act(async () => {
       await result.current.fetchGames();
     });
 
-    const options = mockApiFetch.mock.calls[0][1];
-    expect(options.headers.Authorization).toContain('Bearer ');
+    expect(result.current.error).toBe('Not authenticated');
   });
 });

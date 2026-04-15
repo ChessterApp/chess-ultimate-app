@@ -1,4 +1,15 @@
+/**
+ * useChatSessions — Hook for managing chat sessions
+ * Supports both legacy localStorage and PowerSync/TanStack DB live queries.
+ * Controlled by LOCAL_FIRST_CHAT feature flag.
+ */
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAuth } from '@clerk/nextjs';
+import { LOCAL_FIRST_CHAT } from '@/lib/feature-flags';
+import { usePowerSyncContext } from '@/lib/powersync/PowerSyncProvider';
+import { useLiveQuery } from '@tanstack/react-db';
+import { eq } from '@tanstack/db';
 
 const STORAGE_KEY = 'chess-chat-sessions';
 
@@ -29,13 +40,11 @@ export interface ChatSession {
 
 // Function to generate automatic chat titles based on chess position analysis
 export const generateChatTitle = (messages: ChatMessage[], sessionFen?: string): string => {
-  // Analyze messages for chess keywords
   const userMessages = messages.filter(msg => msg.role === 'user');
   if (userMessages.length === 0) return 'New Chess Chat';
 
   const allUserContent = userMessages.map(msg => msg.content.toLowerCase()).join(' ');
 
-  // Enhanced chess opening patterns
   if (allUserContent.includes('sicilian')) {
     if (allUserContent.includes('alapin')) return 'Sicilian Alapin';
     if (allUserContent.includes('dragon')) return 'Sicilian Dragon';
@@ -61,26 +70,22 @@ export const generateChatTitle = (messages: ChatMessage[], sessionFen?: string):
   if (allUserContent.includes('nimzo')) return 'Nimzo-Indian Defense';
   if (allUserContent.includes('english')) return 'English Opening';
 
-  // Chess tactics and study patterns
   if (allUserContent.includes('fork')) return 'Tactical Forks';
   if (allUserContent.includes('pin')) return 'Tactical Pins';
   if (allUserContent.includes('skewer')) return 'Skewer Tactics';
   if (allUserContent.includes('sacrifice')) return 'Sacrificial Play';
   if (allUserContent.includes('checkmate')) return 'Checkmate Patterns';
 
-  // Endgame patterns
   if (allUserContent.includes('endgame')) {
     if (allUserContent.includes('king and pawn')) return 'King & Pawn Endgame';
     if (allUserContent.includes('rook')) return 'Rook Endgame';
     return 'Endgame Study';
   }
 
-  // Strategy patterns
   if (allUserContent.includes('strategy')) return 'Chess Strategy';
   if (allUserContent.includes('position') && allUserContent.includes('evaluation')) return 'Position Evaluation';
   if (allUserContent.includes('analysis')) return 'Position Analysis';
 
-  // Fallback: use first few meaningful words from the first user message
   const firstMessage = userMessages[0].content;
   const words = firstMessage.split(' ')
     .filter(word => word.length > 2)
@@ -91,75 +96,81 @@ export const generateChatTitle = (messages: ChatMessage[], sessionFen?: string):
   return words.map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 };
 
-export const useChatSessions = () => {
-  const [sessions, setSessions] = useState<ChatSession[]>([]);
+const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+// ─── Row ↔ ChatSession converters ───────
+
+function rowToSession(row: Record<string, unknown>): ChatSession {
+  let messages: ChatMessage[] = [];
+  if (typeof row.messages === 'string') {
+    try {
+      messages = JSON.parse(row.messages as string).map((m: any) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      }));
+    } catch { messages = []; }
+  }
+
+  return {
+    id: row.id as string,
+    title: (row.title as string) ?? 'New Chat',
+    messages,
+    createdAt: row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    updatedAt: row.updated_at ? new Date(row.updated_at as string).getTime() : Date.now(),
+    isActive: row.is_active === 1 || row.is_active === true,
+    currentFen: (row.current_fen as string) ?? DEFAULT_FEN,
+    currentPgn: (row.current_pgn as string) ?? undefined,
+  };
+}
+
+// ─── PowerSync-backed hook ──────────────
+
+function useChatSessionsPowerSync() {
+  const { userId } = useAuth();
+  const { collections, isReady, database } = usePowerSyncContext();
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  // Load sessions from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      try {
-        const parsedSessions: ChatSession[] = JSON.parse(stored);
-
-        // Ensure all sessions have a currentFen (for backwards compatibility)
-        const migratedSessions = parsedSessions.map(session => ({
-          ...session,
-          currentFen: session.currentFen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-          messages: session.messages.map(msg => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp) // Convert string back to Date
-          }))
+  const { data: rawData } = useLiveQuery(
+    (q) => {
+      if (!collections || !isReady || !userId) return null;
+      return q
+        .from({ c: collections.chatSessions })
+        .where(({ c }) => eq(c.user_id, userId))
+        .select(({ c }) => ({
+          id: c.id,
+          title: c.title,
+          messages: c.messages,
+          is_active: c.is_active,
+          current_fen: c.current_fen,
+          current_pgn: c.current_pgn,
+          created_at: c.created_at,
+          updated_at: c.updated_at,
         }));
+    },
+    [collections, isReady, userId],
+  );
 
-        setSessions(migratedSessions);
+  const sessions = useMemo(
+    () => (rawData ?? []).map(rowToSession).sort((a, b) => b.updatedAt - a.updatedAt),
+    [rawData],
+  );
 
-        // Set the most recent session as current if none is selected
-        if (migratedSessions.length > 0 && !currentSessionId) {
-          const mostRecent = migratedSessions.sort((a, b) => b.updatedAt - a.updatedAt)[0];
-          setCurrentSessionId(mostRecent.id);
-        }
-      } catch (error) {
-        console.error('Failed to load chat sessions:', error);
-      }
-    }
-  }, []); // Run once on mount
-
-  // Save sessions to localStorage whenever sessions change
+  // Auto-select most recent session
   useEffect(() => {
-    if (sessions.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    if (sessions.length > 0 && !currentSessionId) {
+      setCurrentSessionId(sessions[0].id);
     }
-  }, [sessions]);
+  }, [sessions, currentSessionId]);
 
-  // Generate unique session ID
+  const currentSession = useMemo(
+    () => sessions.find(s => s.id === currentSessionId) ?? null,
+    [sessions, currentSessionId],
+  );
+
   const generateSessionId = useCallback(() => {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
-  // Create a new chat session
-  const createNewSession = useCallback((initialFen?: string) => {
-    const newSession: ChatSession = {
-      id: generateSessionId(),
-      title: 'New Chat',
-      messages: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      isActive: true,
-      currentFen: initialFen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-    };
-
-    setSessions(prev => [newSession, ...prev]);
-    setCurrentSessionId(newSession.id);
-    return newSession.id;
-  }, [generateSessionId]);
-
-  // Get current session (memoized to prevent unnecessary recalculations)
-  const currentSession = useMemo(() => {
-    return sessions.find(session => session.id === currentSessionId) || null;
-  }, [sessions, currentSessionId]);
-
-  // Helper function to detect chess-related content for better title generation
   const hasChessContent = useCallback((content: string): boolean => {
     const lowerContent = content.toLowerCase();
     const chessKeywords = [
@@ -170,14 +181,219 @@ export const useChatSessions = () => {
       'skewer', 'sacrifice', 'analysis', 'engine', 'stockfish', 'pawn', 'knight',
       'bishop', 'rook', 'queen', 'king', 'chess', 'move', 'play'
     ];
-
     return chessKeywords.some(keyword => lowerContent.includes(keyword));
   }, []);
 
-  // Add message to current session
+  const createNewSession = useCallback((initialFen?: string) => {
+    if (!database || !userId) return '';
+    const id = generateSessionId();
+    const now = new Date().toISOString();
+
+    database.execute(
+      `INSERT INTO chat_sessions (id, user_id, title, messages, is_active, current_fen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, userId, 'New Chat', '[]', 1, initialFen || DEFAULT_FEN, now, now],
+    );
+
+    setCurrentSessionId(id);
+    return id;
+  }, [database, userId, generateSessionId]);
+
+  const addMessageToSession = useCallback((message: ChatMessage, currentFen?: string) => {
+    if (!database || !userId) return;
+
+    const msgWithDefaults = {
+      ...message,
+      id: message.id || `${Date.now()}`,
+      timestamp: new Date(),
+    };
+
+    if (!currentSessionId) {
+      // Create new session with the message
+      const id = generateSessionId();
+      const now = new Date().toISOString();
+      const msgs = [msgWithDefaults];
+      const title = generateChatTitle(msgs, currentFen);
+
+      database.execute(
+        `INSERT INTO chat_sessions (id, user_id, title, messages, is_active, current_fen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, userId, title, JSON.stringify(msgs), 1, currentFen || DEFAULT_FEN, now, now],
+      );
+
+      setCurrentSessionId(id);
+    } else {
+      const session = sessions.find(s => s.id === currentSessionId);
+      if (!session) return;
+
+      const updatedMessages = [...session.messages, msgWithDefaults];
+      const now = new Date().toISOString();
+
+      let title = session.title;
+      if (
+        (session.title === 'New Chat' && message.role === 'user') ||
+        (message.role === 'user' && session.messages.length <= 5 && hasChessContent(message.content))
+      ) {
+        title = generateChatTitle(updatedMessages, currentFen);
+      }
+
+      database.execute(
+        `UPDATE chat_sessions SET messages = ?, title = ?, current_fen = ?, updated_at = ? WHERE id = ?`,
+        [
+          JSON.stringify(updatedMessages),
+          title,
+          currentFen || session.currentFen,
+          now,
+          currentSessionId,
+        ],
+      );
+    }
+  }, [currentSessionId, sessions, database, userId, generateSessionId, hasChessContent]);
+
+  const switchToSession = useCallback((sessionId: string) => {
+    setCurrentSessionId(sessionId);
+  }, []);
+
+  const deleteSession = useCallback((sessionId: string) => {
+    if (!database) return;
+    database.execute('DELETE FROM chat_sessions WHERE id = ?', [sessionId]);
+
+    if (sessionId === currentSessionId) {
+      const remaining = sessions.filter(s => s.id !== sessionId);
+      setCurrentSessionId(remaining.length > 0 ? remaining[0].id : null);
+    }
+  }, [database, currentSessionId, sessions]);
+
+  const renameSession = useCallback((sessionId: string, newTitle: string) => {
+    if (!database) return;
+    database.execute(
+      'UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?',
+      [newTitle, new Date().toISOString(), sessionId],
+    );
+  }, [database]);
+
+  const clearCurrentSession = useCallback(() => {
+    if (!database || !currentSessionId) return;
+    database.execute(
+      `UPDATE chat_sessions SET messages = '[]', title = 'New Chat', updated_at = ? WHERE id = ?`,
+      [new Date().toISOString(), currentSessionId],
+    );
+  }, [database, currentSessionId]);
+
+  const updateSessionMessages = useCallback((sessionId: string, messages: ChatMessage[]) => {
+    if (!database) return;
+    database.execute(
+      'UPDATE chat_sessions SET messages = ?, updated_at = ? WHERE id = ?',
+      [JSON.stringify(messages), new Date().toISOString(), sessionId],
+    );
+  }, [database]);
+
+  const updateSessionFen = useCallback((fen: string) => {
+    if (!database || !currentSessionId) return;
+    database.execute(
+      'UPDATE chat_sessions SET current_fen = ?, updated_at = ? WHERE id = ?',
+      [fen, new Date().toISOString(), currentSessionId],
+    );
+  }, [database, currentSessionId]);
+
+  const updateSessionPgn = useCallback((pgn: string) => {
+    if (!database || !currentSessionId) return;
+    database.execute(
+      'UPDATE chat_sessions SET current_pgn = ?, updated_at = ? WHERE id = ?',
+      [pgn, new Date().toISOString(), currentSessionId],
+    );
+  }, [database, currentSessionId]);
+
+  return {
+    sessions,
+    currentSessionId,
+    currentSession,
+    createNewSession,
+    addMessageToSession,
+    switchToSession,
+    deleteSession,
+    renameSession,
+    clearCurrentSession,
+    updateSessionMessages,
+    updateSessionFen,
+    updateSessionPgn,
+  };
+}
+
+// ─── Legacy localStorage-backed hook ────
+
+function useChatSessionsLegacy() {
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsedSessions: ChatSession[] = JSON.parse(stored);
+        const migratedSessions = parsedSessions.map(session => ({
+          ...session,
+          currentFen: session.currentFen || DEFAULT_FEN,
+          messages: session.messages.map(msg => ({
+            ...msg,
+            timestamp: new Date(msg.timestamp)
+          }))
+        }));
+
+        setSessions(migratedSessions);
+        if (migratedSessions.length > 0 && !currentSessionId) {
+          const mostRecent = migratedSessions.sort((a, b) => b.updatedAt - a.updatedAt)[0];
+          setCurrentSessionId(mostRecent.id);
+        }
+      } catch (error) {
+        console.error('Failed to load chat sessions:', error);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (sessions.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    }
+  }, [sessions]);
+
+  const generateSessionId = useCallback(() => {
+    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }, []);
+
+  const createNewSession = useCallback((initialFen?: string) => {
+    const newSession: ChatSession = {
+      id: generateSessionId(),
+      title: 'New Chat',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      isActive: true,
+      currentFen: initialFen || DEFAULT_FEN,
+    };
+
+    setSessions(prev => [newSession, ...prev]);
+    setCurrentSessionId(newSession.id);
+    return newSession.id;
+  }, [generateSessionId]);
+
+  const currentSession = useMemo(() => {
+    return sessions.find(session => session.id === currentSessionId) || null;
+  }, [sessions, currentSessionId]);
+
+  const hasChessContent = useCallback((content: string): boolean => {
+    const lowerContent = content.toLowerCase();
+    const chessKeywords = [
+      'sicilian', 'french', 'caro-kann', 'scandinavian', 'alekhine', 'petrov', 'ruy lopez',
+      'italian', 'english', 'london', 'catalan', 'nimzo', 'king\'s indian',
+      'queen\'s gambit', 'opening', 'defense', 'gambit', 'endgame', 'middlegame',
+      'tactics', 'strategy', 'position', 'fen', 'pgn', 'checkmate', 'fork', 'pin',
+      'skewer', 'sacrifice', 'analysis', 'engine', 'stockfish', 'pawn', 'knight',
+      'bishop', 'rook', 'queen', 'king', 'chess', 'move', 'play'
+    ];
+    return chessKeywords.some(keyword => lowerContent.includes(keyword));
+  }, []);
+
   const addMessageToSession = useCallback((message: ChatMessage, currentFen?: string) => {
     if (!currentSessionId) {
-      // Create new session with the message in a single operation
       const newSessionId = generateSessionId();
       const newSession: ChatSession = {
         id: newSessionId,
@@ -186,12 +402,9 @@ export const useChatSessions = () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         isActive: true,
-        currentFen: currentFen || 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+        currentFen: currentFen || DEFAULT_FEN,
       };
-
-      // Generate title after adding the message
       newSession.title = generateChatTitle(newSession.messages, currentFen);
-
       setSessions(prev => [newSession, ...prev]);
       setCurrentSessionId(newSessionId);
     } else {
@@ -202,12 +415,10 @@ export const useChatSessions = () => {
                 ...session,
                 messages: [...session.messages, { ...message, id: message.id || `${Date.now()}`, timestamp: new Date() }],
                 updatedAt: Date.now(),
-                // Regenerate title when it's still "New Chat" or for user messages with chess content
                 title: (session.title === 'New Chat' && message.role === 'user') ||
                        (message.role === 'user' && session.messages.length <= 5 && hasChessContent(message.content))
                   ? generateChatTitle([...session.messages, message], currentFen)
                   : session.title,
-                // Update FEN if provided
                 currentFen: currentFen || session.currentFen
               }
             : session
@@ -216,17 +427,13 @@ export const useChatSessions = () => {
     }
   }, [currentSessionId, generateSessionId, hasChessContent]);
 
-  // Switch to a different session
   const switchToSession = useCallback((sessionId: string) => {
     setCurrentSessionId(sessionId);
   }, []);
 
-  // Delete a session
   const deleteSession = useCallback((sessionId: string) => {
     setSessions(prev => {
       const filtered = prev.filter(session => session.id !== sessionId);
-
-      // If the deleted session was current, switch to the most recent one
       if (sessionId === currentSessionId) {
         if (filtered.length > 0) {
           const mostRecent = filtered.sort((a, b) => b.updatedAt - a.updatedAt)[0];
@@ -235,12 +442,10 @@ export const useChatSessions = () => {
           setCurrentSessionId(null);
         }
       }
-
       return filtered;
     });
   }, [currentSessionId]);
 
-  // Rename a session
   const renameSession = useCallback((sessionId: string, newTitle: string) => {
     setSessions(prev =>
       prev.map(session =>
@@ -251,7 +456,6 @@ export const useChatSessions = () => {
     );
   }, []);
 
-  // Clear all messages in current session
   const clearCurrentSession = useCallback(() => {
     if (currentSessionId) {
       setSessions(prev =>
@@ -264,7 +468,6 @@ export const useChatSessions = () => {
     }
   }, [currentSessionId]);
 
-  // Update session messages (for bulk updates)
   const updateSessionMessages = useCallback((sessionId: string, messages: ChatMessage[]) => {
     setSessions(prev =>
       prev.map(session =>
@@ -275,7 +478,6 @@ export const useChatSessions = () => {
     );
   }, []);
 
-  // Update current session's FEN
   const updateSessionFen = useCallback((fen: string) => {
     if (currentSessionId) {
       setSessions(prev =>
@@ -288,7 +490,6 @@ export const useChatSessions = () => {
     }
   }, [currentSessionId]);
 
-  // Update current session's PGN (move history)
   const updateSessionPgn = useCallback((pgn: string) => {
     if (currentSessionId) {
       setSessions(prev =>
@@ -315,4 +516,10 @@ export const useChatSessions = () => {
     updateSessionFen,
     updateSessionPgn,
   };
+}
+
+// ─── Exported hook ──────────────────────
+
+export const useChatSessions = () => {
+  return LOCAL_FIRST_CHAT ? useChatSessionsPowerSync() : useChatSessionsLegacy();
 };

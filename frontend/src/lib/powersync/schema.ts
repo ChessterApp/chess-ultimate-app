@@ -110,6 +110,16 @@ const puzzles = new Table({
   created_at: column.text,
 });
 
+const subscriptions = new Table({
+  user_id: column.text,
+  active: column.integer, // SQLite boolean: 0 | 1
+  plan: column.text,
+  status: column.text,
+  trial_end: column.text,
+  created_at: column.text,
+  updated_at: column.text,
+});
+
 const lessons = new Table({
   course_id: column.text,
   title: column.text,
@@ -131,6 +141,7 @@ export const AppSchema = new Schema({
   repertoire_nodes,
   chat_sessions,
   user_progress,
+  subscriptions,
   courses,
   puzzles,
   lessons,
@@ -142,6 +153,7 @@ export type RepertoireRow = AppDatabase['repertoires'];
 export type RepertoireNodeRow = AppDatabase['repertoire_nodes'];
 export type ChatSessionRow = AppDatabase['chat_sessions'];
 export type UserProgressRow = AppDatabase['user_progress'];
+export type SubscriptionRow = AppDatabase['subscriptions'];
 export type CourseRow = AppDatabase['courses'];
 export type PuzzleRow = AppDatabase['puzzles'];
 export type LessonRow = AppDatabase['lessons'];

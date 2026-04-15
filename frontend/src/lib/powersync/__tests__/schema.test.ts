@@ -11,8 +11,9 @@ describe('PowerSync AppSchema', () => {
     expect(tableNames).toContain('user_progress');
     expect(tableNames).toContain('courses');
     expect(tableNames).toContain('puzzles');
+    expect(tableNames).toContain('subscriptions');
     expect(tableNames).toContain('lessons');
-    expect(tableNames).toHaveLength(8);
+    expect(tableNames).toHaveLength(9);
   });
 
   it('user_games table has correct columns', () => {

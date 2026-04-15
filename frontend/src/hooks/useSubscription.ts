@@ -2,8 +2,12 @@
 
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { LOCAL_FIRST_SUBSCRIPTION } from '@/lib/feature-flags';
+import { usePowerSyncContext } from '@/lib/powersync/PowerSyncProvider';
+import { useLiveQuery } from '@tanstack/react-db';
+import { eq } from '@tanstack/db';
 
-interface SubscriptionState {
+export interface SubscriptionState {
   loading: boolean;
   active: boolean;
   plan: string | null;
@@ -25,8 +29,56 @@ export function useSubscription() {
 
 export { SubscriptionContext };
 
-export function useSubscriptionFetch(): SubscriptionState {
-  const { isSignedIn } = useAuth();
+/**
+ * PowerSync-backed subscription fetch.
+ * Reads subscription status from local SQLite via TanStack DB live query.
+ */
+function useSubscriptionPowerSync(userId: string | undefined): SubscriptionState {
+  const { collections, isReady } = usePowerSyncContext();
+
+  const { data, isLoading } = useLiveQuery(
+    (q) => {
+      if (!collections || !isReady || !userId) return null;
+      return q
+        .from({ s: collections.subscriptions })
+        .where(({ s }) => eq(s.user_id, userId))
+        .select(({ s }) => ({
+          id: s.id,
+          active: s.active,
+          plan: s.plan,
+          status: s.status,
+          trial_end: s.trial_end,
+        }));
+    },
+    [collections, isReady, userId],
+  );
+
+  if (!userId) {
+    return { loading: false, active: false, plan: null, status: null, trialEnd: null };
+  }
+
+  if (isLoading || !isReady) {
+    return { loading: true, active: false, plan: null, status: null, trialEnd: null };
+  }
+
+  const row = data?.[0] as { id: string; active: number | null; plan: string | null; status: string | null; trial_end: string | null } | undefined;
+  if (!row) {
+    return { loading: false, active: false, plan: null, status: null, trialEnd: null };
+  }
+
+  return {
+    loading: false,
+    active: row.active === 1,
+    plan: row.plan ?? null,
+    status: row.status ?? null,
+    trialEnd: row.trial_end ?? null,
+  };
+}
+
+/**
+ * Legacy fetch-based subscription fetch.
+ */
+function useSubscriptionLegacy(isSignedIn: boolean | undefined): SubscriptionState {
   const [state, setState] = useState<SubscriptionState>({
     loading: true,
     active: false,
@@ -58,4 +110,17 @@ export function useSubscriptionFetch(): SubscriptionState {
   }, [isSignedIn]);
 
   return state;
+}
+
+export function useSubscriptionFetch(): SubscriptionState {
+  const { isSignedIn, userId } = useAuth();
+
+  const powerSyncState = useSubscriptionPowerSync(
+    LOCAL_FIRST_SUBSCRIPTION ? (userId ?? undefined) : undefined,
+  );
+  const legacyState = useSubscriptionLegacy(
+    LOCAL_FIRST_SUBSCRIPTION ? undefined : isSignedIn,
+  );
+
+  return LOCAL_FIRST_SUBSCRIPTION ? powerSyncState : legacyState;
 }

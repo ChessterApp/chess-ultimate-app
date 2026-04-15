@@ -12,6 +12,12 @@ export const LOCAL_FIRST_GAMES =
 export const LOCAL_FIRST_REPERTOIRE =
   process.env.NEXT_PUBLIC_LOCAL_FIRST_REPERTOIRE === 'true';
 
+export const LOCAL_FIRST_SUBSCRIPTION =
+  process.env.NEXT_PUBLIC_LOCAL_FIRST_SUBSCRIPTION === 'true';
+
+export const LOCAL_FIRST_CHAT =
+  process.env.NEXT_PUBLIC_LOCAL_FIRST_CHAT === 'true';
+
 export const ENHANCED_SW =
   process.env.NEXT_PUBLIC_ENHANCED_SW === 'true';
 
