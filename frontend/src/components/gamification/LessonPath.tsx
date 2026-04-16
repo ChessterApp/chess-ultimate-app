@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 interface Lesson {
   id: string;
@@ -95,15 +96,7 @@ const levelIcons: Record<string, string> = {
   grandmaster: '👑',
 };
 
-const levelLabels: Record<string, string> = {
-  beginner: 'Level 1',
-  intermediate: 'Level 2',
-  advanced: 'Level 3',
-  master: 'Level 4',
-  expert: 'Level 5',
-  legendary: 'Level 6',
-  grandmaster: 'Level 7',
-};
+const levelKeys = ['beginner', 'intermediate', 'advanced', 'master', 'expert', 'legendary', 'grandmaster'] as const;
 
 // Group courses by level for section dividers
 function groupByLevel(courses: Course[]): { level: string; courses: Course[] }[] {
@@ -130,6 +123,7 @@ function getZigzagOffset(index: number): string {
 }
 
 export function LessonPath({ courses, courseSlug }: LessonPathProps) {
+  const t = useTranslations('learn.levels');
   const groups = groupByLevel(courses);
   let globalIndex = 0;
 
@@ -141,7 +135,7 @@ export function LessonPath({ courses, courseSlug }: LessonPathProps) {
           <div className="flex items-center gap-3 w-full max-w-xs mb-6 mt-2">
             <div className="flex-1 h-px bg-gray-200" />
             <span className={`text-xs font-bold uppercase tracking-wider ${levelColors[group.level]?.text || 'text-gray-500'}`}>
-              {levelIcons[group.level]} {levelLabels[group.level] || group.level}
+              {levelIcons[group.level]} {t(group.level as any)}
             </span>
             <div className="flex-1 h-px bg-gray-200" />
           </div>
