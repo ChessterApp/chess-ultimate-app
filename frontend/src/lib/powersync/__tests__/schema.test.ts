@@ -5,12 +5,12 @@ describe('PowerSync AppSchema', () => {
   it('defines all expected tables', () => {
     const tableNames = AppSchema.tables.map((t) => t.name);
     expect(tableNames).toContain('user_games');
-    expect(tableNames).toContain('repertoires');
-    expect(tableNames).toContain('repertoire_nodes');
-    expect(tableNames).toContain('chat_sessions');
+    expect(tableNames).toContain('opening_repertoires');
+    expect(tableNames).toContain('opening_nodes');
+    expect(tableNames).toContain('analysis_conversations');
     expect(tableNames).toContain('user_progress');
     expect(tableNames).toContain('courses');
-    expect(tableNames).toContain('puzzles');
+    expect(tableNames).toContain('lesson_puzzles');
     expect(tableNames).toContain('subscriptions');
     expect(tableNames).toContain('lessons');
     expect(tableNames).toHaveLength(9);
@@ -31,7 +31,7 @@ describe('PowerSync AppSchema', () => {
   });
 
   it('repertoire_nodes table has spaced repetition columns', () => {
-    const table = AppSchema.tables.find((t) => t.name === 'repertoire_nodes')!;
+    const table = AppSchema.tables.find((t) => t.name === 'opening_nodes')!;
     const colNames = table.columns.map((c) => c.name);
 
     expect(colNames).toContain('ease_factor');

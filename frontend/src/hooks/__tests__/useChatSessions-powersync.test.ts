@@ -23,31 +23,23 @@ vi.mock('@clerk/nextjs', () => ({
 
 const mockExecute = vi.fn();
 const mockDatabase = { execute: mockExecute };
-const mockCollections = {
-  chatSessions: { id: 'chat-sessions-collection' },
-};
 
 vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
   usePowerSyncContext: () => ({
     database: mockDatabase,
-    collections: mockCollections,
     isReady: true,
   }),
 }));
 
-// ─── useLiveQuery mock ──────────────────
+// ─── useQuery mock ──────────────────────
 
-const mockLiveQueryData = vi.fn().mockReturnValue([]);
-vi.mock('@tanstack/react-db', () => ({
-  useLiveQuery: () => ({
-    data: mockLiveQueryData(),
+const mockQueryData = vi.fn().mockReturnValue([]);
+vi.mock('@powersync/react', () => ({
+  useQuery: () => ({
+    data: mockQueryData(),
     isLoading: false,
-    isReady: true,
+    error: undefined,
   }),
-}));
-
-vi.mock('@tanstack/db', () => ({
-  eq: vi.fn(),
 }));
 
 import { useChatSessions, generateChatTitle } from '../useChatSessions';
@@ -75,11 +67,11 @@ const SESSION_ROW = {
 
 // ─── Tests ──────────────────────────────
 
-describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR crash', () => {
+describe('useChatSessions (PowerSync mode)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLocalFirstChat = true;
-    mockLiveQueryData.mockReturnValue([]);
+    mockQueryData.mockReturnValue([]);
   });
 
   it('should return empty sessions when no data', () => {
@@ -89,7 +81,7 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
   });
 
   it('should return sessions from live query with correct conversion', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -104,7 +96,7 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
   });
 
   it('should auto-select the most recent session', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -121,7 +113,7 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
 
     expect(sessionId).toMatch(/^session_/);
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO chat_sessions'),
+      expect.stringContaining('INSERT INTO analysis_conversations'),
       expect.arrayContaining(['user-123', 'New Chat', '[]']),
     );
   });
@@ -136,13 +128,13 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO chat_sessions'),
+      expect.stringContaining('INSERT INTO analysis_conversations'),
       expect.arrayContaining([customFen]),
     );
   });
 
   it('should add message to existing session', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -158,14 +150,14 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE chat_sessions SET messages'),
+      expect.stringContaining('UPDATE analysis_conversations SET messages'),
       expect.any(Array),
     );
   });
 
   it('should create new session when adding message without current session', () => {
     // No sessions exist, no current session
-    mockLiveQueryData.mockReturnValue([]);
+    mockQueryData.mockReturnValue([]);
 
     const { result } = renderHook(() => useChatSessions());
     expect(result.current.currentSessionId).toBeNull();
@@ -182,13 +174,13 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('INSERT INTO chat_sessions'),
+      expect.stringContaining('INSERT INTO analysis_conversations'),
       expect.any(Array),
     );
   });
 
   it('should delete session via PowerSync', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -197,7 +189,7 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      'DELETE FROM chat_sessions WHERE id = ?',
+      'DELETE FROM analysis_conversations WHERE id = ?',
       ['session-1'],
     );
   });
@@ -210,13 +202,13 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE chat_sessions SET title'),
+      expect.stringContaining('UPDATE analysis_conversations SET title'),
       expect.arrayContaining(['New Title', 'session-1']),
     );
   });
 
   it('should clear current session via PowerSync', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -225,13 +217,13 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE chat_sessions SET messages'),
+      expect.stringContaining('UPDATE analysis_conversations SET messages'),
       expect.arrayContaining(['session-1']),
     );
   });
 
   it('should update FEN via PowerSync', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -240,13 +232,13 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE chat_sessions SET current_fen'),
+      expect.stringContaining('UPDATE analysis_conversations SET current_fen'),
       expect.arrayContaining(['new-fen', 'session-1']),
     );
   });
 
   it('should update PGN via PowerSync', () => {
-    mockLiveQueryData.mockReturnValue([SESSION_ROW]);
+    mockQueryData.mockReturnValue([SESSION_ROW]);
 
     const { result } = renderHook(() => useChatSessions());
 
@@ -255,13 +247,13 @@ describe.skip('useChatSessions (PowerSync mode) — disabled: useLiveQuery SSR c
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE chat_sessions SET current_pgn'),
+      expect.stringContaining('UPDATE analysis_conversations SET current_pgn'),
       expect.arrayContaining(['1. e4 e5', 'session-1']),
     );
   });
 
   it('should switch sessions', () => {
-    mockLiveQueryData.mockReturnValue([
+    mockQueryData.mockReturnValue([
       SESSION_ROW,
       { ...SESSION_ROW, id: 'session-2', title: 'Second Chat' },
     ]);

@@ -22,7 +22,6 @@ const mockDatabase = {
 vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
   usePowerSyncContext: () => ({
     database: mockDatabase,
-    collections: null,
     isReady: true,
   }),
 }));

@@ -1,6 +1,6 @@
 /**
  * useChatSessions — Hook for managing chat sessions
- * Supports both legacy localStorage and PowerSync/TanStack DB live queries.
+ * Supports both legacy localStorage and PowerSync useQuery live queries.
  * Controlled by LOCAL_FIRST_CHAT feature flag.
  */
 
@@ -8,8 +8,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { LOCAL_FIRST_CHAT } from '@/lib/feature-flags';
 import { usePowerSyncContext } from '@/lib/powersync/PowerSyncProvider';
-import { useLiveQuery } from '@tanstack/react-db';
-import { eq } from '@tanstack/db';
+import { useQuery } from '@powersync/react';
 
 const STORAGE_KEY = 'chess-chat-sessions';
 
@@ -127,27 +126,12 @@ function rowToSession(row: Record<string, unknown>): ChatSession {
 
 function useChatSessionsPowerSync() {
   const { userId } = useAuth();
-  const { collections, isReady, database } = usePowerSyncContext();
+  const { database } = usePowerSyncContext();
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  const { data: rawData } = useLiveQuery(
-    (q) => {
-      if (!collections || !isReady || !userId) return null;
-      return q
-        .from({ c: collections.chatSessions })
-        .where(({ c }) => eq(c.user_id, userId))
-        .select(({ c }) => ({
-          id: c.id,
-          title: c.title,
-          messages: c.messages,
-          is_active: c.is_active,
-          current_fen: c.current_fen,
-          current_pgn: c.current_pgn,
-          created_at: c.created_at,
-          updated_at: c.updated_at,
-        }));
-    },
-    [collections, isReady, userId],
+  const { data: rawData } = useQuery(
+    'SELECT * FROM analysis_conversations WHERE user_id = ? ORDER BY updated_at DESC',
+    [userId ?? ''],
   );
 
   const sessions = useMemo(
@@ -190,7 +174,7 @@ function useChatSessionsPowerSync() {
     const now = new Date().toISOString();
 
     database.execute(
-      `INSERT INTO chat_sessions (id, user_id, title, messages, is_active, current_fen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO analysis_conversations (id, user_id, title, messages, is_active, current_fen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, userId, 'New Chat', '[]', 1, initialFen || DEFAULT_FEN, now, now],
     );
 
@@ -215,7 +199,7 @@ function useChatSessionsPowerSync() {
       const title = generateChatTitle(msgs, currentFen);
 
       database.execute(
-        `INSERT INTO chat_sessions (id, user_id, title, messages, is_active, current_fen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO analysis_conversations (id, user_id, title, messages, is_active, current_fen, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [id, userId, title, JSON.stringify(msgs), 1, currentFen || DEFAULT_FEN, now, now],
       );
 
@@ -236,7 +220,7 @@ function useChatSessionsPowerSync() {
       }
 
       database.execute(
-        `UPDATE chat_sessions SET messages = ?, title = ?, current_fen = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE analysis_conversations SET messages = ?, title = ?, current_fen = ?, updated_at = ? WHERE id = ?`,
         [
           JSON.stringify(updatedMessages),
           title,
@@ -254,7 +238,7 @@ function useChatSessionsPowerSync() {
 
   const deleteSession = useCallback((sessionId: string) => {
     if (!database) return;
-    database.execute('DELETE FROM chat_sessions WHERE id = ?', [sessionId]);
+    database.execute('DELETE FROM analysis_conversations WHERE id = ?', [sessionId]);
 
     if (sessionId === currentSessionId) {
       const remaining = sessions.filter(s => s.id !== sessionId);
@@ -265,7 +249,7 @@ function useChatSessionsPowerSync() {
   const renameSession = useCallback((sessionId: string, newTitle: string) => {
     if (!database) return;
     database.execute(
-      'UPDATE chat_sessions SET title = ?, updated_at = ? WHERE id = ?',
+      'UPDATE analysis_conversations SET title = ?, updated_at = ? WHERE id = ?',
       [newTitle, new Date().toISOString(), sessionId],
     );
   }, [database]);
@@ -273,7 +257,7 @@ function useChatSessionsPowerSync() {
   const clearCurrentSession = useCallback(() => {
     if (!database || !currentSessionId) return;
     database.execute(
-      `UPDATE chat_sessions SET messages = '[]', title = 'New Chat', updated_at = ? WHERE id = ?`,
+      `UPDATE analysis_conversations SET messages = '[]', title = 'New Chat', updated_at = ? WHERE id = ?`,
       [new Date().toISOString(), currentSessionId],
     );
   }, [database, currentSessionId]);
@@ -281,7 +265,7 @@ function useChatSessionsPowerSync() {
   const updateSessionMessages = useCallback((sessionId: string, messages: ChatMessage[]) => {
     if (!database) return;
     database.execute(
-      'UPDATE chat_sessions SET messages = ?, updated_at = ? WHERE id = ?',
+      'UPDATE analysis_conversations SET messages = ?, updated_at = ? WHERE id = ?',
       [JSON.stringify(messages), new Date().toISOString(), sessionId],
     );
   }, [database]);
@@ -289,7 +273,7 @@ function useChatSessionsPowerSync() {
   const updateSessionFen = useCallback((fen: string) => {
     if (!database || !currentSessionId) return;
     database.execute(
-      'UPDATE chat_sessions SET current_fen = ?, updated_at = ? WHERE id = ?',
+      'UPDATE analysis_conversations SET current_fen = ?, updated_at = ? WHERE id = ?',
       [fen, new Date().toISOString(), currentSessionId],
     );
   }, [database, currentSessionId]);
@@ -297,7 +281,7 @@ function useChatSessionsPowerSync() {
   const updateSessionPgn = useCallback((pgn: string) => {
     if (!database || !currentSessionId) return;
     database.execute(
-      'UPDATE chat_sessions SET current_pgn = ?, updated_at = ? WHERE id = ?',
+      'UPDATE analysis_conversations SET current_pgn = ?, updated_at = ? WHERE id = ?',
       [pgn, new Date().toISOString(), currentSessionId],
     );
   }, [database, currentSessionId]);
@@ -521,7 +505,8 @@ function useChatSessionsLegacy() {
 // ─── Exported hook ──────────────────────
 
 export const useChatSessions = () => {
-  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
-  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  if (LOCAL_FIRST_CHAT) {
+    return useChatSessionsPowerSync();
+  }
   return useChatSessionsLegacy();
 };

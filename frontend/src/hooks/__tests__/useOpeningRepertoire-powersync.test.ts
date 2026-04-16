@@ -34,39 +34,22 @@ vi.mock('@/lib/api', () => ({
 
 const mockExecute = vi.fn();
 const mockDatabase = { execute: mockExecute };
-const mockCollections = {
-  repertoires: { id: 'repertoires-collection' },
-  repertoireNodes: { id: 'repertoire-nodes-collection' },
-};
 
 vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
   usePowerSyncContext: () => ({
     database: mockDatabase,
-    collections: mockCollections,
     isReady: true,
   }),
 }));
 
-// ─── useLiveQuery mock ──────────────────
+// ─── useQuery mock ──────────────────────
 
-// We need to support multiple live queries — one for repertoires, one for nodes
-let liveQueryCallCount = 0;
-const mockRepertoireData = vi.fn().mockReturnValue([]);
-const mockNodeData = vi.fn().mockReturnValue([]);
+const mockQueryData = vi.fn().mockReturnValue([]);
 
-vi.mock('@tanstack/react-db', () => ({
-  useLiveQuery: () => {
-    liveQueryCallCount++;
-    // First call = repertoires, second call = nodes
-    if (liveQueryCallCount % 2 === 1) {
-      return { data: mockRepertoireData(), isLoading: false, isReady: true };
-    }
-    return { data: mockNodeData(), isLoading: false, isReady: true };
+vi.mock('@powersync/react', () => ({
+  useQuery: () => {
+    return { data: mockQueryData(), isLoading: false, error: undefined };
   },
-}));
-
-vi.mock('@tanstack/db', () => ({
-  eq: vi.fn(),
 }));
 
 import { useOpeningRepertoire } from '../useOpeningRepertoire';
@@ -122,13 +105,11 @@ const CHILD_NODE = {
 
 // ─── Tests ──────────────────────────────
 
-describe.skip('useOpeningRepertoire (PowerSync mode) — disabled: useLiveQuery SSR crash', () => {
+describe('useOpeningRepertoire (PowerSync mode)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    liveQueryCallCount = 0;
     mockLocalFirstRepertoire = true;
-    mockRepertoireData.mockReturnValue([]);
-    mockNodeData.mockReturnValue([]);
+    mockQueryData.mockReturnValue([]);
   });
 
   it('should return empty repertoires when live query has no data', () => {
@@ -138,7 +119,7 @@ describe.skip('useOpeningRepertoire (PowerSync mode) — disabled: useLiveQuery 
   });
 
   it('should return repertoires from live query with correct type conversion', () => {
-    mockRepertoireData.mockReturnValue([REP_ROW]);
+    mockQueryData.mockReturnValue([REP_ROW]);
 
     const { result } = renderHook(() => useOpeningRepertoire());
 
@@ -188,7 +169,7 @@ describe.skip('useOpeningRepertoire (PowerSync mode) — disabled: useLiveQuery 
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE repertoires SET'),
+      expect.stringContaining('UPDATE opening_repertoires SET'),
       expect.arrayContaining(['Updated Name']),
     );
   });
@@ -201,11 +182,11 @@ describe.skip('useOpeningRepertoire (PowerSync mode) — disabled: useLiveQuery 
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      'DELETE FROM repertoire_nodes WHERE repertoire_id = ?',
+      'DELETE FROM opening_nodes WHERE repertoire_id = ?',
       ['rep-1'],
     );
     expect(mockExecute).toHaveBeenCalledWith(
-      'DELETE FROM repertoires WHERE id = ?',
+      'DELETE FROM opening_repertoires WHERE id = ?',
       ['rep-1'],
     );
   });
@@ -218,7 +199,7 @@ describe.skip('useOpeningRepertoire (PowerSync mode) — disabled: useLiveQuery 
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      expect.stringContaining('UPDATE repertoire_nodes SET'),
+      expect.stringContaining('UPDATE opening_nodes SET'),
       expect.arrayContaining(['Critical move', 1]), // notes and is_critical=1
     );
   });
@@ -231,7 +212,7 @@ describe.skip('useOpeningRepertoire (PowerSync mode) — disabled: useLiveQuery 
     });
 
     expect(mockExecute).toHaveBeenCalledWith(
-      'DELETE FROM repertoire_nodes WHERE id = ?',
+      'DELETE FROM opening_nodes WHERE id = ?',
       ['node-e4'],
     );
   });

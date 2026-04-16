@@ -21,31 +21,14 @@ vi.mock('@clerk/nextjs', () => ({
   }),
 }));
 
-// Mock PowerSync context
-const mockCollections = {
-  subscriptions: { id: 'subscriptions-collection' },
-};
-const mockPowerSyncContext = vi.fn().mockReturnValue({
-  database: null,
-  collections: null,
-  isReady: false,
-});
-vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
-  usePowerSyncContext: () => mockPowerSyncContext(),
-}));
-
-// Mock useLiveQuery
-const mockLiveQueryResult = vi.fn().mockReturnValue({
+// Mock useQuery from @powersync/react
+const mockQueryResult = vi.fn().mockReturnValue({
   data: undefined,
   isLoading: false,
-  isReady: true,
+  error: undefined,
 });
-vi.mock('@tanstack/react-db', () => ({
-  useLiveQuery: () => mockLiveQueryResult(),
-}));
-
-vi.mock('@tanstack/db', () => ({
-  eq: vi.fn(),
+vi.mock('@powersync/react', () => ({
+  useQuery: () => mockQueryResult(),
 }));
 
 // Mock fetch for legacy mode
@@ -66,11 +49,6 @@ describe('useSubscription', () => {
     mockLocalFirstSubscription = false;
     mockIsSignedIn.mockReturnValue(true);
     mockUserId.mockReturnValue('user-123');
-    mockPowerSyncContext.mockReturnValue({
-      database: null,
-      collections: null,
-      isReady: false,
-    });
   });
 
   describe('legacy mode (feature flag off)', () => {
@@ -125,21 +103,16 @@ describe('useSubscription', () => {
     });
   });
 
-  describe.skip('PowerSync mode (feature flag on) — disabled: useLiveQuery SSR crash', () => {
+  describe('PowerSync mode (feature flag on)', () => {
     beforeEach(() => {
       mockLocalFirstSubscription = true;
     });
 
     it('should return loading when PowerSync not ready', () => {
-      mockPowerSyncContext.mockReturnValue({
-        database: {},
-        collections: mockCollections,
-        isReady: false,
-      });
-      mockLiveQueryResult.mockReturnValue({
+      mockQueryResult.mockReturnValue({
         data: undefined,
         isLoading: true,
-        isReady: false,
+        error: undefined,
       });
 
       const { result } = renderHook(() => useSubscriptionFetch());
@@ -147,12 +120,7 @@ describe('useSubscription', () => {
     });
 
     it('should return data from live query', () => {
-      mockPowerSyncContext.mockReturnValue({
-        database: {},
-        collections: mockCollections,
-        isReady: true,
-      });
-      mockLiveQueryResult.mockReturnValue({
+      mockQueryResult.mockReturnValue({
         data: [{
           id: 'sub-1',
           active: 1,
@@ -161,7 +129,7 @@ describe('useSubscription', () => {
           trial_end: null,
         }],
         isLoading: false,
-        isReady: true,
+        error: undefined,
       });
 
       const { result } = renderHook(() => useSubscriptionFetch());
@@ -172,15 +140,10 @@ describe('useSubscription', () => {
     });
 
     it('should return inactive when no subscription row exists', () => {
-      mockPowerSyncContext.mockReturnValue({
-        database: {},
-        collections: mockCollections,
-        isReady: true,
-      });
-      mockLiveQueryResult.mockReturnValue({
+      mockQueryResult.mockReturnValue({
         data: [],
         isLoading: false,
-        isReady: true,
+        error: undefined,
       });
 
       const { result } = renderHook(() => useSubscriptionFetch());

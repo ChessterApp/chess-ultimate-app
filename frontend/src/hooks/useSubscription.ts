@@ -3,9 +3,7 @@
 import { useState, useEffect, createContext, useContext } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { LOCAL_FIRST_SUBSCRIPTION } from '@/lib/feature-flags';
-import { usePowerSyncContext } from '@/lib/powersync/PowerSyncProvider';
-import { useLiveQuery } from '@tanstack/react-db';
-import { eq } from '@tanstack/db';
+import { useQuery } from '@powersync/react';
 
 export interface SubscriptionState {
   loading: boolean;
@@ -31,33 +29,19 @@ export { SubscriptionContext };
 
 /**
  * PowerSync-backed subscription fetch.
- * Reads subscription status from local SQLite via TanStack DB live query.
+ * Reads subscription status from local SQLite via @powersync/react useQuery.
  */
 function useSubscriptionPowerSync(userId: string | undefined): SubscriptionState {
-  const { collections, isReady } = usePowerSyncContext();
-
-  const { data, isLoading } = useLiveQuery(
-    (q) => {
-      if (!collections || !isReady || !userId) return null;
-      return q
-        .from({ s: collections.subscriptions })
-        .where(({ s }) => eq(s.user_id, userId))
-        .select(({ s }) => ({
-          id: s.id,
-          active: s.active,
-          plan: s.plan,
-          status: s.status,
-          trial_end: s.trial_end,
-        }));
-    },
-    [collections, isReady, userId],
+  const { data, isLoading } = useQuery(
+    'SELECT * FROM subscriptions WHERE clerk_user_id = ?',
+    [userId ?? ''],
   );
 
   if (!userId) {
     return { loading: false, active: false, plan: null, status: null, trialEnd: null };
   }
 
-  if (isLoading || !isReady) {
+  if (isLoading) {
     return { loading: true, active: false, plan: null, status: null, trialEnd: null };
   }
 
@@ -113,8 +97,9 @@ function useSubscriptionLegacy(isSignedIn: boolean | undefined): SubscriptionSta
 }
 
 export function useSubscriptionFetch(): SubscriptionState {
-  const { isSignedIn } = useAuth();
-  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
-  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  const { isSignedIn, userId } = useAuth();
+  if (LOCAL_FIRST_SUBSCRIPTION) {
+    return useSubscriptionPowerSync(userId ?? undefined);
+  }
   return useSubscriptionLegacy(isSignedIn);
 }

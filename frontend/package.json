@@ -26,9 +26,6 @@
     "@powersync/react": "^1.10.0",
     "@powersync/web": "^1.37.2",
     "@supabase/supabase-js": "^2.95.3",
-    "@tanstack/db": "^0.6.5",
-    "@tanstack/powersync-db-collection": "^0.1.43",
-    "@tanstack/react-db": "^0.1.83",
     "@tavily/core": "^0.5.12",
     "@types/lodash": "^4.17.20",
     "@types/react-window": "^1.8.8",
@@ -52,7 +49,6 @@
     "react-markdown": "^10.1.0",
     "react-window": "^2.2.2",
     "svix": "^1.85.0",
-    "swr": "^2.3.8",
     "usehooks-ts": "^3.1.1",
     "zod": "^4.3.6"
   },

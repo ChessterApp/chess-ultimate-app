@@ -1,6 +1,6 @@
 /**
  * useUserGames — Hook for managing user's saved games
- * Supports both legacy fetch and PowerSync/TanStack DB live queries.
+ * Supports both legacy fetch and PowerSync useQuery live queries.
  * Controlled by LOCAL_FIRST_GAMES feature flag.
  */
 
@@ -9,8 +9,7 @@ import { useAuth } from '@clerk/nextjs';
 import { apiFetch as globalApiFetch } from '@/lib/api';
 import { LOCAL_FIRST_GAMES } from '@/lib/feature-flags';
 import { usePowerSyncContext } from '@/lib/powersync/PowerSyncProvider';
-import { useLiveQuery } from '@tanstack/react-db';
-import { eq } from '@tanstack/db';
+import { useQuery } from '@powersync/react';
 
 const API_BASE = '/api/games';
 
@@ -93,39 +92,13 @@ function rowToUserGame(row: Record<string, unknown>): UserGame {
 
 function useUserGamesPowerSync() {
   const { userId, getToken } = useAuth();
-  const { collections, isReady, database } = usePowerSyncContext();
+  const { database } = usePowerSyncContext();
 
   const [error, setError] = useState<string | null>(null);
 
-  const { data: rawData, isLoading } = useLiveQuery(
-    (q) => {
-      if (!collections || !isReady || !userId) return null;
-      return q
-        .from({ g: collections.userGames })
-        .where(({ g }) => eq(g.user_id, userId))
-        .select(({ g }) => ({
-          id: g.id,
-          user_id: g.user_id,
-          title: g.title,
-          white: g.white,
-          black: g.black,
-          white_elo: g.white_elo,
-          black_elo: g.black_elo,
-          result: g.result,
-          date: g.date,
-          event: g.event,
-          eco: g.eco,
-          opening_name: g.opening_name,
-          pgn: g.pgn,
-          notes: g.notes,
-          tags: g.tags,
-          is_favorite: g.is_favorite,
-          source: g.source,
-          created_at: g.created_at,
-          updated_at: g.updated_at,
-        }));
-    },
-    [collections, isReady, userId],
+  const { data: rawData, isLoading } = useQuery(
+    'SELECT * FROM user_games WHERE user_id = ?',
+    [userId ?? ''],
   );
 
   const games = useMemo(
@@ -205,7 +178,7 @@ function useUserGamesPowerSync() {
   ): Promise<UserGame | null> => {
     setError(null);
     try {
-      if (database && collections) {
+      if (database) {
         // Optimistic update via PowerSync local write
         const dbUpdates: Record<string, unknown> = {};
         if (updates.title !== undefined) dbUpdates.title = updates.title;
@@ -234,7 +207,7 @@ function useUserGamesPowerSync() {
       setError(msg);
       return null;
     }
-  }, [fetchWithAuth, database, collections, games]);
+  }, [fetchWithAuth, database, games]);
 
   const deleteGame = useCallback(async (id: string): Promise<boolean> => {
     setError(null);
@@ -462,7 +435,8 @@ function useUserGamesLegacy() {
 // ─── Exported hook ──────────────────────
 
 export function useUserGames() {
-  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
-  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  if (LOCAL_FIRST_GAMES) {
+    return useUserGamesPowerSync();
+  }
   return useUserGamesLegacy();
 }

@@ -49,6 +49,10 @@ describe('feature flags', () => {
   });
 
   it('enables individual flags independently', async () => {
+    delete process.env.NEXT_PUBLIC_POWERSYNC_ENABLED;
+    delete process.env.NEXT_PUBLIC_LOCAL_FIRST_REPERTOIRE;
+    delete process.env.NEXT_PUBLIC_ENHANCED_SW;
+    delete process.env.NEXT_PUBLIC_SMART_SERVICE_WORKER;
     process.env.NEXT_PUBLIC_LOCAL_FIRST_GAMES = 'true';
     process.env.NEXT_PUBLIC_PREFETCH_QUEUE = 'true';
 

@@ -1,6 +1,6 @@
 /**
  * useOpeningRepertoire — Hook for managing opening repertoire data
- * Supports both legacy fetch and PowerSync/TanStack DB live queries.
+ * Supports both legacy fetch and PowerSync useQuery live queries.
  * Controlled by LOCAL_FIRST_REPERTOIRE feature flag.
  */
 
@@ -9,8 +9,7 @@ import { useAuth } from '@clerk/nextjs';
 import { apiFetch as globalApiFetch } from '@/lib/api';
 import { LOCAL_FIRST_REPERTOIRE } from '@/lib/feature-flags';
 import { usePowerSyncContext } from '@/lib/powersync/PowerSyncProvider';
-import { useLiveQuery } from '@tanstack/react-db';
-import { eq } from '@tanstack/db';
+import { useQuery } from '@powersync/react';
 
 const API_BASE = '/api/openings';
 
@@ -206,32 +205,15 @@ function buildTree(nodes: OpeningNode[]): OpeningNode | null {
 
 function useOpeningRepertoirePowerSync() {
   const { userId, getToken } = useAuth();
-  const { collections, isReady, database } = usePowerSyncContext();
+  const { database } = usePowerSyncContext();
   const [currentTree, setCurrentTree] = useState<OpeningNode | null>(null);
   const [treeLoading, setTreeLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeRepertoireId, setActiveRepertoireId] = useState<string | null>(null);
 
   // ── Live query for repertoire list ──
-  const { data: rawRepertoires, isLoading: loading } = useLiveQuery(
-    (q) => {
-      if (!collections || !isReady || !userId) return null;
-      return q
-        .from({ r: collections.repertoires })
-        .where(({ r }) => eq(r.user_id, userId))
-        .select(({ r }) => ({
-          id: r.id,
-          name: r.name,
-          color: r.color,
-          description: r.description,
-          is_primary: r.is_primary,
-          starting_fen: r.starting_fen,
-          starting_move_line: r.starting_move_line,
-          created_at: r.created_at,
-          updated_at: r.updated_at,
-        }));
-    },
-    [collections, isReady, userId],
+  const { data: rawRepertoires, isLoading: loading } = useQuery(
+    'SELECT * FROM opening_repertoires WHERE user_id = ?',
+    [userId ?? ''],
   );
 
   const repertoires = useMemo(
@@ -239,48 +221,8 @@ function useOpeningRepertoirePowerSync() {
     [rawRepertoires],
   );
 
-  // ── Live query for nodes of active repertoire ──
-  const { data: rawNodes } = useLiveQuery(
-    (q) => {
-      if (!collections || !isReady || !activeRepertoireId) return null;
-      return q
-        .from({ n: collections.repertoireNodes })
-        .where(({ n }) => eq(n.repertoire_id, activeRepertoireId))
-        .select(({ n }) => ({
-          id: n.id,
-          repertoire_id: n.repertoire_id,
-          parent_id: n.parent_id,
-          fen: n.fen,
-          move_san: n.move_san,
-          move_uci: n.move_uci,
-          move_number: n.move_number,
-          is_white_move: n.is_white_move,
-          opening_name: n.opening_name,
-          eco_code: n.eco_code,
-          notes: n.notes,
-          priority: n.priority,
-          is_critical: n.is_critical,
-          times_trained: n.times_trained,
-          times_correct: n.times_correct,
-          last_trained_at: n.last_trained_at,
-          next_review_at: n.next_review_at,
-          ease_factor: n.ease_factor,
-          interval_days: n.interval_days,
-          created_at: n.created_at,
-          updated_at: n.updated_at,
-        }));
-    },
-    [collections, isReady, activeRepertoireId],
-  );
-
-  // Auto-build tree when nodes change
-  const autoTree = useMemo(() => {
-    if (!rawNodes || rawNodes.length === 0) return null;
-    return buildTree(rawNodes.map(rowToNode));
-  }, [rawNodes]);
-
-  // Use the auto-built tree when available; otherwise use manually-set tree
-  const effectiveTree = activeRepertoireId ? autoTree : currentTree;
+  // opening_nodes is NOT in sync rules, so nodes are fetched via API (fetchTree).
+  // The currentTree state is populated by fetchTree.
 
   const fetchWithAuth = useCallback(async <T>(path: string, options?: RequestInit & { timeout?: number }): Promise<T> => {
     const token = await getToken();
@@ -322,7 +264,7 @@ function useOpeningRepertoirePowerSync() {
       dbUpdates.updated_at = new Date().toISOString();
 
       await database.execute(
-        `UPDATE repertoires SET ${Object.keys(dbUpdates).map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
+        `UPDATE opening_repertoires SET ${Object.keys(dbUpdates).map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
         [...Object.values(dbUpdates), id],
       );
       return;
@@ -335,8 +277,8 @@ function useOpeningRepertoirePowerSync() {
 
   const deleteRepertoire = useCallback(async (id: string) => {
     if (database) {
-      await database.execute('DELETE FROM repertoire_nodes WHERE repertoire_id = ?', [id]);
-      await database.execute('DELETE FROM repertoires WHERE id = ?', [id]);
+      await database.execute('DELETE FROM opening_nodes WHERE repertoire_id = ?', [id]);
+      await database.execute('DELETE FROM opening_repertoires WHERE id = ?', [id]);
       return;
     }
     await fetchWithAuth(`/repertoires/${id}`, { method: 'DELETE' });
@@ -345,12 +287,17 @@ function useOpeningRepertoirePowerSync() {
   // ── Tree ──────────────────────
 
   const fetchTree = useCallback(async (repertoireId: string, silent = false) => {
-    // In PowerSync mode, just set the active repertoire ID to trigger live query
-    setActiveRepertoireId(repertoireId);
+    // Nodes are not in sync rules — always fetch tree via API
     if (!silent) setTreeLoading(true);
-    // Give the live query a tick to update
-    setTimeout(() => { if (!silent) setTreeLoading(false); }, 0);
-  }, []);
+    try {
+      const data = await fetchWithAuth<{ repertoire: Repertoire; tree: OpeningNode }>(`/repertoires/${repertoireId}`);
+      setCurrentTree(data.tree);
+    } catch (e: unknown) {
+      if (!silent) setError(e instanceof Error ? e.message : 'Failed to fetch tree');
+    } finally {
+      if (!silent) setTreeLoading(false);
+    }
+  }, [fetchWithAuth]);
 
   const addNode = useCallback(async (
     parentId: string,
@@ -378,7 +325,7 @@ function useOpeningRepertoirePowerSync() {
       dbUpdates.updated_at = new Date().toISOString();
 
       await database.execute(
-        `UPDATE repertoire_nodes SET ${Object.keys(dbUpdates).map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
+        `UPDATE opening_nodes SET ${Object.keys(dbUpdates).map(k => `${k} = ?`).join(', ')} WHERE id = ?`,
         [...Object.values(dbUpdates), nodeId],
       );
       return;
@@ -391,7 +338,7 @@ function useOpeningRepertoirePowerSync() {
 
   const deleteNode = useCallback(async (nodeId: string) => {
     if (database) {
-      await database.execute('DELETE FROM repertoire_nodes WHERE id = ?', [nodeId]);
+      await database.execute('DELETE FROM opening_nodes WHERE id = ?', [nodeId]);
       return;
     }
     await fetchWithAuth(`/nodes/${nodeId}`, { method: 'DELETE' });
@@ -673,7 +620,7 @@ function useOpeningRepertoirePowerSync() {
     createRepertoire,
     updateRepertoire,
     deleteRepertoire,
-    currentTree: effectiveTree,
+    currentTree,
     setCurrentTree,
     treeLoading,
     fetchTree,
@@ -1117,7 +1064,8 @@ function useOpeningRepertoireLegacy() {
 // ─── Exported hook ──────────────────────
 
 export function useOpeningRepertoire() {
-  // PowerSync path disabled: @tanstack/react-db useLiveQuery lacks
-  // getServerSnapshot for SSR, causing HTTP 500. Re-enable when fixed.
+  if (LOCAL_FIRST_REPERTOIRE) {
+    return useOpeningRepertoirePowerSync();
+  }
   return useOpeningRepertoireLegacy();
 }

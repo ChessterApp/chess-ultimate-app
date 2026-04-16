@@ -36,6 +36,19 @@ vi.mock('@/lib/api', () => ({
   },
 }));
 
+// Feature flag off → legacy mode
+vi.mock('@/lib/feature-flags', () => ({
+  LOCAL_FIRST_GAMES: false,
+}));
+
+vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
+  usePowerSyncContext: () => ({ database: null, isReady: false }),
+}));
+
+vi.mock('@powersync/react', () => ({
+  useQuery: () => ({ data: undefined, isLoading: false, error: undefined }),
+}));
+
 // ─── Fixtures ────────────────────────────
 
 const IMPORT_PGN = `[Event "Candidates 2024"]

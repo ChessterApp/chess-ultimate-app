@@ -37,12 +37,8 @@ vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
   usePowerSyncContext: () => ({ database: null, collections: null, isReady: false }),
 }));
 
-vi.mock('@tanstack/react-db', () => ({
-  useLiveQuery: () => ({ data: undefined, isLoading: false, isReady: true }),
-}));
-
-vi.mock('@tanstack/db', () => ({
-  eq: vi.fn(),
+vi.mock('@powersync/react', () => ({
+  useQuery: () => ({ data: undefined, isLoading: false, error: undefined }),
 }));
 
 // ─── Fixtures ────────────────────────────

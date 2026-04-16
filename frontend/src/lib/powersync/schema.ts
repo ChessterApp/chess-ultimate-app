@@ -9,6 +9,9 @@ import { column, Schema, Table } from '@powersync/web';
  * - column.real   → REAL  (number | null)
  *
  * Every table implicitly has an `id` TEXT primary key.
+ *
+ * Table names MUST match Supabase table names exactly — PowerSync
+ * local SQLite uses the same names as the sync rules.
  */
 
 const user_games = new Table({
@@ -32,7 +35,7 @@ const user_games = new Table({
   updated_at: column.text,
 });
 
-const repertoires = new Table({
+const opening_repertoires = new Table({
   user_id: column.text,
   name: column.text,
   color: column.text, // 'w' | 'b'
@@ -44,7 +47,7 @@ const repertoires = new Table({
   updated_at: column.text,
 });
 
-const repertoire_nodes = new Table({
+const opening_nodes = new Table({
   repertoire_id: column.text,
   parent_id: column.text,
   fen: column.text,
@@ -67,7 +70,7 @@ const repertoire_nodes = new Table({
   updated_at: column.text,
 });
 
-const chat_sessions = new Table({
+const analysis_conversations = new Table({
   user_id: column.text,
   title: column.text,
   messages: column.text, // JSON-serialized ChatMessage[]
@@ -101,7 +104,7 @@ const courses = new Table({
   updated_at: column.text,
 });
 
-const puzzles = new Table({
+const lesson_puzzles = new Table({
   fen: column.text,
   moves: column.text,
   rating: column.integer,
@@ -112,6 +115,7 @@ const puzzles = new Table({
 
 const subscriptions = new Table({
   user_id: column.text,
+  clerk_user_id: column.text,
   active: column.integer, // SQLite boolean: 0 | 1
   plan: column.text,
   status: column.text,
@@ -137,23 +141,23 @@ const lessons = new Table({
 
 export const AppSchema = new Schema({
   user_games,
-  repertoires,
-  repertoire_nodes,
-  chat_sessions,
+  opening_repertoires,
+  opening_nodes,
+  analysis_conversations,
   user_progress,
   subscriptions,
   courses,
-  puzzles,
+  lesson_puzzles,
   lessons,
 });
 
 export type AppDatabase = (typeof AppSchema)['types'];
 export type UserGameRow = AppDatabase['user_games'];
-export type RepertoireRow = AppDatabase['repertoires'];
-export type RepertoireNodeRow = AppDatabase['repertoire_nodes'];
-export type ChatSessionRow = AppDatabase['chat_sessions'];
+export type RepertoireRow = AppDatabase['opening_repertoires'];
+export type RepertoireNodeRow = AppDatabase['opening_nodes'];
+export type ChatSessionRow = AppDatabase['analysis_conversations'];
 export type UserProgressRow = AppDatabase['user_progress'];
 export type SubscriptionRow = AppDatabase['subscriptions'];
 export type CourseRow = AppDatabase['courses'];
-export type PuzzleRow = AppDatabase['puzzles'];
+export type PuzzleRow = AppDatabase['lesson_puzzles'];
 export type LessonRow = AppDatabase['lessons'];

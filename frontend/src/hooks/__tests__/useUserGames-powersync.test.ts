@@ -7,8 +7,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// PowerSync path disabled: @tanstack/react-db useLiveQuery lacks getServerSnapshot for SSR
-// These tests will be re-enabled when the PowerSync path is reactivated
 import { renderHook, act } from '@testing-library/react';
 
 // ─── Feature flag mock ──────────────────
@@ -39,31 +37,23 @@ vi.mock('@/lib/api', () => ({
 
 const mockExecute = vi.fn();
 const mockDatabase = { execute: mockExecute };
-const mockCollections = {
-  userGames: { id: 'user-games-collection' },
-};
 
 vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
   usePowerSyncContext: () => ({
     database: mockDatabase,
-    collections: mockCollections,
     isReady: true,
   }),
 }));
 
-// ─── useLiveQuery mock ──────────────────
+// ─── useQuery mock ──────────────────────
 
-const mockLiveQueryData = vi.fn().mockReturnValue([]);
-vi.mock('@tanstack/react-db', () => ({
-  useLiveQuery: () => ({
-    data: mockLiveQueryData(),
+const mockQueryData = vi.fn().mockReturnValue([]);
+vi.mock('@powersync/react', () => ({
+  useQuery: () => ({
+    data: mockQueryData(),
     isLoading: false,
-    isReady: true,
+    error: undefined,
   }),
-}));
-
-vi.mock('@tanstack/db', () => ({
-  eq: vi.fn(),
 }));
 
 import { useUserGames } from '../useUserGames';
@@ -95,11 +85,11 @@ const GAME_ROW = {
 
 // ─── Tests ──────────────────────────────
 
-describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR crash', () => {
+describe('useUserGames (PowerSync mode)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLocalFirstGames = true;
-    mockLiveQueryData.mockReturnValue([]);
+    mockQueryData.mockReturnValue([]);
     mockGetToken.mockResolvedValue('test-token');
   });
 
@@ -110,7 +100,7 @@ describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR cras
   });
 
   it('should return games from live query with correct type conversion', () => {
-    mockLiveQueryData.mockReturnValue([GAME_ROW]);
+    mockQueryData.mockReturnValue([GAME_ROW]);
 
     const { result } = renderHook(() => useUserGames());
 
@@ -124,28 +114,28 @@ describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR cras
   });
 
   it('should convert is_favorite integer to boolean', () => {
-    mockLiveQueryData.mockReturnValue([{ ...GAME_ROW, is_favorite: 1 }]);
+    mockQueryData.mockReturnValue([{ ...GAME_ROW, is_favorite: 1 }]);
 
     const { result } = renderHook(() => useUserGames());
     expect(result.current.games[0].is_favorite).toBe(true);
   });
 
   it('should parse JSON tags', () => {
-    mockLiveQueryData.mockReturnValue([{ ...GAME_ROW, tags: '["rapid","tactics"]' }]);
+    mockQueryData.mockReturnValue([{ ...GAME_ROW, tags: '["rapid","tactics"]' }]);
 
     const { result } = renderHook(() => useUserGames());
     expect(result.current.games[0].tags).toEqual(['rapid', 'tactics']);
   });
 
   it('should handle invalid JSON tags gracefully', () => {
-    mockLiveQueryData.mockReturnValue([{ ...GAME_ROW, tags: 'not-json' }]);
+    mockQueryData.mockReturnValue([{ ...GAME_ROW, tags: 'not-json' }]);
 
     const { result } = renderHook(() => useUserGames());
     expect(result.current.games[0].tags).toEqual([]);
   });
 
   it('fetchGames should return current data (no-op in PowerSync mode)', async () => {
-    mockLiveQueryData.mockReturnValue([GAME_ROW]);
+    mockQueryData.mockReturnValue([GAME_ROW]);
 
     const { result } = renderHook(() => useUserGames());
 
@@ -159,7 +149,7 @@ describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR cras
   });
 
   it('should find a game locally via getGame', async () => {
-    mockLiveQueryData.mockReturnValue([GAME_ROW]);
+    mockQueryData.mockReturnValue([GAME_ROW]);
 
     const { result } = renderHook(() => useUserGames());
 
@@ -175,7 +165,7 @@ describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR cras
   });
 
   it('should fallback to API for getGame when not in local store', async () => {
-    mockLiveQueryData.mockReturnValue([]);
+    mockQueryData.mockReturnValue([]);
     mockApiFetch.mockResolvedValueOnce({ ...GAME_ROW, tags: ['blitz'], is_favorite: false });
 
     const { result } = renderHook(() => useUserGames());
@@ -207,7 +197,7 @@ describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR cras
   });
 
   it('should update game via PowerSync local write', async () => {
-    mockLiveQueryData.mockReturnValue([GAME_ROW]);
+    mockQueryData.mockReturnValue([GAME_ROW]);
 
     const { result } = renderHook(() => useUserGames());
 
@@ -237,7 +227,7 @@ describe.skip('useUserGames (PowerSync mode) — disabled: useLiveQuery SSR cras
   });
 
   it('should toggle favorite via optimistic update', async () => {
-    mockLiveQueryData.mockReturnValue([GAME_ROW]); // is_favorite: 0 (false)
+    mockQueryData.mockReturnValue([GAME_ROW]); // is_favorite: 0 (false)
 
     const { result } = renderHook(() => useUserGames());
 
