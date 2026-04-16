@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAuth, SignInButton } from '@clerk/nextjs'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import useSWR from 'swr'
 import { useTranslations, useLocale } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
 import { apiFetch, ApiError } from '@/lib/api'
@@ -67,47 +66,61 @@ export default function CoursePage() {
   const locale = useLocale()
   const { showToast } = useToast()
 
-  // SWR fetcher with auth
-  const fetcher = useCallback(async (url: string): Promise<CourseData> => {
-    const token = await getToken()
-    if (!token) {
-      throw new Error('No auth token')
-    }
+  const [data, setData] = useState<CourseData | null>(null)
+  const [error, setError] = useState<Error | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const fetchedRef = useRef<string | null>(null)
 
-    try {
-      return await apiFetch<CourseData>(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-    } catch (e) {
-      if (e instanceof ApiError) {
-        if (e.status === 401) {
-          throw new Error('Session expired')
+  const mutate = useCallback(async () => {
+    fetchedRef.current = null
+    setError(null)
+  }, [])
+
+  useEffect(() => {
+    if (!courseSlug || !isLoaded || !isSignedIn) return
+
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}?locale=${locale}`
+    if (fetchedRef.current === url && data) return
+    fetchedRef.current = url
+
+    let cancelled = false
+    setIsLoading(true)
+
+    async function fetchCourse() {
+      try {
+        const token = await getToken()
+        if (!token) throw new Error('No auth token')
+
+        const result = await apiFetch<CourseData>(url, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+
+        if (!cancelled) {
+          setData(result)
+          setError(null)
         }
-        if (e.status === 408) {
-          showToast('Request timed out — try again', 'error')
-        } else if (e.status === 0) {
-          showToast('Network error — check your connection', 'error')
+      } catch (e) {
+        if (cancelled) return
+        if (e instanceof ApiError) {
+          if (e.status === 401) {
+            setError(new Error('Session expired'))
+            return
+          }
+          if (e.status === 408) {
+            showToast('Request timed out — try again', 'error')
+          } else if (e.status === 0) {
+            showToast('Network error — check your connection', 'error')
+          }
         }
+        setError(new Error('Failed to fetch course data'))
+      } finally {
+        if (!cancelled) setIsLoading(false)
       }
-      throw new Error('Failed to fetch course data')
     }
-  }, [getToken, showToast])
 
-  // Use SWR for caching - data persists across navigations
-  const { data, error, isLoading, mutate } = useSWR<CourseData>(
-    // Only fetch when we have a courseSlug and auth is ready
-    courseSlug && isLoaded && isSignedIn
-      ? `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}?locale=${locale}`
-      : null,
-    fetcher,
-    {
-      revalidateOnFocus: false,      // Don't refetch when window regains focus
-      revalidateOnReconnect: false,  // Don't refetch on reconnect
-      dedupingInterval: 60000,       // Dedupe requests within 1 minute
-      errorRetryCount: 2,            // Retry failed requests twice
-      keepPreviousData: true,        // Keep showing old data while revalidating
-    }
-  )
+    fetchCourse()
+    return () => { cancelled = true }
+  }, [courseSlug, isLoaded, isSignedIn, locale, getToken, showToast, data, mutate])
 
   // Handle auth state changes
   useEffect(() => {
@@ -142,7 +155,7 @@ export default function CoursePage() {
             </button>
           </SignInButton>
           <div className="mt-4">
-            <Link href="/dashboard" className="text-blue-600 hover:underline">
+            <Link href="/learn" className="text-blue-600 hover:underline">
               ← {t('course.backToDashboard')}
             </Link>
           </div>
@@ -166,7 +179,7 @@ export default function CoursePage() {
           >
             {t('course.retry')}
           </button>
-          <Link href="/dashboard" className="text-blue-600 hover:underline">
+          <Link href="/learn" className="text-blue-600 hover:underline">
             ← {t('course.backToDashboard')}
           </Link>
         </div>
@@ -179,7 +192,7 @@ export default function CoursePage() {
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <div className="text-xl text-red-500 mb-4">{t('course.notFound')}</div>
-          <Link href="/dashboard" className="text-blue-600 hover:underline">
+          <Link href="/learn" className="text-blue-600 hover:underline">
             ← {t('course.backToDashboard')}
           </Link>
         </div>
@@ -212,7 +225,7 @@ export default function CoursePage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <Breadcrumbs />
-      <Link href="/dashboard" className="text-blue-600 hover:underline mb-4 inline-block">
+      <Link href="/learn" className="text-blue-600 hover:underline mb-4 inline-block">
         ← {t('course.backToDashboard')}
       </Link>
 

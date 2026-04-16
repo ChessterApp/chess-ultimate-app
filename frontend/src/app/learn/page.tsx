@@ -102,7 +102,7 @@ export default function LearnPage() {
   const lessonPathCourses = useMemo(() => {
     return courses
       .sort((a, b) => a.order_index - b.order_index)
-      .map((course, index) => {
+      .map((course) => {
         const progress = courseProgress[course.id]
         const isLocked = false
 
@@ -117,20 +117,6 @@ export default function LearnPage() {
         }
       })
   }, [courses, courseProgress])
-
-  // Group courses by level
-  const coursesByLevel = useMemo(() => {
-    const grouped = {
-      beginner: lessonPathCourses.filter(c => c.level === 'beginner'),
-      intermediate: lessonPathCourses.filter(c => c.level === 'intermediate'),
-      advanced: lessonPathCourses.filter(c => c.level === 'advanced'),
-      master: lessonPathCourses.filter(c => c.level === 'master'),
-      expert: lessonPathCourses.filter(c => c.level === 'expert'),
-      legendary: lessonPathCourses.filter(c => c.level === 'legendary'),
-      grandmaster: lessonPathCourses.filter(c => c.level === 'grandmaster'),
-    }
-    return grouped
-  }, [lessonPathCourses])
 
   if (loading || !isLoaded) {
     return <LoadingScreen isVisible={true} />
@@ -159,13 +145,13 @@ export default function LearnPage() {
     <div className="min-h-screen bg-gray-50 animate-page-enter">
       {/* Header */}
       <div className="bg-gradient-to-br from-purple-600 to-purple-800 text-white">
-        <div className="container mx-auto px-4 py-6">
+        <div className="max-w-[600px] mx-auto px-4 py-6">
           <h1 className="text-2xl font-bold">{t('learn.title')}</h1>
           <p className="text-purple-200 mt-1">{t('learn.subtitle')}</p>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-6">
+      <div className="max-w-[600px] mx-auto px-4 py-6">
         {/* Mascot welcome */}
         <div className="mb-6">
           <SpeechBubble mood="encouraging" mascotSize="sm">
@@ -184,107 +170,9 @@ export default function LearnPage() {
           </div>
         )}
 
-        {/* Course Path */}
+        {/* Single continuous course path */}
         {lessonPathCourses.length > 0 ? (
-          <div className="space-y-8">
-            {/* Beginner Section */}
-            {coursesByLevel.beginner.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-green-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.beginner')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.beginner.filter(c => c.progress === 100).length}/{coursesByLevel.beginner.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.beginner} />
-              </div>
-            )}
-
-            {/* Intermediate Section */}
-            {coursesByLevel.intermediate.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-amber-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.intermediate')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.intermediate.filter(c => c.progress === 100).length}/{coursesByLevel.intermediate.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.intermediate} />
-              </div>
-            )}
-
-            {/* Advanced Section */}
-            {coursesByLevel.advanced.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-red-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.advanced')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.advanced.filter(c => c.progress === 100).length}/{coursesByLevel.advanced.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.advanced} />
-              </div>
-            )}
-
-            {/* Master Section */}
-            {coursesByLevel.master.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.master')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.master.filter(c => c.progress === 100).length}/{coursesByLevel.master.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.master} />
-              </div>
-            )}
-
-            {/* Expert Section */}
-            {coursesByLevel.expert.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-amber-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.expert')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.expert.filter(c => c.progress === 100).length}/{coursesByLevel.expert.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.expert} />
-              </div>
-            )}
-
-            {/* Legendary Section */}
-            {coursesByLevel.legendary.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-rose-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.legendary')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.legendary.filter(c => c.progress === 100).length}/{coursesByLevel.legendary.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.legendary} />
-              </div>
-            )}
-
-            {/* Grandmaster Section */}
-            {coursesByLevel.grandmaster.length > 0 && (
-              <div className="bg-white rounded-2xl shadow-md p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <span className="w-3 h-3 bg-indigo-500 rounded-full"></span>
-                  <h2 className="text-lg font-bold text-gray-900">{t('learn.grandmaster')}</h2>
-                  <span className="text-sm text-gray-500">
-                    ({coursesByLevel.grandmaster.filter(c => c.progress === 100).length}/{coursesByLevel.grandmaster.length} {t('learn.complete')})
-                  </span>
-                </div>
-                <LessonPath courses={coursesByLevel.grandmaster} />
-              </div>
-            )}
-          </div>
+          <LessonPath courses={lessonPathCourses} />
         ) : (
           <div className="text-center text-gray-500 bg-white rounded-2xl p-8">
             <p className="text-lg">{t('dashboard.noCourses')}</p>

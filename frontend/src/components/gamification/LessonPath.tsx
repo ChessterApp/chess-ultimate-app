@@ -26,63 +26,169 @@ interface LessonPathProps {
   courseSlug?: string;
 }
 
-const levelColors = {
+const levelColors: Record<string, { bg: string; border: string; text: string; light: string; glow: string; gradient: string }> = {
   beginner: {
     bg: 'bg-green-500',
     border: 'border-green-500',
     text: 'text-green-600',
     light: 'bg-green-100',
+    glow: 'shadow-green-400/50',
+    gradient: 'from-green-400 to-green-600',
   },
   intermediate: {
     bg: 'bg-amber-500',
     border: 'border-amber-500',
     text: 'text-amber-600',
     light: 'bg-amber-100',
+    glow: 'shadow-amber-400/50',
+    gradient: 'from-amber-400 to-amber-600',
   },
   advanced: {
     bg: 'bg-red-500',
     border: 'border-red-500',
     text: 'text-red-600',
     light: 'bg-red-100',
+    glow: 'shadow-red-400/50',
+    gradient: 'from-red-400 to-red-600',
   },
   master: {
     bg: 'bg-purple-500',
     border: 'border-purple-500',
     text: 'text-purple-600',
     light: 'bg-purple-100',
+    glow: 'shadow-purple-400/50',
+    gradient: 'from-purple-400 to-purple-600',
   },
   expert: {
     bg: 'bg-amber-500',
     border: 'border-amber-500',
     text: 'text-amber-600',
     light: 'bg-amber-100',
+    glow: 'shadow-amber-400/50',
+    gradient: 'from-amber-400 to-amber-600',
   },
   legendary: {
     bg: 'bg-rose-500',
     border: 'border-rose-500',
     text: 'text-rose-600',
     light: 'bg-rose-100',
+    glow: 'shadow-rose-400/50',
+    gradient: 'from-rose-400 to-rose-600',
   },
   grandmaster: {
     bg: 'bg-indigo-500',
     border: 'border-indigo-500',
     text: 'text-indigo-600',
     light: 'bg-indigo-100',
+    glow: 'shadow-indigo-400/50',
+    gradient: 'from-indigo-400 to-indigo-600',
   },
 };
 
-export function LessonPath({ courses, courseSlug }: LessonPathProps) {
-  return (
-    <div className="flex flex-col items-center py-4">
-      {courses.map((course, courseIndex) => (
-        <div key={course.id} className="flex flex-col items-center">
-          {/* Course Node */}
-          <CourseNode course={course} isExpanded={course.slug === courseSlug} courseIndex={courseIndex} />
+const levelIcons: Record<string, string> = {
+  beginner: '♟',
+  intermediate: '♞',
+  advanced: '♝',
+  master: '♜',
+  expert: '♛',
+  legendary: '♚',
+  grandmaster: '👑',
+};
 
-          {/* Connector to next course */}
-          {courseIndex < courses.length - 1 && (
-            <div className="w-1 h-8 bg-gray-300 my-2" />
-          )}
+const levelLabels: Record<string, string> = {
+  beginner: 'Level 1',
+  intermediate: 'Level 2',
+  advanced: 'Level 3',
+  master: 'Level 4',
+  expert: 'Level 5',
+  legendary: 'Level 6',
+  grandmaster: 'Level 7',
+};
+
+// Group courses by level for section dividers
+function groupByLevel(courses: Course[]): { level: string; courses: Course[] }[] {
+  const groups: { level: string; courses: Course[] }[] = [];
+  let currentLevel = '';
+
+  for (const course of courses) {
+    if (course.level !== currentLevel) {
+      currentLevel = course.level;
+      groups.push({ level: currentLevel, courses: [course] });
+    } else {
+      groups[groups.length - 1].courses.push(course);
+    }
+  }
+
+  return groups;
+}
+
+// Get zigzag X offset for a node at a given global index
+function getZigzagOffset(index: number): string {
+  // Odd nodes go left, even nodes go right (Duolingo-style)
+  if (index % 2 === 0) return 'translate-x-10';
+  return '-translate-x-10';
+}
+
+export function LessonPath({ courses, courseSlug }: LessonPathProps) {
+  const groups = groupByLevel(courses);
+  let globalIndex = 0;
+
+  return (
+    <div className="flex flex-col items-center py-6 relative">
+      {groups.map((group, groupIndex) => (
+        <div key={group.level} className="flex flex-col items-center w-full">
+          {/* Section divider */}
+          <div className="flex items-center gap-3 w-full max-w-xs mb-6 mt-2">
+            <div className="flex-1 h-px bg-gray-200" />
+            <span className={`text-xs font-bold uppercase tracking-wider ${levelColors[group.level]?.text || 'text-gray-500'}`}>
+              {levelIcons[group.level]} {levelLabels[group.level] || group.level}
+            </span>
+            <div className="flex-1 h-px bg-gray-200" />
+          </div>
+
+          {group.courses.map((course, courseIndexInGroup) => {
+            const nodeIndex = globalIndex++;
+            const isCurrent = !course.isLocked && course.progress > 0 && course.progress < 100;
+            const isNext = !course.isLocked && course.progress === 0;
+            const isActive = isCurrent || isNext;
+            const isCompleted = course.progress === 100;
+            const isFirst = nodeIndex === 0 && groupIndex === 0;
+
+            // Find the first active (non-locked, non-completed) course
+            const firstActiveCourse = courses.find(c => !c.isLocked && c.progress < 100);
+            const isCurrentActive = firstActiveCourse?.id === course.id;
+
+            return (
+              <div key={course.id} className="flex flex-col items-center">
+                {/* SVG curved connector to previous node */}
+                {!(isFirst && courseIndexInGroup === 0) && (
+                  <svg width="120" height="48" viewBox="0 0 120 48" className="my-1" aria-hidden="true">
+                    <path
+                      d={nodeIndex % 2 === 0
+                        ? 'M 20 0 C 20 24, 100 24, 100 48'
+                        : 'M 100 0 C 100 24, 20 24, 20 48'
+                      }
+                      fill="none"
+                      stroke={isCompleted || isActive ? '#a78bfa' : '#d1d5db'}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={isActive ? '6 4' : 'none'}
+                    />
+                  </svg>
+                )}
+
+                {/* Course node with zigzag offset */}
+                <div className={`flex flex-col items-center transition-transform ${getZigzagOffset(nodeIndex)}`}>
+                  <CourseNode
+                    course={course}
+                    isExpanded={course.slug === courseSlug}
+                    courseIndex={nodeIndex}
+                    isCurrentActive={isCurrentActive}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>
@@ -93,57 +199,64 @@ interface CourseNodeProps {
   course: Course;
   isExpanded: boolean;
   courseIndex: number;
+  isCurrentActive: boolean;
 }
 
-function CourseNode({ course, isExpanded, courseIndex }: CourseNodeProps) {
-  const colors = levelColors[course.level];
+function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: CourseNodeProps) {
+  const colors = levelColors[course.level] || levelColors.beginner;
+  const isCompleted = course.progress === 100;
+  const icon = levelIcons[course.level] || '♟';
 
   return (
     <div className="flex flex-col items-center">
       <Link
         href={course.isLocked ? '#' : `/learn/${course.slug}`}
-        className={`relative flex flex-col items-center justify-center w-24 h-24 rounded-2xl shadow-lg transition-all duration-200 ${
+        className={`relative flex items-center justify-center w-20 h-20 rounded-full transition-all duration-300 ${
           course.isLocked
-            ? 'bg-gray-200 cursor-not-allowed'
-            : `${colors.light} hover:scale-105 active:scale-95`
+            ? 'bg-gray-200 cursor-not-allowed border-4 border-gray-300'
+            : isCompleted
+            ? `bg-gradient-to-br ${colors.gradient} border-4 border-white shadow-lg`
+            : isCurrentActive
+            ? `${colors.light} border-4 ${colors.border} shadow-lg ${colors.glow} animate-pulse`
+            : `bg-white border-4 ${colors.border} hover:scale-105 active:scale-95 shadow-md`
         }`}
+        aria-label={course.title}
+        onClick={course.isLocked ? (e: React.MouseEvent) => e.preventDefault() : undefined}
       >
-        {/* Lock overlay */}
-        {course.isLocked && (
-          <div className="absolute inset-0 flex items-center justify-center bg-gray-400/20 rounded-2xl">
-            <span className="text-3xl">🔒</span>
-          </div>
-        )}
-
-        {/* Progress ring */}
-        {!course.isLocked && (
-          <svg className="absolute inset-0 w-full h-full -rotate-90">
+        {/* Progress ring for non-locked, non-completed courses */}
+        {!course.isLocked && !isCompleted && course.progress > 0 && (
+          <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 80 80">
             <circle
-              cx="48"
-              cy="48"
-              r="44"
+              cx="40"
+              cy="40"
+              r="36"
               fill="none"
               stroke="currentColor"
               strokeWidth="4"
               className="text-gray-200"
             />
             <circle
-              cx="48"
-              cy="48"
-              r="44"
+              cx="40"
+              cy="40"
+              r="36"
               fill="none"
               stroke="currentColor"
               strokeWidth="4"
-              strokeDasharray={`${course.progress * 2.76} 276`}
+              strokeDasharray={`${course.progress * 2.26} 226`}
+              strokeLinecap="round"
               className={colors.text}
             />
           </svg>
         )}
 
-        {/* Course number and level indicator */}
-        <div className={`relative z-10 text-2xl font-bold ${course.isLocked ? 'text-gray-400' : colors.text}`}>
-          {course.progress === 100 ? '✓' : courseIndex + 1}
-        </div>
+        {/* Icon content */}
+        {course.isLocked ? (
+          <span className="text-2xl text-gray-400">🔒</span>
+        ) : isCompleted ? (
+          <span className="text-3xl">👑</span>
+        ) : (
+          <span className="text-3xl relative z-10">{icon}</span>
+        )}
       </Link>
 
       {/* Course title */}
@@ -151,8 +264,17 @@ function CourseNode({ course, isExpanded, courseIndex }: CourseNodeProps) {
         <div className={`text-sm font-semibold ${course.isLocked ? 'text-gray-400' : 'text-gray-800'}`}>
           {course.title}
         </div>
-        <div className={`text-xs ${colors.text} capitalize`}>{course.level}</div>
       </div>
+
+      {/* START / CONTINUE button for current active course */}
+      {isCurrentActive && !course.isLocked && (
+        <Link
+          href={`/learn/${course.slug}`}
+          className={`mt-2 px-5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide text-white bg-gradient-to-r ${colors.gradient} shadow-md hover:shadow-lg hover:scale-105 active:scale-95 transition-all`}
+        >
+          {course.progress > 0 ? 'CONTINUE' : 'START'}
+        </Link>
+      )}
 
       {/* Expanded lessons view */}
       {isExpanded && !course.isLocked && course.lessons.length > 0 && (
@@ -227,7 +349,7 @@ interface HorizontalLessonPathProps {
 }
 
 export function HorizontalLessonPath({ lessons, courseSlug, level }: HorizontalLessonPathProps) {
-  const colors = levelColors[level];
+  const colors = levelColors[level] || levelColors.beginner;
 
   return (
     <div className="flex items-center gap-2 overflow-x-auto pb-2 px-4 -mx-4">

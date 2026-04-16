@@ -303,7 +303,7 @@
   },
   "course": {
     "signInRequired": "Please sign in to access this course",
-    "backToDashboard": "Back to Dashboard",
+    "backToDashboard": "Back to Courses",
     "sessionExpired": "Session expired",
     "loadError": "Failed to load course data",
     "retry": "Retry",

@@ -229,7 +229,7 @@ export default function DashboardPage() {
         {currentCourse && (
           <div className="mb-8 md:col-span-2 lg:col-span-2">
             <Link
-              href={`/learn/${currentCourse.slug}`}
+              href="/learn"
               className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200 hover:border-purple-400 transition-all hover:shadow-lg"
             >
               <div className="flex items-center justify-between mb-3">
