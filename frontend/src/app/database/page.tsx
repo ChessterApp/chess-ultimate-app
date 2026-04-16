@@ -20,6 +20,7 @@ import type { MasterGamesFilterState } from '@/components/openings/MasterGamesFi
 import { useLichessExplorer } from '@/hooks/useLichessExplorer';
 import { useReplayStockfish } from '@/hooks/useReplayStockfish';
 import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
+import { useSession } from "@clerk/nextjs";
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -94,8 +95,7 @@ const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 export default function DebutPage() {
   const t = useTranslations('debut');
-  // Auth disabled
-  const session = { isLoaded: true, isSignedIn: true };
+  const session = useSession();
   const backendHealthy = useBackendHealth();
 
   // mounted guard removed — dynamic imports with ssr:false handle this

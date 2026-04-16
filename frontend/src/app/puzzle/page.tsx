@@ -46,8 +46,7 @@ const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboa
   ssr: false,
   loading: () => <div className="animate-pulse h-80 bg-gray-200 rounded-xl" />
 });
-// Clerk authentication disabled for local development
-// import { useSession } from "@clerk/nextjs";
+import { useSession } from "@clerk/nextjs";
 import {
   Lightbulb,
   Star,
@@ -66,9 +65,7 @@ import Warning from "@/components/loading/SignUpWarning";
 import Breadcrumbs from "@/components/Breadcrumbs";
 
 export default function PuzzlePage() {
-  // const session = useSession();
-  // Simulated session for no-auth mode
-  const session = { isLoaded: true, isSignedIn: true };
+  const session = useSession();
   const t = useTranslations('puzzle');
   const { showToast } = useToast();
   const { play: playSound } = useSoundEffects();

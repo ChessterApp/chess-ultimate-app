@@ -16,8 +16,7 @@ import { Refresh as RefreshIcon, Save as SaveIcon, Speed as SpeedIcon } from "@m
 import type { Chess } from "chess.js";
 import dynamic from "next/dynamic";
 import useChesster from "@/hooks/useChesster";
-// Clerk authentication disabled for local development
-// import { useSession } from "@clerk/nextjs";
+import { useSession } from "@clerk/nextjs";
 import UserGameSelect from "@/components/lichess/UserGameSelect";
 import UserChessDotComGameSelect from "@/components/chessdotcom/UserChessDotComGameSelect";
 import UserPGNUploader from "@/components/lichess/UserPGNUpload";
@@ -49,9 +48,7 @@ const AiChessboardPanel = dynamic(() => import("@/components/analysis/AiChessboa
 });
 
 export default function PGNUploaderPage() {
-  // const session = useSession();
-  // Simulated session for no-auth mode
-  const session = { isLoaded: true, isSignedIn: true };
+  const session = useSession();
 
   const [pgnText, setPgnText] = useState("");
   const [game, setGame] = useState<Chess | null>(null);

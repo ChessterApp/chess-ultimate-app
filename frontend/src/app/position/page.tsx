@@ -8,8 +8,7 @@ import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
 import useChesster from "@/hooks/useChesster";
-// Clerk authentication disabled for local development
-// import { useSession } from "@clerk/nextjs";
+import { useSession } from "@clerk/nextjs";
 import Loader from "@/components/loading/Loader";
 import Warning from "@/components/loading/SignUpWarning";
 import Breadcrumbs from "@/components/Breadcrumbs";
@@ -36,9 +35,7 @@ const EditorControls = dynamic(() => import("@/components/editor/EditorControls"
 });
 
 export default function PositionPage() {
-  // const session = useSession();
-  // Simulated session for no-auth mode
-  const session = { isLoaded: true, isSignedIn: true };
+  const session = useSession();
 
   // Client-side only flag
   const [mounted, setMounted] = useState(false);
