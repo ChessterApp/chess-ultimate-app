@@ -1,0 +1,6 @@
+backend/
+*.db
+*.sqlite
+*.sqlite3
+*.pgn
+*.pgn.gz

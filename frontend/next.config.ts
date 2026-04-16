@@ -34,11 +34,13 @@ const nextConfig = {
             { source: '/api/games', destination: `${backendUrl}/api/games` },
             { source: '/api/games/:path*', destination: `${backendUrl}/api/games/:path*` },
         ];
+        // Rewrite @powersync/ to powersync/ (Vercel doesn't serve @-prefixed dirs from public/)
+        const powersyncRewrite = { source: '/@powersync/:path*', destination: '/powersync/:path*' };
         // On Vercel, use beforeFiles so rewrites run before Next.js file resolution
         if (process.env.VERCEL) {
-            return { beforeFiles: rules, afterFiles: [], fallback: [] };
+            return { beforeFiles: [...rules, powersyncRewrite], afterFiles: [], fallback: [] };
         }
-        return rules;
+        return [...rules, powersyncRewrite];
     },
     async redirects() {
         return [
