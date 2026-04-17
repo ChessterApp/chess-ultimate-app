@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   Box, TextField, InputAdornment, Select, MenuItem, FormControl, Chip, Collapse, Slider, Typography,
@@ -41,12 +41,16 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   const [localEcoCode, setLocalEcoCode] = useState(filters.ecoCode);
   const [localEventName, setLocalEventName] = useState(filters.eventName);
 
+  // Always hold the latest filters to avoid stale closures in debounced callbacks
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
   // Debounce player name input: only fire API call after 300ms of no typing
   // AND only if length is 0 (cleared) OR >= 3 characters
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localPlayerName.length === 0 || localPlayerName.length >= 3) {
-        onFilterChange({ ...filters, playerName: localPlayerName });
+        onFilterChange({ ...filtersRef.current, playerName: localPlayerName });
       }
     }, 300);
 
@@ -57,7 +61,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localOpponentName.length === 0 || localOpponentName.length >= 3) {
-        onFilterChange({ ...filters, opponentName: localOpponentName });
+        onFilterChange({ ...filtersRef.current, opponentName: localOpponentName });
       }
     }, 300);
 
@@ -77,7 +81,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   // Debounce white ELO slider (300ms)
   useEffect(() => {
     const timer = setTimeout(() => {
-      onFilterChange({ ...filters, whiteEloMin: localWhiteElo[0], whiteEloMax: localWhiteElo[1] });
+      onFilterChange({ ...filtersRef.current, whiteEloMin: localWhiteElo[0], whiteEloMax: localWhiteElo[1] });
     }, 300);
     return () => clearTimeout(timer);
   }, [localWhiteElo]);
@@ -85,7 +89,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   // Debounce black ELO slider (300ms)
   useEffect(() => {
     const timer = setTimeout(() => {
-      onFilterChange({ ...filters, blackEloMin: localBlackElo[0], blackEloMax: localBlackElo[1] });
+      onFilterChange({ ...filtersRef.current, blackEloMin: localBlackElo[0], blackEloMax: localBlackElo[1] });
     }, 300);
     return () => clearTimeout(timer);
   }, [localBlackElo]);
@@ -102,7 +106,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   // Debounce date from filter
   useEffect(() => {
     const timer = setTimeout(() => {
-      onFilterChange({ ...filters, dateFrom: localDateFrom });
+      onFilterChange({ ...filtersRef.current, dateFrom: localDateFrom });
     }, 300);
     return () => clearTimeout(timer);
   }, [localDateFrom]);
@@ -110,7 +114,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   // Debounce date to filter
   useEffect(() => {
     const timer = setTimeout(() => {
-      onFilterChange({ ...filters, dateTo: localDateTo });
+      onFilterChange({ ...filtersRef.current, dateTo: localDateTo });
     }, 300);
     return () => clearTimeout(timer);
   }, [localDateTo]);
@@ -119,7 +123,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localEcoCode.length === 0 || localEcoCode.length >= 2) {
-        onFilterChange({ ...filters, ecoCode: localEcoCode });
+        onFilterChange({ ...filtersRef.current, ecoCode: localEcoCode });
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -129,7 +133,7 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localEventName.length === 0 || localEventName.length >= 3) {
-        onFilterChange({ ...filters, eventName: localEventName });
+        onFilterChange({ ...filtersRef.current, eventName: localEventName });
       }
     }, 300);
     return () => clearTimeout(timer);
