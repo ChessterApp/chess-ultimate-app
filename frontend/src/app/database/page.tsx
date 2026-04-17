@@ -194,7 +194,15 @@ export default function DebutPage() {
   }, [stockfishEnabled, boardFen, activeTab, isReady, analyze, stopAnalysis]);
 
   const toggleStockfish = useCallback(() => {
+    const scrollY = window.scrollY;
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
     setStockfishEnabled(prev => !prev);
+    // Restore scroll position after React re-render adds/removes Stockfish content
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollY);
+    });
   }, []);
 
   // ─── Board size (mirrors DebutBoard logic for eval bar height) ───
@@ -1679,6 +1687,7 @@ export default function DebutPage() {
                 maxWidth: 520,
                 mx: 'auto',
                 mt: 0.5,
+                overflowAnchor: 'none',
               }}>
                 {/* Toggle row */}
                 <Box
