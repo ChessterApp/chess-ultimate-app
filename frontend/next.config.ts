@@ -204,7 +204,7 @@ const nextConfig = {
 const ENGINE_HEADERS = [
     {
         key: 'Cross-Origin-Embedder-Policy',
-        value: 'require-corp',
+        value: 'credentialless',
     },
     {
         key: 'Cross-Origin-Opener-Policy',
