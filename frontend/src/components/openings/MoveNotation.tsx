@@ -217,11 +217,21 @@ function renderTree(
 
 export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading, contextMenuActions }: MoveNotationProps) {
   const selectedRef = useRef<HTMLSpanElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: OpeningNode } | null>(null);
 
   useEffect(() => {
-    if (selectedRef.current) {
-      selectedRef.current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const el = selectedRef.current;
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const elTop = el.offsetTop;
+    const elBottom = elTop + el.offsetHeight;
+    const scrollTop = container.scrollTop;
+    const viewBottom = scrollTop + container.clientHeight;
+    if (elTop < scrollTop) {
+      container.scrollTop = elTop;
+    } else if (elBottom > viewBottom) {
+      container.scrollTop = elBottom - container.clientHeight;
     }
   }, [selectedNodeId]);
 
@@ -280,6 +290,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     <Box sx={{ display: 'flex', flexDirection: 'column' }}>
       {/* Notation content */}
       <Box
+        ref={containerRef}
         sx={{
           display: 'flex',
           flexWrap: 'wrap',
