@@ -36,13 +36,20 @@ export default function MyGamesMoveList({
   const [commentText, setCommentText] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to current move
+  // Auto-scroll to current move (container-scoped, avoids page scroll anchoring issues)
   useEffect(() => {
-    if (scrollRef.current) {
-      const active = scrollRef.current.querySelector('[data-active="true"]');
-      if (active) {
-        active.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      }
+    const container = scrollRef.current;
+    if (!container) return;
+    const active = container.querySelector('[data-active="true"]') as HTMLElement | null;
+    if (!active) return;
+    const elTop = active.offsetTop;
+    const elBottom = elTop + active.offsetHeight;
+    const scrollTop = container.scrollTop;
+    const viewBottom = scrollTop + container.clientHeight;
+    if (elTop < scrollTop) {
+      container.scrollTop = elTop;
+    } else if (elBottom > viewBottom) {
+      container.scrollTop = elBottom - container.clientHeight;
     }
   }, [currentIndex]);
 

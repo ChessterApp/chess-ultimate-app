@@ -1621,6 +1621,7 @@ export default function DebutPage() {
             flexDirection: 'column',
             alignItems: 'center',
             flexShrink: 0,
+            overflowAnchor: 'none',
           }}>
             {/* Board + Eval bar row */}
             <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 0.5 }}>
