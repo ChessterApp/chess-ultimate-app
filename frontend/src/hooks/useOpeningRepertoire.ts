@@ -687,7 +687,7 @@ function useOpeningRepertoireLegacy() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchWithAuth]);
 
   const createRepertoire = useCallback(async (
     name: string,
@@ -727,7 +727,7 @@ function useOpeningRepertoireLegacy() {
     } finally {
       if (!silent) setTreeLoading(false);
     }
-  }, []);
+  }, [fetchWithAuth]);
 
   const addNode = useCallback(async (
     parentId: string,
@@ -740,7 +740,7 @@ function useOpeningRepertoireLegacy() {
       body: JSON.stringify({ parentId, moveSan, moveUci, newFen }),
     });
     return data;
-  }, []);
+  }, [fetchWithAuth]);
 
   const updateNode = useCallback(async (
     nodeId: string,
@@ -750,11 +750,11 @@ function useOpeningRepertoireLegacy() {
       method: 'PUT',
       body: JSON.stringify(data),
     });
-  }, []);
+  }, [fetchWithAuth]);
 
   const deleteNode = useCallback(async (nodeId: string) => {
     await fetchWithAuth(`/nodes/${nodeId}`, { method: 'DELETE' });
-  }, []);
+  }, [fetchWithAuth]);
 
   // ── Starting position ────────
 
@@ -767,7 +767,7 @@ function useOpeningRepertoireLegacy() {
       method: 'PUT',
       body: JSON.stringify({ fen, moveLine }),
     });
-  }, []);
+  }, [fetchWithAuth]);
 
   // ── PGN import/export ────────
 
@@ -780,7 +780,7 @@ function useOpeningRepertoireLegacy() {
       method: 'POST',
       body: JSON.stringify({ pgn, maxPly: maxPly || 30 }),
     });
-  }, []);
+  }, [fetchWithAuth]);
 
   const exportPgn = useCallback(async (
     repertoireId: string,
@@ -788,7 +788,7 @@ function useOpeningRepertoireLegacy() {
   ): Promise<string> => {
     const notes = includeNotes !== false ? 'true' : 'false';
     return fetchWithAuth<string>(`/repertoires/${repertoireId}/pgn?include_notes=${notes}`);
-  }, []);
+  }, [fetchWithAuth]);
 
   // ── Arrows ───────────────────
 
@@ -802,11 +802,11 @@ function useOpeningRepertoireLegacy() {
       method: 'POST',
       body: JSON.stringify({ fromSquare, toSquare, color: color || 'green' }),
     });
-  }, []);
+  }, [fetchWithAuth]);
 
   const deleteArrow = useCallback(async (nodeId: string, arrowId: string) => {
     await fetchWithAuth(`/nodes/${nodeId}/arrows/${arrowId}`, { method: 'DELETE' });
-  }, []);
+  }, [fetchWithAuth]);
 
   // ── Game search & linking ────
 
@@ -843,23 +843,23 @@ function useOpeningRepertoireLegacy() {
     if (eventName) params.set('event_name', eventName);
     const data = await fetchWithAuth<{ games: GameSearchResult[]; total: number; indexed: boolean; count_exact?: boolean }>(`/games/by-position?${params}`, { timeout: 120000 });
     return data;
-  }, []);
+  }, [fetchWithAuth]);
 
   const fetchPositionCount = useCallback(async (fen: string): Promise<number> => {
     const params = new URLSearchParams({ fen });
     const data = await fetchWithAuth<{ count: number }>(`/games/position-count?${params}`);
     return data.count;
-  }, []);
+  }, [fetchWithAuth]);
 
   const fetchGamePgn = useCallback(async (gameId: number): Promise<string> => {
     const data = await fetchWithAuth<{ pgn: string }>(`/games/${gameId}/pgn`);
     return data.pgn;
-  }, []);
+  }, [fetchWithAuth]);
 
   const fetchLichessPgn = useCallback(async (gameId: string): Promise<string> => {
     const data = await fetchWithAuth<{ pgn: string }>(`/games/lichess/${gameId}/pgn`);
     return data.pgn;
-  }, []);
+  }, [fetchWithAuth]);
 
   const searchGames = useCallback(async (
     source: string,
@@ -963,16 +963,16 @@ function useOpeningRepertoireLegacy() {
         eventName: data.event_name,
       }),
     });
-  }, []);
+  }, [fetchWithAuth]);
 
   const getNodeGames = useCallback(async (nodeId: string): Promise<GameLink[]> => {
     const data = await fetchWithAuth<{ games: GameLink[] }>(`/nodes/${nodeId}/games`);
     return data.games;
-  }, []);
+  }, [fetchWithAuth]);
 
   const deleteGameLink = useCallback(async (gameLinkId: string) => {
     await fetchWithAuth(`/games/${gameLinkId}`, { method: 'DELETE' });
-  }, []);
+  }, [fetchWithAuth]);
 
   // ── Training ─────────────────
 
@@ -985,7 +985,7 @@ function useOpeningRepertoireLegacy() {
     if (limit) params.set('limit', String(limit));
     const data = await fetchWithAuth<{ nodes: OpeningNode[] }>(`/training/due?${params}`);
     return data.nodes;
-  }, []);
+  }, [fetchWithAuth]);
 
   const recordTrainingResult = useCallback(async (
     nodeId: string,
@@ -996,7 +996,7 @@ function useOpeningRepertoireLegacy() {
       method: 'POST',
       body: JSON.stringify({ nodeId, correct, timeMs }),
     });
-  }, []);
+  }, [fetchWithAuth]);
 
   const getTrainingStats = useCallback(async (
     repertoireId?: string
@@ -1004,7 +1004,7 @@ function useOpeningRepertoireLegacy() {
     const params = new URLSearchParams();
     if (repertoireId) params.set('repertoire_id', repertoireId);
     return fetchWithAuth(`/training/stats?${params}`);
-  }, []);
+  }, [fetchWithAuth]);
 
   // ─── Move Tree: Candidate moves ───
   const fetchCandidateMoves = useCallback(async (fen: string): Promise<CandidatesResponse> => {
@@ -1015,14 +1015,14 @@ function useOpeningRepertoireLegacy() {
       total_games: data.total_games || 0,
       moves: Array.isArray(data.moves) ? data.moves : [],
     };
-  }, []);
+  }, [fetchWithAuth]);
 
   // ─── Move Tree: Top players at position ───
   const fetchTopPlayers = useCallback(async (fen: string): Promise<TopPlayer[]> => {
     const params = new URLSearchParams({ fen, limit: '10' });
     const data = await fetchWithAuth<any>(`/positions/top-players?${params}`, { timeout: 60000 });
     return Array.isArray(data.players) ? data.players : [];
-  }, []);
+  }, [fetchWithAuth]);
 
   return {
     repertoires,
