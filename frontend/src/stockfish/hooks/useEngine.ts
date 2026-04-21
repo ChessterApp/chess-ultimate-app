@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useRef, useState } from 'react';
 import { EngineName } from '../engine/engine';
 import { Stockfish11 } from '../engine/Stockfish11';

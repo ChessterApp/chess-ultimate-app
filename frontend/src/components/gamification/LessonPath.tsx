@@ -123,7 +123,7 @@ function getZigzagOffset(index: number): string {
 }
 
 export function LessonPath({ courses, courseSlug }: LessonPathProps) {
-  const t = useTranslations('learn.levels');
+  const t = useTranslations('learn');
   const groups = groupByLevel(courses);
   let globalIndex = 0;
 

@@ -800,12 +800,6 @@ export default function DebutPage() {
 
   // ─── Auto-fetch candidate moves when node changes ───
   useEffect(() => {
-    if (!selectedNode) {
-      setCandidateMoves([]);
-      setCandidatesTotalGames(0);
-      return;
-    }
-
     // Only fetch TWIC data if using TWIC source
     if (moveTreeSource !== 'twic') {
       setCandidateMoves([]);
@@ -813,10 +807,24 @@ export default function DebutPage() {
       return;
     }
 
+    const fen = selectedNode?.fen || boardFen;
+
     let cancelled = false;
     setCandidatesLoading(true);
 
-    fetchCandidateMoves(selectedNode.fen)
+    // If we have a selectedNode (repertoire loaded), use the authenticated fetch
+    // Otherwise fall back to a direct fetch (TWIC candidates are public)
+    const fetchPromise = selectedNode
+      ? fetchCandidateMoves(fen)
+      : fetch(`/api/openings/positions/candidates?${new URLSearchParams({ fen, limit: '20' })}`)
+          .then(r => r.json())
+          .then(data => ({
+            status: data.status || 'ok',
+            total_games: data.total_games || 0,
+            moves: Array.isArray(data.moves) ? data.moves : [],
+          }));
+
+    fetchPromise
       .then((data) => {
         if (!cancelled) {
           setCandidateMoves(data.moves);
@@ -834,7 +842,7 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, fetchCandidateMoves, moveTreeSource]);
+  }, [selectedNode?.fen, boardFen, fetchCandidateMoves, moveTreeSource]);
 
   // ─── Transform Lichess data to MoveCandidate format ───
   const lichessCandidateMoves = useMemo(() => {
