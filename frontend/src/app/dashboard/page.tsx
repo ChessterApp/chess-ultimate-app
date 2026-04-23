@@ -155,6 +155,14 @@ export default function DashboardPage() {
       icon: '🤖',
       href: '/play',
       gradient: 'from-green-500 to-green-600'
+    },
+    {
+      id: 'coach',
+      title: 'AI Coach',
+      description: 'Interactive coaching with board control',
+      icon: '🎓',
+      href: '/coach',
+      gradient: 'from-indigo-500 to-indigo-600'
     }
   ]
 
