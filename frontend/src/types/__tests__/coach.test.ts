@@ -23,7 +23,7 @@ describe('Coach Types', () => {
       { type: 'set_puzzle', fen: 'start', solution: ['e2e4'] },
       { type: 'draw_arrows', arrows: [{ from: 'e2', to: 'e4', brush: 'green' }] },
       { type: 'highlight_squares', squares: ['d5'], color: 'yellow' },
-      { type: 'navigate', move_index: 5 },
+      { type: 'navigate', direction: 'next' },
       { type: 'flip_board' },
       { type: 'clear_board' },
     ];

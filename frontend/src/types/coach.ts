@@ -35,7 +35,7 @@ export interface HighlightSquaresAction {
 
 export interface NavigateAction {
   type: 'navigate';
-  move_index: number;
+  direction: 'first' | 'prev' | 'next' | 'last';
 }
 
 export interface FlipBoardAction {

@@ -112,10 +112,24 @@ export function useCoachBoard(): UseCoachBoardReturn {
       }
 
       case 'navigate': {
-        if (pgnFens.length > 0 && action.move_index >= 0 && action.move_index < pgnFens.length) {
-          setMoveIndex(action.move_index);
-          setFen(pgnFens[action.move_index]);
+        if (pgnFens.length === 0) break;
+        let newIndex = moveIndex;
+        switch (action.direction) {
+          case 'first':
+            newIndex = 0;
+            break;
+          case 'prev':
+            newIndex = Math.max(0, moveIndex - 1);
+            break;
+          case 'next':
+            newIndex = Math.min(pgnFens.length - 1, moveIndex + 1);
+            break;
+          case 'last':
+            newIndex = pgnFens.length - 1;
+            break;
         }
+        setMoveIndex(newIndex);
+        setFen(pgnFens[newIndex]);
         break;
       }
 
@@ -136,7 +150,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
         break;
       }
     }
-  }, [pgnFens]);
+  }, [pgnFens, moveIndex]);
 
   const applyBoardActions = useCallback(
     (actions: BoardAction[]) => {
