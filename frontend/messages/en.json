@@ -175,6 +175,15 @@
     "practiceToKeepStreak": "Practice today to keep your streak!",
     "streakProtected": "Your streak is protected for today",
     "thisWeek": "This Week",
+    "weekdays": {
+      "mon": "M",
+      "tue": "T",
+      "wed": "W",
+      "thu": "T",
+      "fri": "F",
+      "sat": "S",
+      "sun": "S"
+    },
     "levels": {
       "pawn": "Pawn",
       "knight": "Knight",
@@ -239,7 +248,16 @@
     "complete": "complete",
     "signInToLearn": "Sign In to Learn",
     "startJourney": "Start Your Chess Journey",
-    "signInPrompt": "Sign in to access our structured learning courses and track your progress."
+    "signInPrompt": "Sign in to access our structured learning courses and track your progress.",
+    "start": "Start",
+    "continue": "Continue",
+    "errors": {
+      "tooManyRequests": "Too many requests — please slow down",
+      "requestTimeout": "Request timed out — try again",
+      "networkError": "Network error — check your connection",
+      "sendMessageFailed": "Failed to send message — try again",
+      "saveProgressFailed": "Failed to save progress — try again"
+    }
   },
   "profile": {
     "yourProgress": "Your Progress",

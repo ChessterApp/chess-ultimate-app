@@ -197,6 +197,7 @@ interface CourseNodeProps {
 }
 
 function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: CourseNodeProps) {
+  const t = useTranslations('learn');
   const colors = levelColors[course.level] || levelColors.beginner;
   const isCompleted = course.progress === 100;
   const icon = levelIcons[course.level] || '♟';
@@ -266,7 +267,7 @@ function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: Course
           href={`/learn/${course.slug}`}
           className={`mt-2 px-5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide text-white bg-gradient-to-r ${colors.gradient} shadow-md hover:shadow-lg hover:scale-105 active:scale-95 transition-all`}
         >
-          {course.progress > 0 ? 'CONTINUE' : 'START'}
+          {course.progress > 0 ? t('continue') : t('start')}
         </Link>
       )}
 

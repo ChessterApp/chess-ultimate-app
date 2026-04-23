@@ -131,9 +131,9 @@ export default function LessonPage() {
         setError(t('lesson.loadError'))
         if (err instanceof ApiError) {
           if (err.status === 408) {
-            showToast('Request timed out — try again', 'error')
+            showToast(t('learn.errors.requestTimeout'), 'error')
           } else if (err.status === 0) {
-            showToast('Network error — check your connection', 'error')
+            showToast(t('learn.errors.networkError'), 'error')
           }
         }
       } finally {
@@ -172,7 +172,7 @@ export default function LessonPage() {
       setMessages(data.messages || [])
     } catch (err) {
       console.error('Failed to send message:', err)
-      showToast('Failed to send message — try again', 'error')
+      showToast(t('learn.errors.sendMessageFailed'), 'error')
       // Revert optimistic update on error
       setMessages(prev => prev.slice(0, -1))
     } finally {
@@ -201,7 +201,7 @@ export default function LessonPage() {
       setShowXPGain(true)
     } catch (err) {
       console.error('Failed to mark lesson complete:', err)
-      showToast('Failed to save progress — try again', 'error')
+      showToast(t('learn.errors.saveProgressFailed'), 'error')
     }
   }
 

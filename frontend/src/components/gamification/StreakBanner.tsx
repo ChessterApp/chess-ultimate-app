@@ -27,7 +27,7 @@ export function StreakBanner({ streakDays, lastActivityDate, showCalendar = fals
       const day = new Date(startOfWeek);
       day.setDate(startOfWeek.getDate() + i);
       days.push({
-        label: ['M', 'T', 'W', 'T', 'F', 'S', 'S'][i],
+        label: [t('weekdays.mon'), t('weekdays.tue'), t('weekdays.wed'), t('weekdays.thu'), t('weekdays.fri'), t('weekdays.sat'), t('weekdays.sun')][i],
         date: day,
         isPast: day < today && day.toDateString() !== today.toDateString(),
         isToday: day.toDateString() === today.toDateString(),

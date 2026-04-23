@@ -107,9 +107,9 @@ export default function CoursePage() {
             return
           }
           if (e.status === 408) {
-            showToast('Request timed out — try again', 'error')
+            showToast(t('learn.errors.requestTimeout'), 'error')
           } else if (e.status === 0) {
-            showToast('Network error — check your connection', 'error')
+            showToast(t('learn.errors.networkError'), 'error')
           }
         }
         setError(new Error('Failed to fetch course data'))
@@ -125,7 +125,7 @@ export default function CoursePage() {
   // Handle auth state changes
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
-      setAuthError('Please sign in to access this course')
+      setAuthError(t('course.signInRequired'))
     } else {
       setAuthError(null)
     }

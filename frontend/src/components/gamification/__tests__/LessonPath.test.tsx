@@ -13,6 +13,24 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// Mock next-intl
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => {
+    const translations: Record<string, string> = {
+      beginner: 'Level 1',
+      intermediate: 'Level 2',
+      advanced: 'Level 3',
+      master: 'Level 4',
+      expert: 'Level 5',
+      legendary: 'Level 6',
+      grandmaster: 'Level 7',
+      start: 'Start',
+      continue: 'Continue',
+    }
+    return translations[key] || key
+  },
+}))
+
 const makeCourse = (overrides: Partial<{
   id: string; slug: string; title: string;
   level: 'beginner' | 'intermediate' | 'advanced' | 'master' | 'expert' | 'legendary' | 'grandmaster';
@@ -79,20 +97,20 @@ describe('LessonPath', () => {
     expect(screen.getByText('👑')).toBeTruthy()
   })
 
-  it('renders active course with START button when progress is 0', () => {
+  it('renders active course with Start button when progress is 0', () => {
     const courses = [
       makeCourse({ id: '1', progress: 0, title: 'New Course' }),
     ]
     render(<LessonPath courses={courses} />)
-    expect(screen.getByText('START')).toBeTruthy()
+    expect(screen.getByText('Start')).toBeTruthy()
   })
 
-  it('renders active course with CONTINUE button when progress > 0', () => {
+  it('renders active course with Continue button when progress > 0', () => {
     const courses = [
       makeCourse({ id: '1', progress: 30, title: 'In Progress' }),
     ]
     render(<LessonPath courses={courses} />)
-    expect(screen.getByText('CONTINUE')).toBeTruthy()
+    expect(screen.getByText('Continue')).toBeTruthy()
   })
 
   it('links active courses to /learn/{slug}', () => {
@@ -138,7 +156,7 @@ describe('LessonPath', () => {
     ]
     render(<LessonPath courses={courses} />)
     // Only the first unlocked course should have a button
-    const buttons = screen.getAllByText(/^(START|CONTINUE)$/)
+    const buttons = screen.getAllByText(/^(Start|Continue)$/)
     expect(buttons.length).toBe(1)
   })
 })

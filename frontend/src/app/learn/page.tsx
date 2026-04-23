@@ -83,11 +83,11 @@ export default function LearnPage() {
         setError(err instanceof Error ? err.message : 'Unknown error')
         if (err instanceof ApiError) {
           if (err.status === 429) {
-            showToast('Too many requests — please slow down', 'error')
+            showToast(t('learn.errors.tooManyRequests'), 'error')
           } else if (err.status === 408) {
-            showToast('Request timed out — try again', 'error')
+            showToast(t('learn.errors.requestTimeout'), 'error')
           } else if (err.status === 0) {
-            showToast('Network error — check your connection', 'error')
+            showToast(t('learn.errors.networkError'), 'error')
           }
         }
       } finally {
