@@ -133,12 +133,12 @@ export default function DashboardPage() {
       gradient: 'from-blue-500 to-blue-600'
     },
     {
-      id: 'puzzle',
-      title: t('dashboard.chessPuzzles'),
-      description: t('dashboard.chessPuzzlesDesc'),
-      icon: '🧩',
-      href: '/puzzle',
-      gradient: 'from-purple-500 to-purple-600'
+      id: 'coach',
+      title: 'AI Coach',
+      description: 'Interactive coaching with board control',
+      icon: '🎓',
+      href: '/coach',
+      gradient: 'from-indigo-500 to-indigo-600'
     },
     {
       id: 'database',
@@ -155,14 +155,6 @@ export default function DashboardPage() {
       icon: '🤖',
       href: '/play',
       gradient: 'from-green-500 to-green-600'
-    },
-    {
-      id: 'coach',
-      title: 'AI Coach',
-      description: 'Interactive coaching with board control',
-      icon: '🎓',
-      href: '/coach',
-      gradient: 'from-indigo-500 to-indigo-600'
     }
   ]
 

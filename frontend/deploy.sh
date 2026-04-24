@@ -23,10 +23,6 @@ echo "[2/5] Copying static assets..."
 cp -r .next/static "$NESTED_DIR/.next/"
 cp -r public "$NESTED_DIR/"
 
-# 2b. Inject build hash into service worker cache name
-echo "[2b] Injecting build hash into sw.js..."
-sed -i "s/__BUILD_HASH__/$(cat .next/BUILD_ID)/g" "$NESTED_DIR/public/sw.js"
-
 # 3. Copy .env.local into standalone (so PM2/server.js can read it)
 echo "[3/5] Copying .env.local..."
 cp .env.local "$NESTED_DIR/.env.local"

@@ -1,4 +1,4 @@
-const CACHE_VERSION = '11';
+const CACHE_VERSION = '12';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 const STALE_CACHE = 'chesster-stale-v' + CACHE_VERSION;
 
