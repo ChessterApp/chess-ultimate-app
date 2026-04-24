@@ -33,11 +33,19 @@ def maybe_sync_ratings(user_id: str) -> None:
     t.start()
 
 
+LOCALE_TO_LANGUAGE = {
+    "ru": "Russian",
+    "kz": "Kazakh",
+    "en": "English",
+}
+
+
 def build_system_prompt(
     soul_content: str,
     user_profile: Optional[UserProfile] = None,
     board_fen: Optional[str] = None,
     move_history: Optional[list[str]] = None,
+    locale: Optional[str] = None,
 ) -> str:
     """Build the full system prompt for the chess coaching agent.
 
@@ -46,11 +54,23 @@ def build_system_prompt(
         user_profile: Optional user profile for personalization.
         board_fen: Optional current board FEN position.
         move_history: Optional list of SAN moves played so far.
+        locale: Optional UI locale code (e.g. 'ru', 'kz', 'en').
 
     Returns:
         Complete system prompt string.
     """
-    sections = [soul_content.rstrip()]
+    sections = []
+
+    # Inject mandatory language directive before everything else
+    if locale and locale != "en":
+        language_name = LOCALE_TO_LANGUAGE.get(locale, locale)
+        sections.append(
+            f"CRITICAL LANGUAGE RULE: You MUST respond entirely in {language_name}. "
+            f"All explanations, questions, and chess commentary must be in {language_name}. "
+            "This is non-negotiable — never switch to English unless the user explicitly writes in English."
+        )
+
+    sections.append(soul_content.rstrip())
 
     # Current date so the model knows what year it is
     now = datetime.now(timezone.utc)

@@ -309,6 +309,7 @@ class CoachChatRequest(BaseModel):
     message: str
     fen: Optional[str] = None
     session_id: Optional[str] = None
+    locale: Optional[str] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -358,6 +359,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
+        locale=body.locale,
     )
     model = _resolve_model(None, body.message)
     agent = _create_agent(model=model, system_prompt=system_prompt, session_id=session_id)

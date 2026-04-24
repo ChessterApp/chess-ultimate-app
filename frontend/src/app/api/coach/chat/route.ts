@@ -33,6 +33,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  const locale = request.cookies.get('NEXT_LOCALE')?.value || 'en';
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -52,6 +54,7 @@ export async function POST(request: NextRequest) {
             message: body.message,
             fen: body.fen,
             session_id: body.session_id,
+            locale,
           }),
           signal: AbortSignal.timeout(60000),
         });

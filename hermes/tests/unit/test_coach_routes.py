@@ -228,6 +228,46 @@ class TestCoachChat:
         )
         assert resp.status_code == 401
 
+    @patch("src.server.build_system_prompt")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_chat_passes_locale(self, mock_profile, mock_agent, mock_prompt):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        agent_instance.chat.return_value = "Привет!"
+        mock_agent.return_value = agent_instance
+        mock_prompt.return_value = "system prompt"
+
+        resp = self.client.post(
+            "/api/coach/chat",
+            headers=USER_HEADERS,
+            json={"message": "Привет", "locale": "ru"},
+        )
+        assert resp.status_code == 200
+        mock_prompt.assert_called_once()
+        call_kwargs = mock_prompt.call_args
+        assert call_kwargs.kwargs.get("locale") == "ru"
+
+    @patch("src.server.build_system_prompt")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_chat_locale_defaults_none(self, mock_profile, mock_agent, mock_prompt):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        agent_instance.chat.return_value = "Hello!"
+        mock_agent.return_value = agent_instance
+        mock_prompt.return_value = "system prompt"
+
+        resp = self.client.post(
+            "/api/coach/chat",
+            headers=USER_HEADERS,
+            json={"message": "Hello"},
+        )
+        assert resp.status_code == 200
+        mock_prompt.assert_called_once()
+        call_kwargs = mock_prompt.call_args
+        assert call_kwargs.kwargs.get("locale") is None
+
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
     def test_chat_agent_error(self, mock_profile, mock_agent):

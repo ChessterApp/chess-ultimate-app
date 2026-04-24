@@ -3,7 +3,7 @@
 import chess
 import pytest
 
-from src.prompt_builder import build_system_prompt
+from src.prompt_builder import build_system_prompt, LOCALE_TO_LANGUAGE
 from src.user_profile import UserProfile
 
 MOCK_SOUL = "# Chess Coach\nYou are a chess coach."
@@ -65,3 +65,35 @@ class TestPromptBuilder:
         assert "aggressive" in prompt
         assert "Current Board State" in prompt
         assert "Board Control" in prompt
+
+    def test_locale_russian_injects_directive(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL, locale="ru")
+        assert "CRITICAL LANGUAGE RULE" in prompt
+        assert "Russian" in prompt
+        # Language directive must come before SOUL content
+        lang_pos = prompt.index("CRITICAL LANGUAGE RULE")
+        soul_pos = prompt.index("Chess Coach")
+        assert lang_pos < soul_pos
+
+    def test_locale_kazakh_injects_directive(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL, locale="kz")
+        assert "CRITICAL LANGUAGE RULE" in prompt
+        assert "Kazakh" in prompt
+
+    def test_locale_english_no_directive(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL, locale="en")
+        assert "CRITICAL LANGUAGE RULE" not in prompt
+
+    def test_locale_none_no_directive(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL, locale=None)
+        assert "CRITICAL LANGUAGE RULE" not in prompt
+
+    def test_locale_unknown_uses_code(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL, locale="fr")
+        assert "CRITICAL LANGUAGE RULE" in prompt
+        assert "fr" in prompt
+
+    def test_locale_to_language_mapping(self):
+        assert LOCALE_TO_LANGUAGE["ru"] == "Russian"
+        assert LOCALE_TO_LANGUAGE["kz"] == "Kazakh"
+        assert LOCALE_TO_LANGUAGE["en"] == "English"
