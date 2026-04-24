@@ -42,6 +42,7 @@ import {
 // import ModelSetting from "./ModelSetting";
 import { ChatMessage } from "../../hooks/useChesster";
 import useVoiceRecorder from "../../hooks/useVoiceRecorder";
+import CoachToggle from "../coach/CoachToggle";
 import { calculateChatPrice } from "@/libs/docs/helper";
 import { useLocalStorage } from "usehooks-ts";
 import { DEFAULT_CHAT_AUTOSCROLL, DEFAULT_CHAT_COMPACT_VIEW, DEFAULT_CHAT_FONT_SIZE, DEFAULT_CHAT_DIMENSIONS, DEFAULT_CHAT_SHOW_TIMESTAMP, DEFAULT_CHAT_SPEECH_PITCH, DEFAULT_CHAT_SPEECH_RATE, DEFAULT_CHAT_SPEECH_VOICE, DEFAULT_CHAT_SPEECH_VOLUME, DEFAULT_CHAT_TECHNICAL_INFO } from "@/libs/setting/helper";
@@ -70,6 +71,8 @@ export interface ChatTabProps {
     questionMode?: boolean
   ) => void;
   abortChatMessage?: () => void;
+  isCoachMode?: boolean;
+  onCoachModeToggle?: (enabled: boolean) => void;
 }
 
 interface SavedPosition {
@@ -125,6 +128,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
   puzzleMode = false,
   playMode = false,
   puzzleQuery,
+  isCoachMode = false,
+  onCoachModeToggle,
 }) => {
   const t = useTranslations('chat');
   const theme = useTheme();
@@ -902,18 +907,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
               </Tooltip>
             )}
 
-            <Tooltip title="AI Coach — full board control" arrow>
-              <IconButton
-                component="a"
-                href="/coach"
-                sx={{ color: "text.primary", p: 0.5 }}
-                size="small"
-              >
-                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 1a2 2 0 00-2 2v1H4a2 2 0 00-2 2v6a2 2 0 002 2h8a2 2 0 002-2V6a2 2 0 00-2-2h-2V3a2 2 0 00-2-2zm0 1.5a.5.5 0 01.5.5v1h-1V3a.5.5 0 01.5-.5zM5 8a1 1 0 112 0 1 1 0 01-2 0zm4 0a1 1 0 112 0 1 1 0 01-2 0zm-3 3h4v1H6v-1z" />
-                </svg>
-              </IconButton>
-            </Tooltip>
+            <CoachToggle
+              isCoachMode={isCoachMode}
+              onToggle={onCoachModeToggle ?? (() => {})}
+            />
 
             <Tooltip title={t("settings")} arrow>
               <IconButton

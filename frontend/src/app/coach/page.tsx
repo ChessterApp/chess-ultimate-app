@@ -9,6 +9,7 @@ import { useCoachBoard } from '@/hooks/useCoachBoard';
 import CoachBoard from '@/components/coach/CoachBoard';
 import CoachChat from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
+import UpgradePrompt from '@/components/UpgradePrompt';
 import type { BoardAction } from '@/types/coach';
 
 export default function CoachPage() {
@@ -19,18 +20,12 @@ export default function CoachPage() {
 
   const board = useCoachBoard();
 
-  // Redirect to dashboard if not premium
+  // Redirect unauthenticated users to sign-in
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
       router.push('/sign-in');
     }
   }, [isLoaded, isSignedIn, router]);
-
-  useEffect(() => {
-    if (isLoaded && isSignedIn && !subscription.loading && !subscription.active) {
-      router.push('/dashboard');
-    }
-  }, [isLoaded, isSignedIn, subscription.loading, subscription.active, router]);
 
   // Handle board actions from chat
   const handleBoardActions = useCallback(
@@ -98,8 +93,12 @@ export default function CoachPage() {
     return <LoadingScreen isVisible={true} />;
   }
 
-  if (!isSignedIn || !subscription.active) {
+  if (!isSignedIn) {
     return null; // Will redirect via useEffect
+  }
+
+  if (!subscription.active) {
+    return <UpgradePrompt feature="AI Chess Coach" />;
   }
 
   return (

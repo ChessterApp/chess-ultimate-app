@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Box,
   Stack,
@@ -211,6 +211,11 @@ function ChessterAnalysisView({
   const t = useTranslations("analysis");
   const [analysisTab, setAnalysisTab] = useState<number>(0);
   const [activeAnalysisTab, setActiveAnalysisTab] = useState<number>(0);
+  const [isCoachMode, setIsCoachMode] = useState(false);
+
+  const handleCoachModeToggle = useCallback((enabled: boolean) => {
+    setIsCoachMode(enabled);
+  }, []);
 
   return (
     <Card
@@ -746,6 +751,8 @@ function ChessterAnalysisView({
             setSessionMode={setSessionMode}
             gameInfo={pgnText}
             currentMove={currentMove}
+            isCoachMode={isCoachMode}
+            onCoachModeToggle={handleCoachModeToggle}
           />
         </TabPanel>
 

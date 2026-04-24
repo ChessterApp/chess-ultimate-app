@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 describe('CoachPage - File Structure', () => {
@@ -44,5 +44,30 @@ describe('Coach Components - File Structure', () => {
 
   it('CoachToggle.tsx exists', () => {
     expect(existsSync(resolve(componentsDir, 'CoachToggle.tsx'))).toBe(true);
+  });
+});
+
+describe('Coach Page - Premium Gating', () => {
+  const pageContent = readFileSync(resolve(__dirname, '../page.tsx'), 'utf-8');
+
+  it('imports UpgradePrompt component', () => {
+    expect(pageContent).toContain("import UpgradePrompt from '@/components/UpgradePrompt'");
+  });
+
+  it('renders UpgradePrompt for non-premium users', () => {
+    expect(pageContent).toContain('<UpgradePrompt feature="AI Chess Coach"');
+  });
+
+  it('checks subscription.active before rendering coach UI', () => {
+    expect(pageContent).toContain('!subscription.active');
+  });
+
+  it('does not redirect non-premium users to dashboard', () => {
+    // Should show UpgradePrompt instead of redirecting
+    expect(pageContent).not.toContain("router.push('/dashboard')");
+  });
+
+  it('still redirects unauthenticated users to sign-in', () => {
+    expect(pageContent).toContain("router.push('/sign-in')");
   });
 });
