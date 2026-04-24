@@ -2,16 +2,11 @@
 Unit tests for the scoresheet scanner API
 """
 
-import sys
 import os
 import unittest
 import chess
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Import after path modification  # noqa: E402
-import importlib.util  # noqa: E402
+import importlib.util
 spec = importlib.util.spec_from_file_location(
     "scoresheet_to_pgn",
     os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "api", "scoresheet_to_pgn.py")

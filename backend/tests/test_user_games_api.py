@@ -5,14 +5,8 @@ Uses Flask test client with mocked Supabase and JWT auth.
 """
 
 import json
-import os
-import sys
 import pytest
 from unittest.mock import patch, MagicMock
-
-# Add backend directory to path
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, backend_dir)
 
 SAMPLE_PGN = (
     '[Event "Test Game"]\n'

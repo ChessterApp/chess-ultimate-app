@@ -9,15 +9,9 @@ Tests the full backend flow:
 """
 
 import json
-import os
-import sys
 import pytest
 from unittest.mock import patch, MagicMock
 from copy import deepcopy
-
-# Add backend directory to path
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, backend_dir)
 
 USER_ID = 'user_pgn_import_test'
 

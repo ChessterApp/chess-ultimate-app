@@ -3,12 +3,6 @@ Tests for Cache-Control headers on semi-static API endpoints
 """
 
 import pytest
-import sys
-import os
-
-# Add backend directory to path
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, backend_dir)
 
 from flask import Flask
 from utils.cache import with_cache, add_cache_headers
