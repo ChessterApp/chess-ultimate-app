@@ -10,15 +10,23 @@ import CoachBoard from '@/components/coach/CoachBoard';
 import CoachChat from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
 import UpgradePrompt from '@/components/UpgradePrompt';
-import type { BoardAction } from '@/types/coach';
+import type { BoardAction, GameResult } from '@/types/coach';
+import GameViewerPanel from '@/components/openings/GameViewerPanel';
+import type { OpenedGame } from '@/components/openings/GameViewerPanel';
+import { parseGamePgn } from '@/components/openings/GameViewerPanel';
 
 export default function CoachPage() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, getToken } = useAuth();
   const subscription = useSubscription();
   const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const board = useCoachBoard();
+
+  // Game tabs state
+  const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+  const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
 
   // Responsive board sizing
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
@@ -108,6 +116,69 @@ export default function CoachPage() {
     localStorage.setItem('coach-session-id', id);
   }, []);
 
+  // Active game derived from state
+  const activeGame = useMemo(
+    () => openedGames.find((g) => g.id === activeGameId) ?? null,
+    [openedGames, activeGameId]
+  );
+
+  // Open a game from chat results as a tab
+  const handleOpenGame = useCallback(async (game: GameResult) => {
+    const gameIdStr = String(game.id);
+
+    // If already open, just switch to that tab
+    if (openedGames.some((g) => g.id === gameIdStr)) {
+      setActiveGameId(gameIdStr);
+      return;
+    }
+
+    // Max 10 tabs
+    if (openedGames.length >= 10) return;
+
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/openings/games/${game.id}/pgn`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const { moves, fens, startingFen } = parseGamePgn(data.pgn);
+
+      const opened: OpenedGame = {
+        id: gameIdStr,
+        white: game.white_name,
+        black: game.black_name,
+        whiteElo: game.white_elo,
+        blackElo: game.black_elo,
+        result: game.result,
+        eco: game.eco,
+        date: game.date,
+        event: game.event,
+        pgn: data.pgn,
+        moves,
+        fens,
+        startingFen,
+        source: 'twic',
+      };
+
+      setOpenedGames((prev) => [...prev, opened]);
+      setActiveGameId(gameIdStr);
+    } catch (err) {
+      console.error('Failed to load game PGN:', err);
+    }
+  }, [openedGames, getToken]);
+
+  // Close a game tab
+  const handleCloseGame = useCallback((gameId: string) => {
+    setOpenedGames((prev) => prev.filter((g) => g.id !== gameId));
+    setGameMoveIndices((prev) => {
+      const next = { ...prev };
+      delete next[gameId];
+      return next;
+    });
+    if (activeGameId === gameId) setActiveGameId(null);
+  }, [activeGameId]);
+
   if (!isLoaded || subscription.loading) {
     return <LoadingScreen isVisible={true} />;
   }
@@ -159,25 +230,63 @@ export default function CoachPage() {
       {/* Main content: Board + Chat split */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
-        <div className="lg:w-[55%] flex items-center justify-center p-2 sm:p-4">
-          <CoachBoard
-            fen={board.fen}
-            arrows={board.arrows}
-            highlights={board.highlights}
-            orientation={board.orientation}
-            puzzleMode={board.puzzleMode}
-            puzzleState={board.puzzleState}
-            moveIndex={board.moveIndex}
-            pgnLength={board.pgn ? board.moveIndex + 1 : 0}
-            onMove={board.setFenFromMove}
-            onFirst={board.firstMove}
-            onPrev={board.prevMove}
-            onNext={board.nextMove}
-            onLast={board.lastMove}
-            onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
-            onPuzzleMove={board.validatePuzzleMove}
-            boardSize={responsiveBoardSize}
-          />
+        <div className="lg:w-[55%] flex flex-col p-2 sm:p-4">
+          {openedGames.length > 0 && (
+            <div className="flex items-center gap-1 px-2 py-1 border-b border-white/10 overflow-x-auto">
+              <button
+                onClick={() => setActiveGameId(null)}
+                className={`px-3 py-1 text-xs rounded-t ${!activeGameId ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                Coach Board
+              </button>
+              {openedGames.map((game) => (
+                <div key={game.id} className="flex items-center">
+                  <button
+                    onClick={() => setActiveGameId(game.id)}
+                    className={`px-3 py-1 text-xs rounded-t truncate max-w-[200px] ${
+                      activeGameId === game.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {game.white} vs {game.black}
+                  </button>
+                  <button
+                    onClick={() => handleCloseGame(game.id)}
+                    className="text-gray-500 hover:text-white ml-1 text-xs"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex-1 flex items-center justify-center">
+            {activeGameId && activeGame ? (
+              <GameViewerPanel
+                game={activeGame}
+                currentMoveIndex={gameMoveIndices[activeGameId] ?? -1}
+                onMoveIndexChange={(idx) => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: idx }))}
+              />
+            ) : (
+              <CoachBoard
+                fen={board.fen}
+                arrows={board.arrows}
+                highlights={board.highlights}
+                orientation={board.orientation}
+                puzzleMode={board.puzzleMode}
+                puzzleState={board.puzzleState}
+                moveIndex={board.moveIndex}
+                pgnLength={board.pgn ? board.moveIndex + 1 : 0}
+                onMove={board.setFenFromMove}
+                onFirst={board.firstMove}
+                onPrev={board.prevMove}
+                onNext={board.nextMove}
+                onLast={board.lastMove}
+                onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
+                onPuzzleMove={board.validatePuzzleMove}
+                boardSize={responsiveBoardSize}
+              />
+            )}
+          </div>
         </div>
 
         {/* Chat panel */}
@@ -187,6 +296,7 @@ export default function CoachPage() {
             sessionId={sessionId}
             onBoardActions={handleBoardActions}
             onSessionCreated={handleSessionCreated}
+            onOpenGame={handleOpenGame}
           />
         </div>
       </div>

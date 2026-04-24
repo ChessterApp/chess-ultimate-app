@@ -10,6 +10,7 @@ interface CoachChatProps {
   sessionId: string | null;
   onBoardActions: (actions: BoardAction[]) => void;
   onSessionCreated?: (id: string) => void;
+  onOpenGame?: (game: GameResult) => void;
 }
 
 export default function CoachChat({
@@ -17,6 +18,7 @@ export default function CoachChat({
   sessionId,
   onBoardActions,
   onSessionCreated,
+  onOpenGame,
 }: CoachChatProps) {
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState('');
@@ -261,7 +263,7 @@ export default function CoachChat({
                       {msg.gameResults.map((game) => (
                         <tr
                           key={game.id}
-                          onClick={() => window.open(`/database?game=${game.id}&source=twic`, '_blank')}
+                          onClick={() => onOpenGame?.(game)}
                           className="hover:bg-white/10 cursor-pointer transition-colors border-t border-white/5"
                         >
                           <td className="px-2 py-1.5 text-gray-400">{game.date}</td>
