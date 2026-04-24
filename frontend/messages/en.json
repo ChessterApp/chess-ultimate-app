@@ -233,7 +233,8 @@
     "editor": "Board Editor",
     "settings": "Settings",
     "analysis": "Analysis",
-    "dashboard": "Dashboard"
+    "dashboard": "Dashboard",
+    "coach": "AI Coach"
   },
   "learn": {
     "title": "Learning Path",
