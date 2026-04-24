@@ -16,6 +16,7 @@ interface CoachBoardProps {
   puzzleState: PuzzleState | null;
   moveIndex: number;
   pgnLength: number;
+  boardSize?: number;
   onMove: (from: Key, to: Key) => void;
   onFirst: () => void;
   onPrev: () => void;
@@ -41,6 +42,7 @@ export default function CoachBoard({
   onLast,
   onFlip,
   onPuzzleMove,
+  boardSize = 520,
 }: CoachBoardProps) {
   const [puzzleResult, setPuzzleResult] = useState<'correct' | 'wrong' | 'solved' | null>(null);
 
@@ -71,7 +73,7 @@ export default function CoachBoard({
           highlightSquares={highlights}
           movable={true}
           viewOnly={false}
-          boardSize={520}
+          boardSize={boardSize}
         />
         <PuzzleOverlay result={puzzleResult} onDismiss={handleDismissPuzzle} />
       </div>

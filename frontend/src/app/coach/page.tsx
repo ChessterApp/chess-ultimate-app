@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
@@ -19,6 +19,25 @@ export default function CoachPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const board = useCoachBoard();
+
+  // Responsive board sizing
+  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const snapTo8 = (size: number) => Math.floor(size / 8) * 8;
+
+  const responsiveBoardSize = useMemo(() => {
+    if (windowWidth < 400) return snapTo8(windowWidth - 8);
+    if (windowWidth < 600) return snapTo8(windowWidth - 12);
+    if (windowWidth < 768) return snapTo8(Math.min(windowWidth - 24, 440));
+    if (windowWidth < 1024) return snapTo8(Math.min(windowWidth - 48, 500));
+    return 520;
+  }, [windowWidth]);
 
   // Redirect unauthenticated users to sign-in
   useEffect(() => {
@@ -140,7 +159,7 @@ export default function CoachPage() {
       {/* Main content: Board + Chat split */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
-        <div className="lg:w-[55%] flex items-center justify-center p-4">
+        <div className="lg:w-[55%] flex items-center justify-center p-2 sm:p-4">
           <CoachBoard
             fen={board.fen}
             arrows={board.arrows}
@@ -157,6 +176,7 @@ export default function CoachPage() {
             onLast={board.lastMove}
             onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
             onPuzzleMove={board.validatePuzzleMove}
+            boardSize={responsiveBoardSize}
           />
         </div>
 
