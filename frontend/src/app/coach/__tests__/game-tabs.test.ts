@@ -103,6 +103,58 @@ describe('CoachPage - Game Tabs', () => {
   it('conditionally renders game viewer or coach board', () => {
     expect(coachPageContent).toContain('activeGameId && activeGame ?');
   });
+
+  it('renders CoachBoard alongside GameViewerPanel when game tab is active', () => {
+    // The ternary branch for activeGame should contain BOTH components
+    const activeGameBranch = coachPageContent.split('activeGameId && activeGame ?')[1];
+    const elseIndex = activeGameBranch.indexOf(') : (');
+    const trueBranch = activeGameBranch.substring(0, elseIndex);
+    expect(trueBranch).toContain('<CoachBoard');
+    expect(trueBranch).toContain('<GameViewerPanel');
+  });
+
+  it('wires CoachBoard FEN to activeGame when game tab is active', () => {
+    // Should use activeGame.startingFen for initial position
+    expect(coachPageContent).toContain('activeGame.startingFen');
+    // Should use activeGame.fens for navigated positions
+    expect(coachPageContent).toContain('activeGame.fens[gameMoveIndices[activeGameId]]');
+  });
+
+  it('wires CoachBoard navigation to gameMoveIndices for active game', () => {
+    // onFirst sets index to -1 (starting position)
+    expect(coachPageContent).toContain("[activeGameId]: -1");
+    // onPrev decrements with Math.max(-1, ...)
+    expect(coachPageContent).toContain("Math.max(-1, (prev[activeGameId] ?? -1) - 1)");
+    // onNext increments with Math.min(moves.length - 1, ...)
+    expect(coachPageContent).toContain("Math.min(activeGame.moves.length - 1, (prev[activeGameId] ?? -1) + 1)");
+    // onLast sets to last move
+    expect(coachPageContent).toContain("[activeGameId]: activeGame.moves.length - 1");
+  });
+
+  it('sets onMove to a no-op when viewing a game', () => {
+    // When activeGame is set, onMove should be a no-op
+    expect(coachPageContent).toContain('onMove={() => {}}');
+  });
+
+  it('disables puzzle mode when viewing a game', () => {
+    // The game-viewing CoachBoard should have puzzleMode={false}
+    const activeGameBranch = coachPageContent.split('activeGameId && activeGame ?')[1];
+    const elseIndex = activeGameBranch.indexOf(') : (');
+    const trueBranch = activeGameBranch.substring(0, elseIndex);
+    expect(trueBranch).toContain('puzzleMode={false}');
+    expect(trueBranch).toContain('puzzleState={null}');
+  });
+
+  it('wraps GameViewerPanel in a scrollable container with responsive max-height', () => {
+    // Mobile: max-h-[150px], Desktop: lg:max-h-[200px]
+    expect(coachPageContent).toContain('max-h-[150px]');
+    expect(coachPageContent).toContain('lg:max-h-[200px]');
+    expect(coachPageContent).toContain('overflow-y-auto');
+  });
+
+  it('uses flex-col on mobile and flex-row on desktop for board+panel layout', () => {
+    expect(coachPageContent).toContain('flex flex-col lg:flex-row');
+  });
 });
 
 describe('parseGamePgn integration', () => {

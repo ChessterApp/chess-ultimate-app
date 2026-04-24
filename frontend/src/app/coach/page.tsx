@@ -261,11 +261,52 @@ export default function CoachPage() {
           )}
           <div className="flex-1 flex items-center justify-center">
             {activeGameId && activeGame ? (
-              <GameViewerPanel
-                game={activeGame}
-                currentMoveIndex={gameMoveIndices[activeGameId] ?? -1}
-                onMoveIndexChange={(idx) => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: idx }))}
-              />
+              <div className="flex flex-col lg:flex-row items-center lg:items-start gap-2">
+                <CoachBoard
+                  fen={
+                    (gameMoveIndices[activeGameId] ?? -1) === -1
+                      ? activeGame.startingFen
+                      : activeGame.fens[gameMoveIndices[activeGameId]]
+                  }
+                  arrows={[]}
+                  highlights={[]}
+                  orientation={board.orientation}
+                  puzzleMode={false}
+                  puzzleState={null}
+                  moveIndex={gameMoveIndices[activeGameId] ?? -1}
+                  pgnLength={activeGame.moves.length}
+                  onMove={() => {}}
+                  onFirst={() => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: -1 }))}
+                  onPrev={() =>
+                    setGameMoveIndices((prev) => ({
+                      ...prev,
+                      [activeGameId]: Math.max(-1, (prev[activeGameId] ?? -1) - 1),
+                    }))
+                  }
+                  onNext={() =>
+                    setGameMoveIndices((prev) => ({
+                      ...prev,
+                      [activeGameId]: Math.min(activeGame.moves.length - 1, (prev[activeGameId] ?? -1) + 1),
+                    }))
+                  }
+                  onLast={() =>
+                    setGameMoveIndices((prev) => ({
+                      ...prev,
+                      [activeGameId]: activeGame.moves.length - 1,
+                    }))
+                  }
+                  onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
+                  onPuzzleMove={() => 'wrong' as const}
+                  boardSize={responsiveBoardSize}
+                />
+                <div className="w-full lg:w-[280px] max-h-[150px] lg:max-h-[200px] overflow-y-auto">
+                  <GameViewerPanel
+                    game={activeGame}
+                    currentMoveIndex={gameMoveIndices[activeGameId] ?? -1}
+                    onMoveIndexChange={(idx) => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: idx }))}
+                  />
+                </div>
+              </div>
             ) : (
               <CoachBoard
                 fen={board.fen}
