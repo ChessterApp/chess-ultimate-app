@@ -70,8 +70,18 @@ def search_master_games(
         params.extend([pattern, pattern])
 
     if event:
-        conditions.append("event LIKE ?")
-        params.append(f"%{event}%")
+        # Split event into words and match each independently (OR).
+        # "Candidates Match" → searches "Candidates" OR "Match",
+        # which matches "FIDE Candidates 2026" in the DB.
+        event_parts = event.strip().split()
+        if len(event_parts) > 1:
+            event_clauses = " OR ".join(["event LIKE ?"] * len(event_parts))
+            conditions.append(f"({event_clauses})")
+            for part in event_parts:
+                params.append(f"%{part}%")
+        else:
+            conditions.append("event LIKE ?")
+            params.append(f"%{event}%")
 
     if eco:
         conditions.append("eco = ?")
