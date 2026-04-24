@@ -1,0 +1,33 @@
+# Hermes Chess Coach — Model Routing Configuration
+
+model:
+  default: "google/gemini-2.5-flash"
+  provider: "openrouter"
+  context_length: 131072
+
+# Model routing tiers
+# - Flash: default for general questions and quick responses
+# - Sonnet: for position analysis and tactical puzzles
+# - Opus: for deep strategic analysis and game reviews
+model_tiers:
+  fast: "google/gemini-2.5-flash"
+  analysis: "anthropic/claude-sonnet-4-5"
+  deep: "anthropic/claude-opus-4"
+
+terminal:
+  backend: "local"
+  cwd: "/root/hermes-chess"
+  timeout: 180
+
+provider_routing:
+  sort: "throughput"
+  data_collection: "deny"
+
+compression:
+  enabled: true
+  threshold: 0.50
+  target_ratio: 0.20
+  protect_last: 20
+
+# Server port for the chess coach API
+port: 8642

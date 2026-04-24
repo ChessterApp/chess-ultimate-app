@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.coverage
+htmlcov/
+.env
+profiles/*/sessions/
+profiles/*/logs/
+profiles/*/auth.json
+profiles/*/auth.lock
+profiles/*/*.cache*
+profiles/*/models_dev_cache.json
