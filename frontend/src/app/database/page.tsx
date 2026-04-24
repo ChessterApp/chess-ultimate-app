@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip, Switch } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
@@ -1397,6 +1398,32 @@ export default function DebutPage() {
     });
     if (activeTab === gameId) setActiveTab(lastHomeTabRef.current);
   }, [activeTab]);
+
+  // ─── URL param: open game from ?game=<id>&source=twic ───
+  const searchParams = useSearchParams();
+  const urlGameHandledRef = useRef(false);
+  useEffect(() => {
+    if (urlGameHandledRef.current || !searchParams) return;
+    const gameId = searchParams.get('game');
+    const source = searchParams.get('source');
+    if (gameId && source === 'twic') {
+      urlGameHandledRef.current = true;
+      // Fetch PGN and open the game in a tab
+      fetchGamePgn(Number(gameId))
+        .then((pgn) => {
+          handleOpenGame({
+            id: gameId,
+            pgn,
+            pgn_offset: 0,
+            pgn_length: 0,
+            source: 'twic',
+          });
+        })
+        .catch(() => {
+          // Silently fail — user can retry from the database
+        });
+    }
+  }, [searchParams, fetchGamePgn, handleOpenGame]);
 
   const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
     setGameMoveIndices(prev => ({ ...prev, [gameId]: moveIndex }));

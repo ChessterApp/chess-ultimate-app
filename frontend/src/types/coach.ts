@@ -56,6 +56,21 @@ export type BoardAction =
   | FlipBoardAction
   | ClearBoardAction;
 
+// ─── Game Results (from TWIC search) ─────────────────────────────────────
+
+export interface GameResult {
+  id: number;
+  white_name: string;
+  black_name: string;
+  result: string;
+  date: string;
+  eco: string;
+  opening: string;
+  event: string;
+  white_elo: number;
+  black_elo: number;
+}
+
 // ─── Coach Response ──────────────────────────────────────────────────────
 
 export interface CoachResponse {
@@ -82,6 +97,7 @@ export interface CoachMessage {
   fen?: string;
   timestamp: Date;
   boardActions?: BoardAction[];
+  gameResults?: GameResult[];
 }
 
 // ─── Puzzle State ────────────────────────────────────────────────────────

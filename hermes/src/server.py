@@ -385,6 +385,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     return {
         "message": envelope["message"],
         "board_actions": envelope.get("board_actions", []),
+        "game_results": envelope.get("game_results", []),
         "session_id": session.id,
     }
 

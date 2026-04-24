@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import ToolIndicator from './ToolIndicator';
-import type { CoachMessage, BoardAction } from '@/types/coach';
+import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 
 interface CoachChatProps {
   currentFen: string;
@@ -123,6 +123,16 @@ export default function CoachChat({
               );
             }
 
+            if (data.game_results) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, gameResults: data.game_results }
+                    : m
+                )
+              );
+            }
+
             if (data.session_id && onSessionCreated) {
               onSessionCreated(data.session_id);
             }
@@ -233,6 +243,46 @@ export default function CoachChat({
                     <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 12H7V7h2v5zm0-7H7V3h2v2z" />
                   </svg>
                   Board updated
+                </div>
+              )}
+              {msg.gameResults && msg.gameResults.length > 0 && (
+                <div className="mt-3 rounded-lg overflow-hidden border border-white/10">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-white/5 text-gray-400">
+                        <th className="px-2 py-1.5 text-left">Date</th>
+                        <th className="px-2 py-1.5 text-left">White</th>
+                        <th className="px-2 py-1.5 text-left">Black</th>
+                        <th className="px-2 py-1.5 text-center">Result</th>
+                        <th className="px-2 py-1.5 text-left">ECO</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {msg.gameResults.map((game) => (
+                        <tr
+                          key={game.id}
+                          onClick={() => window.open(`/database?game=${game.id}&source=twic`, '_blank')}
+                          className="hover:bg-white/10 cursor-pointer transition-colors border-t border-white/5"
+                        >
+                          <td className="px-2 py-1.5 text-gray-400">{game.date}</td>
+                          <td className="px-2 py-1.5 text-gray-200">
+                            {game.white_name} <span className="text-gray-500">{game.white_elo}</span>
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-200">
+                            {game.black_name} <span className="text-gray-500">{game.black_elo}</span>
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            <span className={
+                              game.result === '1-0' ? 'text-green-400' :
+                              game.result === '0-1' ? 'text-red-400' :
+                              'text-gray-400'
+                            }>{game.result}</span>
+                          </td>
+                          <td className="px-2 py-1.5 text-gray-400">{game.eco}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

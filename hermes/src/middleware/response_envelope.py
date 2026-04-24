@@ -48,6 +48,34 @@ def extract_board_actions(text: str) -> tuple[str, list[dict]]:
     return clean_text, board_actions
 
 
+_GAME_RESULT_REQUIRED_KEYS = {"id", "white_name", "black_name"}
+
+
+def extract_game_results(tool_results: list[Any]) -> list[dict]:
+    """Extract game search results from tool output.
+
+    Looks for JSON arrays where each element has id, white_name, black_name keys.
+    """
+    if not tool_results:
+        return []
+
+    for result in tool_results:
+        if not isinstance(result, str):
+            continue
+        try:
+            obj = json.loads(result)
+            if (
+                isinstance(obj, list)
+                and obj
+                and isinstance(obj[0], dict)
+                and _GAME_RESULT_REQUIRED_KEYS.issubset(obj[0].keys())
+            ):
+                return obj
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return []
+
+
 def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
     """Wrap an agent response into a ResponseEnvelope dict.
 
@@ -56,7 +84,7 @@ def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
         tool_results: Optional list of raw tool call result strings.
 
     Returns:
-        Dict with 'message' and 'board_actions' keys.
+        Dict with 'message', 'board_actions', and 'game_results' keys.
     """
     board_actions = []
 
@@ -80,4 +108,6 @@ def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
         message=clean_message if embedded_actions else message,
         board_actions=board_actions,
     )
-    return envelope.model_dump()
+    result = envelope.model_dump()
+    result["game_results"] = extract_game_results(tool_results)
+    return result

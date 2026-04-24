@@ -109,6 +109,9 @@ export async function POST(request: NextRequest) {
           if (data.board_actions && data.board_actions.length > 0) {
             sendEvent({ board_actions: data.board_actions });
           }
+          if (data.game_results && data.game_results.length > 0) {
+            sendEvent({ game_results: data.game_results });
+          }
           sendEvent({ done: true, session_id: data.session_id });
         }
       } catch (err: unknown) {
