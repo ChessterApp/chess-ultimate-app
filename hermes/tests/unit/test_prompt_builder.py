@@ -97,3 +97,13 @@ class TestPromptBuilder:
         assert LOCALE_TO_LANGUAGE["ru"] == "Russian"
         assert LOCALE_TO_LANGUAGE["kz"] == "Kazakh"
         assert LOCALE_TO_LANGUAGE["en"] == "English"
+
+    def test_prompt_contains_set_fen_example(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL)
+        assert "set_fen" in prompt
+        assert "draw_arrows" in prompt
+        assert "Scholar's Mate" in prompt
+
+    def test_prompt_contains_example_fen(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL)
+        assert "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4" in prompt

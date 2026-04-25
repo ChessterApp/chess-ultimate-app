@@ -41,3 +41,23 @@ class TestModelRouter:
     def test_empty_tiers_returns_default(self):
         result = route_model("Analyze this", {}, DEFAULT)
         assert result == DEFAULT
+
+    def test_board_keyword_russian_routes_analysis(self):
+        result = route_model("покажи связку на доске", TIERS, DEFAULT)
+        assert result == TIERS["analysis"]
+
+    def test_board_keyword_english_routes_analysis(self):
+        result = route_model("show me a pin on the board", TIERS, DEFAULT)
+        assert result == TIERS["analysis"]
+
+    def test_no_board_keyword_stays_fast(self):
+        result = route_model("what is a pin?", TIERS, DEFAULT)
+        assert result == TIERS["fast"]
+
+    def test_analysis_keyword_still_works(self):
+        result = route_model("analyze this position", TIERS, DEFAULT)
+        assert result == TIERS["analysis"]
+
+    def test_deep_takes_priority_over_board(self):
+        result = route_model("deep analysis, show me on the board", TIERS, DEFAULT)
+        assert result == TIERS["deep"]

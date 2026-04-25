@@ -17,6 +17,15 @@ _DEEP_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+_BOARD_KEYWORDS = re.compile(
+    r"(?:"
+    r"show\s+(?:on\s+)?(?:the\s+)?board|show\s+me|set\s+up|demonstrate|display"
+    r"|put\s+on\s+the\s+board"
+    r"|покажи|доск[аеуи]|позици[яюи]|поставь|продемонстрируй|на\s+доске|установи"
+    r")",
+    re.IGNORECASE,
+)
+
 _ANALYSIS_KEYWORDS = re.compile(
     r"\b(analy[sz]e|evaluat\w*|critical|tactic\w*|calculat\w*|variation|candidate\s+move"
     r"|sacrifice|combin\w*|attack|defend|endgame\s+technique|compare|assess)",
@@ -41,6 +50,9 @@ def route_model(query: str, model_tiers: dict, default_model: str) -> str:
 
     if _DEEP_KEYWORDS.search(query):
         return model_tiers.get("deep", default_model)
+
+    if _BOARD_KEYWORDS.search(query):
+        return model_tiers.get("analysis", default_model)
 
     if _ANALYSIS_KEYWORDS.search(query):
         return model_tiers.get("analysis", default_model)

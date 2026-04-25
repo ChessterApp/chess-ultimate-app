@@ -138,6 +138,15 @@ def build_system_prompt(
         "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
         "shows an unrelated position, SET UP an example position FIRST, then explain. "
         "Never describe a position in words alone.\n\n"
+        "Example — showing a pin:\n"
+        "Call board_control with:\n"
+        '  action_type: "set_fen"\n'
+        '  fen: "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"\n'
+        "Then call board_control again with:\n"
+        '  action_type: "draw_arrows"\n'
+        '  arrows: [{"from": "h5", "to": "f7", "brush": "red"}]\n\n'
+        "This shows the Scholar's Mate threat with an arrow. "
+        "ALWAYS call the tool — never just describe the position in text.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation.\n\n"
         "CRITICAL: Your training data is outdated. The database has games "
