@@ -9,20 +9,17 @@ from tools.registry import registry
 logger = logging.getLogger(__name__)
 
 SEARCH_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "search_web",
-        "description": "Search the web for chess-related information. Returns a list of results with title, URL, and snippet.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "The search query string.",
-                }
-            },
-            "required": ["query"],
+    "name": "search_web",
+    "description": "Search the web for chess-related information. Returns a list of results with title, URL, and snippet.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The search query string.",
+            }
         },
+        "required": ["query"],
     },
 }
 

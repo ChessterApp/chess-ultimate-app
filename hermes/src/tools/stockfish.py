@@ -17,19 +17,16 @@ DEFAULT_MULTIPV = 3
 TIMEOUT_SECONDS = 30
 
 ANALYZE_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "analyze_position",
-        "description": "Analyze a chess position using Stockfish. Provide a FEN string and get evaluation, best move, and top lines.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "fen": {"type": "string", "description": "FEN string of the position to analyze."},
-                "depth": {"type": "integer", "description": "Search depth (default 20)."},
-                "multipv": {"type": "integer", "description": "Number of principal variations (default 3)."},
-            },
-            "required": ["fen"],
+    "name": "analyze_position",
+    "description": "Analyze a chess position using Stockfish. Provide a FEN string and get evaluation, best move, and top lines.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "fen": {"type": "string", "description": "FEN string of the position to analyze."},
+            "depth": {"type": "integer", "description": "Search depth (default 20)."},
+            "multipv": {"type": "integer", "description": "Number of principal variations (default 3)."},
         },
+        "required": ["fen"],
     },
 }
 

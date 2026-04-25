@@ -57,21 +57,18 @@ TWIC_DB_PATH = os.environ.get(
 )
 
 OPENING_STATS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_opening_stats",
-        "description": "Get statistics and information about a chess opening by ECO code or name.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "eco": {
-                    "type": "string",
-                    "description": "ECO code (e.g. 'B90', 'C65').",
-                },
-                "opening_name": {
-                    "type": "string",
-                    "description": "Opening name (e.g. 'Sicilian Najdorf', 'Ruy Lopez').",
-                },
+    "name": "get_opening_stats",
+    "description": "Get statistics and information about a chess opening by ECO code or name.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "eco": {
+                "type": "string",
+                "description": "ECO code (e.g. 'B90', 'C65').",
+            },
+            "opening_name": {
+                "type": "string",
+                "description": "Opening name (e.g. 'Sicilian Najdorf', 'Ruy Lopez').",
             },
         },
     },

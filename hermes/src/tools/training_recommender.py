@@ -15,23 +15,20 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 TIMEOUT = 10
 
 TRAINING_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "training_recommender",
-        "description": (
-            "Suggest personalized training recommendations based on the user's "
-            "detected weaknesses. Returns puzzle themes, courses, and practice activities."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID.",
-                },
+    "name": "training_recommender",
+    "description": (
+        "Suggest personalized training recommendations based on the user's "
+        "detected weaknesses. Returns puzzle themes, courses, and practice activities."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "string",
+                "description": "The user's ID.",
             },
-            "required": ["user_id"],
         },
+        "required": ["user_id"],
     },
 }
 

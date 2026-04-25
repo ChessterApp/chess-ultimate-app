@@ -10,23 +10,20 @@ from tools.registry import registry
 logger = logging.getLogger(__name__)
 
 THEMES_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "score_position_themes",
-        "description": (
-            "Evaluate a chess position for thematic elements: material balance, "
-            "mobility, space control, and king safety. Uses python-chess, no engine needed."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "fen": {
-                    "type": "string",
-                    "description": "FEN string of the position to evaluate.",
-                },
+    "name": "score_position_themes",
+    "description": (
+        "Evaluate a chess position for thematic elements: material balance, "
+        "mobility, space control, and king safety. Uses python-chess, no engine needed."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "fen": {
+                "type": "string",
+                "description": "FEN string of the position to evaluate.",
             },
-            "required": ["fen"],
         },
+        "required": ["fen"],
     },
 }
 

@@ -19,27 +19,24 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 TIMEOUT = 10
 
 WEAKNESS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "weakness_tracker",
-        "description": (
-            "Analyze a user's recent games to detect patterns of weakness and strength. "
-            "Categories: opening_theory, tactics, endgame, time_management, positional_play."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID.",
-                },
-                "num_games": {
-                    "type": "integer",
-                    "description": "Number of recent games to analyze (default 10).",
-                },
+    "name": "weakness_tracker",
+    "description": (
+        "Analyze a user's recent games to detect patterns of weakness and strength. "
+        "Categories: opening_theory, tactics, endgame, time_management, positional_play."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "string",
+                "description": "The user's ID.",
             },
-            "required": ["user_id"],
+            "num_games": {
+                "type": "integer",
+                "description": "Number of recent games to analyze (default 10).",
+            },
         },
+        "required": ["user_id"],
     },
 }
 

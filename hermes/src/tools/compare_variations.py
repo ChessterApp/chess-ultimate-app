@@ -11,31 +11,28 @@ from src.tools.stockfish import analyze_position
 logger = logging.getLogger(__name__)
 
 COMPARE_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "compare_variations",
-        "description": (
-            "Compare the top N variations in a position using Stockfish multipv analysis. "
-            "Shows each line's moves, evaluation score, and mate-in if applicable."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "fen": {
-                    "type": "string",
-                    "description": "FEN string of the position to analyze.",
-                },
-                "num_lines": {
-                    "type": "integer",
-                    "description": "Number of lines to compare (default 3).",
-                },
-                "depth": {
-                    "type": "integer",
-                    "description": "Search depth (default 20).",
-                },
+    "name": "compare_variations",
+    "description": (
+        "Compare the top N variations in a position using Stockfish multipv analysis. "
+        "Shows each line's moves, evaluation score, and mate-in if applicable."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "fen": {
+                "type": "string",
+                "description": "FEN string of the position to analyze.",
             },
-            "required": ["fen"],
+            "num_lines": {
+                "type": "integer",
+                "description": "Number of lines to compare (default 3).",
+            },
+            "depth": {
+                "type": "integer",
+                "description": "Search depth (default 20).",
+            },
         },
+        "required": ["fen"],
     },
 }
 

@@ -10,33 +10,30 @@ from src.tools.player_openings import get_player_openings
 logger = logging.getLogger(__name__)
 
 OPPONENT_PREP_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "opponent_prep",
-        "description": (
-            "Prepare for an upcoming opponent by analyzing their profile, "
-            "most-played openings, and suggesting counter-openings."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "opponent_username": {
-                    "type": "string",
-                    "description": "Opponent's username on the platform.",
-                },
-                "platform": {
-                    "type": "string",
-                    "enum": ["lichess", "chesscom"],
-                    "description": "Platform: 'lichess' or 'chesscom'.",
-                },
-                "user_color": {
-                    "type": "string",
-                    "enum": ["white", "black"],
-                    "description": "The color you will play as.",
-                },
+    "name": "opponent_prep",
+    "description": (
+        "Prepare for an upcoming opponent by analyzing their profile, "
+        "most-played openings, and suggesting counter-openings."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "opponent_username": {
+                "type": "string",
+                "description": "Opponent's username on the platform.",
             },
-            "required": ["opponent_username", "platform", "user_color"],
+            "platform": {
+                "type": "string",
+                "enum": ["lichess", "chesscom"],
+                "description": "Platform: 'lichess' or 'chesscom'.",
+            },
+            "user_color": {
+                "type": "string",
+                "enum": ["white", "black"],
+                "description": "The color you will play as.",
+            },
         },
+        "required": ["opponent_username", "platform", "user_color"],
     },
 }
 

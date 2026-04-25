@@ -19,27 +19,24 @@ ANALYSIS_DEPTH = 15
 TIMEOUT_PER_MOVE = 10
 
 CRITICAL_MOMENTS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "find_critical_moments",
-        "description": (
-            "Analyze a game move-by-move to find turning points where the evaluation "
-            "swung significantly (blunders, mistakes, missed mates)."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "pgn": {
-                    "type": "string",
-                    "description": "PGN string of the game to analyze.",
-                },
-                "threshold": {
-                    "type": "number",
-                    "description": "Eval swing threshold in pawns (default 1.5).",
-                },
+    "name": "find_critical_moments",
+    "description": (
+        "Analyze a game move-by-move to find turning points where the evaluation "
+        "swung significantly (blunders, mistakes, missed mates)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "pgn": {
+                "type": "string",
+                "description": "PGN string of the game to analyze.",
             },
-            "required": ["pgn"],
+            "threshold": {
+                "type": "number",
+                "description": "Eval swing threshold in pawns (default 1.5).",
+            },
         },
+        "required": ["pgn"],
     },
 }
 

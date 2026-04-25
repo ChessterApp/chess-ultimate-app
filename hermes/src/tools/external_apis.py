@@ -107,22 +107,19 @@ def _parse_pgn_stream(pgn_text: str) -> list[dict]:
 # --- lichess_game_import ---
 
 LICHESS_IMPORT_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "lichess_game_import",
-        "description": "Import a user's recent games from Lichess into the coaching database.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "username": {"type": "string", "description": "Lichess username."},
-                "max_games": {"type": "integer", "description": "Max games to import (default 50)."},
-                "time_control": {
-                    "type": "string",
-                    "description": "Filter by time control: bullet, blitz, rapid, classical. Optional.",
-                },
+    "name": "lichess_game_import",
+    "description": "Import a user's recent games from Lichess into the coaching database.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "username": {"type": "string", "description": "Lichess username."},
+            "max_games": {"type": "integer", "description": "Max games to import (default 50)."},
+            "time_control": {
+                "type": "string",
+                "description": "Filter by time control: bullet, blitz, rapid, classical. Optional.",
             },
-            "required": ["username"],
         },
+        "required": ["username"],
     },
 }
 
@@ -230,18 +227,15 @@ registry.register(
 # --- chesscom_game_import ---
 
 CHESSCOM_IMPORT_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "chesscom_game_import",
-        "description": "Import a user's recent games from Chess.com into the coaching database.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "username": {"type": "string", "description": "Chess.com username."},
-                "max_games": {"type": "integer", "description": "Max games to import (default 50)."},
-            },
-            "required": ["username"],
+    "name": "chesscom_game_import",
+    "description": "Import a user's recent games from Chess.com into the coaching database.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "username": {"type": "string", "description": "Chess.com username."},
+            "max_games": {"type": "integer", "description": "Max games to import (default 50)."},
         },
+        "required": ["username"],
     },
 }
 

@@ -17,23 +17,20 @@ TWIC_DB_PATH = os.environ.get(
 )
 
 POSITION_STATS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_position_stats",
-        "description": (
-            "Query the TWIC database for position statistics: how often a position "
-            "occurs, win rates, and top moves played from that position."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "fen": {
-                    "type": "string",
-                    "description": "FEN string of the position to look up.",
-                },
+    "name": "get_position_stats",
+    "description": (
+        "Query the TWIC database for position statistics: how often a position "
+        "occurs, win rates, and top moves played from that position."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "fen": {
+                "type": "string",
+                "description": "FEN string of the position to look up.",
             },
-            "required": ["fen"],
         },
+        "required": ["fen"],
     },
 }
 

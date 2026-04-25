@@ -46,18 +46,15 @@ def _supabase_get(table: str, params: dict, url: str = None, key: str = None) ->
 # --- Tool 6: get_user_repertoire ---
 
 REPERTOIRE_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_user_repertoire",
-        "description": "Get a user's opening repertoire from their profile.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "user_id": {"type": "string", "description": "The user's ID."},
-                "color": {"type": "string", "description": "Filter by color: 'white' or 'black'. If omitted, returns both."},
-            },
-            "required": ["user_id"],
+    "name": "get_user_repertoire",
+    "description": "Get a user's opening repertoire from their profile.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "user_id": {"type": "string", "description": "The user's ID."},
+            "color": {"type": "string", "description": "Filter by color: 'white' or 'black'. If omitted, returns both."},
         },
+        "required": ["user_id"],
     },
 }
 
@@ -102,18 +99,15 @@ registry.register(
 # --- Tool 7: get_user_games ---
 
 USER_GAMES_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_user_games",
-        "description": "Get a user's recent games from their profile.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "user_id": {"type": "string", "description": "The user's ID."},
-                "limit": {"type": "integer", "description": "Max games to return (default 20)."},
-            },
-            "required": ["user_id"],
+    "name": "get_user_games",
+    "description": "Get a user's recent games from their profile.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "user_id": {"type": "string", "description": "The user's ID."},
+            "limit": {"type": "integer", "description": "Max games to return (default 20)."},
         },
+        "required": ["user_id"],
     },
 }
 

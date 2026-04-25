@@ -12,22 +12,19 @@ logger = logging.getLogger(__name__)
 TIMEOUT = 10
 
 PROFILE_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_player_profile",
-        "description": "Get a player's profile from Lichess or Chess.com, including ratings and game counts.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "username": {"type": "string", "description": "The player's username."},
-                "platform": {
-                    "type": "string",
-                    "enum": ["lichess", "chesscom"],
-                    "description": "Platform: 'lichess' or 'chesscom'.",
-                },
+    "name": "get_player_profile",
+    "description": "Get a player's profile from Lichess or Chess.com, including ratings and game counts.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "username": {"type": "string", "description": "The player's username."},
+            "platform": {
+                "type": "string",
+                "enum": ["lichess", "chesscom"],
+                "description": "Platform: 'lichess' or 'chesscom'.",
             },
-            "required": ["username", "platform"],
         },
+        "required": ["username", "platform"],
     },
 }
 

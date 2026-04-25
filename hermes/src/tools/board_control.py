@@ -25,65 +25,62 @@ from src.board_protocol import (
 logger = logging.getLogger(__name__)
 
 BOARD_CONTROL_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "board_control",
-        "description": (
-            "Control the chess board UI. Use this to set positions (FEN), "
-            "load games (PGN), set puzzles, draw arrows, highlight squares, "
-            "navigate through moves, flip the board, or clear it."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "action_type": {
-                    "type": "string",
-                    "enum": [e.value for e in ActionType],
-                    "description": "The type of board action to perform.",
-                },
-                "fen": {
-                    "type": "string",
-                    "description": "FEN string (for set_fen, set_puzzle).",
-                },
-                "pgn": {
-                    "type": "string",
-                    "description": "PGN string (for load_pgn).",
-                },
-                "solution": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Solution moves in SAN (for set_puzzle).",
-                },
-                "arrows": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "from": {"type": "string"},
-                            "to": {"type": "string"},
-                            "brush": {"type": "string", "default": "green"},
-                        },
-                        "required": ["from", "to"],
-                    },
-                    "description": "Arrows to draw (for draw_arrows).",
-                },
-                "squares": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Squares to highlight (for highlight_squares).",
-                },
-                "color": {
-                    "type": "string",
-                    "description": "Color for highlights (default: yellow).",
-                },
-                "direction": {
-                    "type": "string",
-                    "enum": ["first", "prev", "next", "last"],
-                    "description": "Navigation direction (for navigate).",
-                },
+    "name": "board_control",
+    "description": (
+        "Control the chess board UI. Use this to set positions (FEN), "
+        "load games (PGN), set puzzles, draw arrows, highlight squares, "
+        "navigate through moves, flip the board, or clear it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action_type": {
+                "type": "string",
+                "enum": [e.value for e in ActionType],
+                "description": "The type of board action to perform.",
             },
-            "required": ["action_type"],
+            "fen": {
+                "type": "string",
+                "description": "FEN string (for set_fen, set_puzzle).",
+            },
+            "pgn": {
+                "type": "string",
+                "description": "PGN string (for load_pgn).",
+            },
+            "solution": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Solution moves in SAN (for set_puzzle).",
+            },
+            "arrows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "from": {"type": "string"},
+                        "to": {"type": "string"},
+                        "brush": {"type": "string", "default": "green"},
+                    },
+                    "required": ["from", "to"],
+                },
+                "description": "Arrows to draw (for draw_arrows).",
+            },
+            "squares": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Squares to highlight (for highlight_squares).",
+            },
+            "color": {
+                "type": "string",
+                "description": "Color for highlights (default: yellow).",
+            },
+            "direction": {
+                "type": "string",
+                "enum": ["first", "prev", "next", "last"],
+                "description": "Navigation direction (for navigate).",
+            },
         },
+        "required": ["action_type"],
     },
 }
 

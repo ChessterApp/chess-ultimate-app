@@ -18,32 +18,29 @@ DEFAULT_LIMIT = 10
 MAX_LIMIT = 50
 
 PLAYER_OPENINGS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_player_openings",
-        "description": (
-            "Aggregate a player's opening repertoire from the TWIC master database. "
-            "Shows their most-played openings with win/draw/loss stats."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "player_name": {
-                    "type": "string",
-                    "description": "Player name to search for.",
-                },
-                "color": {
-                    "type": "string",
-                    "enum": ["white", "black", "both"],
-                    "description": "Filter by color (default: both).",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Max openings to return (default 10).",
-                },
+    "name": "get_player_openings",
+    "description": (
+        "Aggregate a player's opening repertoire from the TWIC master database. "
+        "Shows their most-played openings with win/draw/loss stats."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "player_name": {
+                "type": "string",
+                "description": "Player name to search for.",
             },
-            "required": ["player_name"],
+            "color": {
+                "type": "string",
+                "enum": ["white", "black", "both"],
+                "description": "Filter by color (default: both).",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Max openings to return (default 10).",
+            },
         },
+        "required": ["player_name"],
     },
 }
 

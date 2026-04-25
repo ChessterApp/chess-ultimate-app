@@ -15,23 +15,20 @@ SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 TIMEOUT = 10
 
 PROGRESS_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_user_progress",
-        "description": (
-            "Fetch a user's learning progress: course completions, lesson progress, "
-            "puzzle stats, accuracy, and current streak."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID.",
-                },
+    "name": "get_user_progress",
+    "description": (
+        "Fetch a user's learning progress: course completions, lesson progress, "
+        "puzzle stats, accuracy, and current streak."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "user_id": {
+                "type": "string",
+                "description": "The user's ID.",
             },
-            "required": ["user_id"],
         },
+        "required": ["user_id"],
     },
 }
 

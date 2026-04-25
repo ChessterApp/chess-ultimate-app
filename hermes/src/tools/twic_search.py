@@ -20,22 +20,19 @@ DEFAULT_LIMIT = 20
 # --- Tool 3: search_master_games ---
 
 SEARCH_GAMES_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "search_master_games",
-        "description": "Search the TWIC master games database. Filter by player, ECO code, opening, result, and year range.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "player": {"type": "string", "description": "Player name (searches both white and black). Use surname only for best results."},
-                "event": {"type": "string", "description": "Tournament/event name substring (e.g. 'Candidates', 'Tata Steel')."},
-                "eco": {"type": "string", "description": "ECO code (e.g. 'B90')."},
-                "opening": {"type": "string", "description": "Opening name substring."},
-                "result": {"type": "string", "description": "Game result: '1-0', '0-1', or '1/2-1/2'."},
-                "year_min": {"type": "integer", "description": "Earliest year."},
-                "year_max": {"type": "integer", "description": "Latest year."},
-                "limit": {"type": "integer", "description": "Max results (default 20, max 50)."},
-            },
+    "name": "search_master_games",
+    "description": "Search the TWIC master games database. Filter by player, ECO code, opening, result, and year range.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "player": {"type": "string", "description": "Player name (searches both white and black). Use surname only for best results."},
+            "event": {"type": "string", "description": "Tournament/event name substring (e.g. 'Candidates', 'Tata Steel')."},
+            "eco": {"type": "string", "description": "ECO code (e.g. 'B90')."},
+            "opening": {"type": "string", "description": "Opening name substring."},
+            "result": {"type": "string", "description": "Game result: '1-0', '0-1', or '1/2-1/2'."},
+            "year_min": {"type": "integer", "description": "Earliest year."},
+            "year_max": {"type": "integer", "description": "Latest year."},
+            "limit": {"type": "integer", "description": "Max results (default 20, max 50)."},
         },
     },
 }
@@ -152,20 +149,17 @@ registry.register(
 # --- Tool 4: get_game_pgn ---
 
 GET_PGN_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "get_game_pgn",
-        "description": "Retrieve the full PGN and headers for a specific game by its database ID.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "game_id": {
-                    "type": "integer",
-                    "description": "The game ID from the database.",
-                }
-            },
-            "required": ["game_id"],
+    "name": "get_game_pgn",
+    "description": "Retrieve the full PGN and headers for a specific game by its database ID.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "game_id": {
+                "type": "integer",
+                "description": "The game ID from the database.",
+            }
         },
+        "required": ["game_id"],
     },
 }
 
