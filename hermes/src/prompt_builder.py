@@ -147,6 +147,12 @@ def build_system_prompt(
         '  arrows: [{"from": "h5", "to": "f7", "brush": "red"}]\n\n'
         "This shows the Scholar's Mate threat with an arrow. "
         "ALWAYS call the tool — never just describe the position in text.\n\n"
+        "### Lichess/Chess.com Game Loading Workflow\n"
+        "When the user asks to find, load, or show a game from Lichess or Chess.com:\n"
+        "1. Call lichess_game_import or chesscom_game_import with the username and max_games=1\n"
+        "2. The result includes last_games with pgn field — take the PGN from there\n"
+        "3. Call board_control with action_type=\"load_pgn\" and pgn=<the PGN from step 2>\n"
+        "Never say you cannot load the game — always follow this 2-step workflow.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation.\n\n"
         "CRITICAL: Your training data is outdated. The database has games "

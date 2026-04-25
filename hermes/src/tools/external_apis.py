@@ -201,6 +201,10 @@ def lichess_game_import(
         "username": username,
         "results": results_summary,
         "summary": f"Imported {len(games)} games from Lichess for {username}.",
+        "last_games": [
+            {"pgn": g["pgn"], "white": g["white"], "black": g["black"], "result": g["result"], "date": g["date"]}
+            for g in games[:3]
+        ],
     }
 
 
@@ -340,6 +344,10 @@ def chesscom_game_import(
         "username": username,
         "results": results_summary,
         "summary": f"Imported {len(all_games)} games from Chess.com for {username}.",
+        "last_games": [
+            {"pgn": g["pgn"], "white": g["white"], "black": g["black"], "result": g["result"], "date": g["date"]}
+            for g in all_games[:3]
+        ],
     }
 
 
