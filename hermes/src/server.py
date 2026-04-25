@@ -363,6 +363,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     )
     model = _resolve_model(None, body.message)
     logger.info("Model routed: %s for message: %s", model, body.message[:80])
+
+    # Build conversation context from session history (exclude the just-added user message)
+    history_messages = session.messages[:-1]
+    if history_messages:
+        recent = history_messages[-20:]  # last ~10 turns
+        history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
+        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{body.message}"
+    else:
+        augmented_message = body.message
+
     agent = _create_agent(model=model, system_prompt=system_prompt, session_id=session_id)
 
     # Capture tool results for board action extraction
@@ -376,7 +386,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
     loop = asyncio.get_event_loop()
     try:
-        response_text = await loop.run_in_executor(None, agent.chat, body.message)
+        response_text = await loop.run_in_executor(None, agent.chat, augmented_message)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Agent error: {exc}")
 
