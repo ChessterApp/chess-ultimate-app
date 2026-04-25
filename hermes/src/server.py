@@ -362,12 +362,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         locale=body.locale,
     )
     model = _resolve_model(None, body.message)
+    logger.info("Model routed: %s for message: %s", model, body.message[:80])
     agent = _create_agent(model=model, system_prompt=system_prompt, session_id=session_id)
 
     # Capture tool results for board action extraction
     tool_results: list[str] = []
 
     def _on_tool_complete(tool_call_id, tool_name, args, result):
+        logger.info("Tool called: %s args=%s result=%s", tool_name, str(args)[:200], str(result)[:200])
         tool_results.append(result)
 
     agent.tool_complete_callback = _on_tool_complete
