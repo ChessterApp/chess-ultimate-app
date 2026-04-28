@@ -185,6 +185,13 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import repertoire API: {e}")
 
+try:
+    from routes.webhooks import webhooks_bp
+    app.register_blueprint(webhooks_bp)
+    logger.info("✅ Webhooks API registered (Clerk organization sync)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import webhooks API: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}
