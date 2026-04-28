@@ -206,6 +206,13 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import tournaments API: {e}")
 
+try:
+    from routes.admin import admin_bp
+    app.register_blueprint(admin_bp)
+    logger.info("✅ Admin API registered (organization management)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import admin API: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}

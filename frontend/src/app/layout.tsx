@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from '@clerk/nextjs'
 import { NextIntlClientProvider } from 'next-intl';
 import { getLocale, getMessages } from 'next-intl/server';
+import { headers } from 'next/headers';
 import "./globals.css";
 import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
@@ -10,6 +11,8 @@ import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import PrefetchManager from "@/components/PrefetchManager";
 import LocalStorageMigration from "@/components/LocalStorageMigration";
 import { PowerSyncProvider } from "@/lib/powersync/PowerSyncProvider";
+import { OrganizationProvider, Organization, parseOrgFromHeaders } from "@/contexts/OrganizationContext";
+import BrandingInjector from "@/components/BrandingInjector";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -153,6 +156,33 @@ const clerkLocalizations: Record<string, Record<string, unknown>> = {
   },
 };
 
+async function fetchOrgData(orgId: string, orgSlug: string): Promise<Organization | null> {
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+    const res = await fetch(`${backendUrl}/api/admin/organizations/by-slug/${orgSlug}`, {
+      next: { revalidate: 300 }, // Cache for 5 minutes
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      id: data.id || orgId,
+      slug: data.slug || orgSlug,
+      name: data.name || 'Chesster',
+      logoUrl: data.logo_url || null,
+      faviconUrl: data.favicon_url || null,
+      primaryColor: data.primary_color || '#1a73e8',
+      secondaryColor: data.secondary_color || '#ffffff',
+      accentColor: data.accent_color || '#ffd700',
+      landingPageConfig: data.landing_page_config || {},
+      contactEmail: data.contact_email || null,
+      status: data.status || 'active',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -162,6 +192,14 @@ export default async function RootLayout({
   const messages = await getMessages();
   const clerkLocalization = clerkLocalizations[locale] || clerkLocalizations.en;
 
+  // Read org headers injected by middleware
+  const headersList = await headers();
+  const orgInfo = parseOrgFromHeaders(headersList);
+  let org: Organization | null = null;
+  if (orgInfo) {
+    org = await fetchOrgData(orgInfo.orgId, orgInfo.orgSlug);
+  }
+
   return (
     <ClerkProvider localization={clerkLocalization}>
       <html lang={locale} suppressHydrationWarning>
@@ -170,21 +208,27 @@ export default async function RootLayout({
           <link rel="preconnect" href="https://accounts.clerk.services" />
           <link rel="dns-prefetch" href="https://clerk.chesster.io" />
           <link rel="manifest" href="/manifest.json" />
-          <meta name="theme-color" content="#9333ea" />
+          <meta name="theme-color" content={org?.primaryColor || '#9333ea'} />
           <meta name="mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+          {org?.faviconUrl && (
+            <link rel="icon" href={org.faviconUrl} />
+          )}
         </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
-          <NextIntlClientProvider messages={messages}>
-            <PowerSyncProvider>
-              <LocalStorageMigration />
-              <ServiceWorkerRegistration />
-              <PrefetchManager />
-              <ClientShell>
-                {children}
-              </ClientShell>
-            </PowerSyncProvider>
-          </NextIntlClientProvider>
+          <OrganizationProvider org={org}>
+            <BrandingInjector />
+            <NextIntlClientProvider messages={messages}>
+              <PowerSyncProvider>
+                <LocalStorageMigration />
+                <ServiceWorkerRegistration />
+                <PrefetchManager />
+                <ClientShell>
+                  {children}
+                </ClientShell>
+              </PowerSyncProvider>
+            </NextIntlClientProvider>
+          </OrganizationProvider>
         </body>
       </html>
     </ClerkProvider>

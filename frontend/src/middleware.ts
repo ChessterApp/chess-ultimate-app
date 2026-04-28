@@ -37,14 +37,79 @@ function clearClerkCookies(request: NextRequest, redirectPath: string) {
   return response
 }
 
+/**
+ * Extract org slug from subdomain.
+ * e.g. "almatychess.chesster.io" -> "almatychess"
+ * Returns null for main domain (chesster.io, www.chesster.io, localhost).
+ */
+function extractOrgSlug(request: NextRequest): string | null {
+  const host = request.headers.get('host') || ''
+
+  // Dev mode: use ?org=slug query param
+  if (host.startsWith('localhost')) {
+    return request.nextUrl.searchParams.get('org')
+  }
+
+  // Production: extract subdomain from *.chesster.io
+  const parts = host.split('.')
+  // e.g. ["almatychess", "chesster", "io"] -> subdomain = "almatychess"
+  if (parts.length >= 3 && parts.slice(-2).join('.') === 'chesster.io') {
+    const subdomain = parts.slice(0, -2).join('.')
+    if (subdomain === 'www' || subdomain === '') return null
+    return subdomain
+  }
+
+  return null
+}
+
+// In-memory cache for org lookups (TTL: 5 minutes)
+const orgCache = new Map<string, { data: Record<string, string>; expiry: number }>()
+const ORG_CACHE_TTL = 5 * 60 * 1000
+
+async function lookupOrg(slug: string): Promise<{ id: string; slug: string } | null> {
+  const now = Date.now()
+  const cached = orgCache.get(slug)
+  if (cached && cached.expiry > now) {
+    return cached.data as unknown as { id: string; slug: string }
+  }
+
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001'
+    const res = await fetch(`${backendUrl}/api/admin/organizations/by-slug/${slug}`, {
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    orgCache.set(slug, { data, expiry: now + ORG_CACHE_TTL })
+    return data
+  } catch {
+    return null
+  }
+}
+
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
+  // Extract org slug from subdomain
+  const orgSlug = extractOrgSlug(request)
+
   try {
     const response = await clerk(request, event)
     // If Clerk returned a 500 (e.g., kid mismatch during handshake), clear cookies
     if (response && response.status >= 500) {
       return clearClerkCookies(request, request.nextUrl.pathname)
     }
-    return response ?? NextResponse.next()
+
+    const res = response ?? NextResponse.next()
+
+    // Inject org headers if subdomain detected
+    if (orgSlug) {
+      const org = await lookupOrg(orgSlug)
+      if (org) {
+        res.headers.set('x-org-id', org.id)
+        res.headers.set('x-org-slug', org.slug)
+      }
+    }
+
+    return res
   } catch {
     // Stale Clerk session (key rotation, instance change) — clear cookies and redirect
     return clearClerkCookies(request, request.nextUrl.pathname)

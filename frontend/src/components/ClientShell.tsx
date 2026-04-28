@@ -21,7 +21,7 @@ import SyncIndicator from "@/components/SyncIndicator"
 const MuiProvider = lazy(() => import("@/components/providers/MuiProvider"))
 
 // Pages where the navigation should be hidden
-const HIDE_NAV_PATHS = ['/sign-in', '/sign-up', '/', '/onboarding']
+const HIDE_NAV_PATHS = ['/sign-in', '/sign-up', '/', '/onboarding', '/admin']
 
 // Routes that use MUI components and need ThemeProvider
 const MUI_ROUTES = ['/database', '/game', '/position', '/puzzle', '/repertoire', '/practice', '/courses']
