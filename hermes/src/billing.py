@@ -1,98 +1,80 @@
-"""Stripe billing integration — webhooks and checkout sessions.
+"""Whop billing integration — webhooks and checkout sessions.
 
 Handles subscription lifecycle events and provides endpoints for
 creating checkout sessions and checking subscription status.
 """
 
-import json
 import logging
 import os
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
-import stripe
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-# Stripe price IDs (configured via environment or defaults)
-PRICE_IDS = {
-    "premium": os.environ.get("STRIPE_PREMIUM_PRICE_ID", "price_premium_monthly"),
-    "pro": os.environ.get("STRIPE_PRO_PRICE_ID", "price_pro_monthly"),
+# Whop plan IDs (configured via environment)
+PLAN_IDS = {
+    "weekly": os.environ.get("WHOP_WEEKLY_PLAN", ""),
+    "monthly": os.environ.get("WHOP_MONTHLY_PLAN", ""),
+    "yearly": os.environ.get("WHOP_YEARLY_PLAN", ""),
 }
 
-# Map Stripe status to internal tier
-STATUS_TIER_MAP = {
-    "active": None,  # Tier comes from the price
-    "trialing": None,
-    "past_due": "free",
-    "canceled": "free",
-    "unpaid": "free",
+# Map Whop membership status to internal status
+STATUS_MAP = {
+    "active": "active",
+    "trialing": "trialing",
+    "past_due": "past_due",
+    "completed": "active",
+    "expired": "expired",
+    "cancelled": "canceled",
 }
 
 
 class SubscriptionInfo(BaseModel):
     user_id: str
     tier: str = "free"
-    stripe_customer_id: Optional[str] = None
-    stripe_subscription_id: Optional[str] = None
+    whop_membership_id: Optional[str] = None
+    whop_user_id: Optional[str] = None
     status: str = "none"
 
 
-def get_stripe_key() -> str:
-    """Get Stripe secret key from environment."""
-    return os.environ.get("STRIPE_SECRET_KEY", "")
+def _get_whop_api_key() -> str:
+    """Get Whop API key from environment."""
+    return os.environ.get("WHOP_API_KEY", "")
 
 
-def init_stripe() -> bool:
-    """Initialize Stripe with the secret key. Returns True if configured."""
-    key = get_stripe_key()
-    if key:
-        stripe.api_key = key
-        return True
-    logger.warning("STRIPE_SECRET_KEY not configured")
-    return False
+def _plan_type_from_id(plan_id: str) -> str:
+    """Resolve plan type name from a Whop plan ID."""
+    for plan_type, pid in PLAN_IDS.items():
+        if pid and pid == plan_id:
+            return plan_type
+    return "unknown"
 
 
 def create_checkout_session(
     user_id: str,
     tier: str,
-    success_url: str = "https://chesster.io/billing/success",
-    cancel_url: str = "https://chesster.io/billing/cancel",
+    redirect_url: str = "https://chesster.io/onboarding?step=complete",
 ) -> dict:
-    """Create a Stripe Checkout Session for a subscription."""
-    if not init_stripe():
-        return {"error": "Stripe not configured"}
-
-    price_id = PRICE_IDS.get(tier)
-    if not price_id:
+    """Build a Whop checkout URL for a subscription plan."""
+    plan_id = PLAN_IDS.get(tier)
+    if not plan_id:
         return {"error": f"Unknown tier: {tier}"}
 
-    try:
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            payment_method_types=["card"],
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=success_url + "?session_id={CHECKOUT_SESSION_ID}",
-            cancel_url=cancel_url,
-            client_reference_id=user_id,
-            metadata={"user_id": user_id, "tier": tier},
-        )
-        return {
-            "checkout_url": session.url,
-            "session_id": session.id,
-        }
-    except stripe.StripeError as e:
-        logger.exception("Stripe checkout session creation failed")
-        return {"error": str(e)}
+    encoded_redirect = quote(redirect_url, safe="")
+    checkout_url = (
+        f"https://whop.com/checkout/{plan_id}"
+        f"?d={encoded_redirect}"
+        f"&metadata[clerk_user_id]={quote(user_id, safe='')}"
+    )
+
+    return {"checkout_url": checkout_url}
 
 
 def get_subscription_status(user_id: str) -> SubscriptionInfo:
-    """Get subscription status for a user.
-
-    In production, this would query Supabase for the user's stored
-    Stripe customer/subscription IDs. For now, returns defaults.
-    """
+    """Get subscription status for a user from Supabase."""
     url = os.environ.get("SUPABASE_URL", "")
     key = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
@@ -102,7 +84,7 @@ def get_subscription_status(user_id: str) -> SubscriptionInfo:
     try:
         resp = httpx.get(
             f"{url}/rest/v1/subscriptions",
-            params={"user_id": f"eq.{user_id}", "select": "*"},
+            params={"clerk_user_id": f"eq.{user_id}", "select": "*"},
             headers={
                 "apikey": key,
                 "Authorization": f"Bearer {key}",
@@ -119,32 +101,39 @@ def get_subscription_status(user_id: str) -> SubscriptionInfo:
         return SubscriptionInfo(user_id=user_id)
 
     row = rows[0]
+    plan_type = row.get("plan_type", "unknown")
+    status = row.get("status", "none")
+    tier = "free" if status in ("expired", "canceled") else plan_type
+
     return SubscriptionInfo(
         user_id=user_id,
-        tier=row.get("tier", "free"),
-        stripe_customer_id=row.get("stripe_customer_id"),
-        stripe_subscription_id=row.get("stripe_subscription_id"),
-        status=row.get("status", "none"),
+        tier=tier,
+        whop_membership_id=row.get("whop_membership_id"),
+        whop_user_id=row.get("whop_user_id"),
+        status=status,
     )
 
 
-def _save_subscription(info: SubscriptionInfo) -> bool:
+def _save_subscription(info: SubscriptionInfo, plan_id: str = "", plan_type: str = "") -> bool:
     """Persist subscription info to Supabase."""
     url = os.environ.get("SUPABASE_URL", "")
     key = os.environ.get("SUPABASE_SERVICE_KEY", "")
     if not url or not key:
         return False
 
+    payload = {
+        "whop_membership_id": info.whop_membership_id,
+        "clerk_user_id": info.user_id,
+        "whop_user_id": info.whop_user_id,
+        "plan_id": plan_id,
+        "plan_type": plan_type or info.tier,
+        "status": info.status,
+    }
+
     try:
         httpx.post(
             f"{url}/rest/v1/subscriptions",
-            json={
-                "user_id": info.user_id,
-                "tier": info.tier,
-                "stripe_customer_id": info.stripe_customer_id,
-                "stripe_subscription_id": info.stripe_subscription_id,
-                "status": info.status,
-            },
+            json=payload,
             headers={
                 "apikey": key,
                 "Authorization": f"Bearer {key}",
@@ -159,81 +148,54 @@ def _save_subscription(info: SubscriptionInfo) -> bool:
         return False
 
 
-def _tier_from_price(price_id: str) -> str:
-    """Resolve tier name from a Stripe price ID."""
-    for tier, pid in PRICE_IDS.items():
-        if pid == price_id:
-            return tier
-    return "premium"  # Default if unknown price
+def handle_webhook_event(payload: bytes) -> dict:
+    """Process a Whop webhook event.
 
-
-def handle_webhook_event(payload: bytes, sig_header: str) -> dict:
-    """Process a Stripe webhook event.
-
-    Handles:
-    - checkout.session.completed
-    - customer.subscription.updated
-    - customer.subscription.deleted
+    Expects JSON body with:
+    - action: event type string
+    - data: membership object with id, metadata, plan_id, status, user_id
     """
-    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
-    if not init_stripe():
-        return {"error": "Stripe not configured"}
+    import json
 
     try:
-        if webhook_secret:
-            event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
-        else:
-            event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
-    except (stripe.SignatureVerificationError, ValueError) as e:
-        logger.warning("Webhook signature verification failed: %s", e)
-        return {"error": "Invalid signature"}
+        body = json.loads(payload)
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.warning("Webhook payload parse error: %s", e)
+        return {"error": "Invalid payload"}
 
-    # Normalize event to plain dicts (StripeObject doesn't support .get())
-    event_dict = json.loads(str(event)) if hasattr(event, '_data') else event
-    event_type = event_dict["type"]
-    data = event_dict["data"]["object"]
+    action = body.get("action", body.get("event", "unknown"))
+    membership = body.get("data", {})
+    membership_id = membership.get("id")
 
-    if event_type == "checkout.session.completed":
-        user_id = data.get("client_reference_id", "")
-        tier = data.get("metadata", {}).get("tier", "premium")
-        info = SubscriptionInfo(
-            user_id=user_id,
-            tier=tier,
-            stripe_customer_id=data.get("customer"),
-            stripe_subscription_id=data.get("subscription"),
-            status="active",
-        )
-        _save_subscription(info)
-        return {"handled": True, "event": event_type, "user_id": user_id}
+    if not membership_id:
+        return {"handled": False, "reason": "No membership ID"}
 
-    elif event_type == "customer.subscription.updated":
-        sub_id = data.get("id")
-        status = data.get("status", "active")
-        items = data.get("items", {}).get("data", [])
-        price_id = items[0]["price"]["id"] if items else ""
-        tier = _tier_from_price(price_id) if status in ("active", "trialing") else "free"
+    clerk_user_id = (
+        membership.get("metadata", {}).get("clerk_user_id")
+        or membership.get("discord", {}).get("id")
+        or "unknown"
+    )
+    plan_id = membership.get("plan_id", "")
+    whop_status = membership.get("status", "")
+    whop_user_id = membership.get("user_id", "")
 
-        # Find user by subscription ID
-        info = SubscriptionInfo(
-            user_id=data.get("metadata", {}).get("user_id", ""),
-            tier=tier,
-            stripe_customer_id=data.get("customer"),
-            stripe_subscription_id=sub_id,
-            status=status,
-        )
-        _save_subscription(info)
-        return {"handled": True, "event": event_type}
+    mapped_status = STATUS_MAP.get(whop_status, whop_status or "inactive")
+    plan_type = _plan_type_from_id(plan_id)
+    tier = "free" if mapped_status in ("expired", "canceled") else plan_type
 
-    elif event_type == "customer.subscription.deleted":
-        sub_id = data.get("id")
-        info = SubscriptionInfo(
-            user_id=data.get("metadata", {}).get("user_id", ""),
-            tier="free",
-            stripe_customer_id=data.get("customer"),
-            stripe_subscription_id=sub_id,
-            status="canceled",
-        )
-        _save_subscription(info)
-        return {"handled": True, "event": event_type}
+    info = SubscriptionInfo(
+        user_id=clerk_user_id,
+        tier=tier,
+        whop_membership_id=membership_id,
+        whop_user_id=whop_user_id,
+        status=mapped_status,
+    )
+    _save_subscription(info, plan_id=plan_id, plan_type=plan_type)
 
-    return {"handled": False, "event": event_type}
+    return {
+        "handled": True,
+        "action": action,
+        "membership_id": membership_id,
+        "user_id": clerk_user_id,
+        "status": mapped_status,
+    }

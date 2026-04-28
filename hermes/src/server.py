@@ -318,8 +318,7 @@ class CoachSessionCreateRequest(BaseModel):
 
 class CheckoutRequest(BaseModel):
     tier: str
-    success_url: Optional[str] = None
-    cancel_url: Optional[str] = None
+    redirect_url: Optional[str] = None
 
 
 def _get_user_id(request: Request) -> str:
@@ -486,15 +485,13 @@ async def coach_analytics(request: Request):
 
 @app.post("/api/coach/create-checkout-session")
 async def coach_create_checkout(body: CheckoutRequest, request: Request):
-    """Create a Stripe Checkout Session for subscription."""
+    """Create a Whop checkout URL for subscription."""
     user_id = _get_user_id(request)
     await enforce_rate_limit(request)
 
     kwargs = {"user_id": user_id, "tier": body.tier}
-    if body.success_url:
-        kwargs["success_url"] = body.success_url
-    if body.cancel_url:
-        kwargs["cancel_url"] = body.cancel_url
+    if body.redirect_url:
+        kwargs["redirect_url"] = body.redirect_url
 
     result = create_checkout_session(**kwargs)
     if "error" in result:
@@ -510,12 +507,11 @@ async def coach_subscription_status(request: Request):
     return info.model_dump()
 
 
-@app.post("/api/coach/stripe-webhook")
-async def stripe_webhook(request: Request):
-    """Handle Stripe webhook events."""
+@app.post("/api/coach/whop-webhook")
+async def whop_webhook(request: Request):
+    """Handle Whop webhook events."""
     payload = await request.body()
-    sig_header = request.headers.get("stripe-signature", "")
-    result = handle_webhook_event(payload, sig_header)
+    result = handle_webhook_event(payload)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
