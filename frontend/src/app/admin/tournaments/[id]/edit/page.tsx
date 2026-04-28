@@ -1,0 +1,349 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { useOrganization } from '@/contexts/OrganizationContext';
+
+interface TournamentForm {
+  name: string;
+  description: string;
+  location: string;
+  city: string;
+  country: string;
+  start_date: string;
+  end_date: string;
+  registration_deadline: string;
+  time_control: string;
+  format: string;
+  max_participants: string;
+  entry_fee: string;
+  currency: string;
+  prize_fund: string;
+  rating_category: string;
+  min_rating: string;
+  max_rating: string;
+  is_fide_rated: boolean;
+  status: string;
+}
+
+export default function AdminEditTournamentPage() {
+  const router = useRouter();
+  const params = useParams();
+  const { org } = useOrganization();
+  const tournamentId = params?.id as string;
+
+  const [form, setForm] = useState<TournamentForm | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetchTournament();
+  }, [tournamentId]);
+
+  async function fetchTournament() {
+    setLoading(true);
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+      const res = await fetch(`${backendUrl}/api/tournaments/${tournamentId}`);
+      if (res.ok) {
+        const t = await res.json();
+        setForm({
+          name: t.name || '',
+          description: t.description || '',
+          location: t.location || '',
+          city: t.city || '',
+          country: t.country || '',
+          start_date: t.start_date?.split('T')[0] || '',
+          end_date: t.end_date?.split('T')[0] || '',
+          registration_deadline: t.registration_deadline?.split('T')[0] || '',
+          time_control: t.time_control || '',
+          format: t.format || 'swiss',
+          max_participants: t.max_participants?.toString() || '',
+          entry_fee: t.entry_fee?.toString() || '0',
+          currency: t.currency || 'KZT',
+          prize_fund: t.prize_fund?.toString() || '',
+          rating_category: t.rating_category || '',
+          min_rating: t.min_rating?.toString() || '',
+          max_rating: t.max_rating?.toString() || '',
+          is_fide_rated: t.is_fide_rated || false,
+          status: t.status || 'upcoming',
+        });
+      } else {
+        setError('Tournament not found');
+      }
+    } catch {
+      setError('Failed to load tournament');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function updateField(field: keyof TournamentForm, value: string | boolean) {
+    if (!form) return;
+    setForm({ ...form, [field]: value });
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form) return;
+    setSaving(true);
+    setError('');
+
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+      const body: Record<string, unknown> = {
+        ...form,
+        max_participants: form.max_participants ? parseInt(form.max_participants) : null,
+        entry_fee: parseFloat(form.entry_fee) || 0,
+        prize_fund: form.prize_fund ? parseFloat(form.prize_fund) : null,
+        min_rating: form.min_rating ? parseInt(form.min_rating) : null,
+        max_rating: form.max_rating ? parseInt(form.max_rating) : null,
+      };
+
+      const res = await fetch(`${backendUrl}/api/tournaments/${tournamentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        router.push('/admin/tournaments');
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Failed to update tournament');
+      }
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6">Edit Tournament</h1>
+        <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+      </div>
+    );
+  }
+
+  if (!form) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6">Edit Tournament</h1>
+        <p className="text-red-600 dark:text-red-400">{error || 'Tournament not found'}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6">Edit Tournament</h1>
+
+      <form onSubmit={handleSubmit} className="space-y-6 max-w-2xl">
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300">
+            {error}
+          </div>
+        )}
+
+        {/* Status */}
+        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Status</h2>
+          <select
+            value={form.status}
+            onChange={e => updateField('status', e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+          >
+            <option value="upcoming">Upcoming</option>
+            <option value="registration_open">Registration Open</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </section>
+
+        {/* Basic Info */}
+        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Basic Information</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+              <input
+                type="text"
+                value={form.name}
+                onChange={e => updateField('name', e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+              <textarea
+                value={form.description}
+                onChange={e => updateField('description', e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
+                <select
+                  value={form.format}
+                  onChange={e => updateField('format', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                >
+                  <option value="swiss">Swiss</option>
+                  <option value="round_robin">Round Robin</option>
+                  <option value="elimination">Elimination</option>
+                  <option value="team">Team</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Time Control *</label>
+                <input
+                  type="text"
+                  value={form.time_control}
+                  onChange={e => updateField('time_control', e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Location & Dates */}
+        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Location & Dates</h2>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Venue *</label>
+              <input
+                type="text"
+                value={form.location}
+                onChange={e => updateField('location', e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
+                <input type="text" value={form.city} onChange={e => updateField('city', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Country</label>
+                <input type="text" value={form.country} onChange={e => updateField('country', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date *</label>
+                <input type="date" value={form.start_date} onChange={e => updateField('start_date', e.target.value)} required
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date *</label>
+                <input type="date" value={form.end_date} onChange={e => updateField('end_date', e.target.value)} required
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reg. Deadline *</label>
+                <input type="date" value={form.registration_deadline} onChange={e => updateField('registration_deadline', e.target.value)} required
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Registration & Fees */}
+        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Registration & Fees</h2>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Participants</label>
+                <input type="number" value={form.max_participants} onChange={e => updateField('max_participants', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Entry Fee</label>
+                <input type="number" step="0.01" value={form.entry_fee} onChange={e => updateField('entry_fee', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Currency</label>
+                <select value={form.currency} onChange={e => updateField('currency', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm">
+                  <option value="KZT">KZT</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Rating Restrictions */}
+        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Rating Restrictions</h2>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+                <select value={form.rating_category} onChange={e => updateField('rating_category', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm">
+                  <option value="">Open</option>
+                  <option value="C">C (&lt;1400)</option>
+                  <option value="B">B (1400-1799)</option>
+                  <option value="A">A (1800-2199)</option>
+                  <option value="Master">Master (2200+)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min Rating</label>
+                <input type="number" value={form.min_rating} onChange={e => updateField('min_rating', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Rating</label>
+                <input type="number" value={form.max_rating} onChange={e => updateField('max_rating', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={form.is_fide_rated} onChange={e => updateField('is_fide_rated', e.target.checked)}
+                className="rounded border-gray-300 dark:border-gray-600" />
+              <span className="text-sm text-gray-700 dark:text-gray-300">FIDE Rated</span>
+            </label>
+          </div>
+        </section>
+
+        {/* Submit */}
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-6 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
+            style={{ backgroundColor: 'var(--brand-primary)' }}
+          >
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push('/admin/tournaments')}
+            className="px-6 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
