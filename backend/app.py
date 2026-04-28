@@ -192,6 +192,20 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import webhooks API: {e}")
 
+try:
+    from routes.ratings import ratings_bp
+    app.register_blueprint(ratings_bp)
+    logger.info("✅ Ratings API registered (FIDE Elo rating system)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import ratings API: {e}")
+
+try:
+    from routes.tournaments import tournaments_bp
+    app.register_blueprint(tournaments_bp)
+    logger.info("✅ Tournaments API registered (tournament calendar)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import tournaments API: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}
