@@ -109,137 +109,20 @@ def get_leaderboard():
 def recalculate_tournament(tournament_id):
     """
     Recalculate ratings from tournament results. Admin only.
-    Reads tournament_games, computes rating changes via elo_calculator,
-    updates player_ratings, and writes rating_history entries.
+    Delegates to rating_service for the actual computation.
     """
     user_id = request.user_id
     if not _is_admin(user_id):
         return jsonify({'error': 'Admin access required'}), 403
 
-    supabase = _get_supabase()
+    from services.rating_service import recalculate_ratings_for_tournament
 
-    # Fetch tournament games
-    games_result = (
-        supabase.table('tournament_games')
-        .select('*')
-        .eq('tournament_id', tournament_id)
-        .neq('result', '*')
-        .execute()
-    )
-    games_rows = games_result.data or []
-    if not games_rows:
+    result = recalculate_ratings_for_tournament(tournament_id)
+
+    if result['games_processed'] == 0:
         return jsonify({'error': 'No completed games found for tournament'}), 404
 
-    # Map result strings to numeric scores
-    result_map = {
-        '1-0': 1.0,
-        '0-1': 0.0,
-        '1/2-1/2': 0.5,
-    }
-
-    from services.elo_calculator import update_ratings_batch, assign_league, is_provisional, get_k_factor
-
-    # Build game list for batch processing
-    # First, fetch current ratings for all players involved
-    player_ids = set()
-    for g in games_rows:
-        player_ids.add(g['white_player_id'])
-        player_ids.add(g['black_player_id'])
-
-    ratings_result = (
-        supabase.table('player_ratings')
-        .select('*')
-        .in_('user_id', list(player_ids))
-        .execute()
-    )
-    ratings_map = {r['user_id']: r for r in (ratings_result.data or [])}
-
-    batch_games = []
-    for g in games_rows:
-        result_str = g['result']
-        if result_str not in result_map:
-            continue
-
-        w_id = g['white_player_id']
-        b_id = g['black_player_id']
-        w_data = ratings_map.get(w_id, {'rating': 1200, 'games_played': 0})
-        b_data = ratings_map.get(b_id, {'rating': 1200, 'games_played': 0})
-
-        batch_games.append({
-            'white_id': w_id,
-            'black_id': b_id,
-            'white_rating': w_data['rating'],
-            'black_rating': b_data['rating'],
-            'result': result_map[result_str],
-            'white_games_played': w_data['games_played'],
-            'black_games_played': b_data['games_played'],
-        })
-
-    changes = update_ratings_batch(batch_games)
-
-    # Aggregate changes per player (a player may have multiple games)
-    player_changes = {}
-    for c in changes:
-        pid = c['player_id']
-        if pid not in player_changes:
-            player_changes[pid] = {
-                'first_rating': c['rating_before'],
-                'current_rating': c['rating_after'],
-                'total_change': 0,
-                'games': 0,
-                'last_k': c['k_factor_used'],
-            }
-        player_changes[pid]['current_rating'] = c['rating_after']
-        player_changes[pid]['total_change'] += c['change']
-        player_changes[pid]['games'] += 1
-        player_changes[pid]['last_k'] = c['k_factor_used']
-
-    # Write rating_history entries and update player_ratings
-    history_rows = []
-    for c in changes:
-        history_rows.append({
-            'user_id': c['player_id'],
-            'source_type': 'tournament',
-            'source_id': tournament_id,
-            'rating_before': c['rating_before'],
-            'rating_after': c['rating_after'],
-            'change': c['change'],
-            'k_factor_used': c['k_factor_used'],
-        })
-
-    if history_rows:
-        supabase.table('rating_history').insert(history_rows).execute()
-
-    # Update player_ratings for each player
-    for pid, pc in player_changes.items():
-        existing = ratings_map.get(pid)
-        new_rating = pc['current_rating']
-        new_games = (existing['games_played'] if existing else 0) + pc['games']
-        new_peak = max(new_rating, existing['peak_rating'] if existing else 1200)
-
-        update_data = {
-            'rating': new_rating,
-            'peak_rating': new_peak,
-            'games_played': new_games,
-            'k_factor': get_k_factor(new_games, new_rating),
-            'league': assign_league(new_rating),
-            'is_provisional': is_provisional(new_games),
-        }
-
-        if existing:
-            supabase.table('player_ratings').update(update_data).eq('user_id', pid).execute()
-        else:
-            update_data['user_id'] = pid
-            supabase.table('player_ratings').insert(update_data).execute()
-
-    logger.info(f'Recalculated ratings for tournament {tournament_id}: {len(changes)} changes across {len(player_changes)} players')
-
-    return jsonify({
-        'tournament_id': tournament_id,
-        'games_processed': len(batch_games),
-        'players_updated': len(player_changes),
-        'changes': changes,
-    })
+    return jsonify(result)
 
 
 @ratings_bp.route('/fide/link/<user_id>', methods=['POST'])

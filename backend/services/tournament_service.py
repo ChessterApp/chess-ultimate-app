@@ -596,7 +596,12 @@ def finalize_tournament(tournament_id: str) -> Tuple[bool, Optional[str]]:
         'updated_at': datetime.now(timezone.utc).isoformat(),
     }).eq('id', tournament_id).execute()
 
-    # TODO: Trigger rating calculation (Phase 5)
-    logger.info(f"Tournament {tournament_id} finalized. Rating calculation placeholder.")
+    # Trigger rating calculation
+    try:
+        from services.rating_service import recalculate_ratings_for_tournament
+        result = recalculate_ratings_for_tournament(tournament_id)
+        logger.info(f"Tournament {tournament_id} finalized. Ratings updated: {result['players_updated']} players, {result['games_processed']} games.")
+    except Exception as e:
+        logger.error(f"Tournament {tournament_id} finalized but rating calculation failed: {e}")
 
     return True, None
