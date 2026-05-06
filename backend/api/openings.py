@@ -7,8 +7,10 @@ Blueprint: /api/openings
 
 import os
 import json
+import re
 import sqlite3
 import logging
+import threading
 import time
 import traceback
 import uuid
@@ -1998,6 +2000,24 @@ def _get_max_game_id(conn) -> int:
     _max_game_id_cache['ts'] = now
     return val
 
+
+_NAME_TOKEN_SPLIT = re.compile(r"[\s,]+")
+
+
+def _longest_name_token(name: str) -> str:
+    """Pick the most selective token from a player-name input for prefix LIKE.
+
+    TWIC names are normalized to lowercase with the comma in `Lastname,I`
+    replaced by a space, e.g. `Carlsen,M` -> `carlsen m`. The longest token
+    is the surname for both `Magnus Carlsen` and `Carlsen,M` style input,
+    which is what we want for an index-friendly `LIKE 'token%'` lookup.
+    Substring search (e.g. `arlse`) is not supported by this approach.
+    """
+    if not name:
+        return ''
+    tokens = [t for t in _NAME_TOKEN_SPLIT.split(name.lower().strip()) if t]
+    return max(tokens, key=len) if tokens else ''
+
 @openings_bp.route('/games/by-position', methods=['GET'])
 def games_by_position():
     """Fast lookup: find games that reach a given FEN using the position hash index.
@@ -2155,177 +2175,178 @@ def games_by_position():
                 'timeout': timed_out,
             })
 
-        # When narrow filters are active (player_name / opponent_name), use a 3-step
-        # candidate-first approach:
-        # 1. Query games table with player filters (uses indexed columns) to get candidate IDs
-        # 2. For each candidate, check if it exists in game_positions using the game_id index
-        #    (reversed lookup: game_id index is fast, board_hash index is slow for common positions)
-        # 3. Fetch full game data for matched IDs
+        # When narrow filters are active (player_name / opponent_name), intersect
+        # an index-friendly name-prefix lookup with the position pool. The old
+        # `LIKE '%name%'` (leading wildcard) couldn't use the name index and
+        # full-scanned ~3.6 M rows, timing out for high-volume players like
+        # Carlsen. The fix: prefix-LIKE on the longest input token (surname),
+        # run the position-pool fetch and per-side prefix lookups in parallel
+        # threads, intersect the resulting ID sets, then post-filter wide
+        # filters in Python on the small intersected set.
         if has_narrow_filters:
-            sort_clauses = {
-                'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
-                'date_desc': 'date DESC',
-                'date_asc': 'date ASC',
-            }
-            order = sort_clauses.get(sort_by, sort_clauses['rating'])
+            p_tok = _longest_name_token(player_name)
+            o_tok = _longest_name_token(opponent_name)
 
-            # Step 1: Get candidate game IDs from games table using filters
-            conditions = []
-            params = []
-
-            if player_name:
-                name_pattern = f"%{player_name.lower()}%"
-                if player_color == 'white':
-                    conditions.append("white_name_normalized LIKE ?")
-                    params.append(name_pattern)
-                elif player_color == 'black':
-                    conditions.append("black_name_normalized LIKE ?")
-                    params.append(name_pattern)
-                else:
-                    conditions.append("(white_name_normalized LIKE ? OR black_name_normalized LIKE ?)")
-                    params.extend([name_pattern, name_pattern])
-
-            if opponent_name:
-                opp_pattern = f"%{opponent_name.lower()}%"
-                if player_color == 'white':
-                    conditions.append("black_name_normalized LIKE ?")
-                    params.append(opp_pattern)
-                elif player_color == 'black':
-                    conditions.append("white_name_normalized LIKE ?")
-                    params.append(opp_pattern)
-                else:
-                    conditions.append("(white_name_normalized LIKE ? OR black_name_normalized LIKE ?)")
-                    params.extend([opp_pattern, opp_pattern])
-
-            if result:
-                conditions.append("result = ?")
-                params.append(result)
-
-            # ELO range filters
-            if white_elo_min != 0:
-                conditions.append("white_elo >= ?")
-                params.append(white_elo_min)
-            if white_elo_max != 3500:
-                conditions.append("white_elo <= ?")
-                params.append(white_elo_max)
-            if black_elo_min != 0:
-                conditions.append("black_elo >= ?")
-                params.append(black_elo_min)
-            if black_elo_max != 3500:
-                conditions.append("black_elo <= ?")
-                params.append(black_elo_max)
-
-            # Date range filters (year-based)
-            if date_from:
-                try:
-                    year_from = int(date_from)
-                    conditions.append("CAST(substr(date, 1, 4) AS INTEGER) >= ?")
-                    params.append(year_from)
-                except ValueError:
-                    pass
-            if date_to:
-                try:
-                    year_to = int(date_to)
-                    conditions.append("CAST(substr(date, 1, 4) AS INTEGER) <= ?")
-                    params.append(year_to)
-                except ValueError:
-                    pass
-
-            # ECO code filter
-            if eco_code:
-                conditions.append("eco LIKE ?")
-                params.append(f"{eco_code}%")
-
-            # Event name filter
-            if event_name:
-                conditions.append("event LIKE ?")
-                params.append(f"%{event_name}%")
-
-            where = " AND ".join(conditions) if conditions else "1=1"
-            # Don't ORDER BY here — sorting happens in step 3. Omitting ORDER BY
-            # lets SQLite use the name index for LIKE queries instead of scanning
-            # the date index (which is O(total_rows) for rare names).
-            candidate_query = f"SELECT id FROM games WHERE {where} LIMIT 5000"
-
-            timed_out = False
-            candidate_ids = []
-            try:
-                query_timeout[1] = time.time()  # Reset timeout for candidate query
-                conn.set_progress_handler(progress_handler, 10000)  # Re-arm progress handler
-                rows = conn.execute(candidate_query, params).fetchall()
-                candidate_ids = [r['id'] for r in rows]
-            except sqlite3.OperationalError:
-                if query_timeout[0]:
-                    logger.warning(f"Candidate query timed out for player_name={player_name}")
-                    timed_out = True
-                else:
-                    raise
-
-            if not candidate_ids or timed_out:
-                conn.close()
-                return jsonify({
-                    'games': [],
-                    'total': total if timed_out else 0,
-                    'indexed': True,
-                    'timeout': timed_out,
-                })
-
-            # Step 2: Check each candidate against game_positions using game_id index
-            # The game_id index (idx_positions_game) makes individual lookups fast (~1ms each),
-            # while the board_hash index is too slow for common positions with millions of rows.
-            # Disable the progress handler for these fast individual queries — use our own timer.
-            conn.set_progress_handler(None, 0)
-            matched_ids = []
-            check_start = time.time()
-            for gid in candidate_ids:
-                if time.time() - check_start > 2.5:  # Leave 0.5s buffer within 3s timeout
-                    timed_out = True
-                    break
-                r = conn.execute(
-                    "SELECT 1 FROM game_positions WHERE game_id = ? AND board_hash = ?",
-                    [gid, board_hash]
-                ).fetchone()
-                if r:
-                    matched_ids.append(gid)
-
-            if not matched_ids:
+            # Single-character tokens would prefix-scan a huge fraction of the
+            # table — refuse and return empty rather than risk a timeout.
+            if (player_name and len(p_tok) < 2) or (opponent_name and len(o_tok) < 2):
                 conn.close()
                 return jsonify({
                     'games': [],
                     'total': 0,
                     'indexed': True,
-                    'timeout': timed_out,
                 })
 
-            # Step 3: Fetch full game data for matched IDs
-            placeholders = ','.join('?' * len(matched_ids))
-            final_query = f"SELECT * FROM games WHERE id IN ({placeholders}) ORDER BY {order} LIMIT ?"
-            final_params = list(matched_ids) + [limit]
-
-            games = []
-            try:
-                query_timeout[1] = time.time()
-                conn.set_progress_handler(progress_handler, 10000)  # Re-arm for final query
-                cursor = conn.execute(final_query, final_params)
-                for row in cursor.fetchall():
-                    games.append(_normalize_game_row(dict(row)))
-            except sqlite3.OperationalError:
-                if query_timeout[0]:
-                    timed_out = True
-                else:
-                    raise
-
-            logger.info(f"games_by_position FILTERED: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' result='{result}' sort_by={sort_by} candidates={len(candidate_ids)} matched={len(matched_ids)} returned={len(games)} timed_out={timed_out}")
-            conn.close()
-            response_data = {
-                'games': games,
-                'total': len(matched_ids),
-                'indexed': True,
-                'count_exact': not timed_out and len(candidate_ids) < 5000,
+            state: Dict[str, Any] = {
+                'pos': set(),
+                'pw': set(), 'pb': set(),
+                'ow': set(), 'ob': set(),
+                'errors': [],
             }
-            if timed_out:
-                response_data['timeout'] = True
-            return jsonify(response_data)
+
+            def _fetch(target: str, col: Optional[str], tok: Optional[str]) -> None:
+                try:
+                    c = get_internal_db_connection()
+                    c.execute("PRAGMA busy_timeout = 5000")
+                    if col is None:
+                        rows = c.execute(
+                            "SELECT game_id FROM game_positions WHERE board_hash = ?",
+                            [board_hash],
+                        ).fetchall()
+                        state[target] = {r['game_id'] for r in rows}
+                    else:
+                        rows = c.execute(
+                            f"SELECT id FROM games WHERE {col} LIKE ? LIMIT 50000",
+                            [f"{tok}%"],
+                        ).fetchall()
+                        state[target] = {r['id'] for r in rows}
+                    c.close()
+                except Exception as e:
+                    state['errors'].append((target, str(e)))
+
+            threads = [threading.Thread(target=_fetch, args=('pos', None, None))]
+            if p_tok:
+                if player_color in ('', 'white'):
+                    threads.append(threading.Thread(target=_fetch, args=('pw', 'white_name_normalized', p_tok)))
+                if player_color in ('', 'black'):
+                    threads.append(threading.Thread(target=_fetch, args=('pb', 'black_name_normalized', p_tok)))
+            if o_tok:
+                # Opponent must be the OTHER color from `player_color`. With no
+                # color specified, look on both sides.
+                if player_color != 'white':
+                    threads.append(threading.Thread(target=_fetch, args=('ow', 'white_name_normalized', o_tok)))
+                if player_color != 'black':
+                    threads.append(threading.Thread(target=_fetch, args=('ob', 'black_name_normalized', o_tok)))
+
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join()
+
+            if state['errors']:
+                logger.warning(f"games_by_position narrow lookup errors: {state['errors']}")
+
+            if player_color == 'white':
+                player_set = state['pw']
+                opp_set = state['ob']
+            elif player_color == 'black':
+                player_set = state['pb']
+                opp_set = state['ow']
+            else:
+                player_set = state['pw'] | state['pb']
+                opp_set = state['ow'] | state['ob']
+
+            if p_tok and o_tok:
+                name_candidates = player_set & opp_set
+            elif p_tok:
+                name_candidates = player_set
+            else:
+                name_candidates = opp_set
+
+            matched_ids = name_candidates & state['pos']
+
+            if not matched_ids:
+                logger.info(f"games_by_position FILTERED: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' candidates={len(name_candidates)} matched=0 returned=0")
+                conn.close()
+                return jsonify({
+                    'games': [],
+                    'total': 0,
+                    'indexed': True,
+                    'count_exact': True,
+                })
+
+            # Fetch full rows for matched IDs (cap to keep the IN-list sane).
+            matched_list = list(matched_ids)
+            if len(matched_list) > 5000:
+                matched_list = matched_list[:5000]
+            placeholders = ','.join('?' * len(matched_list))
+            conn.set_progress_handler(None, 0)
+            full_rows = conn.execute(
+                f"SELECT * FROM games WHERE id IN ({placeholders})",
+                matched_list,
+            ).fetchall()
+            full_games: List[Dict[str, Any]] = [dict(r) for r in full_rows]
+
+            # Apply wide filters (elo/result/date/eco/event) in Python — the
+            # intersected set is small so this is cheap.
+            try:
+                year_from_int = int(date_from) if date_from else None
+            except ValueError:
+                year_from_int = None
+            try:
+                year_to_int = int(date_to) if date_to else None
+            except ValueError:
+                year_to_int = None
+            event_lc = event_name.lower() if event_name else ''
+
+            def _passes(g: Dict[str, Any]) -> bool:
+                if result and g.get('result') != result:
+                    return False
+                we = g.get('white_elo') or 0
+                be = g.get('black_elo') or 0
+                if white_elo_min and we < white_elo_min:
+                    return False
+                if white_elo_max != 3500 and we > white_elo_max:
+                    return False
+                if black_elo_min and be < black_elo_min:
+                    return False
+                if black_elo_max != 3500 and be > black_elo_max:
+                    return False
+                if year_from_int is not None or year_to_int is not None:
+                    date_str = g.get('date') or ''
+                    try:
+                        y = int(date_str[:4])
+                    except (ValueError, TypeError):
+                        return False
+                    if year_from_int is not None and y < year_from_int:
+                        return False
+                    if year_to_int is not None and y > year_to_int:
+                        return False
+                if eco_code and not (g.get('eco') or '').upper().startswith(eco_code):
+                    return False
+                if event_lc and event_lc not in (g.get('event') or '').lower():
+                    return False
+                return True
+
+            filtered = [g for g in full_games if _passes(g)]
+
+            if sort_by == 'date_asc':
+                filtered.sort(key=lambda g: g.get('date') or '')
+            elif sort_by == 'date_desc':
+                filtered.sort(key=lambda g: g.get('date') or '', reverse=True)
+            else:
+                filtered.sort(key=lambda g: (g.get('white_elo') or 0) + (g.get('black_elo') or 0), reverse=True)
+
+            games = [_normalize_game_row(g) for g in filtered[:limit]]
+
+            logger.info(f"games_by_position FILTERED: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' result='{result}' sort_by={sort_by} candidates={len(name_candidates)} matched={len(matched_ids)} after_wide={len(filtered)} returned={len(games)}")
+            conn.close()
+            return jsonify({
+                'games': games,
+                'total': len(filtered),
+                'indexed': True,
+                'count_exact': True,
+            })
 
         # Unfiltered path: use 2-step pool approach for less common positions
         try:
