@@ -2108,7 +2108,14 @@ def games_by_position():
         # The old code skipped game_positions when player_name was set, returning
         # ALL games by that player regardless of board position.
         has_elo_filters = (white_elo_min != 0 or white_elo_max != 3500 or black_elo_min != 0 or black_elo_max != 3500)
-        has_filters = bool(player_name or opponent_name or player_color or result or has_elo_filters)
+        # Narrow filters strongly reduce the games-table candidate pool (a player
+        # has thousands of games, not millions), so candidate-first works well.
+        has_narrow_filters = bool(player_name or opponent_name)
+        # Wide filters (elo/result/date/eco/event) don't narrow candidates enough —
+        # SELECT … LIMIT 5000 hits the first 5000 games by id (oldest), most of
+        # which won't reach the queried position. Apply them post-position instead.
+        has_wide_filters = bool(result or has_elo_filters or date_from or date_to or eco_code or event_name)
+        has_filters = has_narrow_filters or has_wide_filters
 
         # For very common positions (>50K games) WITHOUT filters, skip game_positions
         # and query games table directly. But when filters are active, always use
@@ -2148,12 +2155,13 @@ def games_by_position():
                 'timeout': timed_out,
             })
 
-        # When filters are active, use a 3-step approach:
-        # 1. Query games table with player/result filters (uses indexed columns) to get candidate IDs
+        # When narrow filters are active (player_name / opponent_name), use a 3-step
+        # candidate-first approach:
+        # 1. Query games table with player filters (uses indexed columns) to get candidate IDs
         # 2. For each candidate, check if it exists in game_positions using the game_id index
         #    (reversed lookup: game_id index is fast, board_hash index is slow for common positions)
         # 3. Fetch full game data for matched IDs
-        if has_filters:
+        if has_narrow_filters:
             sort_clauses = {
                 'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
                 'date_desc': 'date DESC',
@@ -2347,14 +2355,54 @@ def games_by_position():
             conn.close()
             return jsonify({'games': [], 'total': 0, 'indexed': True})
 
-        # Update total estimate if pool wasn't full
-        if len(game_ids) < pool_size:
+        # Update total estimate if pool wasn't full (only meaningful when no
+        # post-filters are applied — otherwise filtered_total is set below).
+        if len(game_ids) < pool_size and not has_wide_filters:
             total = len(game_ids)
             _position_count_cache[board_hash] = total
 
         placeholders = ','.join('?' * len(game_ids))
-        query = f"SELECT * FROM games WHERE id IN ({placeholders})"
-        params = list(game_ids)
+        where_clauses = [f"id IN ({placeholders})"]
+        filter_params: list = list(game_ids)
+
+        # Apply wide filters as post-filters on the position pool. These filters
+        # don't narrow the games-table candidate set effectively (e.g. white_elo
+        # >= 1000 matches millions), so we apply them after the position lookup.
+        if result:
+            where_clauses.append("result = ?")
+            filter_params.append(result)
+        if white_elo_min != 0:
+            where_clauses.append("white_elo >= ?")
+            filter_params.append(white_elo_min)
+        if white_elo_max != 3500:
+            where_clauses.append("white_elo <= ?")
+            filter_params.append(white_elo_max)
+        if black_elo_min != 0:
+            where_clauses.append("black_elo >= ?")
+            filter_params.append(black_elo_min)
+        if black_elo_max != 3500:
+            where_clauses.append("black_elo <= ?")
+            filter_params.append(black_elo_max)
+        if date_from:
+            try:
+                where_clauses.append("CAST(substr(date, 1, 4) AS INTEGER) >= ?")
+                filter_params.append(int(date_from))
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                where_clauses.append("CAST(substr(date, 1, 4) AS INTEGER) <= ?")
+                filter_params.append(int(date_to))
+            except ValueError:
+                pass
+        if eco_code:
+            where_clauses.append("eco LIKE ?")
+            filter_params.append(f"{eco_code}%")
+        if event_name:
+            where_clauses.append("event LIKE ?")
+            filter_params.append(f"%{event_name}%")
+
+        where = " AND ".join(where_clauses)
 
         sort_clauses = {
             'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
@@ -2362,8 +2410,22 @@ def games_by_position():
             'date_asc': 'date ASC',
         }
         order = sort_clauses.get(sort_by, sort_clauses['rating'])
-        query += f" ORDER BY {order} LIMIT ?"
-        params.append(limit)
+
+        # When wide filters are applied, count the filtered subset so the UI
+        # shows the true number of matching games at this position.
+        filtered_total = None
+        if has_wide_filters:
+            try:
+                count_row = conn.execute(
+                    f"SELECT COUNT(*) as cnt FROM games WHERE {where}",
+                    filter_params
+                ).fetchone()
+                filtered_total = count_row['cnt']
+            except sqlite3.OperationalError:
+                pass
+
+        query = f"SELECT * FROM games WHERE {where} ORDER BY {order} LIMIT ?"
+        params = list(filter_params) + [limit]
 
         # Execute query with timeout handling
         timed_out = False
@@ -2383,13 +2445,19 @@ def games_by_position():
             logger.warning(f"Query error in games_by_position: {e}")
             timed_out = True
 
-        logger.info(f"games_by_position result: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' result='{result}' sort_by={sort_by} returned={len(games)} total_est={total} timed_out={timed_out}")
+        # When wide filters are applied, report the filtered count instead of
+        # the all-position count; otherwise the UI claims more games than it
+        # actually returns.
+        report_total = filtered_total if filtered_total is not None else total
+        report_count_exact = (filtered_total is not None) or (cached_count is not None)
+
+        logger.info(f"games_by_position result: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' result='{result}' sort_by={sort_by} wide_filters={has_wide_filters} returned={len(games)} total_est={report_total} timed_out={timed_out}")
         conn.close()
         response_data = {
             'games': games,
-            'total': total,
+            'total': report_total,
             'indexed': True,
-            'count_exact': cached_count is not None,
+            'count_exact': report_count_exact,
         }
         if timed_out:
             response_data['timeout'] = True
