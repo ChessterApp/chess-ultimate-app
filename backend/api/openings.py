@@ -343,6 +343,55 @@ def fetch_internal_games(search_query: str, max_games: int, filter_fen: str = No
     cursor = conn.cursor()
 
     try:
+        # FAST PATH: Use position hash index when available — mirrors
+        # fetch_internal_games_progressive's fast path so a rare position
+        # (mostly older games) doesn't get filtered out by the global
+        # newest-first scan.
+        if filter_fen and _has_position_index(conn):
+            board_hash = _get_board_hash(filter_fen)
+            pool_size = min(max(max_games * 40, 200), 2000)
+            max_gid = _get_max_game_id(conn)
+            id_rows = conn.execute(
+                "SELECT game_id FROM game_positions WHERE board_hash = ? AND game_id <= ? ORDER BY rowid DESC LIMIT ?",
+                [board_hash, max_gid, pool_size]
+            ).fetchall()
+            game_ids = [r['game_id'] for r in id_rows]
+
+            if not game_ids:
+                conn.close()
+                return []
+
+            placeholders = ','.join('?' * len(game_ids))
+            query = f"SELECT * FROM games WHERE id IN ({placeholders})"
+            params = list(game_ids)
+
+            if eco_filter:
+                query += " AND eco LIKE ?"
+                params.append(f"{eco_filter}%")
+
+            if search_query:
+                query += " AND (white_name LIKE ? OR black_name LIKE ? OR event LIKE ?)"
+                params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
+
+            query += " ORDER BY date DESC LIMIT ?"
+            params.append(max_games)
+
+            cursor.execute(query, params)
+            results = []
+            for row in cursor.fetchall():
+                game_data = _normalize_game_row(dict(row))
+                if game_data.get('pgn_offset') is not None and game_data.get('pgn_length'):
+                    try:
+                        with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
+                            f.seek(game_data['pgn_offset'])
+                            game_data['pgn'] = f.read(game_data['pgn_length'])
+                    except Exception as e:
+                        logger.debug(f"Error reading PGN: {e}")
+                results.append(game_data)
+
+            conn.close()
+            return results
+
         query = "SELECT * FROM games"
         params = []
         conditions = []
@@ -445,7 +494,7 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
             params = list(game_ids)
 
             if min_rating > 0:
-                query += " AND (white_elo >= ? OR black_elo >= ?)"
+                query += " AND white_elo >= ? AND black_elo >= ?"
                 params.extend([min_rating, min_rating])
 
             if eco_filter:
@@ -489,7 +538,7 @@ def fetch_internal_games_progressive(filter_fen: str, eco_filter: str = None,
             params.append(f"{eco_filter}%")
 
         if min_rating > 0:
-            conditions.append("(white_elo >= ? OR black_elo >= ?)")
+            conditions.append("white_elo >= ? AND black_elo >= ?")
             params.extend([min_rating, min_rating])
 
         if result:
