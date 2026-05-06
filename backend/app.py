@@ -213,6 +213,22 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import admin API: {e}")
 
+try:
+    from routes.super_admin import super_admin_bp
+    app.register_blueprint(super_admin_bp)
+    logger.info("✅ Super-Admin API registered (platform admin dashboard)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import super-admin API: {e}")
+
+# Read-only impersonation: block write requests platform-wide whenever the
+# super-admin "View as" cookie is present.
+try:
+    from utils.auth import install_impersonation_write_block
+    install_impersonation_write_block(app)
+    logger.info("✅ Impersonation write-block installed")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not install impersonation write-block: {e}")
+
 # Phase 2: SocketIO and RAG pipeline (commented out for Phase 1)
 # socketio = SocketIO(app, cors_allowed_origins="*")
 # user_sessions = {}
