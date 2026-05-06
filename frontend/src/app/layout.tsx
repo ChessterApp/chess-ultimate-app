@@ -11,7 +11,8 @@ import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import PrefetchManager from "@/components/PrefetchManager";
 import LocalStorageMigration from "@/components/LocalStorageMigration";
 import { PowerSyncProvider } from "@/lib/powersync/PowerSyncProvider";
-import { OrganizationProvider, Organization, parseOrgFromHeaders } from "@/contexts/OrganizationContext";
+import { OrganizationProvider } from "@/contexts/OrganizationContext";
+import { type Organization, parseOrgFromHeaders } from "@/contexts/organization-types";
 import BrandingInjector from "@/components/BrandingInjector";
 import ImpersonationBanner from "@/components/super-admin/ImpersonationBanner";
 

@@ -24,6 +24,10 @@ describe('OrganizationContext', () => {
     expect(typeof module.OrganizationProvider).toBe('function');
     expect(typeof module.useBranding).toBe('function');
     expect(typeof module.useOrganization).toBe('function');
+  });
+
+  it('exports parseOrgFromHeaders from organization-types (server-safe)', async () => {
+    const module = await import('@/contexts/organization-types');
     expect(typeof module.parseOrgFromHeaders).toBe('function');
   });
 
@@ -36,14 +40,14 @@ describe('OrganizationContext', () => {
   });
 
   it('parseOrgFromHeaders returns null for missing headers', async () => {
-    const { parseOrgFromHeaders } = await import('@/contexts/OrganizationContext');
+    const { parseOrgFromHeaders } = await import('@/contexts/organization-types');
     const headers = new Headers();
     const result = parseOrgFromHeaders(headers);
     expect(result).toBeNull();
   });
 
   it('parseOrgFromHeaders extracts org info from headers', async () => {
-    const { parseOrgFromHeaders } = await import('@/contexts/OrganizationContext');
+    const { parseOrgFromHeaders } = await import('@/contexts/organization-types');
     const headers = new Headers({
       'x-org-id': 'org-123',
       'x-org-slug': 'testschool',

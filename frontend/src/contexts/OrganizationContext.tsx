@@ -1,20 +1,9 @@
 'use client';
 
 import { createContext, useContext, ReactNode } from 'react';
+import type { Organization } from './organization-types';
 
-export interface Organization {
-  id: string;
-  slug: string;
-  name: string;
-  logoUrl: string | null;
-  faviconUrl: string | null;
-  primaryColor: string;
-  secondaryColor: string;
-  accentColor: string;
-  landingPageConfig: Record<string, unknown>;
-  contactEmail: string | null;
-  status: string;
-}
+export type { Organization };
 
 interface OrganizationContextValue {
   org: Organization | null;
@@ -70,17 +59,3 @@ export function OrganizationProvider({ children, org }: OrganizationProviderProp
   );
 }
 
-/**
- * Parse org data from server-side headers into an Organization object.
- * Used by server components / layout to hydrate the context.
- */
-export function parseOrgFromHeaders(headers: Headers): { orgId: string; orgSlug: string } | null {
-  const orgId = headers.get('x-org-id');
-  const orgSlug = headers.get('x-org-slug');
-
-  if (!orgId || !orgSlug) {
-    return null;
-  }
-
-  return { orgId, orgSlug };
-}
