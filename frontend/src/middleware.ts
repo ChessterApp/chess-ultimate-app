@@ -22,6 +22,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/(.*)',  // Allow all API routes without auth
 ])
 
+const isSuperAdminRoute = createRouteMatcher(['/super-admin(.*)'])
+
 const clerk = clerkMiddleware(async (auth, request) => {
   if (!isPublicRoute(request)) {
     await auth.protect()
@@ -64,6 +66,17 @@ function extractOrgSlug(request: NextRequest): string | null {
   return null
 }
 
+/**
+ * True when the request is on the apex domain (chesster.io / www.chesster.io)
+ * or in localhost dev. Subdomains like school.chesster.io return false.
+ */
+function isApexHost(request: NextRequest): boolean {
+  const host = (request.headers.get('host') || '').split(':')[0]
+  if (host === 'chesster.io' || host === 'www.chesster.io') return true
+  if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('localhost')) return true
+  return false
+}
+
 // In-memory cache for org lookups (TTL: 5 minutes)
 const orgCache = new Map<string, { data: Record<string, string>; expiry: number }>()
 const ORG_CACHE_TTL = 5 * 60 * 1000
@@ -92,6 +105,14 @@ async function lookupOrg(slug: string): Promise<{ id: string; slug: string } | n
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
   // Extract org slug from subdomain
   const orgSlug = extractOrgSlug(request)
+
+  // Phase 7A: gate /super-admin/* on apex host only.
+  // A subdomain (school.chesster.io) seeing /super-admin must be redirected
+  // to the apex equivalent — the route is not exposed on partner subdomains.
+  if (isSuperAdminRoute(request) && !isApexHost(request)) {
+    const apexUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, 'https://chesster.io')
+    return NextResponse.redirect(apexUrl, 308)
+  }
 
   try {
     const response = await clerk(request, event)

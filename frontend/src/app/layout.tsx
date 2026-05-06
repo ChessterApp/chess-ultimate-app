@@ -13,6 +13,7 @@ import LocalStorageMigration from "@/components/LocalStorageMigration";
 import { PowerSyncProvider } from "@/lib/powersync/PowerSyncProvider";
 import { OrganizationProvider, Organization, parseOrgFromHeaders } from "@/contexts/OrganizationContext";
 import BrandingInjector from "@/components/BrandingInjector";
+import ImpersonationBanner from "@/components/super-admin/ImpersonationBanner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -218,6 +219,7 @@ export default async function RootLayout({
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
           <OrganizationProvider org={org}>
             <BrandingInjector />
+            <ImpersonationBanner />
             <NextIntlClientProvider messages={messages}>
               <PowerSyncProvider>
                 <LocalStorageMigration />
