@@ -43,7 +43,8 @@ SAMPLE_TOURNAMENT = {
     'rating_category': None,
     'min_rating': None,
     'max_rating': None,
-    'is_fide_rated': False,
+    'is_rated': False,
+    'tournament_mode': 'offline',
     'organizer_org_id': ORG_ID,
     'created_by': ADMIN_USER_ID,
     'status': 'registration_open',
@@ -729,3 +730,57 @@ class TestFinalize:
                     )
                     assert resp.status_code == 400
                     assert 'already finalized' in resp.get_json()['error'].lower()
+
+
+# ─── TOURNAMENT MODE (offline default + DB validation) ───────────────────────
+
+
+class TestTournamentMode:
+    def test_tournament_default_mode_offline(self):
+        """Newly created tournaments default to tournament_mode='offline'."""
+        from services.tournament_service import create_tournament
+
+        captured = {}
+
+        class CaptureBuilder(FakeQueryBuilder):
+            def insert(self, data, **kwargs):
+                captured['record'] = data
+                return super().insert(data, **kwargs)
+
+        def table(name):
+            return CaptureBuilder(data=[SAMPLE_TOURNAMENT])
+
+        with patch('services.tournament_service._get_supabase') as mock_sb:
+            mock_sb.return_value.table = table
+            create_tournament(
+                {
+                    'name': 'Default Mode Tournament',
+                    'location': 'Almaty',
+                    'start_date': '2026-06-01',
+                    'end_date': '2026-06-03',
+                    'registration_deadline': '2026-05-25T23:59:59Z',
+                    'time_control': '90+30',
+                },
+                user_id=ADMIN_USER_ID,
+            )
+
+        assert captured['record']['tournament_mode'] == 'offline'
+
+    def test_tournament_mode_validation(self):
+        """The migration declares a CHECK constraint that rejects invalid modes
+        (e.g. 'live'). Validate the constraint is present in the migration SQL."""
+        import os
+
+        migration_path = os.path.join(
+            os.path.dirname(__file__),
+            '..', '..', 'supabase', 'migrations',
+            '20260506_007_local_app_rating.sql',
+        )
+        with open(migration_path, 'r', encoding='utf-8') as f:
+            sql = f.read()
+
+        assert "tournament_mode TEXT NOT NULL DEFAULT 'offline'" in sql
+        assert "CHECK (tournament_mode IN ('offline', 'online'))" in sql
+        # 'live' is not in the allowed set, so an INSERT with 'live' would
+        # raise a DB-level CheckViolation under Postgres.
+        assert "'live'" not in sql

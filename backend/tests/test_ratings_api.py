@@ -142,10 +142,9 @@ class TestGetRatingHistory:
 
 class TestGetPlayerRating:
     def test_player_found(self, client):
-        """GET /api/ratings/<userId> returns rating and fide data."""
+        """GET /api/ratings/<userId> returns the local rating only."""
         mock_sb = _make_mock_supabase({
             'player_ratings': [{'user_id': 'u1', 'rating': 1500, 'league': 'B'}],
-            'player_fide_ratings': [{'user_id': 'u1', 'fide_id': '12345', 'standard_rating': 1600}],
         })
 
         with patch('routes.ratings._get_supabase', return_value=mock_sb):
@@ -153,85 +152,27 @@ class TestGetPlayerRating:
             assert resp.status_code == 200
             data = resp.get_json()
             assert data['rating']['rating'] == 1500
-            assert data['fide']['fide_id'] == '12345'
 
     def test_player_not_found(self, client):
         """GET /api/ratings/<userId> returns 404 for unknown player."""
-        mock_sb = _make_mock_supabase({
-            'player_ratings': [],
-            'player_fide_ratings': [],
-        })
+        mock_sb = _make_mock_supabase({'player_ratings': []})
 
         with patch('routes.ratings._get_supabase', return_value=mock_sb):
             resp = client.get('/api/ratings/nonexistent')
             assert resp.status_code == 404
 
-
-class TestLinkFideId:
-    def _auth_headers(self):
-        """Create a mock JWT token header."""
-        import jwt as pyjwt
-        token = pyjwt.encode({'sub': 'admin_user'}, 'secret', algorithm='HS256')
-        return {'Authorization': f'Bearer {token}'}
-
-    def test_valid_fide_id(self, client):
-        """POST /api/ratings/fide/link/<userId> with valid FIDE ID."""
+    def test_get_player_rating_no_fide_key(self, client):
+        """GET /api/ratings/<userId> response has no 'fide' key."""
         mock_sb = _make_mock_supabase({
-            'organization_members': [{'role': 'admin'}],
-            'player_fide_ratings': [{'user_id': 'u1', 'fide_id': '123456'}],
-        })
-
-        with patch('routes.ratings._get_supabase', return_value=mock_sb), \
-             patch('services.fide_sync._get_supabase', return_value=mock_sb):
-            resp = client.post(
-                '/api/ratings/fide/link/u1',
-                data=json.dumps({'fide_id': '123456'}),
-                content_type='application/json',
-                headers=self._auth_headers(),
-            )
-            assert resp.status_code == 200
-
-    def test_invalid_fide_id_format(self, client):
-        """POST /api/ratings/fide/link/<userId> with invalid FIDE ID format."""
-        mock_sb = _make_mock_supabase({
-            'organization_members': [{'role': 'admin'}],
-        })
-
-        with patch('routes.ratings._get_supabase', return_value=mock_sb), \
-             patch('services.fide_sync._get_supabase', return_value=mock_sb):
-            resp = client.post(
-                '/api/ratings/fide/link/u1',
-                data=json.dumps({'fide_id': 'abc'}),
-                content_type='application/json',
-                headers=self._auth_headers(),
-            )
-            assert resp.status_code == 400
-            data = resp.get_json()
-            assert 'Invalid FIDE ID' in data['error']
-
-    def test_missing_fide_id(self, client):
-        """POST /api/ratings/fide/link/<userId> without fide_id field."""
-        mock_sb = _make_mock_supabase({
-            'organization_members': [{'role': 'admin'}],
+            'player_ratings': [{'user_id': 'u1', 'rating': 1500, 'league': 'B'}],
         })
 
         with patch('routes.ratings._get_supabase', return_value=mock_sb):
-            resp = client.post(
-                '/api/ratings/fide/link/u1',
-                data=json.dumps({}),
-                content_type='application/json',
-                headers=self._auth_headers(),
-            )
-            assert resp.status_code == 400
-
-    def test_no_auth_returns_401(self, client):
-        """POST /api/ratings/fide/link/<userId> without auth token returns 401."""
-        resp = client.post(
-            '/api/ratings/fide/link/u1',
-            data=json.dumps({'fide_id': '123456'}),
-            content_type='application/json',
-        )
-        assert resp.status_code == 401
+            resp = client.get('/api/ratings/u1')
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert set(data.keys()) == {'rating'}
+            assert 'fide' not in data
 
 
 class TestGetProvisional:
@@ -249,3 +190,16 @@ class TestGetProvisional:
             data = resp.get_json()
             assert 'provisional' in data
             assert len(data['provisional']) == 2
+
+
+class TestNoFideRoute:
+    """The /fide/link endpoint must no longer exist."""
+
+    def test_fide_link_route_removed(self, client):
+        """POST /api/ratings/fide/link/<userId> returns 404 — endpoint deleted."""
+        resp = client.post(
+            '/api/ratings/fide/link/u1',
+            data=json.dumps({'fide_id': '123456'}),
+            content_type='application/json',
+        )
+        assert resp.status_code == 404

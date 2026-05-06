@@ -19,14 +19,21 @@ class FakeQueryResult:
 
 
 class FakeQueryBuilder:
-    def __init__(self, data=None, count=None):
+    def __init__(self, data=None, count=None, sink=None):
         self._data = data or []
         self._count = count
+        # `sink` lets tests observe insert/update payloads.
+        self._sink = sink
 
     def select(self, *args, **kwargs):
         return self
 
     def insert(self, data, **kwargs):
+        if self._sink is not None:
+            if isinstance(data, list):
+                self._sink.extend(data)
+            else:
+                self._sink.append(data)
         if isinstance(data, list):
             self._data = [{**row, 'id': f'new-{i}'} for i, row in enumerate(data)]
         else:
@@ -34,6 +41,8 @@ class FakeQueryBuilder:
         return self
 
     def update(self, data, **kwargs):
+        if self._sink is not None:
+            self._sink.append(('update', data))
         if self._data:
             self._data = [{**self._data[0], **data}]
         return self
@@ -58,6 +67,27 @@ class FakeQueryBuilder:
 
 
 TOURNAMENT_ID = 'test-tournament-001'
+
+RATED_OFFLINE_TOURNAMENT = {
+    'id': TOURNAMENT_ID,
+    'is_rated': True,
+    'tournament_mode': 'offline',
+    'status': 'completed',
+}
+
+UNRATED_OFFLINE_TOURNAMENT = {
+    'id': TOURNAMENT_ID,
+    'is_rated': False,
+    'tournament_mode': 'offline',
+    'status': 'completed',
+}
+
+RATED_ONLINE_TOURNAMENT = {
+    'id': TOURNAMENT_ID,
+    'is_rated': True,
+    'tournament_mode': 'online',
+    'status': 'completed',
+}
 
 SAMPLE_GAMES = [
     {
@@ -84,18 +114,21 @@ SAMPLE_RATINGS = [
 ]
 
 
-def _make_table_router(games_data, ratings_data):
+def _make_table_router(games_data, ratings_data, tournament=RATED_OFFLINE_TOURNAMENT, history_sink=None):
     """Route different table queries to different data."""
-    call_counts = {'tournament_games': 0, 'player_ratings': 0, 'rating_history': 0}
+    call_counts = {'tournament_games': 0, 'player_ratings': 0, 'rating_history': 0, 'tournaments': 0}
+    tournament_data = [tournament] if tournament else []
 
     def table(name):
         call_counts[name] = call_counts.get(name, 0) + 1
+        if name == 'tournaments':
+            return FakeQueryBuilder(data=tournament_data)
         if name == 'tournament_games':
             return FakeQueryBuilder(data=games_data)
-        elif name == 'player_ratings':
+        if name == 'player_ratings':
             return FakeQueryBuilder(data=ratings_data)
-        elif name == 'rating_history':
-            return FakeQueryBuilder(data=[])
+        if name == 'rating_history':
+            return FakeQueryBuilder(data=[], sink=history_sink)
         return FakeQueryBuilder()
 
     return table, call_counts
@@ -215,3 +248,70 @@ class TestRecalculateRatings:
 
         # Forfeits are not in result_map, so skipped
         assert result['games_processed'] == 0
+
+
+class TestRecalculateGating:
+    """Verify the rated/offline hard-gate at the top of the recalc."""
+
+    def test_recalculate_skips_when_tournament_not_rated(self):
+        """is_rated=false → skipped_reason='not_rated', no DB rating writes."""
+        history_sink = []
+        table, _ = _make_table_router(
+            SAMPLE_GAMES, SAMPLE_RATINGS,
+            tournament=UNRATED_OFFLINE_TOURNAMENT,
+            history_sink=history_sink,
+        )
+        with patch('services.rating_service._get_supabase') as mock_sb:
+            mock_sb.return_value.table = table
+            result = recalculate_ratings_for_tournament(TOURNAMENT_ID)
+
+        assert result['skipped_reason'] == 'not_rated'
+        assert result['games_processed'] == 0
+        assert result['players_updated'] == 0
+        assert result['changes'] == []
+        assert history_sink == []  # no rating_history rows inserted
+
+    def test_recalculate_skips_when_tournament_online(self):
+        """tournament_mode='online' → skipped_reason='not_offline', no DB writes."""
+        history_sink = []
+        table, _ = _make_table_router(
+            SAMPLE_GAMES, SAMPLE_RATINGS,
+            tournament=RATED_ONLINE_TOURNAMENT,
+            history_sink=history_sink,
+        )
+        with patch('services.rating_service._get_supabase') as mock_sb:
+            mock_sb.return_value.table = table
+            result = recalculate_ratings_for_tournament(TOURNAMENT_ID)
+
+        assert result['skipped_reason'] == 'not_offline'
+        assert result['games_processed'] == 0
+        assert result['players_updated'] == 0
+        assert result['changes'] == []
+        assert history_sink == []
+
+    def test_recalculate_runs_when_rated_offline(self):
+        """is_rated=true AND tournament_mode='offline' → ratings update + history rows."""
+        history_sink = []
+        table, _ = _make_table_router(
+            [SAMPLE_GAMES[0]], SAMPLE_RATINGS[:2],
+            tournament=RATED_OFFLINE_TOURNAMENT,
+            history_sink=history_sink,
+        )
+        with patch('services.rating_service._get_supabase') as mock_sb:
+            mock_sb.return_value.table = table
+            result = recalculate_ratings_for_tournament(TOURNAMENT_ID)
+
+        assert 'skipped_reason' not in result
+        assert result['games_processed'] == 1
+        assert result['players_updated'] == 2
+        assert len(history_sink) == 2  # one row per player
+        for row in history_sink:
+            assert row['source_type'] == 'tournament'
+
+    def test_recalculate_raises_when_tournament_missing(self):
+        """Non-existent tournament_id → ValueError."""
+        table, _ = _make_table_router([], [], tournament=None)
+        with patch('services.rating_service._get_supabase') as mock_sb:
+            mock_sb.return_value.table = table
+            with pytest.raises(ValueError, match='Tournament not found'):
+                recalculate_ratings_for_tournament(TOURNAMENT_ID)

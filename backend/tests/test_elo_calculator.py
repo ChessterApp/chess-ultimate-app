@@ -1,5 +1,5 @@
 """
-Tests for FIDE Elo Calculator (pure functions, no DB needed).
+Tests for the Local App Elo Calculator (pure functions, no DB needed).
 """
 
 import pytest
@@ -119,9 +119,9 @@ class TestUpdateRating:
         # E=0.5, change = 40*(1-0.5) = 20
         assert new == 1220
 
-    def test_known_fide_vector(self):
+    def test_known_elo_vector(self):
         """
-        Known FIDE calculation example:
+        Known Elo calculation example:
         Player rated 1800 vs opponent 1600, K=20, win.
         E = 1/(1+10^((1600-1800)/400)) = 1/(1+10^(-0.5)) ≈ 0.7597
         New = 1800 + 20*(1 - 0.7597) = 1800 + 4.806 ≈ 1805

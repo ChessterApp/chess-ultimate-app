@@ -2,11 +2,10 @@
 Rating System API Blueprint
 
 Endpoints:
-  GET  /api/ratings/<userId>                 — Player rating (internal + FIDE)
+  GET  /api/ratings/<userId>                 — Player's Local App Rating
   GET  /api/ratings/<userId>/history         — Rating progression over time
   GET  /api/ratings/leaderboard              — Top players
   POST /api/ratings/recalculate/<tournamentId> — Recalculate from tournament (admin)
-  POST /api/ratings/fide/link/<userId>       — Link FIDE ID (admin)
   GET  /api/ratings/provisional              — Provisional players listing
 """
 
@@ -38,7 +37,7 @@ def _is_admin(user_id: str, org_id: str = None) -> bool:
 
 @ratings_bp.route('/<user_id>', methods=['GET'])
 def get_player_rating(user_id):
-    """Get a player's internal rating and FIDE rating if linked."""
+    """Get a player's Local App Rating."""
     supabase = _get_supabase()
     org_id = request.args.get('org_id')
 
@@ -48,16 +47,10 @@ def get_player_rating(user_id):
     result = query.execute()
     rating_data = result.data[0] if result.data else None
 
-    fide_result = supabase.table('player_fide_ratings').select('*').eq('user_id', user_id).execute()
-    fide_data = fide_result.data[0] if fide_result.data else None
-
-    if not rating_data and not fide_data:
+    if not rating_data:
         return jsonify({'error': 'Player not found'}), 404
 
-    return jsonify({
-        'rating': rating_data,
-        'fide': fide_data,
-    })
+    return jsonify({'rating': rating_data})
 
 
 @ratings_bp.route('/<user_id>/history', methods=['GET'])
@@ -117,33 +110,15 @@ def recalculate_tournament(tournament_id):
 
     from services.rating_service import recalculate_ratings_for_tournament
 
-    result = recalculate_ratings_for_tournament(tournament_id)
+    try:
+        result = recalculate_ratings_for_tournament(tournament_id)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
 
-    if result['games_processed'] == 0:
+    if result['games_processed'] == 0 and 'skipped_reason' not in result:
         return jsonify({'error': 'No completed games found for tournament'}), 404
 
     return jsonify(result)
-
-
-@ratings_bp.route('/fide/link/<user_id>', methods=['POST'])
-@verify_clerk_token
-def link_fide_id(user_id):
-    """Link a FIDE ID to a user. Admin only."""
-    admin_user_id = request.user_id
-    if not _is_admin(admin_user_id):
-        return jsonify({'error': 'Admin access required'}), 403
-
-    data = request.get_json()
-    if not data or not data.get('fide_id'):
-        return jsonify({'error': 'fide_id is required'}), 400
-
-    from services.fide_sync import link_fide_id as do_link
-
-    try:
-        result = do_link(user_id, data['fide_id'])
-        return jsonify(result)
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
 
 
 @ratings_bp.route('/provisional', methods=['GET'])

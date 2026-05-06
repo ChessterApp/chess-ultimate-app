@@ -27,13 +27,52 @@ def recalculate_ratings_for_tournament(tournament_id: str) -> Dict[str, Any]:
     """
     Recalculate ratings from tournament results.
 
-    Reads tournament_games, computes rating changes via elo_calculator,
+    Hard-gates on the tournament being:
+      - found,
+      - flagged is_rated=true,
+      - tournament_mode='offline'.
+
+    If any gate fails, returns early with a 'skipped_reason' and no DB writes.
+    Otherwise reads tournament_games, computes rating changes via elo_calculator,
     updates player_ratings, and writes rating_history entries.
 
     Returns:
         Dict with tournament_id, games_processed, players_updated, changes
+        (and 'skipped_reason' when gated).
+
+    Raises:
+        ValueError if the tournament does not exist.
     """
     supabase = _get_supabase()
+
+    # Hard gate: fetch the tournament and check rated/offline status.
+    tournament_result = (
+        supabase.table('tournaments')
+        .select('*')
+        .eq('id', tournament_id)
+        .execute()
+    )
+    tournament_rows = tournament_result.data or []
+    if not tournament_rows:
+        raise ValueError(f"Tournament not found: {tournament_id}")
+
+    tournament = tournament_rows[0]
+    if not tournament.get('is_rated'):
+        return {
+            'tournament_id': tournament_id,
+            'games_processed': 0,
+            'players_updated': 0,
+            'changes': [],
+            'skipped_reason': 'not_rated',
+        }
+    if tournament.get('tournament_mode') != 'offline':
+        return {
+            'tournament_id': tournament_id,
+            'games_processed': 0,
+            'players_updated': 0,
+            'changes': [],
+            'skipped_reason': 'not_offline',
+        }
 
     # Fetch tournament games
     games_result = (

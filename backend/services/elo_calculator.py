@@ -1,9 +1,9 @@
 """
-Standard FIDE Elo Rating Calculator
+Local App Elo Rating Calculator (internal Chesster rating, OTB tournaments only)
 
 Pure functions — no database access. All inputs/outputs are plain values.
 
-FIDE Elo parameters:
+Parameters:
   - Starting rating: 1200
   - K-factor: 40 (provisional, <30 games), 20 (rating <2300), 10 (rating >=2300)
   - Rating floor: 800
@@ -17,7 +17,7 @@ PROVISIONAL_THRESHOLD = 30
 
 def expected_score(player_rating: int, opponent_rating: int) -> float:
     """
-    FIDE expected score formula.
+    Elo expected score formula.
     E = 1 / (1 + 10^((Ro - Rp) / 400))
     where Rp = player_rating, Ro = opponent_rating.
     """
@@ -27,7 +27,7 @@ def expected_score(player_rating: int, opponent_rating: int) -> float:
 
 def get_k_factor(games_played: int, current_rating: int) -> int:
     """
-    FIDE K-factor selection.
+    K-factor selection (40/20/10).
     - 40 if games_played < 30 (provisional)
     - 10 if current_rating >= 2300
     - 20 otherwise

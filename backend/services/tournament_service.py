@@ -59,7 +59,8 @@ def create_tournament(data: Dict[str, Any], user_id: str, org_id: Optional[str] 
         'rating_category': data.get('rating_category'),
         'min_rating': data.get('min_rating'),
         'max_rating': data.get('max_rating'),
-        'is_fide_rated': data.get('is_fide_rated', False),
+        'is_rated': data.get('is_rated', False),
+        'tournament_mode': data.get('tournament_mode', 'offline'),
         'organizer_org_id': org_id,
         'created_by': user_id,
         'status': data.get('status', 'upcoming'),
@@ -89,8 +90,8 @@ def update_tournament(tournament_id: str, data: Dict[str, Any]) -> Dict[str, Any
         'start_date', 'end_date', 'registration_deadline', 'time_control',
         'format', 'max_participants', 'entry_fee', 'currency',
         'prize_fund', 'prize_distribution', 'age_categories',
-        'rating_category', 'min_rating', 'max_rating', 'is_fide_rated',
-        'status', 'rules_url', 'image_url',
+        'rating_category', 'min_rating', 'max_rating', 'is_rated',
+        'tournament_mode', 'status', 'rules_url', 'image_url',
     }
 
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
