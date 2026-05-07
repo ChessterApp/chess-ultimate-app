@@ -1,0 +1,18 @@
+[Unit]
+Description=Chess Ultimate Backend (Flask)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/chess-app/backend
+EnvironmentFile=/root/chess-app/backend/.env
+Environment=PATH=/root/chess-app/backend/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=FLASK_APP=app.py
+Environment=FLASK_ENV=production
+ExecStart=/root/chess-app/backend/venv/bin/gunicorn -w 4 -k gthread --threads 8 --timeout 30 --graceful-timeout 30 -b 0.0.0.0:5001 --access-logfile - --error-logfile - app:app
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
