@@ -10,7 +10,6 @@ import json
 import re
 import sqlite3
 import logging
-import threading
 import time
 import traceback
 import uuid
@@ -2225,13 +2224,10 @@ def games_by_position():
             })
 
         # When narrow filters are active (player_name / opponent_name), intersect
-        # an index-friendly name-prefix lookup with the position pool. The old
-        # `LIKE '%name%'` (leading wildcard) couldn't use the name index and
-        # full-scanned ~3.6 M rows, timing out for high-volume players like
-        # Carlsen. The fix: prefix-LIKE on the longest input token (surname),
-        # run the position-pool fetch and per-side prefix lookups in parallel
-        # threads, intersect the resulting ID sets, then post-filter wide
-        # filters in Python on the small intersected set.
+        # the position with an index-friendly name-prefix lookup in a single
+        # SQL statement using EXISTS. Earlier versions materialised every
+        # game_id at the position into a Python set first — that pulled ~3.3 M
+        # rows for the starting FEN and dominated the request (>90 s).
         if has_narrow_filters:
             p_tok = _longest_name_token(player_name)
             o_tok = _longest_name_token(opponent_name)
@@ -2246,98 +2242,93 @@ def games_by_position():
                     'indexed': True,
                 })
 
-            state: Dict[str, Any] = {
-                'pos': set(),
-                'pw': set(), 'pb': set(),
-                'ow': set(), 'ob': set(),
-                'errors': [],
+            sort_clauses_sql = {
+                'rating': 'COALESCE(white_elo, 0) + COALESCE(black_elo, 0) DESC',
+                'date_desc': 'date DESC',
+                'date_asc': 'date ASC',
             }
+            order_sql = sort_clauses_sql.get(sort_by, sort_clauses_sql['date_desc'])
 
-            def _fetch(target: str, col: Optional[str], tok: Optional[str]) -> None:
-                try:
-                    c = get_internal_db_connection()
-                    c.execute("PRAGMA busy_timeout = 5000")
-                    if col is None:
-                        rows = c.execute(
-                            "SELECT game_id FROM game_positions WHERE board_hash = ?",
-                            [board_hash],
-                        ).fetchall()
-                        state[target] = {r['game_id'] for r in rows}
-                    else:
-                        rows = c.execute(
-                            f"SELECT id FROM games WHERE {col} LIKE ? LIMIT 50000",
-                            [f"{tok}%"],
-                        ).fetchall()
-                        state[target] = {r['id'] for r in rows}
-                    c.close()
-                except Exception as e:
-                    state['errors'].append((target, str(e)))
+            exists_sql = (
+                "EXISTS (SELECT 1 FROM game_positions gp "
+                "WHERE gp.game_id = g.id AND gp.board_hash = ?)"
+            )
 
-            threads = [threading.Thread(target=_fetch, args=('pos', None, None))]
-            if p_tok:
-                if player_color in ('', 'white'):
-                    threads.append(threading.Thread(target=_fetch, args=('pw', 'white_name_normalized', p_tok)))
-                if player_color in ('', 'black'):
-                    threads.append(threading.Thread(target=_fetch, args=('pb', 'black_name_normalized', p_tok)))
-            if o_tok:
-                # Opponent must be the OTHER color from `player_color`. With no
-                # color specified, look on both sides.
-                if player_color != 'white':
-                    threads.append(threading.Thread(target=_fetch, args=('ow', 'white_name_normalized', o_tok)))
-                if player_color != 'black':
-                    threads.append(threading.Thread(target=_fetch, args=('ob', 'black_name_normalized', o_tok)))
+            def _build_side(p_col: Optional[str], o_col: Optional[str]) -> Tuple[str, list]:
+                """Build a single-side WHERE fragment plus its params."""
+                where_parts: List[str] = []
+                params: list = []
+                if p_col is not None and p_tok:
+                    where_parts.append(f"g.{p_col} LIKE ?")
+                    params.append(f"{p_tok}%")
+                if o_col is not None and o_tok:
+                    where_parts.append(f"g.{o_col} LIKE ?")
+                    params.append(f"{o_tok}%")
+                where_parts.append(exists_sql)
+                params.append(board_hash)
+                return f"SELECT g.* FROM games g WHERE {' AND '.join(where_parts)}", params
 
-            for th in threads:
-                th.start()
-            for th in threads:
-                th.join()
-
-            if state['errors']:
-                logger.warning(f"games_by_position narrow lookup errors: {state['errors']}")
-
+            subqueries: List[Tuple[str, list]] = []
             if player_color == 'white':
-                player_set = state['pw']
-                opp_set = state['ob']
+                subqueries.append(_build_side(
+                    'white_name_normalized' if p_tok else None,
+                    'black_name_normalized' if o_tok else None,
+                ))
             elif player_color == 'black':
-                player_set = state['pb']
-                opp_set = state['ow']
+                subqueries.append(_build_side(
+                    'black_name_normalized' if p_tok else None,
+                    'white_name_normalized' if o_tok else None,
+                ))
             else:
-                player_set = state['pw'] | state['pb']
-                opp_set = state['ow'] | state['ob']
+                if p_tok:
+                    subqueries.append(_build_side(
+                        'white_name_normalized',
+                        'black_name_normalized' if o_tok else None,
+                    ))
+                    subqueries.append(_build_side(
+                        'black_name_normalized',
+                        'white_name_normalized' if o_tok else None,
+                    ))
+                else:
+                    subqueries.append(_build_side(None, 'white_name_normalized'))
+                    subqueries.append(_build_side(None, 'black_name_normalized'))
 
-            if p_tok and o_tok:
-                name_candidates = player_set & opp_set
-            elif p_tok:
-                name_candidates = player_set
+            if len(subqueries) == 1:
+                sub_sql, sub_params = subqueries[0]
+                final_sql = f"{sub_sql} ORDER BY {order_sql} LIMIT ?"
+                final_params: list = list(sub_params) + [limit]
             else:
-                name_candidates = opp_set
+                # UNION (not OR) — SQLite picks a covering name-index plan
+                # for each branch, then merges; a single OR forces a SCAN.
+                inner = " UNION ".join(s[0] for s in subqueries)
+                inner_params: list = []
+                for s in subqueries:
+                    inner_params.extend(s[1])
+                final_sql = f"SELECT * FROM ({inner}) ORDER BY {order_sql} LIMIT ?"
+                final_params = inner_params + [limit]
 
-            matched_ids = name_candidates & state['pos']
+            # `LIKE 'pattern%'` only uses the name index when LIKE is treated
+            # as case-sensitive. Names are pre-normalised to lowercase, so
+            # turning case-sensitive LIKE on for this connection is safe.
+            conn.execute("PRAGMA case_sensitive_like = 1")
 
-            if not matched_ids:
-                logger.info(f"games_by_position FILTERED: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' candidates={len(name_candidates)} matched=0 returned=0")
-                conn.close()
-                return jsonify({
-                    'games': [],
-                    'total': 0,
-                    'indexed': True,
-                    'count_exact': True,
-                })
+            timed_out = False
+            rows: List[Dict[str, Any]] = []
+            try:
+                query_timeout[1] = time.time()
+                cursor = conn.execute(final_sql, final_params)
+                for r in cursor.fetchall():
+                    rows.append(dict(r))
+            except sqlite3.OperationalError:
+                if query_timeout[0]:
+                    logger.warning(f"Narrow-filter query timed out for board_hash={board_hash}")
+                    timed_out = True
+                else:
+                    raise
+            except Exception as e:
+                logger.warning(f"Narrow-filter query error: {e}")
+                timed_out = True
 
-            # Fetch full rows for matched IDs (cap to keep the IN-list sane).
-            matched_list = list(matched_ids)
-            if len(matched_list) > 5000:
-                matched_list = matched_list[:5000]
-            placeholders = ','.join('?' * len(matched_list))
-            conn.set_progress_handler(None, 0)
-            full_rows = conn.execute(
-                f"SELECT * FROM games WHERE id IN ({placeholders})",
-                matched_list,
-            ).fetchall()
-            full_games: List[Dict[str, Any]] = [dict(r) for r in full_rows]
-
-            # Apply wide filters (elo/result/date/eco/event) in Python — the
-            # intersected set is small so this is cheap.
             try:
                 year_from_int = int(date_from) if date_from else None
             except ValueError:
@@ -2377,25 +2368,36 @@ def games_by_position():
                     return False
                 return True
 
-            filtered = [g for g in full_games if _passes(g)]
+            filtered = [g for g in rows if _passes(g)]
+            games = [_normalize_game_row(g) for g in filtered]
 
-            if sort_by == 'date_asc':
-                filtered.sort(key=lambda g: g.get('date') or '')
-            elif sort_by == 'date_desc':
-                filtered.sort(key=lambda g: g.get('date') or '', reverse=True)
+            # If SQL returned fewer than the cap we have every match; otherwise
+            # more games may exist beyond the cap — fall back to the
+            # position-level total.
+            if len(rows) < limit:
+                report_total = len(filtered)
+                report_count_exact = True
             else:
-                filtered.sort(key=lambda g: (g.get('white_elo') or 0) + (g.get('black_elo') or 0), reverse=True)
+                report_total = total
+                report_count_exact = cached_count is not None
 
-            games = [_normalize_game_row(g) for g in filtered[:limit]]
-
-            logger.info(f"games_by_position FILTERED: board_hash={board_hash} player_name='{player_name}' opponent='{opponent_name}' color='{player_color}' result='{result}' sort_by={sort_by} candidates={len(name_candidates)} matched={len(matched_ids)} after_wide={len(filtered)} returned={len(games)}")
+            logger.info(
+                f"games_by_position FILTERED: board_hash={board_hash} "
+                f"player_name='{player_name}' opponent='{opponent_name}' "
+                f"color='{player_color}' result='{result}' sort_by={sort_by} "
+                f"rows={len(rows)} after_wide={len(filtered)} returned={len(games)} "
+                f"timed_out={timed_out}"
+            )
             conn.close()
-            return jsonify({
+            response_data = {
                 'games': games,
-                'total': len(filtered),
+                'total': report_total,
                 'indexed': True,
-                'count_exact': True,
-            })
+                'count_exact': report_count_exact,
+            }
+            if timed_out:
+                response_data['timeout'] = True
+            return jsonify(response_data)
 
         # Unfiltered path: use 2-step pool approach for less common positions
         try:

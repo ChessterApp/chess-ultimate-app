@@ -25,6 +25,14 @@ TWIC_DB_PATH = os.path.join(
 # Open Sicilian after 5...d6: a high-volume position used in the smoke test.
 TEST_FEN = "rnbqkb1r/pp2pppp/3p1n2/8/3NP3/8/PPP2PPP/RNBQKB1R w KQkq - 0 5"
 
+# Standard starting position — every game in the DB reaches it (~3.3 M).
+# Worst case for the position-side cost; used to regression-test the
+# narrow-filter EXISTS+UNION rewrite.
+START_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+# Najdorf after 5...a6 6.f3-ish (mid-pool position, far less common than start).
+NAJDORF_FEN = "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6"
+
 
 pytestmark = pytest.mark.skipif(
     not os.path.exists(TWIC_DB_PATH) or os.path.getsize(TWIC_DB_PATH) < 1_000_000,
@@ -56,9 +64,9 @@ def app_client():
         yield app.test_client()
 
 
-def _get_json(client, **params):
+def _get_json(client, fen=TEST_FEN, **params):
     qs = "&".join(f"{k}={v}" for k, v in params.items())
-    resp = client.get(f"/api/openings/games/by-position?fen={TEST_FEN}&{qs}")
+    resp = client.get(f"/api/openings/games/by-position?fen={fen}&{qs}")
     assert resp.status_code == 200, resp.data
     return resp.get_json()
 
@@ -143,3 +151,106 @@ def test_player_name_query_under_1500ms(app_client):
     assert not data.get("timeout"), data
     assert data["total"] > 0
     assert elapsed < 1.5, f"player_name query took {elapsed:.2f}s, expected < 1.5s"
+
+
+# ─────────────────────────────────────────────
+# Starting-position regression tests for the EXISTS+UNION rewrite.
+# Pre-fix, narrow-filter searches at the starting FEN took 90–140 s
+# because every game_id at that hash (~3.3 M) was materialised into a
+# Python set. The fix issues a single EXISTS+UNION query that lets SQLite
+# pick the name index instead.
+# ─────────────────────────────────────────────
+
+
+def test_start_fen_rare_player_under_5s(app_client):
+    """Starting FEN + low-volume player (Shomoev) must finish under 5 s and
+    return real games. The pre-fix code timed out at 92 s."""
+    start = time.time()
+    data = _get_json(app_client, fen=START_FEN, player_name="Shomoev", limit=50)
+    elapsed = time.time() - start
+    assert not data.get("timeout"), data
+    assert elapsed < 5.0, f"Shomoev query took {elapsed:.2f}s, expected < 5s"
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        w = (g.get("white_name") or "").lower()
+        b = (g.get("black_name") or "").lower()
+        assert "shomoev" in w or "shomoev" in b, g
+
+
+def test_start_fen_high_volume_player_under_5s(app_client):
+    """Worst case: high-volume player (Carlsen) at the starting FEN. Must
+    return up to `limit` games inside 5 s."""
+    start = time.time()
+    data = _get_json(app_client, fen=START_FEN, player_name="Carlsen", limit=50)
+    elapsed = time.time() - start
+    assert not data.get("timeout"), data
+    assert elapsed < 5.0, f"Carlsen query took {elapsed:.2f}s, expected < 5s"
+    assert len(data["games"]) == 50
+
+
+def test_start_fen_player_color_white_only_white_carlsen(app_client):
+    data = _get_json(
+        app_client, fen=START_FEN,
+        player_name="Carlsen", player_color="white", limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert "carlsen" in (g.get("white_name") or "").lower(), g
+
+
+def test_start_fen_opponent_white_player_means_black_match(app_client):
+    """`opponent_name=Shomoev&player_color=white` means: I (the player) am
+    white, opponent (Shomoev) must be black."""
+    data = _get_json(
+        app_client, fen=START_FEN,
+        opponent_name="Shomoev", player_color="white", limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert "shomoev" in (g.get("black_name") or "").lower(), g
+
+
+def test_najdorf_player_under_3s(app_client):
+    """Mid-pool position (Najdorf) + high-volume player (Caruana). Even
+    without the position-fan-out problem this must return inside 3 s."""
+    # Warm OS page cache — first hit may pull Najdorf-related pages from disk.
+    _get_json(app_client, fen=NAJDORF_FEN, player_name="Caruana", limit=50)
+
+    start = time.time()
+    data = _get_json(
+        app_client, fen=NAJDORF_FEN, player_name="Caruana", limit=50,
+    )
+    elapsed = time.time() - start
+    assert not data.get("timeout"), data
+    assert elapsed < 3.0, f"Najdorf+Caruana took {elapsed:.2f}s, expected < 3s"
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        w = (g.get("white_name") or "").lower()
+        b = (g.get("black_name") or "").lower()
+        assert "caruana" in w or "caruana" in b, g
+
+
+def test_start_fen_no_filter_uses_direct_path(app_client):
+    """No filters at the starting FEN must still return games quickly via
+    the unchanged DIRECT path — regression guard against the rewrite
+    accidentally swallowing the unfiltered case."""
+    start = time.time()
+    data = _get_json(app_client, fen=START_FEN, limit=10)
+    elapsed = time.time() - start
+    assert not data.get("timeout"), data
+    assert elapsed < 5.0, f"unfiltered start FEN took {elapsed:.2f}s"
+    assert len(data["games"]) == 10
+    # The DIRECT path reports the position-level total (millions) without
+    # an exact count.
+    assert data["total"] > 1_000_000
+
+
+def test_short_player_token_returns_empty_no_timeout(app_client):
+    """Single-character `player_name` would force a near-full table scan.
+    Guard at the entry must short-circuit to an empty response."""
+    data = _get_json(app_client, fen=START_FEN, player_name="A", limit=10)
+    assert data["games"] == []
+    assert data["total"] == 0
+    assert not data.get("timeout"), data
