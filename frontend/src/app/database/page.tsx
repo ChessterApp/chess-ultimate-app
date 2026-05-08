@@ -740,32 +740,57 @@ export default function DebutPage() {
 
   // ─── Auto-fetch master games when node or filters change ───
   useEffect(() => {
-    if (!selectedNode) {
-      setMasterGames([]);
-      setMasterGamesTotal(0);
-      return;
-    }
+    const fen = selectedNode?.fen || boardFen;
 
     let cancelled = false;
     setMasterGamesLoading(true);
 
-    fetchGamesByPosition(
-      selectedNode.fen,
-      50,
-      masterGamesFilters.playerColor,
-      masterGamesFilters.playerName,
-      masterGamesFilters.sortBy,
-      masterGamesFilters.opponentName,
-      masterGamesFilters.result,
-      masterGamesFilters.whiteEloMin,
-      masterGamesFilters.whiteEloMax,
-      masterGamesFilters.blackEloMin,
-      masterGamesFilters.blackEloMax,
-      masterGamesFilters.dateFrom,
-      masterGamesFilters.dateTo,
-      masterGamesFilters.ecoCode,
-      masterGamesFilters.eventName
-    )
+    // If selectedNode exists (repertoire loaded), use the authenticated helper.
+    // Otherwise fall back to a direct fetch — /games/by-position is public.
+    const fetchPromise = selectedNode
+      ? fetchGamesByPosition(
+          fen,
+          50,
+          masterGamesFilters.playerColor,
+          masterGamesFilters.playerName,
+          masterGamesFilters.sortBy,
+          masterGamesFilters.opponentName,
+          masterGamesFilters.result,
+          masterGamesFilters.whiteEloMin,
+          masterGamesFilters.whiteEloMax,
+          masterGamesFilters.blackEloMin,
+          masterGamesFilters.blackEloMax,
+          masterGamesFilters.dateFrom,
+          masterGamesFilters.dateTo,
+          masterGamesFilters.ecoCode,
+          masterGamesFilters.eventName
+        )
+      : (() => {
+          const params = new URLSearchParams({ fen, limit: '50' });
+          if (masterGamesFilters.playerColor) params.set('player_color', masterGamesFilters.playerColor);
+          if (masterGamesFilters.playerName) params.set('player_name', masterGamesFilters.playerName);
+          if (masterGamesFilters.opponentName) params.set('opponent_name', masterGamesFilters.opponentName);
+          if (masterGamesFilters.sortBy && masterGamesFilters.sortBy !== 'date_desc') params.set('sort_by', masterGamesFilters.sortBy);
+          if (masterGamesFilters.result) params.set('result', masterGamesFilters.result);
+          if (masterGamesFilters.whiteEloMin !== 0) params.set('white_elo_min', String(masterGamesFilters.whiteEloMin));
+          if (masterGamesFilters.whiteEloMax !== 3500) params.set('white_elo_max', String(masterGamesFilters.whiteEloMax));
+          if (masterGamesFilters.blackEloMin !== 0) params.set('black_elo_min', String(masterGamesFilters.blackEloMin));
+          if (masterGamesFilters.blackEloMax !== 3500) params.set('black_elo_max', String(masterGamesFilters.blackEloMax));
+          if (masterGamesFilters.dateFrom) params.set('date_from', masterGamesFilters.dateFrom);
+          if (masterGamesFilters.dateTo) params.set('date_to', masterGamesFilters.dateTo);
+          if (masterGamesFilters.ecoCode) params.set('eco_code', masterGamesFilters.ecoCode);
+          if (masterGamesFilters.eventName) params.set('event_name', masterGamesFilters.eventName);
+          return fetch(`/api/openings/games/by-position?${params}`)
+            .then(r => r.json())
+            .then(data => ({
+              games: Array.isArray(data.games) ? data.games : [],
+              total: typeof data.total === 'number' ? data.total : 0,
+              indexed: !!data.indexed,
+              count_exact: data.count_exact,
+            }));
+        })();
+
+    fetchPromise
       .then((data) => {
         if (!cancelled) {
           // Deduplicate by game ID to prevent visual duplicates
@@ -778,9 +803,10 @@ export default function DebutPage() {
           setMasterGames(unique);
           setMasterGamesTotal(data.total);
 
-          // If count is approximate, fetch exact count in background
-          if (!data.count_exact && data.games.length > 0) {
-            fetchPositionCount(selectedNode.fen)
+          // If count is approximate, fetch exact count in background.
+          // fetchPositionCount requires auth, so only call it when a node is selected.
+          if (!data.count_exact && data.games.length > 0 && selectedNode) {
+            fetchPositionCount(fen)
               .then((count) => { if (!cancelled) setMasterGamesTotal(count); })
               .catch(() => {});
           }
@@ -797,7 +823,7 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, masterGamesFilters.playerColor, masterGamesFilters.playerName, masterGamesFilters.sortBy, masterGamesFilters.opponentName, masterGamesFilters.result, masterGamesFilters.whiteEloMin, masterGamesFilters.whiteEloMax, masterGamesFilters.blackEloMin, masterGamesFilters.blackEloMax, masterGamesFilters.dateFrom, masterGamesFilters.dateTo, masterGamesFilters.ecoCode, masterGamesFilters.eventName, fetchGamesByPosition, fetchPositionCount]);
+  }, [selectedNode?.fen, boardFen, masterGamesFilters.playerColor, masterGamesFilters.playerName, masterGamesFilters.sortBy, masterGamesFilters.opponentName, masterGamesFilters.result, masterGamesFilters.whiteEloMin, masterGamesFilters.whiteEloMax, masterGamesFilters.blackEloMin, masterGamesFilters.blackEloMax, masterGamesFilters.dateFrom, masterGamesFilters.dateTo, masterGamesFilters.ecoCode, masterGamesFilters.eventName, fetchGamesByPosition, fetchPositionCount]);
 
   // ─── Auto-fetch candidate moves when node changes ───
   useEffect(() => {
