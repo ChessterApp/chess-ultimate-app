@@ -32,6 +32,7 @@ Skip an ADR for routine choices that any reasonable engineer would make the same
 | [0002](0002-twic-sqlite-delete-journal-mode.md) | TWIC SQLite in DELETE journal mode (not WAL) | Accepted |
 | [0003](0003-clerk-for-auth.md) | Clerk for authentication (not Supabase Auth) | Accepted |
 | [0004](0004-vercel-primary-vps-fallback.md) | Vercel-primary + VPS-fallback for the frontend | Accepted |
+| [0005](0005-subdomain-per-tenant-multi-tenancy.md) | Subdomain-per-tenant with optional custom domain | Accepted |
 
 ## See also
 
