@@ -62,7 +62,7 @@ export default function AdminBillingPage() {
           />
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Stripe integration coming soon. Contact support to change plans.
+          Whop integration coming soon. Contact support to change plans.
         </p>
       </section>
 
