@@ -734,3 +734,12 @@ def test_org_owner_sees_own_org_row(tenants, table):
             f"Same-org owner of org-A could NOT see own row in {table} "
             f"(id={org_a_row}) — policy too restrictive"
         )
+
+
+# ─── Public re-exports for the cross-org fuzzer ─────────────────────────────
+# The introspection-driven fuzzer in test_rls_cross_org_fuzzer.py reuses this
+# module's connection plumbing. Aliases keep the originals private-by-convention
+# while giving the fuzzer a clean import surface. Semantics are unchanged.
+open_conn = _open
+set_role = _set_role
+can_connect = _can_connect
