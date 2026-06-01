@@ -28,14 +28,18 @@ export default function SuperAdminHome() {
           </p>
         </Link>
 
-        <div className="block p-5 bg-white dark:bg-gray-800 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 opacity-60">
+        <Link
+          href="/super-admin/schools"
+          className="block p-5 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+        >
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            Schools (Phase 7C)
+            Schools →
           </h2>
           <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            Partner-school management UI is parked until needed.
+            List partner organizations, drill into one, and suspend, unsuspend, or
+            promote a member to owner.
           </p>
-        </div>
+        </Link>
       </div>
     </div>
   );

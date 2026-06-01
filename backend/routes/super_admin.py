@@ -465,3 +465,267 @@ def _end_impersonation_response(target_clerk_id: str):
     response = make_response(jsonify({'status': 'ended', 'clerk_id': target_clerk_id}))
     response.delete_cookie(IMPERSONATION_COOKIE_NAME, path='/')
     return response
+
+
+# ─── 7C: organizations ──────────────────────────────────────────────────────
+
+_ORG_LIST_COLUMNS = (
+    'id, slug, name, status, created_at, '
+    'custom_domain, custom_domain_status'
+)
+
+
+def _clerk_email_for(clerk_id: str) -> Optional[str]:
+    """Best-effort Clerk email lookup. Returns None if Clerk is unreachable."""
+    status, body = _clerk_request('GET', f'/users/{clerk_id}')
+    if status != 200 or not isinstance(body, dict):
+        return None
+    primary_id = body.get('primary_email_address_id')
+    for entry in body.get('email_addresses') or []:
+        if entry.get('id') == primary_id:
+            return entry.get('email_address')
+    return None
+
+
+@super_admin_bp.route('/organizations', methods=['GET'])
+@require_super_admin
+def list_organizations():
+    """Search/list partner organizations with member + billing counts."""
+    q = (request.args.get('q') or '').strip()
+    status_filter = (request.args.get('status') or '').strip()
+    try:
+        limit = min(int(request.args.get('limit', 50)), 200)
+    except ValueError:
+        limit = 50
+    try:
+        offset = max(int(request.args.get('offset', 0)), 0)
+    except ValueError:
+        offset = 0
+
+    try:
+        supabase = _get_supabase()
+        query = supabase.table('organizations').select(_ORG_LIST_COLUMNS, count='exact')
+        if status_filter in ('active', 'suspended', 'trial'):
+            query = query.eq('status', status_filter)
+        if q:
+            safe_q = q.replace(',', ' ').replace('(', ' ').replace(')', ' ')
+            query = query.or_(f'slug.ilike.%{safe_q}%,name.ilike.%{safe_q}%')
+        result = (
+            query.order('created_at', desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        rows = result.data or []
+        total = getattr(result, 'count', None)
+        if total is None:
+            total = len(rows)
+
+        org_ids = [r['id'] for r in rows if r.get('id')]
+
+        # member_count per org
+        member_counts: dict[str, int] = {}
+        if org_ids:
+            members_result = (
+                supabase.table('organization_members')
+                .select('organization_id')
+                .in_('organization_id', org_ids)
+                .execute()
+            )
+            for m in (members_result.data or []):
+                oid = m.get('organization_id')
+                if oid:
+                    member_counts[oid] = member_counts.get(oid, 0) + 1
+
+        # billing rows per org
+        billing_by_org: dict[str, dict] = {}
+        if org_ids:
+            billing_result = (
+                supabase.table('organization_billing')
+                .select('organization_id, plan, student_count')
+                .in_('organization_id', org_ids)
+                .execute()
+            )
+            for b in (billing_result.data or []):
+                oid = b.get('organization_id')
+                if oid:
+                    billing_by_org[oid] = b
+
+        items = []
+        for row in rows:
+            oid = row.get('id')
+            billing = billing_by_org.get(oid, {}) if oid else {}
+            items.append({
+                'id': oid,
+                'slug': row.get('slug'),
+                'name': row.get('name'),
+                'status': row.get('status'),
+                'plan': billing.get('plan'),
+                'member_count': member_counts.get(oid, 0),
+                'student_count': billing.get('student_count'),
+                'custom_domain': row.get('custom_domain'),
+                'custom_domain_status': row.get('custom_domain_status'),
+                'created_at': row.get('created_at'),
+            })
+
+        return jsonify({'items': items, 'total': total})
+    except Exception as exc:
+        logger.exception("list_organizations failed: %s", exc)
+        return jsonify({'error': 'Failed to list organizations'}), 500
+
+
+@super_admin_bp.route('/organizations/<org_id>', methods=['GET'])
+@require_super_admin
+def get_organization_detail(org_id: str):
+    """Full detail for one org: row + billing + members (+ best-effort emails) + audit."""
+    try:
+        supabase = _get_supabase()
+        org_rows = (
+            supabase.table('organizations').select('*').eq('id', org_id)
+            .execute().data or []
+        )
+        if not org_rows:
+            return jsonify({'error': 'Organization not found'}), 404
+        org = org_rows[0]
+
+        billing = (
+            supabase.table('organization_billing').select('*')
+            .eq('organization_id', org_id).execute().data or [None]
+        )[0]
+
+        members = (
+            supabase.table('organization_members').select('*')
+            .eq('organization_id', org_id).order('joined_at', desc=True)
+            .execute().data or []
+        )
+
+        # Best-effort Clerk email lookup per member.
+        for m in members:
+            user_id = m.get('user_id')
+            if user_id:
+                try:
+                    m['email'] = _clerk_email_for(user_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Clerk email lookup failed for %s: %s", user_id, exc)
+                    m['email'] = None
+            else:
+                m['email'] = None
+
+        audit = (
+            supabase.table('platform_admin_audit_log').select('*')
+            .eq('target_type', 'organization').eq('target_id', org_id)
+            .order('created_at', desc=True).limit(50)
+            .execute().data or []
+        )
+
+        return jsonify({
+            'organization': org,
+            'billing': billing,
+            'members': members,
+            'audit': audit,
+        })
+    except Exception as exc:
+        logger.exception("get_organization_detail failed: %s", exc)
+        return jsonify({'error': 'Failed to load organization'}), 500
+
+
+def _require_reason(body: Optional[dict]) -> tuple[Optional[str], Optional[tuple]]:
+    """Extract a ≥3-char reason from the body. Returns (reason, error_response)."""
+    reason = ((body or {}).get('reason') or '').strip()
+    if len(reason) < 3:
+        return None, (jsonify({'error': 'reason is required (min 3 chars)'}), 400)
+    return reason, None
+
+
+def _set_org_status(org_id: str, new_status: str, action: str, reason: str):
+    """Shared implementation for suspend/unsuspend. Idempotent."""
+    try:
+        supabase = _get_supabase()
+        existing = (
+            supabase.table('organizations').select('id, status').eq('id', org_id)
+            .execute().data or []
+        )
+        if not existing:
+            return jsonify({'error': 'Organization not found'}), 404
+        prior_status = existing[0].get('status')
+
+        if prior_status != new_status:
+            supabase.table('organizations').update({
+                'status': new_status,
+            }).eq('id', org_id).execute()
+
+        _audit(action, 'organization', org_id, {
+            'reason': reason,
+            'prior_status': prior_status,
+        })
+        return jsonify({
+            'status': new_status,
+            'organization_id': org_id,
+            'prior_status': prior_status,
+            'idempotent': prior_status == new_status,
+        })
+    except Exception as exc:
+        logger.exception("%s failed: %s", action, exc)
+        return jsonify({'error': f'Failed to {action}'}), 500
+
+
+@super_admin_bp.route('/organizations/<org_id>/suspend', methods=['POST'])
+@require_super_admin
+def suspend_organization(org_id: str):
+    reason, err = _require_reason(request.get_json(silent=True))
+    if err is not None:
+        return err
+    return _set_org_status(org_id, 'suspended', 'suspend_org', reason)
+
+
+@super_admin_bp.route('/organizations/<org_id>/unsuspend', methods=['POST'])
+@require_super_admin
+def unsuspend_organization(org_id: str):
+    reason, err = _require_reason(request.get_json(silent=True))
+    if err is not None:
+        return err
+    return _set_org_status(org_id, 'active', 'unsuspend_org', reason)
+
+
+@super_admin_bp.route('/organizations/<org_id>/promote', methods=['POST'])
+@require_super_admin
+def promote_organization_member(org_id: str):
+    body = request.get_json(silent=True) or {}
+    reason, err = _require_reason(body)
+    if err is not None:
+        return err
+    user_id = (body.get('user_id') or '').strip()
+    if not user_id:
+        return jsonify({'error': 'user_id is required'}), 400
+
+    try:
+        supabase = _get_supabase()
+        members = (
+            supabase.table('organization_members').select('id, role')
+            .eq('organization_id', org_id).eq('user_id', user_id)
+            .execute().data or []
+        )
+        if not members:
+            return jsonify({
+                'error': 'User is not a member of this organization',
+            }), 400
+        prior_role = members[0].get('role')
+
+        if prior_role != 'owner':
+            supabase.table('organization_members').update({
+                'role': 'owner',
+            }).eq('organization_id', org_id).eq('user_id', user_id).execute()
+
+        _audit('promote_org_member', 'organization', org_id, {
+            'user_id': user_id,
+            'prior_role': prior_role,
+            'reason': reason,
+        })
+        return jsonify({
+            'organization_id': org_id,
+            'user_id': user_id,
+            'role': 'owner',
+            'prior_role': prior_role,
+        })
+    except Exception as exc:
+        logger.exception("promote_organization_member failed: %s", exc)
+        return jsonify({'error': 'Failed to promote member'}), 500
