@@ -1,13 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useOrganization } from '@/contexts/OrganizationContext';
 
 interface BrandingConfig {
   logo_url: string;
+  favicon_url: string;
   primary_color: string;
   secondary_color: string;
   accent_color: string;
+  custom_css: string;
   landing_page_config: {
     hero_title?: string;
     hero_subtitle?: string;
@@ -15,28 +17,48 @@ interface BrandingConfig {
   };
 }
 
+type UploadKind = 'logo' | 'favicon';
+
 export default function AdminSettingsPage() {
   const { org } = useOrganization();
   const [config, setConfig] = useState<BrandingConfig>({
     logo_url: '',
+    favicon_url: '',
     primary_color: '#1a73e8',
     secondary_color: '#ffffff',
     accent_color: '#ffd700',
+    custom_css: '',
     landing_page_config: {},
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [uploadingKind, setUploadingKind] = useState<UploadKind | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const logoFileRef = useRef<HTMLInputElement | null>(null);
+  const faviconFileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!org) return;
     setConfig({
       logo_url: org.logoUrl || '',
+      favicon_url: org.faviconUrl || '',
       primary_color: org.primaryColor,
       secondary_color: org.secondaryColor,
       accent_color: org.accentColor,
+      custom_css: org.customCss || '',
       landing_page_config: (org.landingPageConfig as BrandingConfig['landing_page_config']) || {},
     });
   }, [org]);
+
+  async function persistConfig(next: BrandingConfig) {
+    if (!org?.id) return false;
+    const res = await fetch(`/api/admin/organizations/${org.id}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    });
+    return res.ok;
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -44,17 +66,45 @@ export default function AdminSettingsPage() {
     setSaving(true);
     setSaved(false);
     try {
-      const res = await fetch(`/api/admin/organizations/${org.id}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config),
-      });
-      if (res.ok) {
+      const ok = await persistConfig(config);
+      if (ok) {
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleUpload(kind: UploadKind, file: File) {
+    if (!org?.id) return;
+    setUploadingKind(kind);
+    setUploadError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('kind', kind);
+      const res = await fetch(`/api/admin/organizations/${org.id}/branding/upload`, {
+        method: 'POST',
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        setUploadError(data.error || 'Upload failed');
+        return;
+      }
+      const next: BrandingConfig = {
+        ...config,
+        [kind === 'logo' ? 'logo_url' : 'favicon_url']: data.url,
+      };
+      setConfig(next);
+      const persisted = await persistConfig(next);
+      if (persisted) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 3000);
+      }
+    } finally {
+      setUploadingKind(null);
     }
   }
 
@@ -70,19 +120,77 @@ export default function AdminSettingsPage() {
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Branding</h2>
 
           <div className="space-y-4">
-            {/* Logo URL */}
+            {/* Logo URL + upload */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Logo URL
               </label>
-              <input
-                type="url"
-                value={config.logo_url}
-                onChange={e => setConfig({ ...config, logo_url: e.target.value })}
-                placeholder="https://example.com/logo.png"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="url"
+                  value={config.logo_url}
+                  onChange={e => setConfig({ ...config, logo_url: e.target.value })}
+                  placeholder="https://example.com/logo.png"
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+                <input
+                  ref={logoFileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) handleUpload('logo', f);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => logoFileRef.current?.click()}
+                  disabled={uploadingKind === 'logo'}
+                  className="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                >
+                  {uploadingKind === 'logo' ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
             </div>
+
+            {/* Favicon URL + upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Favicon URL
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="url"
+                  value={config.favicon_url}
+                  onChange={e => setConfig({ ...config, favicon_url: e.target.value })}
+                  placeholder="https://example.com/favicon.ico"
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+                <input
+                  ref={faviconFileRef}
+                  type="file"
+                  accept="image/png,image/x-icon,image/svg+xml,image/vnd.microsoft.icon"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) handleUpload('favicon', f);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => faviconFileRef.current?.click()}
+                  disabled={uploadingKind === 'favicon'}
+                  className="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                >
+                  {uploadingKind === 'favicon' ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
+            </div>
+
+            {uploadError && (
+              <p className="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
+            )}
 
             {/* Colors */}
             <div className="grid grid-cols-3 gap-4">
@@ -143,6 +251,24 @@ export default function AdminSettingsPage() {
                   />
                 </div>
               </div>
+            </div>
+
+            {/* Custom CSS */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Custom CSS
+              </label>
+              <textarea
+                value={config.custom_css}
+                onChange={e => setConfig({ ...config, custom_css: e.target.value })}
+                rows={8}
+                spellCheck={false}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm font-mono"
+                placeholder="/* :root { --brand-radius: 12px; } */"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Advanced — applied site-wide. Use at your own risk.
+              </p>
             </div>
           </div>
         </section>

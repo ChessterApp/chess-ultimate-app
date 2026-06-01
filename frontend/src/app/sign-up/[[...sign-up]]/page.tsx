@@ -3,9 +3,15 @@
 import { SignUp } from '@clerk/nextjs'
 import { useTranslations } from 'next-intl'
 import Image from 'next/image'
+import { useBranding, useOrganization } from '@/contexts/OrganizationContext'
 
 export default function SignUpPage() {
   const t = useTranslations()
+  const branding = useBranding()
+  const { isWhiteLabel } = useOrganization()
+  const heading = isWhiteLabel
+    ? `${t('auth.signUpTitle')} · ${branding.name}`
+    : t('auth.signUpTitle')
 
   return (
     <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">
@@ -327,10 +333,27 @@ export default function SignUpPage() {
       `}} />
 
       <div className="w-full max-w-md bg-white md:bg-transparent rounded-3xl md:rounded-none p-4 md:p-0 mt-4 md:mt-0 shadow-xl md:shadow-none">
-        {/* Optional: Add Chesster branding above the form */}
+        {/* Tenant-aware branding above the form */}
         <div className="text-center mb-4 md:mb-6">
-          <div className="bg-white rounded-full p-3 md:p-4 inline-block shadow-lg"><Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={64} height={64} className="w-10 h-10 md:w-16 md:h-16" /></div>
-          <h1 className="text-2xl font-bold text-gray-800 mt-4">{t('auth.signUpTitle')}</h1>
+          <div className="bg-white rounded-full p-3 md:p-4 inline-block shadow-lg">
+            {branding.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={branding.logoUrl}
+                alt={branding.name}
+                className="w-10 h-10 md:w-16 md:h-16 object-contain"
+              />
+            ) : (
+              <Image
+                src="/static/images/chesster-logo-v3.png"
+                alt="Chesster"
+                width={64}
+                height={64}
+                className="w-10 h-10 md:w-16 md:h-16"
+              />
+            )}
+          </div>
+          <h1 className="text-2xl font-bold text-gray-800 mt-4">{heading}</h1>
           <p className="text-sm text-gray-500 mt-1">{t('auth.signUpSubtitle')}</p>
         </div>
 
@@ -343,7 +366,7 @@ export default function SignUpPage() {
               privacyPageUrl: '/privacy',
             },
             variables: {
-              colorPrimary: '#9333ea',
+              colorPrimary: branding.primaryColor || '#9333ea',
               colorText: '#3c3c3c',
               colorTextSecondary: '#afafaf',
               colorBackground: '#ffffff',

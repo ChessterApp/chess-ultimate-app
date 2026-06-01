@@ -1,4 +1,25 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
+import { render, cleanup } from '@testing-library/react';
+import React from 'react';
+import BrandingInjector from '../BrandingInjector';
+import { OrganizationProvider } from '@/contexts/OrganizationContext';
+import type { Organization } from '@/contexts/organization-types';
+
+const TENANT: Organization = {
+  id: 'org-1',
+  slug: 'acme',
+  name: 'Acme Chess',
+  logoUrl: null,
+  faviconUrl: null,
+  primaryColor: '#ff5500',
+  secondaryColor: '#00ff00',
+  accentColor: '#0000ff',
+  customCss: null,
+  landingPageConfig: {},
+  contactEmail: null,
+  status: 'active',
+};
 
 describe('BrandingInjector', () => {
   it('exports a default function component', async () => {
@@ -7,7 +28,6 @@ describe('BrandingInjector', () => {
   });
 
   it('is a client component', async () => {
-    // BrandingInjector uses useEffect and useBranding (client hooks)
     const fs = await import('fs');
     const path = await import('path');
     const content = fs.readFileSync(
@@ -15,6 +35,31 @@ describe('BrandingInjector', () => {
       'utf-8'
     );
     expect(content).toContain("'use client'");
+  });
+
+  it('writes --brand-primary on mount and reverts on unmount', () => {
+    const root = document.documentElement;
+    // Ensure clean baseline
+    root.style.removeProperty('--brand-primary');
+    root.style.removeProperty('--brand-secondary');
+    root.style.removeProperty('--brand-accent');
+
+    const { unmount } = render(
+      <OrganizationProvider org={TENANT}>
+        <BrandingInjector />
+      </OrganizationProvider>
+    );
+
+    expect(root.style.getPropertyValue('--brand-primary')).toBe('#ff5500');
+    expect(root.style.getPropertyValue('--brand-secondary')).toBe('#00ff00');
+    expect(root.style.getPropertyValue('--brand-accent')).toBe('#0000ff');
+
+    unmount();
+    cleanup();
+
+    expect(root.style.getPropertyValue('--brand-primary')).toBe('');
+    expect(root.style.getPropertyValue('--brand-secondary')).toBe('');
+    expect(root.style.getPropertyValue('--brand-accent')).toBe('');
   });
 });
 
@@ -32,10 +77,7 @@ describe('OrganizationContext', () => {
   });
 
   it('useBranding returns default Chesster branding when no org', async () => {
-    // useBranding calls useContext which needs React tree,
-    // but we can verify the default branding object exists in the module
     const module = await import('@/contexts/OrganizationContext');
-    // The default context value has org: null, isWhiteLabel: false
     expect(module.useOrganization).toBeDefined();
   });
 

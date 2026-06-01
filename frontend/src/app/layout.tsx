@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { cache } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ClerkProvider } from '@clerk/nextjs'
 import { NextIntlClientProvider } from 'next-intl';
@@ -15,6 +16,7 @@ import { OrganizationProvider } from "@/contexts/OrganizationContext";
 import { type Organization, parseOrgFromHeaders } from "@/contexts/organization-types";
 import BrandingInjector from "@/components/BrandingInjector";
 import ImpersonationBanner from "@/components/super-admin/ImpersonationBanner";
+import { buildMetadata } from "@/lib/org-metadata";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,74 +27,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-export const metadata: Metadata = {
-  metadataBase: new URL("https://chesster.io"),
-  title: "Chesster - AI-Powered Chess Training",
-  description: "Plug-and-play chess training with your choice of AI provider. Convert OpenAI, Claude, or Gemini model into chess-aware Chessbuddy and get personalized live chat training. Chesster integrates with Stockfish 17.1 engine, chess databases and to better align with position context, making LLMs chess aware.",
-
-  // Open Graph metadata (for Facebook, LinkedIn, Discord, etc.)
-  openGraph: {
-    title: "Chesster - AI-Powered Chess Training",
-    description: "Transform any AI model into your personal chessbuddy. Get live training with OpenAI, Claude, or Gemini integrated with Stockfish 17.1 engine.",
-    url: "https://chesster.io",
-    siteName: "Chesster",
-    images: [
-      {
-        url: "/static/images/chesster-logo-og.png", // Chess knight mascot logo (1024x1024px)
-        width: 1200,
-        height: 1200,
-        alt: "Chesster Logo",
-      },
-    ],
-    locale: "en_US",
-    type: "website",
-  },
-  
-  // Twitter Card metadata
-  twitter: {
-    card: "summary_large_image",
-    title: "Chesster - AI-Powered Chess Training",
-    description: "Transform any AI model into your personal chess coach. Get live training with OpenAI, Claude, or Gemini integrated with Stockfish 17.1.",
-    images: ["/static/images/chesster-logo-og.png"], // Chess knight mascot logo
-  },
-  
-  // Additional metadata
-  keywords: [
-    "chess training",
-    "AI chess coach",
-    "OpenAI chess",
-    "Claude chess",
-    "Gemini chess",
-    "Stockfish",
-    "chess engine",
-    "chess AI",
-    "chess tutor",
-    "chess learning",
-    "chessempire"
-  ],
-  
-
- 
-  // Robots
-  // robots: {
-  //   index: true,
-  //   follow: true,
-  //   googleBot: {
-  //     index: true,
-  //     follow: true,
-  //     'max-video-preview': -1,
-  //     'max-image-preview': 'large',
-  //     'max-snippet': -1,
-  //   },
-  // },
-  
-  // Additional Open Graph properties
-  other: {
-    // For better Discord embeds
-    'theme-color': '#8209a3ff', // Replace with your brand color
-  },
-};
 
 // Clerk localization strings per locale
 const clerkLocalizations: Record<string, Record<string, unknown>> = {
@@ -158,7 +92,10 @@ const clerkLocalizations: Record<string, Record<string, unknown>> = {
   },
 };
 
-async function fetchOrgData(orgId: string, orgSlug: string): Promise<Organization | null> {
+// Hoisted via React `cache()` so `generateMetadata()` and `RootLayout` share
+// one fetch per request — keeps the existing 300s revalidate cache while
+// avoiding a duplicate round-trip when both call `loadOrg()`.
+const fetchOrgData = cache(async (orgId: string, orgSlug: string): Promise<Organization | null> => {
   try {
     const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
     const res = await fetch(`${backendUrl}/api/admin/organizations/by-slug/${orgSlug}`, {
@@ -176,6 +113,7 @@ async function fetchOrgData(orgId: string, orgSlug: string): Promise<Organizatio
       primaryColor: data.primary_color || '#1a73e8',
       secondaryColor: data.secondary_color || '#ffffff',
       accentColor: data.accent_color || '#ffd700',
+      customCss: data.custom_css || null,
       landingPageConfig: data.landing_page_config || {},
       contactEmail: data.contact_email || null,
       status: data.status || 'active',
@@ -183,6 +121,18 @@ async function fetchOrgData(orgId: string, orgSlug: string): Promise<Organizatio
   } catch {
     return null;
   }
+});
+
+const loadOrgFromHeaders = cache(async (): Promise<Organization | null> => {
+  const headersList = await headers();
+  const orgInfo = parseOrgFromHeaders(headersList);
+  if (!orgInfo) return null;
+  return fetchOrgData(orgInfo.orgId, orgInfo.orgSlug);
+});
+
+export async function generateMetadata(): Promise<Metadata> {
+  const org = await loadOrgFromHeaders();
+  return buildMetadata(org);
 }
 
 export default async function RootLayout({
@@ -194,13 +144,7 @@ export default async function RootLayout({
   const messages = await getMessages();
   const clerkLocalization = clerkLocalizations[locale] || clerkLocalizations.en;
 
-  // Read org headers injected by middleware
-  const headersList = await headers();
-  const orgInfo = parseOrgFromHeaders(headersList);
-  let org: Organization | null = null;
-  if (orgInfo) {
-    org = await fetchOrgData(orgInfo.orgId, orgInfo.orgSlug);
-  }
+  const org = await loadOrgFromHeaders();
 
   return (
     <ClerkProvider localization={clerkLocalization}>
@@ -216,6 +160,9 @@ export default async function RootLayout({
           {org?.faviconUrl && (
             <link rel="icon" href={org.faviconUrl} />
           )}
+          {org && org.customCss ? (
+            <style dangerouslySetInnerHTML={{ __html: org.customCss }} />
+          ) : null}
         </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
           <OrganizationProvider org={org}>

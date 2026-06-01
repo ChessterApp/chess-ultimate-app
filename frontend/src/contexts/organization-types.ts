@@ -7,6 +7,7 @@ export interface Organization {
   primaryColor: string;
   secondaryColor: string;
   accentColor: string;
+  customCss: string | null;
   landingPageConfig: Record<string, unknown>;
   contactEmail: string | null;
   status: string;

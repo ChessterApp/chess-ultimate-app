@@ -280,6 +280,59 @@ class TestUpdateSettings:
             )
             assert resp.status_code == 403
 
+    def test_update_favicon_url_accepted(self, client):
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            with patch('routes.admin._get_supabase') as mock_sb:
+                mock_sb.return_value.table = _make_table_dispatcher({
+                    'organizations': SAMPLE_ORG,
+                })
+                resp = client.put(
+                    f'/api/admin/organizations/{ORG_ID}/settings',
+                    json={'favicon_url': 'https://cdn.example.com/favicon.ico'},
+                    headers={'X-User-Id': ADMIN_USER_ID},
+                )
+                assert resp.status_code == 200
+
+    def test_update_custom_css_accepted_when_safe(self, client):
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            with patch('routes.admin._get_supabase') as mock_sb:
+                mock_sb.return_value.table = _make_table_dispatcher({
+                    'organizations': SAMPLE_ORG,
+                })
+                resp = client.put(
+                    f'/api/admin/organizations/{ORG_ID}/settings',
+                    json={'custom_css': ':root { --brand-radius: 12px; }'},
+                    headers={'X-User-Id': ADMIN_USER_ID},
+                )
+                assert resp.status_code == 200
+
+    def test_update_custom_css_rejects_style_breakout(self, client):
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            resp = client.put(
+                f'/api/admin/organizations/{ORG_ID}/settings',
+                json={'custom_css': 'body{}</style><script>alert(1)</script>'},
+                headers={'X-User-Id': ADMIN_USER_ID},
+            )
+            assert resp.status_code == 400
+
+    def test_update_custom_css_rejects_script_tag(self, client):
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            resp = client.put(
+                f'/api/admin/organizations/{ORG_ID}/settings',
+                json={'custom_css': 'body{} <SCRIPT> bad'},
+                headers={'X-User-Id': ADMIN_USER_ID},
+            )
+            assert resp.status_code == 400
+
+    def test_update_custom_css_rejects_javascript_protocol(self, client):
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            resp = client.put(
+                f'/api/admin/organizations/{ORG_ID}/settings',
+                json={'custom_css': '.x { background: url(javascript:alert(1)); }'},
+                headers={'X-User-Id': ADMIN_USER_ID},
+            )
+            assert resp.status_code == 400
+
 
 # ─── Content ─────────────────────────────────────────────────────────────────
 

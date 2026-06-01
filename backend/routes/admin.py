@@ -8,6 +8,7 @@ Endpoints for organization management:
   - POST /api/admin/organizations/:id/members/invite
   - DELETE /api/admin/organizations/:id/members/:userId
   - PUT /api/admin/organizations/:id/settings
+  - POST /api/admin/organizations/:id/branding/upload
   - GET /api/admin/organizations/:id/content
   - PUT /api/admin/organizations/:id/content
   - GET /api/admin/organizations/:id/stats
@@ -181,6 +182,33 @@ def remove_member(org_id: str, target_user_id: str):
 
 # --- Settings ---
 
+# Reject CSS that could break out of the <style> block or smuggle JS in.
+# Case-insensitive. Control chars (other than \t \n \r) also banned to keep
+# the injection point clean.
+_CSS_REJECT_PATTERNS = (
+    re.compile(r'</\s*style', re.IGNORECASE),
+    re.compile(r'<\s*script', re.IGNORECASE),
+    re.compile(r'javascript\s*:', re.IGNORECASE),
+)
+_CSS_CONTROL_CHAR_RE = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f]')
+
+
+def _validate_custom_css(css: str) -> str | None:
+    """Return None if `css` is safe to inject, otherwise an error message."""
+    if css is None or css == '':
+        return None
+    if not isinstance(css, str):
+        return 'custom_css must be a string'
+    if len(css) > 50_000:
+        return 'custom_css exceeds 50000 characters'
+    for pat in _CSS_REJECT_PATTERNS:
+        if pat.search(css):
+            return 'custom_css contains forbidden content'
+    if _CSS_CONTROL_CHAR_RE.search(css):
+        return 'custom_css contains forbidden control characters'
+    return None
+
+
 @admin_bp.route('/organizations/<org_id>/settings', methods=['PUT'])
 def update_settings(org_id: str):
     """Update organization branding/settings."""
@@ -202,11 +230,94 @@ def update_settings(org_id: str):
     if not update_data:
         return jsonify({'error': 'No valid fields to update'}), 400
 
+    if 'custom_css' in update_data:
+        css_err = _validate_custom_css(update_data['custom_css'])
+        if css_err:
+            return jsonify({'error': css_err}), 400
+
     supabase = _get_supabase()
     supabase.table('organizations').update(update_data).eq('id', org_id).execute()
 
     logger.info(f'Organization settings updated: org={org_id} fields={list(update_data.keys())}')
     return jsonify({'status': 'updated'})
+
+
+# --- Branding asset upload ---
+
+_BRANDING_BUCKET = 'org-branding'
+_BRANDING_ALLOWED_MIME = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg',
+    'image/x-icon': 'ico',
+    'image/vnd.microsoft.icon': 'ico',
+}
+_BRANDING_MAX_BYTES = 1 * 1024 * 1024  # 1 MiB
+_BRANDING_KINDS = {'logo', 'favicon'}
+
+
+@admin_bp.route('/organizations/<org_id>/branding/upload', methods=['POST'])
+def upload_branding_asset(org_id: str):
+    """Upload a logo or favicon to the `org-branding` Supabase Storage bucket.
+
+    Body: multipart/form-data with:
+      * file — the image bytes
+      * kind — 'logo' or 'favicon'
+
+    Validates membership (owner/admin), MIME type, and size ≤1 MiB.
+    Returns { url: <public_url> } on success.
+    """
+    error = _require_admin(org_id)
+    if error:
+        return error
+
+    kind = (request.form.get('kind') or '').strip().lower()
+    if kind not in _BRANDING_KINDS:
+        return jsonify({'error': 'kind must be logo or favicon'}), 400
+
+    upload = request.files.get('file')
+    if upload is None or upload.filename == '':
+        return jsonify({'error': 'file is required'}), 400
+
+    mime = (upload.mimetype or '').lower()
+    if mime not in _BRANDING_ALLOWED_MIME:
+        return jsonify({
+            'error': f'Unsupported MIME type: {mime or "unknown"}',
+        }), 415
+
+    payload = upload.read()
+    if len(payload) > _BRANDING_MAX_BYTES:
+        return jsonify({'error': 'File exceeds 1 MiB limit'}), 413
+    if not payload:
+        return jsonify({'error': 'Empty file'}), 400
+
+    ext = _BRANDING_ALLOWED_MIME[mime]
+    object_key = f'{org_id}/{kind}.{ext}'
+
+    supabase = _get_supabase()
+    bucket = supabase.storage.from_(_BRANDING_BUCKET)
+    try:
+        bucket.upload(
+            path=object_key,
+            file=payload,
+            file_options={
+                'content-type': mime,
+                'upsert': 'true',
+                'cache-control': '3600',
+            },
+        )
+    except Exception as e:  # noqa: BLE001 — surface storage errors as 502
+        logger.exception(f'Branding upload failed: org={org_id} kind={kind}: {e}')
+        return jsonify({'error': 'Upload failed', 'detail': str(e)}), 502
+
+    public_url = bucket.get_public_url(object_key)
+    # supabase-py historically appends a trailing `?`; strip it for cleanliness.
+    if isinstance(public_url, str):
+        public_url = public_url.rstrip('?')
+
+    logger.info(f'Branding asset uploaded: org={org_id} kind={kind} key={object_key}')
+    return jsonify({'url': public_url, 'key': object_key, 'kind': kind}), 201
 
 
 # --- Content (Courses) ---

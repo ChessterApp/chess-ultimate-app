@@ -19,6 +19,7 @@ const DEFAULT_BRANDING: Organization = {
   primaryColor: '#1a73e8',
   secondaryColor: '#ffffff',
   accentColor: '#ffd700',
+  customCss: null,
   landingPageConfig: {},
   contactEmail: null,
   status: 'active',
