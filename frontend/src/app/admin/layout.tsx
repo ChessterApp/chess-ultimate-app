@@ -23,13 +23,29 @@ async function getUserOrgRole(userId: string, orgId: string): Promise<MemberRole
   }
 }
 
+const APEX_HOST = 'chesster.io';
+
+function isApexHost(host: string): boolean {
+  const bare = host.split(':')[0];
+  return bare === APEX_HOST || bare === `www.${APEX_HOST}` || bare === 'localhost' || bare === '127.0.0.1';
+}
+
 export default async function AdminLayout({ children }: { children: ReactNode }) {
+  const headersList = await headers();
+  const host = headersList.get('host') || APEX_HOST;
+  const pathname = headersList.get('x-pathname') || '/admin';
+
   const { userId } = await auth();
   if (!userId) {
-    redirect('/sign-in');
+    if (isApexHost(host)) {
+      redirect('/sign-in');
+    }
+    // Subdomain: Clerk's sign-in is only registered on the apex, so send the
+    // user there and bounce back to the originating tenant URL post-auth.
+    const returnUrl = `https://${host}${pathname}`;
+    redirect(`https://${APEX_HOST}/sign-in?redirect_url=${encodeURIComponent(returnUrl)}`);
   }
 
-  const headersList = await headers();
   const orgId = headersList.get('x-org-id');
 
   if (!orgId) {

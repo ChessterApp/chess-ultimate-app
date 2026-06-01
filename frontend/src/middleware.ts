@@ -30,6 +30,14 @@ const clerk = clerkMiddleware(async (auth, request) => {
   }
 })
 
+// Subdomain variant: still runs clerkMiddleware so `auth()` works in
+// server components, but never calls auth.protect() — the per-page layout
+// (e.g. src/app/admin/layout.tsx) handles unauthenticated redirects and
+// sends them to the apex sign-in.
+const clerkPassThrough = clerkMiddleware(async () => {
+  // no-op: populates auth context, enforces nothing
+})
+
 function clearClerkCookies(request: NextRequest, redirectPath: string) {
   const url = new URL(redirectPath, request.url)
   const response = NextResponse.redirect(url)
@@ -46,7 +54,7 @@ function clearClerkCookies(request: NextRequest, redirectPath: string) {
  * e.g. "almatychess.chesster.io" -> "almatychess"
  * Returns null for main domain (chesster.io, www.chesster.io, localhost).
  */
-function extractOrgSlug(request: NextRequest): string | null {
+export function extractOrgSlug(request: NextRequest): string | null {
   const host = request.headers.get('host') || ''
 
   // Dev mode: use ?org=slug query param
@@ -70,7 +78,7 @@ function extractOrgSlug(request: NextRequest): string | null {
  * True when the request is on the apex domain (chesster.io / www.chesster.io)
  * or in localhost dev. Subdomains like school.chesster.io return false.
  */
-function isApexHost(request: NextRequest): boolean {
+export function isApexHost(request: NextRequest): boolean {
   const host = (request.headers.get('host') || '').split(':')[0]
   if (host === 'chesster.io' || host === 'www.chesster.io') return true
   if (host === 'localhost' || host === '127.0.0.1' || host.startsWith('localhost')) return true
@@ -114,8 +122,20 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     return NextResponse.redirect(apexUrl, 308)
   }
 
+  // Tenant subdomain branch: skip auth.protect() so unauthenticated requests
+  // are not rejected at the edge — the page-level layout decides whether to
+  // redirect to the apex sign-in. clerkMiddleware still runs so `auth()` in
+  // server components has a populated request context.
+  const clerkFn = orgSlug ? clerkPassThrough : clerk
+
+  // Forward the original pathname to server components so the admin layout
+  // can build a redirect_url back to the originating tenant URL post sign-in.
+  if (orgSlug) {
+    request.headers.set('x-pathname', request.nextUrl.pathname)
+  }
+
   try {
-    const response = await clerk(request, event)
+    const response = await clerkFn(request, event)
     // If Clerk returned a 500 (e.g., kid mismatch during handshake), clear cookies
     if (response && response.status >= 500) {
       return clearClerkCookies(request, request.nextUrl.pathname)
@@ -123,7 +143,6 @@ export default async function middleware(request: NextRequest, event: NextFetchE
 
     const res = response ?? NextResponse.next()
 
-    // Inject org headers if subdomain detected
     if (orgSlug) {
       const org = await lookupOrg(orgSlug)
       if (org) {
