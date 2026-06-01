@@ -87,6 +87,7 @@ export function isApexHost(request: NextRequest): boolean {
 
 // In-memory cache for org lookups (TTL: 5 minutes)
 const orgCache = new Map<string, { data: Record<string, string>; expiry: number }>()
+const customDomainCache = new Map<string, { data: Record<string, string> | null; expiry: number }>()
 const ORG_CACHE_TTL = 5 * 60 * 1000
 
 async function lookupOrg(slug: string): Promise<{ id: string; slug: string } | null> {
@@ -110,27 +111,74 @@ async function lookupOrg(slug: string): Promise<{ id: string; slug: string } | n
   }
 }
 
+async function lookupOrgByCustomDomain(host: string): Promise<{ id: string; slug: string } | null> {
+  const now = Date.now()
+  const cached = customDomainCache.get(host)
+  if (cached && cached.expiry > now) {
+    return cached.data as unknown as { id: string; slug: string } | null
+  }
+
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001'
+    const res = await fetch(
+      `${backendUrl}/api/admin/organizations/by-custom-domain/${encodeURIComponent(host)}`,
+      { signal: AbortSignal.timeout(3000) },
+    )
+    if (!res.ok) {
+      // Cache negative lookups too — avoids hammering the backend with 404s
+      // from spam hosts. TTL keeps a recovery window short.
+      customDomainCache.set(host, { data: null, expiry: now + ORG_CACHE_TTL })
+      return null
+    }
+    const data = await res.json()
+    customDomainCache.set(host, { data, expiry: now + ORG_CACHE_TTL })
+    return data
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolve the org behind a request. Order: apex → subdomain → custom domain.
+ * Returns null for the apex (chesster.io / www) where no org is implied.
+ */
+export async function resolveOrg(
+  request: NextRequest,
+): Promise<{ id: string; slug: string } | null> {
+  if (isApexHost(request)) return null
+  const slug = extractOrgSlug(request)
+  if (slug) return lookupOrg(slug)
+  const host = (request.headers.get('host') || '').split(':')[0].toLowerCase()
+  if (!host) return null
+  return lookupOrgByCustomDomain(host)
+}
+
 export default async function middleware(request: NextRequest, event: NextFetchEvent) {
   // Extract org slug from subdomain
   const orgSlug = extractOrgSlug(request)
+  const host = (request.headers.get('host') || '').split(':')[0].toLowerCase()
+  // A custom-domain request: not the apex, no subdomain match → resolve by host.
+  const isCustomDomain = !isApexHost(request) && !orgSlug && !!host
 
   // Phase 7A: gate /super-admin/* on apex host only.
-  // A subdomain (school.chesster.io) seeing /super-admin must be redirected
-  // to the apex equivalent — the route is not exposed on partner subdomains.
+  // A subdomain (school.chesster.io) or custom domain seeing /super-admin must
+  // be redirected to the apex equivalent — the route is not exposed on partner
+  // hosts.
   if (isSuperAdminRoute(request) && !isApexHost(request)) {
     const apexUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, 'https://chesster.io')
     return NextResponse.redirect(apexUrl, 308)
   }
 
-  // Tenant subdomain branch: skip auth.protect() so unauthenticated requests
-  // are not rejected at the edge — the page-level layout decides whether to
-  // redirect to the apex sign-in. clerkMiddleware still runs so `auth()` in
+  // Tenant subdomain / custom-domain branch: skip auth.protect() so unauthenticated
+  // requests are not rejected at the edge — the page-level layout decides whether
+  // to redirect to the apex sign-in. clerkMiddleware still runs so `auth()` in
   // server components has a populated request context.
-  const clerkFn = orgSlug ? clerkPassThrough : clerk
+  const isTenantHost = !!orgSlug || isCustomDomain
+  const clerkFn = isTenantHost ? clerkPassThrough : clerk
 
   // Forward the original pathname to server components so the admin layout
   // can build a redirect_url back to the originating tenant URL post sign-in.
-  if (orgSlug) {
+  if (isTenantHost) {
     request.headers.set('x-pathname', request.nextUrl.pathname)
   }
 
@@ -145,6 +193,12 @@ export default async function middleware(request: NextRequest, event: NextFetchE
 
     if (orgSlug) {
       const org = await lookupOrg(orgSlug)
+      if (org) {
+        res.headers.set('x-org-id', org.id)
+        res.headers.set('x-org-slug', org.slug)
+      }
+    } else if (isCustomDomain) {
+      const org = await lookupOrgByCustomDomain(host)
       if (org) {
         res.headers.set('x-org-id', org.id)
         res.headers.set('x-org-slug', org.slug)

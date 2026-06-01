@@ -163,6 +163,63 @@ Subdomain DNS / SSL doesn't need teardown — Vercel garbage-collects unused per
 
 ## Open follow-ups (from ADR-0005)
 
-- Custom-domain onboarding flow (Vercel Domains API + `organizations.custom_domain` column) — write when the first school asks
 - Automated cert-warmup (replace manual step 3 with a script triggered on org INSERT)
 - RLS cross-org fuzzer in CI before school #3 — already has a placeholder Ralph job referenced in the recap; revisit before scaling onboarding
+
+## Appendix — Upgrade to a custom domain (paid)
+
+When a school asks to move from `<slug>.chesster.io` to their own host
+(e.g. `chess.schoolname.com`), the entire flow is admin-self-serve. See
+`docs/prd/custom-domain-flow.md` for the implementation details.
+
+### Prerequisites
+
+- The org row exists (this runbook's main flow has been completed).
+- The school's owner can edit DNS at their registrar.
+- `VERCEL_TOKEN`, `VERCEL_PROJECT_ID`, `VERCEL_TEAM_ID`, and
+  `VERCEL_WEBHOOK_SECRET` are populated in the backend `.env`.
+
+### Walkthrough for the school owner
+
+1. Owner signs in at `<slug>.chesster.io`, navigates to **Admin → Settings →
+   Custom Domain**.
+2. They enter the domain (lowercase, no `https://`, no trailing dot) and
+   submit. The backend calls `POST /v10/projects/.../domains` on Vercel and
+   stores `organizations.custom_domain_status = 'pending'`.
+3. The page shows the Vercel-returned DNS records (CNAME or A + TXT). Owner
+   copies these into their registrar.
+4. Once DNS has propagated, owner clicks **"I added the records — verify
+   now"**. The backend calls Vercel's verify endpoint; on success the row
+   flips to `active` and the page goes green.
+5. From this point both `<slug>.chesster.io` *and* the custom host serve the
+   tenant. Vercel issues the Let's Encrypt cert on first HTTPS hit
+   (same ~3–10 min cold-start as the subdomain path; the verify-success
+   poll typically masks the wait).
+
+### Operator checks
+
+```bash
+# Confirm the row was updated
+curl -s \
+  -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  "https://qtzujwiqzbgyhdgulvcd.supabase.co/rest/v1/organizations?id=eq.<org-uuid>&select=custom_domain,custom_domain_status,custom_domain_verified_at" | jq
+
+# Confirm middleware now resolves the custom host to the org
+curl -s -H "host: chess.schoolname.com" https://chesster.io/api/admin/organizations/by-custom-domain/chess.schoolname.com | jq
+```
+
+### Webhook reception
+
+Vercel posts `domain.verified`, `domain.cert.issued`, and `domain.cert.failed`
+events to `https://api.chesster.io/api/webhooks/vercel`. Signature
+verification uses HMAC-SHA1 with `VERCEL_WEBHOOK_SECRET`. If the school's
+domain is stuck on `pending`, check the backend logs for failed signature
+verifications first — that's the usual cause of webhooks being dropped.
+
+### Removing a custom domain
+
+The owner can remove it from the same page (confirms via modal). The backend
+calls `DELETE /v9/projects/.../domains/<domain>` on Vercel and nulls the
+four custom-domain columns. The school falls back to its `<slug>.chesster.io`
+URL automatically.

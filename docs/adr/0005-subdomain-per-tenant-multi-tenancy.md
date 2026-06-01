@@ -57,7 +57,7 @@ DNS today: `chesster.io` lives on Hostinger; Vercel hosts the frontend; Vercel c
   - The PRD's original `certbot + Nginx + Cloudflare` runbook is now stale and was amended in-place to point at Vercel instead.
 - **Follow-ups:**
   - Build the **RLS test suite / cross-org fuzzer** before the third paying school. Single highest-leverage safety item.
-  - Document the **custom-domain onboarding flow** (Vercel Domains API call + `organizations.custom_domain` update + verification) when the first school requests it.
+  - ~~Document the custom-domain onboarding flow (Vercel Domains API call + `organizations.custom_domain` update + verification) when the first school requests it.~~ — **Done:** see [PRD `docs/prd/custom-domain-flow.md`](../prd/custom-domain-flow.md) and the upgrade appendix in [`docs/runbooks/onboard-school.md`](../runbooks/onboard-school.md). Migration `20260601_009_org_custom_domain.sql` adds the columns, `backend/services/vercel_client.py` wraps the Domains API, and the admin UI lives at `frontend/src/app/admin/settings/domain/page.tsx`.
   - Add a **cert-warmup step** to org creation so the school never sees the cold-start delay.
   - If we ever migrate DNS off Hostinger, this ADR is the place to revisit DNS-01 wildcard issuance.
 

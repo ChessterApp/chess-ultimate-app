@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 webhooks_bp = Blueprint('webhooks', __name__, url_prefix='/api/webhooks')
 
 CLERK_WEBHOOK_SECRET = os.getenv('CLERK_WEBHOOK_SECRET', '')
+VERCEL_WEBHOOK_SECRET = os.getenv('VERCEL_WEBHOOK_SECRET', '')
 
 
 def _get_supabase():
@@ -291,3 +292,130 @@ def _handle_member_deleted(data: dict):
     ).eq('user_id', user_id).execute()
 
     logger.info(f'Member removed: user={user_id} org={slug}')
+
+
+# =====================================================================
+# Vercel webhook — domain events (custom-domain flow, PRD §4)
+# =====================================================================
+#
+# Vercel signs webhook bodies with HMAC-SHA1 over the raw body using the
+# project's webhook secret, and includes the unix timestamp in a separate
+# header. We reject requests older than 5 minutes to prevent replay.
+
+VERCEL_TIMESTAMP_TOLERANCE_SEC = 300
+
+
+def verify_vercel_signature(payload: bytes, headers: dict) -> bool:
+    """Verify a Vercel webhook signature.
+
+    Vercel sends `x-vercel-signature` (HMAC-SHA1 hexdigest of the raw body
+    using the project secret) and `x-vercel-signature-timestamp` (unix ms or
+    seconds — we accept either by clamping the absolute delta).
+    """
+    if not VERCEL_WEBHOOK_SECRET:
+        logger.warning('VERCEL_WEBHOOK_SECRET not set — refusing webhook')
+        return False
+
+    signature = headers.get('x-vercel-signature', '')
+    ts_raw = headers.get('x-vercel-signature-timestamp', '')
+    if not signature or not ts_raw:
+        logger.error('Missing Vercel signature headers')
+        return False
+
+    try:
+        ts = int(ts_raw)
+    except ValueError:
+        logger.error('Invalid Vercel timestamp')
+        return False
+    # Accept both seconds and milliseconds.
+    now = time.time()
+    if ts > 1e12:
+        ts = ts / 1000.0
+    if abs(now - ts) > VERCEL_TIMESTAMP_TOLERANCE_SEC:
+        logger.error(f'Vercel webhook timestamp out of tolerance: dt={now - ts:.0f}s')
+        return False
+
+    expected = hmac.new(
+        VERCEL_WEBHOOK_SECRET.encode(), payload, hashlib.sha1,
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        logger.error('Vercel signature verification failed')
+        return False
+    return True
+
+
+@webhooks_bp.route('/vercel', methods=['POST'])
+def vercel_webhook():
+    """Receive Vercel domain-lifecycle events and sync to organizations."""
+    payload = request.get_data()
+    headers = {
+        'x-vercel-signature': request.headers.get('x-vercel-signature', ''),
+        'x-vercel-signature-timestamp': request.headers.get('x-vercel-signature-timestamp', ''),
+    }
+    if not verify_vercel_signature(payload, headers):
+        return jsonify({'error': 'Invalid signature'}), 401
+
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError:
+        return jsonify({'error': 'Invalid JSON'}), 400
+
+    event_type = event.get('type', '')
+    payload_data = event.get('payload') or event.get('data') or {}
+    domain = _extract_vercel_domain(payload_data)
+    logger.info(f'Vercel webhook received: type={event_type} domain={domain}')
+
+    try:
+        if event_type in ('domain.created',):
+            pass  # Already inserted via REST when admin added the domain.
+        elif event_type in ('domain.verified', 'domain.cert.issued'):
+            _vercel_set_status(domain, 'active', verified=True)
+        elif event_type == 'domain.cert.failed':
+            _vercel_set_status(domain, 'failed', verified=False, payload=payload_data)
+        else:
+            logger.info(f'Ignoring Vercel event type: {event_type}')
+    except Exception as e:
+        logger.error(f'Error handling Vercel webhook {event_type}: {e}', exc_info=True)
+        return jsonify({'error': 'Internal error'}), 500
+
+    return jsonify({'status': 'ok'}), 200
+
+
+def _extract_vercel_domain(payload_data: dict) -> str | None:
+    """Vercel nests the domain under varied keys depending on event shape."""
+    if not payload_data:
+        return None
+    if isinstance(payload_data, dict):
+        # domain.* events use {"domain": {"name": "..."}} or {"name": "..."}
+        domain_field = payload_data.get('domain')
+        if isinstance(domain_field, dict):
+            name = domain_field.get('name')
+            if name:
+                return str(name).strip().lower().rstrip('.')
+        if isinstance(domain_field, str) and domain_field:
+            return domain_field.strip().lower().rstrip('.')
+        name = payload_data.get('name')
+        if isinstance(name, str) and name:
+            return name.strip().lower().rstrip('.')
+    return None
+
+
+def _vercel_set_status(domain: str | None, status: str, verified: bool,
+                       payload: dict | None = None) -> None:
+    """Update the org row matching this domain. Idempotent — re-emitting the
+    same event for the same domain leaves the row in the same state."""
+    if not domain:
+        logger.warning('Vercel webhook missing domain name; skipping update')
+        return
+
+    supabase = _get_supabase()
+    update: dict = {'custom_domain_status': status}
+    if verified:
+        from datetime import datetime, timezone
+        update['custom_domain_verified_at'] = datetime.now(timezone.utc).isoformat()
+    elif status == 'failed' and payload is not None:
+        # Log the failure payload for ops triage; no schema column for it.
+        logger.warning(f'Vercel domain.cert.failed for {domain}: {payload}')
+
+    supabase.table('organizations').update(update).eq('custom_domain', domain).execute()
+    logger.info(f'Vercel webhook applied: domain={domain} status={status}')
