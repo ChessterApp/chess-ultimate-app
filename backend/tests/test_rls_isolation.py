@@ -463,59 +463,15 @@ def _affected_rows(conn, sql: str, params: tuple) -> int:
 @pytest.mark.parametrize(
     "table",
     [
-        pytest.param(
-            "organization_members",
-            marks=pytest.mark.xfail(
-                reason="Known RLS bug: organization_members policy recurses "
-                "into itself. Tracked in RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
+        "organization_members",
         "organization_content",
         "organization_billing",
-        pytest.param(
-            "player_ratings",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournaments",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_registrations",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_games",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_standings",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "rating_history",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled and no org_id column — "
-                "see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
+        "player_ratings",
+        "tournaments",
+        "tournament_registrations",
+        "tournament_games",
+        "tournament_standings",
+        "rating_history",
         "user_progress",
         "lesson_chat_history",
         "user_games",
@@ -534,13 +490,7 @@ def test_authed_user_cannot_select_cross_org_row(tenants, table):
 @pytest.mark.parametrize(
     "table",
     [
-        pytest.param(
-            "organization_members",
-            marks=pytest.mark.xfail(
-                reason="Known RLS bug: organization_members policy recurses.",
-                strict=False,
-            ),
-        ),
+        "organization_members",
         "organization_content",
         "organization_billing",
         "user_progress",
@@ -564,13 +514,7 @@ def test_authed_user_cannot_update_cross_org_row(tenants, table):
 @pytest.mark.parametrize(
     "table",
     [
-        pytest.param(
-            "organization_members",
-            marks=pytest.mark.xfail(
-                reason="Known RLS bug: organization_members policy recurses.",
-                strict=False,
-            ),
-        ),
+        "organization_members",
         "organization_content",
         "organization_billing",
         "user_progress",
@@ -602,48 +546,12 @@ def test_authed_user_cannot_delete_cross_org_row(tenants, table):
         "organization_members",
         "organization_content",
         "organization_billing",
-        pytest.param(
-            "player_ratings",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "rating_history",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournaments",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_registrations",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_games",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_standings",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
+        "player_ratings",
+        "rating_history",
+        "tournaments",
+        "tournament_registrations",
+        "tournament_games",
+        "tournament_standings",
         "user_progress",
         "lesson_chat_history",
         "user_games",
@@ -716,57 +624,15 @@ def test_service_role_sees_both_orgs(tenants, table):
 @pytest.mark.parametrize(
     "table",
     [
-        pytest.param(
-            "organization_members",
-            marks=pytest.mark.xfail(
-                reason="Known RLS bug: organization_members policy recurses.",
-                strict=False,
-            ),
-        ),
+        "organization_members",
         "organization_content",
         "organization_billing",
-        pytest.param(
-            "player_ratings",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournaments",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_registrations",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_games",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "tournament_standings",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
-        pytest.param(
-            "rating_history",
-            marks=pytest.mark.xfail(
-                reason="RLS not enabled — see RLS-FAILURES.md.",
-                strict=False,
-            ),
-        ),
+        "player_ratings",
+        "tournaments",
+        "tournament_registrations",
+        "tournament_games",
+        "tournament_standings",
+        "rating_history",
         "user_progress",
         "lesson_chat_history",
         "user_games",
@@ -782,4 +648,89 @@ def test_outsider_user_sees_no_scoped_rows(tenants, table):
         )
         assert not _row_visible(conn, table, b_row), (
             f"Non-member saw org-B row in {table} (id={b_row})"
+        )
+
+
+# ─── Tests: helper functions (clerk_uid, is_org_member) ─────────────────────
+
+
+def test_clerk_uid_returns_non_uuid_clerk_sub_as_text():
+    """clerk_uid() must return the JWT `sub` as text, not cast to uuid.
+
+    Real Clerk IDs look like `user_2abcDEF...` and are not valid UUIDs. If
+    clerk_uid() ever calls `::uuid` on the value, this will raise
+    `invalid input syntax for type uuid` — which is the production-token
+    failure mode described in RLS-FAILURES.md §3.
+    """
+    clerk_sub = "user_2abcDEFghi3456789"
+    with authed(clerk_sub) as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT public.clerk_uid()")
+        got = cur.fetchone()[0]
+        assert got == clerk_sub, (
+            f"clerk_uid() returned {got!r}, expected {clerk_sub!r} (as text)"
+        )
+
+
+def test_is_org_member_does_not_recurse(tenants):
+    """is_org_member must NOT trigger `infinite recursion detected in policy
+    for relation organization_members` (RLS-FAILURES.md §2).
+
+    Successful evaluation under the `authenticated` role — no
+    InvalidObjectDefinition raised — is the success signal."""
+    with authed(tenants["owner_a"]) as conn:
+        cur = conn.cursor()
+        try:
+            cur.execute(
+                "SELECT public.is_org_member(%s::uuid)",
+                (tenants["org_a_id"],),
+            )
+            got = cur.fetchone()[0]
+        except psycopg2.errors.InvalidObjectDefinition as e:  # noqa: F841
+            pytest.fail(
+                "is_org_member triggered InvalidObjectDefinition "
+                "(recursive policy not bypassed): {}".format(e)
+            )
+        assert got is True, (
+            "is_org_member(org_a) for owner_a should be true; got "
+            f"{got!r} — helper or policy misconfigured"
+        )
+
+
+def test_is_org_member_cross_org_returns_false(tenants):
+    """is_org_member(other_org) for owner_a must return false — the helper
+    must answer correctly, not just avoid recursion."""
+    with authed(tenants["owner_a"]) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT public.is_org_member(%s::uuid)",
+            (tenants["org_b_id"],),
+        )
+        assert cur.fetchone()[0] is False
+
+
+# ─── Tests: positive same-org visibility on newly-protected tables ──────────
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        "tournaments",
+        "tournament_registrations",
+        "tournament_games",
+        "tournament_standings",
+        "player_ratings",
+        "rating_history",
+    ],
+)
+def test_org_owner_sees_own_org_row(tenants, table):
+    """Owner of org-A must see org-A's row on each newly-protected table.
+
+    This is the positive counterpart to test_authed_user_cannot_select_cross_org_row.
+    Together they pin down the policy: same-org sees, cross-org blocked."""
+    org_a_row = tenants["rows"][table]["a"]
+    with authed(tenants["owner_a"]) as conn:
+        assert _row_visible(conn, table, org_a_row), (
+            f"Same-org owner of org-A could NOT see own row in {table} "
+            f"(id={org_a_row}) — policy too restrictive"
         )
