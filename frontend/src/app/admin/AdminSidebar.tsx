@@ -19,6 +19,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/admin/courses', label: 'Courses', icon: '📚', roles: ['owner', 'admin'] },
   { href: '/admin/settings', label: 'Settings', icon: '⚙️', roles: ['owner', 'admin'] },
   { href: '/admin/settings/domain', label: 'Custom Domain', icon: '🌐', roles: ['owner', 'admin'] },
+  { href: '/admin/settings/sender-domain', label: 'Sender Domain', icon: '✉️', roles: ['owner', 'admin'] },
   { href: '/admin/analytics', label: 'Analytics', icon: '📈', roles: ['owner', 'admin', 'teacher'] },
   { href: '/admin/billing', label: 'Billing', icon: '💳', roles: ['owner'] },
   { href: '/admin/tournaments', label: 'Tournaments', icon: '🏆', roles: ['owner', 'admin'] },

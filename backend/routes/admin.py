@@ -902,3 +902,198 @@ def remove_custom_domain(org_id: str):
 
     logger.info(f'Custom domain removed: org={org_id} domain={domain}')
     return jsonify({'status': 'removed', 'domain': domain}), 200
+
+
+# ─── Branded sender domain (PRD §11.2 #4 — Phase 2) ───────────────────────
+
+
+_PRO_TIERS = ('pro', 'enterprise')
+
+
+def _require_pro_tier(org_id: str):
+    """Return None when the org's tier is pro+, else a (json, 403) tuple."""
+    from services.tier_quota import get_org_plan
+    plan = get_org_plan(org_id)
+    if plan not in _PRO_TIERS:
+        return jsonify({
+            'error': 'tier_required',
+            'code': 'pro_only',
+            'plan': plan,
+            'required': list(_PRO_TIERS),
+        }), 403
+    return None
+
+
+def _get_resend_client():
+    """Lazy import + indirection so tests can patch the client cleanly."""
+    from services.resend_client import get_client
+    return get_client()
+
+
+def _resend_error_to_response(err):
+    from services.resend_client import ResendAPIError
+    if not isinstance(err, ResendAPIError):
+        return jsonify({'error': str(err)}), 500
+    status = err.status_code if 400 <= err.status_code < 600 else 502
+    return jsonify({'error': err.message, 'code': err.code}), status
+
+
+@admin_bp.route('/organizations/<org_id>/email-sender', methods=['POST'])
+def add_email_sender(org_id: str):
+    """Register a branded sender domain with Resend (Pro+ gated)."""
+    error = _require_admin(org_id)
+    if error:
+        return error
+    gate = _require_pro_tier(org_id)
+    if gate:
+        return gate
+
+    data = request.get_json(silent=True) or {}
+    domain = _normalize_domain(data.get('domain', ''))
+    validation_err = _validate_domain(domain)
+    if validation_err:
+        return jsonify({'error': validation_err}), 400
+
+    from services.resend_client import ResendAPIError, map_resend_status
+    try:
+        result = _get_resend_client().create_domain(domain)
+    except ResendAPIError as e:
+        return _resend_error_to_response(e)
+
+    resend_id = result.get('id') or domain
+    records = result.get('records') or []
+    status = map_resend_status(result.get('status'))
+
+    update = {
+        'email_sender_domain': domain,
+        'email_sender_status': status,
+        'email_sender_resend_id': resend_id,
+    }
+    if status == 'active':
+        update['email_sender_verified_at'] = datetime.now(timezone.utc).isoformat()
+
+    supabase = _get_supabase()
+    supabase.table('organizations').update(update).eq('id', org_id).execute()
+
+    return jsonify({
+        'domain': domain,
+        'status': status,
+        'resend_id': resend_id,
+        'records': records,
+    }), 201
+
+
+@admin_bp.route('/organizations/<org_id>/email-sender', methods=['GET'])
+def get_email_sender(org_id: str):
+    """Return current sender-domain state, refreshing status from Resend when possible."""
+    error = _require_admin(org_id)
+    if error:
+        return error
+    gate = _require_pro_tier(org_id)
+    if gate:
+        return gate
+
+    supabase = _get_supabase()
+    org = supabase.table('organizations').select(
+        'email_sender_domain,email_sender_status,email_sender_verified_at,email_sender_resend_id'
+    ).eq('id', org_id).single().execute()
+
+    if not org.data or not org.data.get('email_sender_domain'):
+        return jsonify({'domain': None, 'status': None}), 200
+
+    state = {
+        'domain': org.data['email_sender_domain'],
+        'status': org.data.get('email_sender_status'),
+        'verified_at': org.data.get('email_sender_verified_at'),
+        'resend_id': org.data.get('email_sender_resend_id'),
+    }
+
+    # Live refresh if Resend ID present and we're not already in a terminal state.
+    from services.resend_client import ResendAPIError, is_terminal, map_resend_status
+    if state['resend_id'] and not is_terminal(state['status']):
+        try:
+            live = _get_resend_client().get_domain(state['resend_id'])
+        except ResendAPIError as exc:
+            logger.warning('Resend get_domain failed for org=%s: %s', org_id, exc)
+            live = None
+        if live:
+            new_status = map_resend_status(live.get('status'))
+            state['records'] = live.get('records') or []
+            if new_status != state['status']:
+                state['status'] = new_status
+                update = {'email_sender_status': new_status}
+                if new_status == 'active':
+                    update['email_sender_verified_at'] = datetime.now(timezone.utc).isoformat()
+                    state['verified_at'] = update['email_sender_verified_at']
+                supabase.table('organizations').update(update).eq('id', org_id).execute()
+
+    return jsonify(state), 200
+
+
+@admin_bp.route('/organizations/<org_id>/email-sender/verify', methods=['POST'])
+def verify_email_sender(org_id: str):
+    """Trigger a verification check on the org's sender domain."""
+    error = _require_admin(org_id)
+    if error:
+        return error
+    gate = _require_pro_tier(org_id)
+    if gate:
+        return gate
+
+    supabase = _get_supabase()
+    org = supabase.table('organizations').select(
+        'email_sender_domain,email_sender_resend_id,email_sender_status',
+    ).eq('id', org_id).single().execute()
+    if not org.data or not org.data.get('email_sender_resend_id'):
+        return jsonify({'error': 'No sender domain registered'}), 404
+
+    resend_id = org.data['email_sender_resend_id']
+    from services.resend_client import ResendAPIError, map_resend_status
+    try:
+        result = _get_resend_client().verify_domain(resend_id)
+    except ResendAPIError as e:
+        return _resend_error_to_response(e)
+
+    new_status = map_resend_status(result.get('status'))
+    update = {'email_sender_status': new_status}
+    if new_status == 'active':
+        update['email_sender_verified_at'] = datetime.now(timezone.utc).isoformat()
+    supabase.table('organizations').update(update).eq('id', org_id).execute()
+
+    return jsonify({'status': new_status, 'records': result.get('records') or []}), 200
+
+
+@admin_bp.route('/organizations/<org_id>/email-sender', methods=['DELETE'])
+def remove_email_sender(org_id: str):
+    """Remove the org's sender domain (idempotent)."""
+    error = _require_admin(org_id)
+    if error:
+        return error
+    gate = _require_pro_tier(org_id)
+    if gate:
+        return gate
+
+    supabase = _get_supabase()
+    org = supabase.table('organizations').select(
+        'email_sender_domain,email_sender_resend_id',
+    ).eq('id', org_id).single().execute()
+    if not org.data or not org.data.get('email_sender_domain'):
+        return jsonify({'status': 'removed'}), 200
+
+    resend_id = org.data.get('email_sender_resend_id')
+    if resend_id:
+        from services.resend_client import ResendAPIError
+        try:
+            _get_resend_client().remove_domain(resend_id)
+        except ResendAPIError as exc:
+            if exc.status_code != 404:
+                logger.warning('Resend remove_domain failed for org=%s: %s', org_id, exc)
+
+    supabase.table('organizations').update({
+        'email_sender_domain': None,
+        'email_sender_status': None,
+        'email_sender_verified_at': None,
+        'email_sender_resend_id': None,
+    }).eq('id', org_id).execute()
+
+    return jsonify({'status': 'removed'}), 200

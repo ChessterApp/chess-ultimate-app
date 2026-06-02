@@ -73,6 +73,46 @@ class TestSendInviteEmail:
             assert ok is False
             mock_log.assert_called_once()
 
+    def test_uses_branded_sender_when_active(self, monkeypatch):
+        monkeypatch.setenv('RESEND_API_KEY', 're_test_xxx')
+        captured = {}
+
+        def fake_post(url, headers, body):
+            captured['body'] = body
+            return {}
+
+        branded_org = {
+            **ORG,
+            'email_sender_domain': 'mail.almaty.com',
+            'email_sender_status': 'active',
+        }
+        with patch('services.email._get_org', return_value=branded_org), \
+             patch('services.email._post_json', side_effect=fake_post):
+            email_svc.send_invite_email(
+                org_id='org-1', to_email='kid@x.com', role='student',
+            )
+            assert captured['body']['from'] == 'invites@mail.almaty.com'
+
+    def test_falls_back_to_default_sender_when_pending(self, monkeypatch):
+        monkeypatch.setenv('RESEND_API_KEY', 're_test_xxx')
+        captured = {}
+
+        def fake_post(url, headers, body):
+            captured['body'] = body
+            return {}
+
+        pending_org = {
+            **ORG,
+            'email_sender_domain': 'mail.almaty.com',
+            'email_sender_status': 'pending',
+        }
+        with patch('services.email._get_org', return_value=pending_org), \
+             patch('services.email._post_json', side_effect=fake_post):
+            email_svc.send_invite_email(
+                org_id='org-1', to_email='kid@x.com', role='student',
+            )
+            assert captured['body']['from'] == email_svc.DEFAULT_INVITE_FROM
+
     def test_invite_link_uses_tenant_subdomain(self, monkeypatch):
         monkeypatch.setenv('RESEND_API_KEY', 're_test_xxx')
         captured = {}

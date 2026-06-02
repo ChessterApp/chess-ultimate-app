@@ -39,7 +39,10 @@ def _get_org(org_id: str) -> dict[str, Any] | None:
         supabase = _get_supabase()
         res = (
             supabase.table('organizations')
-            .select('id, name, slug, logo_url, primary_color')
+            .select(
+                'id, name, slug, logo_url, primary_color, '
+                'email_sender_domain, email_sender_status'
+            )
             .eq('id', org_id)
             .single()
             .execute()
@@ -48,6 +51,21 @@ def _get_org(org_id: str) -> dict[str, Any] | None:
     except Exception as exc:
         logger.warning('email._get_org failed for org=%s: %s', org_id, exc)
         return None
+
+
+def resolve_from_address(org: dict[str, Any] | None) -> str:
+    """Pick the from-address for an outbound email.
+
+    If the org has an *active* branded sender domain, use
+    ``invites@<that-domain>``. Otherwise fall back to ``DEFAULT_INVITE_FROM``.
+    """
+    if not org:
+        return DEFAULT_INVITE_FROM
+    domain = (org.get('email_sender_domain') or '').strip().lower()
+    status = (org.get('email_sender_status') or '').lower()
+    if domain and status == 'active':
+        return f'invites@{domain}'
+    return DEFAULT_INVITE_FROM
 
 
 def _build_invite_link(org: dict[str, Any], to_email: str) -> str:
@@ -141,7 +159,7 @@ def send_invite_email(
     subject = f'You\'re invited to join {org.get("name", "Chesster")}'
 
     body = {
-        'from': DEFAULT_INVITE_FROM,
+        'from': resolve_from_address(org),
         'to': [to_email],
         'subject': subject,
         'html': _render_html(org, link, role),
