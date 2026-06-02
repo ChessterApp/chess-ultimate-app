@@ -13,8 +13,8 @@ export default function StepDone() {
   const invitedCount = (payload.invites || []).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center px-6 py-20">
-      <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-8 text-center">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white flex items-center justify-center px-4 sm:px-6 py-12 sm:py-20">
+      <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-8 text-center">
         <div className="text-4xl">🎉</div>
         <h1 className="mt-4 text-2xl font-bold">
           {payload.school_name || 'Your school'} is live.

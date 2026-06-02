@@ -9,8 +9,8 @@ export const metadata = {
 export default function ForSchoolsLanding() {
   return (
     <div className="min-h-screen bg-white text-gray-900">
-      <main className="max-w-4xl mx-auto px-6 py-20">
-        <h1 className="text-5xl font-bold tracking-tight">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-20">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight">
           Your school. Your brand. Live in 15 minutes.
         </h1>
         <p className="mt-6 text-lg text-gray-600 max-w-2xl">

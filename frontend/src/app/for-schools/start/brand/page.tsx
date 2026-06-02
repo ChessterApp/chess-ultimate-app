@@ -58,7 +58,7 @@ export default function StepBrand() {
           <legend className="text-sm font-medium text-gray-700">
             Brand palette
           </legend>
-          <div className="mt-2 grid grid-cols-3 gap-2">
+          <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
             {PRESET_PALETTES.map(p => {
               const selected = payload.primary_color === p.primary;
               return (

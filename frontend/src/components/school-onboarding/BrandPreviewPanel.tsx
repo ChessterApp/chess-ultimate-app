@@ -119,7 +119,7 @@ export function BrandPreviewPanel({ payload }: Props) {
                   {payload.full_name ? `Hi, ${payload.full_name}` : 'Hi, Coach'}
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {[1, 2, 3].map(i => (
                   <div
                     key={i}
@@ -133,7 +133,7 @@ export function BrandPreviewPanel({ payload }: Props) {
             </div>
           )}
           {tab === 'Courses' && (
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {[1, 2, 3, 4].map(i => (
                 <div
                   key={i}

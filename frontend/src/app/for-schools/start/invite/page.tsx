@@ -221,14 +221,14 @@ export default function StepInvite() {
             {rows.map((row, i) => (
               <li
                 key={`${row.email}-${i}`}
-                className="grid grid-cols-[1fr_120px_auto] gap-2 items-center"
+                className="grid grid-cols-[1fr_auto] sm:grid-cols-[minmax(0,1fr)_120px_auto] gap-2 items-center"
               >
                 <input
                   type="email"
                   value={row.email}
                   placeholder="student@example.com"
                   onChange={e => patchRow(i, { email: e.target.value })}
-                  className="rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                  className="col-span-2 sm:col-span-1 min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
                 />
                 <select
                   value={row.role}
@@ -246,7 +246,7 @@ export default function StepInvite() {
                 <button
                   type="button"
                   onClick={() => removeRow(i)}
-                  className="text-xs text-gray-500 hover:text-red-600"
+                  className="h-11 w-11 inline-flex items-center justify-center text-gray-500 hover:text-red-600"
                   aria-label={`Remove ${row.email}`}
                 >
                   ✕
@@ -280,10 +280,10 @@ export default function StepInvite() {
         {results.length > 0 && (
           <ul className="text-xs text-gray-700 space-y-0.5">
             {results.map(r => (
-              <li key={r.email} className="flex gap-2">
-                <span>{r.status === 'sent' ? '✓' : r.status === 'over_limit' ? '⏸' : '✗'}</span>
-                <span className="font-mono">{r.email}</span>
-                {r.reason && <span className="text-gray-400">— {r.reason}</span>}
+              <li key={r.email} className="flex gap-2 items-start">
+                <span className="shrink-0">{r.status === 'sent' ? '✓' : r.status === 'over_limit' ? '⏸' : '✗'}</span>
+                <span className="font-mono min-w-0 break-all">{r.email}</span>
+                {r.reason && <span className="text-gray-400 shrink-0">— {r.reason}</span>}
               </li>
             ))}
           </ul>

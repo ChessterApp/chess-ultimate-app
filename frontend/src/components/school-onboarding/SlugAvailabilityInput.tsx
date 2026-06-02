@@ -88,9 +88,9 @@ export function SlugAvailabilityInput({ value, onChange, onAvailabilityChange }:
           onChange={e => onChange(e.target.value.toLowerCase())}
           placeholder="almatychess"
           aria-label="Subdomain slug"
-          className="flex-1 px-3 py-2 text-sm outline-none"
+          className="flex-1 min-w-0 px-3 py-2 text-sm outline-none"
         />
-        <span className="bg-gray-50 border-l border-gray-200 px-3 py-2 text-sm text-gray-600 inline-flex items-center">
+        <span className="shrink-0 whitespace-nowrap bg-gray-50 border-l border-gray-200 px-3 py-2 text-sm text-gray-600 inline-flex items-center">
           .chesster.io
         </span>
       </div>

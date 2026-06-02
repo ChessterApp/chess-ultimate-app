@@ -94,7 +94,7 @@ export function LogoDropzone({ value, onChange, onPaletteExtracted }: LogoDropzo
               }}
               className="rounded bg-white border"
             />
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
               <label className="flex items-center gap-1">
                 Zoom
                 <input

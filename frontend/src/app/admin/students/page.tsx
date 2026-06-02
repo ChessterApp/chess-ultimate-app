@@ -104,13 +104,13 @@ export default function AdminStudentsPage() {
 
       {/* Invite form */}
       {showInvite && (
-        <form onSubmit={handleInvite} className="mb-6 flex gap-3">
+        <form onSubmit={handleInvite} className="mb-6 flex flex-col sm:flex-row gap-3">
           <input
             type="email"
             value={inviteEmail}
             onChange={e => setInviteEmail(e.target.value)}
             placeholder="Email address"
-            className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm"
+            className="flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm"
             required
           />
           <button

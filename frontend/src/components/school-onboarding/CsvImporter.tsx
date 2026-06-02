@@ -157,7 +157,7 @@ export function CsvImporter({
             <div className="text-xs font-medium text-gray-600 mb-1">
               Map columns
             </div>
-            <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
               {COLUMN_OPTIONS.map(opt => (
                 <label key={opt.value} className="flex flex-col">
                   <span className="text-gray-500">{opt.label}</span>
@@ -184,7 +184,7 @@ export function CsvImporter({
           </div>
 
           {mapped && cap && (
-            <div className="rounded border border-gray-200 bg-white max-h-48 overflow-y-auto">
+            <div className="rounded border border-gray-200 bg-white max-h-48 overflow-x-auto overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
@@ -241,7 +241,7 @@ export function CsvImporter({
             type="button"
             disabled={!cap || cap.to_import.length === 0 || submitting}
             onClick={handleImport}
-            className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:bg-gray-300"
+            className="rounded bg-blue-600 px-4 h-11 text-sm font-medium text-white disabled:bg-gray-300"
           >
             {submitting ? 'Importing…' : `Import ${cap?.to_import.length ?? 0} invites`}
           </button>

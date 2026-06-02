@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ReactNode } from 'react';
-import AdminSidebar from './AdminSidebar';
+import AdminShell from './AdminShell';
 
 type MemberRole = 'owner' | 'admin' | 'teacher' | 'student';
 const ADMIN_ROLES: MemberRole[] = ['owner', 'admin', 'teacher'];
@@ -57,12 +57,5 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect('/dashboard');
   }
 
-  return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-      <AdminSidebar currentRole={role} />
-      <main className="flex-1 min-w-0 p-6 md:p-8">
-        {children}
-      </main>
-    </div>
-  );
+  return <AdminShell role={role}>{children}</AdminShell>;
 }
