@@ -203,6 +203,158 @@ def invite_member(org_id: str):
     return jsonify({'status': 'invited', 'email': email}), 201
 
 
+_EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+
+
+@admin_bp.route('/organizations/<org_id>/invites/bulk', methods=['POST'])
+def invite_members_bulk(org_id: str):
+    """
+    Atomic bulk-invite endpoint (PRD §11.2 #7 — Phase 2).
+
+    Body shape::
+        {
+          "invites": [
+            {"email": "kid@x.com", "role": "student",
+             "first_name": "Kid", "last_name": "Doe"},
+            ...
+          ]
+        }
+
+    Behaviour:
+      - Tier-cap aware: if `invites` exceeds remaining seats, accept the
+        prefix that fits and reject the rest with reason ``tier_cap``.
+        Never returns 402 — always 200/201 with structured success/skipped.
+      - Email format validation rejects malformed addresses with
+        reason ``invalid_email``.
+      - Case-insensitive dedupe both within the payload and against
+        existing organization_members rows.
+      - The accepted prefix is inserted as a single ``upsert`` call so the
+        write is atomic from the caller's point of view.
+
+    Response::
+        {
+          "accepted": [{"email": ..., "role": ...}, ...],
+          "rejected": [{"email": ..., "reason": ..., "row": <index>}, ...],
+          "remaining_seats": int | null
+        }
+    """
+    error = _require_admin(org_id)
+    if error:
+        return error
+
+    data = request.get_json(silent=True) or {}
+    invites = data.get('invites')
+    if not isinstance(invites, list) or not invites:
+        return jsonify({'error': 'invites must be a non-empty list'}), 400
+    if len(invites) > 1000:
+        return jsonify({'error': 'bulk size capped at 1000'}), 400
+
+    from services.tier_quota import (
+        get_current_seat_count,
+        get_org_plan,
+        get_seat_limit,
+    )
+
+    plan = get_org_plan(org_id)
+    seat_cap = get_seat_limit(plan)
+    current = get_current_seat_count(org_id)
+    remaining = None if seat_cap is None else max(0, seat_cap - current)
+
+    supabase = _get_supabase()
+    # Existing emails for dedupe — invite rows store the email in the user_id
+    # placeholder column (`invite:<email>`).
+    try:
+        existing_rows = (
+            supabase.table('organization_members')
+            .select('user_id')
+            .eq('organization_id', org_id)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning('bulk invite existing-members fetch failed: %s', exc)
+        existing_rows = []
+    existing_emails = {
+        (r.get('user_id', '') or '').split(':', 1)[-1].lower()
+        for r in existing_rows
+        if (r.get('user_id') or '').startswith('invite:')
+    }
+
+    accepted: list[dict] = []
+    rejected: list[dict] = []
+    seen: set[str] = set()
+    inviter = request.headers.get('X-User-Id')
+
+    for idx, item in enumerate(invites):
+        email = (item.get('email') or '').strip()
+        role = item.get('role') or 'student'
+        if role not in ('student', 'teacher', 'admin'):
+            rejected.append({'row': idx, 'email': email, 'reason': 'invalid_role'})
+            continue
+        if not email or not _EMAIL_RE.match(email):
+            rejected.append({'row': idx, 'email': email, 'reason': 'invalid_email'})
+            continue
+        elow = email.lower()
+        if elow in seen:
+            rejected.append({'row': idx, 'email': email, 'reason': 'duplicate'})
+            continue
+        if elow in existing_emails:
+            rejected.append({'row': idx, 'email': email, 'reason': 'already_member'})
+            continue
+        if remaining is not None and len(accepted) >= remaining:
+            rejected.append({
+                'row': idx, 'email': email, 'reason': 'tier_cap',
+                'plan': plan, 'seat_cap': seat_cap,
+            })
+            continue
+        seen.add(elow)
+        accepted.append({
+            'email': email,
+            'role': role,
+            'first_name': (item.get('first_name') or '').strip() or None,
+            'last_name': (item.get('last_name') or '').strip() or None,
+        })
+
+    # Single atomic upsert for the accepted prefix.
+    if accepted:
+        rows = [
+            {
+                'organization_id': org_id,
+                'user_id': f'invite:{a["email"]}',
+                'role': a['role'],
+                'invited_by': inviter,
+            }
+            for a in accepted
+        ]
+        try:
+            supabase.table('organization_members').upsert(
+                rows, on_conflict='organization_id,user_id',
+            ).execute()
+        except Exception as exc:
+            logger.error('bulk-invite atomic upsert failed: %s', exc)
+            return jsonify({'error': 'bulk_insert_failed'}), 500
+
+        # Best-effort emails — never block the accepted response.
+        try:
+            from services.email import send_invite_email
+            for a in accepted:
+                try:
+                    send_invite_email(org_id=org_id, to_email=a['email'], role=a['role'])
+                except Exception as exc:  # pragma: no cover — defensive
+                    logger.warning('bulk invite email failed for %s: %s', a['email'], exc)
+        except Exception:
+            pass
+
+    return jsonify({
+        'accepted': accepted,
+        'rejected': rejected,
+        'remaining_seats': None if remaining is None else max(0, remaining - len(accepted)),
+        'plan': plan,
+        'seat_cap': seat_cap,
+    }), 200 if not accepted else 201
+
+
 def _maybe_sync_membership_to_clerk(org_id: str, user_id: str, role: str) -> None:
     """Best-effort Clerk membership create. No-op for placeholder rows or
     when the org has no clerk_org_id yet."""

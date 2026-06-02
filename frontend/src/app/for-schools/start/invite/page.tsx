@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
 import { useWizard } from '@/components/school-onboarding/WizardState';
+import { CsvImporter } from '@/components/school-onboarding/CsvImporter';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
 interface InviteRow {
   email: string;
@@ -33,6 +35,55 @@ export default function StepInvite() {
   const [sending, setSending] = useState(false);
   const [results, setResults] = useState<SendResult[]>([]);
   const [tierError, setTierError] = useState<string | null>(null);
+  const [csvImporting, setCsvImporting] = useState(false);
+
+  async function importCsvBatch(
+    accepted: Array<{ email: string; first_name?: string; last_name?: string }>,
+  ) {
+    if (!payload.organization_id || accepted.length === 0) return;
+    setCsvImporting(true);
+    try {
+      const res = await fetch(
+        `/api/admin/organizations/${payload.organization_id}/invites/bulk`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invites: accepted.map(r => ({
+              email: r.email,
+              first_name: r.first_name,
+              last_name: r.last_name,
+              role: 'student',
+            })),
+          }),
+        },
+      );
+      const body = await res.json().catch(() => ({}));
+      const out: SendResult[] = [];
+      for (const a of body.accepted || []) {
+        out.push({ email: a.email, status: 'sent' });
+      }
+      for (const r of body.rejected || []) {
+        out.push({
+          email: r.email,
+          status: r.reason === 'tier_cap' ? 'over_limit' : 'failed',
+          reason: r.reason,
+        });
+      }
+      setResults(prev => [...prev, ...out]);
+      track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_CSV_IMPORTED, {
+        accepted: out.filter(o => o.status === 'sent').length,
+        rejected: out.filter(o => o.status !== 'sent').length,
+      });
+      if ((body.rejected || []).some((r: { reason?: string }) => r.reason === 'tier_cap')) {
+        setTierError(
+          `Seat limit reached on your ${body.plan ?? ''} plan. Upgrade to invite all rows.`,
+        );
+      }
+    } finally {
+      setCsvImporting(false);
+    }
+  }
 
   function appendFromBulk() {
     const parsed = parseList(bulkText);
@@ -126,6 +177,13 @@ export default function StepInvite() {
       canAdvance={results.some(r => r.status === 'sent')}
     >
       <div className="flex flex-col gap-4">
+        <CsvImporter
+          remainingSeats={null}
+          existingEmails={rows.map(r => r.email).filter(Boolean)}
+          onSubmit={importCsvBatch}
+          submitting={csvImporting}
+        />
+
         <div>
           <label className="text-sm font-medium text-gray-700">
             Paste a list of emails
