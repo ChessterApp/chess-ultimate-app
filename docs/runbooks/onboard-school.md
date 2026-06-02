@@ -57,6 +57,10 @@ Copy the returned `id` (UUID) — you need it for the owner membership in step 4
 
 Defaults that fire automatically: `created_at`, `updated_at`, branding colours (override if the school sent a palette).
 
+## Step 2.5 — Verify Clerk sync
+
+After the org row is inserted, the backend automatically creates a corresponding Clerk Organization and stores the `clerk_org_id`. If the badge in the super-admin dashboard (`/super-admin/schools/<id>`) shows **"Clerk: not synced"**, click **"Sync to Clerk"** on that page to backfill. Direct-curl inserts (this runbook) always show "not synced" until you click the button.
+
 ## Step 3 — Warm the SSL certificate
 
 Vercel issues a per-subdomain Let's Encrypt cert via HTTP-01 on first hit. The first request takes 3–10 minutes; subsequent requests are instant. Warm it now so the school's first impression isn't a TLS error:

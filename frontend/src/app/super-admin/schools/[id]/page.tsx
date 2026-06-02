@@ -14,6 +14,7 @@ interface Organization {
   custom_domain_status?: string | null;
   contact_email?: string | null;
   created_at?: string | null;
+  clerk_org_id?: string | null;
 }
 
 interface Billing {
@@ -70,6 +71,8 @@ export default function SuperAdminSchoolDetailPage() {
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [promoteUserId, setPromoteUserId] = useState<string | null>(null);
   const [promoteReason, setPromoteReason] = useState('');
+
+  const [clerkSyncing, setClerkSyncing] = useState(false);
 
   const fetchDetail = useCallback(async () => {
     if (!orgId) return;
@@ -163,6 +166,40 @@ export default function SuperAdminSchoolDetailPage() {
     fetchDetail();
   };
 
+  const handleClerkSync = async () => {
+    if (!orgId) return;
+    setClerkSyncing(true);
+    setFeedback(null);
+    try {
+      const token = await getToken();
+      const res = await fetch(`/api/super-admin/schools/${orgId}/sync-clerk`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFeedback(payload?.error || `Clerk sync failed (${res.status})`);
+        return;
+      }
+      if (payload?.already_synced) {
+        setFeedback('Already synced to Clerk.');
+      } else {
+        const failed = Array.isArray(payload?.failed_memberships) ? payload.failed_memberships.length : 0;
+        setFeedback(
+          failed > 0
+            ? `Synced org; ${failed} membership(s) failed — retry to backfill.`
+            : 'Synced to Clerk.'
+        );
+      }
+      fetchDetail();
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : 'Clerk sync failed');
+    } finally {
+      setClerkSyncing(false);
+    }
+  };
+
   if (!orgId) return null;
 
   if (loading) {
@@ -196,6 +233,19 @@ export default function SuperAdminSchoolDetailPage() {
           <p className="text-sm text-gray-500">
             <span className="font-mono">{org.slug}</span> · id:{org.id}
           </p>
+          <div className="mt-2 flex items-center gap-2">
+            <ClerkSyncBadge clerkOrgId={org.clerk_org_id} />
+            {!org.clerk_org_id && (
+              <button
+                type="button"
+                onClick={handleClerkSync}
+                disabled={clerkSyncing}
+                className="rounded-md border border-blue-600 px-2 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-60"
+              >
+                {clerkSyncing ? 'Syncing…' : 'Sync to Clerk'}
+              </button>
+            )}
+          </div>
         </div>
         <StatusBadge status={org.status} />
       </div>
@@ -530,6 +580,24 @@ function StatusBadge({ status }: { status: string }) {
       : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-200';
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>{status}</span>
+  );
+}
+
+function ClerkSyncBadge({ clerkOrgId }: { clerkOrgId: string | null | undefined }) {
+  if (clerkOrgId) {
+    return (
+      <span
+        className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
+        title={clerkOrgId}
+      >
+        Clerk: synced ({clerkOrgId})
+      </span>
+    );
+  }
+  return (
+    <span className="inline-block rounded px-2 py-0.5 text-xs font-medium bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+      Clerk: not synced
+    </span>
   );
 }
 

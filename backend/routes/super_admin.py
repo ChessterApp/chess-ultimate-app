@@ -32,6 +32,11 @@ from typing import Optional
 import requests
 from flask import Blueprint, jsonify, make_response, request
 
+from services.clerk_client import (
+    ClerkAPIError,
+    get_client as get_clerk_client,
+    map_role_to_clerk,
+)
 from utils.auth import (
     IMPERSONATION_COOKIE_NAME,
     IMPERSONATION_MAX_AGE_SECONDS,
@@ -471,7 +476,7 @@ def _end_impersonation_response(target_clerk_id: str):
 
 _ORG_LIST_COLUMNS = (
     'id, slug, name, status, created_at, '
-    'custom_domain, custom_domain_status'
+    'custom_domain, custom_domain_status, clerk_org_id'
 )
 
 
@@ -564,6 +569,7 @@ def list_organizations():
                 'student_count': billing.get('student_count'),
                 'custom_domain': row.get('custom_domain'),
                 'custom_domain_status': row.get('custom_domain_status'),
+                'clerk_org_id': row.get('clerk_org_id'),
                 'created_at': row.get('created_at'),
             })
 
@@ -729,3 +735,184 @@ def promote_organization_member(org_id: str):
     except Exception as exc:
         logger.exception("promote_organization_member failed: %s", exc)
         return jsonify({'error': 'Failed to promote member'}), 500
+
+
+# ─── Phase 4: Clerk Organizations wiring ────────────────────────────────────
+#
+# PRD: docs/prd/clerk-orgs-wiring.md. Org-create and the explicit sync
+# endpoint both call the Clerk Backend API fail-soft: if Clerk hiccups, the
+# Supabase row is left in place with NULL clerk_org_id and the operator can
+# retry by hitting the sync endpoint (or clicking the dashboard badge).
+
+def _clerk_sync_org(name: str, slug: str, created_by_user_id: str) -> Optional[str]:
+    """Create a Clerk org. Returns the clerk_org_id or None on failure (logged)."""
+    try:
+        clerk = get_clerk_client()
+        result = clerk.create_organization(
+            name=name, slug=slug,
+            created_by_user_id=created_by_user_id,
+        )
+        return result.get('id') if isinstance(result, dict) else None
+    except ClerkAPIError as exc:
+        logger.warning(
+            "Clerk create_organization failed for slug=%s (%s); leaving clerk_org_id NULL",
+            slug, exc,
+        )
+        return None
+
+
+def _clerk_sync_membership(clerk_org_id: str, user_id: str, role: str) -> bool:
+    """Best-effort membership sync. Returns True on success, False on Clerk error."""
+    try:
+        clerk = get_clerk_client()
+        clerk.create_membership(clerk_org_id, user_id, map_role_to_clerk(role))
+        return True
+    except ClerkAPIError as exc:
+        logger.warning(
+            "Clerk create_membership failed (org=%s user=%s role=%s): %s",
+            clerk_org_id, user_id, role, exc,
+        )
+        return False
+
+
+@super_admin_bp.route('/organizations', methods=['POST'])
+@require_super_admin
+def create_organization():
+    """Insert a partner org row, then best-effort sync to Clerk.
+
+    Body: {name, slug, contact_email?, owner_user_id?, status?}.
+    Clerk failure → org row stays, clerk_org_id NULL; admins can retry via
+    POST /schools/<id>/sync-clerk.
+    """
+    body = request.get_json(silent=True) or {}
+    name = (body.get('name') or '').strip()
+    slug = (body.get('slug') or '').strip()
+    contact_email = (body.get('contact_email') or '').strip() or None
+    owner_user_id = (body.get('owner_user_id') or '').strip() or None
+    status_value = (body.get('status') or 'trial').strip()
+
+    if not name or not slug:
+        return jsonify({'error': 'name and slug are required'}), 400
+    if status_value not in ('active', 'trial', 'suspended'):
+        return jsonify({'error': 'invalid status'}), 400
+
+    supabase = _get_supabase()
+    try:
+        insert_payload = {'slug': slug, 'name': name, 'status': status_value}
+        if contact_email:
+            insert_payload['contact_email'] = contact_email
+        inserted = supabase.table('organizations').insert(insert_payload).execute()
+        rows = inserted.data or []
+        if not rows:
+            return jsonify({'error': 'Failed to insert organization'}), 500
+        org_row = rows[0]
+        org_id = org_row['id']
+    except Exception as exc:
+        logger.exception("organization insert failed: %s", exc)
+        return jsonify({'error': 'Failed to create organization'}), 500
+
+    if owner_user_id:
+        try:
+            supabase.table('organization_members').upsert({
+                'organization_id': org_id,
+                'user_id': owner_user_id,
+                'role': 'owner',
+                'invited_by': request.user_id,
+            }, on_conflict='organization_id,user_id').execute()
+        except Exception as exc:
+            logger.warning("owner membership insert failed for org=%s: %s", org_id, exc)
+
+    clerk_org_id = _clerk_sync_org(
+        name=name, slug=slug,
+        created_by_user_id=request.user_id,
+    )
+    if clerk_org_id:
+        try:
+            supabase.table('organizations').update({
+                'clerk_org_id': clerk_org_id,
+            }).eq('id', org_id).execute()
+            org_row['clerk_org_id'] = clerk_org_id
+        except Exception as exc:
+            logger.warning("Failed to persist clerk_org_id for org=%s: %s", org_id, exc)
+        if owner_user_id:
+            _clerk_sync_membership(clerk_org_id, owner_user_id, 'owner')
+
+    _audit('create_org', 'organization', org_id, {
+        'slug': slug,
+        'clerk_synced': bool(clerk_org_id),
+    })
+    return jsonify({
+        'organization': org_row,
+        'clerk_synced': bool(clerk_org_id),
+    }), 201
+
+
+@super_admin_bp.route('/schools/<org_id>/sync-clerk', methods=['POST'])
+@require_super_admin
+def sync_org_to_clerk(org_id: str):
+    """Manually sync a Supabase org (and its members) to Clerk.
+
+    Idempotent: if the org already has clerk_org_id, returns
+    ``{"already_synced": true}``. Members that fail mid-flight are listed in
+    the response body and can be retried by calling this endpoint again.
+    """
+    supabase = _get_supabase()
+    rows = (
+        supabase.table('organizations').select('id, name, slug, clerk_org_id')
+        .eq('id', org_id).execute().data or []
+    )
+    if not rows:
+        return jsonify({'error': 'Organization not found'}), 404
+    org = rows[0]
+
+    if org.get('clerk_org_id'):
+        return jsonify({
+            'already_synced': True,
+            'clerk_org_id': org['clerk_org_id'],
+        }), 200
+
+    clerk_org_id = _clerk_sync_org(
+        name=org['name'], slug=org['slug'],
+        created_by_user_id=request.user_id,
+    )
+    if not clerk_org_id:
+        return jsonify({
+            'error': 'Clerk org creation failed',
+            'clerk_synced': False,
+        }), 502
+
+    try:
+        supabase.table('organizations').update({
+            'clerk_org_id': clerk_org_id,
+        }).eq('id', org_id).execute()
+    except Exception as exc:
+        logger.warning("Failed to persist clerk_org_id for org=%s: %s", org_id, exc)
+
+    members = (
+        supabase.table('organization_members').select('user_id, role')
+        .eq('organization_id', org_id).execute().data or []
+    )
+    failed: list[dict] = []
+    synced_count = 0
+    for member in members:
+        user_id = (member.get('user_id') or '').strip()
+        # Skip placeholder invite rows (user_id like "invite:email@…").
+        if not user_id or user_id.startswith('invite:'):
+            continue
+        ok = _clerk_sync_membership(clerk_org_id, user_id, member.get('role') or 'student')
+        if ok:
+            synced_count += 1
+        else:
+            failed.append({'user_id': user_id, 'role': member.get('role')})
+
+    _audit('sync_org_to_clerk', 'organization', org_id, {
+        'clerk_org_id': clerk_org_id,
+        'members_synced': synced_count,
+        'members_failed': len(failed),
+    })
+    return jsonify({
+        'clerk_org_id': clerk_org_id,
+        'members_synced': synced_count,
+        'failed_memberships': failed,
+        'already_synced': False,
+    }), 200

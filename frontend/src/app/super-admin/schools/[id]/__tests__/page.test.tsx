@@ -43,6 +43,7 @@ interface Detail {
     custom_domain_status: string | null;
     contact_email: string | null;
     created_at: string;
+    clerk_org_id?: string | null;
   };
   billing: { plan: string | null; student_count: number | null } | null;
   members: Array<{
@@ -179,6 +180,58 @@ describe('SuperAdminSchoolDetailPage', () => {
       const badges = screen.getAllByText('suspended');
       expect(badges.length).toBeGreaterThan(0);
     });
+  });
+
+  it('Clerk sync badge: shows "not synced" when clerk_org_id is null and triggers sync', async () => {
+    let detail = makeDetail({ clerk_org_id: null });
+    const { calls } = installFetchMock([
+      {
+        match: (c) =>
+          c.url.endsWith('/api/super-admin/organizations/org-1') && c.method === 'GET',
+        response: {
+          ok: true,
+          status: 200,
+          get body() {
+            return detail;
+          },
+        },
+      },
+      {
+        match: (c) =>
+          c.url.endsWith('/api/super-admin/schools/org-1/sync-clerk') && c.method === 'POST',
+        response: {
+          ok: true,
+          status: 200,
+          body: {
+            clerk_org_id: 'org_freshly_synced',
+            members_synced: 1,
+            failed_memberships: [],
+            already_synced: false,
+          },
+        },
+      },
+    ]);
+
+    render(<SuperAdminSchoolDetailPage />);
+    await waitFor(() => expect(screen.getByText("King's Academy")).toBeTruthy());
+    expect(screen.getByText('Clerk: not synced')).toBeTruthy();
+
+    // Server flips clerk_org_id on success — set the closure before clicking
+    // so the page's re-fetch sees the new value.
+    detail = makeDetail({ clerk_org_id: 'org_freshly_synced' });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Sync to Clerk'));
+    });
+
+    await waitFor(() => {
+      const syncPost = calls.find((c) => c.method === 'POST' && c.url.endsWith('/sync-clerk'));
+      expect(syncPost).toBeDefined();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/Clerk: synced \(org_freshly_synced\)/)).toBeTruthy(),
+    );
   });
 
   it('Promote modal: confirm only enabled when a non-owner member is selected with a reason', async () => {

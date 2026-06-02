@@ -139,23 +139,67 @@ def clerk_webhook():
 
 
 def _handle_org_created(data: dict):
-    """Sync new Clerk organization to Supabase."""
+    """Sync new Clerk organization to Supabase.
+
+    Idempotency order (PRD §6):
+      1. Match by clerk_org_id — confirmation echo, update in-place.
+      2. Match by slug — adopt the Clerk id onto the existing row.
+      3. Neither — insert a new row keyed on slug.
+    """
     supabase = _get_supabase()
     slug = data.get('slug', '')
     name = data.get('name', '')
     logo_url = data.get('image_url')
+    clerk_org_id = data.get('id', '')
 
     if not slug or not name:
         logger.error(f'Missing slug or name in org.created: {data}')
         return
 
-    supabase.table('organizations').upsert({
+    # 1) Already linked to this Clerk id? Treat as echo, refresh fields only.
+    if clerk_org_id:
+        existing_by_clerk = (
+            supabase.table('organizations').select('id')
+            .eq('clerk_org_id', clerk_org_id).execute().data or []
+        )
+        if existing_by_clerk:
+            update_payload = {'name': name}
+            if logo_url is not None:
+                update_payload['logo_url'] = logo_url
+            supabase.table('organizations').update(update_payload).eq(
+                'clerk_org_id', clerk_org_id
+            ).execute()
+            logger.info(f'Organization confirmation echo for clerk_org_id={clerk_org_id}')
+            return
+
+    # 2) Existing slug-row without clerk_org_id — adopt the Clerk id.
+    existing_by_slug = (
+        supabase.table('organizations').select('id, clerk_org_id')
+        .eq('slug', slug).execute().data or []
+    )
+    if existing_by_slug:
+        row = existing_by_slug[0]
+        update_payload = {'name': name}
+        if logo_url is not None:
+            update_payload['logo_url'] = logo_url
+        if clerk_org_id and not row.get('clerk_org_id'):
+            update_payload['clerk_org_id'] = clerk_org_id
+        supabase.table('organizations').update(update_payload).eq(
+            'slug', slug
+        ).execute()
+        logger.info(f'Organization adopted Clerk id for slug={slug}')
+        return
+
+    # 3) Fall back to the original upsert path (Clerk-admin-created-first).
+    payload = {
         'slug': slug,
         'name': name,
         'logo_url': logo_url,
         'status': 'active',
-    }, on_conflict='slug').execute()
-
+    }
+    if clerk_org_id:
+        payload['clerk_org_id'] = clerk_org_id
+    supabase.table('organizations').upsert(payload, on_conflict='slug').execute()
     logger.info(f'Organization created/upserted: {slug}')
 
 
@@ -209,26 +253,29 @@ def _map_clerk_role(clerk_role: str) -> str:
 
 
 def _handle_member_created(data: dict):
-    """Sync new Clerk org membership to Supabase."""
+    """Sync new Clerk org membership to Supabase.
+
+    Idempotency: match the parent org by clerk_org_id first, falling back to
+    slug. Member is upserted on (organization_id, user_id) — repeated webhook
+    deliveries are no-ops.
+    """
     supabase = _get_supabase()
 
     org_data = data.get('organization', {})
     user_data = data.get('public_user_data', {})
     slug = org_data.get('slug', '')
+    clerk_org_id = org_data.get('id', '')
     user_id = user_data.get('user_id', data.get('public_user_data', {}).get('user_id', ''))
     role = _map_clerk_role(data.get('role', 'basic_member'))
 
-    if not slug or not user_id:
-        logger.error(f'Missing slug or user_id in membership.created: {data}')
+    if not user_id or not (slug or clerk_org_id):
+        logger.error(f'Missing identifiers in membership.created: {data}')
         return
 
-    # Lookup org ID by slug
-    org_result = supabase.table('organizations').select('id').eq('slug', slug).single().execute()
-    if not org_result.data:
-        logger.error(f'Organization not found for slug: {slug}')
+    org_id = _resolve_org_id(supabase, clerk_org_id=clerk_org_id, slug=slug)
+    if not org_id:
+        logger.error(f'Organization not found for clerk_org_id={clerk_org_id} slug={slug}')
         return
-
-    org_id = org_result.data['id']
 
     supabase.table('organization_members').upsert({
         'organization_id': org_id,
@@ -236,7 +283,26 @@ def _handle_member_created(data: dict):
         'role': role,
     }, on_conflict='organization_id,user_id').execute()
 
-    logger.info(f'Member added: user={user_id} org={slug} role={role}')
+    logger.info(f'Member added: user={user_id} org={slug or clerk_org_id} role={role}')
+
+
+def _resolve_org_id(supabase, clerk_org_id: str = '', slug: str = '') -> str | None:
+    """Find the Supabase org row id, preferring clerk_org_id over slug."""
+    if clerk_org_id:
+        rows = (
+            supabase.table('organizations').select('id')
+            .eq('clerk_org_id', clerk_org_id).execute().data or []
+        )
+        if rows:
+            return rows[0].get('id')
+    if slug:
+        rows = (
+            supabase.table('organizations').select('id')
+            .eq('slug', slug).execute().data or []
+        )
+        if rows:
+            return rows[0].get('id')
+    return None
 
 
 def _handle_member_updated(data: dict):
@@ -246,25 +312,24 @@ def _handle_member_updated(data: dict):
     org_data = data.get('organization', {})
     user_data = data.get('public_user_data', {})
     slug = org_data.get('slug', '')
+    clerk_org_id = org_data.get('id', '')
     user_id = user_data.get('user_id', '')
     role = _map_clerk_role(data.get('role', 'basic_member'))
 
-    if not slug or not user_id:
-        logger.error(f'Missing slug or user_id in membership.updated: {data}')
+    if not user_id or not (slug or clerk_org_id):
+        logger.error(f'Missing identifiers in membership.updated: {data}')
         return
 
-    org_result = supabase.table('organizations').select('id').eq('slug', slug).single().execute()
-    if not org_result.data:
-        logger.error(f'Organization not found for slug: {slug}')
+    org_id = _resolve_org_id(supabase, clerk_org_id=clerk_org_id, slug=slug)
+    if not org_id:
+        logger.error(f'Organization not found for clerk_org_id={clerk_org_id} slug={slug}')
         return
-
-    org_id = org_result.data['id']
 
     supabase.table('organization_members').update({
         'role': role,
     }).eq('organization_id', org_id).eq('user_id', user_id).execute()
 
-    logger.info(f'Member updated: user={user_id} org={slug} role={role}')
+    logger.info(f'Member updated: user={user_id} org={slug or clerk_org_id} role={role}')
 
 
 def _handle_member_deleted(data: dict):
@@ -274,24 +339,23 @@ def _handle_member_deleted(data: dict):
     org_data = data.get('organization', {})
     user_data = data.get('public_user_data', {})
     slug = org_data.get('slug', '')
+    clerk_org_id = org_data.get('id', '')
     user_id = user_data.get('user_id', '')
 
-    if not slug or not user_id:
-        logger.error(f'Missing slug or user_id in membership.deleted: {data}')
+    if not user_id or not (slug or clerk_org_id):
+        logger.error(f'Missing identifiers in membership.deleted: {data}')
         return
 
-    org_result = supabase.table('organizations').select('id').eq('slug', slug).single().execute()
-    if not org_result.data:
-        logger.error(f'Organization not found for slug: {slug}')
+    org_id = _resolve_org_id(supabase, clerk_org_id=clerk_org_id, slug=slug)
+    if not org_id:
+        logger.error(f'Organization not found for clerk_org_id={clerk_org_id} slug={slug}')
         return
-
-    org_id = org_result.data['id']
 
     supabase.table('organization_members').delete().eq(
         'organization_id', org_id
     ).eq('user_id', user_id).execute()
 
-    logger.info(f'Member removed: user={user_id} org={slug}')
+    logger.info(f'Member removed: user={user_id} org={slug or clerk_org_id}')
 
 
 # =====================================================================

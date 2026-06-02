@@ -122,11 +122,17 @@ class TestOrgCreatedWebhook:
     """Test organization.created event handling."""
 
     def test_org_created_upserts(self, client):
-        """organization.created should upsert into organizations table."""
+        """organization.created should upsert into organizations table.
+
+        With the Phase 4 idempotency rules, the handler first looks up by
+        clerk_org_id and by slug — both must report no existing row before
+        falling back to upsert. We configure the select chain to return [].
+        """
         secret = 'whsec_' + base64.b64encode(b'testsecret').decode()
         event = {
             'type': 'organization.created',
             'data': {
+                'id': 'org_clerk_new',
                 'slug': 'almatychess',
                 'name': 'Almaty Chess School',
                 'image_url': 'https://example.com/logo.png',
@@ -136,6 +142,11 @@ class TestOrgCreatedWebhook:
         headers = _sign_payload(payload, secret)
 
         mock_table = MagicMock()
+        # The clerk_org_id + slug lookups both return empty data.
+        mock_select_chain = MagicMock()
+        mock_select_chain.execute.return_value = MagicMock(data=[])
+        mock_table.select.return_value.eq.return_value = mock_select_chain
+        # Upsert path.
         mock_upsert = MagicMock()
         mock_upsert.execute.return_value = MagicMock(data=[{'id': 'uuid-1'}])
         mock_table.upsert.return_value = mock_upsert
@@ -157,6 +168,7 @@ class TestOrgCreatedWebhook:
         call_args = mock_table.upsert.call_args[0][0]
         assert call_args['slug'] == 'almatychess'
         assert call_args['name'] == 'Almaty Chess School'
+        assert call_args['clerk_org_id'] == 'org_clerk_new'
 
 
 class TestOrgDeletedWebhook:
@@ -198,7 +210,11 @@ class TestMemberCreatedWebhook:
     """Test organizationMembership.created event handling."""
 
     def test_member_created_upserts(self, client):
-        """Membership creation should upsert into organization_members."""
+        """Membership creation should upsert into organization_members.
+
+        The org-id resolver tries clerk_org_id first, then slug. We make the
+        slug branch return the row (the legacy lookup path).
+        """
         secret = 'whsec_' + base64.b64encode(b'testsecret').decode()
         event = {
             'type': 'organizationMembership.created',
@@ -211,17 +227,27 @@ class TestMemberCreatedWebhook:
         payload = json.dumps(event).encode()
         headers = _sign_payload(payload, secret)
 
-        # Mock org lookup
+        # Org lookup: clerk_org_id branch returns empty; slug branch hits row.
         mock_org_table = MagicMock()
-        mock_org_select = MagicMock()
-        mock_org_eq = MagicMock()
-        mock_org_single = MagicMock()
-        mock_org_single.execute.return_value = MagicMock(data={'id': 'org-uuid-1'})
-        mock_org_eq.single.return_value = mock_org_single
-        mock_org_select.eq.return_value = mock_org_eq
-        mock_org_table.select.return_value = mock_org_select
 
-        # Mock member upsert
+        def _select_router(*args, **kwargs):
+            select_mock = MagicMock()
+
+            def _eq_router(col, val):
+                eq_mock = MagicMock()
+                if col == 'clerk_org_id':
+                    eq_mock.execute.return_value = MagicMock(data=[])
+                else:
+                    eq_mock.execute.return_value = MagicMock(
+                        data=[{'id': 'org-uuid-1'}]
+                    )
+                return eq_mock
+
+            select_mock.eq.side_effect = _eq_router
+            return select_mock
+
+        mock_org_table.select.side_effect = _select_router
+
         mock_member_table = MagicMock()
         mock_member_upsert = MagicMock()
         mock_member_upsert.execute.return_value = MagicMock()

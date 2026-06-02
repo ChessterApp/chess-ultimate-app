@@ -22,6 +22,12 @@ from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify
 
+from services.clerk_client import (
+    ClerkAPIError,
+    get_client as get_clerk_client,
+    map_role_to_clerk,
+)
+
 logger = logging.getLogger(__name__)
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
@@ -55,6 +61,20 @@ def _require_admin(org_id: str) -> tuple | None:
         return jsonify({'error': 'Forbidden'}), 403
 
     return None
+
+
+def _get_clerk_org_id(org_id: str) -> str | None:
+    """Return the org's clerk_org_id, or None if missing/unset (best-effort)."""
+    try:
+        supabase = _get_supabase()
+        row = (
+            supabase.table('organizations').select('clerk_org_id')
+            .eq('id', org_id).single().execute().data or {}
+        )
+        return row.get('clerk_org_id') or None
+    except Exception as exc:
+        logger.warning('clerk_org_id lookup failed for org=%s: %s', org_id, exc)
+        return None
 
 
 # --- Organization lookup ---
@@ -152,8 +172,38 @@ def invite_member(org_id: str):
         'invited_by': user_id,
     }, on_conflict='organization_id,user_id').execute()
 
+    # Fail-soft Clerk membership sync. Placeholder rows (user_id "invite:…")
+    # are skipped — Clerk requires a real user id. The webhook handler
+    # (organizationMembership.created) syncs the real id when the invitee
+    # accepts. We still call Clerk here for forward-compat with future
+    # real-user-id invites.
+    _maybe_sync_membership_to_clerk(org_id, invite_user_id, role)
+
     logger.info(f'Member invited: email={email} org={org_id} role={role} by={user_id}')
     return jsonify({'status': 'invited', 'email': email}), 201
+
+
+def _maybe_sync_membership_to_clerk(org_id: str, user_id: str, role: str) -> None:
+    """Best-effort Clerk membership create. No-op for placeholder rows or
+    when the org has no clerk_org_id yet."""
+    if not user_id or user_id.startswith('invite:'):
+        return
+    clerk_org_id = _get_clerk_org_id(org_id)
+    if not clerk_org_id:
+        logger.info(
+            'org=%s not synced to Clerk yet, skipping membership sync for user=%s',
+            org_id, user_id,
+        )
+        return
+    try:
+        get_clerk_client().create_membership(
+            clerk_org_id, user_id, map_role_to_clerk(role),
+        )
+    except ClerkAPIError as exc:
+        logger.warning(
+            'Clerk create_membership failed (org=%s user=%s role=%s): %s',
+            clerk_org_id, user_id, role, exc,
+        )
 
 
 @admin_bp.route('/organizations/<org_id>/members/<target_user_id>', methods=['DELETE'])
@@ -175,6 +225,18 @@ def remove_member(org_id: str, target_user_id: str):
     supabase.table('organization_members').delete().eq(
         'organization_id', org_id
     ).eq('user_id', target_user_id).execute()
+
+    # Fail-soft Clerk membership cleanup. Skip placeholder invite rows.
+    if not target_user_id.startswith('invite:'):
+        clerk_org_id = _get_clerk_org_id(org_id)
+        if clerk_org_id:
+            try:
+                get_clerk_client().delete_membership(clerk_org_id, target_user_id)
+            except ClerkAPIError as exc:
+                logger.warning(
+                    'Clerk delete_membership failed (org=%s user=%s): %s',
+                    clerk_org_id, target_user_id, exc,
+                )
 
     logger.info(f'Member removed: user={target_user_id} org={org_id}')
     return jsonify({'status': 'removed'})
