@@ -196,6 +196,13 @@ def create_org_self_serve():
     except Exception as exc:
         logger.warning('clerk sync (self-serve) failed: %s', exc)
 
+    # Schedule day-1 / day-3 / day-7 lifecycle emails (PRD §11.2 #6).
+    try:
+        from services.lifecycle_emails import schedule_for_org
+        schedule_for_org(org_id)
+    except Exception as exc:
+        logger.warning('lifecycle schedule failed for org=%s: %s', org_id, exc)
+
     return jsonify({
         'organization': org_row,
         'clerk_synced': bool(clerk_org_id),

@@ -241,6 +241,13 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not import super-admin API: {e}")
 
+try:
+    from commands.lifecycle_emails_cli import register_cli as register_lifecycle_cli
+    register_lifecycle_cli(app)
+    logger.info("✅ Lifecycle-emails CLI registered (flask lifecycle-emails send-due)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not register lifecycle-emails CLI: {e}")
+
 # Read-only impersonation: block write requests platform-wide whenever the
 # super-admin "View as" cookie is present.
 try:
