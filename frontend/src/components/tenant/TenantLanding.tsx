@@ -60,7 +60,10 @@ export function TenantLanding({
   variant = 'page',
   hideAuthIsland = false,
 }: TenantLandingProps) {
-  const resolved = resolveLandingPageConfig(config ?? null, org);
+  const resolved = resolveLandingPageConfig(
+    (config ?? null) as Record<string, unknown> | null,
+    org,
+  );
   const heightClass = variant === 'preview' ? 'min-h-[420px]' : 'min-h-screen';
 
   return (

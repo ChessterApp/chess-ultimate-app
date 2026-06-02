@@ -16,7 +16,9 @@ import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 // Drag-drop + paste textbox · column auto-detect with manual override ·
 // row-level preview · tier-cap-aware partial success.
 
-const COLUMN_OPTIONS: Array<{ value: keyof ColumnMapping; label: string }> = [
+type MappedColumn = 'email' | 'first_name' | 'last_name';
+
+const COLUMN_OPTIONS: Array<{ value: MappedColumn; label: string }> = [
   { value: 'email', label: 'Email' },
   { value: 'first_name', label: 'First name' },
   { value: 'last_name', label: 'Last name' },
