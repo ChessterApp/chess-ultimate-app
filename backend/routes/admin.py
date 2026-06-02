@@ -971,6 +971,55 @@ def _resend_error_to_response(err):
     return jsonify({'error': err.message, 'code': err.code}), status
 
 
+@admin_bp.route('/organizations/<org_id>/checklist', methods=['GET'])
+def get_onboarding_checklist(org_id: str):
+    """Return the org snapshot the dashboard's <OnboardingChecklist> consumes.
+
+    Shape matches `frontend/src/lib/onboarding-checklist.ts` ChecklistSnapshot.
+    """
+    error = _require_admin(org_id)
+    if error:
+        return error
+
+    supabase = _get_supabase()
+    try:
+        org_row = (
+            supabase.table('organizations').select(
+                'id, slug, logo_url, primary_color, secondary_color, accent_color, '
+                'custom_domain_status, email_sender_status, landing_page_config, created_at'
+            ).eq('id', org_id).single().execute().data
+        ) or {}
+        members = (
+            supabase.table('organization_members').select('role').eq(
+                'organization_id', org_id,
+            ).execute().data
+        ) or []
+    except Exception as exc:
+        logger.warning('checklist fetch failed for org=%s: %s', org_id, exc)
+        return jsonify({'error': 'fetch_failed'}), 500
+
+    from services.tier_quota import get_org_plan
+    plan = get_org_plan(org_id)
+    students = sum(1 for m in members if m.get('role') == 'student')
+    teachers = sum(1 for m in members if m.get('role') == 'teacher')
+
+    return jsonify({
+        'org': {
+            'logoUrl': org_row.get('logo_url'),
+            'primaryColor': org_row.get('primary_color'),
+            'secondaryColor': org_row.get('secondary_color'),
+            'accentColor': org_row.get('accent_color'),
+            'customDomainStatus': org_row.get('custom_domain_status'),
+            'emailSenderStatus': org_row.get('email_sender_status'),
+            'landingPageConfig': org_row.get('landing_page_config') or {},
+            'createdAt': org_row.get('created_at'),
+            'plan': plan,
+        },
+        'studentCount': students,
+        'teacherCount': teachers,
+    }), 200
+
+
 @admin_bp.route('/organizations/<org_id>/email-sender', methods=['POST'])
 def add_email_sender(org_id: str):
     """Register a branded sender domain with Resend (Pro+ gated)."""
