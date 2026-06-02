@@ -22,7 +22,8 @@ interface TournamentForm {
   rating_category: string;
   min_rating: string;
   max_rating: string;
-  is_fide_rated: boolean;
+  is_rated: boolean;
+  tournament_mode: 'offline' | 'online';
 }
 
 const INITIAL_FORM: TournamentForm = {
@@ -43,7 +44,8 @@ const INITIAL_FORM: TournamentForm = {
   rating_category: '',
   min_rating: '',
   max_rating: '',
-  is_fide_rated: false,
+  is_rated: false,
+  tournament_mode: 'offline',
 };
 
 export default function AdminNewTournamentPage() {
@@ -316,15 +318,30 @@ export default function AdminNewTournamentPage() {
                 />
               </div>
             </div>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.is_fide_rated}
-                onChange={e => updateField('is_fide_rated', e.target.checked)}
-                className="rounded border-gray-300 dark:border-gray-600"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">FIDE Rated</span>
-            </label>
+            <div className="grid grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tournament Mode</label>
+                <select
+                  value={form.tournament_mode}
+                  onChange={e => updateField('tournament_mode', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                >
+                  <option value="offline">Offline (OTB)</option>
+                  <option value="online">Online</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 pt-6">
+                <input
+                  type="checkbox"
+                  checked={form.is_rated}
+                  onChange={e => updateField('is_rated', e.target.checked)}
+                  className="rounded border-gray-300 dark:border-gray-600"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">
+                  Rated (updates Local App Rating; only applied when mode is offline)
+                </span>
+              </label>
+            </div>
           </div>
         </section>
 

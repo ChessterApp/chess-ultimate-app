@@ -20,7 +20,8 @@ interface Tournament {
   rating_category: string | null;
   min_rating: number | null;
   max_rating: number | null;
-  is_fide_rated: boolean;
+  is_rated: boolean;
+  tournament_mode: 'offline' | 'online';
   status: string;
 }
 
@@ -118,7 +119,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             <InfoRow label="Registration Deadline" value={new Date(tournament.registration_deadline).toLocaleDateString()} />
             <InfoRow label="Time Control" value={tournament.time_control} />
             <InfoRow label="Format" value={tournament.format} />
-            <InfoRow label="FIDE Rated" value={tournament.is_fide_rated ? 'Yes' : 'No'} />
+            <InfoRow
+              label="Mode"
+              value={tournament.tournament_mode === 'online' ? 'Online' : 'Offline (OTB)'}
+            />
+            <InfoRow label="Rated" value={tournament.is_rated ? 'Yes (Local App Rating)' : 'No'} />
             {tournament.entry_fee > 0 && (
               <InfoRow label="Entry Fee" value={`${tournament.entry_fee} ${tournament.currency}`} />
             )}

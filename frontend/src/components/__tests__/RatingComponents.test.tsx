@@ -51,23 +51,6 @@ describe('RatingChart', () => {
   });
 });
 
-describe('FideCard', () => {
-  it('exports a default function component', async () => {
-    const module = await import('../ratings/FideCard');
-    expect(typeof module.default).toBe('function');
-  });
-
-  it('is a client component', async () => {
-    const fs = await import('fs');
-    const path = await import('path');
-    const content = fs.readFileSync(
-      path.resolve(__dirname, '../ratings/FideCard.tsx'),
-      'utf-8'
-    );
-    expect(content).toContain("'use client'");
-  });
-});
-
 describe('Leaderboard', () => {
   it('exports a default function component', async () => {
     const module = await import('../ratings/Leaderboard');
