@@ -214,6 +214,27 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import admin API: {e}")
 
 try:
+    from routes.tiers import tiers_bp
+    app.register_blueprint(tiers_bp)
+    logger.info("✅ Tiers API registered (canonical pricing/seat config)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import tiers API: {e}")
+
+try:
+    from routes.onboarding import onboarding_bp
+    app.register_blueprint(onboarding_bp)
+    logger.info("✅ Onboarding API registered (pending_onboarding CRUD)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import onboarding API: {e}")
+
+try:
+    from routes.subdomains import subdomains_bp
+    app.register_blueprint(subdomains_bp)
+    logger.info("✅ Subdomains API registered (availability checks)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import subdomains API: {e}")
+
+try:
     from routes.super_admin import super_admin_bp
     app.register_blueprint(super_admin_bp)
     logger.info("✅ Super-Admin API registered (platform admin dashboard)")

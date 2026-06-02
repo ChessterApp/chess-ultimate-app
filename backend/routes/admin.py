@@ -143,7 +143,7 @@ def get_org_members(org_id: str):
 
 @admin_bp.route('/organizations/<org_id>/members/invite', methods=['POST'])
 def invite_member(org_id: str):
-    """Invite a new member by email."""
+    """Invite a new member by email. Enforces tier seat cap (PRD §6.3)."""
     error = _require_admin(org_id)
     if error:
         return error
@@ -158,10 +158,23 @@ def invite_member(org_id: str):
     if role not in ('student', 'teacher', 'admin'):
         return jsonify({'error': 'Invalid role'}), 400
 
+    # Tier enforcement (only counts billable seats — owner role excluded).
+    # Teachers and admins are still counted as seats since the PRD's seat
+    # cap is "max students" but in practice anyone in the org takes a slot.
+    from services.tier_quota import can_invite
+    allowed, info = can_invite(org_id, n=1)
+    if not allowed:
+        return jsonify({
+            'error': 'tier_limit_exceeded',
+            'code': info.get('code', 'tier_limit_exceeded'),
+            'current_count': info.get('current_count'),
+            'seat_cap': info.get('seat_cap'),
+            'plan': info.get('plan'),
+            'upgrade_url': info.get('upgrade_url'),
+        }), 402
+
     user_id = request.headers.get('X-User-Id')
 
-    # Store invite in organization_members with a placeholder user_id
-    # In production, this would trigger an email invitation via Clerk
     supabase = _get_supabase()
     invite_user_id = f'invite:{email}'
 
@@ -178,6 +191,13 @@ def invite_member(org_id: str):
     # accepts. We still call Clerk here for forward-compat with future
     # real-user-id invites.
     _maybe_sync_membership_to_clerk(org_id, invite_user_id, role)
+
+    # Real invite email (Phase 1 — replaces the previous stub log line).
+    try:
+        from services.email import send_invite_email
+        send_invite_email(org_id=org_id, to_email=email, role=role)
+    except Exception as exc:
+        logger.warning('invite email send failed for %s: %s', email, exc)
 
     logger.info(f'Member invited: email={email} org={org_id} role={role} by={user_id}')
     return jsonify({'status': 'invited', 'email': email}), 201

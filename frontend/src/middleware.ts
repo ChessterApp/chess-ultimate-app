@@ -19,6 +19,8 @@ const isPublicRoute = createRouteMatcher([
   '/onboarding(.*)',
   '/tournaments(.*)',
   '/leaderboard(.*)',
+  '/preview(.*)',
+  '/for-schools',  // Marketing landing (auth-gated wizard lives under /for-schools/start/*)
   '/api/(.*)',  // Allow all API routes without auth
 ])
 
