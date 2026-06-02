@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
 type DomainStatus = 'pending' | 'verifying' | 'active' | 'failed' | null;
 
@@ -48,11 +49,20 @@ export default function AdminDomainPage() {
   useEffect(() => { fetchState(); }, [fetchState]);
 
   // Auto-poll while pending/verifying so the UI flips to "active" without a reload.
+  // Emit analytics events when reaching terminal states (active / failed).
   useEffect(() => {
+    if (state.status === 'active') {
+      track(ANALYTICS_EVENTS.CUSTOM_DOMAIN_VERIFIED, { domain: state.domain });
+      return;
+    }
+    if (state.status === 'failed') {
+      track(ANALYTICS_EVENTS.CUSTOM_DOMAIN_FAILED, { domain: state.domain });
+      return;
+    }
     if (state.status !== 'pending' && state.status !== 'verifying') return;
     const t = setInterval(fetchState, POLL_MS);
     return () => clearInterval(t);
-  }, [state.status, fetchState]);
+  }, [state.status, state.domain, fetchState]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -483,3 +483,11 @@ def _vercel_set_status(domain: str | None, status: str, verified: bool,
 
     supabase.table('organizations').update(update).eq('custom_domain', domain).execute()
     logger.info(f'Vercel webhook applied: domain={domain} status={status}')
+
+    # Notify director on terminal-state transitions (PRD §11.2 #2 — Phase 2).
+    if status in ('active', 'failed'):
+        try:
+            from services.lifecycle_emails import notify_custom_domain_status
+            notify_custom_domain_status(domain, status)
+        except Exception as exc:  # pragma: no cover — defensive
+            logger.warning('lifecycle email notify failed: %s', exc)

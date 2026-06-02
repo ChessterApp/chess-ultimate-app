@@ -706,19 +706,52 @@ def _vercel_error_to_response(err) -> tuple:
     if not isinstance(err, VercelAPIError):
         return jsonify({'error': str(err)}), 500
 
+    friendly = vercel_error_to_actionable_message(err.code, err.message)
     if err.code == 'domain_already_in_use':
-        return jsonify({
-            'error': 'This domain is already in use on Vercel.',
-            'code': err.code,
-        }), 409
+        return jsonify({'error': friendly, 'code': err.code}), 409
     if err.code == 'not_authorized':
-        return jsonify({
-            'error': 'Vercel API not authorized — check VERCEL_TOKEN configuration.',
-            'code': err.code,
-        }), 502
+        return jsonify({'error': friendly, 'code': err.code}), 502
+    if err.code == 'forbidden':
+        return jsonify({'error': friendly, 'code': err.code}), 403
+    if err.code in ('invalid_domain', 'invalid_argument'):
+        return jsonify({'error': friendly, 'code': err.code}), 400
     # Default: forward Vercel's status verbatim (clamped to client/server range)
     status = err.status_code if 400 <= err.status_code < 600 else 502
-    return jsonify({'error': err.message, 'code': err.code}), status
+    return jsonify({'error': friendly, 'code': err.code}), status
+
+
+def vercel_error_to_actionable_message(code: str, fallback_message: str) -> str:
+    """Map Vercel error codes to actionable copy the director can act on.
+
+    Pure helper — exported so tests can lock the table down without going
+    through the Flask response cycle.
+    """
+    mapping = {
+        'domain_already_in_use':
+            'This domain is already registered with Vercel for another project. '
+            'Remove it from its existing project, then try again.',
+        'not_authorized':
+            'Chesster can\'t reach Vercel — the admin needs to refresh the '
+            'VERCEL_TOKEN. Try again in a few minutes.',
+        'forbidden':
+            'Your domain provider blocks Vercel\'s probes. Check that NS '
+            'records aren\'t locked to a parent zone.',
+        'invalid_domain':
+            'Invalid domain. Use a fully-qualified hostname like '
+            'school.yourdomain.com (no protocol, no trailing dot).',
+        'invalid_argument':
+            'Vercel rejected the request. Double-check the domain spelling.',
+        'missing_dns':
+            'Add the DNS records shown above to your provider. Most providers '
+            'take 5–10 minutes to propagate.',
+        'invalid_cert_challenge':
+            'Vercel could not issue an HTTPS certificate. Confirm the domain '
+            'resolves to Vercel\'s IPs and try Verify again.',
+        'verification_failed':
+            'DNS records are missing or incorrect. Compare them to the table '
+            'above and re-run Verify after a few minutes.',
+    }
+    return mapping.get(code, fallback_message)
 
 
 @admin_bp.route('/organizations/<org_id>/custom-domain', methods=['POST'])
