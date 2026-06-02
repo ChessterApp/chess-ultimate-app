@@ -23,6 +23,7 @@ const DEFAULT_BRANDING: Organization = {
   landingPageConfig: {},
   contactEmail: null,
   status: 'active',
+  deletionRequestedAt: null,
 };
 
 const OrganizationContext = createContext<OrganizationContextValue>({

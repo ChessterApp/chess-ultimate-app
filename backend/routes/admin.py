@@ -1179,3 +1179,55 @@ def remove_email_sender(org_id: str):
     }).eq('id', org_id).execute()
 
     return jsonify({'status': 'removed'}), 200
+
+
+# ─── Self-serve school deletion request (PRD §7) ──────────────────────────
+
+
+@admin_bp.route('/organizations/<org_id>/delete-request', methods=['POST'])
+def request_school_deletion(org_id: str):
+    """Stamp deletion_requested_at + notify ops. Owner-only, type-name confirm.
+
+    Body: ``{"confirm_name": "<typed school name>"}``. We re-check against the
+    stored ``organizations.name`` on the server so a stale frontend can't
+    schedule a deletion the user did not actually confirm. ``requester_email``
+    is optional and only used for the ops notification body.
+    """
+    user_id = request.headers.get('X-User-Id')
+    if not user_id:
+        return jsonify({'error': 'Missing X-User-Id header'}), 401
+
+    data = request.get_json(silent=True) or {}
+    confirm_name = (data.get('confirm_name') or '').strip()
+    if not confirm_name:
+        return jsonify({'error': 'confirm_name is required'}), 400
+
+    supabase = _get_supabase()
+    org_row = (
+        supabase.table('organizations').select('id, name')
+        .eq('id', org_id).single().execute().data
+    )
+    if not org_row:
+        return jsonify({'error': 'Organization not found'}), 404
+    if confirm_name != (org_row.get('name') or ''):
+        return jsonify({
+            'error': 'confirm_name does not match the organization name',
+            'code': 'confirm_mismatch',
+        }), 400
+
+    from services.org_deletion import OrgDeletionError, request_deletion
+    try:
+        result = request_deletion(
+            org_id=org_id,
+            requester_user_id=user_id,
+            requester_email=(data.get('requester_email') or '').strip() or None,
+        )
+    except OrgDeletionError as exc:
+        status = {'org_not_found': 404, 'forbidden': 403}.get(exc.code, 400)
+        return jsonify({'error': exc.message, 'code': exc.code}), status
+
+    logger.info(
+        'School deletion requested: org=%s by=%s at=%s',
+        org_id, user_id, result.get('deletion_requested_at'),
+    )
+    return jsonify(result), 200

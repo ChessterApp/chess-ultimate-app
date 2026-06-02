@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useOrganization } from '@/contexts/OrganizationContext';
+import DeleteSchoolCard from '@/components/admin/DeleteSchoolCard';
 
 interface BrandingConfig {
   logo_url: string;
@@ -367,6 +368,18 @@ export default function AdminSettingsPage() {
           )}
         </div>
       </form>
+
+      {/* Danger zone — self-serve school deletion (PRD §7). Kept outside the
+          branding form so it's not part of the save-settings submit. */}
+      {org?.id && (
+        <div className="mt-12 max-w-2xl">
+          <DeleteSchoolCard
+            orgId={org.id}
+            orgName={org.name}
+            initialDeletionRequestedAt={org.deletionRequestedAt}
+          />
+        </div>
+      )}
     </div>
   );
 }

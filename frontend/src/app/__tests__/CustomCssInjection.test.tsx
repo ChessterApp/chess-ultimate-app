@@ -17,6 +17,7 @@ const TENANT: Organization = {
   landingPageConfig: {},
   contactEmail: null,
   status: 'active',
+  deletionRequestedAt: null,
 };
 
 // Mirrors the server-side validator in backend/routes/admin.py — keeping the

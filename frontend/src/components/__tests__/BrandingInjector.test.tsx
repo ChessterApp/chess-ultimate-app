@@ -19,6 +19,7 @@ const TENANT: Organization = {
   landingPageConfig: {},
   contactEmail: null,
   status: 'active',
+  deletionRequestedAt: null,
 };
 
 describe('BrandingInjector', () => {

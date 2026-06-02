@@ -15,6 +15,7 @@ const TENANT_ORG: Organization = {
   landingPageConfig: {},
   contactEmail: null,
   status: 'active',
+  deletionRequestedAt: null,
 };
 
 describe('buildMetadata', () => {

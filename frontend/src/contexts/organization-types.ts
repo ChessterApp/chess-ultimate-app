@@ -11,6 +11,7 @@ export interface Organization {
   landingPageConfig: Record<string, unknown>;
   contactEmail: string | null;
   status: string;
+  deletionRequestedAt: string | null;
 }
 
 export function parseOrgFromHeaders(headers: Headers): { orgId: string; orgSlug: string } | null {

@@ -39,6 +39,7 @@ const mockBranding: { current: Organization; isWhiteLabel: boolean } = {
     landingPageConfig: {},
     contactEmail: null,
     status: 'active',
+    deletionRequestedAt: null,
   },
   isWhiteLabel: false,
 };

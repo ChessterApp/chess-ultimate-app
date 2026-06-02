@@ -28,6 +28,7 @@ export async function fetchOrgForLanding(
       landingPageConfig: data.landing_page_config || {},
       contactEmail: data.contact_email || null,
       status: data.status || 'active',
+      deletionRequestedAt: data.deletion_requested_at || null,
     };
   } catch {
     return null;
