@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
 import { useWizard } from '@/components/school-onboarding/WizardState';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 import {
   fetchTiers,
   recommendTier,
@@ -116,7 +117,12 @@ export default function StepPlan() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => update({ tier: id })}
+                  onClick={() => {
+                    update({ tier: id });
+                    track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_PLAN_SELECTED, {
+                      tier: id, cycle,
+                    });
+                  }}
                   className={`text-left rounded-xl border p-4 transition-colors ${
                     isSelected
                       ? 'border-blue-600 ring-2 ring-blue-200 bg-blue-50/30'

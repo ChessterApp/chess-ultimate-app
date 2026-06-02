@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 
 import { useWizard, WIZARD_STEPS, type WizardStep } from './WizardState';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
 // Maps WizardStep -> route segment. Step 'done' is the activation screen.
 const STEP_ROUTES: Record<WizardStep, string> = {
@@ -69,6 +70,11 @@ export function SchoolOnboardingShell({
   const pathname = usePathname();
   const { setStep, save } = useWizard();
 
+  // PRD §6.8 + Phase 1 carryover #7 — emit step_viewed once per mount.
+  useEffect(() => {
+    track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STEP_VIEWED, { step });
+  }, [step]);
+
   const handleSaveExit = async () => {
     await save();
     router.push('/');
@@ -76,11 +82,14 @@ export function SchoolOnboardingShell({
 
   const handleNext = async () => {
     if (onNext) await onNext();
+    track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STEP_ADVANCED, { step });
     const idx = VISIBLE_STEPS.indexOf(step);
     if (idx >= 0 && idx + 1 < VISIBLE_STEPS.length) {
       const nextStep = VISIBLE_STEPS[idx + 1];
       setStep(nextStep);
       router.push(STEP_ROUTES[nextStep]);
+    } else if (VISIBLE_STEPS.indexOf(step) === VISIBLE_STEPS.length - 1) {
+      track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_COMPLETED);
     }
   };
 
