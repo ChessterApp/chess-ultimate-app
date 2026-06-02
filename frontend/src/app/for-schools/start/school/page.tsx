@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
+import { LogoDropzone } from '@/components/school-onboarding/LogoDropzone';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
 import { SlugAvailabilityInput } from '@/components/school-onboarding/SlugAvailabilityInput';
 import { slugify, useWizard } from '@/components/school-onboarding/WizardState';
@@ -90,18 +91,31 @@ export default function StepSchool() {
           </div>
         </fieldset>
 
-        <label className="block">
+        <div>
           <span className="text-sm font-medium text-gray-700">
-            Logo URL <span className="text-gray-400">(optional — drag-drop upload comes after payment)</span>
+            Logo <span className="text-gray-400">(optional — we&apos;ll suggest colors from it)</span>
           </span>
+          <div className="mt-1">
+            <LogoDropzone
+              value={payload.logo_url}
+              onChange={dataUrl => update({ logo_url: dataUrl })}
+              onPaletteExtracted={p =>
+                update({
+                  primary_color: p.primary,
+                  secondary_color: p.secondary,
+                  accent_color: p.accent,
+                })
+              }
+            />
+          </div>
           <input
             type="url"
             value={payload.logo_url || ''}
             onChange={e => update({ logo_url: e.target.value })}
-            placeholder="https://yourschool.com/logo.png"
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
+            placeholder="…or paste a logo URL"
+            className="mt-2 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
           />
-        </label>
+        </div>
       </div>
     </SchoolOnboardingShell>
   );

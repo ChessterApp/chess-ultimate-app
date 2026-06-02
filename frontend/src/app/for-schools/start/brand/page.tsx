@@ -5,6 +5,8 @@ import { useState } from 'react';
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
 import { useWizard } from '@/components/school-onboarding/WizardState';
+import { extractPaletteFromUrl } from '@/lib/color-extract';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
 const PRESET_PALETTES: Array<{ name: string; primary: string; secondary: string; accent: string }> = [
   { name: 'Classic', primary: '#1a73e8', secondary: '#ffffff', accent: '#ffd700' },
@@ -86,6 +88,26 @@ export default function StepBrand() {
           </div>
         </fieldset>
 
+        {payload.logo_url && (
+          <button
+            type="button"
+            onClick={async () => {
+              const palette = await extractPaletteFromUrl(payload.logo_url!);
+              if (palette) {
+                update({
+                  primary_color: palette.dominant,
+                  secondary_color: palette.muted,
+                  accent_color: palette.accent,
+                });
+                track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_COLORS_AUTODETECTED);
+              }
+            }}
+            className="self-start text-xs rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50"
+          >
+            Reset to logo-detected
+          </button>
+        )}
+
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
             <span className="text-xs text-gray-600">Primary</span>
@@ -110,7 +132,10 @@ export default function StepBrand() {
             <input
               type="color"
               value={payload.accent_color || '#ffd700'}
-              onChange={e => update({ accent_color: e.target.value })}
+              onChange={e => {
+                update({ accent_color: e.target.value });
+                track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_COLORS_OVERRIDDEN);
+              }}
               className="mt-1 h-9 w-full rounded border border-gray-300"
             />
           </label>
