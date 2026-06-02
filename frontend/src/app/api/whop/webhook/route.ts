@@ -153,7 +153,7 @@ async function handleOrgSubscription(
   membership: Record<string, unknown>,
   metadata: Record<string, unknown>,
   event: string,
-  _body: Record<string, unknown>,
+  body: Record<string, unknown>,
 ) {
   const membershipId = membership.id as string | undefined;
   const orgId = metadata.org_id as string | undefined;
@@ -171,41 +171,88 @@ async function handleOrgSubscription(
     );
   }
 
-  const orgStatus =
-    status === 'active' ||
-    status === 'completed' ||
-    status === 'trialing'
-      ? 'active'
-      : 'suspended';
+  // PRD §11.2 #8 — annual prorate.
+  // For `subscription.updated` we honour the new plan + cycle and reflect the
+  // prorated next-charge amount (when Whop sends it) into organization_billing.
+  // For `subscription.canceled` we keep the row (audit) but suspend the org.
+  const isUpdated = event === 'subscription.updated';
+  const isCanceled =
+    event === 'subscription.canceled' || event === 'subscription.cancelled';
 
-  // Upsert org billing row
+  const orgStatus = computeOrgStatus(event, status);
+  const proratedNextCharge = extractProratedAmount(body);
+
+  const billingRow: Record<string, unknown> = {
+    organization_id: orgId,
+    plan: tier,
+    billing_cycle: billingCycle,
+    whop_membership_id: membershipId,
+    whop_user_id: whopUserId,
+    whop_plan_id: planId,
+  };
+  if (proratedNextCharge != null) {
+    billingRow.next_charge_amount_cents = proratedNextCharge;
+  }
+  if (isCanceled) {
+    billingRow.canceled_at = new Date().toISOString();
+  }
+
   const { error: billErr } = await supabaseAdmin
     .from('organization_billing')
-    .upsert(
-      {
-        organization_id: orgId,
-        plan: tier,
-        billing_cycle: billingCycle,
-        whop_membership_id: membershipId,
-        whop_user_id: whopUserId,
-        whop_plan_id: planId,
-      },
-      { onConflict: 'organization_id' },
-    );
-
+    .upsert(billingRow, { onConflict: 'organization_id' });
   if (billErr) {
     console.error('[Whop Webhook] org billing upsert error:', billErr);
   }
 
-  // Activate the org
   const { error: orgErr } = await supabaseAdmin
     .from('organizations')
     .update({ status: orgStatus })
     .eq('id', orgId);
-
   if (orgErr) {
     console.error('[Whop Webhook] org status update error:', orgErr);
   }
 
-  return NextResponse.json({ ok: true, kind: 'org_subscription', event });
+  return NextResponse.json({
+    ok: true,
+    kind: 'org_subscription',
+    event,
+    updated: isUpdated,
+    canceled: isCanceled,
+    prorated_next_charge_cents: proratedNextCharge,
+  });
+}
+
+export function computeOrgStatus(event: string, whopStatus?: string): string {
+  if (event === 'subscription.canceled' || event === 'subscription.cancelled') {
+    return 'suspended';
+  }
+  if (
+    whopStatus === 'active' ||
+    whopStatus === 'completed' ||
+    whopStatus === 'trialing'
+  ) {
+    return 'active';
+  }
+  return 'suspended';
+}
+
+export function extractProratedAmount(body: Record<string, unknown>): number | null {
+  // Whop's `subscription.updated` payload typically carries the next charge
+  // amount under data.next_billing_amount_cents OR data.prorated_amount_cents
+  // depending on plan type. Try both, fall back to null.
+  const data = (body.data as Record<string, unknown>) || {};
+  const candidates = [
+    'prorated_next_charge_cents',
+    'next_billing_amount_cents',
+    'prorated_amount_cents',
+  ];
+  for (const k of candidates) {
+    const raw = data[k];
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    if (typeof raw === 'string') {
+      const n = Number(raw);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return null;
 }
