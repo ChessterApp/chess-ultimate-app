@@ -6,8 +6,9 @@ set -euo pipefail
 
 FRONTEND_DIR="/root/chess-app/frontend"
 STANDALONE_DIR="$FRONTEND_DIR/.next/standalone"
-# Next.js standalone nests server.js under the project path relative to outputFileTracingRoot
-NESTED_DIR="$STANDALONE_DIR/chess-app/frontend"
+# Next.js standalone now emits a flat layout — server.js sits directly in STANDALONE_DIR.
+# (Older builds nested under chess-app/frontend/; that path is gone.)
+SERVER_DIR="$STANDALONE_DIR"
 
 export HOME=/root
 
@@ -18,14 +19,20 @@ echo "[1/5] Building Next.js standalone..."
 cd "$FRONTEND_DIR"
 NODE_OPTIONS="--max-old-space-size=2048" npm run build
 
-# 2. Copy static assets into standalone (nested path where server.js lives)
+# Sanity check: server.js must live at the flat path.
+if [ ! -f "$SERVER_DIR/server.js" ]; then
+  echo "ERROR: expected $SERVER_DIR/server.js — standalone layout changed?"
+  exit 1
+fi
+
+# 2. Copy static assets into standalone (flat path where server.js lives)
 echo "[2/5] Copying static assets..."
-cp -r .next/static "$NESTED_DIR/.next/"
-cp -r public "$NESTED_DIR/"
+cp -r .next/static "$SERVER_DIR/.next/"
+cp -r public "$SERVER_DIR/"
 
 # 3. Copy .env.local into standalone (so PM2/server.js can read it)
 echo "[3/5] Copying .env.local..."
-cp .env.local "$NESTED_DIR/.env.local"
+cp .env.local "$SERVER_DIR/.env.local"
 
 # 4. Restart PM2
 echo "[4/5] Restarting PM2..."
