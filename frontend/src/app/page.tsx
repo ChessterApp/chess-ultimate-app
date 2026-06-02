@@ -1,3 +1,4 @@
+import { headers } from 'next/headers'
 import { useTranslations, useLocale } from 'next-intl'
 import Image from 'next/image'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
@@ -13,8 +14,10 @@ import { CTAButton } from '@/components/landing/CTAButton'
 import { HeroAnimatedBackground } from '@/components/landing/HeroAnimatedBackground'
 import { SocialButtons } from '@/components/landing/SocialButtons'
 import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
+import { TenantLanding } from '@/components/tenant/TenantLanding'
+import { fetchOrgForLanding } from '@/lib/tenant-landing-fetch'
 
-// Enable ISR: regenerate page every hour
+// Apex ISR — tenant rendering forces dynamic via headers() below.
 export const revalidate = 3600
 
 // Mascot placeholder component
@@ -38,7 +41,20 @@ const MascotPlaceholder = ({ size = 'lg', className = '', label = 'Mascot' }: { 
   )
 }
 
-export default function HomePage() {
+export default async function Page() {
+  const headersList = await headers()
+  const orgId = headersList.get('x-org-id')
+  const orgSlug = headersList.get('x-org-slug')
+  if (orgId && orgSlug) {
+    const org = await fetchOrgForLanding(orgId, orgSlug)
+    if (org) {
+      return <TenantLanding org={org} config={org.landingPageConfig} />
+    }
+  }
+  return <ApexHomePage />
+}
+
+function ApexHomePage() {
   const t = useTranslations()
   const locale = useLocale()
 

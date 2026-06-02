@@ -2,16 +2,17 @@
 
 import { useState } from 'react';
 import type { WizardPayload } from './WizardState';
+import { TenantLanding } from '@/components/tenant/TenantLanding';
 
-// PRD §5 (Phase 1) — preview the dashboard surface only. Phase 2 will add
-// the public landing-page renderer.
+// PRD §5 (Phase 1) + §11.2 #1 — preview surfaces:
+//   Home (public landing) · Dashboard · Courses · Puzzles · Login.
 //
 // We avoid an iframe to <slug>.chesster.io here because the slug only exists
 // after step 2 has saved and step 4 has paid. Instead we render an inline
 // "browser-chrome" mock that consumes the same brand colors via inline CSS
 // variables — exactly what the live dashboard would look like.
 
-const TABS = ['Dashboard', 'Courses', 'Puzzles', 'Login'] as const;
+const TABS = ['Home', 'Dashboard', 'Courses', 'Puzzles', 'Login'] as const;
 type Tab = (typeof TABS)[number];
 
 interface Props {
@@ -89,6 +90,25 @@ export function BrandPreviewPanel({ payload }: Props) {
 
         {/* Content */}
         <div className="p-4 min-h-[220px]">
+          {tab === 'Home' && (
+            <div className="-m-4">
+              <TenantLanding
+                hideAuthIsland
+                variant="preview"
+                org={{
+                  name,
+                  slug,
+                  logoUrl: logo ?? null,
+                  primaryColor: primary,
+                  secondaryColor: secondary,
+                  accentColor: accent,
+                }}
+                config={{
+                  hero_title: payload.hero_headline,
+                }}
+              />
+            </div>
+          )}
           {tab === 'Dashboard' && (
             <div className="space-y-3">
               <div className="rounded-lg border border-gray-200 p-3">
