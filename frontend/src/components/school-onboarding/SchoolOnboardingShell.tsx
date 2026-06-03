@@ -30,7 +30,7 @@ function StepDots({ current }: { current: WizardStep }) {
           key={s}
           aria-label={t('stepAriaLabel', { index: i + 1, name: t(`stepNames.${s}`) })}
           className={`h-2 w-6 rounded-full transition-colors ${
-            i <= idx ? 'bg-blue-600' : 'bg-gray-200'
+            i <= idx ? 'bg-green-600' : 'bg-gray-200'
           }`}
         />
       ))}
@@ -99,19 +99,26 @@ export function SchoolOnboardingShell({
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top bar */}
-      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between">
-        <Link href="/" className="font-semibold text-gray-900 tracking-tight">
-          {t('chesster')}
-        </Link>
-        <StepDots current={step} />
-        <button
-          type="button"
-          onClick={handleSaveExit}
-          className="text-sm text-gray-600 hover:text-gray-900"
-        >
-          {t('saveAndExit')}
-        </button>
+      {/* Top bar — stacks on mobile, single row on sm+ */}
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="font-semibold text-gray-900 tracking-tight">
+            {t('chesster')}
+          </Link>
+          <div className="hidden sm:flex">
+            <StepDots current={step} />
+          </div>
+          <button
+            type="button"
+            onClick={handleSaveExit}
+            className="text-sm text-gray-600 hover:text-gray-900 whitespace-nowrap"
+          >
+            {t('saveAndExit')}
+          </button>
+        </div>
+        <div className="mt-3 flex justify-center sm:hidden">
+          <StepDots current={step} />
+        </div>
       </header>
 
       {/* Body */}
