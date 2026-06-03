@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 import { locales, localeNames, localeFlags, type Locale } from '@/i18n/config'
 import { setLocale } from '@/app/actions/setLocale'
 
@@ -20,7 +19,6 @@ export default function LanguageSwitcher({
 }: LanguageSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const router = useRouter()
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -38,8 +36,8 @@ export default function LanguageSwitcher({
     // Use server action to ensure cookie is set properly
     await setLocale(newLocale)
     setIsOpen(false)
-    // Refresh to apply new locale - cookie is guaranteed to be set
-    router.refresh()
+    // Full reload so client components consuming NextIntlClientProvider re-mount with the new messages
+    window.location.reload()
   }
 
   const currentFlag = localeFlags[currentLocale as Locale] || '🌐'
