@@ -49,6 +49,8 @@ export interface WizardPayload {
   tier?: 'starter' | 'growth' | 'pro' | 'enterprise';
   billing_cycle?: 'monthly' | 'annual';
   student_count_estimate?: number;
+  // step 3 — enterprise self-serve (PRD §11.3 #1)
+  sso_enabled?: boolean;
   // step 4
   payment_status?: 'pending' | 'paid';
   organization_id?: string;

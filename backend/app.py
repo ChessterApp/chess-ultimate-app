@@ -242,6 +242,27 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import super-admin API: {e}")
 
 try:
+    from routes.branches import branches_bp
+    app.register_blueprint(branches_bp)
+    logger.info("✅ Branches API registered (multi-branch support)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import branches API: {e}")
+
+try:
+    from routes.ownership_transfer import ownership_transfer_bp
+    app.register_blueprint(ownership_transfer_bp)
+    logger.info("✅ Ownership-transfer API registered (PRD §11.3 #3)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import ownership-transfer API: {e}")
+
+try:
+    from routes.refunds import refunds_bp
+    app.register_blueprint(refunds_bp)
+    logger.info("✅ Refunds API registered (PRD §11.3 #4)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import refunds API: {e}")
+
+try:
     from commands.lifecycle_emails_cli import register_cli as register_lifecycle_cli
     register_lifecycle_cli(app)
     logger.info("✅ Lifecycle-emails CLI registered (flask lifecycle-emails send-due)")

@@ -1,5 +1,7 @@
 import { headers } from 'next/headers';
 import { OnboardingChecklist } from '@/components/admin/OnboardingChecklist';
+import { LoomEmbed } from '@/components/support/LoomEmbed';
+import { buildLoomConfig, pickLoomForTier } from '@/lib/loom';
 
 interface OrgStats {
   student_count: number;
@@ -70,12 +72,25 @@ export default async function AdminDashboardPage() {
     orgId ? fetchChecklistSnapshot(orgId) : Promise.resolve(null),
   ]);
 
+  // PRD §11.3 #5: Loom embed in the post-onboarding checklist for
+  // directors who didn't watch the Loom in the activation screen.
+  const loomCfg = buildLoomConfig(process.env as Record<string, string | undefined>);
+  const loomUrl = pickLoomForTier(loomCfg, checklist?.org?.plan ?? null);
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6">
         Dashboard
       </h1>
       {checklist && <OnboardingChecklist snapshot={checklist} />}
+      {loomUrl && (
+        <div className="mb-6">
+          <LoomEmbed
+            url={loomUrl}
+            title="Welcome — 2-minute walkthrough"
+          />
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard label="Total Students" value={stats.student_count} />
         <StatCard label="Active This Week" value={stats.active_this_week} />

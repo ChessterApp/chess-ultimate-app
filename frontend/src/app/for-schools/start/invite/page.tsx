@@ -6,7 +6,9 @@ import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPa
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
 import { useWizard } from '@/components/school-onboarding/WizardState';
 import { CsvImporter } from '@/components/school-onboarding/CsvImporter';
+import { LoomEmbed } from '@/components/support/LoomEmbed';
 import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
+import { buildLoomConfig, pickLoomForTier } from '@/lib/loom';
 
 interface InviteRow {
   email: string;
@@ -177,6 +179,18 @@ export default function StepInvite() {
       canAdvance={results.some(r => r.status === 'sent')}
     >
       <div className="flex flex-col gap-4">
+        {(() => {
+          const cfg = buildLoomConfig(
+            process.env as Record<string, string | undefined>,
+          );
+          const url = pickLoomForTier(cfg, payload.tier ?? null);
+          return url ? (
+            <LoomEmbed
+              url={url}
+              title="Alex's 90-second tour of your new dashboard"
+            />
+          ) : null;
+        })()}
         <CsvImporter
           remainingSeats={null}
           existingEmails={rows.map(r => r.email).filter(Boolean)}

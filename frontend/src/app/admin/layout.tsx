@@ -57,5 +57,28 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     redirect('/dashboard');
   }
 
-  return <AdminShell role={role}>{children}</AdminShell>;
+  // PRD §11.3 #5 — Intercom widget gated by plan. Best-effort fetch of the
+  // billing plan; intercom widget no-ops on starter or missing plan.
+  const plan = await getOrgPlan(orgId);
+
+  return (
+    <AdminShell role={role} plan={plan} userId={userId}>
+      {children}
+    </AdminShell>
+  );
+}
+
+async function getOrgPlan(orgId: string): Promise<string | null> {
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+    const res = await fetch(`${backendUrl}/api/admin/organizations/${orgId}/checklist`, {
+      signal: AbortSignal.timeout(3000),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body?.org?.plan ?? null;
+  } catch {
+    return null;
+  }
 }

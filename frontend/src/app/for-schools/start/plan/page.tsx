@@ -38,7 +38,10 @@ export default function StepPlan() {
   const cycle = payload.billing_cycle ?? 'monthly';
   const recommended = tiers ? recommendTier(studentEstimate, tiers) : null;
 
-  const canAdvance = Boolean(selectedTier && selectedTier !== 'enterprise');
+  // Enterprise is now self-serve (PRD §11.3 #1) — the wizard can advance to
+  // payment with tier=enterprise. The "Talk to sales" Calendly stays as an
+  // alternate CTA on the enterprise card.
+  const canAdvance = Boolean(selectedTier);
 
   return (
     <SchoolOnboardingShell
@@ -155,9 +158,32 @@ export default function StepPlan() {
                     ))}
                   </ul>
                   {isEnterprise && (
-                    <p className="mt-2 text-xs text-gray-500">
-                      Talk to sales — we&apos;ll send a Calendly link.
-                    </p>
+                    <div className="mt-2 space-y-1">
+                      <label
+                        className="flex items-center gap-1.5 text-xs text-gray-700"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(payload.sso_enabled)}
+                          onChange={e =>
+                            update({ sso_enabled: e.target.checked })
+                          }
+                          className="h-3 w-3 accent-blue-600"
+                          data-testid="sso-enabled-toggle"
+                        />
+                        Enable SSO (SAML/OIDC)
+                      </label>
+                      <a
+                        href="https://cal.com/chesster/enterprise"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={e => e.stopPropagation()}
+                        className="block text-xs text-blue-600 hover:underline"
+                      >
+                        Prefer to talk to sales? Book a call →
+                      </a>
+                    </div>
                   )}
                 </button>
               );

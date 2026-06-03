@@ -6,16 +6,19 @@ import { auth } from '@clerk/nextjs/server';
 // metadata.kind='org_subscription' so the webhook can branch into the
 // organization_billing path.
 
-type TierId = 'starter' | 'growth' | 'pro';
+type TierId = 'starter' | 'growth' | 'pro' | 'enterprise';
 type BillingCycle = 'monthly' | 'annual';
 
 // Map (tier, cycle) -> the Whop plan id env var.
+// Enterprise (PRD §11.3 #1): self-serve checkout uses a dedicated
+// NEXT_PUBLIC_WHOP_ORG_ENTERPRISE_{MONTHLY,ANNUAL} plan. Sales-assist
+// Calendly stays as an alternate CTA in the UI.
 function planIdFor(tier: TierId, cycle: BillingCycle): string | undefined {
   const key = `NEXT_PUBLIC_WHOP_ORG_${tier.toUpperCase()}_${cycle.toUpperCase()}`;
   return process.env[key];
 }
 
-const VALID_TIERS = new Set<TierId>(['starter', 'growth', 'pro']);
+const VALID_TIERS = new Set<TierId>(['starter', 'growth', 'pro', 'enterprise']);
 const VALID_CYCLES = new Set<BillingCycle>(['monthly', 'annual']);
 
 export async function POST(req: NextRequest) {
@@ -24,14 +27,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { tier?: string; billing_cycle?: string; org_id?: string };
+  let body: {
+    tier?: string;
+    billing_cycle?: string;
+    org_id?: string;
+    sso_enabled?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { tier, billing_cycle, org_id } = body;
+  const { tier, billing_cycle, org_id, sso_enabled } = body;
   if (!tier || !VALID_TIERS.has(tier as TierId)) {
     return NextResponse.json({ error: 'Invalid tier' }, { status: 400 });
   }
@@ -60,6 +68,13 @@ export async function POST(req: NextRequest) {
   checkoutUrl += `&metadata[tier]=${encodeURIComponent(tier)}`;
   checkoutUrl += `&metadata[billing_cycle]=${encodeURIComponent(billing_cycle)}`;
   checkoutUrl += `&metadata[clerk_user_id]=${encodeURIComponent(userId)}`;
+
+  // Enterprise self-serve: stamp the SSO toggle into metadata so the webhook
+  // can flip the SSO-stub flag on the org. UI sends `sso_enabled` from the
+  // enterprise tier card. Other tiers ignore the field.
+  if (tier === 'enterprise' && sso_enabled === true) {
+    checkoutUrl += `&metadata[sso_enabled]=true`;
+  }
 
   return NextResponse.json({ checkoutUrl, planId });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { verifyWhopSignature } from './verify';
+import { isRefundEvent, processRefundPayload } from '@/lib/refunds';
 
 // PRD §6.1 — Whop webhook handler with HMAC SHA-256 signature verification.
 //
@@ -56,6 +57,10 @@ export async function POST(req: NextRequest) {
       metadata.kind,
       JSON.stringify(body).slice(0, 300),
     );
+
+    if (isRefundEvent(event)) {
+      return await handleRefund(body);
+    }
 
     const kind = (metadata.kind as string) || 'individual';
 
@@ -234,6 +239,49 @@ export function computeOrgStatus(event: string, whopStatus?: string): string {
     return 'active';
   }
   return 'suspended';
+}
+
+// ─── Refund path (PRD §11.3 #4) ─────────────────────────────────────────────
+
+async function handleRefund(body: Record<string, unknown>) {
+  const client = {
+    selectExisting: async (eventId: string) => {
+      const { data } = await supabaseAdmin
+        .from('organization_refunds')
+        .select('id, organization_id, amount_cents')
+        .eq('whop_event_id', eventId)
+        .maybeSingle();
+      return data;
+    },
+    insertRefund: async (row: Record<string, unknown>) => {
+      await supabaseAdmin
+        .from('organization_refunds')
+        .upsert(row, { onConflict: 'whop_event_id', ignoreDuplicates: true });
+    },
+    insertAudit: async (row: Record<string, unknown>) => {
+      await supabaseAdmin
+        .from('organization_billing_audit')
+        .upsert(row, {
+          onConflict: 'event_kind,event_source_id',
+          ignoreDuplicates: true,
+        });
+    },
+    stampBilling: async (orgId: string, amountCents: number, ts: string) => {
+      await supabaseAdmin
+        .from('organization_billing')
+        .upsert(
+          {
+            organization_id: orgId,
+            last_refund_at: ts,
+            last_refund_amount_cents: amountCents,
+          },
+          { onConflict: 'organization_id' },
+        );
+    },
+  };
+
+  const result = await processRefundPayload(body, client);
+  return NextResponse.json({ ok: true, kind: 'refund', ...result });
 }
 
 export function extractProratedAmount(body: Record<string, unknown>): number | null {

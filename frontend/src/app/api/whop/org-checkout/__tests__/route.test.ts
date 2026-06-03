@@ -79,4 +79,50 @@ describe('POST /api/whop/org-checkout', () => {
     expect(body.checkoutUrl).toContain('metadata[billing_cycle]=monthly');
     expect(body.checkoutUrl).toContain('metadata[clerk_user_id]=user_xyz');
   });
+
+  it('accepts enterprise tier (PRD §11.3 #1)', async () => {
+    (auth as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ userId: 'user_xyz' });
+    process.env.NEXT_PUBLIC_WHOP_ORG_ENTERPRISE_MONTHLY = 'plan_ent_monthly_test';
+    const { POST } = await import('../route');
+    const r = await POST(req({ tier: 'enterprise', billing_cycle: 'monthly', org_id: 'org_ent' }) as never);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.checkoutUrl).toContain('whop.com/checkout/plan_ent_monthly_test');
+    expect(body.checkoutUrl).toContain('metadata[tier]=enterprise');
+  });
+
+  it('stamps sso_enabled when true on enterprise checkout', async () => {
+    (auth as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ userId: 'user_xyz' });
+    process.env.NEXT_PUBLIC_WHOP_ORG_ENTERPRISE_ANNUAL = 'plan_ent_annual_test';
+    const { POST } = await import('../route');
+    const r = await POST(req({
+      tier: 'enterprise', billing_cycle: 'annual', org_id: 'org_ent', sso_enabled: true,
+    }) as never);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.checkoutUrl).toContain('metadata[sso_enabled]=true');
+  });
+
+  it('does not stamp sso_enabled for non-enterprise tier', async () => {
+    (auth as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ userId: 'user_xyz' });
+    const { POST } = await import('../route');
+    const r = await POST(req({
+      tier: 'growth', billing_cycle: 'monthly', org_id: 'org_abc', sso_enabled: true,
+    }) as never);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.checkoutUrl).not.toContain('metadata[sso_enabled]');
+  });
+
+  it('omits sso_enabled when false on enterprise', async () => {
+    (auth as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({ userId: 'user_xyz' });
+    process.env.NEXT_PUBLIC_WHOP_ORG_ENTERPRISE_MONTHLY = 'plan_ent_monthly_test';
+    const { POST } = await import('../route');
+    const r = await POST(req({
+      tier: 'enterprise', billing_cycle: 'monthly', org_id: 'org_ent', sso_enabled: false,
+    }) as never);
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.checkoutUrl).not.toContain('metadata[sso_enabled]');
+  });
 });

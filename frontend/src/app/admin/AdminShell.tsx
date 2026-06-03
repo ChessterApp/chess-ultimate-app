@@ -1,19 +1,32 @@
 'use client';
 
 import { ReactNode, useState } from 'react';
-import { useBranding } from '@/contexts/OrganizationContext';
+import { useBranding, useOrganization } from '@/contexts/OrganizationContext';
 import AdminSidebar from './AdminSidebar';
+import { IntercomWidget } from '@/components/support/IntercomWidget';
 
 type MemberRole = 'owner' | 'admin' | 'teacher' | 'student';
 
 interface Props {
   role: MemberRole;
   children: ReactNode;
+  plan?: string | null;
+  userId?: string | null;
+  userEmail?: string | null;
+  userName?: string | null;
 }
 
-export default function AdminShell({ role, children }: Props) {
+export default function AdminShell({
+  role,
+  children,
+  plan,
+  userId,
+  userEmail,
+  userName,
+}: Props) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const branding = useBranding();
+  const { org } = useOrganization();
 
   return (
     <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -49,6 +62,14 @@ export default function AdminShell({ role, children }: Props) {
         </header>
         <main className="flex-1 min-w-0 p-4 sm:p-6 md:p-8">{children}</main>
       </div>
+      <IntercomWidget
+        tier={plan}
+        userId={userId ?? undefined}
+        email={userEmail ?? undefined}
+        name={userName ?? undefined}
+        orgId={org?.id ?? null}
+        orgName={org?.name ?? null}
+      />
     </div>
   );
 }
