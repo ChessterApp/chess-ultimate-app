@@ -15,7 +15,6 @@ export type ChecklistItemId =
 
 export interface ChecklistItem {
   id: ChecklistItemId;
-  label: string;
   href: string;
   completed: boolean;
   /** True when the item is hidden for the current tier (e.g. Pro-only). */
@@ -51,44 +50,37 @@ export function computeChecklist(snap: ChecklistSnapshot): ChecklistItem[] {
   const items: ChecklistItem[] = [
     {
       id: 'upload_logo',
-      label: 'Upload your logo',
       href: '/admin/settings',
       completed: Boolean(org.logoUrl),
     },
     {
       id: 'pick_colors',
-      label: 'Pick brand colors',
       href: '/admin/settings',
       completed: hasCustomColors,
     },
     {
       id: 'invite_students',
-      label: 'Invite 5+ students',
       href: '/admin/students',
       completed: studentCount >= 5,
     },
     {
       id: 'invite_teacher',
-      label: 'Invite your first teacher',
       href: '/admin/students',
       completed: teacherCount >= 1,
     },
     {
       id: 'publish_landing',
-      label: 'Publish your landing page',
       href: '/admin/settings',
       completed: landingConfigured,
     },
     {
       id: 'verify_sender',
-      label: 'Verify branded sender domain',
       href: '/admin/settings/sender-domain',
       completed: org.emailSenderStatus === 'active',
       hidden: !isPro,
     },
     {
       id: 'connect_domain',
-      label: 'Connect a custom domain',
       href: '/admin/settings/domain',
       completed: org.customDomainStatus === 'active',
       hidden: !isPro,

@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { useWizard, WIZARD_STEPS, type WizardStep } from './WizardState';
 import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
-// Maps WizardStep -> route segment. Step 'done' is the activation screen.
 const STEP_ROUTES: Record<WizardStep, string> = {
   account: '/for-schools/start',
   school: '/for-schools/start/school',
@@ -21,20 +21,21 @@ const STEP_ROUTES: Record<WizardStep, string> = {
 const VISIBLE_STEPS: WizardStep[] = WIZARD_STEPS.filter(s => s !== 'done');
 
 function StepDots({ current }: { current: WizardStep }) {
+  const t = useTranslations('schoolOnboarding.shell');
   const idx = VISIBLE_STEPS.indexOf(current);
   return (
     <div className="flex items-center gap-1.5">
       {VISIBLE_STEPS.map((s, i) => (
         <span
           key={s}
-          aria-label={`Step ${i + 1}: ${s}`}
+          aria-label={t('stepAriaLabel', { index: i + 1, name: t(`stepNames.${s}`) })}
           className={`h-2 w-6 rounded-full transition-colors ${
             i <= idx ? 'bg-blue-600' : 'bg-gray-200'
           }`}
         />
       ))}
       <span className="ml-3 text-xs text-gray-500">
-        Step {idx + 1} of {VISIBLE_STEPS.length}
+        {t('stepCounter', { current: idx + 1, total: VISIBLE_STEPS.length })}
       </span>
     </div>
   );
@@ -61,13 +62,14 @@ export function SchoolOnboardingShell({
   children,
   preview,
   backTo,
-  nextLabel = 'Continue',
+  nextLabel,
   onNext,
   canAdvance = true,
   hidePreview = false,
 }: ShellProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const t = useTranslations('schoolOnboarding.shell');
   const { setStep, save } = useWizard();
 
   // PRD §6.8 + Phase 1 carryover #7 — emit step_viewed once per mount.
@@ -93,12 +95,14 @@ export function SchoolOnboardingShell({
     }
   };
 
+  const resolvedNextLabel = nextLabel ?? `${t('continueDefault')} →`;
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Top bar */}
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 flex items-center justify-between">
         <Link href="/" className="font-semibold text-gray-900 tracking-tight">
-          Chesster
+          {t('chesster')}
         </Link>
         <StepDots current={step} />
         <button
@@ -106,7 +110,7 @@ export function SchoolOnboardingShell({
           onClick={handleSaveExit}
           className="text-sm text-gray-600 hover:text-gray-900"
         >
-          Save &amp; exit →
+          {t('saveAndExit')}
         </button>
       </header>
 
@@ -137,7 +141,7 @@ export function SchoolOnboardingShell({
               href={backTo}
               className="text-sm text-gray-600 hover:text-gray-900"
             >
-              ← Back
+              {t('back')}
             </Link>
           )}
         </div>
@@ -147,7 +151,7 @@ export function SchoolOnboardingShell({
           onClick={handleNext}
           className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-3 text-white font-semibold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed min-h-[44px]"
         >
-          {nextLabel} →
+          {resolvedNextLabel}
         </button>
       </footer>
     </div>

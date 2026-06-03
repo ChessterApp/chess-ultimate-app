@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
@@ -8,17 +9,24 @@ import { useWizard } from '@/components/school-onboarding/WizardState';
 import { extractPaletteFromUrl } from '@/lib/color-extract';
 import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
-const PRESET_PALETTES: Array<{ name: string; primary: string; secondary: string; accent: string }> = [
-  { name: 'Classic', primary: '#1a73e8', secondary: '#ffffff', accent: '#ffd700' },
-  { name: 'Royal', primary: '#7b1fa2', secondary: '#ffffff', accent: '#ffd54f' },
-  { name: 'Forest', primary: '#2e7d32', secondary: '#f8fafc', accent: '#cddc39' },
-  { name: 'Midnight', primary: '#0f172a', secondary: '#e2e8f0', accent: '#22d3ee' },
-  { name: 'Sunrise', primary: '#ea580c', secondary: '#fff7ed', accent: '#facc15' },
-  { name: 'Ocean', primary: '#0369a1', secondary: '#ecfeff', accent: '#0d9488' },
+const PRESET_PALETTES: Array<{
+  id: 'classic' | 'royal' | 'forest' | 'midnight' | 'sunrise' | 'ocean';
+  labelKey: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+}> = [
+  { id: 'classic', labelKey: 'paletteClassic', primary: '#1a73e8', secondary: '#ffffff', accent: '#ffd700' },
+  { id: 'royal', labelKey: 'paletteRoyal', primary: '#7b1fa2', secondary: '#ffffff', accent: '#ffd54f' },
+  { id: 'forest', labelKey: 'paletteForest', primary: '#2e7d32', secondary: '#f8fafc', accent: '#cddc39' },
+  { id: 'midnight', labelKey: 'paletteMidnight', primary: '#0f172a', secondary: '#e2e8f0', accent: '#22d3ee' },
+  { id: 'sunrise', labelKey: 'paletteSunrise', primary: '#ea580c', secondary: '#fff7ed', accent: '#facc15' },
+  { id: 'ocean', labelKey: 'paletteOcean', primary: '#0369a1', secondary: '#ecfeff', accent: '#0d9488' },
 ];
 
 export default function StepBrand() {
   const { payload, update } = useWizard();
+  const t = useTranslations('schoolOnboarding.brand');
   const [savingDomain, setSavingDomain] = useState(false);
   const [domainNote, setDomainNote] = useState<string | null>(null);
 
@@ -47,8 +55,8 @@ export default function StepBrand() {
   return (
     <SchoolOnboardingShell
       step="brand"
-      title="Make it yours."
-      subtitle="Brand colors apply live. Skip what you don't need — you can always edit later."
+      title={t('title')}
+      subtitle={t('subtitle')}
       backTo="/for-schools/start/payment"
       onNext={saveBrandToOrg}
       preview={<BrandPreviewPanel payload={payload} />}
@@ -56,14 +64,14 @@ export default function StepBrand() {
       <div className="flex flex-col gap-5">
         <fieldset>
           <legend className="text-sm font-medium text-gray-700">
-            Brand palette
+            {t('paletteLegend')}
           </legend>
           <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
             {PRESET_PALETTES.map(p => {
               const selected = payload.primary_color === p.primary;
               return (
                 <button
-                  key={p.name}
+                  key={p.id}
                   type="button"
                   onClick={() =>
                     update({
@@ -81,7 +89,7 @@ export default function StepBrand() {
                     <span className="h-4 w-4 rounded border border-gray-200" style={{ backgroundColor: p.secondary }} />
                     <span className="h-4 w-4 rounded" style={{ backgroundColor: p.accent }} />
                   </div>
-                  <span className="text-xs text-gray-700">{p.name}</span>
+                  <span className="text-xs text-gray-700">{t(p.labelKey)}</span>
                 </button>
               );
             })}
@@ -104,13 +112,13 @@ export default function StepBrand() {
             }}
             className="self-start text-xs rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50"
           >
-            Reset to logo-detected
+            {t('resetLogoDetected')}
           </button>
         )}
 
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
-            <span className="text-xs text-gray-600">Primary</span>
+            <span className="text-xs text-gray-600">{t('primary')}</span>
             <input
               type="color"
               value={payload.primary_color || '#1a73e8'}
@@ -119,7 +127,7 @@ export default function StepBrand() {
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-600">Secondary</span>
+            <span className="text-xs text-gray-600">{t('secondary')}</span>
             <input
               type="color"
               value={payload.secondary_color || '#ffffff'}
@@ -128,7 +136,7 @@ export default function StepBrand() {
             />
           </label>
           <label className="block">
-            <span className="text-xs text-gray-600">Accent</span>
+            <span className="text-xs text-gray-600">{t('accent')}</span>
             <input
               type="color"
               value={payload.accent_color || '#ffd700'}
@@ -142,19 +150,17 @@ export default function StepBrand() {
         </div>
 
         <label className="block">
-          <span className="text-sm font-medium text-gray-700">
-            Hero headline
-          </span>
+          <span className="text-sm font-medium text-gray-700">{t('heroLabel')}</span>
           <input
             type="text"
             value={
               payload.hero_headline ??
               (payload.school_name
-                ? `Welcome to ${payload.school_name} — your chess journey starts here.`
+                ? t('heroDefault', { schoolName: payload.school_name })
                 : '')
             }
             onChange={e => update({ hero_headline: e.target.value })}
-            placeholder="Welcome to your school"
+            placeholder={t('heroPlaceholder')}
             className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
           />
         </label>
@@ -162,19 +168,20 @@ export default function StepBrand() {
         {payload.tier === 'pro' && (
           <details className="rounded-lg border border-gray-200 p-3">
             <summary className="cursor-pointer text-sm font-medium text-gray-700">
-              Custom domain (Pro)
+              {t('customDomainTitle')}
             </summary>
             <div className="mt-3 space-y-2">
               <input
                 type="text"
                 value={payload.custom_domain || ''}
                 onChange={e => update({ custom_domain: e.target.value })}
-                placeholder="learn.yourdomain.com"
+                placeholder={t('customDomainPlaceholder')}
                 className="block w-full rounded-lg border border-gray-300 px-3 py-2 outline-none"
               />
               <p className="text-xs text-gray-500">
-                You&apos;ll set up DNS in <code>/admin/settings/domain</code> after
-                onboarding. The CNAME instructions are auto-generated there.
+                {t.rich('customDomainHelp', {
+                  code: chunks => <code>{chunks}</code>,
+                })}
               </p>
               <button
                 type="button"
@@ -192,16 +199,16 @@ export default function StepBrand() {
                         body: JSON.stringify({ domain: payload.custom_domain }),
                       },
                     );
-                    setDomainNote(res.ok ? 'Reserved — finish DNS in /admin/settings/domain.' : 'Could not reserve domain.');
+                    setDomainNote(res.ok ? t('reserveSuccess') : t('reserveFailed'));
                   } catch {
-                    setDomainNote('Could not reach the server.');
+                    setDomainNote(t('reserveServerUnreachable'));
                   } finally {
                     setSavingDomain(false);
                   }
                 }}
                 className="text-xs rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50 disabled:opacity-50"
               >
-                {savingDomain ? 'Reserving…' : 'Reserve this domain'}
+                {savingDomain ? t('reserving') : t('reserveDomain')}
               </button>
               {domainNote && (
                 <p className="text-xs text-gray-700">{domainNote}</p>

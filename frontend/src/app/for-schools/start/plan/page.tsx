@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
@@ -15,22 +16,30 @@ import {
   type TierMap,
 } from '@/lib/tiers';
 
-function priceLabel(tier: Tier, cycle: 'monthly' | 'annual'): string {
-  if (tier.price_usd_monthly === null) return 'Custom';
+function priceLabel(
+  tier: Tier,
+  cycle: 'monthly' | 'annual',
+  t: ReturnType<typeof useTranslations>,
+): string {
+  if (tier.price_usd_monthly === null) return t('customPrice');
   const amt = cycle === 'monthly' ? tier.price_usd_monthly : tier.price_usd_annual;
-  if (amt === null) return 'Custom';
-  return cycle === 'monthly' ? `$${amt}/mo` : `$${amt}/yr`;
+  if (amt === null) return t('customPrice');
+  return cycle === 'monthly'
+    ? t('pricePerMonth', { amount: amt })
+    : t('pricePerYear', { amount: amt });
 }
 
 export default function StepPlan() {
   const { payload, update } = useWizard();
+  const t = useTranslations('schoolOnboarding.plan');
   const [tiers, setTiers] = useState<TierMap | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTiers()
       .then(setTiers)
-      .catch(err => setError(err.message || 'Failed to load tiers'));
+      .catch(err => setError(err.message || t('loadFailedFallback')));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const studentEstimate = payload.student_count_estimate ?? 50;
@@ -38,16 +47,14 @@ export default function StepPlan() {
   const cycle = payload.billing_cycle ?? 'monthly';
   const recommended = tiers ? recommendTier(studentEstimate, tiers) : null;
 
-  // Enterprise is now self-serve (PRD §11.3 #1) — the wizard can advance to
-  // payment with tier=enterprise. The "Talk to sales" Calendly stays as an
-  // alternate CTA on the enterprise card.
+  // Enterprise is now self-serve (PRD §11.3 #1).
   const canAdvance = Boolean(selectedTier);
 
   return (
     <SchoolOnboardingShell
       step="plan"
-      title="Pick a plan that fits your school."
-      subtitle="Anchored to how many students you'll have. 30-day money-back guarantee."
+      title={t('title')}
+      subtitle={t('subtitle')}
       backTo="/for-schools/start/school"
       canAdvance={canAdvance}
       preview={<BrandPreviewPanel payload={payload} />}
@@ -55,7 +62,7 @@ export default function StepPlan() {
       <div className="flex flex-col gap-5">
         <div>
           <label className="text-sm font-medium text-gray-700">
-            How many students will you have on Chesster?
+            {t('studentsQuestion')}
           </label>
           <div className="mt-2 flex items-center gap-3">
             <input
@@ -70,12 +77,15 @@ export default function StepPlan() {
               className="flex-1 accent-blue-600"
             />
             <span className="w-16 text-right font-semibold tabular-nums">
-              {studentEstimate}+
+              {t('studentsSuffix', { count: studentEstimate })}
             </span>
           </div>
           {recommended && (
             <p className="mt-2 text-xs text-blue-700">
-              ✨ We recommend <strong>{tiers?.[recommended].display_name}</strong>.
+              {t.rich('recommended', {
+                tier: tiers?.[recommended].display_name ?? '',
+                b: chunks => <strong>{chunks}</strong>,
+              })}
             </p>
           )}
         </div>
@@ -90,7 +100,7 @@ export default function StepPlan() {
                 : 'bg-white text-gray-700 border-gray-300'
             }`}
           >
-            Monthly
+            {t('monthly')}
           </button>
           <button
             type="button"
@@ -101,7 +111,7 @@ export default function StepPlan() {
                 : 'bg-white text-gray-700 border-gray-300'
             }`}
           >
-            Annual <span className="ml-1 text-green-500">−15%</span>
+            {t('annual')} <span className="ml-1 text-green-500">{t('annualDiscount')}</span>
           </button>
         </div>
 
@@ -138,17 +148,17 @@ export default function StepPlan() {
                     <span className="font-semibold">{tier.display_name}</span>
                     {isRecommended && (
                       <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-600 text-white">
-                        Most popular
+                        {t('mostPopular')}
                       </span>
                     )}
                   </div>
                   <div className="mt-1 text-xl font-bold">
-                    {priceLabel(tier, cycle)}
+                    {priceLabel(tier, cycle, t)}
                   </div>
                   <div className="mt-0.5 text-xs text-gray-500">
                     {tier.seat_cap === null
-                      ? 'Unlimited students'
-                      : `Up to ${tier.seat_cap} students`}
+                      ? t('seatCapUnlimited')
+                      : t('seatCapLimited', { count: tier.seat_cap })}
                   </div>
                   <ul className="mt-2 space-y-0.5">
                     {tier.features.slice(0, 4).map(f => (
@@ -172,7 +182,7 @@ export default function StepPlan() {
                           className="h-3 w-3 accent-blue-600"
                           data-testid="sso-enabled-toggle"
                         />
-                        Enable SSO (SAML/OIDC)
+                        {t('ssoToggle')}
                       </label>
                       <a
                         href="https://cal.com/chesster/enterprise"
@@ -181,7 +191,7 @@ export default function StepPlan() {
                         onClick={e => e.stopPropagation()}
                         className="block text-xs text-blue-600 hover:underline"
                       >
-                        Prefer to talk to sales? Book a call →
+                        {t('talkToSales')}
                       </a>
                     </div>
                   )}

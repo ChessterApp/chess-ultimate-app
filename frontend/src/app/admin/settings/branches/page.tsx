@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { useOrganization } from '@/contexts/OrganizationContext';
 
 /**
@@ -20,6 +21,7 @@ interface Branch {
 export default function BranchesAdminPage() {
   const { org } = useOrganization();
   const orgId = org?.id || '';
+  const t = useTranslations('schoolOnboarding.admin.branches');
   const [branches, setBranches] = useState<Branch[]>([]);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -31,19 +33,20 @@ export default function BranchesAdminPage() {
     try {
       const res = await fetch(`/api/admin/organizations/${orgId}/branches`);
       if (!res.ok) {
-        setError(`Failed to load (${res.status})`);
+        setError(t('loadFailed', { status: res.status }));
         return;
       }
       const body = await res.json();
       setBranches(body.branches || []);
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'load failed');
+      setError(e instanceof Error ? e.message : t('loadException'));
     }
   }
 
   useEffect(() => {
     refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId]);
 
   async function create() {
@@ -58,7 +61,7 @@ export default function BranchesAdminPage() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        setError(body.message || `Failed (${res.status})`);
+        setError(body.message || t('failureFallback', { status: res.status }));
         return;
       }
       setName('');
@@ -72,23 +75,21 @@ export default function BranchesAdminPage() {
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
       <header>
-        <h1 className="text-2xl font-bold">Branches</h1>
-        <p className="text-sm text-gray-500">
-          Multi-location schools — assign coaches and students to a branch.
-        </p>
+        <h1 className="text-2xl font-bold">{t('heading')}</h1>
+        <p className="text-sm text-gray-500">{t('description')}</p>
       </header>
 
       <section className="rounded-lg border border-gray-200 p-4 space-y-2">
-        <h2 className="font-semibold">Add a branch</h2>
+        <h2 className="font-semibold">{t('addHeading')}</h2>
         <div className="grid grid-cols-2 gap-2">
           <input
-            placeholder="Almaty Downtown"
+            placeholder={t('namePlaceholder')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="rounded border border-gray-300 px-3 py-2"
           />
           <input
-            placeholder="almaty-downtown"
+            placeholder={t('slugPlaceholder')}
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             className="rounded border border-gray-300 px-3 py-2"
@@ -101,14 +102,14 @@ export default function BranchesAdminPage() {
           disabled={busy || !name || !slug}
           className="rounded bg-blue-600 px-4 py-2 text-white font-semibold disabled:opacity-50"
         >
-          Create branch
+          {t('createButton')}
         </button>
       </section>
 
       <section>
-        <h2 className="font-semibold mb-2">Existing branches</h2>
+        <h2 className="font-semibold mb-2">{t('existingHeading')}</h2>
         {branches.length === 0 ? (
-          <p className="text-sm text-gray-500">No branches yet.</p>
+          <p className="text-sm text-gray-500">{t('empty')}</p>
         ) : (
           <ul className="divide-y divide-gray-100 border border-gray-200 rounded">
             {branches.map((b) => (

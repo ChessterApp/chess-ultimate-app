@@ -1,15 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 
 import { useWizard } from '@/components/school-onboarding/WizardState';
 
 export default function StepDone() {
   const { payload } = useWizard();
+  const t = useTranslations('schoolOnboarding.done');
   const slug = payload.slug || 'yourschool';
   const tier = payload.tier
     ? payload.tier.charAt(0).toUpperCase() + payload.tier.slice(1)
-    : 'Starter';
+    : t('starterFallback');
   const invitedCount = (payload.invites || []).length;
 
   return (
@@ -17,23 +19,25 @@ export default function StepDone() {
       <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-200 shadow-sm p-4 sm:p-8 text-center">
         <div className="text-4xl">🎉</div>
         <h1 className="mt-4 text-2xl font-bold">
-          {payload.school_name || 'Your school'} is live.
+          {payload.school_name
+            ? t('headlineNamed', { schoolName: payload.school_name })
+            : t('headlineFallback')}
         </h1>
         <dl className="mt-6 grid grid-cols-2 gap-4 text-sm text-left">
           <div>
-            <dt className="text-gray-500">Your platform</dt>
+            <dt className="text-gray-500">{t('platform')}</dt>
             <dd className="font-mono">{slug}.chesster.io</dd>
           </div>
           <div>
-            <dt className="text-gray-500">Plan</dt>
-            <dd>{tier} · {payload.billing_cycle || 'monthly'}</dd>
+            <dt className="text-gray-500">{t('plan')}</dt>
+            <dd>{tier} · {payload.billing_cycle || t('cycleFallbackMonthly')}</dd>
           </div>
           <div>
-            <dt className="text-gray-500">Students invited</dt>
+            <dt className="text-gray-500">{t('studentsInvited')}</dt>
             <dd>{invitedCount}</dd>
           </div>
           <div>
-            <dt className="text-gray-500">Admin</dt>
+            <dt className="text-gray-500">{t('admin')}</dt>
             <dd>
               <a
                 href={`https://${slug}.chesster.io/admin`}
@@ -48,10 +52,10 @@ export default function StepDone() {
           href={`https://${slug}.chesster.io/admin`}
           className="mt-6 inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-3 text-white font-semibold hover:bg-blue-700"
         >
-          Take me to my dashboard →
+          {t('takeMe')}
         </Link>
         <p className="mt-4 text-xs text-gray-500">
-          Bookmark this page. Need help? Email{' '}
+          {t('bookmark')}{' '}
           <a href="mailto:support@chesster.io" className="underline">
             support@chesster.io
           </a>

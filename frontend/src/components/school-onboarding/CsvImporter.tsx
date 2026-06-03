@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useTranslations } from 'next-intl';
 import {
   parseCsv,
   detectColumnMapping,
@@ -12,16 +13,13 @@ import {
 import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 
 // PRD §11.2 #7 — Step 6 CSV bulk importer.
-//
-// Drag-drop + paste textbox · column auto-detect with manual override ·
-// row-level preview · tier-cap-aware partial success.
 
 type MappedColumn = 'email' | 'first_name' | 'last_name';
 
-const COLUMN_OPTIONS: Array<{ value: MappedColumn; label: string }> = [
-  { value: 'email', label: 'Email' },
-  { value: 'first_name', label: 'First name' },
-  { value: 'last_name', label: 'Last name' },
+const COLUMN_OPTIONS: Array<{ value: MappedColumn; labelKey: string }> = [
+  { value: 'email', labelKey: 'columnEmail' },
+  { value: 'first_name', labelKey: 'columnFirstName' },
+  { value: 'last_name', labelKey: 'columnLastName' },
 ];
 
 interface Props {
@@ -37,6 +35,7 @@ export function CsvImporter({
   onSubmit,
   submitting,
 }: Props) {
+  const t = useTranslations('schoolOnboarding.csv');
   const [data, setData] = useState<string[][] | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<ColumnMapping | null>(null);
@@ -48,20 +47,18 @@ export function CsvImporter({
     try {
       const parsed = parseCsv(text);
       if (!parsed.length) {
-        setParseError('No rows found');
+        setParseError(t('noRowsError'));
         return;
       }
       const head = parsed[0];
       const detected = detectColumnMapping(head);
-      // Heuristic: if mapping detected, treat first row as header. Otherwise
-      // treat the file as headerless and synthesise positional headers.
       if (detected.auto_detected) {
         setHeaders(head);
         setData(parsed.slice(1));
         setMapping(detected);
       } else {
         const cols = head.length;
-        setHeaders(Array.from({ length: cols }, (_, i) => `Column ${i + 1}`));
+        setHeaders(Array.from({ length: cols }, (_, i) => t('columnPositional', { n: i + 1 })));
         setData(parsed);
         setMapping({
           email: cols === 1 ? 0 : null,
@@ -75,9 +72,9 @@ export function CsvImporter({
         auto_detected: detected.auto_detected,
       });
     } catch (err) {
-      setParseError(err instanceof Error ? err.message : 'Failed to parse CSV');
+      setParseError(err instanceof Error ? err.message : t('parseFailed'));
     }
-  }, []);
+  }, [t]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -93,7 +90,6 @@ export function CsvImporter({
     file.text().then(ingest);
   };
 
-  // Recompute preview whenever data/mapping change. Pure.
   const mapped =
     data && mapping
       ? mapRows(data, mapping, existingEmails)
@@ -113,9 +109,9 @@ export function CsvImporter({
   return (
     <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-semibold text-gray-800">CSV import</h4>
+        <h4 className="text-sm font-semibold text-gray-800">{t('heading')}</h4>
         <label className="text-xs text-blue-600 cursor-pointer hover:underline">
-          Pick file
+          {t('pickFile')}
           <input
             type="file"
             accept=".csv,text/csv"
@@ -136,16 +132,16 @@ export function CsvImporter({
           dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 text-gray-500'
         }`}
       >
-        Drop a CSV file here, or
+        {t('dropHere')}
         <button
           type="button"
           className="ml-1 text-blue-600 underline"
           onClick={() => {
-            const ta = prompt('Paste CSV content');
+            const ta = prompt(t('pastePrompt'));
             if (ta) ingest(ta);
           }}
         >
-          paste content
+          {t('pasteContent')}
         </button>
       </div>
 
@@ -155,12 +151,12 @@ export function CsvImporter({
         <div className="mt-3 space-y-3">
           <div>
             <div className="text-xs font-medium text-gray-600 mb-1">
-              Map columns
+              {t('mapColumns')}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
               {COLUMN_OPTIONS.map(opt => (
                 <label key={opt.value} className="flex flex-col">
-                  <span className="text-gray-500">{opt.label}</span>
+                  <span className="text-gray-500">{t(opt.labelKey)}</span>
                   <select
                     value={mapping[opt.value] ?? ''}
                     onChange={e =>
@@ -171,7 +167,7 @@ export function CsvImporter({
                     }
                     className="mt-0.5 rounded border border-gray-300 px-1 py-1"
                   >
-                    <option value="">— none —</option>
+                    <option value="">{t('columnNone')}</option>
                     {headers.map((h, i) => (
                       <option key={i} value={i}>
                         {h}
@@ -188,9 +184,9 @@ export function CsvImporter({
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
-                    <th className="px-2 py-1 text-left">Row</th>
-                    <th className="px-2 py-1 text-left">Email</th>
-                    <th className="px-2 py-1 text-left">Status</th>
+                    <th className="px-2 py-1 text-left">{t('tableRow')}</th>
+                    <th className="px-2 py-1 text-left">{t('tableEmail')}</th>
+                    <th className="px-2 py-1 text-left">{t('tableStatus')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -199,12 +195,12 @@ export function CsvImporter({
                     return (
                       <tr key={r.index} className="border-t">
                         <td className="px-2 py-1 text-gray-400">{r.index + 1}</td>
-                        <td className="px-2 py-1 font-mono">{r.email || '(empty)'}</td>
+                        <td className="px-2 py-1 font-mono">{r.email || t('emailEmpty')}</td>
                         <td className="px-2 py-1">
                           {skipped ? (
-                            <span className="text-amber-600">tier_cap</span>
+                            <span className="text-amber-600">{t('statusTierCap')}</span>
                           ) : r.status === 'ok' ? (
-                            <span className="text-green-600">ok</span>
+                            <span className="text-green-600">{t('statusOk')}</span>
                           ) : (
                             <span className="text-red-600">{r.status}</span>
                           )}
@@ -219,20 +215,23 @@ export function CsvImporter({
 
           {mapped && cap && (
             <div className="text-xs text-gray-600">
-              {cap.to_import.length} ready · {mapped.invalid_count} invalid ·{' '}
-              {mapped.duplicate_count} dupes · {cap.skipped_for_cap.length} over cap
+              {t('statusCounts', {
+                ready: cap.to_import.length,
+                invalid: mapped.invalid_count,
+                dupes: mapped.duplicate_count,
+                overCap: cap.skipped_for_cap.length,
+              })}
             </div>
           )}
 
           {cap && cap.skipped_for_cap.length > 0 && (
             <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
-              <strong>{cap.skipped_for_cap.length} row{cap.skipped_for_cap.length === 1 ? '' : 's'} skipped</strong>{' '}
-              — upgrade to invite all.{' '}
+              <strong>{t('capWarning', { count: cap.skipped_for_cap.length })}</strong>{' '}
               <a
                 href="/admin/billing"
                 className="font-medium underline underline-offset-2"
               >
-                Upgrade plan →
+                {t('upgradePlan')}
               </a>
             </div>
           )}
@@ -243,7 +242,7 @@ export function CsvImporter({
             onClick={handleImport}
             className="rounded bg-blue-600 px-4 h-11 text-sm font-medium text-white disabled:bg-gray-300"
           >
-            {submitting ? 'Importing…' : `Import ${cap?.to_import.length ?? 0} invites`}
+            {submitting ? t('importing') : t('importButton', { count: cap?.to_import.length ?? 0 })}
           </button>
         </div>
       )}

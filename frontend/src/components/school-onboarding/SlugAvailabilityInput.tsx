@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 interface AvailabilityResult {
   available: boolean;
@@ -17,6 +18,7 @@ interface Props {
 
 // PRD §6.5 — debounced 300ms availability check.
 export function SlugAvailabilityInput({ value, onChange, onAvailabilityChange }: Props) {
+  const t = useTranslations('schoolOnboarding.slug');
   const [state, setState] = useState<
     'idle' | 'checking' | 'ok' | 'bad'
   >('idle');
@@ -61,13 +63,12 @@ export function SlugAvailabilityInput({ value, onChange, onAvailabilityChange }:
 
   const reasonText = (() => {
     if (!info) return null;
-    if (info.available) return 'Available';
+    if (info.available) return t('available');
     if (info.message) return info.message;
-    if (info.reason === 'taken') return 'Taken — try one below';
-    if (info.reason === 'reserved') return 'Reserved name — try one below';
-    if (info.reason === 'invalid_format')
-      return 'Use lowercase letters, numbers, and hyphens (2-30 chars).';
-    return 'Unavailable';
+    if (info.reason === 'taken') return t('taken');
+    if (info.reason === 'reserved') return t('reserved');
+    if (info.reason === 'invalid_format') return t('invalidFormat');
+    return t('unavailable');
   })();
 
   const dotColor =
@@ -86,12 +87,12 @@ export function SlugAvailabilityInput({ value, onChange, onAvailabilityChange }:
           type="text"
           value={value}
           onChange={e => onChange(e.target.value.toLowerCase())}
-          placeholder="almatychess"
-          aria-label="Subdomain slug"
+          placeholder={t('placeholder')}
+          aria-label={t('ariaLabel')}
           className="flex-1 min-w-0 px-3 py-2 text-sm outline-none"
         />
         <span className="shrink-0 whitespace-nowrap bg-gray-50 border-l border-gray-200 px-3 py-2 text-sm text-gray-600 inline-flex items-center">
-          .chesster.io
+          {t('suffix')}
         </span>
       </div>
 
@@ -109,7 +110,7 @@ export function SlugAvailabilityInput({ value, onChange, onAvailabilityChange }:
               : 'text-gray-500'
           }
         >
-          {state === 'checking' ? 'Checking…' : reasonText ?? 'Enter a name'}
+          {state === 'checking' ? t('checking') : reasonText ?? t('enterName')}
         </span>
       </div>
 

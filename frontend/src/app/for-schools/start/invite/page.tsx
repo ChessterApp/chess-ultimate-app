@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
@@ -32,6 +33,7 @@ function parseList(raw: string): InviteRow[] {
 
 export default function StepInvite() {
   const { payload, update } = useWizard();
+  const t = useTranslations('schoolOnboarding.invite');
   const [bulkText, setBulkText] = useState('');
   const [rows, setRows] = useState<InviteRow[]>(payload.invites as InviteRow[] || []);
   const [sending, setSending] = useState(false);
@@ -79,7 +81,7 @@ export default function StepInvite() {
       });
       if ((body.rejected || []).some((r: { reason?: string }) => r.reason === 'tier_cap')) {
         setTierError(
-          `Seat limit reached on your ${body.plan ?? ''} plan. Upgrade to invite all rows.`,
+          t('tierCapErrorBulk', { plan: body.plan ?? '' }),
         );
       }
     } finally {
@@ -127,7 +129,7 @@ export default function StepInvite() {
     const out: SendResult[] = [];
     for (const row of rows) {
       if (!/^.+@.+\..+$/.test(row.email)) {
-        out.push({ email: row.email, status: 'failed', reason: 'Invalid email' });
+        out.push({ email: row.email, status: 'failed', reason: t('invalidEmail') });
         continue;
       }
       try {
@@ -142,7 +144,11 @@ export default function StepInvite() {
         if (res.status === 402) {
           const body = await res.json();
           setTierError(
-            `Seat limit reached on your ${body.plan} plan (${body.current_count}/${body.seat_cap}). Upgrade to send the rest.`,
+            t('tierCapErrorSingle', {
+              plan: body.plan,
+              current: body.current_count,
+              cap: body.seat_cap,
+            }),
           );
           out.push({ email: row.email, status: 'over_limit' });
           break;
@@ -154,7 +160,7 @@ export default function StepInvite() {
           out.push({ email: row.email, status: 'failed', reason: body.error });
         }
       } catch {
-        out.push({ email: row.email, status: 'failed', reason: 'Network error' });
+        out.push({ email: row.email, status: 'failed', reason: t('networkError') });
       }
     }
     setResults(out);
@@ -171,11 +177,11 @@ export default function StepInvite() {
   return (
     <SchoolOnboardingShell
       step="invite"
-      title="Invite your students."
-      subtitle="Add a few now — you can bulk-import more later from /admin/students."
+      title={t('title')}
+      subtitle={t('subtitle')}
       backTo="/for-schools/start/brand"
       preview={<BrandPreviewPanel payload={payload} />}
-      nextLabel="Finish →"
+      nextLabel={t('nextLabel')}
       canAdvance={results.some(r => r.status === 'sent')}
     >
       <div className="flex flex-col gap-4">
@@ -187,7 +193,7 @@ export default function StepInvite() {
           return url ? (
             <LoomEmbed
               url={url}
-              title="Alex's 90-second tour of your new dashboard"
+              title={t('loomTitle')}
             />
           ) : null;
         })()}
@@ -200,12 +206,12 @@ export default function StepInvite() {
 
         <div>
           <label className="text-sm font-medium text-gray-700">
-            Paste a list of emails
+            {t('pasteEmailsLabel')}
           </label>
           <textarea
             value={bulkText}
             onChange={e => setBulkText(e.target.value)}
-            placeholder={'student1@example.com\nstudent2@example.com'}
+            placeholder={t('pasteEmailsPlaceholder')}
             rows={3}
             className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
           />
@@ -214,21 +220,21 @@ export default function StepInvite() {
             onClick={appendFromBulk}
             className="mt-2 text-xs rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50"
           >
-            Add to list
+            {t('addToList')}
           </button>
         </div>
 
         <div>
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium text-gray-700">
-              Invitees ({rows.length})
+              {t('inviteesCount', { count: rows.length })}
             </label>
             <button
               type="button"
               onClick={appendOne}
               className="text-xs text-blue-600 hover:underline"
             >
-              + Add another
+              {t('addAnother')}
             </button>
           </div>
           <ul className="mt-2 flex flex-col gap-2">
@@ -240,7 +246,7 @@ export default function StepInvite() {
                 <input
                   type="email"
                   value={row.email}
-                  placeholder="student@example.com"
+                  placeholder={t('emailPlaceholder')}
                   onChange={e => patchRow(i, { email: e.target.value })}
                   className="col-span-2 sm:col-span-1 min-w-0 rounded border border-gray-300 px-2 py-1.5 text-sm outline-none focus:border-blue-500"
                 />
@@ -253,15 +259,15 @@ export default function StepInvite() {
                   }
                   className="rounded border border-gray-300 px-2 py-1.5 text-sm"
                 >
-                  <option value="student">Student</option>
-                  <option value="teacher">Teacher</option>
-                  <option value="admin">Admin</option>
+                  <option value="student">{t('roleStudent')}</option>
+                  <option value="teacher">{t('roleTeacher')}</option>
+                  <option value="admin">{t('roleAdmin')}</option>
                 </select>
                 <button
                   type="button"
                   onClick={() => removeRow(i)}
                   className="h-11 w-11 inline-flex items-center justify-center text-gray-500 hover:text-red-600"
-                  aria-label={`Remove ${row.email}`}
+                  aria-label={t('removeAriaLabel', { email: row.email })}
                 >
                   ✕
                 </button>
@@ -276,7 +282,7 @@ export default function StepInvite() {
           disabled={!payload.organization_id || rows.length === 0 || sending}
           className="rounded-lg bg-blue-600 px-4 py-2.5 text-white font-medium hover:bg-blue-700 disabled:bg-gray-300"
         >
-          {sending ? 'Sending…' : `Send ${rows.length} invites`}
+          {sending ? t('sending') : t('sendInvites', { count: rows.length })}
         </button>
 
         {tierError && (
@@ -286,7 +292,7 @@ export default function StepInvite() {
               href="/admin/billing"
               className="font-medium underline underline-offset-2"
             >
-              Upgrade plan →
+              {t('upgradePlan')}
             </a>
           </div>
         )}
