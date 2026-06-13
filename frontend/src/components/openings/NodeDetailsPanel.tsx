@@ -198,6 +198,7 @@ export default function NodeDetailsPanel({
   // Chess.com tab content
   const chesscomContent = (
     <ChessComExplorerTab
+      fen={node.fen}
       onOpenGame={onOpenGame}
     />
   );

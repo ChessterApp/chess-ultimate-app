@@ -8,8 +8,49 @@
  * - Caching handled by Service Worker (stale-while-revalidate, 10min TTL)
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Chess } from 'chess.js';
 import type { GameSearchResult } from './useOpeningRepertoire';
+
+export const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+/**
+ * Reduce a FEN to its position-identifying prefix (piece placement, side, castling, ep).
+ * Halfmove/fullmove counters are stripped — matches the codebase convention used to
+ * dedupe transpositions (see src/app/database/page.tsx:408).
+ */
+export function fenKey(fen: string): string {
+  return fen.split(' ').slice(0, 4).join(' ');
+}
+
+const STARTING_FEN_KEY = fenKey(STARTING_FEN);
+
+/**
+ * Replay a PGN and collect every FEN-key the game passes through (including the start).
+ * Returns a Set keyed by the first 4 FEN fields so transposing games still match.
+ */
+export function computeReachedFens(pgn: string): Set<string> {
+  const set = new Set<string>();
+  set.add(STARTING_FEN_KEY);
+  if (!pgn) return set;
+  const chess = new Chess();
+  try {
+    chess.loadPgn(pgn);
+  } catch {
+    return set;
+  }
+  const history = chess.history();
+  const replay = new Chess();
+  for (const move of history) {
+    try {
+      replay.move(move);
+      set.add(fenKey(replay.fen()));
+    } catch {
+      break;
+    }
+  }
+  return set;
+}
 
 export interface ChessComGame {
   url: string;
@@ -40,6 +81,7 @@ export interface UseChessComExplorerOptions {
   username: string;
   enabled?: boolean;
   maxMonths?: number; // Limit how many months to fetch (default: all)
+  fen?: string; // Current board position; when set (and !== STARTING_FEN), filter to games that reached it
 }
 
 export interface UseChessComExplorerResult {
@@ -48,6 +90,8 @@ export interface UseChessComExplorerResult {
   error: string | null;
   retry: () => void;
   progress: { loaded: number; total: number } | null;
+  /** Map<game.id, Set<fenKey>> with every position each game's PGN reaches. */
+  reachedFensMap: Map<string, Set<string>>;
 }
 
 /**
@@ -101,6 +145,7 @@ export function useChessComExplorer({
   username,
   enabled = true,
   maxMonths,
+  fen,
 }: UseChessComExplorerOptions): UseChessComExplorerResult {
   const [games, setGames] = useState<GameSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,6 +154,31 @@ export function useChessComExplorer({
   const [retryTrigger, setRetryTrigger] = useState(0);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Cache reachedFens per game.id so filter changes (time-control/rating/color/result)
+  // do not trigger PGN re-parsing.
+  const reachedFensCacheRef = useRef<Map<string, Set<string>>>(new Map());
+
+  // Skip PGN parsing entirely while the board is at the starting position —
+  // there is no useful filtering to do, and parsing hundreds of PGNs is wasted work.
+  const positionFilterActive = fen !== undefined && fen !== STARTING_FEN;
+
+  const reachedFensMap = useMemo(() => {
+    if (!positionFilterActive) return reachedFensCacheRef.current;
+    const cache = reachedFensCacheRef.current;
+    let added = false;
+    for (const game of games) {
+      // GameSearchResult.id is string | number; coerce so the Map has consistent keys.
+      const id = String(game.id);
+      if (!cache.has(id)) {
+        cache.set(id, computeReachedFens(game.pgn || ''));
+        added = true;
+      }
+    }
+    // Return a fresh Map reference when new entries were added so downstream
+    // memos relying on this map will re-derive. Otherwise reuse the same ref
+    // so unrelated re-renders stay cheap.
+    return added ? new Map(cache) : cache;
+  }, [games, positionFilterActive]);
 
   const retry = useCallback(() => {
     setRetryTrigger((prev) => prev + 1);
@@ -229,5 +299,5 @@ export function useChessComExplorer({
     };
   }, [username, enabled, retryTrigger, maxMonths]);
 
-  return { games, loading, error, retry, progress };
+  return { games, loading, error, retry, progress, reachedFensMap };
 }

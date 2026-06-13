@@ -23,19 +23,21 @@ import {
   useTheme,
   Slider,
 } from '@mui/material';
-import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
-import { useChessComExplorer } from '@/hooks/useChessComExplorer';
+import { ChevronLeft, ChevronRight, Refresh, Search, FilterList, MyLocation } from '@mui/icons-material';
+import { useChessComExplorer, STARTING_FEN, fenKey } from '@/hooks/useChessComExplorer';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
 import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 
 interface ChessComExplorerTabProps {
+  fen: string;
   onOpenGame?: (game: GameSearchResult) => void;
 }
 
 const GAMES_PER_PAGE = 10;
 
 export default function ChessComExplorerTab({
+  fen,
   onOpenGame,
 }: ChessComExplorerTabProps) {
   const t = useTranslations('debut');
@@ -53,16 +55,20 @@ export default function ChessComExplorerTab({
   const [playerColor, setPlayerColor] = useState<string>(''); // white/black/both
   const [resultFilter, setResultFilter] = useState<string>(''); // win/draw/loss/all
 
-  const { games, loading, error, retry, progress } = useChessComExplorer({
+  const { games, loading, error, retry, progress, reachedFensMap } = useChessComExplorer({
     username: searchUsername,
     enabled: !!searchUsername,
     maxMonths: archiveMonths >= 999 ? undefined : archiveMonths,
+    fen,
   });
 
-  // Reset page when username or filters change
+  const positionFilterActive = fen !== STARTING_FEN;
+  const targetFenKey = useMemo(() => fenKey(fen), [fen]);
+
+  // Reset page when username or filters change (including position)
   useEffect(() => {
     setGamesPage(0);
-  }, [searchUsername, timeControl, minRating, playerColor, resultFilter]);
+  }, [searchUsername, timeControl, minRating, playerColor, resultFilter, targetFenKey]);
 
   // Client-side filtering
   const filteredGames = useMemo(() => {
@@ -109,8 +115,17 @@ export default function ChessComExplorerTab({
     return filtered;
   }, [games, timeControl, minRating, playerColor, resultFilter, searchUsername]);
 
-  const visibleGames = filteredGames.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE);
-  const totalPages = Math.ceil(filteredGames.length / GAMES_PER_PAGE);
+  // Apply position filter AFTER the existing filters (skip when at starting position)
+  const filteredByPosition = useMemo(() => {
+    if (!positionFilterActive) return filteredGames;
+    return filteredGames.filter((g) => reachedFensMap.get(String(g.id))?.has(targetFenKey));
+  }, [filteredGames, reachedFensMap, targetFenKey, positionFilterActive]);
+
+  const filteredByPositionCount = filteredByPosition.length;
+  const totalCount = filteredGames.length;
+
+  const visibleGames = filteredByPosition.slice(gamesPage * GAMES_PER_PAGE, (gamesPage + 1) * GAMES_PER_PAGE);
+  const totalPages = Math.ceil(filteredByPosition.length / GAMES_PER_PAGE);
 
   const handleSearch = () => {
     if (username.trim()) {
@@ -252,7 +267,7 @@ export default function ChessComExplorerTab({
                 mb: filtersOpen ? 0.5 : 0,
               }}
             >
-              Filters {filteredGames.length > 0 && `(${filteredGames.length})`}
+              Filters {filteredByPosition.length > 0 && `(${filteredByPosition.length})`}
             </Button>
           )}
 
@@ -307,9 +322,9 @@ export default function ChessComExplorerTab({
                 />
               </Box>
 
-              {filteredGames.length > 0 && !isMobile && (
+              {filteredByPosition.length > 0 && !isMobile && (
                 <Chip
-                  label={`${filteredGames.length} games`}
+                  label={`${filteredByPosition.length} games`}
                   size="small"
                   sx={{ height: 20, fontSize: 11, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
                 />
@@ -354,8 +369,32 @@ export default function ChessComExplorerTab({
         </Box>
       )}
 
+      {/* Position filter indicator */}
+      {searchUsername && !error && positionFilterActive && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+          <Chip
+            icon={<MyLocation sx={{ fontSize: 12, '&&': { color: '#14b8a6' } }} />}
+            label="Filtered by current position"
+            size="small"
+            sx={{
+              height: 20,
+              fontSize: 11,
+              bgcolor: 'rgba(20, 184, 166, 0.15)',
+              color: '#14b8a6',
+              border: '1px solid rgba(20, 184, 166, 0.3)',
+              '& .MuiChip-icon': { ml: 0.5, mr: -0.25 },
+            }}
+          />
+          {!loading && totalCount > 0 && (
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
+              {filteredByPositionCount} / {totalCount} games reached this position
+            </Typography>
+          )}
+        </Box>
+      )}
+
       {/* Games table */}
-      {!loading && !error && filteredGames.length > 0 && (
+      {!loading && !error && filteredByPosition.length > 0 && (
         <Box>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
             Games
@@ -396,14 +435,23 @@ export default function ChessComExplorerTab({
       {/* Empty state (no username entered) */}
       {!searchUsername && !loading && (
         <EmptyState
-          type="position-search-unavailable"
-          message="Position search not available for Chess.com"
-          hint="Enter a Chess.com username to search their games"
+          type="no-search"
+          message="Enter a Chess.com username"
+          hint="Search a player's games. When a position is selected on the board, results will be filtered to games that reached it."
         />
       )}
 
-      {/* Empty state (no games match filters) */}
-      {!loading && !error && searchUsername && filteredGames.length === 0 && games.length > 0 && (
+      {/* Empty state (position filter yields 0 but underlying games exist) */}
+      {!loading && !error && searchUsername && positionFilterActive && filteredByPosition.length === 0 && totalCount > 0 && (
+        <EmptyState
+          type="no-games"
+          message={`No games by ${searchUsername} reached this position in the last ${archiveMonths >= 999 ? 'all' : archiveMonths} months`}
+          hint="Try a longer period or a different position."
+        />
+      )}
+
+      {/* Empty state (no games match non-position filters) */}
+      {!loading && !error && searchUsername && !positionFilterActive && filteredGames.length === 0 && games.length > 0 && (
         <EmptyState type="no-results" />
       )}
 
