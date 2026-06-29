@@ -300,6 +300,74 @@ describe('POST /api/promo/redeem', () => {
     expect(res.status).toBe(409);
   });
 
+  it('second redeem of same code with no max_uses cap still succeeds (uses increments)', async () => {
+    const { POST } = await import('../route');
+
+    // First redeem — uses 0 → 1.
+    mockAuth(USER);
+    scriptOwner();
+    scriptPromo({
+      code: 'FREE',
+      discount_pct: 100,
+      max_uses: null,
+      uses: 0,
+      active: true,
+      expires_at: null,
+    });
+    scripts['promo_codes.update'] = [
+      { data: { code: 'FREE', uses: 1 }, error: null },
+    ];
+    scripts['organization_billing.upsert'] = [{ data: null, error: null }];
+    scripts['organizations.update'] = [{ data: null, error: null }];
+
+    const res1 = await POST(
+      jsonReq({ code: 'FREE', orgId: ORG, tier: 'starter', cycle: 'monthly' }) as never,
+    );
+    expect(res1.status).toBe(200);
+    expect(await res1.json()).toEqual({ ok: true, redirect: '/for-schools/start/brand' });
+
+    const firstUpdate = recorded.find(
+      (r) => r.table === 'promo_codes' && r.op === 'update',
+    );
+    expect(firstUpdate!.payload).toEqual({ uses: 1 });
+
+    // Second redeem against the post-increment row — uses 1 → 2, no cap blocks it.
+    resetMocks();
+    mockAuth(USER);
+    scriptOwner();
+    scriptPromo({
+      code: 'FREE',
+      discount_pct: 100,
+      max_uses: null,
+      uses: 1,
+      active: true,
+      expires_at: null,
+    });
+    scripts['promo_codes.update'] = [
+      { data: { code: 'FREE', uses: 2 }, error: null },
+    ];
+    scripts['organization_billing.upsert'] = [{ data: null, error: null }];
+    scripts['organizations.update'] = [{ data: null, error: null }];
+
+    const res2 = await POST(
+      jsonReq({ code: 'FREE', orgId: ORG, tier: 'starter', cycle: 'monthly' }) as never,
+    );
+    expect(res2.status).toBe(200);
+    expect(await res2.json()).toEqual({ ok: true, redirect: '/for-schools/start/brand' });
+
+    const secondUpdate = recorded.find(
+      (r) => r.table === 'promo_codes' && r.op === 'update',
+    );
+    expect(secondUpdate!.payload).toEqual({ uses: 2 });
+    expect(secondUpdate!.filters).toEqual(
+      expect.arrayContaining([
+        ['code', 'FREE'],
+        ['uses', 1],
+        ['active', true],
+      ]),
+    );
+  });
+
   it('happy path: returns {ok:true, redirect} and writes billing + activates org', async () => {
     mockAuth(USER);
     scriptOwner();
