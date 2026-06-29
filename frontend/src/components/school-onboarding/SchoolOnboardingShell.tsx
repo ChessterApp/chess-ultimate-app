@@ -92,6 +92,8 @@ export function SchoolOnboardingShell({
       router.push(STEP_ROUTES[nextStep]);
     } else if (VISIBLE_STEPS.indexOf(step) === VISIBLE_STEPS.length - 1) {
       track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_COMPLETED);
+      setStep('done');
+      router.push(STEP_ROUTES.done);
     }
   };
 
