@@ -505,8 +505,11 @@ function useChatSessionsLegacy() {
 // ─── Exported hook ──────────────────────
 
 export const useChatSessions = () => {
+  // Feature flag is a module-level constant, so hook order is stable across renders.
   if (LOCAL_FIRST_CHAT) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     return useChatSessionsPowerSync();
   }
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   return useChatSessionsLegacy();
 };

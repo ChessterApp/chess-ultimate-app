@@ -98,8 +98,11 @@ function useSubscriptionLegacy(isSignedIn: boolean | undefined): SubscriptionSta
 
 export function useSubscriptionFetch(): SubscriptionState {
   const { isSignedIn, userId } = useAuth();
+  // Feature flag is a module-level constant, so hook order is stable across renders.
   if (LOCAL_FIRST_SUBSCRIPTION) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     return useSubscriptionPowerSync(userId ?? undefined);
   }
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   return useSubscriptionLegacy(isSignedIn);
 }

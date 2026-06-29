@@ -435,8 +435,11 @@ function useUserGamesLegacy() {
 // ─── Exported hook ──────────────────────
 
 export function useUserGames() {
+  // Feature flag is a module-level constant, so hook order is stable across renders.
   if (LOCAL_FIRST_GAMES) {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     return useUserGamesPowerSync();
   }
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   return useUserGamesLegacy();
 }
