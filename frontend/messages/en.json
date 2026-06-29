@@ -1394,7 +1394,21 @@
       "checkoutFailed": "Checkout failed",
       "unexpectedError": "Unexpected error",
       "guarantee": "🛡️ 30-day money-back guarantee. We'll redirect you to Whop's secure checkout, then back here.",
-      "paymentReceived": "✓ Payment received — keep going"
+      "paymentReceived": "✓ Payment received — keep going",
+      "promoHeading": "Have a promo code?",
+      "promoPlaceholder": "Enter code",
+      "promoApply": "Apply",
+      "promoApplying": "Applying…",
+      "promoErrors": {
+        "not_found": "Promo code not found.",
+        "inactive": "This promo code is no longer active.",
+        "expired": "This promo code has expired.",
+        "code_exhausted": "This promo code has reached its usage limit.",
+        "partial_discount_unsupported": "Partial-discount codes aren't supported yet.",
+        "forbidden": "You don't have permission to redeem a code for this organization.",
+        "unauthorized": "Please sign in to redeem a promo code.",
+        "generic": "Couldn't apply that promo code. Please try again."
+      }
     },
     "brand": {
       "title": "Make it yours.",
