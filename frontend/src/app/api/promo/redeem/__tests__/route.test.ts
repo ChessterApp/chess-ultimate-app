@@ -192,7 +192,7 @@ describe('POST /api/promo/redeem', () => {
     expect(res.status).toBe(403);
   });
 
-  it('returns 404 when code does not exist', async () => {
+  it('returns 404 { error: "not_found" } when code does not exist', async () => {
     mockAuth(USER);
     scriptOwner();
     scriptPromo(null);
@@ -201,7 +201,14 @@ describe('POST /api/promo/redeem', () => {
       jsonReq({ code: 'NOPE', orgId: ORG, tier: 'starter', cycle: 'monthly' }) as never,
     );
     expect(res.status).toBe(404);
-    expect((await res.json()).error).toBe('not_found');
+    expect(await res.json()).toEqual({ error: 'not_found' });
+
+    // The lookup must have happened against the trimmed, user-supplied code.
+    const lookup = recorded.find(
+      (r) => r.table === 'promo_codes' && r.op === 'select',
+    );
+    expect(lookup).toBeDefined();
+    expect(lookup!.filters).toEqual(expect.arrayContaining([['code', 'NOPE']]));
   });
 
   it('returns 410 for inactive code', async () => {
