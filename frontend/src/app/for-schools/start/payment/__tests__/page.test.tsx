@@ -210,3 +210,168 @@ describe('Payment page — promo code UI', () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 });
+
+describe('Payment page — Whop button regression', () => {
+  beforeEach(() => {
+    pushMock.mockReset();
+    updateMock.mockReset();
+    setStepMock.mockReset();
+    wizardState.payload = {
+      tier: 'starter',
+      billing_cycle: 'monthly',
+      school_name: 'Almaty Chess',
+      slug: 'almaty',
+      email: 'owner@example.com',
+    };
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('renders the Whop pay button when unpaid', () => {
+    render(<StepPayment />);
+    expect(screen.getByRole('button', { name: '[payWithWhop]' })).toBeTruthy();
+  });
+
+  it('clicking Whop button creates org, calls /api/whop/org-checkout, and redirects', async () => {
+    const CHECKOUT_URL = 'https://whop.example/checkout/abc';
+    const calls: Array<{ url: string; body: unknown }> = [];
+    mockFetch(async (url, init) => {
+      const body = init.body ? JSON.parse(init.body as string) : null;
+      calls.push({ url, body });
+      if (url === '/api/onboarding/create-org') {
+        return jsonResponse(200, { organization: { id: ORG_ID } });
+      }
+      if (url === '/api/whop/org-checkout') {
+        return jsonResponse(200, { checkoutUrl: CHECKOUT_URL });
+      }
+      return jsonResponse(404, { error: 'unexpected' });
+    });
+
+    const originalLocation = window.location;
+    const hrefSetter = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        set href(v: string) {
+          hrefSetter(v);
+        },
+        get href() {
+          return originalLocation.href;
+        },
+      },
+    });
+
+    try {
+      render(<StepPayment />);
+      fireEvent.click(screen.getByRole('button', { name: '[payWithWhop]' }));
+
+      await waitFor(() => expect(hrefSetter).toHaveBeenCalledWith(CHECKOUT_URL));
+
+      expect(calls[0].url).toBe('/api/onboarding/create-org');
+      expect(calls[1].url).toBe('/api/whop/org-checkout');
+      expect(calls[1].body).toEqual({
+        tier: 'starter',
+        billing_cycle: 'monthly',
+        org_id: ORG_ID,
+      });
+      expect(updateMock).toHaveBeenCalledWith({ organization_id: ORG_ID });
+      // Whop path must NOT touch the promo-only wizard advance.
+      expect(setStepMock).not.toHaveBeenCalled();
+      expect(pushMock).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
+  it('skips create-org when organization_id already exists and goes straight to Whop checkout', async () => {
+    wizardState.payload = {
+      ...wizardState.payload,
+      organization_id: ORG_ID,
+    };
+    const CHECKOUT_URL = 'https://whop.example/checkout/existing';
+    const calls: string[] = [];
+    mockFetch(async (url) => {
+      calls.push(url);
+      if (url === '/api/whop/org-checkout') {
+        return jsonResponse(200, { checkoutUrl: CHECKOUT_URL });
+      }
+      return jsonResponse(404, { error: 'unexpected' });
+    });
+
+    const originalLocation = window.location;
+    const hrefSetter = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        set href(v: string) {
+          hrefSetter(v);
+        },
+        get href() {
+          return originalLocation.href;
+        },
+      },
+    });
+
+    try {
+      render(<StepPayment />);
+      fireEvent.click(screen.getByRole('button', { name: '[payWithWhop]' }));
+
+      await waitFor(() => expect(hrefSetter).toHaveBeenCalledWith(CHECKOUT_URL));
+      expect(calls).toEqual(['/api/whop/org-checkout']);
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+
+  it('shows checkout error and does not redirect when org-checkout fails', async () => {
+    wizardState.payload = {
+      ...wizardState.payload,
+      organization_id: ORG_ID,
+    };
+    mockFetch(async (url) => {
+      if (url === '/api/whop/org-checkout') {
+        return jsonResponse(500, { error: 'whop_down' });
+      }
+      return jsonResponse(404, { error: 'unexpected' });
+    });
+
+    const originalLocation = window.location;
+    const hrefSetter = vi.fn();
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: {
+        ...originalLocation,
+        set href(v: string) {
+          hrefSetter(v);
+        },
+        get href() {
+          return originalLocation.href;
+        },
+      },
+    });
+
+    try {
+      render(<StepPayment />);
+      fireEvent.click(screen.getByRole('button', { name: '[payWithWhop]' }));
+
+      await waitFor(() => expect(screen.queryByText('whop_down')).toBeTruthy());
+      expect(hrefSetter).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
+  });
+});
