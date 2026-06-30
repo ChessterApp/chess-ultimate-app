@@ -61,6 +61,28 @@ export interface CEStudentProfile extends CEStudent {
   total_lessons?: number | null;
   current_rating?: number | null;
   razryad?: string | null;
+  current_league?: string | null;
+}
+
+export interface CERatingPoint {
+  date: string;
+  rating: number;
+  source?: string;
+}
+
+export interface CEAchievement {
+  id: string;
+  name: string;
+  description?: string | null;
+  icon_url?: string | null;
+  earned_at: string;
+}
+
+export interface CEStudentRank {
+  branch_rank: number | null;
+  school_rank: number | null;
+  branch_size: number | null;
+  school_size: number | null;
 }
 
 export class ChessEmpireAPIError extends Error {
@@ -238,4 +260,114 @@ export async function countActiveStudentsInBranch(branchId: string): Promise<num
   // which is sufficient for the boolean "has any active students" check.
   const body = (await resp.json()) as unknown[];
   return Array.isArray(body) ? body.length : 0;
+}
+
+/**
+ * Phase 3 — Personalized homepage.
+ *
+ * Fetch a student's recent rating history (last `days` days) for the sparkline
+ * on the Empire homepage. The analytics endpoint returns either a wrapped
+ * `{ ratings: [...] }` envelope or a flat array — we tolerate both. A 404 is
+ * treated as "no data yet" and returns an empty array so the homepage can show
+ * an empty state rather than blowing up.
+ */
+export async function getStudentRatings(
+  studentId: string,
+  days: number = 30,
+): Promise<CERatingPoint[]> {
+  const key = getServiceKey();
+  const url = `${ceFunctionsBase()}/analytics-students?action=ratings&student_id=${encodeURIComponent(
+    studentId,
+  )}&days=${encodeURIComponent(String(days))}`;
+  const resp = await ceFetch(url, {
+    headers: { 'x-api-key': key, Accept: 'application/json' },
+  });
+  if (resp.status === 404) return [];
+  const body = await expectJson<{ ratings?: CERatingPoint[] } | CERatingPoint[]>(resp);
+  if (Array.isArray(body)) return body;
+  if (body && typeof body === 'object' && Array.isArray(body.ratings)) {
+    return body.ratings;
+  }
+  return [];
+}
+
+/**
+ * Phase 3 — Personalized homepage.
+ *
+ * Fetch the student's earned achievements. Same envelope tolerance + 404
+ * fallback as ratings.
+ */
+export async function getStudentAchievements(
+  studentId: string,
+): Promise<CEAchievement[]> {
+  const key = getServiceKey();
+  const url = `${ceFunctionsBase()}/analytics-students?action=achievements&student_id=${encodeURIComponent(
+    studentId,
+  )}`;
+  const resp = await ceFetch(url, {
+    headers: { 'x-api-key': key, Accept: 'application/json' },
+  });
+  if (resp.status === 404) return [];
+  const body = await expectJson<{ achievements?: CEAchievement[] } | CEAchievement[]>(resp);
+  if (Array.isArray(body)) return body;
+  if (body && typeof body === 'object' && Array.isArray(body.achievements)) {
+    return body.achievements;
+  }
+  return [];
+}
+
+const EMPTY_RANK: CEStudentRank = {
+  branch_rank: null,
+  school_rank: null,
+  branch_size: null,
+  school_size: null,
+};
+
+/**
+ * Phase 3 — Personalized homepage.
+ *
+ * Fetch the student's leaderboard position within their branch and school.
+ * This is a soft-fallback feature: the endpoint may not yet exist (Alex hasn't
+ * confirmed the shape), so 404 / unknown shape / network error returns an
+ * all-null record rather than throwing — the homepage gracefully omits the
+ * rank chip when data is unavailable.
+ */
+export async function getStudentRank(studentId: string): Promise<CEStudentRank> {
+  const key = getServiceKey();
+  const url = `${ceFunctionsBase()}/analytics-students?action=rank&student_id=${encodeURIComponent(
+    studentId,
+  )}`;
+  let resp: Response;
+  try {
+    resp = await ceFetch(url, {
+      headers: { 'x-api-key': key, Accept: 'application/json' },
+    });
+  } catch {
+    return { ...EMPTY_RANK };
+  }
+  if (resp.status === 404) return { ...EMPTY_RANK };
+  if (resp.status < 200 || resp.status >= 300) return { ...EMPTY_RANK };
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return { ...EMPTY_RANK };
+  }
+  if (!body || typeof body !== 'object') return { ...EMPTY_RANK };
+  const flat = body as Record<string, unknown>;
+  const wrapped =
+    'rank' in flat && flat.rank && typeof flat.rank === 'object'
+      ? (flat.rank as Record<string, unknown>)
+      : flat;
+  const pick = (k: string): number | null => {
+    const v = wrapped[k];
+    return typeof v === 'number' && Number.isFinite(v) ? v : null;
+  };
+  const result: CEStudentRank = {
+    branch_rank: pick('branch_rank'),
+    school_rank: pick('school_rank'),
+    branch_size: pick('branch_size'),
+    school_size: pick('school_size'),
+  };
+  return result;
 }
