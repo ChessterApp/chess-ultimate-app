@@ -211,6 +211,23 @@ def create_org_self_serve():
     except Exception as exc:
         logger.warning('slug uniqueness check failed: %s', exc)
 
+    # Best-effort: pull the caller's pending_onboarding row so any brand
+    # fields they already chose in the wizard get persisted at insert time
+    # (rather than landing via a follow-up PUT that can race or silently fail).
+    pending_payload: dict = {}
+    try:
+        pending = (
+            supabase.table('pending_onboarding')
+            .select('payload')
+            .eq('clerk_user_id', user_id)
+            .maybe_single()
+            .execute()
+        )
+        if pending and getattr(pending, 'data', None):
+            pending_payload = pending.data.get('payload') or {}
+    except Exception as exc:
+        logger.warning('pending_onboarding lookup failed for %s: %s', user_id, exc)
+
     try:
         insert_payload = {
             'slug': slug,
@@ -219,6 +236,18 @@ def create_org_self_serve():
         }
         if contact_email:
             insert_payload['contact_email'] = contact_email
+        for brand_key in (
+            'logo_url',
+            'primary_color',
+            'secondary_color',
+            'accent_color',
+            'favicon_url',
+            'custom_css',
+            'landing_page_config',
+        ):
+            value = pending_payload.get(brand_key)
+            if value is not None:
+                insert_payload[brand_key] = value
         inserted = supabase.table('organizations').insert(insert_payload).execute()
         rows = inserted.data or []
         if not rows:

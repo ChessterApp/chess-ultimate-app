@@ -44,6 +44,7 @@ export default function StepBrand() {
             accent_color: payload.accent_color,
             favicon_url: payload.favicon_url,
             custom_css: payload.custom_css,
+            logo_url: payload.logo_url ?? null,
           }),
         },
       );
@@ -119,6 +120,7 @@ export default function StepBrand() {
         <div className="grid grid-cols-3 gap-3">
           <label className="block">
             <span className="text-xs text-gray-600">{t('primary')}</span>
+            <span className="block text-[10px] text-gray-500">{t('primarySublabel')}</span>
             <input
               type="color"
               value={payload.primary_color || '#1a73e8'}
@@ -128,6 +130,7 @@ export default function StepBrand() {
           </label>
           <label className="block">
             <span className="text-xs text-gray-600">{t('secondary')}</span>
+            <span className="block text-[10px] text-gray-500">{t('secondarySublabel')}</span>
             <input
               type="color"
               value={payload.secondary_color || '#ffffff'}
@@ -137,6 +140,7 @@ export default function StepBrand() {
           </label>
           <label className="block">
             <span className="text-xs text-gray-600">{t('accent')}</span>
+            <span className="block text-[10px] text-gray-500">{t('accentSublabel')}</span>
             <input
               type="color"
               value={payload.accent_color || '#ffd700'}
