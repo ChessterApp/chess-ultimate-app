@@ -1,6 +1,6 @@
 {
   "common": {
-    "chesster": "Chesster",
+    "chesster": "{appName}",
     "getStarted": "GET STARTED",
     "signIn": "SIGN IN",
     "signUp": "SIGN UP",
@@ -108,7 +108,7 @@
       "blog": "Blog",
       "press": "Press",
       "connect": "Connect",
-      "copyright": "© 2026 Chesster. All rights reserved.",
+      "copyright": "© 2026 {appName}. All rights reserved.",
       "privacy": "Privacy",
       "terms": "Terms",
       "cookies": "Cookies"
@@ -621,7 +621,7 @@
     "renameChat": "Rename chat",
     "deleteChat": "Delete chat",
     "deleteChatConfirm": "Delete Chat",
-    "title": "Chesster",
+    "title": "{appName}",
     "positionContext": "Position Context",
     "interactiveQA": "Interactive Q/A",
     "lookingAtBoard": "Looking at the board together",
@@ -1196,7 +1196,7 @@
       "startButton": "Start My Plan"
     },
     "paywall1": {
-      "title": "We want you to try Chesster for free",
+      "title": "We want you to try {appName} for free",
       "subtitle": "Get full access to all lessons, puzzles, and AI coaching",
       "button": "Try for $0",
       "noPayment": "No payment required now"
@@ -1258,7 +1258,7 @@
   },
   "upgradePrompt": {
     "title": "Unlock Full Access",
-    "description": "{feature} is a premium feature. Upgrade to unlock it and get unlimited access to all Chesster tools.",
+    "description": "{feature} is a premium feature. Upgrade to unlock it and get unlimited access to all {appName} tools.",
     "descriptionGeneric": "Get unlimited access to all lessons, analysis, puzzles, and more.",
     "viewPlans": "View Plans",
     "maybeLater": "Maybe later"
@@ -1296,7 +1296,7 @@
   },
   "schoolOnboarding": {
     "shell": {
-      "chesster": "Chesster",
+      "chesster": "{appName}",
       "stepCounter": "Step {current} of {total}",
       "stepAriaLabel": "Step {index}: {name}",
       "stepNames": {
@@ -1313,10 +1313,10 @@
       "continueDefault": "Continue"
     },
     "marketing": {
-      "metaTitle": "Chesster for Schools — Launch your branded chess platform",
+      "metaTitle": "{appName} for Schools — Launch your branded chess platform",
       "metaDescription": "Run your own white-label chess school. Logo, colors, domain, students invited — in 15 minutes.",
       "heading": "Your school. Your brand. Live in 15 minutes.",
-      "lede": "Chesster powers chess academies that want a real product, not a spreadsheet. Pick a subdomain, drop in your logo, invite your students — and your platform is live.",
+      "lede": "{appName} powers chess academies that want a real product, not a spreadsheet. Pick a subdomain, drop in your logo, invite your students — and your platform is live.",
       "ctaPrimary": "Launch your school in 15 minutes →",
       "ctaSecondary": "See pricing",
       "pillarBrandedTitle": "Branded",
@@ -1327,11 +1327,11 @@
       "pillarGuaranteeDesc": "Try the full platform risk-free. Cancel any time."
     },
     "layout": {
-      "metaTitle": "Launch your school — Chesster"
+      "metaTitle": "Launch your school — {appName}"
     },
     "account": {
       "notSignedInTitle": "You're 4 minutes away from a branded chess platform.",
-      "notSignedInSubtitle": "Create your Chesster account to begin.",
+      "notSignedInSubtitle": "Create your {appName} account to begin.",
       "signUpButton": "Sign up with email or Google",
       "alreadyHaveAccount": "I already have an account",
       "reassurance": "We never sell your data. 30-day money-back guarantee.",
@@ -1363,7 +1363,7 @@
     "plan": {
       "title": "Pick a plan that fits your school.",
       "subtitle": "Anchored to how many students you'll have. 30-day money-back guarantee.",
-      "studentsQuestion": "How many students will you have on Chesster?",
+      "studentsQuestion": "How many students will you have on {appName}?",
       "studentsSuffix": "{count}+",
       "recommended": "✨ We recommend <b>{tier}</b>.",
       "monthly": "Monthly",
