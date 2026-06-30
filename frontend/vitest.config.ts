@@ -9,6 +9,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Stub Next.js `server-only` guard so server modules are importable in tests.
+      'server-only': path.resolve(__dirname, './test/stubs/server-only.ts'),
     },
   },
 });
