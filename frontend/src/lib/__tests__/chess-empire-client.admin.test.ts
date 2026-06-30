@@ -1,0 +1,158 @@
+/**
+ * Phase 4 — tests for the admin-side CE client helpers
+ * (listBranches, listCoaches, listActiveStudentsByBranch). Verifies happy
+ * path, 404 → [], and unknown shape → [] + single warning.
+ */
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+import {
+  listBranches,
+  listCoaches,
+  listActiveStudentsByBranch,
+} from '../chess-empire-client';
+
+function jsonResponse(body: unknown, init: ResponseInit = {}) {
+  return new Response(JSON.stringify(body), {
+    status: init.status ?? 200,
+    headers: { 'content-type': 'application/json', ...(init.headers || {}) },
+  });
+}
+
+describe('chess-empire-client admin helpers', () => {
+  const originalKey = process.env.CHESS_EMPIRE_SERVICE_KEY;
+  const originalUrl = process.env.CHESS_EMPIRE_SUPABASE_URL;
+  const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+  beforeEach(() => {
+    process.env.CHESS_EMPIRE_SERVICE_KEY = 'ce-test-key';
+    process.env.CHESS_EMPIRE_SUPABASE_URL = 'https://ce.example.com';
+    fetchSpy.mockReset();
+    warnSpy.mockClear();
+  });
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.CHESS_EMPIRE_SERVICE_KEY;
+    else process.env.CHESS_EMPIRE_SERVICE_KEY = originalKey;
+    if (originalUrl === undefined) delete process.env.CHESS_EMPIRE_SUPABASE_URL;
+    else process.env.CHESS_EMPIRE_SUPABASE_URL = originalUrl;
+  });
+
+  describe('listBranches', () => {
+    it('returns rows on happy path', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          { id: 'br-1', name: 'Debut' },
+          { id: 'br-2', name: 'Astana' },
+        ]),
+      );
+      const branches = await listBranches();
+      expect(branches).toHaveLength(2);
+      expect(branches[0]?.name).toBe('Debut');
+      const [url, init] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toContain('/rest/v1/branches');
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      expect(headers.apikey).toBe('ce-test-key');
+    });
+
+    it('returns [] on 404', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({}, { status: 404 }));
+      const branches = await listBranches();
+      expect(branches).toEqual([]);
+    });
+
+    it('returns [] + warns once on unexpected shape', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({ wat: true }));
+      const branches = await listBranches();
+      expect(branches).toEqual([]);
+      const prev = warnSpy.mock.calls.length;
+      // Second call should not warn again (one-shot warning).
+      const second = await listBranches();
+      expect(second).toEqual([]);
+      expect(warnSpy.mock.calls.length).toBe(prev);
+    });
+
+    it('returns [] when service key missing', async () => {
+      delete process.env.CHESS_EMPIRE_SERVICE_KEY;
+      const branches = await listBranches();
+      expect(branches).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listCoaches', () => {
+    it('returns rows on happy path', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          { id: 'co-1', full_name: 'Yerkezhan', branch_id: 'br-1' },
+        ]),
+      );
+      const coaches = await listCoaches();
+      expect(coaches[0]?.full_name).toBe('Yerkezhan');
+      const [url] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toContain('/rest/v1/coaches');
+    });
+
+    it('returns [] on 404', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({}, { status: 404 }));
+      const coaches = await listCoaches();
+      expect(coaches).toEqual([]);
+    });
+
+    it('returns [] on unknown shape', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse('nope'));
+      const coaches = await listCoaches();
+      expect(coaches).toEqual([]);
+    });
+  });
+
+  describe('listActiveStudentsByBranch', () => {
+    it('queries CE REST with branch + status + select', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          {
+            id: 'stu-1',
+            first_name: 'A',
+            last_name: 'B',
+            status: 'active',
+            branch_id: 'br-1',
+          },
+        ]),
+      );
+      const out = await listActiveStudentsByBranch('br-1');
+      expect(out).toHaveLength(1);
+      const [url] = fetchSpy.mock.calls[0]!;
+      const s = String(url);
+      expect(s).toContain('branch_id=eq.br-1');
+      expect(s).toContain('status=eq.active');
+    });
+
+    it('returns [] for empty branchId without fetching', async () => {
+      const out = await listActiveStudentsByBranch('');
+      expect(out).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns [] on 404', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({}, { status: 404 }));
+      const out = await listActiveStudentsByBranch('br-1');
+      expect(out).toEqual([]);
+    });
+
+    it('filters out non-active rows defensively', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          { id: 'a', first_name: 'A', last_name: '', status: 'active', branch_id: 'br-1' },
+          { id: 'b', first_name: 'B', last_name: '', status: 'left', branch_id: 'br-1' },
+        ]),
+      );
+      const out = await listActiveStudentsByBranch('br-1');
+      expect(out.map((r) => r.id)).toEqual(['a']);
+    });
+
+    it('returns [] on unknown shape', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({ rows: [] }));
+      const out = await listActiveStudentsByBranch('br-1');
+      expect(out).toEqual([]);
+    });
+  });
+});
