@@ -1,19 +1,25 @@
 import type { MetadataRoute } from 'next';
+import { headers } from 'next/headers';
 
-import { loadOrgFromHeaders } from '@/lib/org-from-headers';
+import { orgFromHost } from '@/lib/org-name-from-host';
 
 // PWA manifest is built per-request from tenant branding so installing the
 // site as an app on `chess-empire.chesster.io` shows the partner brand, not
 // Chesster. The route is served at `/manifest.webmanifest` by Next.js.
 //
+// Resolved from the Host header because middleware's matcher intentionally
+// skips static-looking paths (including .webmanifest) — so the x-org-slug
+// header pipeline isn't available here. We re-derive the org via the same
+// 5-minute-cached backend lookup the rest of the white-label stack uses.
+//
 // Vary: Host + a short max-age are configured in next.config.ts so the same
 // browser visiting multiple tenant subdomains doesn't get a poisoned cached
-// manifest. We can't return arbitrary response headers from this handler
-// directly — Next composes the response — so we rely on next.config headers
-// for the policy.
+// manifest.
 
 export default async function manifest(): Promise<MetadataRoute.Manifest> {
-  const org = await loadOrgFromHeaders();
+  const h = await headers();
+  const host = h.get('x-forwarded-host') || h.get('host');
+  const org = await orgFromHost(host);
 
   const name = org?.name || 'Chesster';
   const themeColor = org?.primaryColor || '#9333ea';

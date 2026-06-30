@@ -23,6 +23,20 @@ export function slugFromHost(host: string | undefined | null): string | null {
 }
 
 export async function orgNameFromHost(host: string | undefined | null): Promise<string | null> {
+  const org = await orgFromHost(host);
+  return org?.name || null;
+}
+
+export interface BrandFromHost {
+  name: string;
+  slug: string;
+  logoUrl: string | null;
+  faviconUrl: string | null;
+  primaryColor: string;
+  secondaryColor: string;
+}
+
+export async function orgFromHost(host: string | undefined | null): Promise<BrandFromHost | null> {
   const slug = slugFromHost(host);
   if (!slug) return null;
   try {
@@ -32,8 +46,16 @@ export async function orgNameFromHost(host: string | undefined | null): Promise<
       { next: { revalidate: 300 }, signal: AbortSignal.timeout(3000) },
     );
     if (!res.ok) return null;
-    const data = (await res.json()) as { name?: string };
-    return data.name || null;
+    const data = (await res.json()) as Record<string, unknown>;
+    if (!data || typeof data !== 'object') return null;
+    return {
+      name: (data.name as string) || 'Chesster',
+      slug: (data.slug as string) || slug,
+      logoUrl: (data.logo_url as string) || null,
+      faviconUrl: (data.favicon_url as string) || null,
+      primaryColor: (data.primary_color as string) || '#9333ea',
+      secondaryColor: (data.secondary_color as string) || '#ffffff',
+    };
   } catch {
     return null;
   }

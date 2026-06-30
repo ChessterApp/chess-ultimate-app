@@ -98,7 +98,9 @@ export default async function handler(
     let fullResponse = "";
 
     // Always use Mastra (fast Gemini Flash), Clawdbot is fallback only
-    fullResponse = await handleMastra(fen, query, context_type, sendEvent);
+    const hostHeader =
+      (req.headers["x-forwarded-host"] as string) || req.headers.host || null;
+    fullResponse = await handleMastra(fen, query, context_type, sendEvent, hostHeader);
 
     // Save conversation to Python backend (fire-and-forget)
     saveConversation(authHeader, fen, query, fullResponse, conversation_id, context_type).catch(
@@ -155,7 +157,8 @@ async function handleMastra(
   fen: string,
   query: string,
   contextType: string,
-  sendEvent: (data: Record<string, unknown>) => void
+  sendEvent: (data: Record<string, unknown>) => void,
+  hostHeader: string | null
 ): Promise<string> {
   // Build position context
   let positionPrompt = "";
@@ -185,9 +188,7 @@ async function handleMastra(
   requestContext.set("isRouted", MASTRA_IS_ROUTED);
   const detectedLang = detectLanguage(query);
   requestContext.set("lang", detectedLang);
-  const tenantOrgName = await orgNameFromHost(
-    (req.headers["x-forwarded-host"] as string) || req.headers.host,
-  );
+  const tenantOrgName = await orgNameFromHost(hostHeader);
   if (tenantOrgName) requestContext.set("orgName", tenantOrgName);
 
   console.log(`[chat/stream] Mastra: provider=${MASTRA_PROVIDER}, model=${MASTRA_MODEL}, isRouted=${MASTRA_IS_ROUTED}, lang=${detectedLang}`);
