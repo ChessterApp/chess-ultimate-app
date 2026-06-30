@@ -3,12 +3,54 @@
 import { SignUp } from '@clerk/nextjs'
 import { useTranslations } from 'next-intl'
 import Image from 'next/image'
+import { useSearchParams } from 'next/navigation'
+import { useMemo } from 'react'
 import { useBranding, useOrganization } from '@/contexts/OrganizationContext'
+
+interface InvitePreview {
+  firstName: string | null
+  expired: boolean
+}
+
+/**
+ * Decode an invite JWT *without* verifying the signature, only to extract
+ * the first name for a warm "Welcome <Name>" greeting and to check `exp`.
+ * The webhook re-verifies the signature server-side — never trust this for
+ * any auth-relevant decision.
+ */
+function previewInvite(jwt: string | null): InvitePreview | null {
+  if (!jwt) return null
+  const parts = jwt.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4)
+    const json = atob(padded)
+    const claims = JSON.parse(json) as {
+      exp?: number
+      first_name?: string
+      student_first_name?: string
+    }
+    const now = Math.floor(Date.now() / 1000)
+    return {
+      firstName: claims.first_name ?? claims.student_first_name ?? null,
+      expired: typeof claims.exp === 'number' && claims.exp < now,
+    }
+  } catch {
+    return null
+  }
+}
 
 export default function SignUpPage() {
   const t = useTranslations()
   const branding = useBranding()
-  const { isWhiteLabel } = useOrganization()
+  const { isWhiteLabel, org } = useOrganization()
+  const searchParams = useSearchParams()
+  const inviteJwt = searchParams?.get('invite') ?? null
+  const invite = useMemo(() => previewInvite(inviteJwt), [inviteJwt])
+  const isChessEmpire = org?.slug === 'chess-empire'
+  const hasValidInvite = !!inviteJwt && invite !== null && !invite.expired
+
   const heading = isWhiteLabel
     ? `${t('auth.signUpTitle')} · ${branding.name}`
     : t('auth.signUpTitle')
@@ -355,9 +397,25 @@ export default function SignUpPage() {
           </div>
           <h1 className="text-2xl font-bold text-gray-800 mt-4">{heading}</h1>
           <p className="text-sm text-gray-500 mt-1">{t('auth.signUpSubtitle')}</p>
+          {hasValidInvite && invite?.firstName && (
+            <p data-testid="signup-invite-welcome" className="text-base font-semibold text-purple-600 mt-3">
+              {t('welcome.signupWelcome', { firstName: invite.firstName })}
+            </p>
+          )}
         </div>
 
+        {isChessEmpire && !hasValidInvite && (
+          <div
+            data-testid="signup-invite-missing-notice"
+            className="mb-4 rounded-2xl border-2 border-purple-100 bg-purple-50 p-4 text-center"
+          >
+            <p className="text-sm text-purple-900">{t('welcome.signupNotice')}</p>
+            <p className="text-xs text-purple-700 mt-1">{t('welcome.signupNoticeHint')}</p>
+          </div>
+        )}
+
         <SignUp
+          {...(hasValidInvite && inviteJwt ? { unsafeMetadata: { inviteJwt } } : {})}
           appearance={{
             layout: {
               socialButtonsPlacement: 'bottom',

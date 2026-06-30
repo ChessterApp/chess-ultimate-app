@@ -1568,5 +1568,43 @@
         }
       }
     }
+  },
+  "welcome": {
+    "metaTitle": "Chess Empire — {branch}",
+    "heading": "Welcome, {branch} parents and students",
+    "subHeading": "Find your child's name to claim their free Chesster account.",
+    "searchPlaceholder": "Type your child's first or last name…",
+    "minCharsHint": "Type at least 2 letters to search.",
+    "searching": "Searching…",
+    "noResults": "No matches. Double-check the spelling or contact your branch admin.",
+    "cantFind": "Can't find your child? Contact your branch admin.",
+    "coachLabel": "Coach: {coach}",
+    "confirmTitle": "Is this you?",
+    "confirmCoach": "Coach: {coach}",
+    "confirmBranch": "Branch: {branch}",
+    "confirmYes": "Yes, continue",
+    "confirmBack": "Go back",
+    "dobTitle": "Confirm date of birth",
+    "dobSubtitle": "Enter your date of birth to verify your identity.",
+    "dobDay": "DD",
+    "dobMonth": "MM",
+    "dobYear": "YYYY",
+    "verifyButton": "Verify",
+    "verifying": "Verifying…",
+    "dobError": "Date of birth doesn't match. Please double-check and try again.",
+    "tooManyAttempts": "Too many attempts. Try again in an hour or contact your branch admin.",
+    "invalidDob": "Please enter a valid date of birth (DD MM YYYY).",
+    "genericError": "Something went wrong. Please try again.",
+    "linkInvalidTitle": "This link is no longer valid",
+    "linkInvalidBody": "Please contact your branch admin for an updated link.",
+    "registered": {
+      "title": "This student already has a Chesster account",
+      "body": "If you've lost access, contact Chess Empire support and they'll help you recover it.",
+      "signIn": "Sign in instead",
+      "contact": "Contact Chess Empire"
+    },
+    "signupNotice": "To register as a Chess Empire student, please use the link your branch sent you.",
+    "signupNoticeHint": "Ask your branch admin for the invite link.",
+    "signupWelcome": "Welcome, {firstName}!"
   }
 }
