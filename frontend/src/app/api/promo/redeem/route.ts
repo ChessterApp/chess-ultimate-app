@@ -100,6 +100,22 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // 100%-off codes always upgrade the partner to the top tier (annual
+  // enterprise). Best for the partner, simplest to support — silent override
+  // on the server, response shape to the client is unchanged.
+  let effectiveTier: Tier = tier;
+  let effectiveCycle: Cycle = cycle;
+  const isFullDiscount =
+    promoRow.discount_pct === 100 || promoRow.code.toUpperCase() === 'FREE';
+  if (isFullDiscount && (effectiveTier !== 'enterprise' || effectiveCycle !== 'annual')) {
+    console.info(
+      `[promo/redeem] full-discount override: code=${promoRow.code} ` +
+        `requested=${tier}/${cycle} → enterprise/annual`,
+    );
+    effectiveTier = 'enterprise';
+    effectiveCycle = 'annual';
+  }
+
   // Atomic redeem via optimistic concurrency: only succeed when the row's
   // `uses` still matches what we just read. If a concurrent redeem already
   // bumped it, this update affects 0 rows and we retry-or-409.
@@ -126,8 +142,10 @@ export async function POST(req: NextRequest) {
     .upsert(
       {
         organization_id: orgId,
-        plan: tier,
-        billing_cycle: cycle,
+        plan: effectiveTier,
+        billing_cycle: effectiveCycle,
+        redeemed_promo_code: promoRow.code,
+        redeemed_promo_at: new Date().toISOString(),
       },
       { onConflict: 'organization_id' },
     );

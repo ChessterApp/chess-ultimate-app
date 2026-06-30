@@ -32,6 +32,13 @@ logger = logging.getLogger(__name__)
 VERCEL_API_BASE = 'https://api.vercel.com'
 DEFAULT_TIMEOUT = 10.0
 
+APEX_DOMAIN = 'chesster.io'
+
+
+def subdomain_for_slug(slug: str) -> str:
+    """Compose the canonical tenant subdomain for a given org slug."""
+    return f'{slug}.{APEX_DOMAIN}'
+
 
 class VercelAPIError(Exception):
     """Raised when the Vercel API returns a non-2xx response."""

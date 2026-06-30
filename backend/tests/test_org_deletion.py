@@ -143,3 +143,64 @@ class TestRequestDeletion:
             )
             body = mock_post.call_args[0][2]
             assert 'owner@school.com' in body['text']
+
+
+class _DeleteRecorder:
+    """Captures table().delete().eq().execute() for hard-delete tests."""
+
+    def __init__(self):
+        self.deletes: list[str] = []
+
+    def table(self, name):
+        recorder = self
+        recorded_table = name
+
+        class _Chain:
+            def delete(self):
+                recorder.deletes.append(recorded_table)
+                return self
+            def eq(self, *_a, **_kw):
+                return self
+            def execute(self):
+                return MagicMock(data=None)
+
+        return _Chain()
+
+
+class TestFinalizeHardDelete:
+    def test_removes_vercel_subdomain_then_drops_row(self):
+        recorder = _DeleteRecorder()
+        fake_client = MagicMock()
+        with patch.object(svc, '_get_org', return_value=ORG), \
+             patch.object(svc, '_get_supabase', return_value=recorder), \
+             patch('services.vercel_client.get_client', return_value=fake_client):
+            result = svc.finalize_hard_delete('org-1')
+
+        assert result['ok'] is True
+        assert result['slug'] == 'almaty'
+        fake_client.remove_domain.assert_called_once_with('almaty.chesster.io')
+        assert 'organizations' in recorder.deletes
+
+    def test_vercel_failure_does_not_block_row_drop(self):
+        from services.vercel_client import VercelAPIError
+        recorder = _DeleteRecorder()
+        fake_client = MagicMock()
+        fake_client.remove_domain.side_effect = VercelAPIError(
+            500, 'internal_error', 'boom',
+        )
+        with patch.object(svc, '_get_org', return_value=ORG), \
+             patch.object(svc, '_get_supabase', return_value=recorder), \
+             patch('services.vercel_client.get_client', return_value=fake_client):
+            result = svc.finalize_hard_delete('org-1')
+
+        assert result['ok'] is True
+        assert 'organizations' in recorder.deletes
+
+    def test_missing_org_is_noop(self):
+        recorder = _DeleteRecorder()
+        with patch.object(svc, '_get_org', return_value=None), \
+             patch.object(svc, '_get_supabase', return_value=recorder):
+            result = svc.finalize_hard_delete('org-missing')
+
+        assert result == {'ok': True, 'already_gone': True}
+        assert recorder.deletes == []

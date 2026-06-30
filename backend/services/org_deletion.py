@@ -199,3 +199,45 @@ def request_deletion(
     _notify_ops(org, requester_user_id, requester_email, now)
 
     return {'ok': True, 'deletion_requested_at': now, 'already_requested': False}
+
+
+def finalize_hard_delete(org_id: str) -> dict[str, Any]:
+    """Ops-side hard-delete finalizer.
+
+    Releases the org's `{slug}.chesster.io` registration on Vercel (so the
+    Vercel project domain list doesn't grow unbounded as schools come and go)
+    and then drops the organization row. Vercel failure is best-effort — it
+    logs but does NOT block the row drop, mirroring the pattern in
+    ``admin.remove_custom_domain``.
+
+    Idempotent: missing org returns ``{ok: True, already_gone: True}``.
+    """
+    org = _get_org(org_id)
+    if not org:
+        return {'ok': True, 'already_gone': True}
+
+    slug = org.get('slug')
+    if slug:
+        try:
+            from services.vercel_client import (
+                VercelAPIError,
+                get_client,
+                subdomain_for_slug,
+            )
+            domain = subdomain_for_slug(slug)
+            try:
+                get_client().remove_domain(domain)
+                logger.info('hard-delete: vercel removed %s', domain)
+            except VercelAPIError as exc:
+                if exc.status_code != 404:
+                    logger.warning(
+                        'hard-delete: vercel remove_domain failed for %s: %s',
+                        domain, exc,
+                    )
+        except Exception as exc:
+            logger.warning('hard-delete: vercel cleanup unexpected error: %s', exc)
+
+    supabase = _get_supabase()
+    supabase.table('organizations').delete().eq('id', org_id).execute()
+    logger.info('hard-delete: org row dropped id=%s slug=%s', org_id, slug)
+    return {'ok': True, 'org_id': org_id, 'slug': slug}

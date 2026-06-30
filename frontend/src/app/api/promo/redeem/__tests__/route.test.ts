@@ -414,16 +414,21 @@ describe('POST /api/promo/redeem', () => {
       ]),
     );
 
-    // Verify billing upsert shape mirrors the Whop webhook (org_id, plan, cycle).
+    // FREE / 100%-off always overrides to enterprise + annual, stamps the
+    // promo code on the billing row, and stamps a redeemed-at timestamp.
     const billingRow = recorded.find(
       (r) => r.table === 'organization_billing' && r.op === 'upsert',
     );
     expect(billingRow).toBeDefined();
-    expect(billingRow!.payload).toEqual({
-      organization_id: ORG,
-      plan: 'starter',
-      billing_cycle: 'monthly',
-    });
+    const billingPayload = billingRow!.payload as Record<string, unknown>;
+    expect(billingPayload.organization_id).toBe(ORG);
+    expect(billingPayload.plan).toBe('enterprise');
+    expect(billingPayload.billing_cycle).toBe('annual');
+    expect(billingPayload.redeemed_promo_code).toBe('FREE');
+    expect(typeof billingPayload.redeemed_promo_at).toBe('string');
+    expect(
+      Number.isFinite(Date.parse(billingPayload.redeemed_promo_at as string)),
+    ).toBe(true);
 
     // Verify org activation.
     const orgUpdate = recorded.find(
@@ -432,5 +437,71 @@ describe('POST /api/promo/redeem', () => {
     expect(orgUpdate).toBeDefined();
     expect(orgUpdate!.payload).toEqual({ status: 'active' });
     expect(orgUpdate!.filters).toEqual(expect.arrayContaining([['id', ORG]]));
+  });
+
+  it('FREE redemption with tier=growth body still upgrades to enterprise/annual', async () => {
+    mockAuth(USER);
+    scriptOwner();
+    scriptPromo({
+      code: 'FREE',
+      discount_pct: 100,
+      max_uses: null,
+      uses: 3,
+      active: true,
+      expires_at: null,
+    });
+    scripts['promo_codes.update'] = [
+      { data: { code: 'FREE', uses: 4 }, error: null },
+    ];
+    scripts['organization_billing.upsert'] = [{ data: null, error: null }];
+    scripts['organizations.update'] = [{ data: null, error: null }];
+
+    const { POST } = await import('../route');
+    const res = await POST(
+      jsonReq({ code: 'FREE', orgId: ORG, tier: 'growth', cycle: 'monthly' }) as never,
+    );
+    expect(res.status).toBe(200);
+
+    const billingRow = recorded.find(
+      (r) => r.table === 'organization_billing' && r.op === 'upsert',
+    );
+    expect(billingRow).toBeDefined();
+    const billingPayload = billingRow!.payload as Record<string, unknown>;
+    expect(billingPayload.plan).toBe('enterprise');
+    expect(billingPayload.billing_cycle).toBe('annual');
+    expect(billingPayload.redeemed_promo_code).toBe('FREE');
+  });
+
+  it('FREE redemption with tier=enterprise/annual body is a no-op override but still stamps promo', async () => {
+    mockAuth(USER);
+    scriptOwner();
+    scriptPromo({
+      code: 'FREE',
+      discount_pct: 100,
+      max_uses: null,
+      uses: 9,
+      active: true,
+      expires_at: null,
+    });
+    scripts['promo_codes.update'] = [
+      { data: { code: 'FREE', uses: 10 }, error: null },
+    ];
+    scripts['organization_billing.upsert'] = [{ data: null, error: null }];
+    scripts['organizations.update'] = [{ data: null, error: null }];
+
+    const { POST } = await import('../route');
+    const res = await POST(
+      jsonReq({ code: 'FREE', orgId: ORG, tier: 'enterprise', cycle: 'annual' }) as never,
+    );
+    expect(res.status).toBe(200);
+
+    const billingRow = recorded.find(
+      (r) => r.table === 'organization_billing' && r.op === 'upsert',
+    );
+    expect(billingRow).toBeDefined();
+    const billingPayload = billingRow!.payload as Record<string, unknown>;
+    expect(billingPayload.plan).toBe('enterprise');
+    expect(billingPayload.billing_cycle).toBe('annual');
+    expect(billingPayload.redeemed_promo_code).toBe('FREE');
   });
 });

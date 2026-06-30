@@ -937,6 +937,74 @@ def remove_custom_domain(org_id: str):
     return jsonify({'status': 'removed', 'domain': domain}), 200
 
 
+@admin_bp.route('/organizations/<org_id>/subdomain/verify', methods=['POST'])
+def verify_subdomain(org_id: str):
+    """Re-poll Vercel for `{slug}.chesster.io` and persist the verified state.
+
+    Mirrors verify_custom_domain but for the auto-registered *.chesster.io
+    subdomain. Useful as a manual retry / cron poller hook when signup
+    registered the domain but the cert hadn't issued yet (status='pending').
+    """
+    error = _require_admin(org_id)
+    if error:
+        return error
+
+    supabase = _get_supabase()
+    org = supabase.table('organizations').select(
+        'slug,subdomain_status,subdomain_vercel_id'
+    ).eq('id', org_id).single().execute()
+    if not org.data or not org.data.get('slug'):
+        return jsonify({'error': 'org not found'}), 404
+    slug = org.data['slug']
+
+    from services.vercel_client import VercelAPIError, subdomain_for_slug
+    domain = subdomain_for_slug(slug)
+
+    try:
+        live = _get_vercel_client().get_domain(domain)
+    except VercelAPIError as e:
+        # 404 on Vercel side: the subdomain isn't registered yet — try to add it now.
+        if e.status_code == 404:
+            try:
+                live = _get_vercel_client().add_domain(domain)
+            except VercelAPIError as add_err:
+                if add_err.code != 'domain_already_in_use':
+                    supabase.table('organizations').update({
+                        'subdomain_status': 'failed',
+                        'subdomain_last_error': str(add_err),
+                    }).eq('id', org_id).execute()
+                    return _vercel_error_to_response(add_err)
+                live = {'verified': False}
+        else:
+            return _vercel_error_to_response(e)
+
+    verified = bool(live.get('verified'))
+    vercel_id = live.get('id') or live.get('name') or org.data.get('subdomain_vercel_id') or domain
+    update: dict = {
+        'subdomain_vercel_id': vercel_id,
+    }
+    if verified:
+        update['subdomain_status'] = 'active'
+        update['subdomain_verified_at'] = datetime.now(timezone.utc).isoformat()
+        update['subdomain_last_error'] = None
+    else:
+        update['subdomain_status'] = 'pending'
+
+    supabase.table('organizations').update(update).eq('id', org_id).execute()
+
+    logger.info(
+        'subdomain verify: org=%s domain=%s status=%s',
+        org_id, domain, update['subdomain_status'],
+    )
+    return jsonify({
+        'domain': domain,
+        'status': update['subdomain_status'],
+        'verified': verified,
+        'vercel_id': vercel_id,
+        'verification': live.get('verification') or [],
+    }), 200
+
+
 # ─── Branded sender domain (PRD §11.2 #4 — Phase 2) ───────────────────────
 
 

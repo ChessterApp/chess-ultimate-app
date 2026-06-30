@@ -111,6 +111,64 @@ def complete_onboarding():
 _SLUG_RE = __import__('re').compile(r'^[a-z0-9]([a-z0-9-]{1,28}[a-z0-9])?$')
 
 
+def _register_subdomain_best_effort(supabase, org_id: str, slug: str) -> None:
+    """Register `{slug}.chesster.io` with Vercel and persist status.
+
+    Never raises — Vercel/network failures are logged and recorded on the
+    organization row but must not block self-serve signup.
+    """
+    from services.vercel_client import (
+        VercelAPIError,
+        get_client,
+        subdomain_for_slug,
+    )
+
+    domain = subdomain_for_slug(slug)
+    update: dict = {}
+    try:
+        result = get_client().add_domain(domain)
+        vercel_id = result.get('id') or result.get('name') or domain
+        update['subdomain_vercel_id'] = vercel_id
+        if result.get('verified'):
+            update['subdomain_status'] = 'active'
+            update['subdomain_verified_at'] = datetime.now(timezone.utc).isoformat()
+        else:
+            update['subdomain_status'] = 'pending'
+        update['subdomain_last_error'] = None
+        logger.info(
+            'subdomain registered: org=%s domain=%s status=%s',
+            org_id, domain, update['subdomain_status'],
+        )
+    except VercelAPIError as exc:
+        if exc.code == 'domain_already_in_use':
+            # Already on the project — treat as success; verify later.
+            update['subdomain_status'] = 'pending'
+            update['subdomain_last_error'] = None
+            logger.info(
+                'subdomain already registered (idempotent): org=%s domain=%s',
+                org_id, domain,
+            )
+        else:
+            update['subdomain_status'] = 'failed'
+            update['subdomain_last_error'] = str(exc)
+            logger.error(
+                'subdomain registration FAILED: org=%s domain=%s err=%s',
+                org_id, domain, exc,
+            )
+    except Exception as exc:
+        update['subdomain_status'] = 'failed'
+        update['subdomain_last_error'] = f'unexpected: {exc}'
+        logger.exception(
+            'subdomain registration unexpected error: org=%s domain=%s',
+            org_id, domain,
+        )
+
+    try:
+        supabase.table('organizations').update(update).eq('id', org_id).execute()
+    except Exception as exc:
+        logger.warning('subdomain status persist failed for org=%s: %s', org_id, exc)
+
+
 @onboarding_bp.route('/create-org', methods=['POST'])
 def create_org_self_serve():
     """
@@ -170,6 +228,10 @@ def create_org_self_serve():
     except Exception as exc:
         logger.exception('self-serve org insert failed: %s', exc)
         return jsonify({'error': 'create_failed'}), 500
+
+    # Best-effort: register {slug}.chesster.io with Vercel so Let's Encrypt
+    # issues a per-subdomain cert. Failure must NEVER block signup.
+    _register_subdomain_best_effort(supabase, org_id, slug)
 
     # Caller becomes the owner
     try:
