@@ -239,7 +239,7 @@ const SECURITY_HEADERS = [
             "default-src 'self'",
             "script-src 'self' 'unsafe-eval' 'unsafe-inline' *.clerk.accounts.dev https://clerk.chesster.io https://challenges.cloudflare.com https://*.posthog.com",
             "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: blob: https://lichess1.org https://images.clerk.dev https://img.clerk.com",
+            "img-src 'self' data: blob: https://lichess1.org https://images.clerk.dev https://img.clerk.com https://qtzujwiqzbgyhdgulvcd.supabase.co https://*.supabase.co",
             "font-src 'self' data:",
             "connect-src 'self' https://chesster.io https://*.chesster.io https://qtzujwiqzbgyhdgulvcd.supabase.co https://*.supabase.co https://*.clerk.accounts.dev https://clerk.chesster.io https://img.clerk.com https://www.chessdb.cn wss://*.supabase.co https://*.posthog.com https://*.powersync.journeyapps.com wss://*.powersync.journeyapps.com",
             "frame-src 'self' https://*.clerk.accounts.dev https://challenges.cloudflare.com https://www.youtube.com https://www.youtube-nocookie.com",
