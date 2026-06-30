@@ -1,15 +1,20 @@
 import Link from 'next/link';
 
-export default function NotFound() {
+import { loadOrgFromHeaders } from '@/lib/org-from-headers';
+
+export default async function NotFound() {
+  const org = await loadOrgFromHeaders();
+  const logoSrc = org?.logoUrl || '/static/images/chesster-logo-v3.png';
+  const brandName = org?.name || 'Chesster';
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-white to-indigo-50">
       <div className="text-center px-4 max-w-lg">
-        {/* Chesster mascot logo */}
         <div className="mb-8 flex justify-center">
           <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/static/images/chesster-logo-v3.png"
-              alt="Chesster"
+              src={logoSrc}
+              alt={brandName}
               className="w-32 h-32 md:w-40 md:h-40 drop-shadow-lg"
             />
             <div className="absolute -bottom-2 -right-2 bg-purple-600 text-white text-sm font-bold px-3 py-1 rounded-full shadow-lg">

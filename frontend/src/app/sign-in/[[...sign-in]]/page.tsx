@@ -298,7 +298,7 @@ export default function SignInPage() {
             ) : (
               <Image
                 src="/static/images/chesster-logo-v3.png"
-                alt="Chesster"
+                alt={branding.name}
                 width={64}
                 height={64}
                 className="w-10 h-10 md:w-16 md:h-16"

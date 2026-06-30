@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useBranding } from '@/contexts/OrganizationContext';
 
 type MascotMood = 'happy' | 'thinking' | 'celebrating' | 'sad' | 'encouraging' | 'neutral';
 
@@ -37,6 +38,8 @@ export function ChessterMascot({
 }: ChessterMascotProps) {
   const [currentMood, setCurrentMood] = useState(mood);
   const [isAnimating, setIsAnimating] = useState(false);
+  const branding = useBranding();
+  const mascotSrc = branding.logoUrl || '/static/images/chesster-logo-v3.png';
 
   useEffect(() => {
     if (mood !== currentMood) {
@@ -80,7 +83,7 @@ export function ChessterMascot({
           isAnimating ? 'scale-90' : 'scale-100'
         }`}
       >
-        <img src="/static/images/chesster-logo-v3.png" alt="Chesster" className={`${sizeClasses[size]} rounded-full object-cover p-1`} />
+        <img src={mascotSrc} alt={branding.name} className={`${sizeClasses[size]} rounded-full object-cover p-1`} />
       </div>
 
       {/* Mood indicator badge */}
@@ -103,15 +106,20 @@ interface ChessterFullProps extends ChessterMascotProps {
 
 export function ChessterFull({
   showName = true,
-  name = 'Sir Chesster',
+  name,
   ...props
 }: ChessterFullProps) {
+  const branding = useBranding();
+  // Apex (DEFAULT_BRANDING.name === 'Chesster') keeps the "Sir Chesster"
+  // persona; tenants render as "<Brand> Coach" per the locked decision.
+  const resolvedName =
+    name ?? (branding.name === 'Chesster' ? 'Sir Chesster' : `${branding.name} Coach`);
   return (
     <div className="flex flex-col items-center gap-2">
       <ChessterMascot {...props} />
       {showName && (
         <div className="text-sm font-medium text-gray-600 bg-white/80 px-2 py-0.5 rounded-full shadow-sm">
-          {name}
+          {resolvedName}
         </div>
       )}
     </div>

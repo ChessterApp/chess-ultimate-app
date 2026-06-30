@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useTranslations } from "next-intl";
+import { useBranding } from "@/contexts/OrganizationContext";
 import { Send, MenuBook, Close, ContentCopy, History, Stop, Settings as SettingsIcon, VolumeUp, VolumeOff, Visibility, DeleteOutline, Mic, Stop as StopIcon } from "@mui/icons-material";
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import { BookmarkAdd } from "@mui/icons-material";
@@ -133,6 +134,9 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 }) => {
   const t = useTranslations('chat');
   const theme = useTheme();
+  const branding = useBranding();
+  const coachAvatarSrc = branding.logoUrl || "/static/images/chesster-logo-v3.png";
+  const coachAvatarAlt = branding.name;
 
   // Translated prompt arrays (memoized to avoid re-creating on every render)
   const sessionPrompts = useMemo(() => sessionPromptKeys.map(k => t(k)), [t]);
@@ -482,7 +486,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
 
   const copyEntireChat = () => {
     const chatHistory = chatMessages
-      .map((msg) => `**${msg.role === 'user' ? 'You' : 'Chesster'}** (${msg.timestamp.toLocaleString()}):\n${msg.content}`)
+      .map((msg) => `**${msg.role === 'user' ? 'You' : branding.name}** (${msg.timestamp.toLocaleString()}):\n${msg.content}`)
       .join('\n\n---\n\n');
     
     copyToClipboard(chatHistory);
@@ -815,7 +819,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
         <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.5 }}>
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Avatar
-              src="/static/images/chesster-logo-v3.png"
+              src={coachAvatarSrc}
+              alt={coachAvatarAlt}
               sx={{
                 width: 20,
                 height: 20,
@@ -1007,7 +1012,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             }}
           >
             <Avatar
-              src="/static/images/chesster-logo-v3.png"
+              src={coachAvatarSrc}
+              alt={coachAvatarAlt}
               sx={{
                 width: 50,
                 height: 50,
@@ -1071,7 +1077,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 {/* Avatar for assistant messages */}
                 {message.role === "assistant" && (
                   <Avatar
-                    src="/static/images/chesster-logo-v3.png"
+                    src={coachAvatarSrc}
+                    alt={coachAvatarAlt}
                     sx={{
                       width: compactView ? 24 : 28,
                       height: compactView ? 24 : 28,
@@ -1336,7 +1343,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 }}
               >
                 <Avatar
-                  src="/static/images/chesster-logo-v3.png"
+                  src={coachAvatarSrc}
+                  alt={coachAvatarAlt}
                   sx={{
                     width: compactView ? 24 : 28,
                     height: compactView ? 24 : 28,
@@ -1360,7 +1368,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                 >
                   <CircularProgress size={14} sx={{ color: "white" }} />
                   <Typography variant="caption" sx={{ color: "white", fontSize: `${fontSize}px` }}>
-                    Chesster is thinking...
+                    {`${branding.name} is thinking...`}
                   </Typography>
                   {abortChatMessage && (
                     <Tooltip title={t("stopResponse")} arrow>
@@ -1577,7 +1585,7 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           alignItems: "center",
           pb: 1
         }}>
-         Chesster Position Library
+         {`${branding.name} Position Library`}
         </DialogTitle>
         <DialogContent sx={{ p: 2 }}>
           {libraryContent}
