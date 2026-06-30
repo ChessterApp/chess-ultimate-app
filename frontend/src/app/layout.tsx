@@ -15,6 +15,7 @@ import BrandingInjector from "@/components/BrandingInjector";
 import ImpersonationBanner from "@/components/super-admin/ImpersonationBanner";
 import { buildMetadata } from "@/lib/org-metadata";
 import { loadOrgFromHeaders } from "@/lib/org-from-headers";
+import { buildClerkLocalization } from "@/lib/clerk-localization";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,70 +26,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-// Clerk localization strings per locale
-const clerkLocalizations: Record<string, Record<string, unknown>> = {
-  en: {
-    signIn: {
-      start: {
-        title: 'Sign in to Chesster',
-        subtitle: 'Welcome back! Please sign in to continue',
-      },
-    },
-    signUp: {
-      start: {
-        title: 'Create your Chesster account',
-        subtitle: 'Start your chess journey today',
-      },
-    },
-    formFieldInputPlaceholder__firstName: 'Name (optional)',
-    formFieldInputPlaceholder__emailAddress: 'Email',
-    formFieldInputPlaceholder__password: 'Password',
-    formFieldLabel__firstName: 'Name',
-    formFieldLabel__emailAddress: 'Email',
-    formFieldLabel__password: 'Password',
-  },
-  ru: {
-    signIn: {
-      start: {
-        title: 'Войти в Chesster',
-        subtitle: 'С возвращением! Войдите, чтобы продолжить',
-      },
-    },
-    signUp: {
-      start: {
-        title: 'Создайте аккаунт Chesster',
-        subtitle: 'Начните своё шахматное путешествие сегодня',
-      },
-    },
-    formFieldInputPlaceholder__firstName: 'Имя (необязательно)',
-    formFieldInputPlaceholder__emailAddress: 'Электронная почта',
-    formFieldInputPlaceholder__password: 'Пароль',
-    formFieldLabel__firstName: 'Имя',
-    formFieldLabel__emailAddress: 'Электронная почта',
-    formFieldLabel__password: 'Пароль',
-  },
-  kz: {
-    signIn: {
-      start: {
-        title: 'Chesster-ге кіру',
-        subtitle: 'Қайта қош келдіңіз! Жалғастыру үшін кіріңіз',
-      },
-    },
-    signUp: {
-      start: {
-        title: 'Chesster аккаунтын жасау',
-        subtitle: 'Шахмат саяхатыңызды бүгін бастаңыз',
-      },
-    },
-    formFieldInputPlaceholder__firstName: 'Аты (міндетті емес)',
-    formFieldInputPlaceholder__emailAddress: 'Электрондық пошта',
-    formFieldInputPlaceholder__password: 'Құпия сөз',
-    formFieldLabel__firstName: 'Аты',
-    formFieldLabel__emailAddress: 'Электрондық пошта',
-    formFieldLabel__password: 'Құпия сөз',
-  },
-};
 
 export async function generateMetadata(): Promise<Metadata> {
   const org = await loadOrgFromHeaders();
@@ -102,9 +39,9 @@ export default async function RootLayout({
 }>) {
   const locale = await getLocale();
   const messages = await getMessages();
-  const clerkLocalization = clerkLocalizations[locale] || clerkLocalizations.en;
 
   const org = await loadOrgFromHeaders();
+  const clerkLocalization = buildClerkLocalization(locale, org?.name || 'Chesster');
 
   return (
     <ClerkProvider localization={clerkLocalization}>
