@@ -83,7 +83,7 @@ export function ChessterMascot({
           isAnimating ? 'scale-90' : 'scale-100'
         }`}
       >
-        <img src={mascotSrc} alt={branding.name} className={`${sizeClasses[size]} rounded-full object-cover p-1`} />
+        <img src={mascotSrc} alt={branding.name} className={`${sizeClasses[size]} rounded-full object-contain p-1`} />
       </div>
 
       {/* Mood indicator badge */}
