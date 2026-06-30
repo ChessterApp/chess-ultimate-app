@@ -1606,5 +1606,22 @@
     "signupNotice": "Chess Empire оқушысы ретінде тіркелу үшін филиал жіберген сілтемені пайдаланыңыз.",
     "signupNoticeHint": "Шақыру сілтемесін филиал әкімшісінен сұраңыз.",
     "signupWelcome": "Қош келдіңіз, {firstName}!"
+  },
+  "empire": {
+    "branchLabel": "Филиал",
+    "coachLabel": "Жаттықтырушы",
+    "razryadLabel": "Разряд",
+    "leagueLabel": "Лига",
+    "progressTitle": "Прогресіңіз",
+    "progressLabel": "Сабақ {current} / {total}, Деңгей {level}",
+    "ratingTitle": "Рейтинг",
+    "ratingEmpty": "Рейтинг тарихы әлі жоқ.",
+    "ratingDeltaSuffix": "30 күнде",
+    "achievementsTitle": "Жетістіктер",
+    "achievementsEmpty": "Жетістіктерді табу үшін ойнаңыз.",
+    "achievementsMore": "+тағы {count}",
+    "rankBranch": "#{rank} {size} филиалда",
+    "rankSchool": "#{rank} {size} мектепте",
+    "continueCta": "Оқуды жалғастыру"
   }
 }

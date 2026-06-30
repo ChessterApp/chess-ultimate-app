@@ -1606,5 +1606,22 @@
     "signupNotice": "Чтобы зарегистрироваться как ученик Chess Empire, используйте ссылку, которую прислал ваш филиал.",
     "signupNoticeHint": "Запросите ссылку у администратора филиала.",
     "signupWelcome": "Добро пожаловать, {firstName}!"
+  },
+  "empire": {
+    "branchLabel": "Филиал",
+    "coachLabel": "Тренер",
+    "razryadLabel": "Разряд",
+    "leagueLabel": "Лига",
+    "progressTitle": "Ваш прогресс",
+    "progressLabel": "Урок {current} / {total}, Уровень {level}",
+    "ratingTitle": "Рейтинг",
+    "ratingEmpty": "История рейтинга пока пуста.",
+    "ratingDeltaSuffix": "за 30 дней",
+    "achievementsTitle": "Достижения",
+    "achievementsEmpty": "Играй и зарабатывай достижения.",
+    "achievementsMore": "+ещё {count}",
+    "rankBranch": "#{rank} из {size} в филиале",
+    "rankSchool": "#{rank} из {size} по школе",
+    "continueCta": "Продолжить обучение"
   }
 }

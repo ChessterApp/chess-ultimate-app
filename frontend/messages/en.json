@@ -1606,5 +1606,22 @@
     "signupNotice": "To register as a Chess Empire student, please use the link your branch sent you.",
     "signupNoticeHint": "Ask your branch admin for the invite link.",
     "signupWelcome": "Welcome, {firstName}!"
+  },
+  "empire": {
+    "branchLabel": "Branch",
+    "coachLabel": "Coach",
+    "razryadLabel": "Razryad",
+    "leagueLabel": "League",
+    "progressTitle": "Your progress",
+    "progressLabel": "Lesson {current} / {total}, Level {level}",
+    "ratingTitle": "Rating",
+    "ratingEmpty": "No rating history yet.",
+    "ratingDeltaSuffix": "in 30 days",
+    "achievementsTitle": "Achievements",
+    "achievementsEmpty": "Keep playing to earn achievements.",
+    "achievementsMore": "+{count} more",
+    "rankBranch": "#{rank} of {size} in branch",
+    "rankSchool": "#{rank} of {size} school-wide",
+    "continueCta": "Continue learning"
   }
 }
