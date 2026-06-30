@@ -95,12 +95,16 @@ logging.basicConfig(level=logging.INFO,
 # You might want to direct Flask's default logger to use this too, or customize further.
 # For now, this sets up basicConfig which other modules using logging.getLogger() will pick up.
 
-# Configure CORS with environment-based origins
+# Configure CORS with environment-based origins + tenant-subdomain wildcard.
 flask_env = os.getenv('FLASK_ENV', 'production')
 cors_origins_str = os.getenv('CORS_ALLOWED_ORIGINS', 'https://chesster.io,https://www.chesster.io')
-cors_origins = [origin.strip() for origin in cors_origins_str.split(',')]
+cors_origins = [o.strip() for o in cors_origins_str.split(',') if o.strip()]
 
-# Allow localhost in development only
+# White-label tenant subdomains: every {slug}.chesster.io is self-provisioned via
+# onboarding, so a static whitelist doesn't scale. A regex covers the whole namespace
+# (excluding the apex, which is already listed explicitly).
+cors_origins.append(re.compile(r'^https://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.chesster\.io$'))
+
 if flask_env == 'development':
     if 'http://localhost:3000' not in cors_origins:
         cors_origins.append('http://localhost:3000')

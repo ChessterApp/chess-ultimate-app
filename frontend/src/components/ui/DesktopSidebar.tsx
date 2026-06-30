@@ -10,6 +10,7 @@ import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useLocale } from 'next-intl';
+import { useBranding } from '@/contexts/OrganizationContext';
 
 interface SidebarItem {
   href: string;
@@ -100,6 +101,7 @@ export default function DesktopSidebar() {
   const locale = useLocale();
   const [collapsed, setCollapsed] = useLocalStorage('sidebar_collapsed', false);
   const { isSignedIn } = useAuth();
+  const branding = useBranding();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -148,8 +150,30 @@ export default function DesktopSidebar() {
     >
       {/* Logo */}
       <div className={`h-16 flex items-center border-b border-gray-100 dark:border-[#2a2a2a] px-3 ${collapsed ? 'justify-center' : 'gap-2'}`}>
-        <Image src="/static/images/chesster-logo-v3.png" alt="Chesster" width={28} height={28} />
-        {!collapsed && <span className="font-bold text-gray-900 dark:text-gray-100 text-lg">Chesster</span>}
+        {branding.logoUrl ? (
+          // Tenant logos live on Supabase Storage which isn't in next.config images.remotePatterns,
+          // so use a plain <img> instead of next/image.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={branding.logoUrl}
+            alt={branding.name}
+            width={28}
+            height={28}
+            className="h-7 w-7 rounded object-cover"
+          />
+        ) : (
+          <Image
+            src="/static/images/chesster-logo-v3.png"
+            alt={branding.name}
+            width={28}
+            height={28}
+          />
+        )}
+        {!collapsed && (
+          <span className="font-bold text-gray-900 dark:text-gray-100 text-lg truncate">
+            {branding.name}
+          </span>
+        )}
       </div>
 
       {/* Main nav */}
