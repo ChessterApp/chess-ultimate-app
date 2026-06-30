@@ -523,3 +523,21 @@ export const FAQ_ITEMS: FAQItem[] = [
     category: "technical"
   }
 ];
+
+// White-label sweep: tenant-aware view of FAQ_ITEMS. "Chesster" inside FAQ
+// text gets replaced with the tenant brand name (or stays "Chesster" on apex).
+// Note: "Chesster Cloud" is the brand of the hosted inference tier and is left
+// literal — only standalone product mentions are rebranded.
+export function getFaqItems(appName: string = 'Chesster'): FAQItem[] {
+  if (appName === 'Chesster') return FAQ_ITEMS;
+  const swap = (s: string) =>
+    s
+      .replaceAll('Chesster Cloud', '__CHESSTER_CLOUD__')
+      .replaceAll('Chesster', appName)
+      .replaceAll('__CHESSTER_CLOUD__', 'Chesster Cloud');
+  return FAQ_ITEMS.map(item => ({
+    ...item,
+    question: swap(item.question),
+    answer: swap(item.answer),
+  }));
+}

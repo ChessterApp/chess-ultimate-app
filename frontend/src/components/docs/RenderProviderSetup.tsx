@@ -18,6 +18,9 @@ import {
 
 import { ProviderConfig } from "@/libs/docs/helper";
 
+// White-label TODO: orphan docs component. When wired into a route, accept
+// `appName` from useBranding() and substitute the literal "Chesster" mentions
+// (ChessterCloud is a product name and stays literal).
 export const renderProviderSetup = (provider: ProviderConfig) => (
   <Card sx={{ mb: 3 }}>
     <CardContent>

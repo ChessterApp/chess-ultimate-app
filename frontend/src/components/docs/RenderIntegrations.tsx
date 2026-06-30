@@ -89,6 +89,8 @@ const getStatusColor = (status: string) => {
   }
 };
 
+// White-label TODO: orphan docs component. When wired into a route, accept
+// `appName` from useBranding() and substitute the literal "Chesster" mentions.
 export const renderIntegrations = () => (
   <Box>
     <Typography

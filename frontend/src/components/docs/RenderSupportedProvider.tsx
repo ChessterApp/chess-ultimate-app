@@ -9,6 +9,8 @@ import {
 import { PROVIDERS } from "@/libs/docs/helper";
 import { Key as KeyIcon, Info as InfoIcon } from "@mui/icons-material";
 
+// White-label TODO: orphan docs component. When wired into a route, accept
+// `appName` from useBranding() and substitute the literal "Chesster" mention.
 export const renderSupportedProvider = () => (
   <>
     <Typography variant="h4" gutterBottom color="primary.text">

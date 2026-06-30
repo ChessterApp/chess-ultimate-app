@@ -20,9 +20,13 @@ import {
   AttachMoney as CostIcon,
   SupportAgent as SupportIcon,
 } from "@mui/icons-material";
-import { FAQ_ITEMS } from "@/libs/docs/helper";
+import { getFaqItems } from "@/libs/docs/helper";
+import { useBranding } from "@/contexts/OrganizationContext";
 
-export const renderFAQ = () => (
+export const RenderFAQ: React.FC = () => {
+  const { name: appName } = useBranding();
+  const items = getFaqItems(appName);
+  return (
   <Box>
     <Typography
       variant="h4"
@@ -43,15 +47,10 @@ export const renderFAQ = () => (
           sx={{ display: "flex", alignItems: "center", gap: 1 }}
         >
           <CommunityIcon />
-          About Chesster
+          {`About ${appName}`}
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Chesster is designed to be your friendly AI chess companion, think
-          of it as a knowledgeable chess buddy who is always available to chat,
-          analyze positions, and help you explore the wonderful world of chess.
-          It is NOT a formal coach with structured lessons, but rather a
-          conversational partner that adapts to your curiosity and learning
-          style.
+          {`${appName} is designed to be your friendly AI chess companion, think of it as a knowledgeable chess buddy who is always available to chat, analyze positions, and help you explore the wonderful world of chess. It is NOT a formal coach with structured lessons, but rather a conversational partner that adapts to your curiosity and learning style.`}
         </Typography>
       </CardContent>
     </Card>
@@ -79,7 +78,7 @@ export const renderFAQ = () => (
           {category} Questions
         </Typography>
 
-        {FAQ_ITEMS.filter((item) => item.category === category).map(
+        {items.filter((item) => item.category === category).map(
           (faq, index) => (
             <Accordion key={index} sx={{ mb: 1 }}>
               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -110,9 +109,7 @@ export const renderFAQ = () => (
           Still Have Questions?
         </Typography>
         <Typography variant="body2" color="text.secondary" paragraph>
-          Can not find what you are looking for? Join our community Discord
-          where fellow chess enthusiasts and Chesster users share tips,
-          discuss strategies, and help each other out!
+          {`Can not find what you are looking for? Join our community Discord where fellow chess enthusiasts and ${appName} users share tips, discuss strategies, and help each other out!`}
         </Typography>
         <Button
           variant="outlined"
@@ -126,4 +123,5 @@ export const renderFAQ = () => (
       </CardContent>
     </Card>
   </Box>
-);
+  );
+};

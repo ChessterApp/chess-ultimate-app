@@ -20,7 +20,10 @@ import {
 } from "@mui/icons-material";
 import ConstructionIcon from '@mui/icons-material/Construction';
 
-
+// White-label TODO: this docs page is currently orphan (no caller). When it
+// is re-wired into a route, accept `appName` from useBranding() and
+// substitute the literal "Chesster" mentions below — "Chesster Cloud" is a
+// product name and stays literal.
 export const renderHeader = () => (
   <>
     <Paper

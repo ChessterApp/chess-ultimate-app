@@ -74,6 +74,8 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code}) => {
   );
 };
 
+// White-label TODO: orphan docs component. When wired into a route, accept
+// `appName` from useBranding() and substitute the literal "Chesster" mentions.
 const MCPdocs =  () => {
   const [expanded, setExpanded] = useState<string | false>("option1");
 
