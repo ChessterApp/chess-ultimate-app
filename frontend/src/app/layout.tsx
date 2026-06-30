@@ -113,13 +113,11 @@ export default async function RootLayout({
           <link rel="preconnect" href="https://clerk.chesster.io" />
           <link rel="preconnect" href="https://accounts.clerk.services" />
           <link rel="dns-prefetch" href="https://clerk.chesster.io" />
-          <link rel="manifest" href="/manifest.json" />
+          <link rel="manifest" href="/manifest.webmanifest" />
           <meta name="theme-color" content={org?.primaryColor || '#9333ea'} />
           <meta name="mobile-web-app-capable" content="yes" />
           <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-          {org?.faviconUrl && (
-            <link rel="icon" href={org.faviconUrl} />
-          )}
+          <link rel="icon" href={org?.faviconUrl || '/static/images/default-favicon.ico'} />
           {org && org.customCss ? (
             <style dangerouslySetInnerHTML={{ __html: org.customCss }} />
           ) : null}

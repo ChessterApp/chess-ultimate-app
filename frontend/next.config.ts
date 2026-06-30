@@ -196,6 +196,17 @@ const nextConfig = {
                     },
                 ],
             },
+            {
+                // PWA manifest is built per-tenant from the Host header — the
+                // same browser visiting two tenants must NOT share a cached
+                // manifest, or installing the second tenant would show the
+                // first tenant's name/icon.
+                source: '/manifest.webmanifest',
+                headers: [
+                    { key: 'Vary', value: 'Host' },
+                    { key: 'Cache-Control', value: 'public, max-age=60' },
+                ],
+            },
         ];
 
         return headers;

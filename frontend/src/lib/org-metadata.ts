@@ -63,7 +63,7 @@ export function buildMetadata(org: Organization | null): Metadata {
 
   const title = `${org.name} — Chess Training`;
   const description = `${org.name} — chess training powered by Chesster.`;
-  const ogImage = org.logoUrl || '/static/images/chesster-logo-og.png';
+  const ogImage = org.logoUrl || '/static/images/default-og.png';
 
   return {
     metadataBase: new URL('https://chesster.io'),
