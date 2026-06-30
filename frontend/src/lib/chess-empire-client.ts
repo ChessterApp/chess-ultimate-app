@@ -53,6 +53,24 @@ export interface CEBranch {
   address?: string | null;
 }
 
+export interface CECoach {
+  id: string;
+  full_name: string;
+  branch_id?: string | null;
+}
+
+export interface CEActiveStudent {
+  id: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth?: string | null;
+  status: string;
+  branch_id: string;
+  coach_id?: string | null;
+  current_razryad?: string | null;
+  current_league?: string | null;
+}
+
 export interface CEStudentProfile extends CEStudent {
   coach_name?: string | null;
   branch_name?: string | null;
@@ -370,4 +388,219 @@ export async function getStudentRank(studentId: string): Promise<CEStudentRank> 
     school_size: pick('school_size'),
   };
   return result;
+}
+
+/**
+ * Phase 4 — admin panel roster helpers.
+ *
+ * The three helpers below back the Chess Empire admin tab on
+ * `/admin/students`. They all degrade gracefully: a 404 or any unexpected
+ * shape returns `[]` and logs a single warning, so the admin page still
+ * renders if a CE endpoint is temporarily down or its contract drifts.
+ */
+let warnedListBranches = false;
+let warnedListCoaches = false;
+let warnedListActiveStudents = false;
+
+function isCEBranchArray(x: unknown): x is CEBranch[] {
+  return (
+    Array.isArray(x) &&
+    x.every(
+      (r) =>
+        r &&
+        typeof r === 'object' &&
+        typeof (r as { id?: unknown }).id === 'string' &&
+        typeof (r as { name?: unknown }).name === 'string',
+    )
+  );
+}
+
+function isCECoachArray(x: unknown): x is CECoach[] {
+  return (
+    Array.isArray(x) &&
+    x.every(
+      (r) =>
+        r &&
+        typeof r === 'object' &&
+        typeof (r as { id?: unknown }).id === 'string' &&
+        typeof (r as { full_name?: unknown }).full_name === 'string',
+    )
+  );
+}
+
+function isCEActiveStudentArray(x: unknown): x is CEActiveStudent[] {
+  return (
+    Array.isArray(x) &&
+    x.every(
+      (r) =>
+        r &&
+        typeof r === 'object' &&
+        typeof (r as { id?: unknown }).id === 'string' &&
+        typeof (r as { branch_id?: unknown }).branch_id === 'string',
+    )
+  );
+}
+
+export async function listBranches(): Promise<CEBranch[]> {
+  let key: string;
+  try {
+    key = getServiceKey();
+  } catch {
+    return [];
+  }
+  const params = new URLSearchParams({
+    select: 'id,name,address',
+    order: 'name.asc',
+  });
+  const url = `${ceRestBase()}/branches?${params.toString()}`;
+  let resp: Response;
+  try {
+    resp = await ceFetch(url, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+      },
+    });
+  } catch {
+    if (!warnedListBranches) {
+      console.warn('[ce-admin] listBranches: network error, returning []');
+      warnedListBranches = true;
+    }
+    return [];
+  }
+  if (resp.status === 404) return [];
+  if (resp.status < 200 || resp.status >= 300) {
+    if (!warnedListBranches) {
+      console.warn(`[ce-admin] listBranches: HTTP ${resp.status}, returning []`);
+      warnedListBranches = true;
+    }
+    return [];
+  }
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return [];
+  }
+  if (isCEBranchArray(body)) return body;
+  if (!warnedListBranches) {
+    console.warn('[ce-admin] listBranches: unexpected shape, returning []');
+    warnedListBranches = true;
+  }
+  return [];
+}
+
+export async function listCoaches(): Promise<CECoach[]> {
+  let key: string;
+  try {
+    key = getServiceKey();
+  } catch {
+    return [];
+  }
+  const params = new URLSearchParams({
+    select: 'id,full_name,branch_id',
+    order: 'full_name.asc',
+  });
+  const url = `${ceRestBase()}/coaches?${params.toString()}`;
+  let resp: Response;
+  try {
+    resp = await ceFetch(url, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+      },
+    });
+  } catch {
+    if (!warnedListCoaches) {
+      console.warn('[ce-admin] listCoaches: network error, returning []');
+      warnedListCoaches = true;
+    }
+    return [];
+  }
+  if (resp.status === 404) return [];
+  if (resp.status < 200 || resp.status >= 300) {
+    if (!warnedListCoaches) {
+      console.warn(`[ce-admin] listCoaches: HTTP ${resp.status}, returning []`);
+      warnedListCoaches = true;
+    }
+    return [];
+  }
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return [];
+  }
+  if (isCECoachArray(body)) return body;
+  if (!warnedListCoaches) {
+    console.warn('[ce-admin] listCoaches: unexpected shape, returning []');
+    warnedListCoaches = true;
+  }
+  return [];
+}
+
+export async function listActiveStudentsByBranch(
+  branchId: string,
+): Promise<CEActiveStudent[]> {
+  if (!branchId) return [];
+  let key: string;
+  try {
+    key = getServiceKey();
+  } catch {
+    return [];
+  }
+  const params = new URLSearchParams({
+    branch_id: `eq.${branchId}`,
+    status: 'eq.active',
+    select:
+      'id,first_name,last_name,date_of_birth,status,branch_id,coach_id,current_razryad,current_league',
+    order: 'first_name.asc',
+  });
+  const url = `${ceRestBase()}/students?${params.toString()}`;
+  let resp: Response;
+  try {
+    resp = await ceFetch(url, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+      },
+    });
+  } catch {
+    if (!warnedListActiveStudents) {
+      console.warn(
+        '[ce-admin] listActiveStudentsByBranch: network error, returning []',
+      );
+      warnedListActiveStudents = true;
+    }
+    return [];
+  }
+  if (resp.status === 404) return [];
+  if (resp.status < 200 || resp.status >= 300) {
+    if (!warnedListActiveStudents) {
+      console.warn(
+        `[ce-admin] listActiveStudentsByBranch: HTTP ${resp.status}, returning []`,
+      );
+      warnedListActiveStudents = true;
+    }
+    return [];
+  }
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return [];
+  }
+  if (isCEActiveStudentArray(body)) {
+    return body.filter((s) => s.status === 'active');
+  }
+  if (!warnedListActiveStudents) {
+    console.warn(
+      '[ce-admin] listActiveStudentsByBranch: unexpected shape, returning []',
+    );
+    warnedListActiveStudents = true;
+  }
+  return [];
 }
