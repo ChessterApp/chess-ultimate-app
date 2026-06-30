@@ -44,7 +44,6 @@ export const CHESSTER_DEFAULT_METADATA: Metadata = {
     'chess AI',
     'chess tutor',
     'chess learning',
-    'chessempire',
   ],
 
   other: {
@@ -82,6 +81,16 @@ export function buildMetadata(org: Organization | null): Metadata {
       description,
       images: [ogImage],
     },
+    keywords: [
+      'chess training',
+      'AI chess coach',
+      'Stockfish',
+      'chess engine',
+      'chess AI',
+      'chess tutor',
+      'chess learning',
+      org.slug,
+    ],
     other: {
       'theme-color': org.primaryColor,
     },

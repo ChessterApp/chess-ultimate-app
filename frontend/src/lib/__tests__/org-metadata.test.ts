@@ -42,10 +42,27 @@ describe('buildMetadata', () => {
     expect((meta.other as Record<string, string>)['theme-color']).toBe('#ff5500');
   });
 
-  it('falls back to the Chesster OG image when the org has no logo', () => {
+  it('falls back to the neutral default OG image when the org has no logo', () => {
     const noLogo = { ...TENANT_ORG, logoUrl: null };
     const meta = buildMetadata(noLogo);
     const ogImages = meta.openGraph?.images as Array<{ url: string }>;
-    expect(ogImages[0].url).toBe('/static/images/chesster-logo-og.png');
+    expect(ogImages[0].url).toBe('/static/images/default-og.png');
+  });
+
+  it('keeps the "powered by Chesster" attribution in the tenant description', () => {
+    const meta = buildMetadata(TENANT_ORG);
+    expect(meta.description).toBe('Acme Chess — chess training powered by Chesster.');
+  });
+
+  it('uses the org slug as the tenant-specific keyword (no hardcoded chessempire)', () => {
+    const meta = buildMetadata(TENANT_ORG);
+    const keywords = meta.keywords as string[];
+    expect(keywords).toContain('acme');
+    expect(keywords).not.toContain('chessempire');
+  });
+
+  it('removes the chessempire keyword from the apex defaults too', () => {
+    const keywords = CHESSTER_DEFAULT_METADATA.keywords as string[];
+    expect(keywords).not.toContain('chessempire');
   });
 });

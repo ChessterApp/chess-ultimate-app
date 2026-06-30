@@ -36,21 +36,34 @@ async function createChessterCloudModel(requestContext: RequestContext) {
   return agineCloudRouter(`${modelName}:free` as ChessterCloudModel);
 }
 
-function createAgentInstruction(requestContext: RequestContext) {
+// Resolve the persona name the agent introduces itself with.
+// Apex (orgName="Chesster" or unset) keeps the "Sir Chesster" persona;
+// tenants render as "<Brand> Coach" per the locked decision.
+export function resolveAgentAppName(orgName?: string | null): string {
+  if (!orgName || orgName === "Chesster") return "Sir Chesster";
+  return `${orgName} Coach`;
+}
+
+export function createAgentInstruction(requestContext: RequestContext) {
   const lang = (requestContext.get("lang") as string) || "English";
   const mode = (requestContext.get("mode") as string) || "position";
+  const orgName = (requestContext.get("orgName") as string | undefined) || undefined;
+  const appName = resolveAgentAppName(orgName);
+
+  const fillPlaceholders = (prompt: string) =>
+    prompt.split("{APP_NAME}").join(appName).replace("ENGLISH", lang);
 
   switch (mode) {
     case "position":
-      return agineSystemPrompt.replace("ENGLISH", lang);
+      return fillPlaceholders(agineSystemPrompt);
     case "puzzle":
-      return aginePuzzleSystemPrompt.replace("ENGLISH", lang);
+      return fillPlaceholders(aginePuzzleSystemPrompt);
     case "annotation":
-      return chessChessterAnnoPrompt.replace("ENGLISH", lang);
+      return fillPlaceholders(chessChessterAnnoPrompt);
     case "question":
-      return agineQuestionMode.replace("ENGLISH", lang);
+      return fillPlaceholders(agineQuestionMode);
     default:
-      return agineSystemPrompt.replace("ENGLISH", lang);
+      return fillPlaceholders(agineSystemPrompt);
   }
 }
 

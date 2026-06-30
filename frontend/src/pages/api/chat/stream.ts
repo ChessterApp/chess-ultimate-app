@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { chessChesster } from "@/server/mastra/agents";
+import { orgNameFromHost } from "@/lib/org-name-from-host";
 import { getBoardState } from "@/server/mastra/tools/protocol/state";
 import { RequestContext } from "@mastra/core/request-context";
 import { PositionPrompter } from "@/server/mastra/tools/protocol/positionPrompter";
@@ -184,6 +185,10 @@ async function handleMastra(
   requestContext.set("isRouted", MASTRA_IS_ROUTED);
   const detectedLang = detectLanguage(query);
   requestContext.set("lang", detectedLang);
+  const tenantOrgName = await orgNameFromHost(
+    (req.headers["x-forwarded-host"] as string) || req.headers.host,
+  );
+  if (tenantOrgName) requestContext.set("orgName", tenantOrgName);
 
   console.log(`[chat/stream] Mastra: provider=${MASTRA_PROVIDER}, model=${MASTRA_MODEL}, isRouted=${MASTRA_IS_ROUTED}, lang=${detectedLang}`);
 

@@ -3,6 +3,7 @@ import { chessChesster } from "@/server/mastra/agents";
 import { getBoardState } from "@/server/mastra/tools/protocol/state";
 import { RequestContext } from "@mastra/core/request-context";
 import { PositionPrompter } from "@/server/mastra/tools/protocol/positionPrompter";
+import { orgNameFromHost } from "@/lib/org-name-from-host";
 // Clerk authentication disabled for local development
 // import { getAuth } from "@clerk/nextjs/server";
 import { ApiSetting } from "@/server/mastra/agents/types";
@@ -170,6 +171,11 @@ export default async function handler(
     requestContext.set("mode", mode);
     requestContext.set("isRouted", apiSettings.isRouted)
     requestContext.set("lang", apiSettings.language);
+
+    const tenantOrgName = await orgNameFromHost(
+      (req.headers["x-forwarded-host"] as string) || req.headers.host,
+    );
+    if (tenantOrgName) requestContext.set("orgName", tenantOrgName);
 
     if (apiSettings.provider === "ollama") {
       if (apiSettings.ollamaBaseUrl) {
