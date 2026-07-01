@@ -2,8 +2,8 @@
  * @vitest-environment jsdom
  *
  * Client state-machine tests for WelcomeFlow. Mocks `fetch` and the Next
- * router; walks the search → confirm → DOB happy path and the failure
- * branches (no results, wrong DOB ≥3 times, 409 already-registered).
+ * router; walks the search → confirm happy path and the failure branches
+ * (no results, generic error on confirm, 409 already-registered).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -137,7 +137,7 @@ describe('WelcomeFlow', () => {
     });
   });
 
-  it('happy path: search → confirm → DOB → /sign-up?invite', async () => {
+  it('happy path: search → confirm → /sign-up?invite', async () => {
 
     fetchHandler = async (call) => {
       if (call.url.includes('/search')) return jsonResponse({ results: sampleResults });
@@ -155,23 +155,10 @@ describe('WelcomeFlow', () => {
     await waitFor(() => expect(container.textContent).toContain('confirmTitle'));
     const yesButton = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('confirmYes'),
-    )!;
-    fireEvent.click(yesButton);
-
-    // DOB step.
-    await waitFor(() => expect(container.textContent).toContain('dobTitle'));
-    const inputs = container.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]');
-    expect(inputs).toHaveLength(3);
-    fireEvent.change(inputs[0], { target: { value: '15' } });
-    fireEvent.change(inputs[1], { target: { value: '07' } });
-    fireEvent.change(inputs[2], { target: { value: '2012' } });
-
-    const verifyButton = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('verifyButton'),
     ) as HTMLButtonElement;
-    expect(verifyButton.disabled).toBe(false);
+    expect(yesButton.disabled).toBe(false);
     await act(async () => {
-      fireEvent.click(verifyButton);
+      fireEvent.click(yesButton);
     });
 
     await waitFor(() => {
@@ -181,7 +168,6 @@ describe('WelcomeFlow', () => {
       expect(body).toEqual({
         branchToken: 'tok-abc',
         studentId: 'stu-1',
-        dob: '2012-07-15',
       });
     });
     await waitFor(() => {
@@ -189,11 +175,11 @@ describe('WelcomeFlow', () => {
     });
   });
 
-  it('shows DOB error and locks after 3 failed attempts', async () => {
+  it('shows a generic error when verify fails', async () => {
 
     fetchHandler = async (call) => {
       if (call.url.includes('/search')) return jsonResponse({ results: sampleResults });
-      if (call.url.includes('/verify')) return jsonResponse({ error: 'wrong_dob' }, 401);
+      if (call.url.includes('/verify')) return jsonResponse({ error: 'upstream_error' }, 502);
       return jsonResponse({});
     };
     const { container, findByTestId } = renderFlow();
@@ -202,37 +188,18 @@ describe('WelcomeFlow', () => {
     await flushDebounce();
     const list = await findByTestId('welcome-search-results');
     fireEvent.click(list.querySelectorAll('button')[0]);
+
+    await waitFor(() => expect(container.textContent).toContain('confirmTitle'));
     const yesButton = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('confirmYes'),
-    )!;
-    fireEvent.click(yesButton);
-
-    const inputs = () => container.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]');
-    await waitFor(() => expect(inputs()).toHaveLength(3));
-
-    async function submitDob(day: string, month: string, year: string) {
-      const ins = inputs();
-      fireEvent.change(ins[0], { target: { value: day } });
-      fireEvent.change(ins[1], { target: { value: month } });
-      fireEvent.change(ins[2], { target: { value: year } });
-      const verifyButton = Array.from(container.querySelectorAll('button')).find((b) =>
-        b.textContent && (b.textContent.includes('verifyButton') || b.textContent.includes('verifying')),
-      ) as HTMLButtonElement;
-      await act(async () => {
-        fireEvent.click(verifyButton);
-      });
-    }
-
-    await submitDob('01', '01', '2000');
-    await waitFor(() => expect(container.textContent).toContain('dobError'));
-    await submitDob('02', '02', '2001');
-    await submitDob('03', '03', '2002');
-
-    await waitFor(() => expect(container.textContent).toContain('tooManyAttempts'));
-    const verifyButton = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('verifyButton'),
     ) as HTMLButtonElement;
-    expect(verifyButton.disabled).toBe(true);
+    await act(async () => {
+      fireEvent.click(yesButton);
+    });
+
+    await waitFor(() => expect(container.textContent).toContain('genericError'));
+    // Not redirected on failure.
+    expect(routerReplace).not.toHaveBeenCalled();
   });
 
   it('redirects to /registered on 409 ALREADY_REGISTERED', async () => {
@@ -248,23 +215,13 @@ describe('WelcomeFlow', () => {
     await flushDebounce();
     const list = await findByTestId('welcome-search-results');
     fireEvent.click(list.querySelectorAll('button')[0]);
+
+    await waitFor(() => expect(container.textContent).toContain('confirmTitle'));
     const yesButton = Array.from(container.querySelectorAll('button')).find((b) =>
       b.textContent?.includes('confirmYes'),
-    )!;
-    fireEvent.click(yesButton);
-
-    await waitFor(() =>
-      expect(container.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]')).toHaveLength(3),
-    );
-    const ins = container.querySelectorAll<HTMLInputElement>('input[inputmode="numeric"]');
-    fireEvent.change(ins[0], { target: { value: '15' } });
-    fireEvent.change(ins[1], { target: { value: '07' } });
-    fireEvent.change(ins[2], { target: { value: '2012' } });
-    const verifyButton = Array.from(container.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('verifyButton'),
     ) as HTMLButtonElement;
     await act(async () => {
-      fireEvent.click(verifyButton);
+      fireEvent.click(yesButton);
     });
 
     await waitFor(() => {

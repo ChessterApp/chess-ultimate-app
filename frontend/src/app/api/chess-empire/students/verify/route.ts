@@ -1,8 +1,8 @@
 /**
- * DOB verification gate → invite JWT.
+ * Student claim → invite JWT.
  *
  * Phase 1 of the Chess Empire → Chesster onboarding arc. POST with
- * `{ branchToken, studentId, dob }`. On success the server issues a
+ * `{ branchToken, studentId }`. On success the server issues a
  * 15-minute HS256 JWT carrying the student/branch/org context — the
  * sign-up page then forwards it through Clerk so the webhook can write
  * the `external_student_id` link on the new member row.
@@ -42,7 +42,6 @@ interface BranchTokenRow {
 interface VerifyBody {
   branchToken?: string;
   studentId?: string;
-  dob?: string;
 }
 
 function clientIp(req: NextRequest): string {
@@ -85,16 +84,6 @@ async function logAttempt(args: {
   }
 }
 
-function isValidDob(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s);
-}
-
-function normalizeDob(s: string | null | undefined): string | null {
-  if (!s) return null;
-  // CE may store as 'YYYY-MM-DD' or with timestamp suffix; strip past the date.
-  return s.slice(0, 10);
-}
-
 export async function POST(req: NextRequest) {
   const ip = clientIp(req);
   let body: VerifyBody;
@@ -106,12 +95,8 @@ export async function POST(req: NextRequest) {
 
   const branchToken = body.branchToken?.trim() ?? '';
   const studentId = body.studentId?.trim() ?? '';
-  const dob = body.dob?.trim() ?? '';
-  if (!branchToken || !studentId || !dob) {
+  if (!branchToken || !studentId) {
     return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
-  }
-  if (!isValidDob(dob)) {
-    return NextResponse.json({ error: 'invalid_dob_format' }, { status: 400 });
   }
 
   const token = await resolveBranchToken(branchToken);
@@ -224,18 +209,6 @@ export async function POST(req: NextRequest) {
       reason: 'inactive',
     });
     return NextResponse.json({ error: 'inactive' }, { status: 401 });
-  }
-
-  if (normalizeDob(profile.date_of_birth) !== dob) {
-    await logAttempt({
-      organizationId: token.organization_id,
-      branchTokenId: token.id,
-      externalStudentId: studentId,
-      ip,
-      success: false,
-      reason: 'wrong_dob',
-    });
-    return NextResponse.json({ error: 'wrong_dob' }, { status: 401 });
   }
 
   const inviteJwt = signInviteJwt({

@@ -1,9 +1,9 @@
 /**
  * Tests for /api/chess-empire/students/verify.
  *
- * Covers: wrong DOB (401 + attempt logged), correct DOB (JWT returned, JWT
- * verifies), already-registered (409), branch mismatch (401), inactive
- * (401), rate-limit (429), invalid body (400).
+ * Covers: missing fields (400), invalid token (401), already-registered
+ * (409), branch mismatch (401), inactive (401), success (JWT returned,
+ * JWT verifies), rate-limit (429).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -126,17 +126,10 @@ describe('POST /api/chess-empire/students/verify', () => {
     expect(res.status).toBe(400);
   });
 
-  it('400 on bad DOB format', async () => {
-    const res = await POST(
-      makeReq({ branchToken: 't', studentId: 's', dob: '15-06-2014' }),
-    );
-    expect(res.status).toBe(400);
-  });
-
   it('401 on invalid token', async () => {
     scripts['branch_invite_tokens.maybeSingle'] = [{ data: null, error: null }];
     const res = await POST(
-      makeReq({ branchToken: 'bad', studentId: 's', dob: '2014-06-15' }),
+      makeReq({ branchToken: 'bad', studentId: 's' }),
     );
     expect(res.status).toBe(401);
   });
@@ -148,7 +141,7 @@ describe('POST /api/chess-empire/students/verify', () => {
     ];
     scripts['student_verify_attempts.insert'] = [{ data: null, error: null }];
     const res = await POST(
-      makeReq({ branchToken: 't', studentId: 'stu-1', dob: '2014-06-15' }),
+      makeReq({ branchToken: 't', studentId: 'stu-1' }),
     );
     expect(res.status).toBe(409);
     const body = await res.json();
@@ -156,29 +149,6 @@ describe('POST /api/chess-empire/students/verify', () => {
     expect(
       inserted.find((i) => i.table === 'student_verify_attempts'),
     ).toBeTruthy();
-  });
-
-  it('401 on wrong DOB and logs attempt', async () => {
-    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
-    scripts['organization_members.maybeSingle'] = [{ data: null, error: null }];
-    ceProfile.mockResolvedValue({
-      id: 'stu-1',
-      first_name: 'A',
-      last_name: 'B',
-      branch_id: 'br-1',
-      status: 'active',
-      date_of_birth: '2014-06-15',
-    });
-    const res = await POST(
-      makeReq({ branchToken: 't', studentId: 'stu-1', dob: '2014-06-16' }),
-    );
-    expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.error).toBe('wrong_dob');
-    const attempt = inserted.find((i) => i.table === 'student_verify_attempts');
-    expect(attempt).toBeTruthy();
-    expect((attempt!.payload as { success: boolean }).success).toBe(false);
-    expect((attempt!.payload as { reason: string }).reason).toBe('wrong_dob');
   });
 
   it('401 on branch mismatch', async () => {
@@ -193,7 +163,7 @@ describe('POST /api/chess-empire/students/verify', () => {
       date_of_birth: '2014-06-15',
     });
     const res = await POST(
-      makeReq({ branchToken: 't', studentId: 'stu-1', dob: '2014-06-15' }),
+      makeReq({ branchToken: 't', studentId: 'stu-1' }),
     );
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -212,7 +182,7 @@ describe('POST /api/chess-empire/students/verify', () => {
       date_of_birth: '2014-06-15',
     });
     const res = await POST(
-      makeReq({ branchToken: 't', studentId: 'stu-1', dob: '2014-06-15' }),
+      makeReq({ branchToken: 't', studentId: 'stu-1' }),
     );
     expect(res.status).toBe(401);
     const body = await res.json();
@@ -231,7 +201,7 @@ describe('POST /api/chess-empire/students/verify', () => {
       date_of_birth: '2014-06-15',
     });
     const res = await POST(
-      makeReq({ branchToken: 't', studentId: 'stu-1', dob: '2014-06-15' }),
+      makeReq({ branchToken: 't', studentId: 'stu-1' }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -249,7 +219,7 @@ describe('POST /api/chess-empire/students/verify', () => {
     scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
     rl.mockReturnValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 3600 });
     const res = await POST(
-      makeReq({ branchToken: 't', studentId: 'stu-1', dob: '2014-06-15' }),
+      makeReq({ branchToken: 't', studentId: 'stu-1' }),
     );
     expect(res.status).toBe(429);
     expect(res.headers.get('Retry-After')).toBe('3600');
