@@ -34,7 +34,7 @@ interface WelcomeFlowProps {
 interface StudentResult {
   studentId: string;
   firstName: string;
-  lastNameInitial: string;
+  lastName: string;
   branchName: string;
   coachName: string | null;
 }
@@ -352,7 +352,7 @@ function SearchStep({
                   className="w-full text-left rounded-2xl border-2 border-gray-200 bg-white hover:border-purple-400 hover:bg-purple-50 transition-colors p-4"
                 >
                   <span className="block font-semibold text-gray-800">
-                    {r.firstName} {r.lastNameInitial}.
+                    {r.firstName} {r.lastName}
                   </span>
                   {r.coachName && (
                     <span className="block text-xs text-gray-500 mt-1">
@@ -397,7 +397,7 @@ function ConfirmStep({
       </h1>
       <div className="mt-6 rounded-2xl border-2 border-gray-200 p-5 text-center">
         <p className="text-xl font-semibold text-gray-900">
-          {selected.firstName} {selected.lastNameInitial}.
+          {selected.firstName} {selected.lastName}
         </p>
         <p className="text-sm text-gray-500 mt-2">
           {t('confirmBranch', { branch: selected.branchName })}
@@ -468,7 +468,7 @@ function DobStep({
         {t('dobTitle')}
       </h1>
       <p className="text-sm text-gray-500 mt-2 text-center">
-        {selected.firstName} {selected.lastNameInitial}. · {t('dobSubtitle')}
+        {selected.firstName} {selected.lastName} · {t('dobSubtitle')}
       </p>
 
       <form

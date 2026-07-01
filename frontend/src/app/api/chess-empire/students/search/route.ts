@@ -10,8 +10,8 @@
  *      whose first OR last name matches the query (ILIKE).
  *   3. Excludes students already linked in `organization_members` with
  *      `link_status IN ('verified', 'frozen')` for the resolved org.
- *   4. Returns up to 20 results with last-name initial only — last name
- *      reveals on selection (next step), not on autocomplete.
+ *   4. Returns up to 20 results with full first and last name so parents
+ *      can positively identify their child.
  *
  * No auth required: this is the pre-signup public endpoint. Rate limit:
  * 30 req/min per IP. Empty query → empty result (no full-roster leak).
@@ -132,7 +132,7 @@ export async function GET(req: NextRequest) {
     .map((s) => ({
       studentId: s.id,
       firstName: s.first_name,
-      lastNameInitial: (s.last_name || '').charAt(0).toUpperCase(),
+      lastName: s.last_name || '',
       branchName: token.branch_name,
       coachName: null as string | null,
     }));

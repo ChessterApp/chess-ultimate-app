@@ -151,7 +151,7 @@ describe('GET /api/chess-empire/students/search', () => {
     expect(ceSearch).not.toHaveBeenCalled();
   });
 
-  it('returns filtered results, redacting last name to initial', async () => {
+  it('returns filtered results with full first and last name', async () => {
     scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
     ceSearch.mockResolvedValue([
       { id: 'stu-1', first_name: 'Aiman', last_name: 'Kassymova', branch_id: 'br-1', status: 'active' },
@@ -170,7 +170,7 @@ describe('GET /api/chess-empire/students/search', () => {
       {
         studentId: 'stu-1',
         firstName: 'Aiman',
-        lastNameInitial: 'K',
+        lastName: 'Kassymova',
         branchName: 'Debut',
         coachName: null,
       },

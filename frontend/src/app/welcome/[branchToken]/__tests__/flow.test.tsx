@@ -39,8 +39,8 @@ vi.mock('@/contexts/OrganizationContext', () => ({
 import WelcomeFlow from '../WelcomeFlow';
 
 const sampleResults = [
-  { studentId: 'stu-1', firstName: 'Aiman', lastNameInitial: 'K', branchName: 'Debut', coachName: 'Anna' },
-  { studentId: 'stu-2', firstName: 'Aida', lastNameInitial: 'B', branchName: 'Debut', coachName: null },
+  { studentId: 'stu-1', firstName: 'Aiman', lastName: 'Kassymova', branchName: 'Debut', coachName: 'Anna' },
+  { studentId: 'stu-2', firstName: 'Aida', lastName: 'Bekova', branchName: 'Debut', coachName: null },
 ];
 
 interface MockResponse {
