@@ -8,6 +8,7 @@ Syncs Clerk organization events to Supabase:
   - organizationMembership.created
   - organizationMembership.updated
   - organizationMembership.deleted
+  - user.created (Phase 5 — Chess Empire onboarding completion)
 
 Webhook signing: Clerk signs webhooks with Svix. We verify using the
 CLERK_WEBHOOK_SECRET environment variable.
@@ -19,6 +20,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify
 
@@ -129,6 +131,8 @@ def clerk_webhook():
             _handle_member_updated(data)
         elif event_type == 'organizationMembership.deleted':
             _handle_member_deleted(data)
+        elif event_type == 'user.created':
+            _handle_user_created(event)
         else:
             logger.info(f'Ignoring unhandled event type: {event_type}')
     except Exception as e:
@@ -356,6 +360,195 @@ def _handle_member_deleted(data: dict):
     ).eq('user_id', user_id).execute()
 
     logger.info(f'Member removed: user={user_id} org={slug or clerk_org_id}')
+
+
+# =====================================================================
+# user.created — Chess Empire onboarding completion (Phase 5)
+# =====================================================================
+#
+# When a parent finishes Clerk sign-up, the SignUp page attaches the invite
+# JWT to `unsafeMetadata.inviteJwt`. This handler verifies the JWT, upserts
+# `external_student_id` onto the freshly-created organization_members row,
+# adds the Clerk org membership, and records the JWT hash so a replayed
+# webhook (or leaked JWT) cannot double-link the same student.
+#
+# Retry story (Svix does exponential backoff on non-2xx):
+#   1. Verify JWT signature/expiry/required claims
+#   2. Short-circuit if the JWT hash is already in invite_jwts_consumed
+#   3. Confirm branch_invite_tokens row is not revoked
+#   4. Look up the Chesster org (need clerk_org_id for Clerk API call)
+#   5. Upsert organization_members (safe on retry via unique constraint)
+#   6. Call clerk.create_membership (skip 422 already-member)
+#   7. Insert invite_jwts_consumed row LAST — if 6 fails, 7 doesn't run and
+#      the whole webhook is safe to retry
+#
+# Non-CE signups (no `inviteJwt` in unsafe_metadata) are silently skipped.
+
+
+def _extract_primary_email(data: dict) -> str | None:
+    """Pull the primary email from a Clerk user payload, else the first."""
+    emails = data.get('email_addresses') or []
+    if not isinstance(emails, list) or not emails:
+        return None
+    primary_id = data.get('primary_email_address_id')
+    if primary_id:
+        for entry in emails:
+            if isinstance(entry, dict) and entry.get('id') == primary_id:
+                addr = entry.get('email_address')
+                if isinstance(addr, str) and addr:
+                    return addr
+    first = emails[0]
+    if isinstance(first, dict):
+        addr = first.get('email_address')
+        if isinstance(addr, str) and addr:
+            return addr
+    return None
+
+
+def _extract_name(data: dict) -> str | None:
+    """Compose 'First Last' from a Clerk user payload, or None if neither set."""
+    first = (data.get('first_name') or '').strip()
+    last = (data.get('last_name') or '').strip()
+    full = f'{first} {last}'.strip()
+    return full or None
+
+
+def _handle_user_created(event: dict) -> None:
+    """Complete Chess Empire signup: verify invite JWT, link student, join org."""
+    from services.invite_jwt import (
+        InviteJwtError,
+        jwt_jti_hash,
+        verify_invite_jwt,
+    )
+
+    data = event.get('data', {}) or {}
+    clerk_user_id = data.get('id')
+    if not clerk_user_id:
+        logger.warning('user.created without user id, skipping')
+        return
+
+    unsafe = data.get('unsafe_metadata') or {}
+    raw_jwt = unsafe.get('inviteJwt')
+    if not raw_jwt or not isinstance(raw_jwt, str):
+        logger.info(
+            'user.created for %s without inviteJwt metadata, skipping (non-CE signup)',
+            clerk_user_id,
+        )
+        return
+
+    try:
+        claims = verify_invite_jwt(raw_jwt)
+    except InviteJwtError as exc:
+        logger.warning('user.created for %s with invalid invite JWT: %s', clerk_user_id, exc)
+        return
+
+    jti_hash = jwt_jti_hash(raw_jwt)
+    supabase = _get_supabase()
+
+    # 2) Single-use guard — replay is a no-op.
+    existing = (
+        supabase.table('invite_jwts_consumed')
+        .select('jti_hash').eq('jti_hash', jti_hash).limit(1).execute()
+    )
+    if existing.data:
+        logger.info(
+            'Invite JWT already consumed for user %s, treating as replay',
+            clerk_user_id,
+        )
+        return
+
+    # 3) Refuse if the branch invite token has been revoked.
+    tok = (
+        supabase.table('branch_invite_tokens')
+        .select('id, revoked_at')
+        .eq('id', claims['branch_token_id']).limit(1).execute()
+    )
+    tok_row = (tok.data or [None])[0]
+    if not tok_row or tok_row.get('revoked_at'):
+        logger.warning(
+            'Branch token %s revoked or missing; refusing to complete user %s',
+            claims['branch_token_id'], clerk_user_id,
+        )
+        return
+
+    # 4) Look up Chesster org row for clerk_org_id.
+    org = (
+        supabase.table('organizations')
+        .select('id, clerk_org_id')
+        .eq('id', claims['org_id']).limit(1).execute()
+    )
+    org_row = (org.data or [None])[0]
+    if not org_row:
+        logger.error(
+            'Invite JWT for user %s references unknown org %s',
+            clerk_user_id, claims['org_id'],
+        )
+        return
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    email = _extract_primary_email(data)
+    name = _extract_name(data)
+
+    # 5) Upsert organization_members with the external linkage. Safe on retry:
+    # the (organization_id, external_student_id, external_source) unique
+    # constraint turns re-runs into idempotent no-ops.
+    member_payload = {
+        'organization_id': claims['org_id'],
+        'user_id': clerk_user_id,
+        'role': 'student',
+        'joined_at': now_iso,
+        'external_student_id': claims['student_id'],
+        'external_source': 'chess_empire',
+        'link_status': 'verified',
+        'link_verified_at': now_iso,
+    }
+    if email:
+        member_payload['email'] = email
+    if name:
+        member_payload['name'] = name
+    supabase.table('organization_members').upsert(
+        member_payload,
+        on_conflict='organization_id,external_student_id,external_source',
+    ).execute()
+
+    # 6) Add Clerk org membership. 422 = already-member is fine; other errors
+    # bubble so Svix retries and the JWT stays unconsumed for the next attempt.
+    clerk_org_id = org_row.get('clerk_org_id')
+    if clerk_org_id:
+        try:
+            from services.clerk_client import ClerkAPIError, get_client
+            get_client().create_membership(clerk_org_id, clerk_user_id, 'basic_member')
+        except ClerkAPIError as exc:
+            if exc.status_code != 422:
+                logger.error(
+                    'create_membership failed for user %s org %s: %s',
+                    clerk_user_id, clerk_org_id, exc,
+                )
+                raise
+            logger.info(
+                'Clerk reports user %s is already a member of org %s',
+                clerk_user_id, clerk_org_id,
+            )
+    else:
+        logger.warning(
+            'Chesster org %s has no clerk_org_id; skipping Clerk membership call',
+            claims['org_id'],
+        )
+
+    # 7) Record JWT consumption LAST. If steps 5/6 failed the row is not
+    # written and the webhook can safely retry.
+    supabase.table('invite_jwts_consumed').insert({
+        'jti_hash': jti_hash,
+        'organization_id': claims['org_id'],
+        'branch_token_id': claims['branch_token_id'],
+        'external_student_id': claims['student_id'],
+        'clerk_user_id': clerk_user_id,
+    }).execute()
+
+    logger.info(
+        'user.created linked user=%s student=%s org=%s',
+        clerk_user_id, claims['student_id'], claims['org_id'],
+    )
 
 
 # =====================================================================

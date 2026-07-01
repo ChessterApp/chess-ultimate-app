@@ -14,6 +14,7 @@ webhook's responsibility, not this module's.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from typing import TypedDict
@@ -94,3 +95,13 @@ def verify_invite_jwt(token: str, now: int | None = None) -> InviteJwtClaims:
             raise InviteJwtError(f'Missing required claim: {claim}')
 
     return decoded  # type: ignore[return-value]
+
+
+def jwt_jti_hash(token: str) -> str:
+    """Deterministic sha256 hex of the raw JWT string.
+
+    Used by the ``user.created`` webhook to record single-use consumption in
+    ``invite_jwts_consumed`` without ever writing the raw token to the DB.
+    Same token → same hash → PK conflict → replay is a no-op.
+    """
+    return hashlib.sha256(token.encode('utf-8')).hexdigest()
