@@ -156,21 +156,21 @@ export default function WelcomeFlow({
     <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-md bg-white md:bg-white rounded-3xl md:rounded-3xl p-6 md:p-8 mt-4 md:mt-0 shadow-xl">
         <div className="text-center mb-6">
-          <div className="bg-white rounded-full p-3 md:p-4 inline-block shadow-lg">
+          <div className="bg-white rounded-full inline-flex items-center justify-center shadow-lg w-24 h-24 md:w-28 md:h-28 overflow-hidden">
             {branding.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={branding.logoUrl}
                 alt={branding.name}
-                className="w-10 h-10 md:w-16 md:h-16 object-contain"
+                className="w-full h-full object-contain"
               />
             ) : (
               <Image
                 src="/static/images/chesster-logo-v3.png"
                 alt={branding.name}
-                width={64}
-                height={64}
-                className="w-10 h-10 md:w-16 md:h-16"
+                width={112}
+                height={112}
+                className="w-full h-full object-contain"
                 priority
               />
             )}
