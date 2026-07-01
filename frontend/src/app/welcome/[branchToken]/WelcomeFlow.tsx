@@ -245,7 +245,7 @@ function SearchStep({
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           placeholder={t('searchPlaceholder')}
-          className="w-full rounded-2xl border-2 border-gray-200 py-4 px-5 text-base placeholder:text-gray-400 transition-shadow focus:border-purple-500 focus:outline-none focus-visible:outline-none focus:shadow-[0_0_0_4px_rgba(168,85,247,0.15)]"
+          className="w-full rounded-2xl border-2 border-gray-200 py-4 px-5 text-base placeholder:text-gray-400 transition-shadow focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
         />
         {tooShort && (
           <p className="text-xs text-gray-400 mt-2">{t('minCharsHint')}</p>
@@ -273,7 +273,7 @@ function SearchStep({
                 <button
                   type="button"
                   onClick={() => onSelect(r)}
-                  className="w-full text-left rounded-2xl border-2 border-gray-200 bg-white hover:border-purple-400 hover:bg-purple-50 transition-all p-4 focus:outline-none focus-visible:outline-none focus-visible:border-purple-500 focus-visible:shadow-[0_0_0_4px_rgba(168,85,247,0.15)]"
+                  className="w-full text-left rounded-2xl border-2 border-gray-200 bg-white hover:border-purple-400 hover:bg-purple-50 transition-all p-4 focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
                 >
                   <span className="block font-semibold text-gray-800">
                     {r.firstName} {r.lastName}
@@ -347,7 +347,7 @@ function ConfirmStep({
         type="button"
         onClick={onYes}
         disabled={verifying}
-        className="mt-6 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:border-gray-400 rounded-2xl py-4 font-bold uppercase tracking-wide text-white border-b-4 border-purple-800 active:border-b-2 active:translate-y-0.5 transition-all focus:outline-none focus-visible:outline-none focus-visible:shadow-[0_0_0_4px_rgba(168,85,247,0.35)]"
+        className="mt-6 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:border-gray-400 rounded-2xl py-4 font-bold uppercase tracking-wide text-white border-b-4 border-purple-800 active:border-b-2 active:translate-y-0.5 transition-all focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
       >
         {verifying ? t('verifying') : t('confirmYes')}
       </button>
@@ -355,7 +355,7 @@ function ConfirmStep({
         type="button"
         onClick={onBack}
         disabled={verifying}
-        className="mt-3 w-full rounded-2xl py-3 font-semibold text-gray-500 hover:text-gray-700 disabled:text-gray-300 focus:outline-none focus-visible:outline-none focus-visible:text-purple-600 focus-visible:shadow-[0_0_0_4px_rgba(168,85,247,0.15)] transition-all"
+        className="mt-3 w-full rounded-2xl py-3 font-semibold text-gray-500 hover:text-gray-700 disabled:text-gray-300 focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 transition-all"
       >
         {t('confirmBack')}
       </button>
