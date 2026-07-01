@@ -84,29 +84,41 @@ describe('chess-empire-client', () => {
   });
 
   describe('getStudentProfile', () => {
-    it('hits analytics-students with x-api-key', async () => {
+    it('hits analytics-students with Bearer auth and unwraps {data: {student}}', async () => {
       fetchSpy.mockResolvedValue(
-        jsonResponse({ profile: { id: 'stu-1', first_name: 'A', last_name: 'B', status: 'active' } }),
+        jsonResponse({
+          success: true,
+          data: {
+            student: {
+              id: 'stu-1',
+              first_name: 'A',
+              last_name: 'B',
+              status: 'active',
+              branch_id: 'br-1',
+              branches: { name: 'Debut' },
+              coaches: { first_name: 'Aleksandr', last_name: 'Olegovich' },
+            },
+          },
+        }),
       );
       const profile = await getStudentProfile('stu-1');
       expect(profile.id).toBe('stu-1');
+      expect(profile.branch_name).toBe('Debut');
+      expect(profile.coach_name).toBe('Aleksandr Olegovich');
       const [url, init] = fetchSpy.mock.calls[0]!;
       const urlStr = String(url);
       expect(urlStr).toContain('/functions/v1/analytics-students?action=profile&student_id=stu-1');
       const headers = (init?.headers ?? {}) as Record<string, string>;
-      expect(headers['x-api-key']).toBe('ce-test-key');
+      expect(headers.Authorization).toBe('Bearer ce-test-key');
+      expect(headers['x-api-key']).toBeUndefined();
     });
 
-    it('unwraps the profile envelope', async () => {
-      fetchSpy.mockResolvedValue(jsonResponse({ profile: { id: 'stu-1' } }));
-      const profile = await getStudentProfile('stu-1');
-      expect(profile.id).toBe('stu-1');
-    });
-
-    it('accepts a flat profile response (forward-compat)', async () => {
+    it('flattens a raw student payload (no envelope)', async () => {
       fetchSpy.mockResolvedValue(jsonResponse({ id: 'stu-1', first_name: 'A' }));
       const profile = await getStudentProfile('stu-1');
       expect(profile.id).toBe('stu-1');
+      expect(profile.branch_name).toBeNull();
+      expect(profile.coach_name).toBeNull();
     });
 
     it('throws ChessEmpireAPIError on 404', async () => {

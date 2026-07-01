@@ -200,22 +200,36 @@ export async function searchStudentsByBranch(
 }
 
 /**
- * Fetch a single student's full profile by id. Wraps the analytics endpoint;
- * the DOB and `status` fields are the verify gate's inputs.
+ * Fetch a single student's full profile by id. Wraps the CE analytics Edge
+ * Function which returns `{success, data: {student: {...}, ratings, achievements}}`
+ * and requires `Authorization: Bearer <service_role_key>` (the `x-api-key`
+ * header is rejected with 401).
+ *
+ * The nested student has `branches: {name}` and `coaches: {first_name, last_name}`
+ * expansions — we flatten those into `branch_name` / `coach_name` so callers see
+ * a single flat `CEStudentProfile`.
  */
 export async function getStudentProfile(studentId: string): Promise<CEStudentProfile> {
   const key = getServiceKey();
   const url = `${ceFunctionsBase()}/analytics-students?action=profile&student_id=${encodeURIComponent(studentId)}`;
   const resp = await ceFetch(url, {
-    headers: { 'x-api-key': key, Accept: 'application/json' },
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
   });
-  const body = await expectJson<{ profile?: CEStudentProfile } | CEStudentProfile>(resp);
-  // Analytics endpoints wrap the payload in `{ profile: {...} }`; fall back to
-  // a flat shape so a future API change doesn't silently return `undefined`.
-  if (body && typeof body === 'object' && 'profile' in body && body.profile) {
-    return body.profile as CEStudentProfile;
-  }
-  return body as CEStudentProfile;
+  const body = await expectJson<{ success?: boolean; data?: { student?: Record<string, unknown> } } | Record<string, unknown>>(resp);
+  const student =
+    body && typeof body === 'object' && 'data' in body && body.data && typeof body.data === 'object' && 'student' in body.data && body.data.student
+      ? (body.data.student as Record<string, unknown>)
+      : (body as Record<string, unknown>);
+  const branches = student.branches as { name?: string } | undefined;
+  const coaches = student.coaches as { first_name?: string; last_name?: string } | undefined;
+  const coachName = coaches && (coaches.first_name || coaches.last_name)
+    ? `${coaches.first_name ?? ''} ${coaches.last_name ?? ''}`.trim()
+    : null;
+  return {
+    ...(student as unknown as CEStudentProfile),
+    branch_name: branches?.name ?? null,
+    coach_name: coachName,
+  };
 }
 
 /**
@@ -298,15 +312,23 @@ export async function getStudentRatings(
     studentId,
   )}&days=${encodeURIComponent(String(days))}`;
   const resp = await ceFetch(url, {
-    headers: { 'x-api-key': key, Accept: 'application/json' },
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
   });
   if (resp.status === 404) return [];
-  const body = await expectJson<{ ratings?: CERatingPoint[] } | CERatingPoint[]>(resp);
-  if (Array.isArray(body)) return body;
-  if (body && typeof body === 'object' && Array.isArray(body.ratings)) {
-    return body.ratings;
-  }
-  return [];
+  const body = await expectJson<{ success?: boolean; data?: unknown } | unknown[]>(resp);
+  const rows: unknown[] = Array.isArray(body)
+    ? body
+    : body && typeof body === 'object' && 'data' in body && Array.isArray((body as { data: unknown }).data)
+      ? ((body as { data: unknown[] }).data)
+      : [];
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      date: (row.rating_date as string) ?? (row.date as string) ?? '',
+      rating: Number(row.rating) || 0,
+      source: (row.source as string | undefined) ?? undefined,
+    };
+  });
 }
 
 /**
@@ -323,15 +345,16 @@ export async function getStudentAchievements(
     studentId,
   )}`;
   const resp = await ceFetch(url, {
-    headers: { 'x-api-key': key, Accept: 'application/json' },
+    headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
   });
   if (resp.status === 404) return [];
-  const body = await expectJson<{ achievements?: CEAchievement[] } | CEAchievement[]>(resp);
-  if (Array.isArray(body)) return body;
-  if (body && typeof body === 'object' && Array.isArray(body.achievements)) {
-    return body.achievements;
-  }
-  return [];
+  const body = await expectJson<{ success?: boolean; data?: unknown } | unknown[]>(resp);
+  const rows: unknown[] = Array.isArray(body)
+    ? body
+    : body && typeof body === 'object' && 'data' in body && Array.isArray((body as { data: unknown }).data)
+      ? ((body as { data: unknown[] }).data)
+      : [];
+  return rows.map((r) => r as CEAchievement);
 }
 
 const EMPTY_RANK: CEStudentRank = {
@@ -352,13 +375,13 @@ const EMPTY_RANK: CEStudentRank = {
  */
 export async function getStudentRank(studentId: string): Promise<CEStudentRank> {
   const key = getServiceKey();
-  const url = `${ceFunctionsBase()}/analytics-students?action=rank&student_id=${encodeURIComponent(
+  const url = `${ceFunctionsBase()}/analytics-students?action=ranking&student_id=${encodeURIComponent(
     studentId,
   )}`;
   let resp: Response;
   try {
     resp = await ceFetch(url, {
-      headers: { 'x-api-key': key, Accept: 'application/json' },
+      headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
     });
   } catch {
     return { ...EMPTY_RANK };
@@ -374,9 +397,11 @@ export async function getStudentRank(studentId: string): Promise<CEStudentRank> 
   if (!body || typeof body !== 'object') return { ...EMPTY_RANK };
   const flat = body as Record<string, unknown>;
   const wrapped =
-    'rank' in flat && flat.rank && typeof flat.rank === 'object'
-      ? (flat.rank as Record<string, unknown>)
-      : flat;
+    'data' in flat && flat.data && typeof flat.data === 'object'
+      ? (flat.data as Record<string, unknown>)
+      : 'rank' in flat && flat.rank && typeof flat.rank === 'object'
+        ? (flat.rank as Record<string, unknown>)
+        : flat;
   const pick = (k: string): number | null => {
     const v = wrapped[k];
     return typeof v === 'number' && Number.isFinite(v) ? v : null;

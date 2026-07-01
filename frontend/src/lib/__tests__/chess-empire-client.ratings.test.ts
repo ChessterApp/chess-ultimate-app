@@ -37,14 +37,17 @@ describe('chess-empire-client (Phase 3)', () => {
   });
 
   describe('getStudentRatings', () => {
-    it('hits analytics-students with x-api-key and unwraps {ratings: [...]}', async () => {
-      const points = [
-        { date: '2026-05-01', rating: 1200 },
-        { date: '2026-05-15', rating: 1230 },
+    it('hits analytics-students with Bearer auth and unwraps {data: [...]} + maps rating_date→date', async () => {
+      const apiRows = [
+        { id: 'r1', student_id: 'stu-1', rating: 1200, rating_date: '2026-05-01', source: 'tournament' },
+        { id: 'r2', student_id: 'stu-1', rating: 1230, rating_date: '2026-05-15', source: 'csv_import' },
       ];
-      fetchSpy.mockResolvedValue(jsonResponse({ ratings: points }));
+      fetchSpy.mockResolvedValue(jsonResponse({ success: true, data: apiRows, count: 2, trend: null }));
       const result = await getStudentRatings('stu-1', 14);
-      expect(result).toEqual(points);
+      expect(result).toEqual([
+        { date: '2026-05-01', rating: 1200, source: 'tournament' },
+        { date: '2026-05-15', rating: 1230, source: 'csv_import' },
+      ]);
       const [url, init] = fetchSpy.mock.calls[0]!;
       const urlStr = String(url);
       expect(urlStr).toContain('/functions/v1/analytics-students');
@@ -52,18 +55,18 @@ describe('chess-empire-client (Phase 3)', () => {
       expect(urlStr).toContain('student_id=stu-1');
       expect(urlStr).toContain('days=14');
       const headers = (init?.headers ?? {}) as Record<string, string>;
-      expect(headers['x-api-key']).toBe('ce-test-key');
+      expect(headers.Authorization).toBe('Bearer ce-test-key');
+      expect(headers['x-api-key']).toBeUndefined();
     });
 
     it('accepts a flat array response (forward-compat)', async () => {
-      const points = [{ date: '2026-05-01', rating: 1100 }];
-      fetchSpy.mockResolvedValue(jsonResponse(points));
+      fetchSpy.mockResolvedValue(jsonResponse([{ rating_date: '2026-05-01', rating: 1100 }]));
       const result = await getStudentRatings('stu-1');
-      expect(result).toEqual(points);
+      expect(result).toEqual([{ date: '2026-05-01', rating: 1100, source: undefined }]);
     });
 
     it('defaults to 30 days when not specified', async () => {
-      fetchSpy.mockResolvedValue(jsonResponse({ ratings: [] }));
+      fetchSpy.mockResolvedValue(jsonResponse({ success: true, data: [] }));
       await getStudentRatings('stu-1');
       const [url] = fetchSpy.mock.calls[0]!;
       expect(String(url)).toContain('days=30');
@@ -106,11 +109,11 @@ describe('chess-empire-client (Phase 3)', () => {
   });
 
   describe('getStudentAchievements', () => {
-    it('hits analytics-students achievements action with x-api-key', async () => {
+    it('hits analytics-students achievements action with Bearer and unwraps {data:[...]}', async () => {
       const achievements = [
-        { id: 'ach-1', name: 'First win', earned_at: '2026-04-01' },
+        { name: 'Bot Slayer', description: 'Completed first bot battle' },
       ];
-      fetchSpy.mockResolvedValue(jsonResponse({ achievements }));
+      fetchSpy.mockResolvedValue(jsonResponse({ success: true, data: achievements, count: 1 }));
       const result = await getStudentAchievements('stu-1');
       expect(result).toEqual(achievements);
       const [url, init] = fetchSpy.mock.calls[0]!;
@@ -118,7 +121,8 @@ describe('chess-empire-client (Phase 3)', () => {
       expect(urlStr).toContain('action=achievements');
       expect(urlStr).toContain('student_id=stu-1');
       const headers = (init?.headers ?? {}) as Record<string, string>;
-      expect(headers['x-api-key']).toBe('ce-test-key');
+      expect(headers.Authorization).toBe('Bearer ce-test-key');
+      expect(headers['x-api-key']).toBeUndefined();
     });
 
     it('accepts a flat array response', async () => {
@@ -204,6 +208,30 @@ describe('chess-empire-client (Phase 3)', () => {
       expect(result.branch_rank).toBe(1);
       expect(result.school_rank).toBe(7);
       expect(result.school_size).toBe(700);
+    });
+
+    it('parses {success, data: {...}} envelope (CE canonical)', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse({
+          success: true,
+          data: { branch_rank: 2, school_rank: 15, branch_size: 40, school_size: 800 },
+        }),
+      );
+      const result = await getStudentRank('stu-1');
+      expect(result.branch_rank).toBe(2);
+      expect(result.school_rank).toBe(15);
+      expect(result.branch_size).toBe(40);
+      expect(result.school_size).toBe(800);
+    });
+
+    it('hits the ranking action (not rank) with Bearer auth', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({ success: true, data: {} }));
+      await getStudentRank('stu-1');
+      const [url, init] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toContain('action=ranking');
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      expect(headers.Authorization).toBe('Bearer ce-test-key');
+      expect(headers['x-api-key']).toBeUndefined();
     });
 
     it('coerces non-numeric fields to null', async () => {
