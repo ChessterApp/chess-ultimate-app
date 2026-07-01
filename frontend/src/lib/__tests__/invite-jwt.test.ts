@@ -1,11 +1,13 @@
 /**
  * Tests for invite-jwt.ts — sign/verify round-trip, expiry, tampering.
  */
+import { createHash } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 import {
   signInviteJwt,
   verifyInviteJwt,
+  jwtJtiHash,
   InviteJwtError,
   INVITE_JWT_TTL_SECONDS,
 } from '../invite-jwt';
@@ -80,5 +82,25 @@ describe('invite-jwt', () => {
     expect(() => verifyInviteJwt(otherToken)).toThrowError(/required claim/i);
     // Sanity: the original still passes.
     expect(verifyInviteJwt(token)).toBeDefined();
+  });
+});
+
+describe('jwtJtiHash', () => {
+  it('is deterministic across calls', () => {
+    const token = 'eyJhbGciOiJIUzI1NiJ9.eyJ0ZXN0Ijp0cnVlfQ.signature';
+    expect(jwtJtiHash(token)).toBe(jwtJtiHash(token));
+  });
+
+  it('matches the reference sha256 hex encoding', () => {
+    const token = 'sample.jwt.token';
+    const expected = createHash('sha256').update(token, 'utf8').digest('hex');
+    const got = jwtJtiHash(token);
+    expect(got).toBe(expected);
+    expect(got).toHaveLength(64);
+    expect(/^[0-9a-f]{64}$/.test(got)).toBe(true);
+  });
+
+  it('produces different hashes for different tokens', () => {
+    expect(jwtJtiHash('token-a.header.sig')).not.toBe(jwtJtiHash('token-b.header.sig'));
   });
 });

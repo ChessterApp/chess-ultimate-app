@@ -15,7 +15,7 @@
  * via a `consumed_at` write in Phase 2/3.
  */
 import 'server-only';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export const INVITE_JWT_TTL_SECONDS = 15 * 60;
 
@@ -110,4 +110,16 @@ export function verifyInviteJwt(
     throw new InviteJwtError('Missing required claim');
   }
   return claims;
+}
+
+/**
+ * Deterministic sha256 hex of the raw JWT string.
+ *
+ * Mirror of Python `jwt_jti_hash` in `backend/services/invite_jwt.py`. Used by
+ * the `user.created` webhook to record single-use consumption in
+ * `invite_jwts_consumed` without ever writing the raw token to the DB.
+ * Same token → same hash → PK conflict → replay is a no-op.
+ */
+export function jwtJtiHash(token: string): string {
+  return createHash('sha256').update(token, 'utf8').digest('hex');
 }
