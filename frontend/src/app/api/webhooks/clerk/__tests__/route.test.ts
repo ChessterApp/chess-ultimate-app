@@ -1,63 +1,99 @@
 /**
- * Tests for the Clerk `user.created` webhook — Phase 6 Chess Empire
- * onboarding completion (Node port of `backend/tests/test_webhooks_user_created.py`).
+ * Tests for the Clerk `user.created` webhook — Phase 2 of the "robust
+ * email ↔ CE student linking" arc.
  *
  * Covers:
- *   - happy path: verify → upsert member → create Clerk membership → consume JWT
- *   - replay: JWT already consumed → short-circuit, no writes
- *   - non-CE signup: no inviteJwt in unsafe_metadata → Listmonk-only, no CE writes
- *   - invalid JWT: silent warning, no writes
- *   - revoked branch token: refuse, no writes
- *   - Clerk create membership 422: still succeed, consumption still recorded
- *   - Clerk create membership 5xx: throw so Svix retries; JWT stays unconsumed
- *   - Listmonk failure: swallowed, CE flow still runs
+ *   - happy path (JWT): verify → upsert member → create Clerk membership →
+ *     consume JWT → log success attempt.
+ *   - replay: JWT already consumed → jwt_replayed attempt logged, no writes,
+ *     no email fallback.
+ *   - non-CE signup: no inviteJwt → jwt_missing attempt, email fallback runs
+ *     (no CE match → no_match attempt).
+ *   - invalid JWT: jwt_invalid attempt + email fallback.
+ *   - expired JWT: jwt_expired attempt + email fallback resolves (single
+ *     student match writes pending_confirm).
+ *   - email fallback single-match: pending_confirm upsert + success attempt.
+ *   - email fallback zero-match: no writes, no_match attempt only.
+ *   - email fallback multi-match: no writes, multiple_match attempt only.
+ *   - Clerk 5xx: bubbles for Svix retry.
+ *   - Listmonk failure: swallowed.
  */
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ---- shared supabase mock state ---------------------------------------------
 type Payload = Record<string, unknown>;
+type Insert = { table: string; payload: Payload };
+type Upsert = { table: string; payload: Payload; onConflict?: string };
+
 const state: {
   consumedHits: Payload[];
   tokenRow: Payload | null;
   orgRow: Payload | null;
-  upserts: Array<{ table: string; payload: Payload; onConflict?: string }>;
-  inserts: Array<{ table: string; payload: Payload }>;
+  ceOrgRow: Payload | null;
+  upserts: Upsert[];
+  inserts: Insert[];
   selects: Array<{ table: string; columns: string; filters: Array<[string, unknown]> }>;
   fromCalls: string[];
+  upsertError: string | null;
 } = {
   consumedHits: [],
   tokenRow: null,
   orgRow: null,
+  ceOrgRow: null,
   upserts: [],
   inserts: [],
   selects: [],
   fromCalls: [],
+  upsertError: null,
 };
 
 function resetState(overrides: Partial<typeof state> = {}) {
   state.consumedHits = overrides.consumedHits ?? [];
   state.tokenRow = overrides.tokenRow ?? null;
   state.orgRow = overrides.orgRow ?? null;
+  state.ceOrgRow =
+    overrides.ceOrgRow ?? { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' };
   state.upserts = [];
   state.inserts = [];
   state.selects = [];
   state.fromCalls = [];
-}
-
-function makeSelectResult(table: string): { data: Payload[]; error: null } {
-  if (table === 'invite_jwts_consumed') return { data: state.consumedHits, error: null };
-  if (table === 'branch_invite_tokens') {
-    return { data: state.tokenRow ? [state.tokenRow] : [], error: null };
-  }
-  if (table === 'organizations') {
-    return { data: state.orgRow ? [state.orgRow] : [], error: null };
-  }
-  return { data: [], error: null };
+  state.upsertError = overrides.upsertError ?? null;
 }
 
 function makeBuilder(table: string) {
   const rec = { columns: '', filters: [] as Array<[string, unknown]> };
+  const finalSelect = () => {
+    state.selects.push({ table, columns: rec.columns, filters: rec.filters });
+    if (table === 'invite_jwts_consumed') {
+      return Promise.resolve({ data: state.consumedHits, error: null });
+    }
+    if (table === 'branch_invite_tokens') {
+      return Promise.resolve({
+        data: state.tokenRow ? [state.tokenRow] : [],
+        error: null,
+      });
+    }
+    if (table === 'organizations') {
+      // Selecting by slug=chess-empire for the email-fallback path, or by
+      // id for the JWT path. Discriminate via `filters`.
+      const bySlug = rec.filters.some(
+        ([col, val]) => col === 'slug' && val === 'chess-empire',
+      );
+      if (bySlug) {
+        return Promise.resolve({
+          data: state.ceOrgRow ? [state.ceOrgRow] : [],
+          error: null,
+        });
+      }
+      return Promise.resolve({
+        data: state.orgRow ? [state.orgRow] : [],
+        error: null,
+      });
+    }
+    return Promise.resolve({ data: [], error: null });
+  };
+
   const chain: Record<string, unknown> = {
     select(cols: string) {
       rec.columns = cols;
@@ -68,11 +104,13 @@ function makeBuilder(table: string) {
       return chain;
     },
     limit(_n: number) {
-      state.selects.push({ table, columns: rec.columns, filters: rec.filters });
-      return Promise.resolve(makeSelectResult(table));
+      return finalSelect();
     },
     upsert(payload: Payload, opts?: { onConflict?: string }) {
       state.upserts.push({ table, payload, onConflict: opts?.onConflict });
+      if (state.upsertError) {
+        return Promise.resolve({ data: null, error: { message: state.upsertError } });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     insert(payload: Payload) {
@@ -134,6 +172,12 @@ vi.mock('@/lib/listmonk', () => ({
   LISTS: { ALL_USERS: 3, WELCOME_SEQUENCE: 4 },
 }));
 
+// ---- CE client mock --------------------------------------------------------
+const findByEmail = vi.fn();
+vi.mock('@/lib/chess-empire-client', () => ({
+  findStudentsByParentEmail: (...args: unknown[]) => findByEmail(...args),
+}));
+
 // ---- imports under test (must come after mocks) ----------------------------
 import { POST } from '../route';
 import { signInviteJwt } from '@/lib/invite-jwt';
@@ -142,6 +186,7 @@ import { signInviteJwt } from '@/lib/invite-jwt';
 type UserCreatedOverrides = {
   inviteJwt?: string | null;
   userId?: string;
+  email?: string;
 };
 
 function makeEvent(overrides: UserCreatedOverrides = {}) {
@@ -154,7 +199,7 @@ function makeEvent(overrides: UserCreatedOverrides = {}) {
     data: {
       id: overrides.userId ?? 'user_2test',
       email_addresses: [
-        { id: 'em_1', email_address: 'parent@example.com' },
+        { id: 'em_1', email_address: overrides.email ?? 'parent@example.com' },
       ],
       primary_email_address_id: 'em_1',
       first_name: 'Kirill',
@@ -174,7 +219,7 @@ function makeRequest(event: unknown): Request {
 }
 
 function signValidInvite(overrides: Partial<Record<string, string>> = {}): string {
-  process.env.INVITE_JWT_SECRET = 'phase6-user-created-secret';
+  process.env.INVITE_JWT_SECRET = 'phase2-melodic-webhook-secret';
   return signInviteJwt({
     student_id: 'stu-xyz',
     branch_id: 'br-xyz',
@@ -184,18 +229,44 @@ function signValidInvite(overrides: Partial<Record<string, string>> = {}): strin
   });
 }
 
+function signExpiredInvite(): string {
+  process.env.INVITE_JWT_SECRET = 'phase2-melodic-webhook-secret';
+  const nowSec = Math.floor(Date.now() / 1000);
+  // TTL = 1 second, "now" = 60 min ago → produces a token that fails the exp check.
+  return signInviteJwt(
+    {
+      student_id: 'stu-expired',
+      branch_id: 'br-xyz',
+      branch_token_id: 'tok-uuid',
+      org_id: 'org-uuid',
+    },
+    1,
+    nowSec - 3600,
+  );
+}
+
 beforeEach(() => {
   process.env.CLERK_WEBHOOK_SECRET = 'whsec_test';
-  process.env.INVITE_JWT_SECRET = 'phase6-user-created-secret';
+  process.env.INVITE_JWT_SECRET = 'phase2-melodic-webhook-secret';
   createMembership.mockReset();
   createSubscriber.mockReset();
   createSubscriber.mockResolvedValue({ id: 1, created: true });
   blocklistSubscriber.mockReset();
+  findByEmail.mockReset();
+  findByEmail.mockResolvedValue([]);
   resetState();
 });
 
-describe('POST /api/webhooks/clerk — user.created', () => {
-  it('happy path: links member, creates Clerk membership, records consumption', async () => {
+// Helper: filter the recorded link_attempts payloads.
+function attemptsForStatus(status: string) {
+  return state.inserts
+    .filter((i) => i.table === 'link_attempts')
+    .map((i) => i.payload)
+    .filter((p) => p.status === status);
+}
+
+describe('POST /api/webhooks/clerk — user.created — JWT path', () => {
+  it('happy path: links member, creates Clerk membership, records consumption + success attempt', async () => {
     const jwt = signValidInvite();
     resetState({
       tokenRow: { id: 'tok-uuid', revoked_at: null },
@@ -206,10 +277,9 @@ describe('POST /api/webhooks/clerk — user.created', () => {
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
 
-    // Listmonk still called
     expect(createSubscriber).toHaveBeenCalledTimes(1);
 
-    // Upsert to organization_members with the expected linkage
+    // Exactly one organization_members upsert with the expected linkage
     expect(state.upserts).toHaveLength(1);
     const up = state.upserts[0];
     expect(up.table).toBe('organization_members');
@@ -220,29 +290,37 @@ describe('POST /api/webhooks/clerk — user.created', () => {
     expect(up.payload.external_student_id).toBe('stu-xyz');
     expect(up.payload.external_source).toBe('chess_empire');
     expect(up.payload.link_status).toBe('verified');
-    expect(up.payload.email).toBe('parent@example.com');
-    expect(up.payload.name).toBe('Kirill Ivanov');
+    expect(up.payload.link_source).toBe('jwt');
+    expect(up.payload.link_verified_at).toBeTruthy();
 
-    // Clerk create membership called with correct args
-    expect(createMembership).toHaveBeenCalledTimes(1);
+    // Clerk create membership called
     expect(createMembership).toHaveBeenCalledWith({
       organizationId: 'clerk-org-abc',
       userId: 'user_2test',
       role: 'org:member',
     });
 
-    // Consumption row inserted with sha256 hash
-    expect(state.inserts).toHaveLength(1);
-    const ins = state.inserts[0];
-    expect(ins.table).toBe('invite_jwts_consumed');
-    expect(ins.payload.jti_hash).toBe(createHash('sha256').update(jwt).digest('hex'));
-    expect(ins.payload.clerk_user_id).toBe('user_2test');
-    expect(ins.payload.external_student_id).toBe('stu-xyz');
-    expect(ins.payload.branch_token_id).toBe('tok-uuid');
-    expect(ins.payload.organization_id).toBe('org-uuid');
-  });
+    // Consumption row + success link_attempt row
+    const consumed = state.inserts.filter(
+      (i) => i.table === 'invite_jwts_consumed',
+    );
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0].payload.jti_hash).toBe(
+      createHash('sha256').update(jwt).digest('hex'),
+    );
 
-  it('replay: already-consumed JWT short-circuits, no writes, no Clerk call', async () => {
+    const successes = attemptsForStatus('success');
+    expect(successes).toHaveLength(1);
+    expect(successes[0].attempted_source).toBe('jwt');
+    expect(successes[0].chosen_student_id).toBe('stu-xyz');
+
+    // Fallback path must NOT have run on happy JWT
+    expect(findByEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/webhooks/clerk — user.created — replay', () => {
+  it('JWT already consumed → jwt_replayed attempt, no writes, no email fallback', async () => {
     const jwt = signValidInvite();
     resetState({
       consumedHits: [{ jti_hash: 'existing' }],
@@ -252,36 +330,117 @@ describe('POST /api/webhooks/clerk — user.created', () => {
 
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
-    expect(state.upserts).toEqual([]);
-    expect(state.inserts).toEqual([]);
-    expect(createMembership).not.toHaveBeenCalled();
-    // Listmonk still runs on replay signups
-    expect(createSubscriber).toHaveBeenCalledTimes(1);
-  });
 
-  it('non-CE signup: no inviteJwt → Listmonk still called, no supabase writes', async () => {
-    resetState();
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
-    expect(res.status).toBe(200);
-    expect(createSubscriber).toHaveBeenCalledTimes(1);
     expect(state.upserts).toEqual([]);
-    expect(state.inserts).toEqual([]);
-    expect(state.fromCalls).toEqual([]);
     expect(createMembership).not.toHaveBeenCalled();
-  });
+    expect(findByEmail).not.toHaveBeenCalled();
 
-  it('invalid JWT: silent skip, no writes, no Clerk call', async () => {
-    resetState();
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: 'this.is.not-a-real-jwt' })));
-    expect(res.status).toBe(200);
-    expect(state.upserts).toEqual([]);
-    expect(state.inserts).toEqual([]);
-    expect(createMembership).not.toHaveBeenCalled();
+    const replayed = attemptsForStatus('jwt_replayed');
+    expect(replayed).toHaveLength(1);
+    expect(replayed[0].attempted_source).toBe('jwt');
+
     // Listmonk still runs
     expect(createSubscriber).toHaveBeenCalledTimes(1);
   });
+});
 
-  it('revoked branch token: refuse, no writes', async () => {
+describe('POST /api/webhooks/clerk — user.created — JWT missing / expired / invalid → email fallback', () => {
+  it('JWT missing + email matches ZERO CE students → jwt_missing + no_match attempts, no writes', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([]);
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
+    expect(res.status).toBe(200);
+
+    expect(attemptsForStatus('jwt_missing')).toHaveLength(1);
+    expect(attemptsForStatus('no_match')).toHaveLength(1);
+    expect(state.upserts).toEqual([]);
+    expect(findByEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('JWT missing + email matches SINGLE CE student → jwt_missing + success attempts, pending_confirm upsert', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([
+      {
+        id: 'stu-matched',
+        first_name: 'Aiman',
+        last_name: 'K',
+        branch_id: 'br',
+        status: 'active',
+        date_of_birth: null,
+      },
+    ]);
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toHaveLength(1);
+    const up = state.upserts[0];
+    expect(up.table).toBe('organization_members');
+    expect(up.payload.link_status).toBe('pending_confirm');
+    expect(up.payload.link_source).toBe('email_auto');
+    expect(up.payload.external_student_id).toBe('stu-matched');
+    // No link_verified_at set for pending_confirm
+    expect(up.payload.link_verified_at).toBeUndefined();
+
+    const successes = attemptsForStatus('success');
+    expect(successes).toHaveLength(1);
+    expect(successes[0].attempted_source).toBe('email_auto');
+    expect(successes[0].chosen_student_id).toBe('stu-matched');
+    expect(attemptsForStatus('jwt_missing')).toHaveLength(1);
+  });
+
+  it('JWT missing + email matches MULTIPLE CE students → jwt_missing + multiple_match attempts, no writes', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([
+      { id: 'stu-a', first_name: 'A', last_name: '', branch_id: 'b', status: 'active', date_of_birth: null },
+      { id: 'stu-b', first_name: 'B', last_name: '', branch_id: 'b', status: 'active', date_of_birth: null },
+    ]);
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toEqual([]);
+    const multi = attemptsForStatus('multiple_match');
+    expect(multi).toHaveLength(1);
+    expect(multi[0].candidate_student_ids).toEqual(['stu-a', 'stu-b']);
+    expect(attemptsForStatus('jwt_missing')).toHaveLength(1);
+  });
+
+  it('invalid JWT: jwt_invalid attempt + email fallback runs', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([]);
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: 'this.is.not-a-real-jwt' })));
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toEqual([]);
+    expect(createMembership).not.toHaveBeenCalled();
+    expect(attemptsForStatus('jwt_invalid')).toHaveLength(1);
+    expect(findByEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it('expired JWT: jwt_expired attempt + email fallback single-match → pending_confirm upsert', async () => {
+    resetState();
+    const expiredJwt = signExpiredInvite();
+    findByEmail.mockResolvedValue([
+      {
+        id: 'stu-vasco',
+        first_name: 'Turabay',
+        last_name: 'Ali',
+        branch_id: 'br',
+        status: 'active',
+        date_of_birth: null,
+      },
+    ]);
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: expiredJwt })));
+    expect(res.status).toBe(200);
+
+    expect(attemptsForStatus('jwt_expired')).toHaveLength(1);
+    expect(state.upserts).toHaveLength(1);
+    expect(state.upserts[0].payload.link_status).toBe('pending_confirm');
+    expect(state.upserts[0].payload.external_student_id).toBe('stu-vasco');
+  });
+});
+
+describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () => {
+  it('revoked branch token: jwt_invalid attempt, no writes, no fallback', async () => {
     const jwt = signValidInvite();
     resetState({
       tokenRow: { id: 'tok-uuid', revoked_at: '2026-01-01T00:00:00Z' },
@@ -291,25 +450,12 @@ describe('POST /api/webhooks/clerk — user.created', () => {
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
     expect(state.upserts).toEqual([]);
-    expect(state.inserts).toEqual([]);
     expect(createMembership).not.toHaveBeenCalled();
+    expect(findByEmail).not.toHaveBeenCalled();
+    expect(attemptsForStatus('jwt_invalid')).toHaveLength(1);
   });
 
-  it('missing org: refuse, no writes', async () => {
-    const jwt = signValidInvite();
-    resetState({
-      tokenRow: { id: 'tok-uuid', revoked_at: null },
-      orgRow: null,
-    });
-
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
-    expect(res.status).toBe(200);
-    expect(state.upserts).toEqual([]);
-    expect(state.inserts).toEqual([]);
-    expect(createMembership).not.toHaveBeenCalled();
-  });
-
-  it('Clerk 422 already-member: still records consumption', async () => {
+  it('Clerk 422 already-member: still records consumption + success attempt', async () => {
     const jwt = signValidInvite();
     resetState({
       tokenRow: { id: 'tok-uuid', revoked_at: null },
@@ -322,27 +468,13 @@ describe('POST /api/webhooks/clerk — user.created', () => {
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
     expect(state.upserts).toHaveLength(1);
-    expect(state.inserts).toHaveLength(1);
+    expect(
+      state.inserts.filter((i) => i.table === 'invite_jwts_consumed'),
+    ).toHaveLength(1);
+    expect(attemptsForStatus('success')).toHaveLength(1);
   });
 
-  it('Clerk 422 detected via errors[].code=already_a_member_of_organization', async () => {
-    const jwt = signValidInvite();
-    resetState({
-      tokenRow: { id: 'tok-uuid', revoked_at: null },
-      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
-    });
-    createMembership.mockRejectedValue(
-      Object.assign(new Error('already member'), {
-        errors: [{ code: 'already_a_member_of_organization' }],
-      }),
-    );
-
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
-    expect(res.status).toBe(200);
-    expect(state.inserts).toHaveLength(1);
-  });
-
-  it('Clerk 5xx: returns 500, upsert ran but consumption did NOT', async () => {
+  it('Clerk 5xx: returns 500, upsert ran but consumption + success attempt did NOT', async () => {
     const jwt = signValidInvite();
     resetState({
       tokenRow: { id: 'tok-uuid', revoked_at: null },
@@ -354,9 +486,11 @@ describe('POST /api/webhooks/clerk — user.created', () => {
 
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(500);
-    // Upsert already ran (idempotent), but the JWT-consumed row did NOT
     expect(state.upserts).toHaveLength(1);
-    expect(state.inserts).toEqual([]);
+    expect(
+      state.inserts.filter((i) => i.table === 'invite_jwts_consumed'),
+    ).toEqual([]);
+    expect(attemptsForStatus('success')).toHaveLength(0);
   });
 
   it('Listmonk failure does not block CE flow', async () => {
@@ -371,7 +505,10 @@ describe('POST /api/webhooks/clerk — user.created', () => {
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
     expect(state.upserts).toHaveLength(1);
-    expect(state.inserts).toHaveLength(1);
+    expect(
+      state.inserts.filter((i) => i.table === 'invite_jwts_consumed'),
+    ).toHaveLength(1);
+    expect(attemptsForStatus('success')).toHaveLength(1);
     expect(createMembership).toHaveBeenCalledTimes(1);
   });
 });

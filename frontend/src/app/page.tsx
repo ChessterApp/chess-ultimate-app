@@ -18,7 +18,8 @@ import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
 import { TenantLanding } from '@/components/tenant/TenantLanding'
 import { fetchOrgForLanding } from '@/lib/tenant-landing-fetch'
 import EmpireHomePage from '@/components/empire/EmpireHomePage'
-import { getLinkedStudentId } from '@/lib/chess-empire-member'
+import { getMembershipState } from '@/lib/chess-empire-member'
+import { resolveStudentDisplayName } from '@/lib/student-name'
 import {
   getStudentAchievements,
   getStudentProfile,
@@ -76,16 +77,25 @@ async function tryRenderEmpireHomepage(orgId: string) {
     return null
   }
   if (!userId) return null
-  let studentId: string | null = null
+
+  let membership
   try {
-    studentId = await getLinkedStudentId({ orgId, clerkUserId: userId })
+    membership = await getMembershipState({ orgId, clerkUserId: userId })
   } catch (err) {
     console.error('[empire-home] member lookup failed', err)
     return null
   }
+
+  if (membership.state === 'no_link') {
+    return (
+      <EmpireHomePage state="no_link" studentDisplayName={null} />
+    )
+  }
+
+  const studentId = membership.studentId
   if (!studentId) return null
 
-  // The profile call is the only required fetch. If it fails we bail out to
+  // Profile is the only required fetch. If it fails we bail out to
   // <TenantLanding> rather than render a half-broken homepage. The other
   // three are best-effort — degraded data is OK.
   let profile
@@ -94,6 +104,17 @@ async function tryRenderEmpireHomepage(orgId: string) {
   } catch (err) {
     console.error('[empire-home] profile fetch failed', err)
     return null
+  }
+
+  const studentDisplayName = resolveStudentDisplayName(profile)
+
+  if (membership.state === 'pending_confirm') {
+    return (
+      <EmpireHomePage
+        state="pending_confirm"
+        studentDisplayName={studentDisplayName}
+      />
+    )
   }
 
   const [ratings, achievements, rank] = await Promise.all([
@@ -116,8 +137,16 @@ async function tryRenderEmpireHomepage(orgId: string) {
     }),
   ])
 
+  if (!studentDisplayName) {
+    console.warn(
+      `[empire-home] resolved student ${studentId} has no first_name/full_name — greeting will be name-less`,
+    )
+  }
+
   return (
     <EmpireHomePage
+      state="verified"
+      studentDisplayName={studentDisplayName}
       profile={profile}
       ratings={ratings}
       achievements={achievements}

@@ -1622,7 +1622,17 @@
     "achievementsMore": "+тағы {count}",
     "rankBranch": "#{rank} {size} филиалда",
     "rankSchool": "#{rank} {size} мектепте",
-    "continueCta": "Оқуды жалғастыру"
+    "continueCta": "Оқуды жалғастыру",
+    "welcomeBackNamed": "Қайта оралуыңызбен, {name}",
+    "welcomeBack": "Қайта оралуыңызбен",
+    "pendingConfirmTitle": "Бұл сізсіз бе, {name}?",
+    "pendingConfirmSubtitle": "Электрондық поштаңызды Chess Empire оқушысымен сәйкестендірдік. Жеке панельді ашу үшін растаңыз.",
+    "pendingConfirmYes": "Иә, бұл мен",
+    "pendingConfirmNo": "Жоқ, бұл мен емес",
+    "noLinkTitle": "Профиліңіз дайындалуда",
+    "noLinkSubtitle": "Жаттықтырушыңыз тіркелгіңізді жақын арада байланыстырады. Егер шақыру сілтемесі болса, оны ашыңыз.",
+    "pendingConfirmSubmitting": "Растауда…",
+    "rejectSubmitting": "Жойылуда…"
   },
   "adminCe": {
     "title": "Оқушылар",
@@ -1635,7 +1645,8 @@
     "tab": {
       "registered": "Тіркелген",
       "pending": "Күтуде",
-      "unregistered": "Әлі тіркелмеген"
+      "unregistered": "Әлі тіркелмеген",
+      "unlinked": "Байланыспаған"
     },
     "searchPlaceholder": "Атымен іздеу…",
     "filterAllBranches": "Барлық филиалдар",
@@ -1687,6 +1698,20 @@
     "confirmRotateToken": "Ескі сілтеме дереу тоқтайды. Жаңа сілтемені ата-аналар чатына жіберіңіз.",
     "confirmRevokeToken": "Қайтарылғаннан кейін филиалда жұмыс істейтін сілтеме болмайды.",
     "toastRotateCopied": "Жаңа сілтеме көшірілді — ата-аналарға жіберіңіз.",
-    "errorLoad": "Тізімді жүктеу мүмкін болмады. Сәл кейін қайталап көріңіз."
+    "errorLoad": "Тізімді жүктеу мүмкін болмады. Сәл кейін қайталап көріңіз.",
+    "unlinkedColUser": "Clerk пайдаланушысы",
+    "unlinkedColEmail": "Email",
+    "unlinkedColLatestAttempt": "Соңғы әрекет",
+    "unlinkedColWhen": "Қашан",
+    "unlinkedEmpty": "Қазір байланыспаған пайдаланушылар жоқ.",
+    "unlinkedLinkBtn": "Байланыстыру…",
+    "linkModalTitle": "Пайдаланушыны оқушымен байланыстыру",
+    "linkModalUser": "{userId} · {email}",
+    "linkModalBranch": "Филиал",
+    "linkModalSearch": "Оқушыларды атымен іздеу",
+    "linkModalSearchPlaceholder": "мысалы, Али",
+    "linkModalNoResults": "Осы филиал/сұрау үшін оқушылар жоқ.",
+    "linkModalNotes": "Ескертпе (міндетті емес)",
+    "linkModalNotesPlaceholder": "мысалы, Қолмен толықтыру 2026-07-04"
   }
 }

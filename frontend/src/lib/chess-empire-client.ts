@@ -200,6 +200,43 @@ export async function searchStudentsByBranch(
 }
 
 /**
+ * Look up CE `students` rows by `parent_email` (case-insensitive).
+ *
+ * Used by the Clerk webhook fallback path when `inviteJwt` is missing /
+ * expired / invalid — an exact `parent_email` match with a single active
+ * student in the org is treated as a soft link (`link_status='pending_confirm'`)
+ * and the user has to confirm on the homepage before it's promoted to
+ * `verified`. Zero or multiple matches short-circuit to the admin queue.
+ *
+ * `orgId` is accepted for symmetry with the plan spec but not filtered on —
+ * CE data doesn't carry a Chesster org id. The webhook only calls this for
+ * Chess Empire signups, so scoping is enforced upstream.
+ */
+export async function findStudentsByParentEmail(
+  _orgId: string,
+  email: string,
+): Promise<CEStudent[]> {
+  const key = getServiceKey();
+  const trimmed = (email || '').trim();
+  if (!trimmed) return [];
+  const params = new URLSearchParams({
+    parent_email: `eq.${trimmed}`,
+    status: 'eq.active',
+    select: 'id,first_name,last_name,branch_id,status,date_of_birth,coach_id,photo_url',
+    limit: '10',
+  });
+  const url = `${ceRestBase()}/students?${params.toString()}`;
+  const resp = await ceFetch(url, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  });
+  return expectJson<CEStudent[]>(resp);
+}
+
+/**
  * Fetch a single student's full profile by id. Wraps the CE analytics Edge
  * Function which returns `{success, data: {student: {...}, ratings, achievements}}`
  * and requires `Authorization: Bearer <service_role_key>` (the `x-api-key`

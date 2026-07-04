@@ -62,7 +62,21 @@ interface RosterPayload {
   coaches: CECoach[];
 }
 
-type TabKey = 'registered' | 'pending' | 'unregistered';
+type TabKey = 'registered' | 'pending' | 'unregistered' | 'unlinked';
+
+interface UnlinkedUserRow {
+  user_id: string;
+  email: string | null;
+  name: string | null;
+  joined_at: string | null;
+  latest_attempt: {
+    status: string;
+    attempted_source: string;
+    created_at: string;
+    error_message: string | null;
+    candidate_student_ids: string[] | null;
+  } | null;
+}
 
 interface StudentRow {
   key: string;
@@ -124,6 +138,14 @@ export default function ChessEmpirePanel() {
   const [tokensLoading, setTokensLoading] = useState(false);
   const [tokenBusy, setTokenBusy] = useState<Set<string>>(new Set());
 
+  const [unlinkedRows, setUnlinkedRows] = useState<UnlinkedUserRow[]>([]);
+  const [unlinkedLoading, setUnlinkedLoading] = useState(false);
+  const [linkModalUser, setLinkModalUser] = useState<UnlinkedUserRow | null>(null);
+  const [linkModalQuery, setLinkModalQuery] = useState('');
+  const [linkModalBranch, setLinkModalBranch] = useState<string>('');
+  const [linkModalBusy, setLinkModalBusy] = useState<string | null>(null);
+  const [linkModalError, setLinkModalError] = useState<string | null>(null);
+
   useEffect(() => {
     if (!org?.id) return;
     void fetchRoster();
@@ -150,6 +172,56 @@ export default function ChessEmpirePanel() {
       setData({ ceMembers: [], ceActiveStudents: [], branches: [], coaches: [] });
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchUnlinked() {
+    if (!org?.id) return;
+    setUnlinkedLoading(true);
+    try {
+      const res = await fetch(
+        `/api/admin/organizations/${org.id}/chess-empire/unlinked`,
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as { unlinked: UnlinkedUserRow[] };
+        setUnlinkedRows(payload.unlinked || []);
+      } else {
+        setUnlinkedRows([]);
+      }
+    } finally {
+      setUnlinkedLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === 'unlinked') void fetchUnlinked();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, org?.id]);
+
+  async function submitAdminLink(userId: string, studentId: string, notes: string | null) {
+    if (!org?.id) return;
+    setLinkModalBusy(userId);
+    setLinkModalError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/organizations/${org.id}/chess-empire/link`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId, studentId, notes }),
+        },
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setLinkModalError((body as { error?: string }).error ?? 'error');
+        return;
+      }
+      setLinkModalUser(null);
+      setLinkModalQuery('');
+      setLinkModalBranch('');
+      await Promise.all([fetchRoster(), fetchUnlinked()]);
+    } finally {
+      setLinkModalBusy(null);
     }
   }
 
@@ -265,7 +337,7 @@ export default function ChessEmpirePanel() {
     return s;
   }, [ceMembers]);
 
-  const rowsByTab: Record<TabKey, StudentRow[]> = useMemo(() => {
+  const rowsByTab: Record<Exclude<TabKey, 'unlinked'>, StudentRow[]> = useMemo(() => {
     const registered = ceMembers
       .filter((m) => m.link_status === 'verified' || m.link_status === 'frozen')
       .map(rowFromMember);
@@ -280,6 +352,7 @@ export default function ChessEmpirePanel() {
   }, [ceMembers, ceActiveStudents, linkedExternalIds, studentByExternalId]);
 
   const visibleRows: StudentRow[] = useMemo(() => {
+    if (tab === 'unlinked') return [];
     let rows = rowsByTab[tab];
     if (branchFilter !== 'all') {
       rows = rows.filter((r) => r.branchId === branchFilter);
@@ -711,9 +784,10 @@ export default function ChessEmpirePanel() {
         data-testid="tabs"
         className="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700"
       >
-        {(['registered', 'pending', 'unregistered'] as TabKey[]).map((k) => {
+        {(['registered', 'pending', 'unregistered', 'unlinked'] as TabKey[]).map((k) => {
           const isActive = tab === k;
-          const count = rowsByTab[k].length;
+          const count =
+            k === 'unlinked' ? unlinkedRows.length : rowsByTab[k as Exclude<TabKey, 'unlinked'>].length;
           return (
             <button
               key={k}
@@ -734,7 +808,44 @@ export default function ChessEmpirePanel() {
         })}
       </div>
 
+      {tab === 'unlinked' && (
+        <UnlinkedTab
+          rows={unlinkedRows}
+          loading={unlinkedLoading}
+          onLink={(user) => {
+            setLinkModalUser(user);
+            setLinkModalError(null);
+            setLinkModalQuery('');
+            setLinkModalBranch(branches[0]?.id ?? '');
+          }}
+          t={t}
+        />
+      )}
+
+      {linkModalUser && (
+        <LinkModal
+          user={linkModalUser}
+          branches={branches}
+          selectedBranch={linkModalBranch}
+          setSelectedBranch={setLinkModalBranch}
+          query={linkModalQuery}
+          setQuery={setLinkModalQuery}
+          allStudents={ceActiveStudents}
+          busy={linkModalBusy === linkModalUser.user_id}
+          error={linkModalError}
+          onClose={() => {
+            setLinkModalUser(null);
+            setLinkModalError(null);
+          }}
+          onSubmit={(studentId, notes) =>
+            submitAdminLink(linkModalUser.user_id, studentId, notes)
+          }
+          t={t}
+        />
+      )}
+
       {/* Filters */}
+      {tab !== 'unlinked' && (
       <div className="flex flex-wrap gap-2 mb-4">
         <input
           type="text"
@@ -781,6 +892,7 @@ export default function ChessEmpirePanel() {
           </select>
         )}
       </div>
+      )}
 
       {/* Bulk actions */}
       {selected.size > 0 && (
@@ -824,6 +936,7 @@ export default function ChessEmpirePanel() {
       )}
 
       {/* Table */}
+      {tab !== 'unlinked' && (
       <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <table className="w-full text-sm">
           <thead>
@@ -1011,6 +1124,7 @@ export default function ChessEmpirePanel() {
           </tbody>
         </table>
       </div>
+      )}
 
       {toast && (
         <div
@@ -1020,6 +1134,237 @@ export default function ChessEmpirePanel() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+interface UnlinkedTabProps {
+  rows: UnlinkedUserRow[];
+  loading: boolean;
+  onLink: (user: UnlinkedUserRow) => void;
+  t: ReturnType<typeof useTranslations>;
+}
+
+function UnlinkedTab({ rows, loading, onLink, t }: UnlinkedTabProps) {
+  return (
+    <div
+      data-testid="unlinked-tab"
+      className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+    >
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 dark:border-gray-700">
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('unlinkedColUser')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('unlinkedColEmail')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('unlinkedColLatestAttempt')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('unlinkedColWhen')}
+            </th>
+            <th className="text-right px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('colActions')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <tr>
+              <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                {t('loading')}
+              </td>
+            </tr>
+          ) : rows.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                {t('unlinkedEmpty')}
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => (
+              <tr
+                key={row.user_id}
+                data-testid={`unlinked-row-${row.user_id}`}
+                className="border-b border-gray-100 dark:border-gray-700 last:border-0"
+              >
+                <td className="px-3 py-2 font-mono text-xs text-gray-700 dark:text-gray-300">
+                  {row.user_id}
+                </td>
+                <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                  {row.email ?? '—'}
+                </td>
+                <td className="px-3 py-2 text-gray-500">
+                  {row.latest_attempt
+                    ? `${row.latest_attempt.attempted_source} → ${row.latest_attempt.status}`
+                    : '—'}
+                </td>
+                <td className="px-3 py-2 text-gray-500">
+                  {row.latest_attempt?.created_at
+                    ? new Date(row.latest_attempt.created_at).toLocaleString()
+                    : '—'}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    onClick={() => onLink(row)}
+                    className="text-xs px-2 py-1 rounded text-white"
+                    style={{ backgroundColor: 'var(--brand-primary, #1a73e8)' }}
+                    data-testid={`unlinked-link-btn-${row.user_id}`}
+                  >
+                    {t('unlinkedLinkBtn')}
+                  </button>
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+interface LinkModalProps {
+  user: UnlinkedUserRow;
+  branches: CEBranch[];
+  selectedBranch: string;
+  setSelectedBranch: (id: string) => void;
+  query: string;
+  setQuery: (q: string) => void;
+  allStudents: CEActiveStudent[];
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (studentId: string, notes: string | null) => void;
+  t: ReturnType<typeof useTranslations>;
+}
+
+function LinkModal({
+  user,
+  branches,
+  selectedBranch,
+  setSelectedBranch,
+  query,
+  setQuery,
+  allStudents,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+  t,
+}: LinkModalProps) {
+  const [notes, setNotes] = useState('');
+
+  const results = useMemo(() => {
+    if (!selectedBranch) return [];
+    const q = query.trim().toLowerCase();
+    const list = allStudents.filter((s) => s.branch_id === selectedBranch);
+    const filtered = q
+      ? list.filter((s) =>
+          `${s.first_name} ${s.last_name}`.toLowerCase().includes(q),
+        )
+      : list;
+    return filtered.slice(0, 30);
+  }, [allStudents, selectedBranch, query]);
+
+  return (
+    <div
+      data-testid="link-modal"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl bg-white dark:bg-gray-800 p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            {t('linkModalTitle')}
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
+          >
+            {t('close')}
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-3">
+          {t('linkModalUser', { userId: user.user_id, email: user.email ?? '—' })}
+        </p>
+
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+          {t('linkModalBranch')}
+        </label>
+        <select
+          value={selectedBranch}
+          onChange={(e) => setSelectedBranch(e.target.value)}
+          className="mb-3 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm"
+        >
+          {branches.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+          {t('linkModalSearch')}
+        </label>
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder={t('linkModalSearchPlaceholder')}
+          className="mb-3 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm"
+        />
+
+        <div
+          className="mb-3 max-h-64 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700"
+          data-testid="link-modal-results"
+        >
+          {results.length === 0 ? (
+            <div className="px-3 py-4 text-sm text-gray-500">
+              {t('linkModalNoResults')}
+            </div>
+          ) : (
+            results.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => onSubmit(r.id, notes.trim() || null)}
+                disabled={busy}
+                data-testid={`link-modal-pick-${r.id}`}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0 disabled:opacity-60"
+              >
+                <span className="font-medium text-gray-900 dark:text-gray-100">
+                  {r.first_name} {r.last_name}
+                </span>
+                <span className="ml-2 font-mono text-xs text-gray-400">
+                  {r.id.slice(0, 8)}…
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+          {t('linkModalNotes')}
+        </label>
+        <input
+          type="text"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder={t('linkModalNotesPlaceholder')}
+          className="mb-3 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-sm"
+        />
+
+        {error && (
+          <p className="text-sm text-red-600 mb-2" data-testid="link-modal-error">
+            {error}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

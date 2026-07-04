@@ -25,14 +25,23 @@ vi.mock('@clerk/nextjs/server', () => ({
   auth: async () => authStore.current,
 }));
 
-const memberStore: { studentId: string | null; throws: boolean } = {
+const memberStore: {
+  studentId: string | null;
+  state: 'no_link' | 'pending_confirm' | 'verified';
+  throws: boolean;
+} = {
   studentId: null,
+  state: 'no_link',
   throws: false,
 };
 vi.mock('@/lib/chess-empire-member', () => ({
-  getLinkedStudentId: vi.fn(async () => {
+  getMembershipState: vi.fn(async () => {
     if (memberStore.throws) throw new Error('member-lookup failed');
-    return memberStore.studentId;
+    return {
+      state: memberStore.state,
+      studentId: memberStore.studentId,
+      memberId: memberStore.studentId ? 'mem-x' : null,
+    };
   }),
 }));
 
@@ -74,8 +83,17 @@ vi.mock('@/lib/tenant-landing-fetch', () => ({
 // shell renders rather than re-asserting child markup.
 vi.mock('@/components/empire/EmpireHomePage', () => ({
   __esModule: true,
-  default: (props: { profile: { id: string } }) => (
-    <div data-testid="empire-home" data-student={props.profile?.id || ''} />
+  default: (props: {
+    state: 'verified' | 'pending_confirm' | 'no_link';
+    studentDisplayName: string | null;
+    profile?: { id: string };
+  }) => (
+    <div
+      data-testid="empire-home"
+      data-state={props.state}
+      data-student={props.profile?.id || ''}
+      data-name={props.studentDisplayName ?? ''}
+    />
   ),
 }));
 
@@ -143,6 +161,7 @@ beforeEach(() => {
   headersStore.current = {};
   authStore.current = { userId: null };
   memberStore.studentId = null;
+  memberStore.state = 'no_link';
   memberStore.throws = false;
   ceStore.profile = null;
   ceStore.profileThrows = false;
@@ -163,12 +182,13 @@ afterEach(() => {
 });
 
 describe('apex Page() — Chess Empire routing', () => {
-  it('renders <EmpireHomePage> for signed-in linked CE student', async () => {
+  it('renders verified <EmpireHomePage> for signed-in linked CE student', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
     };
     authStore.current = { userId: 'user-1' };
+    memberStore.state = 'verified';
     memberStore.studentId = 'stu-1';
     ceStore.profile = {
       id: 'stu-1',
@@ -183,32 +203,51 @@ describe('apex Page() — Chess Empire routing', () => {
     const ui = await Page();
     const { getByTestId } = render(ui);
     const home = getByTestId('empire-home');
+    expect(home.getAttribute('data-state')).toBe('verified');
     expect(home.getAttribute('data-student')).toBe('stu-1');
+    expect(home.getAttribute('data-name')).toBe('Aiman');
   });
 
-  it('falls back to <TenantLanding> when signed-in but no linkage', async () => {
+  it('renders pending_confirm shell without fetching ratings/rank/achievements', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
     };
     authStore.current = { userId: 'user-1' };
-    memberStore.studentId = null;
-    fetchOrgStore.current = {
-      id: 'org-ce',
-      slug: 'chess-empire',
-      name: 'Chess Empire',
-      logoUrl: null,
-      primaryColor: '#000',
-      secondaryColor: '#fff',
-      accentColor: '#f00',
-      landingPageConfig: {},
+    memberStore.state = 'pending_confirm';
+    memberStore.studentId = 'stu-vasco';
+    ceStore.profile = {
+      id: 'stu-vasco',
+      first_name: 'Turabay',
+      last_name: 'Ali',
+      branch_id: 'br-1',
+      status: 'active',
+      date_of_birth: '2020-01-01',
     };
 
     const Page = (await import('../page')).default;
     const ui = await Page();
-    const { getByTestId, queryByTestId } = render(ui);
-    expect(getByTestId('tenant-landing')).toBeTruthy();
-    expect(queryByTestId('empire-home')).toBeNull();
+    const { getByTestId } = render(ui);
+    const home = getByTestId('empire-home');
+    expect(home.getAttribute('data-state')).toBe('pending_confirm');
+    expect(home.getAttribute('data-name')).toBe('Turabay');
+  });
+
+  it('renders no_link <EmpireHomePage> when signed-in but no linkage', async () => {
+    headersStore.current = {
+      'x-org-id': 'org-ce',
+      'x-org-slug': 'chess-empire',
+    };
+    authStore.current = { userId: 'user-1' };
+    memberStore.state = 'no_link';
+    memberStore.studentId = null;
+
+    const Page = (await import('../page')).default;
+    const ui = await Page();
+    const { getByTestId } = render(ui);
+    const home = getByTestId('empire-home');
+    expect(home.getAttribute('data-state')).toBe('no_link');
+    expect(home.getAttribute('data-name')).toBe('');
   });
 
   it('falls back to <TenantLanding> when unsigned on chess-empire', async () => {
@@ -264,6 +303,7 @@ describe('apex Page() — Chess Empire routing', () => {
       'x-org-slug': 'chess-empire',
     };
     authStore.current = { userId: 'user-1' };
+    memberStore.state = 'verified';
     memberStore.studentId = 'stu-1';
     ceStore.profileThrows = true;
     fetchOrgStore.current = {

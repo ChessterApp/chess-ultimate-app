@@ -1622,7 +1622,17 @@
     "achievementsMore": "+ещё {count}",
     "rankBranch": "#{rank} из {size} в филиале",
     "rankSchool": "#{rank} из {size} по школе",
-    "continueCta": "Продолжить обучение"
+    "continueCta": "Продолжить обучение",
+    "welcomeBackNamed": "С возвращением, {name}",
+    "welcomeBack": "С возвращением",
+    "pendingConfirmTitle": "Это вы, {name}?",
+    "pendingConfirmSubtitle": "Мы сопоставили ваш e-mail с профилем ученика Chess Empire. Подтвердите, чтобы открыть персональную панель.",
+    "pendingConfirmYes": "Да, это я",
+    "pendingConfirmNo": "Нет, это не я",
+    "noLinkTitle": "Готовим ваш профиль",
+    "noLinkSubtitle": "Ваш тренер скоро привяжет ваш аккаунт. Если у вас есть приглашение — откройте ссылку, чтобы завершить связывание.",
+    "pendingConfirmSubmitting": "Подтверждение…",
+    "rejectSubmitting": "Удаление…"
   },
   "adminCe": {
     "title": "Ученики",
@@ -1635,7 +1645,8 @@
     "tab": {
       "registered": "Зарегистрированы",
       "pending": "В ожидании",
-      "unregistered": "Ещё не зарегистрированы"
+      "unregistered": "Ещё не зарегистрированы",
+      "unlinked": "Не привязаны"
     },
     "searchPlaceholder": "Поиск по имени…",
     "filterAllBranches": "Все филиалы",
@@ -1687,6 +1698,20 @@
     "confirmRotateToken": "Старая ссылка сразу перестанет работать. Перешлите новую родительскому чату.",
     "confirmRevokeToken": "После отзыва у филиала не будет работающей ссылки, пока вы её не обновите.",
     "toastRotateCopied": "Новая ссылка скопирована — перешлите её родителям.",
-    "errorLoad": "Не удалось загрузить список. Попробуйте ещё раз через минуту."
+    "errorLoad": "Не удалось загрузить список. Попробуйте ещё раз через минуту.",
+    "unlinkedColUser": "Пользователь Clerk",
+    "unlinkedColEmail": "Email",
+    "unlinkedColLatestAttempt": "Последняя попытка",
+    "unlinkedColWhen": "Когда",
+    "unlinkedEmpty": "Сейчас нет непривязанных пользователей.",
+    "unlinkedLinkBtn": "Привязать…",
+    "linkModalTitle": "Привязать пользователя к ученику",
+    "linkModalUser": "{userId} · {email}",
+    "linkModalBranch": "Филиал",
+    "linkModalSearch": "Поиск учеников по имени",
+    "linkModalSearchPlaceholder": "например, Али",
+    "linkModalNoResults": "Нет учеников для этого филиала/запроса.",
+    "linkModalNotes": "Заметки (опционально)",
+    "linkModalNotesPlaceholder": "напр. Ручная привязка 2026-07-04"
   }
 }

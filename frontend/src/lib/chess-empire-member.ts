@@ -1,14 +1,20 @@
 /**
  * Chess Empire ↔ Chesster membership lookup.
  *
- * Phase 3 of the Chess Empire → Chesster onboarding arc (plan:
- * /root/.claude/plans/ancient-greeting-thimble.md). Resolves a Clerk user to
- * their linked CE `external_student_id` for the personalized homepage at
- * `chess-empire.chesster.io/`.
+ * The apex CE homepage and `/dashboard` on the CE subdomain read from here to
+ * decide what to render:
+ *  - `no_link` → no `organization_members` row → name-less "we're getting your
+ *    profile ready" copy.
+ *  - `pending_confirm` → email auto-match found a single student; the user
+ *    must confirm on the homepage before we treat it as verified.
+ *  - `verified` → normal personalized surface.
+ *
+ * `getLinkedStudentId` is kept as a thin wrapper that returns the verified
+ * student id or null, for callers that only care about the terminal state.
  *
  * Reads `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` on each call
  * so tests can patch the env without needing to re-import this module — same
- * pattern as `chess-empire-client.ts` and the Phase 1 admin route handlers.
+ * pattern as `chess-empire-client.ts`.
  *
  * Wrapped in `react cache()` so concurrent server components inside a single
  * render (homepage tree) dedupe the lookup.
@@ -22,15 +28,21 @@ export interface GetLinkedStudentIdArgs {
   clerkUserId: string;
 }
 
-interface MemberRow {
-  external_student_id: string | null;
+export type MembershipState = 'no_link' | 'pending_confirm' | 'verified';
+
+export interface MembershipStateResult {
+  state: MembershipState;
+  studentId: string | null;
+  memberId: string | null;
 }
 
-async function fetchLinkedStudentId({
-  orgId,
-  clerkUserId,
-}: GetLinkedStudentIdArgs): Promise<string | null> {
-  if (!orgId || !clerkUserId) return null;
+interface MemberRow {
+  id: string;
+  external_student_id: string | null;
+  link_status: string | null;
+}
+
+function serviceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!supabaseUrl || !serviceKey) {
@@ -38,23 +50,60 @@ async function fetchLinkedStudentId({
       'chess-empire-member: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set',
     );
   }
-  const supabase = createClient(supabaseUrl, serviceKey, {
+  return createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+}
+
+async function fetchMembershipState({
+  orgId,
+  clerkUserId,
+}: GetLinkedStudentIdArgs): Promise<MembershipStateResult> {
+  const noLink: MembershipStateResult = {
+    state: 'no_link',
+    studentId: null,
+    memberId: null,
+  };
+  if (!orgId || !clerkUserId) return noLink;
+
+  const supabase = serviceClient();
   const { data, error } = await supabase
     .from('organization_members')
-    .select('external_student_id')
+    .select('id, external_student_id, link_status')
     .eq('organization_id', orgId)
     .eq('user_id', clerkUserId)
     .eq('external_source', 'chess_empire')
-    .eq('link_status', 'verified')
     .limit(1)
     .maybeSingle();
   if (error) {
     throw new Error(`chess-empire-member: ${error.message}`);
   }
   const row = (data ?? null) as MemberRow | null;
-  return row?.external_student_id ?? null;
+  if (!row || !row.external_student_id) return noLink;
+
+  if (row.link_status === 'verified') {
+    return {
+      state: 'verified',
+      studentId: row.external_student_id,
+      memberId: row.id,
+    };
+  }
+  if (row.link_status === 'pending_confirm') {
+    return {
+      state: 'pending_confirm',
+      studentId: row.external_student_id,
+      memberId: row.id,
+    };
+  }
+  return noLink;
 }
 
+async function fetchLinkedStudentId(
+  args: GetLinkedStudentIdArgs,
+): Promise<string | null> {
+  const result = await fetchMembershipState(args);
+  return result.state === 'verified' ? result.studentId : null;
+}
+
+export const getMembershipState = cache(fetchMembershipState);
 export const getLinkedStudentId = cache(fetchLinkedStudentId);

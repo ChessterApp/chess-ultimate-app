@@ -1622,7 +1622,17 @@
     "achievementsMore": "+{count} more",
     "rankBranch": "#{rank} of {size} in branch",
     "rankSchool": "#{rank} of {size} school-wide",
-    "continueCta": "Continue learning"
+    "continueCta": "Continue learning",
+    "welcomeBackNamed": "Welcome back, {name}",
+    "welcomeBack": "Welcome back",
+    "pendingConfirmTitle": "Is this you, {name}?",
+    "pendingConfirmSubtitle": "We matched your email to a Chess Empire student profile. Confirm to unlock your personalized dashboard.",
+    "pendingConfirmYes": "Yes, that's me",
+    "pendingConfirmNo": "No, that's not me",
+    "noLinkTitle": "We're getting your profile ready",
+    "noLinkSubtitle": "Your coach will link your account shortly. If you've received an invite link, open it to complete the connection.",
+    "pendingConfirmSubmitting": "Confirming…",
+    "rejectSubmitting": "Removing…"
   },
   "adminCe": {
     "title": "Students",
@@ -1635,7 +1645,8 @@
     "tab": {
       "registered": "Registered",
       "pending": "Pending",
-      "unregistered": "Not yet registered"
+      "unregistered": "Not yet registered",
+      "unlinked": "Unlinked users"
     },
     "searchPlaceholder": "Search by name…",
     "filterAllBranches": "All branches",
@@ -1687,6 +1698,20 @@
     "confirmRotateToken": "Old link stops working immediately. Distribute the new link to the parent group.",
     "confirmRevokeToken": "This branch will have no working invite until you rotate.",
     "toastRotateCopied": "New link copied — share with the parent group.",
-    "errorLoad": "Could not load the roster. Try again in a moment."
+    "errorLoad": "Could not load the roster. Try again in a moment.",
+    "unlinkedColUser": "Clerk user",
+    "unlinkedColEmail": "Email",
+    "unlinkedColLatestAttempt": "Latest attempt",
+    "unlinkedColWhen": "When",
+    "unlinkedEmpty": "No unlinked users right now.",
+    "unlinkedLinkBtn": "Link…",
+    "linkModalTitle": "Link user to student",
+    "linkModalUser": "{userId} · {email}",
+    "linkModalBranch": "Branch",
+    "linkModalSearch": "Search students by name",
+    "linkModalSearchPlaceholder": "e.g. Ali",
+    "linkModalNoResults": "No students match this branch/query.",
+    "linkModalNotes": "Notes (optional)",
+    "linkModalNotesPlaceholder": "e.g. Manual backfill 2026-07-04 missing webhook link"
   }
 }
