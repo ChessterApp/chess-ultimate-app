@@ -235,17 +235,30 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
         >
           <div className="p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center gap-6">
             <div className="shrink-0 relative">
-              <div
-                data-testid="empire-avatar"
-                className="w-24 h-24 rounded-full grid place-items-center text-2xl font-bold ring-4"
-                style={{
-                  background: `linear-gradient(135deg, ${ACCENT}, #0EA5A5)`,
-                  boxShadow: `0 0 0 3px rgba(16,185,129,0.35)`,
-                  ['--tw-ring-color' as string]: ACCENT,
-                }}
-              >
-                {initialFrom(studentDisplayName)}
-              </div>
+              {profile.photo_url ? (
+                <img
+                  data-testid="empire-avatar"
+                  src={profile.photo_url}
+                  alt={studentDisplayName ?? ''}
+                  className="w-24 h-24 rounded-full object-cover ring-4"
+                  style={{
+                    boxShadow: `0 0 0 3px rgba(16,185,129,0.35)`,
+                    ['--tw-ring-color' as string]: ACCENT,
+                  }}
+                />
+              ) : (
+                <div
+                  data-testid="empire-avatar"
+                  className="w-24 h-24 rounded-full grid place-items-center text-2xl font-bold ring-4"
+                  style={{
+                    background: `linear-gradient(135deg, ${ACCENT}, #0EA5A5)`,
+                    boxShadow: `0 0 0 3px rgba(16,185,129,0.35)`,
+                    ['--tw-ring-color' as string]: ACCENT,
+                  }}
+                >
+                  {initialFrom(studentDisplayName)}
+                </div>
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center gap-2 mb-1">

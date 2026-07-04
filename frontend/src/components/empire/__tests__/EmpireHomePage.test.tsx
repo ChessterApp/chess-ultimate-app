@@ -124,7 +124,9 @@ describe('EmpireHomePage — verified state', () => {
     const { getByTestId, queryByTestId } = render(ui);
     expect(getByTestId('empire-home')).toBeTruthy();
     expect(getByTestId('empire-hero')).toBeTruthy();
-    expect(getByTestId('empire-avatar').textContent).toBe('A');
+    const avatarInitial = getByTestId('empire-avatar');
+    expect(avatarInitial.tagName).toBe('DIV');
+    expect(avatarInitial.textContent).toBe('A');
     expect(getByTestId('empire-razryad-chip').textContent).toBe('3rd');
     expect(getByTestId('empire-coach-chip').textContent).toContain(
       'Vasily Mikhaylovich',
@@ -141,6 +143,39 @@ describe('EmpireHomePage — verified state', () => {
     expect(getByTestId('empire-achievements-grid')).toBeTruthy();
     expect(getByTestId('empire-continue-cta')).toBeTruthy();
     expect(queryByTestId('empire-trend-empty')).toBeNull();
+  });
+
+  it('renders the CE photo_url as the hero avatar when present', async () => {
+    const photoUrl =
+      'https://papgcizhfkngubwofjuo.supabase.co/storage/v1/object/public/student-photos/students/stu-vasco_1766294728627.jpg';
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, photo_url: photoUrl },
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    const avatar = getByTestId('empire-avatar');
+    expect(avatar.tagName).toBe('IMG');
+    expect(avatar.getAttribute('src')).toBe(photoUrl);
+    expect(avatar.getAttribute('alt')).toBe('Ali');
+  });
+
+  it('falls back to the initial when profile.photo_url is null', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, photo_url: null },
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    const avatar = getByTestId('empire-avatar');
+    expect(avatar.tagName).toBe('DIV');
+    expect(avatar.textContent).toBe('A');
   });
 
   it('uses the dark-slate palette in the hero (no Chesster purple/blue)', async () => {
