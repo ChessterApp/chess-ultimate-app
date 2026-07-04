@@ -190,9 +190,16 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
 
   const totalLessons = profile.total_lessons ?? 120;
   const currentLesson = profile.current_lesson ?? 0;
-  const cells = 24;
-  const cellStep = totalLessons / cells;
   const lessonsRemaining = Math.max(0, totalLessons - currentLesson);
+
+  const derivedLevel =
+    currentLesson <= 0
+      ? 1
+      : Math.max(1, Math.min(8, Math.ceil(currentLesson / 15)));
+  const currentLevel =
+    profile.current_level && profile.current_level >= 1 && profile.current_level <= 8
+      ? profile.current_level
+      : derivedLevel;
 
   const razryad = profile.razryad ?? null;
   const branchName = profile.branch_name ?? null;
@@ -473,23 +480,66 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
               aria-valuenow={Math.round((currentLesson / totalLessons) * 100)}
               aria-valuemin={0}
               aria-valuemax={100}
-              className="mt-4 grid gap-[3px]"
-              style={{ gridTemplateColumns: `repeat(${cells}, minmax(0,1fr))` }}
+              className="mt-4"
             >
-              {Array.from({ length: cells }, (_, i) => {
-                const filled = currentLesson >= (i + 1) * cellStep;
-                return (
-                  <div
-                    key={i}
-                    className="h-2.5 rounded-sm"
-                    style={{
-                      background: filled
-                        ? `linear-gradient(90deg, ${ACCENT_DIM}, ${ACCENT})`
-                        : '#E5E7EB',
-                    }}
-                  />
-                );
-              })}
+              <div className="flex gap-1.5">
+                {Array.from({ length: 8 }, (_, s) => {
+                  const level = s + 1;
+                  const isCurrent = level === currentLevel;
+                  return (
+                    <div
+                      key={s}
+                      data-testid={`empire-progress-segment-${level}`}
+                      title={t('journeyStepTitle', { level, total: 15 })}
+                      className={`flex-1 flex gap-[1px] p-0.5 rounded-md ${
+                        isCurrent ? 'ring-2 ring-emerald-500/50 bg-emerald-50/60' : ''
+                      }`}
+                    >
+                      {isCurrent && (
+                        <span
+                          data-testid="empire-progress-segment-current"
+                          className="sr-only"
+                          aria-hidden="true"
+                        />
+                      )}
+                      {Array.from({ length: 15 }, (_, k) => {
+                        const lesson = s * 15 + k + 1;
+                        const filled = lesson <= currentLesson;
+                        return (
+                          <div
+                            key={k}
+                            className="flex-1 h-2.5 rounded-sm"
+                            style={{
+                              background: filled
+                                ? `linear-gradient(90deg, ${ACCENT_DIM}, ${ACCENT})`
+                                : '#E5E7EB',
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex gap-1.5">
+                {Array.from({ length: 8 }, (_, i) => {
+                  const level = i + 1;
+                  const cls =
+                    level === currentLevel
+                      ? 'text-emerald-600 font-bold'
+                      : level < currentLevel
+                        ? 'text-slate-700'
+                        : 'text-slate-400';
+                  return (
+                    <div
+                      key={i}
+                      className={`flex-1 text-center text-[11px] ${cls}`}
+                    >
+                      {level}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
             <div className="mt-3 text-sm text-slate-600">
               {t('lessonsRemaining', { count: lessonsRemaining })}

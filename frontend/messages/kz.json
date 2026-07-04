@@ -1641,6 +1641,7 @@
     "achievementsCountLabel": "Жетістіктер",
     "achievementsCountUnit": "алынды",
     "levelLabel": "Деңгей",
+    "journeyStepTitle": "Деңгей {level} · {total} сабақ",
     "lessonLabel": "Сабақ",
     "lessonsRemaining": "Келесі разрядқа дейін {count} сабақ қалды",
     "trendTitle": "Рейтинг динамикасы",

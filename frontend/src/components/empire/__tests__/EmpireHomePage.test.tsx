@@ -174,6 +174,39 @@ describe('EmpireHomePage — verified state', () => {
     expect(queryByTestId('empire-trend-chart')).toBeNull();
   });
 
+  it('renders 8 level segments with the current segment highlighted', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, current_level: 4, current_lesson: 47, total_lessons: 120 },
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    for (let i = 1; i <= 8; i++) {
+      expect(getByTestId(`empire-progress-segment-${i}`)).toBeTruthy();
+    }
+    expect(getByTestId('empire-progress-segment-current')).toBeTruthy();
+    const seg4 = getByTestId('empire-progress-segment-4');
+    expect(seg4.querySelector('[data-testid="empire-progress-segment-current"]')).toBeTruthy();
+    expect(seg4.getAttribute('title')).toContain('"level":4');
+  });
+
+  it('derives current level from current_lesson when profile.current_level is missing', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, current_level: undefined, current_lesson: 47, total_lessons: 120 },
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    const seg4 = getByTestId('empire-progress-segment-4');
+    expect(seg4.querySelector('[data-testid="empire-progress-segment-current"]')).toBeTruthy();
+  });
+
   it('renders an achievements empty state when the list is empty', async () => {
     const ui = await EmpireHomePage({
       state: 'verified',

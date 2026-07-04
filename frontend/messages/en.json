@@ -1641,6 +1641,7 @@
     "achievementsCountLabel": "Achievements",
     "achievementsCountUnit": "earned",
     "levelLabel": "Level",
+    "journeyStepTitle": "Level {level} · {total} lessons",
     "lessonLabel": "Lesson",
     "lessonsRemaining": "{count} lessons remaining until the next razryad",
     "trendTitle": "Rating trend",
