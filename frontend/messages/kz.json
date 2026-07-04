@@ -1644,6 +1644,7 @@
     "journeyStepTitle": "Деңгей {level} · {total} сабақ",
     "lessonLabel": "Сабақ",
     "lessonsRemaining": "Келесі разрядқа дейін {count} сабақ қалды",
+    "lessonsUntilNextLevel": "{nextLevel}-деңгейге дейін {count} сабақ қалды",
     "trendTitle": "Рейтинг динамикасы",
     "trendSubtitle": "Соңғы 6 ай",
     "nextLessonTitle": "Келесі сабақ",

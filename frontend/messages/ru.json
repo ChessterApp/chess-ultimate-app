@@ -1644,6 +1644,7 @@
     "journeyStepTitle": "Ступень {level} · {total} уроков",
     "lessonLabel": "Урок",
     "lessonsRemaining": "Осталось {count} уроков до нового разряда",
+    "lessonsUntilNextLevel": "Осталось {count} уроков до {nextLevel} ступени",
     "trendTitle": "Динамика рейтинга",
     "trendSubtitle": "Последние 6 месяцев",
     "nextLessonTitle": "Следующее занятие",

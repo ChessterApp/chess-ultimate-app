@@ -188,6 +188,7 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
     .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
     .join(' ');
 
+  const LESSONS_PER_LEVEL = 15;
   const totalLessons = profile.total_lessons ?? 120;
   const currentLesson = profile.current_lesson ?? 0;
   const lessonsRemaining = Math.max(0, totalLessons - currentLesson);
@@ -195,11 +196,20 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
   const derivedLevel =
     currentLesson <= 0
       ? 1
-      : Math.max(1, Math.min(8, Math.ceil(currentLesson / 15)));
+      : Math.max(1, Math.min(8, Math.ceil(currentLesson / LESSONS_PER_LEVEL)));
   const currentLevel =
     profile.current_level && profile.current_level >= 1 && profile.current_level <= 8
       ? profile.current_level
       : derivedLevel;
+
+  const isFinalLevel = currentLevel >= 8;
+  const nextLevel = isFinalLevel ? currentLevel : currentLevel + 1;
+  const lessonsUntilNextLevel = isFinalLevel
+    ? lessonsRemaining
+    : Math.max(0, currentLevel * LESSONS_PER_LEVEL - currentLesson);
+  const progressCopy = isFinalLevel
+    ? t('lessonsRemaining', { count: lessonsRemaining })
+    : t('lessonsUntilNextLevel', { count: lessonsUntilNextLevel, nextLevel });
 
   const razryad = profile.razryad ?? null;
   const branchName = profile.branch_name ?? null;
@@ -542,7 +552,7 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
               </div>
             </div>
             <div className="mt-3 text-sm text-slate-600">
-              {t('lessonsRemaining', { count: lessonsRemaining })}
+              {progressCopy}
             </div>
           </section>
 
@@ -753,7 +763,7 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
         {/* CTA */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="text-sm text-slate-600">
-            {t('lessonsRemaining', { count: lessonsRemaining })}
+            {progressCopy}
           </div>
           <Link
             href="/learn"

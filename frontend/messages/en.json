@@ -1644,6 +1644,7 @@
     "journeyStepTitle": "Level {level} · {total} lessons",
     "lessonLabel": "Lesson",
     "lessonsRemaining": "{count} lessons remaining until the next razryad",
+    "lessonsUntilNextLevel": "{count} lessons until Level {nextLevel}",
     "trendTitle": "Rating trend",
     "trendSubtitle": "Last 6 months",
     "nextLessonTitle": "Next lesson",
