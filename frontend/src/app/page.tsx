@@ -1,5 +1,4 @@
 import { headers } from 'next/headers'
-import { auth } from '@clerk/nextjs/server'
 import { useTranslations, useLocale } from 'next-intl'
 import Image from 'next/image'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
@@ -17,15 +16,7 @@ import { SocialButtons } from '@/components/landing/SocialButtons'
 import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
 import { TenantLanding } from '@/components/tenant/TenantLanding'
 import { fetchOrgForLanding } from '@/lib/tenant-landing-fetch'
-import EmpireHomePage from '@/components/empire/EmpireHomePage'
-import { getMembershipState } from '@/lib/chess-empire-member'
-import { resolveStudentDisplayName } from '@/lib/student-name'
-import {
-  getStudentAchievements,
-  getStudentProfile,
-  getStudentRank,
-  getStudentRatings,
-} from '@/lib/chess-empire-client'
+import { renderEmpireHomepage } from '@/lib/empire-homepage-render'
 
 // Apex ISR — tenant rendering forces dynamic via headers() below.
 export const revalidate = 3600
@@ -57,7 +48,7 @@ export default async function Page() {
   const orgSlug = headersList.get('x-org-slug')
   if (orgId && orgSlug) {
     if (orgSlug === 'chess-empire') {
-      const empire = await tryRenderEmpireHomepage(orgId)
+      const empire = await renderEmpireHomepage(orgId)
       if (empire) return empire
     }
     const org = await fetchOrgForLanding(orgId, orgSlug)
@@ -66,93 +57,6 @@ export default async function Page() {
     }
   }
   return <ApexHomePage />
-}
-
-async function tryRenderEmpireHomepage(orgId: string) {
-  let userId: string | null = null
-  try {
-    const session = await auth()
-    userId = session.userId ?? null
-  } catch {
-    return null
-  }
-  if (!userId) return null
-
-  let membership
-  try {
-    membership = await getMembershipState({ orgId, clerkUserId: userId })
-  } catch (err) {
-    console.error('[empire-home] member lookup failed', err)
-    return null
-  }
-
-  if (membership.state === 'no_link') {
-    return (
-      <EmpireHomePage state="no_link" studentDisplayName={null} />
-    )
-  }
-
-  const studentId = membership.studentId
-  if (!studentId) return null
-
-  // Profile is the only required fetch. If it fails we bail out to
-  // <TenantLanding> rather than render a half-broken homepage. The other
-  // three are best-effort — degraded data is OK.
-  let profile
-  try {
-    profile = await getStudentProfile(studentId)
-  } catch (err) {
-    console.error('[empire-home] profile fetch failed', err)
-    return null
-  }
-
-  const studentDisplayName = resolveStudentDisplayName(profile)
-
-  if (membership.state === 'pending_confirm') {
-    return (
-      <EmpireHomePage
-        state="pending_confirm"
-        studentDisplayName={studentDisplayName}
-      />
-    )
-  }
-
-  const [ratings, achievements, rank] = await Promise.all([
-    getStudentRatings(studentId, 30).catch((err) => {
-      console.error('[empire-home] ratings fetch failed', err)
-      return []
-    }),
-    getStudentAchievements(studentId).catch((err) => {
-      console.error('[empire-home] achievements fetch failed', err)
-      return []
-    }),
-    getStudentRank(studentId).catch((err) => {
-      console.error('[empire-home] rank fetch failed', err)
-      return {
-        branch_rank: null,
-        school_rank: null,
-        branch_size: null,
-        school_size: null,
-      }
-    }),
-  ])
-
-  if (!studentDisplayName) {
-    console.warn(
-      `[empire-home] resolved student ${studentId} has no first_name/full_name — greeting will be name-less`,
-    )
-  }
-
-  return (
-    <EmpireHomePage
-      state="verified"
-      studentDisplayName={studentDisplayName}
-      profile={profile}
-      ratings={ratings}
-      achievements={achievements}
-      rank={rank}
-    />
-  )
 }
 
 function ApexHomePage() {

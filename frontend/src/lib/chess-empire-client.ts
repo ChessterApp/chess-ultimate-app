@@ -80,6 +80,7 @@ export interface CEStudentProfile extends CEStudent {
   current_rating?: number | null;
   razryad?: string | null;
   current_league?: string | null;
+  joined_at?: string | null;
 }
 
 export interface CERatingPoint {
