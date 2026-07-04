@@ -11,6 +11,7 @@ import {
   Storage, ChevronLeft, ChevronRight,
 } from '@mui/icons-material';
 import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import { apiFetch } from '@/lib/api';
 import MasterGamesFilter, { MasterGamesFilterState } from './MasterGamesFilter';
 import ExplorerTabs, { ExplorerTab } from './ExplorerTabs';
 import LichessExplorerTab from './LichessExplorerTab';
@@ -59,6 +60,18 @@ export default function NodeDetailsPanel({
     setGamesPage(0);
   }, [node?.id]);
 
+  // Master DB global game count — mirrors the MasterDatabaseHero fetch in
+  // /database so the panel shows "reach this position" vs the full DB total.
+  const [masterDbGameCount, setMasterDbGameCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    apiFetch<{ game_count: number }>(`${apiBase}/api/opponent/status`)
+      .then(data => { if (!cancelled) setMasterDbGameCount(data.game_count); })
+      .catch(() => { /* silent: subtitle just hides */ });
+    return () => { cancelled = true; };
+  }, []);
+
   if (!node) {
     return (
       <Box sx={{ p: 2, color: 'text.secondary' }}>
@@ -80,19 +93,24 @@ export default function NodeDetailsPanel({
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
       {/* Master Games (auto-fetched from TWIC) */}
       <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.25 }}>
           <Storage sx={{ fontSize: 14, color: '#14b8a6' }} />
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11 }}>
             {t('masterGames')}
           </Typography>
           {masterGamesTotal > 0 && (
             <Chip
-              label={(masterGamesTotal ?? 0).toLocaleString()}
+              label={`${(masterGamesTotal ?? 0).toLocaleString()} games reach this position`}
               size="small"
               sx={{ height: 16, fontSize: 10, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
             />
           )}
         </Box>
+        {masterDbGameCount !== null && (
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10, opacity: 0.7, display: 'block', mb: 0.5 }}>
+            Master DB: {masterDbGameCount.toLocaleString()} games
+          </Typography>
+        )}
 
         {masterGamesFilters && onMasterGamesFilterChange && (
           <MasterGamesFilter

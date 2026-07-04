@@ -2635,6 +2635,21 @@ def position_count():
         return jsonify({'error': str(e)}), 500
 
 
+@openings_bp.route('/_cache/invalidate', methods=['POST'])
+def invalidate_position_count_cache():
+    """Clear the in-memory position-count cache. Localhost-only.
+
+    Called by the TWIC incremental indexer after new games are committed so
+    the "N games reach this position" chip reflects the freshly imported set.
+    """
+    if request.remote_addr not in ("127.0.0.1", "::1", "localhost"):
+        return jsonify({'error': 'forbidden'}), 403
+    prior_size = len(_position_count_cache)
+    _position_count_cache.clear()
+    logger.info(f"Position count cache invalidated: cleared {prior_size} entries")
+    return jsonify({'cleared': True, 'count': prior_size})
+
+
 _candidates_cache = {}   # board_hash -> (timestamp, result_dict)
 _CANDIDATES_CACHE_TTL = 600  # 10 minutes
 

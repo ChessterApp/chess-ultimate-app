@@ -157,12 +157,26 @@ def main():
     new_total = cur.execute("SELECT COUNT(*) FROM games").fetchone()[0]
     
     # Update metadata
-    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('indexed_at',?)", 
+    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('indexed_at',?)",
                 (datetime.now().isoformat(),))
-    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('game_count',?)", 
+    cur.execute("INSERT OR REPLACE INTO metadata VALUES ('game_count',?)",
                 (str(new_total),))
     conn.commit()
-    
+
+    # Best-effort: tell the backend to drop its stale position-count cache so
+    # the debut UI reflects the new game count. Must not fail Phase 1 if the
+    # backend is down.
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            'http://127.0.0.1:5001/api/openings/_cache/invalidate',
+            method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            print(f"Cache invalidate: HTTP {resp.status}")
+    except Exception as e:
+        print(f"Cache invalidate skipped: {e}")
+
     # Date range
     sorted_dates = sorted(dates_seen)
     min_date = sorted_dates[0] if sorted_dates else "?"
