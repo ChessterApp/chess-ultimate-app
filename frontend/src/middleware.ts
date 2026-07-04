@@ -184,6 +184,23 @@ export default async function middleware(request: NextRequest, event: NextFetchE
     request.headers.set('x-pathname', request.nextUrl.pathname)
   }
 
+  // Resolve the tenant org BEFORE Clerk runs and mutate the *request* headers
+  // (not the response) so React Server Components can read `x-org-id` /
+  // `x-org-slug` via `headers()`. Response headers set after clerkFn go to the
+  // browser, not to RSC — that pipeline was silently broken and caused
+  // /dashboard on chess-empire.chesster.io to skip the personalized delegation
+  // and fall through to the generic Chesster dashboard.
+  let resolvedOrg: { id: string; slug: string } | null = null
+  if (orgSlug) {
+    resolvedOrg = await lookupOrg(orgSlug)
+  } else if (isCustomDomain) {
+    resolvedOrg = await lookupOrgByCustomDomain(host)
+  }
+  if (resolvedOrg) {
+    request.headers.set('x-org-id', resolvedOrg.id)
+    request.headers.set('x-org-slug', resolvedOrg.slug)
+  }
+
   try {
     const response = await clerkFn(request, event)
     // If Clerk returned a 500 (e.g., kid mismatch during handshake), clear cookies
@@ -193,18 +210,13 @@ export default async function middleware(request: NextRequest, event: NextFetchE
 
     const res = response ?? NextResponse.next()
 
-    if (orgSlug) {
-      const org = await lookupOrg(orgSlug)
-      if (org) {
-        res.headers.set('x-org-id', org.id)
-        res.headers.set('x-org-slug', org.slug)
-      }
-    } else if (isCustomDomain) {
-      const org = await lookupOrgByCustomDomain(host)
-      if (org) {
-        res.headers.set('x-org-id', org.id)
-        res.headers.set('x-org-slug', org.slug)
-      }
+    // Mirror the resolved org on the response headers as well — a handful of
+    // downstream helpers (org-name-from-host.ts comment, tests) and any
+    // future edge inspection tooling can still read them there without
+    // re-hitting the backend.
+    if (resolvedOrg) {
+      res.headers.set('x-org-id', resolvedOrg.id)
+      res.headers.set('x-org-slug', resolvedOrg.slug)
     }
 
     return res
