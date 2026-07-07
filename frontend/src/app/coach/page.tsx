@@ -192,7 +192,7 @@ export default function CoachPage() {
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-white/10">
         <div className="flex items-center gap-3">
@@ -331,7 +331,7 @@ export default function CoachPage() {
         </div>
 
         {/* Chat panel */}
-        <div className="lg:w-[45%] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col min-h-0">
+        <div className="flex-1 lg:flex-none lg:w-[45%] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col min-h-0">
           <CoachChat
             currentFen={board.fen}
             sessionId={sessionId}

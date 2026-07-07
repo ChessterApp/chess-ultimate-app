@@ -190,7 +190,7 @@ export default function AdminEditTournamentPage() {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Format</label>
                 <select
@@ -232,7 +232,7 @@ export default function AdminEditTournamentPage() {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
               />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City</label>
                 <input type="text" value={form.city} onChange={e => updateField('city', e.target.value)}
@@ -244,7 +244,7 @@ export default function AdminEditTournamentPage() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date *</label>
                 <input type="date" value={form.start_date} onChange={e => updateField('start_date', e.target.value)} required
@@ -268,7 +268,7 @@ export default function AdminEditTournamentPage() {
         <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Registration & Fees</h2>
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Participants</label>
                 <input type="number" value={form.max_participants} onChange={e => updateField('max_participants', e.target.value)}
@@ -296,7 +296,7 @@ export default function AdminEditTournamentPage() {
         <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Rating Restrictions</h2>
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
                 <select value={form.rating_category} onChange={e => updateField('rating_category', e.target.value)}
@@ -319,7 +319,7 @@ export default function AdminEditTournamentPage() {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm" />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tournament Mode</label>
                 <select

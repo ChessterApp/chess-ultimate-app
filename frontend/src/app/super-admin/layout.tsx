@@ -2,7 +2,7 @@ import { auth, currentUser } from '@clerk/nextjs/server';
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ReactNode } from 'react';
-import SuperAdminSidebar from './SuperAdminSidebar';
+import SuperAdminShell from './SuperAdminShell';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,10 +38,5 @@ export default async function SuperAdminLayout({ children }: { children: ReactNo
     redirect('/account/security?reason=2fa-required');
   }
 
-  return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900">
-      <SuperAdminSidebar />
-      <main className="flex-1 min-w-0 p-6 md:p-8">{children}</main>
-    </div>
-  );
+  return <SuperAdminShell>{children}</SuperAdminShell>;
 }

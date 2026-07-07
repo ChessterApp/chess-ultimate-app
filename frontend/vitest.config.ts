@@ -6,6 +6,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
   },
+  // Bypass the app's PostCSS/Tailwind config for CSS imports pulled in by
+  // components under test (e.g. chessground stylesheets); the Tailwind v4
+  // PostCSS plugin isn't loadable in the Vitest transform pipeline.
+  css: {
+    postcss: { plugins: [] },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

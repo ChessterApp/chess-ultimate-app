@@ -97,6 +97,17 @@ export default function BoardEditor({
   const [fenInput, setFenInput] = useState<string>(startFen);
   const [copied, setCopied] = useState(false);
 
+  // Track viewport width so the standalone editor board fits small screens
+  const [windowWidth, setWindowWidth] = useState<number>(
+    typeof window !== "undefined" ? window.innerWidth : 1024
+  );
+  useEffect(() => {
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   // Generate current FEN
   const currentFen = useMemo(
     () => piecesToFen(pieces, turn, castling, enPassant),
@@ -315,7 +326,10 @@ export default function BoardEditor({
 
   const themeColors = getCurrentThemeColors(boardTheme);
 
-  const boardSize = propBoardWidth || (embedded ? 400 : 480);
+  // Standalone editor: shrink the board to fit narrow viewports (container has
+  // 16px padding each side). Embedded mode and explicit widths are unchanged.
+  const responsiveStandaloneSize = Math.min(480, windowWidth - 32);
+  const boardSize = propBoardWidth || (embedded ? 400 : responsiveStandaloneSize);
 
   return (
     <div

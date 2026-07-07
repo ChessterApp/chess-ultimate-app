@@ -103,17 +103,30 @@ export default function TournamentsPage() {
   const [view, setView] = useState<'calendar' | 'list'>('calendar');
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  // The calendar grid is unusable at phone widths, so force the list view on
+  // small screens. Desktop keeps the calendar/list toggle unchanged.
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < 768
+  );
+  const effectiveView = isMobile ? 'list' : view;
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   useEffect(() => {
     fetchTournaments();
-  }, [year, month, statusFilter]);
+  }, [year, month, statusFilter, effectiveView]);
 
   async function fetchTournaments() {
     setLoading(true);
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
       const params = new URLSearchParams();
-      if (view === 'calendar') {
+      if (effectiveView === 'calendar') {
         // Fetch calendar data
         params.set('year', year.toString());
         params.set('month', (month + 1).toString());
@@ -152,23 +165,25 @@ export default function TournamentsPage() {
     <div className="max-w-5xl mx-auto px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Tournaments</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => { setView('calendar'); }}
-            className={`px-3 py-1.5 text-sm rounded-lg ${view === 'calendar' ? 'bg-gray-200 dark:bg-gray-700 font-medium' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-          >
-            Calendar
-          </button>
-          <button
-            onClick={() => { setView('list'); }}
-            className={`px-3 py-1.5 text-sm rounded-lg ${view === 'list' ? 'bg-gray-200 dark:bg-gray-700 font-medium' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
-          >
-            List
-          </button>
-        </div>
+        {!isMobile && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setView('calendar'); }}
+              className={`px-3 py-1.5 text-sm rounded-lg ${view === 'calendar' ? 'bg-gray-200 dark:bg-gray-700 font-medium' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+            >
+              Calendar
+            </button>
+            <button
+              onClick={() => { setView('list'); }}
+              className={`px-3 py-1.5 text-sm rounded-lg ${view === 'list' ? 'bg-gray-200 dark:bg-gray-700 font-medium' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'}`}
+            >
+              List
+            </button>
+          </div>
+        )}
       </div>
 
-      {view === 'calendar' && (
+      {effectiveView === 'calendar' && (
         <>
           <div className="flex items-center justify-between mb-4">
             <button onClick={prevMonth} className="px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
@@ -189,7 +204,7 @@ export default function TournamentsPage() {
         </>
       )}
 
-      {view === 'list' && (
+      {effectiveView === 'list' && (
         <>
           <div className="mb-4">
             <select

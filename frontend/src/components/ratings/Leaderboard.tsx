@@ -42,36 +42,38 @@ export default function Leaderboard({ entries, loading, className = '' }: Leader
           No rated players yet.
         </div>
       ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">#</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Player</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">League</th>
-              <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Rating</th>
-              <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Games</th>
-              <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Peak</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry, i) => (
-              <tr key={entry.user_id} className={`border-b border-gray-100 dark:border-gray-700 last:border-0 ${i < 3 ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}`}>
-                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{i + 1}</td>
-                <td className="px-4 py-3 text-gray-900 dark:text-gray-100">
-                  {entry.player_name || entry.user_id}
-                </td>
-                <td className="px-4 py-3">
-                  <LeagueBadge league={entry.league} />
-                </td>
-                <td className="px-4 py-3 text-center">
-                  <RatingBadge rating={entry.rating} league={entry.league} provisional={entry.is_provisional} />
-                </td>
-                <td className="px-4 py-3 text-center text-gray-500 dark:text-gray-400">{entry.games_played}</td>
-                <td className="px-4 py-3 text-center text-gray-500 dark:text-gray-400">{entry.peak_rating ?? '—'}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">#</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Player</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-500 dark:text-gray-400">League</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400">Rating</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400 hidden sm:table-cell">Games</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-500 dark:text-gray-400 hidden sm:table-cell">Peak</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {entries.map((entry, i) => (
+                <tr key={entry.user_id} className={`border-b border-gray-100 dark:border-gray-700 last:border-0 ${i < 3 ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}`}>
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{i + 1}</td>
+                  <td className="px-4 py-3 text-gray-900 dark:text-gray-100">
+                    {entry.player_name || entry.user_id}
+                  </td>
+                  <td className="px-4 py-3">
+                    <LeagueBadge league={entry.league} />
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <RatingBadge rating={entry.rating} league={entry.league} provisional={entry.is_provisional} />
+                  </td>
+                  <td className="px-4 py-3 text-center text-gray-500 dark:text-gray-400 hidden sm:table-cell">{entry.games_played}</td>
+                  <td className="px-4 py-3 text-center text-gray-500 dark:text-gray-400 hidden sm:table-cell">{entry.peak_rating ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

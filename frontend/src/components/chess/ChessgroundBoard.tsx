@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { Chessground as ChessgroundApi } from 'chessground';
 import { Api } from 'chessground/api';
 import { Config } from 'chessground/config';
@@ -42,12 +42,37 @@ export default function ChessgroundBoard({
   highlightSquares = [],
   lastMove = null,
   check = true, // Enable check highlighting by default
-  boardSize = 520,
+  boardSize,
   animationDuration = DEFAULT_BOARD_ANIMATION_DURATION,
   showCoordinates = true,
   premovable = false,
   onRightClick,
 }: ChessgroundBoardProps) {
+  // When no explicit boardSize is passed, size the board responsively to the
+  // viewport so it never overflows small screens. Callers that pass an explicit
+  // boardSize keep full control and are unaffected.
+  const [windowWidth, setWindowWidth] = useState<number>(
+    typeof window !== 'undefined' ? window.innerWidth : 1024
+  );
+
+  useEffect(() => {
+    if (boardSize !== undefined) return;
+    const handleResize = () => setWindowWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [boardSize]);
+
+  const responsiveBoardSize = useMemo(() => {
+    if (windowWidth < 400) return Math.min(windowWidth - 32, 520);
+    if (windowWidth < 600) return Math.min(windowWidth - 24, 520);
+    if (windowWidth < 768) return Math.min(windowWidth - 32, 520);
+    if (windowWidth < 1024) return Math.min(windowWidth - 48, 520);
+    return 520;
+  }, [windowWidth]);
+
+  const effectiveBoardSize = boardSize ?? responsiveBoardSize;
+
   const boardRef = useRef<HTMLDivElement>(null);
   const cgRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
@@ -260,8 +285,8 @@ export default function ChessgroundBoard({
       ref={boardRef}
       className="chessground-board"
       style={{
-        width: boardSize,
-        height: boardSize,
+        width: effectiveBoardSize,
+        height: effectiveBoardSize,
         borderRadius: '2px',
         boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
         ['--cg-animation-duration' as any]: `${animationDuration}ms`,
