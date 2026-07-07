@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { buildMetadata, CHESSTER_DEFAULT_METADATA } from '../org-metadata';
+import {
+  buildMetadata,
+  CHESSTER_DEFAULT_METADATA,
+  effectiveFaviconUrl,
+  MAIN_FAVICON,
+  TENANT_DEFAULT_FAVICON,
+} from '../org-metadata';
+import type { Metadata } from 'next';
 import type { Organization } from '@/contexts/organization-types';
+
+const iconOf = (meta: Metadata): string =>
+  (meta.icons as { icon: string }).icon;
 
 const TENANT_ORG: Organization = {
   id: 'org-uuid',
@@ -64,5 +74,43 @@ describe('buildMetadata', () => {
   it('removes the chessempire keyword from the apex defaults too', () => {
     const keywords = CHESSTER_DEFAULT_METADATA.keywords as string[];
     expect(keywords).not.toContain('chessempire');
+  });
+});
+
+describe('effectiveFaviconUrl', () => {
+  it('prefers the org faviconUrl when set', () => {
+    expect(effectiveFaviconUrl(TENANT_ORG)).toBe(TENANT_ORG.faviconUrl);
+  });
+
+  it('falls back to the org logoUrl when there is no faviconUrl', () => {
+    const noFavicon = { ...TENANT_ORG, faviconUrl: null };
+    expect(effectiveFaviconUrl(noFavicon)).toBe(TENANT_ORG.logoUrl);
+  });
+
+  it('falls back to the neutral default when the org has neither favicon nor logo', () => {
+    const bare = { ...TENANT_ORG, faviconUrl: null, logoUrl: null };
+    expect(effectiveFaviconUrl(bare)).toBe(TENANT_DEFAULT_FAVICON);
+  });
+
+  it('uses the main-site favicon when there is no org', () => {
+    expect(effectiveFaviconUrl(null)).toBe(MAIN_FAVICON);
+  });
+});
+
+describe('buildMetadata icons', () => {
+  it('sets the tenant favicon in built metadata', () => {
+    const meta = buildMetadata(TENANT_ORG);
+    expect(iconOf(meta)).toBe(TENANT_ORG.faviconUrl);
+  });
+
+  it('sets the logo as the icon when the tenant has no faviconUrl', () => {
+    const noFavicon = { ...TENANT_ORG, faviconUrl: null };
+    const meta = buildMetadata(noFavicon);
+    expect(iconOf(meta)).toBe(TENANT_ORG.logoUrl);
+  });
+
+  it('points at the main-site favicon when org is null', () => {
+    const meta = buildMetadata(null);
+    expect(iconOf(meta)).toBe(MAIN_FAVICON);
   });
 });

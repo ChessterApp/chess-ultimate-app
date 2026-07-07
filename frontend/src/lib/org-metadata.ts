@@ -1,6 +1,22 @@
 import type { Metadata } from 'next';
 import type { Organization } from '@/contexts/organization-types';
 
+/** Icon shown on the main (non-tenant) Chesster site — served from `public/`. */
+export const MAIN_FAVICON = '/favicon.ico';
+/** Neutral fallback for a tenant that has neither a favicon nor a logo. */
+export const TENANT_DEFAULT_FAVICON = '/static/images/default-favicon.ico';
+
+/**
+ * Resolve the effective favicon for a request.
+ *
+ * Fallback chain for a tenant: `faviconUrl` → `logoUrl` → neutral default.
+ * With no org (the main Chesster site) we use the icon bundled in `public/`.
+ */
+export function effectiveFaviconUrl(org: Organization | null): string {
+  if (!org) return MAIN_FAVICON;
+  return org.faviconUrl || org.logoUrl || TENANT_DEFAULT_FAVICON;
+}
+
 export const CHESSTER_DEFAULT_METADATA: Metadata = {
   metadataBase: new URL('https://chesster.io'),
   title: 'Chesster - AI-Powered Chess Training',
@@ -46,6 +62,10 @@ export const CHESSTER_DEFAULT_METADATA: Metadata = {
     'chess learning',
   ],
 
+  icons: {
+    icon: MAIN_FAVICON,
+  },
+
   other: {
     'theme-color': '#8209a3ff',
   },
@@ -80,6 +100,9 @@ export function buildMetadata(org: Organization | null): Metadata {
       title,
       description,
       images: [ogImage],
+    },
+    icons: {
+      icon: effectiveFaviconUrl(org),
     },
     keywords: [
       'chess training',
