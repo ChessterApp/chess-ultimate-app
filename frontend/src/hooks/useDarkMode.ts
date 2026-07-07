@@ -12,7 +12,9 @@ function computeIsDark(t: Theme): boolean {
 }
 
 export function useDarkMode() {
-  const [theme, setTheme] = useLocalStorage<Theme>('theme', 'system');
+  // Default to 'light' so devices with system dark mode enabled never
+  // auto-activate the dark theme; dark/system are explicit opt-in via toggle.
+  const [theme, setTheme] = useLocalStorage<Theme>('theme', 'light');
   const [isDark, setIsDark] = useState(() => computeIsDark(theme));
 
   useEffect(() => {
