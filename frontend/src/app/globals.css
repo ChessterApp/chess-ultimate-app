@@ -749,6 +749,21 @@ html.dark .shadow-xl {
 /* Gradients */
 html.dark .from-purple-600 { --tw-gradient-from: #7c3aed !important; }
 
+/* Landing page is light-only — scoped counter-overrides so system dark mode
+   does not repaint it. Restores original Tailwind light values for every
+   blanket-overridden utility class used in page.tsx / HeroButtons.tsx.
+   Do NOT weaken the blanket overrides above — other app pages depend on them. */
+html.dark .landing-light .bg-white { background-color: #ffffff !important; }
+html.dark .landing-light .bg-gray-50 { background-color: #f9fafb !important; }
+html.dark .landing-light .text-gray-800 { color: #1f2937 !important; }
+html.dark .landing-light .text-gray-600 { color: #4b5563 !important; }
+html.dark .landing-light .text-gray-400 { color: #9ca3af !important; }
+html.dark .landing-light .text-purple-700 { color: #7e22ce !important; }
+html.dark .landing-light .text-purple-600 { color: #9333ea !important; }
+html.dark .landing-light .border-gray-100 { border-color: #f3f4f6 !important; }
+html.dark .landing-light .border-purple-200 { border-color: #e9d5ff !important; }
+html.dark .landing-light .from-purple-600 { --tw-gradient-from: #9333ea !important; }
+
 /* Placeholder and input styling */
 html.dark input, html.dark textarea, html.dark select {
   background-color: #1a1a1a !important;

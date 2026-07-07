@@ -120,7 +120,7 @@ function ApexHomePage() {
         }
       `}} />
 
-    <main className="min-h-screen bg-white overflow-hidden">
+    <main className="landing-light min-h-screen bg-white overflow-hidden">
       {/* ===== HEADER (Duolingo-style minimal) ===== */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-transparent lg:bg-white/95 lg:backdrop-blur-sm lg:border-b lg:border-gray-100">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
