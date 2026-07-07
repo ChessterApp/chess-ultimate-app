@@ -1,4 +1,6 @@
 import { headers } from 'next/headers'
+import { redirect } from 'next/navigation'
+import { auth } from '@clerk/nextjs/server'
 import { useTranslations, useLocale } from 'next-intl'
 import Image from 'next/image'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
@@ -16,7 +18,6 @@ import { SocialButtons } from '@/components/landing/SocialButtons'
 import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
 import { TenantLanding } from '@/components/tenant/TenantLanding'
 import { fetchOrgForLanding } from '@/lib/tenant-landing-fetch'
-import { renderEmpireHomepage } from '@/lib/empire-homepage-render'
 
 // Apex ISR — tenant rendering forces dynamic via headers() below.
 export const revalidate = 3600
@@ -47,9 +48,20 @@ export default async function Page() {
   const orgId = headersList.get('x-org-id')
   const orgSlug = headersList.get('x-org-slug')
   if (orgId && orgSlug) {
-    if (orgSlug === 'chess-empire') {
-      const empire = await renderEmpireHomepage(orgId)
-      if (empire) return empire
+    // Signed-in users landing on a bare tenant domain should get the full
+    // nav shell, which lives at /dashboard (ClientShell hides nav on `/`).
+    // Redirect them there; signed-out users keep the tenant landing page.
+    let signedIn = false
+    try {
+      const session = await auth()
+      signedIn = Boolean(session.userId)
+    } catch {
+      // Treat auth() failures as signed-out and fall through to the landing.
+      signedIn = false
+    }
+    // redirect() throws NEXT_REDIRECT — must run outside the try/catch above.
+    if (signedIn) {
+      redirect('/dashboard')
     }
     const org = await fetchOrgForLanding(orgId, orgSlug)
     if (org) {

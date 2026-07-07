@@ -2,10 +2,15 @@
  * @vitest-environment jsdom
  *
  * Integration tests for the apex Page() routing logic when the request
- * targets `chess-empire.chesster.io/`. Mocks Clerk's `auth()`, Next's
- * `headers()`, the member-lookup helper, and the CE client so we can drive
- * every branch (linked / unsigned / no linkage / other tenant) without
- * needing the real CE Supabase.
+ * targets a tenant subdomain (e.g. `chess-empire.chesster.io/`). Mocks
+ * Clerk's `auth()`, Next's `headers()` and `redirect()`, the member-lookup
+ * helper, and the CE client so we can drive every branch (signed-in redirect
+ * / unsigned landing / other tenant) without needing the real CE Supabase.
+ *
+ * Since signed-in users on the tenant root now server-redirect to
+ * `/dashboard` (so they get the full nav shell), the signed-in branch is
+ * asserted via the mocked `redirect()`; only signed-out users reach the
+ * tenant landing render path.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -20,9 +25,29 @@ vi.mock('next/headers', () => ({
   }),
 }));
 
-const authStore: { current: { userId: string | null } } = { current: { userId: null } };
+// Mirror Next's redirect(): throw a NEXT_REDIRECT-style error so control flow
+// stops exactly like it would in production, and record the destination.
+class RedirectError extends Error {
+  constructor(public url: string) {
+    super('NEXT_REDIRECT');
+  }
+}
+const redirectMock = vi.fn((url: string) => {
+  throw new RedirectError(url);
+});
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => redirectMock(url),
+}));
+
+const authStore: { current: { userId: string | null }; throws: boolean } = {
+  current: { userId: null },
+  throws: false,
+};
 vi.mock('@clerk/nextjs/server', () => ({
-  auth: async () => authStore.current,
+  auth: async () => {
+    if (authStore.throws) throw new Error('auth failed');
+    return authStore.current;
+  },
 }));
 
 const memberStore: {
@@ -160,6 +185,8 @@ vi.mock('next-intl', () => ({
 beforeEach(() => {
   headersStore.current = {};
   authStore.current = { userId: null };
+  authStore.throws = false;
+  redirectMock.mockClear();
   memberStore.studentId = null;
   memberStore.state = 'no_link';
   memberStore.throws = false;
@@ -181,76 +208,56 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('apex Page() — Chess Empire routing', () => {
-  it('renders verified <EmpireHomePage> for signed-in linked CE student', async () => {
+describe('tenant Page() — root redirect + landing routing', () => {
+  it('redirects a signed-in user on chess-empire root to /dashboard', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
     };
     authStore.current = { userId: 'user-1' };
-    memberStore.state = 'verified';
-    memberStore.studentId = 'stu-1';
-    ceStore.profile = {
-      id: 'stu-1',
-      first_name: 'Aiman',
-      last_name: 'Karim',
-      branch_id: 'br-1',
-      status: 'active',
-      date_of_birth: '2015-01-01',
-    };
 
     const Page = (await import('../page')).default;
-    const ui = await Page();
-    const { getByTestId } = render(ui);
-    const home = getByTestId('empire-home');
-    expect(home.getAttribute('data-state')).toBe('verified');
-    expect(home.getAttribute('data-student')).toBe('stu-1');
-    expect(home.getAttribute('data-name')).toBe('Aiman');
+    await expect(Page()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirectMock).toHaveBeenCalledWith('/dashboard');
   });
 
-  it('renders pending_confirm shell without fetching ratings/rank/achievements', async () => {
+  it('redirects a signed-in user on any tenant org root to /dashboard', async () => {
+    headersStore.current = {
+      'x-org-id': 'org-other',
+      'x-org-slug': 'some-other-school',
+    };
+    authStore.current = { userId: 'user-9' };
+
+    const Page = (await import('../page')).default;
+    await expect(Page()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirectMock).toHaveBeenCalledWith('/dashboard');
+  });
+
+  it('does not redirect when auth() throws — treats as signed-out', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
     };
-    authStore.current = { userId: 'user-1' };
-    memberStore.state = 'pending_confirm';
-    memberStore.studentId = 'stu-vasco';
-    ceStore.profile = {
-      id: 'stu-vasco',
-      first_name: 'Turabay',
-      last_name: 'Ali',
-      branch_id: 'br-1',
-      status: 'active',
-      date_of_birth: '2020-01-01',
+    authStore.throws = true;
+    fetchOrgStore.current = {
+      id: 'org-ce',
+      slug: 'chess-empire',
+      name: 'Chess Empire',
+      logoUrl: null,
+      primaryColor: '#000',
+      secondaryColor: '#fff',
+      accentColor: '#f00',
+      landingPageConfig: {},
     };
 
     const Page = (await import('../page')).default;
     const ui = await Page();
     const { getByTestId } = render(ui);
-    const home = getByTestId('empire-home');
-    expect(home.getAttribute('data-state')).toBe('pending_confirm');
-    expect(home.getAttribute('data-name')).toBe('Turabay');
+    expect(getByTestId('tenant-landing')).toBeTruthy();
+    expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it('renders no_link <EmpireHomePage> when signed-in but no linkage', async () => {
-    headersStore.current = {
-      'x-org-id': 'org-ce',
-      'x-org-slug': 'chess-empire',
-    };
-    authStore.current = { userId: 'user-1' };
-    memberStore.state = 'no_link';
-    memberStore.studentId = null;
-
-    const Page = (await import('../page')).default;
-    const ui = await Page();
-    const { getByTestId } = render(ui);
-    const home = getByTestId('empire-home');
-    expect(home.getAttribute('data-state')).toBe('no_link');
-    expect(home.getAttribute('data-name')).toBe('');
-  });
-
-  it('falls back to <TenantLanding> when unsigned on chess-empire', async () => {
+  it('renders <TenantLanding> when unsigned on chess-empire', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
@@ -272,13 +279,15 @@ describe('apex Page() — Chess Empire routing', () => {
     const { getByTestId, queryByTestId } = render(ui);
     expect(getByTestId('tenant-landing')).toBeTruthy();
     expect(queryByTestId('empire-home')).toBeNull();
+    expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it('renders <TenantLanding> for non-chess-empire org (unchanged)', async () => {
+  it('renders <TenantLanding> for unsigned non-chess-empire org', async () => {
     headersStore.current = {
       'x-org-id': 'org-other',
       'x-org-slug': 'some-other-school',
     };
+    authStore.current = { userId: null };
     fetchOrgStore.current = {
       id: 'org-other',
       slug: 'some-other-school',
@@ -295,32 +304,18 @@ describe('apex Page() — Chess Empire routing', () => {
     const { getByTestId, queryByTestId } = render(ui);
     expect(getByTestId('tenant-landing')).toBeTruthy();
     expect(queryByTestId('empire-home')).toBeNull();
+    expect(redirectMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to <TenantLanding> when CE profile fetch fails', async () => {
-    headersStore.current = {
-      'x-org-id': 'org-ce',
-      'x-org-slug': 'chess-empire',
-    };
-    authStore.current = { userId: 'user-1' };
-    memberStore.state = 'verified';
-    memberStore.studentId = 'stu-1';
-    ceStore.profileThrows = true;
-    fetchOrgStore.current = {
-      id: 'org-ce',
-      slug: 'chess-empire',
-      name: 'Chess Empire',
-      logoUrl: null,
-      primaryColor: '#000',
-      secondaryColor: '#fff',
-      accentColor: '#f00',
-      landingPageConfig: {},
-    };
+  it('renders the apex homepage when no org headers are present', async () => {
+    headersStore.current = {};
+    authStore.current = { userId: null };
 
     const Page = (await import('../page')).default;
     const ui = await Page();
     const { getByTestId, queryByTestId } = render(ui);
-    expect(getByTestId('tenant-landing')).toBeTruthy();
-    expect(queryByTestId('empire-home')).toBeNull();
+    expect(getByTestId('apex-redirect')).toBeTruthy();
+    expect(queryByTestId('tenant-landing')).toBeNull();
+    expect(redirectMock).not.toHaveBeenCalled();
   });
 });
