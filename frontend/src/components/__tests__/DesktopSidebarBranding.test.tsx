@@ -119,3 +119,34 @@ describe('DesktopSidebar tenant branding', () => {
     expect(logo.src).toContain('chesster-logo-v3.png');
   });
 });
+
+describe('DesktopSidebar main navigation order', () => {
+  beforeEach(() => {
+    cleanup();
+    mockBranding.current = { ...mockBranding.current, name: 'Chesster', logoUrl: null };
+  });
+
+  it('renders exactly the 7 main nav items in the expected order', () => {
+    const { container } = render(<DesktopSidebar />);
+    const nav = container.querySelector('nav');
+    expect(nav).toBeTruthy();
+    const hrefs = Array.from(nav!.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual([
+      '/dashboard',
+      '/learn',
+      '/play',
+      '/coach',
+      '/database',
+      '/puzzle',
+      '/editor',
+    ]);
+  });
+
+  it('does not include Analysis (/position) or Opponent Prep (/opponent) in the menu', () => {
+    const { container } = render(<DesktopSidebar />);
+    const nav = container.querySelector('nav')!;
+    const hrefs = Array.from(nav.querySelectorAll('a')).map((a) => a.getAttribute('href'));
+    expect(hrefs).not.toContain('/position');
+    expect(hrefs).not.toContain('/opponent');
+  });
+});

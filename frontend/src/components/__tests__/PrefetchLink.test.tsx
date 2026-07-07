@@ -82,8 +82,8 @@ describe('PrefetchLink', () => {
 describe('Navigation components use PrefetchLink', () => {
   it('DesktopSidebar should use PrefetchLink for all nav items', () => {
     const navItems = [
-      '/dashboard', '/database', '/position', '/puzzle',
-      '/learn', '/opponent', '/editor', '/settings', '/profile',
+      '/dashboard', '/learn', '/play', '/coach', '/database', '/puzzle', '/editor',
+      '/settings', '/profile',
     ];
 
     // All sidebar items should use PrefetchLink instead of Link
@@ -95,7 +95,7 @@ describe('Navigation components use PrefetchLink', () => {
 
   it('BottomNavigation should use PrefetchLink for all nav items', () => {
     const navItems = [
-      '/dashboard', '/database', '/position', '/puzzle', '/profile',
+      '/dashboard', '/play', '/coach', '/database', '/profile',
     ];
 
     expect(navItems).toHaveLength(5);

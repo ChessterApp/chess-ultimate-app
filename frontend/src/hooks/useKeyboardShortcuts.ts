@@ -57,10 +57,11 @@ export function useKeyboardShortcuts() {
         const navMap: Record<string, string> = {
           '1': '/dashboard',
           '2': '/learn',
-          '3': '/puzzle',
-          '4': '/position',
-          '5': '/opponent',
-          '6': '/settings',
+          '3': '/play',
+          '4': '/coach',
+          '5': '/database',
+          '6': '/puzzle',
+          '7': '/editor',
         };
         if (navMap[key]) {
           e.preventDefault();
