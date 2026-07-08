@@ -49,12 +49,15 @@ export function useStockfishPlay(): UseStockfishPlayResult {
   }, [])
 
   const getMove = async (fen: string, targetElo: number): Promise<string | null> => {
-    if (status !== 'ready') {
-      console.error('Stockfish not ready, current status:', status)
+    if (status === 'error') {
+      console.error('Stockfish is in an error state')
       return null
     }
 
     try {
+      // getStockfishMove awaits engine initialization internally, so a move can
+      // be requested before this hook has observed the 'ready' status — a
+      // Stockfish bot never has to wait on the Maia model to be ready.
       return await getStockfishMove(fen, targetElo)
     } catch (err) {
       console.error('Stockfish getMove error:', err)

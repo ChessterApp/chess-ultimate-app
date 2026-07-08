@@ -7,7 +7,7 @@ import {
   Button,
   Typography,
   Paper,
-  LinearProgress,
+  Chip,
   Alert,
 } from '@mui/material'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
@@ -15,6 +15,7 @@ import BotGrid from '@/components/play/BotGrid'
 import GameSetup from '@/components/play/GameSetup'
 import { useMaia } from '@/hooks/useMaia'
 import { useStockfishPlay } from '@/hooks/useStockfishPlay'
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
 import type { Bot } from '@/data/bots'
 import { getBotById } from '@/data/bots'
 import type { Key } from 'chessground/types'
@@ -50,8 +51,13 @@ function selectMove(
 }
 
 export default function PlayPage() {
-  const { status, progress, error, evaluatePosition, downloadModel } = useMaia()
+  const { status, error, evaluatePosition, downloadModel, usingServerFallback } =
+    useMaia()
   const stockfishPlay = useStockfishPlay()
+
+  // Regression guard: track (once per game) when a bot move is needed before the
+  // local engine is ready, so a spike is visible in analytics.
+  const engineWaitTracked = useRef(false)
 
   // Setup state
   const [selectedBot, setSelectedBot] = useState<Bot | null>(null)
@@ -103,6 +109,7 @@ export default function PlayPage() {
     setGameResult(null)
     setGamePhase('playing')
     setLastMove(undefined)
+    engineWaitTracked.current = false
 
     // If player is black, bot moves first
     if (actualColor === 'b') {
@@ -125,7 +132,17 @@ export default function PlayPage() {
       let selectedMove: string
 
       if (selectedBot.rating <= 2000) {
-        // Use Maia for ELO 1100-2000
+        // Maia (ELO 1100-2000). evaluatePosition transparently uses the server
+        // fallback when the local model isn't ready, so a move always comes back.
+        if (status !== 'ready' && !engineWaitTracked.current) {
+          engineWaitTracked.current = true
+          track(ANALYTICS_EVENTS.PLAY_ENGINE_WAIT, {
+            engine: 'maia',
+            bot: selectedBot.id,
+            local_status: status,
+          })
+        }
+
         const evaluation = await evaluatePosition(currentFen, selectedBot.rating, 1500)
 
         if (!evaluation || !evaluation.policy) {
@@ -137,7 +154,17 @@ export default function PlayPage() {
         // Select move with temperature sampling
         selectedMove = selectMove(evaluation.policy, 1.0)
       } else {
-        // Use Stockfish for ELO 2100-2600
+        // Stockfish (ELO 2100-2600). Never waits on Maia; the engine
+        // self-initializes if a move is requested before it's ready.
+        if (stockfishPlay.status !== 'ready' && !engineWaitTracked.current) {
+          engineWaitTracked.current = true
+          track(ANALYTICS_EVENTS.PLAY_ENGINE_WAIT, {
+            engine: 'stockfish',
+            bot: selectedBot.id,
+            local_status: stockfishPlay.status,
+          })
+        }
+
         const move = await stockfishPlay.getMove(currentFen, selectedBot.rating)
         if (!move) {
           console.error('No move returned from Stockfish')
@@ -235,38 +262,11 @@ export default function PlayPage() {
     setSelectedBot(null)
   }
 
-  // Check if engines are ready for selected bot
-  const isEngineReady = selectedBot
-    ? selectedBot.rating <= 2000
-      ? status === 'ready'
-      : stockfishPlay.status === 'ready'
-    : false
-
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
       <Typography variant="h4" gutterBottom>
         Play vs Bot
       </Typography>
-
-      {/* Inline loading indicator */}
-      {(status === 'no-cache' || status === 'downloading' || status === 'loading' || stockfishPlay.status === 'loading') && (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Typography variant="subtitle1" gutterBottom>
-            {status === 'loading' || stockfishPlay.status === 'loading'
-              ? 'Initializing engine...'
-              : 'Downloading engine...'}
-          </Typography>
-          <LinearProgress
-            variant={status === 'downloading' ? 'determinate' : 'indeterminate'}
-            value={status === 'downloading' ? progress : undefined}
-          />
-          {status === 'downloading' && (
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-              {progress.toFixed(0)}% — one-time download, cached for future visits
-            </Typography>
-          )}
-        </Paper>
-      )}
 
       {(error || stockfishPlay.error) && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -290,7 +290,6 @@ export default function PlayPage() {
           onColorChange={setPlayerColor}
           onPlay={startGame}
           onChangeBot={handleChangeBot}
-          disabled={!isEngineReady}
         />
       )}
 
@@ -325,6 +324,14 @@ export default function PlayPage() {
                   <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
                     {selectedBot.name} is thinking...
                   </Typography>
+                )}
+                {usingServerFallback && status !== 'ready' && (
+                  <Chip
+                    label="Syncing engine…"
+                    size="small"
+                    variant="outlined"
+                    sx={{ mt: 1 }}
+                  />
                 )}
               </Paper>
 

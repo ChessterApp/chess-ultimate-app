@@ -52,3 +52,16 @@ else
   echo "WARNING: HTTP $HTTP_CODE — check pm2 logs chess-frontend"
   exit 1
 fi
+
+# 6. Verify the Maia model is served immutable — a missing 'immutable' means the
+# 24MB model would re-validate/re-download on every visit (persistence regressed).
+echo "[6/6] Checking Maia model cache headers..."
+MODEL_URL="http://localhost:3000/maia3/maia3_simplified_int8.onnx"
+CACHE_CONTROL=$(curl -sI "$MODEL_URL" | grep -i '^cache-control:' || true)
+if echo "$CACHE_CONTROL" | grep -qi 'immutable'; then
+  echo "Maia model cache headers OK ($CACHE_CONTROL)"
+else
+  echo "ERROR: Maia model is not served 'immutable' — got: '${CACHE_CONTROL:-<none>}'"
+  echo "       The ~24MB model would re-download on every visit. Aborting."
+  exit 1
+fi

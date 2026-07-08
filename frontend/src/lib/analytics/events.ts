@@ -37,6 +37,11 @@ export const ANALYTICS_EVENTS = {
   // Sender domain
   SENDER_DOMAIN_ADDED: 'sender_domain_added',
   SENDER_DOMAIN_VERIFIED: 'sender_domain_verified',
+
+  // Play — regression guard: a bot move was needed while the local engine
+  // wasn't ready yet (Maia served from the server fallback, or Stockfish still
+  // initializing). Should be rare; a spike means readiness/persistence regressed.
+  PLAY_ENGINE_WAIT: 'play_engine_wait',
 } as const;
 
 export type AnalyticsEvent =

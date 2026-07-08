@@ -105,6 +105,21 @@ describe('useStockfishPlay', () => {
     expect(move).toBe('e2e4')
   })
 
+  it('generates a move even before the hook observes ready (never waits on Maia)', async () => {
+    const { result } = renderHook(() => useStockfishPlay())
+
+    // Call getMove immediately, WITHOUT waiting for status === 'ready'.
+    // getStockfishMove awaits engine init internally, so a Stockfish bot is
+    // never blocked by the Maia model's readiness.
+    expect(result.current.status).toBe('loading')
+    const move = await result.current.getMove(
+      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      2100
+    )
+
+    expect(move).toBe('e2e4')
+  })
+
   it('should update ELO when changed', async () => {
     const { result } = renderHook(() => useStockfishPlay())
 
