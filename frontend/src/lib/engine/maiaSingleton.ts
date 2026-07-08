@@ -1,7 +1,9 @@
 import Maia, { MaiaStatus } from '@/lib/maia/maia'
 
-const MODEL_URL = '/maia3/maia3_simplified.onnx'
-const MODEL_VERSION = '3.0.0'
+// int8-quantized build (~24MB, ~45% smaller than the fp32 download) — see
+// scripts/quantize_maia.py. The server fallback keeps using the fp32 model.
+const MODEL_URL = '/maia3/maia3_simplified_int8.onnx'
+const MODEL_VERSION = '3.1.0-int8'
 
 /** Shut Maia down this long after the last /play consumer unmounts. */
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000

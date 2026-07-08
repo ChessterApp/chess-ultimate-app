@@ -1,0 +1,9 @@
+{
+  "positions": 500,
+  "source_mb": 43.6,
+  "int8_mb": 23.7,
+  "int8_match_rate": 0.944,
+  "note": "source model already has fp16 weights; int8 is the only real size reduction",
+  "shipped": "maia3_simplified_int8.onnx",
+  "shipped_precision": "int8"
+}

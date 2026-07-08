@@ -35,3 +35,5 @@ requests
 onnxruntime==1.20.1
 numpy<2
 python-chess  # legal-move generation for Maia preprocessing
+# Build-only (scripts/quantize_maia.py), not needed by the running server:
+#   onnx, onnxconverter_common
