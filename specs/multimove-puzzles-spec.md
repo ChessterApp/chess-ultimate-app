@@ -21,8 +21,8 @@ DB state (checked 2026-07-08): 1,883 puzzles total; 1,576 have a lichess study c
 - [ ] Run on a --limit 20 sample first, verify, then run the full backfill. Report final counts: lines written, unresolved, mismatched first moves.
 
 ### Task 3: Backend API
-- [ ] `backend/api/puzzles.py` (and any other endpoint serving lesson_puzzles): include `solution_line` in responses. If NULL, fall back to `[solution_move]` so the frontend always receives an array.
-- [ ] Update/add backend tests for the endpoint shape.
+- [x] `backend/api/puzzles.py` (and any other endpoint serving lesson_puzzles): include `solution_line` in responses. If NULL, fall back to `[solution_move]` so the frontend always receives an array.
+- [x] Update/add backend tests for the endpoint shape.
 
 ### Task 4: Frontend multi-move playback
 - [ ] `AnimatedChessBoard` (frontend): accept `solutionLine: string[]` (keep `solutionMove` prop working for old callers).

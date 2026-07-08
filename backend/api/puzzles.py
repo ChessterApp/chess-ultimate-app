@@ -37,6 +37,21 @@ def retry_supabase_query(query_func, max_retries=3, base_delay=0.5):
 puzzles_bp = Blueprint('puzzles', __name__)
 
 
+def ensure_solution_line(puzzle):
+    """
+    Guarantee the puzzle dict exposes a `solution_line` UCI array.
+
+    Multi-move puzzles store the full line in `solution_line`; older / not-yet
+    backfilled puzzles only have the single `solution_move`. The frontend always
+    expects an array, so fall back to `[solution_move]` when the line is absent.
+    """
+    line = puzzle.get('solution_line')
+    if not line:
+        move = puzzle.get('solution_move')
+        puzzle['solution_line'] = [move] if move else []
+    return puzzle
+
+
 @puzzles_bp.route('/api/learn/<course_slug>/<lesson_slug>/puzzles', methods=['GET'])
 @verify_clerk_token
 def get_lesson_puzzles(course_slug, lesson_slug):
@@ -126,6 +141,7 @@ def get_lesson_puzzles(course_slug, lesson_slug):
             prog = progress_map.get(puzzle['id'], {})
             puzzle['completed'] = prog.get('completed', False)
             puzzle['attempts'] = prog.get('attempts', 0)
+            ensure_solution_line(puzzle)
 
             if puzzle['completed']:
                 completed_count += 1
@@ -304,6 +320,8 @@ def get_single_puzzle(course_slug, lesson_slug, puzzle_index):
         puzzle['total_count'] = lesson.get('puzzle_count', 0)
         puzzle['has_next'] = puzzle_index < puzzle['total_count']
         puzzle['has_prev'] = puzzle_index > 1
+
+        ensure_solution_line(puzzle)
 
         return jsonify(puzzle), 200
 
