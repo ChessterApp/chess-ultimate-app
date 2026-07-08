@@ -14,6 +14,7 @@ import type { Api } from 'chessground/api';
 import type { Key } from 'chessground/types';
 import { MoveValidator } from '@/lib/chess/moveValidator';
 import { getChessgroundConfig } from '@/lib/chess/chessgroundConfig';
+import { evaluateLineMove, colorToMove } from '@/lib/chess/solutionLine';
 import {
   showSuccessCelebration,
   showErrorFeedback,
@@ -40,6 +41,15 @@ interface AnimatedChessBoardProps {
   fen: string;
   /** Solution move in UCI notation (e.g., "e2e4", "e7e8q") - for single-star mode */
   solutionMove?: string;
+  /**
+   * Full solution line for multi-move puzzles (mate-in-2/3, etc.) as an ordered
+   * array of UCI moves: user move, opponent reply, user move, ...
+   * When present (length > 0) the board runs in multi-move mode: it validates
+   * each user move against the line, auto-plays the opponent's reply, and only
+   * fires success once the whole line is completed. `solutionMove` continues to
+   * work for old single-move callers when this is absent.
+   */
+  solutionLine?: string[];
   /** Target squares for multi-star mode (e.g., ["h3", "b5", "h6"]) */
   targetSquares?: string[];
   /** Callback when user makes correct move */
@@ -94,9 +104,13 @@ interface BoardState {
 /**
  * AnimatedChessBoard - Interactive chess board with animations
  */
+/** Delay before auto-playing the opponent's reply in a multi-move line (ms). */
+const OPPONENT_REPLY_DELAY = 500;
+
 export default function AnimatedChessBoard({
   fen,
   solutionMove,
+  solutionLine,
   targetSquares,
   onCorrectMove,
   onIncorrectMove,
@@ -118,6 +132,10 @@ export default function AnimatedChessBoard({
   const groundRef = useRef<Api | null>(null);
   const validatorRef = useRef<MoveValidator>(new MoveValidator(fen));
   const hintSquareRef = useRef<HTMLElement | null>(null);
+  // Multi-move (solution line) playback state, held in refs to avoid stale closures.
+  const isLineMode = !!(solutionLine && solutionLine.length > 0);
+  const lineIndexRef = useRef<number>(0);
+  const lineFenRef = useRef<string>(fen);
   // Ref to hold the latest handleMove function - used to avoid stale closures in board init
   const handleMoveRef = useRef<(orig: Key, dest: Key) => void>(() => {});
 
@@ -214,6 +232,10 @@ export default function AnimatedChessBoard({
     // Reset validator with new FEN
     validatorRef.current.reset(fen);
 
+    // Reset multi-move line playback to the start of the new puzzle
+    lineIndexRef.current = 0;
+    lineFenRef.current = fen;
+
     // Remove any existing hint overlay
     if (hintSquareRef.current) {
       hintSquareRef.current.remove();
@@ -294,6 +316,13 @@ export default function AnimatedChessBoard({
         return;
       }
 
+      // Multi-move solution line mode (mate-in-2/3, tactical lines): validate
+      // against the stored line and auto-play the opponent's replies.
+      if (isLineMode) {
+        handleLineMove(orig, dest);
+        return;
+      }
+
       // Multi-star mode: check if move lands on any uncaptured target
       if (targetSquares && targetSquares.length > 0) {
         if (targetSquares.includes(dest) && !state.capturedStars.has(dest)) {
@@ -341,7 +370,7 @@ export default function AnimatedChessBoard({
         }
       }
     },
-    [state.isSolved, state.isValidating, state.currentFen, state.capturedStars, solutionMove, targetSquares, isMovingTowardTarget, strictValidation]
+    [state.isSolved, state.isValidating, state.currentFen, state.capturedStars, solutionMove, solutionLine, isLineMode, targetSquares, isMovingTowardTarget, strictValidation]
   );
 
   // Keep handleMoveRef in sync with handleMove - update synchronously during render
@@ -362,6 +391,146 @@ export default function AnimatedChessBoard({
       });
     }
   }, [handleMove]);
+
+  /**
+   * Handle a user move in multi-move solution line mode.
+   * Validates against the current expected line move; on success either fires
+   * the celebration (line complete) or auto-plays the opponent's reply and waits
+   * for the next user move.
+   */
+  const handleLineMove = async (orig: Key, dest: Key) => {
+    const validator = validatorRef.current;
+    const line = solutionLine || [];
+    const result = evaluateLineMove(line, lineIndexRef.current, orig, dest);
+
+    if (result.kind === 'incorrect') {
+      await handleLineIncorrect(`${orig}${dest}`);
+      return;
+    }
+
+    // Apply the user's (canonical) move, including any promotion from the line
+    const uOrig = result.userMove.slice(0, 2) as Key;
+    const uDest = result.userMove.slice(2, 4) as Key;
+    const newFen = validator.makeMove(uOrig, uDest, result.userPromotion);
+    if (!newFen) {
+      setState((prev) => ({ ...prev, isValidating: false }));
+      return;
+    }
+
+    if (result.kind === 'solved') {
+      // Full line completed — celebrate and notify the parent
+      lineIndexRef.current = result.nextIndex;
+
+      setState((prev) => ({
+        ...prev,
+        currentFen: newFen,
+        feedback: 'correct',
+        isSolved: true,
+        hintShown: false,
+        showCelebration: enableAnimations,
+      }));
+
+      if (hintSquareRef.current) {
+        removeHintPulse(hintSquareRef.current);
+        hintSquareRef.current = null;
+      }
+
+      groundRef.current?.set({
+        fen: newFen,
+        turnColor: colorToMove(newFen),
+        lastMove: [uOrig, uDest],
+        movable: { free: false },
+      });
+
+      if (enableAnimations && boardRef.current) {
+        await showSuccessCelebration(boardRef.current);
+      }
+
+      haptic.onPuzzleCorrect();
+      setTimeout(() => {
+        onCorrectMove();
+      }, ANIMATION_DURATIONS.CELEBRATION_START_DELAY);
+
+      setState((prev) => ({ ...prev, isValidating: false }));
+      return;
+    }
+
+    // Progress — show the user's move, freeze the board, then auto-play the reply
+    groundRef.current?.set({
+      fen: newFen,
+      turnColor: colorToMove(newFen),
+      lastMove: [uOrig, uDest],
+      movable: { free: false },
+    });
+    setState((prev) => ({ ...prev, currentFen: newFen }));
+
+    setTimeout(() => {
+      const oOrig = result.opponentMove.slice(0, 2) as Key;
+      const oDest = result.opponentMove.slice(2, 4) as Key;
+      const replyFen = validator.makeMove(oOrig, oDest, result.opponentPromotion);
+      if (!replyFen) {
+        setState((prev) => ({ ...prev, isValidating: false }));
+        return;
+      }
+
+      // Advance to the next user move and remember this position for wrong-move resets
+      lineIndexRef.current = result.nextIndex;
+      lineFenRef.current = replyFen;
+
+      const color = colorToMove(replyFen);
+      groundRef.current?.set({
+        fen: replyFen,
+        turnColor: color,
+        lastMove: [oOrig, oDest],
+        movable: {
+          free: true,
+          color,
+          events: { after: handleMove },
+        },
+      });
+
+      setState((prev) => ({ ...prev, currentFen: replyFen, isValidating: false }));
+    }, OPPONENT_REPLY_DELAY);
+  };
+
+  /**
+   * Handle an incorrect move in multi-move mode: show feedback and reset the
+   * board to the position before the wrong move, preserving the line index.
+   */
+  const handleLineIncorrect = async (moveUci: string) => {
+    setState((prev) => ({ ...prev, feedback: 'incorrect' }));
+
+    if (enableAnimations && boardRef.current) {
+      await showErrorFeedback(boardRef.current);
+    }
+
+    const lineFen = lineFenRef.current;
+    validatorRef.current.reset(lineFen);
+
+    const color = colorToMove(lineFen);
+    groundRef.current?.set({
+      fen: lineFen,
+      turnColor: color,
+      lastMove: undefined,
+      check: undefined,
+      movable: {
+        free: true,
+        color,
+        events: { after: handleMove },
+      },
+    });
+
+    haptic.onPuzzleWrong();
+    if (onIncorrectMove) {
+      onIncorrectMove(moveUci);
+    }
+
+    setState((prev) => ({ ...prev, currentFen: lineFen, isValidating: false }));
+
+    setTimeout(() => {
+      setState((prev) => ({ ...prev, feedback: 'idle' }));
+    }, 2000);
+  };
 
   /**
    * Handle correct move
@@ -590,12 +759,17 @@ export default function AnimatedChessBoard({
    * Show hint for solution move
    */
   const handleShowHint = useCallback(() => {
-    if (state.isSolved || state.hintShown || !showHints || !boardRef.current || !solutionMove) {
+    // In multi-move mode, hint the current expected line move; otherwise the single move.
+    const hintMove = isLineMode
+      ? (solutionLine ? solutionLine[lineIndexRef.current] : undefined)
+      : solutionMove;
+
+    if (state.isSolved || state.hintShown || !showHints || !boardRef.current || !hintMove) {
       return;
     }
 
-    // Extract destination square from solution move (last 2 characters)
-    const destSquare = solutionMove.slice(2, 4);
+    // Extract destination square from the hint move (last 2 characters)
+    const destSquare = hintMove.slice(2, 4);
 
     // Calculate position: squares are indexed 0-7 for files (a-h) and ranks (1-8)
     const file = destSquare.charCodeAt(0) - 'a'.charCodeAt(0); // 0-7
@@ -639,7 +813,7 @@ export default function AnimatedChessBoard({
         feedback: 'idle',
       }));
     }, ANIMATION_DURATIONS.HINT_APPEAR_DELAY + 3000);
-  }, [state.isSolved, state.hintShown, showHints, solutionMove]);
+  }, [state.isSolved, state.hintShown, showHints, solutionMove, solutionLine, isLineMode]);
 
   /**
    * Reset board to initial position
@@ -647,6 +821,10 @@ export default function AnimatedChessBoard({
   const handleReset = useCallback(() => {
     // Reset validator
     validatorRef.current.reset(fen);
+
+    // Reset multi-move line playback back to the start
+    lineIndexRef.current = 0;
+    lineFenRef.current = fen;
 
     // Reset board with full movable configuration to re-enable piece movement
     groundRef.current?.set({
@@ -713,7 +891,7 @@ export default function AnimatedChessBoard({
           />
         ))}
         {/* Single-star mode: render single star (if showStar is true) */}
-        {showStar && solutionMove && !targetSquares && (
+        {showStar && solutionMove && !targetSquares && !isLineMode && (
           <TargetStar
             square={solutionMove.slice(2, 4)}
             orientation={orientation}
@@ -721,7 +899,7 @@ export default function AnimatedChessBoard({
           />
         )}
         {/* Arrow overlay showing path from piece to target (only for single-star mode) */}
-        {showArrowsOverlay && arrowFromSquare && solutionMove && !targetSquares && (
+        {showArrowsOverlay && arrowFromSquare && solutionMove && !targetSquares && !isLineMode && (
           <ArrowOverlay
             fromSquare={arrowFromSquare}
             toSquare={solutionMove.slice(2, 4)}

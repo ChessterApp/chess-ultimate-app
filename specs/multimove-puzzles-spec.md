@@ -25,11 +25,11 @@ DB state (checked 2026-07-08): 1,883 puzzles total; 1,576 have a lichess study c
 - [x] Update/add backend tests for the endpoint shape.
 
 ### Task 4: Frontend multi-move playback
-- [ ] `AnimatedChessBoard` (frontend): accept `solutionLine: string[]` (keep `solutionMove` prop working for old callers).
-- [ ] Logic: maintain a line index. User plays a move → if it matches the expected line move: if it's the last move of the line, fire success (existing celebration + onCorrectMove); otherwise auto-play the opponent's reply from the line after a short delay (~400-600ms) with the existing move animation, then wait for the user's next move. Wrong move → existing retry/incorrect feedback, board resets to the position before the wrong move (line index preserved).
-- [ ] `PuzzleSequence` passes solution_line through; puzzle counts as solved only when the full line is completed.
-- [ ] Handle promotions in UCI comparison (e.g. e7e8q).
-- [ ] Add unit tests for the line-validation logic (multi-move success, wrong move mid-line, single-move fallback).
+- [x] `AnimatedChessBoard` (frontend): accept `solutionLine: string[]` (keep `solutionMove` prop working for old callers).
+- [x] Logic: maintain a line index. User plays a move → if it matches the expected line move: if it's the last move of the line, fire success (existing celebration + onCorrectMove); otherwise auto-play the opponent's reply from the line after a short delay (~400-600ms) with the existing move animation, then wait for the user's next move. Wrong move → existing retry/incorrect feedback, board resets to the position before the wrong move (line index preserved).
+- [x] `PuzzleSequence` passes solution_line through; puzzle counts as solved only when the full line is completed.
+- [x] Handle promotions in UCI comparison (e.g. e7e8q).
+- [x] Add unit tests for the line-validation logic (multi-move success, wrong move mid-line, single-move fallback).
 
 ### Task 5: Verification
 - [ ] Run backend test suite and frontend test suite; all green (note pre-existing failures separately).

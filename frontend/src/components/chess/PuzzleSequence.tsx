@@ -12,6 +12,8 @@ interface Puzzle {
   order_index: number
   fen: string
   solution_move: string
+  /** Full multi-move solution line (UCI): user, opponent, user, ... */
+  solution_line?: string[]
   hint_text?: string
   completed: boolean
   attempts: number
@@ -221,8 +223,10 @@ export default function PuzzleSequence({
       {/* Left: Chess Board with Continue Overlay */}
       <div className="relative flex-1">
         <AnimatedChessBoard
+          key={currentPuzzle.id}
           fen={currentPuzzle.fen}
           solutionMove={currentPuzzle.solution_move}
+          solutionLine={currentPuzzle.solution_line}
           onCorrectMove={handlePuzzleComplete}
           onIncorrectMove={(move) => {
             console.log('Incorrect move:', move)
