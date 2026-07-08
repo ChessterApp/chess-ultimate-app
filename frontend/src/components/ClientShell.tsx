@@ -1,7 +1,8 @@
 "use client"
 
 import { usePathname } from "next/navigation"
-import { Suspense, type ReactNode, lazy } from "react"
+import { Suspense, useEffect, type ReactNode, lazy } from "react"
+import { warmStockfish } from "@/lib/engine/stockfishSingleton"
 import PageTransition from "@/components/PageTransition"
 import OfflineBanner from "@/components/OfflineBanner"
 import ToastProvider from "@/components/ToastProvider"
@@ -39,6 +40,19 @@ export default function ClientShell({ children }: { children: ReactNode }) {
 
   // Check if current route needs MUI components
   const needsMui = MUI_ROUTES.some(route => pathname?.startsWith(route))
+
+  // Pre-warm the Stockfish engine once the browser is idle so the first
+  // visit to /play feels instant. Maia (44MB) is warmed only on intent.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const ric = window.requestIdleCallback
+    if (ric) {
+      const id = ric(() => warmStockfish())
+      return () => window.cancelIdleCallback?.(id)
+    }
+    const id = window.setTimeout(() => warmStockfish(), 2000)
+    return () => window.clearTimeout(id)
+  }, [])
 
   const content = (
     <ToastProvider>

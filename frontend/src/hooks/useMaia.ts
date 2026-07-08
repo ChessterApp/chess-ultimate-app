@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Maia, { MaiaStatus } from '@/lib/maia/maia'
-
-const MODEL_URL = '/maia3/maia3_simplified.onnx'
-const MODEL_VERSION = '3.0.0'
+import {
+  getMaiaInstance,
+  getMaiaState,
+  subscribeMaia,
+} from '@/lib/engine/maiaSingleton'
 
 interface UseMaiaResult {
   status: MaiaStatus
@@ -19,28 +21,25 @@ interface UseMaiaResult {
   maia: Maia | null
 }
 
+/**
+ * Subscribes to the module-level Maia singleton so the ONNX InferenceSession
+ * persists across navigation. The worker is not terminated on unmount; an idle
+ * timeout in the singleton frees it after the last consumer leaves.
+ */
 export function useMaia(): UseMaiaResult {
-  const [status, setStatus] = useState<MaiaStatus>('loading')
-  const [progress, setProgress] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const [state, setState] = useState(() => getMaiaState())
   const maiaRef = useRef<Maia | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
 
-    const maia = new Maia({
-      model: MODEL_URL,
-      modelVersion: MODEL_VERSION,
-      setStatus,
-      setProgress,
-      setError,
-    })
-
-    maiaRef.current = maia
+    maiaRef.current = getMaiaInstance()
+    // Sync any state that changed before this subscriber attached.
+    setState(getMaiaState())
+    const unsubscribe = subscribeMaia(setState)
 
     return () => {
-      // Cleanup if needed
-      maiaRef.current = null
+      unsubscribe()
     }
   }, [])
 
@@ -54,8 +53,8 @@ export function useMaia(): UseMaiaResult {
       return null
     }
 
-    if (status !== 'ready') {
-      console.error('Maia not ready, current status:', status)
+    if (state.status !== 'ready') {
+      console.error('Maia not ready, current status:', state.status)
       return null
     }
 
@@ -64,7 +63,6 @@ export function useMaia(): UseMaiaResult {
       return result
     } catch (err) {
       console.error('Evaluation error:', err)
-      setError(err instanceof Error ? err.message : 'Evaluation failed')
       return null
     }
   }
@@ -77,9 +75,9 @@ export function useMaia(): UseMaiaResult {
   }
 
   return {
-    status,
-    progress,
-    error,
+    status: state.status,
+    progress: state.progress,
+    error: state.error,
     evaluatePosition,
     downloadModel,
     maia: maiaRef.current,

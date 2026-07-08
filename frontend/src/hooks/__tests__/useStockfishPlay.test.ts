@@ -48,6 +48,7 @@ vi.mock('@/stockfish/engine/Stockfish11', () => ({
 }))
 
 import { useStockfishPlay } from '../useStockfishPlay'
+import { __resetStockfishForTests } from '@/lib/engine/stockfishSingleton'
 
 function resetMockEngine(engine: ReturnType<typeof createMockEngine>, name: string) {
   engine.init.mockReset().mockResolvedValue(undefined)
@@ -64,6 +65,8 @@ function resetMockEngine(engine: ReturnType<typeof createMockEngine>, name: stri
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // The engine is a module-level singleton; reset it so each test re-inits.
+  __resetStockfishForTests()
   resetMockEngine(mockSF17Point, 'Stockfish17Point')
   resetMockEngine(mockSF16, 'Stockfish16')
   resetMockEngine(mockSF11, 'Stockfish11')

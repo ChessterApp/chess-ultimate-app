@@ -3,6 +3,7 @@
 import { type ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import PrefetchLink from '@/components/PrefetchLink';
+import { warmMaia } from '@/lib/engine/maiaSingleton';
 import { useLocalStorage } from 'usehooks-ts';
 import { useTranslations } from 'next-intl';
 import { UserButton, useAuth } from '@clerk/nextjs';
@@ -110,6 +111,8 @@ export default function DesktopSidebar() {
       <PrefetchLink
         key={item.href}
         href={item.href}
+        onWarmup={item.href === '/play' ? warmMaia : undefined}
+        onTouchStart={item.href === '/play' ? warmMaia : undefined}
         title={collapsed ? `${t(item.labelKey)} (${item.shortcut || ''})` : undefined}
         className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 group relative ${
           active

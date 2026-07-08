@@ -135,6 +135,23 @@ class Maia {
     return this.downloadPromise
   }
 
+  /**
+   * Terminates the underlying worker and clears pending work. Used by the
+   * singleton idle-timeout shutdown to free the ONNX InferenceSession memory.
+   */
+  public destroy() {
+    if (this.worker) {
+      this.worker.terminate()
+      this.worker = null
+    }
+    for (const pending of this.pendingInferences.values()) {
+      pending.reject(new Error('Maia destroyed'))
+    }
+    this.pendingInferences.clear()
+    this.pendingDownload = null
+    this.downloadPromise = null
+  }
+
   public async getStorageInfo() {
     return await this.storage.getStorageInfo()
   }

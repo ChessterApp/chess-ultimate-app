@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import PrefetchLink from '@/components/PrefetchLink';
+import { warmMaia } from '@/lib/engine/maiaSingleton';
 import { ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 
@@ -116,6 +117,8 @@ export function BottomNavigation({ className = '' }: BottomNavigationProps) {
             <PrefetchLink
               key={item.href}
               href={item.href}
+              onWarmup={item.href === '/play' ? warmMaia : undefined}
+              onTouchStart={item.href === '/play' ? warmMaia : undefined}
               className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
                 active
                   ? 'text-purple-600'
