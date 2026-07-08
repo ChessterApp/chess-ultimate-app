@@ -103,6 +103,59 @@ export function warmMaia(): void {
   getMaiaInstance()
 }
 
+/**
+ * True when the browser is on a metered / Save-Data connection. Such users are
+ * left on the server-side fallback instead of being charged for the ~24MB
+ * background download.
+ */
+export function isMeteredConnection(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const conn = (
+    navigator as unknown as { connection?: { saveData?: boolean } }
+  ).connection
+  return Boolean(conn?.saveData)
+}
+
+/**
+ * First-load optimization: warm Maia and, if the model isn't cached yet, start
+ * the background download immediately — so the model is ready long before the
+ * user reaches /play. Skipped on Save-Data connections (server fallback covers
+ * them). Safe to call on every app load; the instance is created at most once
+ * and the download is idempotent.
+ */
+export function prewarmMaiaDownload(): void {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') return
+  if (isMeteredConnection()) return
+
+  const maia = getMaiaInstance()
+  if (!maia) return
+
+  // Already cached & loaded — nothing to download.
+  if (state.status === 'ready' || state.status === 'downloading') return
+
+  let settled = false
+  const finish = (unsub: () => void) => {
+    settled = true
+    unsub()
+  }
+
+  const react = (unsub: () => void) => {
+    if (settled) return
+    if (state.status === 'no-cache') {
+      finish(unsub)
+      maia
+        .downloadModel()
+        .catch((err) => console.error('Background Maia download failed:', err))
+    } else if (state.status === 'ready' || state.status === 'error') {
+      finish(unsub)
+    }
+  }
+
+  const unsub = subscribeMaia(() => react(unsub))
+  // Handle the case where init already resolved before we subscribed.
+  react(unsub)
+}
+
 /** Terminates the Maia worker and resets cached state so it re-inits on demand. */
 export function shutdownMaia(): void {
   clearIdleTimer()

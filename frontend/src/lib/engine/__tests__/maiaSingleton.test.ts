@@ -32,6 +32,8 @@ import {
   subscribeMaia,
   warmMaia,
   shutdownMaia,
+  prewarmMaiaDownload,
+  isMeteredConnection,
   __resetMaiaForTests,
 } from '../maiaSingleton'
 
@@ -119,6 +121,48 @@ describe('maiaSingleton idle timeout', () => {
     vi.advanceTimersByTime(10 * 60 * 1000)
     expect(inst.destroy).not.toHaveBeenCalled()
     unsub2()
+  })
+})
+
+describe('maiaSingleton background prewarm download', () => {
+  function setSaveData(saveData: boolean | undefined) {
+    vi.stubGlobal('navigator', { connection: saveData === undefined ? undefined : { saveData } })
+  }
+
+  it('isMeteredConnection reflects navigator.connection.saveData', () => {
+    setSaveData(true)
+    expect(isMeteredConnection()).toBe(true)
+    setSaveData(false)
+    expect(isMeteredConnection()).toBe(false)
+    setSaveData(undefined)
+    expect(isMeteredConnection()).toBe(false)
+  })
+
+  it('starts the download when the model is not cached', () => {
+    setSaveData(false)
+    prewarmMaiaDownload()
+    const inst = mockMaiaInstances[0]
+    expect(inst).toBeDefined()
+
+    // Worker reports no cached model -> background download should fire.
+    ;(inst as unknown as { options: MockMaiaOptions }).options.setStatus('no-cache')
+    expect((inst as unknown as { downloadModel: ReturnType<typeof vi.fn> }).downloadModel).toHaveBeenCalledOnce()
+  })
+
+  it('does not download when the model is already cached (ready)', () => {
+    setSaveData(false)
+    prewarmMaiaDownload()
+    const inst = mockMaiaInstances[0]
+
+    ;(inst as unknown as { options: MockMaiaOptions }).options.setStatus('ready')
+    expect((inst as unknown as { downloadModel: ReturnType<typeof vi.fn> }).downloadModel).not.toHaveBeenCalled()
+  })
+
+  it('skips entirely on a Save-Data connection', () => {
+    setSaveData(true)
+    prewarmMaiaDownload()
+    // Metered users are left on the server fallback — no instance, no download.
+    expect(mockMaiaInstances.length).toBe(0)
   })
 })
 
