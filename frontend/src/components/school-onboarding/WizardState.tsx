@@ -44,6 +44,7 @@ export interface WizardPayload {
   school_name?: string;
   slug?: string;
   logo_url?: string;
+  logo_mark_url?: string;
   school_kind?: 'offline' | 'online' | 'solo' | 'tournament';
   // step 3
   tier?: 'starter' | 'growth' | 'pro' | 'enterprise';

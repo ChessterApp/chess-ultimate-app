@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 
+import { LogoSizePreview } from '@/components/branding/LogoSizePreview';
 import { BrandPreviewPanel } from '@/components/school-onboarding/BrandPreviewPanel';
 import { SchoolOnboardingShell } from '@/components/school-onboarding/SchoolOnboardingShell';
 import { useWizard } from '@/components/school-onboarding/WizardState';
@@ -29,6 +30,9 @@ export default function StepBrand() {
   const t = useTranslations('schoolOnboarding.brand');
   const [savingDomain, setSavingDomain] = useState(false);
   const [domainNote, setDomainNote] = useState<string | null>(null);
+  const [uploadingMark, setUploadingMark] = useState(false);
+  const [markError, setMarkError] = useState<string | null>(null);
+  const markFileRef = useRef<HTMLInputElement | null>(null);
 
   async function saveBrandToOrg() {
     if (!payload.organization_id) return;
@@ -45,11 +49,37 @@ export default function StepBrand() {
             favicon_url: payload.favicon_url,
             custom_css: payload.custom_css,
             logo_url: payload.logo_url ?? null,
+            logo_mark_url: payload.logo_mark_url ?? null,
           }),
         },
       );
     } catch {
       // Server-side autosave will retry; ignore here.
+    }
+  }
+
+  // Small icon (mark) goes straight to Supabase Storage via the shared branding
+  // upload route so it lands in the org's folder next to logo-mark.png.
+  async function uploadMark(file: File) {
+    if (!payload.organization_id) return;
+    setUploadingMark(true);
+    setMarkError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('kind', 'mark');
+      const res = await fetch(
+        `/api/admin/organizations/${payload.organization_id}/branding/upload`,
+        { method: 'POST', body: form },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.url) {
+        setMarkError(data.error || 'Upload failed');
+        return;
+      }
+      update({ logo_mark_url: data.url });
+    } finally {
+      setUploadingMark(false);
     }
   }
 
@@ -115,6 +145,50 @@ export default function StepBrand() {
           >
             {t('resetLogoDetected')}
           </button>
+        )}
+
+        {/* Small icon (mark) — square, simple; used at ≤48px render sites */}
+        <div className="rounded-lg border border-gray-200 p-3">
+          <span className="text-sm font-medium text-gray-700">
+            Small icon <span className="text-gray-400">(square, simple — optional)</span>
+          </span>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Shown at ≤48px (navbar, sidebar, favicon). Falls back to your logo if empty.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              ref={markFileRef}
+              type="file"
+              accept="image/png,image/svg+xml,image/webp"
+              className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) uploadMark(f);
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => markFileRef.current?.click()}
+              disabled={!payload.organization_id || uploadingMark}
+              className="text-xs rounded border border-gray-300 px-2.5 py-1 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {uploadingMark ? 'Uploading…' : payload.logo_mark_url ? 'Replace icon' : 'Upload icon'}
+            </button>
+            {payload.logo_mark_url && (
+              <button
+                type="button"
+                onClick={() => update({ logo_mark_url: undefined })}
+                className="text-xs text-gray-500 underline hover:text-gray-700"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          {markError && <p className="mt-1 text-xs text-red-600">{markError}</p>}
+        </div>
+
+        {(payload.logo_url || payload.logo_mark_url) && (
+          <LogoSizePreview logoUrl={payload.logo_url} markUrl={payload.logo_mark_url} />
         )}
 
         <div className="grid grid-cols-3 gap-3">

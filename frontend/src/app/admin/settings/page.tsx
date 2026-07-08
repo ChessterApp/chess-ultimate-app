@@ -3,9 +3,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useOrganization } from '@/contexts/OrganizationContext';
 import DeleteSchoolCard from '@/components/admin/DeleteSchoolCard';
+import { LogoSizePreview } from '@/components/branding/LogoSizePreview';
 
 interface BrandingConfig {
   logo_url: string;
+  logo_mark_url: string;
   favicon_url: string;
   primary_color: string;
   secondary_color: string;
@@ -18,12 +20,19 @@ interface BrandingConfig {
   };
 }
 
-type UploadKind = 'logo' | 'favicon';
+type UploadKind = 'logo' | 'favicon' | 'mark';
+
+const UPLOAD_FIELD: Record<UploadKind, keyof BrandingConfig> = {
+  logo: 'logo_url',
+  favicon: 'favicon_url',
+  mark: 'logo_mark_url',
+};
 
 export default function AdminSettingsPage() {
   const { org } = useOrganization();
   const [config, setConfig] = useState<BrandingConfig>({
     logo_url: '',
+    logo_mark_url: '',
     favicon_url: '',
     primary_color: '#1a73e8',
     secondary_color: '#ffffff',
@@ -36,12 +45,14 @@ export default function AdminSettingsPage() {
   const [uploadingKind, setUploadingKind] = useState<UploadKind | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const logoFileRef = useRef<HTMLInputElement | null>(null);
+  const markFileRef = useRef<HTMLInputElement | null>(null);
   const faviconFileRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!org) return;
     setConfig({
       logo_url: org.logoUrl || '',
+      logo_mark_url: org.logoMarkUrl || '',
       favicon_url: org.faviconUrl || '',
       primary_color: org.primaryColor,
       secondary_color: org.secondaryColor,
@@ -96,7 +107,7 @@ export default function AdminSettingsPage() {
       }
       const next: BrandingConfig = {
         ...config,
-        [kind === 'logo' ? 'logo_url' : 'favicon_url']: data.url,
+        [UPLOAD_FIELD[kind]]: data.url,
       };
       setConfig(next);
       const persisted = await persistConfig(next);
@@ -155,6 +166,44 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
+            {/* Small icon (mark) URL + upload */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Small icon (square, simple)
+              </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Used at ≤48px (navbar, sidebar, favicon, coach avatar). Falls back
+                to the logo when empty.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="url"
+                  value={config.logo_mark_url}
+                  onChange={e => setConfig({ ...config, logo_mark_url: e.target.value })}
+                  placeholder="https://example.com/mark.png"
+                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                />
+                <input
+                  ref={markFileRef}
+                  type="file"
+                  accept="image/png,image/svg+xml,image/webp"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (f) handleUpload('mark', f);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => markFileRef.current?.click()}
+                  disabled={uploadingKind === 'mark'}
+                  className="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                >
+                  {uploadingKind === 'mark' ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
+            </div>
+
             {/* Favicon URL + upload */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -191,6 +240,11 @@ export default function AdminSettingsPage() {
 
             {uploadError && (
               <p className="text-sm text-red-600 dark:text-red-400">{uploadError}</p>
+            )}
+
+            {/* Live small-size preview */}
+            {(config.logo_url || config.logo_mark_url) && (
+              <LogoSizePreview logoUrl={config.logo_url} markUrl={config.logo_mark_url} />
             )}
 
             {/* Colors */}

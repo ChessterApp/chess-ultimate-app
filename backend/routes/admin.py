@@ -456,7 +456,8 @@ def update_settings(org_id: str):
 
     # Only allow updating specific branding fields
     allowed_fields = {
-        'logo_url', 'favicon_url', 'primary_color', 'secondary_color',
+        'logo_url', 'logo_mark_url', 'pwa_icon_url', 'favicon_url',
+        'primary_color', 'secondary_color',
         'accent_color', 'landing_page_config', 'custom_css', 'contact_email',
     }
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
@@ -488,16 +489,16 @@ _BRANDING_ALLOWED_MIME = {
     'image/vnd.microsoft.icon': 'ico',
 }
 _BRANDING_MAX_BYTES = 1 * 1024 * 1024  # 1 MiB
-_BRANDING_KINDS = {'logo', 'favicon'}
+_BRANDING_KINDS = {'logo', 'favicon', 'mark'}
 
 
 @admin_bp.route('/organizations/<org_id>/branding/upload', methods=['POST'])
 def upload_branding_asset(org_id: str):
-    """Upload a logo or favicon to the `org-branding` Supabase Storage bucket.
+    """Upload a logo, favicon, or logo mark to the `org-branding` bucket.
 
     Body: multipart/form-data with:
       * file — the image bytes
-      * kind — 'logo' or 'favicon'
+      * kind — 'logo', 'favicon', or 'mark' (small square icon)
 
     Validates membership (owner/admin), MIME type, and size ≤1 MiB.
     Returns { url: <public_url> } on success.
@@ -508,7 +509,7 @@ def upload_branding_asset(org_id: str):
 
     kind = (request.form.get('kind') or '').strip().lower()
     if kind not in _BRANDING_KINDS:
-        return jsonify({'error': 'kind must be logo or favicon'}), 400
+        return jsonify({'error': 'kind must be logo, favicon, or mark'}), 400
 
     upload = request.files.get('file')
     if upload is None or upload.filename == '':
