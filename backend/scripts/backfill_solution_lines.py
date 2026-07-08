@@ -182,7 +182,13 @@ class Lichess:
         if not accept_pgn:
             headers["Accept"] = "application/json"
         for attempt in range(5):
-            resp = self.session.get(url, headers=headers, timeout=30)
+            try:
+                resp = self.session.get(url, headers=headers, timeout=30)
+            except requests.exceptions.RequestException as e:
+                backoff = 3 * (attempt + 1)
+                print(f"    network error on {url}: {e}; retrying in {backoff}s")
+                time.sleep(backoff)
+                continue
             if resp.status_code == 429:
                 backoff = 5 * (attempt + 1)
                 print(f"    429 rate limited on {url}; backing off {backoff}s")
@@ -473,7 +479,10 @@ def main():
                 counts["written"] += 1
     finally:
         if engine is not None:
-            engine.quit()
+            try:
+                engine.quit()
+            except Exception:
+                pass  # engine may already be dead; nothing to clean up
 
     if unresolved_entries:
         with open(UNRESOLVED_LOG, "a") as f:
