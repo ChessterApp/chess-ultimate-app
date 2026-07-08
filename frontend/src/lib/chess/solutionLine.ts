@@ -39,6 +39,8 @@ export type LineEvaluation =
       opponentMove: string;
       opponentPromotion?: string;
       nextIndex: number;
+      /** True when the opponent reply is the final move of the line (puzzle solved after it). */
+      completesAfterReply: boolean;
     };
 
 /**
@@ -69,13 +71,15 @@ export function evaluateLineMove(
   }
 
   const opponentMove = line[afterUser];
+  const afterOpponent = afterUser + 1;
   return {
     kind: 'progress',
     userMove,
     userPromotion,
     opponentMove,
     opponentPromotion: promotionPiece(opponentMove),
-    nextIndex: afterUser + 1,
+    nextIndex: afterOpponent,
+    completesAfterReply: afterOpponent >= line.length,
   };
 }
 

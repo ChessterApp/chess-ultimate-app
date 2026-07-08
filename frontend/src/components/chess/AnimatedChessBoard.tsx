@@ -393,6 +393,45 @@ export default function AnimatedChessBoard({
   }, [handleMove]);
 
   /**
+   * Fire the success celebration and notify the parent once a solution line is
+   * fully completed (either on the user's final move or after the auto-played
+   * opponent reply that ends the line).
+   */
+  const fireLineSuccess = async (finalFen: string, lastMove: [Key, Key]) => {
+    setState((prev) => ({
+      ...prev,
+      currentFen: finalFen,
+      feedback: 'correct',
+      isSolved: true,
+      hintShown: false,
+      showCelebration: enableAnimations,
+    }));
+
+    if (hintSquareRef.current) {
+      removeHintPulse(hintSquareRef.current);
+      hintSquareRef.current = null;
+    }
+
+    groundRef.current?.set({
+      fen: finalFen,
+      turnColor: colorToMove(finalFen),
+      lastMove,
+      movable: { free: false },
+    });
+
+    if (enableAnimations && boardRef.current) {
+      await showSuccessCelebration(boardRef.current);
+    }
+
+    haptic.onPuzzleCorrect();
+    setTimeout(() => {
+      onCorrectMove();
+    }, ANIMATION_DURATIONS.CELEBRATION_START_DELAY);
+
+    setState((prev) => ({ ...prev, isValidating: false }));
+  };
+
+  /**
    * Handle a user move in multi-move solution line mode.
    * Validates against the current expected line move; on success either fires
    * the celebration (line complete) or auto-plays the opponent's reply and waits
@@ -418,40 +457,9 @@ export default function AnimatedChessBoard({
     }
 
     if (result.kind === 'solved') {
-      // Full line completed — celebrate and notify the parent
+      // User's move was the final move of the line — celebrate
       lineIndexRef.current = result.nextIndex;
-
-      setState((prev) => ({
-        ...prev,
-        currentFen: newFen,
-        feedback: 'correct',
-        isSolved: true,
-        hintShown: false,
-        showCelebration: enableAnimations,
-      }));
-
-      if (hintSquareRef.current) {
-        removeHintPulse(hintSquareRef.current);
-        hintSquareRef.current = null;
-      }
-
-      groundRef.current?.set({
-        fen: newFen,
-        turnColor: colorToMove(newFen),
-        lastMove: [uOrig, uDest],
-        movable: { free: false },
-      });
-
-      if (enableAnimations && boardRef.current) {
-        await showSuccessCelebration(boardRef.current);
-      }
-
-      haptic.onPuzzleCorrect();
-      setTimeout(() => {
-        onCorrectMove();
-      }, ANIMATION_DURATIONS.CELEBRATION_START_DELAY);
-
-      setState((prev) => ({ ...prev, isValidating: false }));
+      await fireLineSuccess(newFen, [uOrig, uDest]);
       return;
     }
 
@@ -476,6 +484,12 @@ export default function AnimatedChessBoard({
       // Advance to the next user move and remember this position for wrong-move resets
       lineIndexRef.current = result.nextIndex;
       lineFenRef.current = replyFen;
+
+      // Some lines (e.g. win-material tactics) end on the opponent's reply.
+      if (result.completesAfterReply) {
+        fireLineSuccess(replyFen, [oOrig, oDest]);
+        return;
+      }
 
       const color = colorToMove(replyFen);
       groundRef.current?.set({

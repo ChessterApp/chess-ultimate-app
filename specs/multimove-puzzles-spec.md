@@ -32,9 +32,16 @@ DB state (checked 2026-07-08): 1,883 puzzles total; 1,576 have a lichess study c
 - [x] Add unit tests for the line-validation logic (multi-move success, wrong move mid-line, single-move fallback).
 
 ### Task 5: Verification
-- [ ] Run backend test suite and frontend test suite; all green (note pre-existing failures separately).
-- [ ] `npm run build` in frontend must succeed. Do NOT deploy — deployment is done separately via deploy.sh by the operator.
-- [ ] Print a summary: migration applied, backfill counts, tests passing.
+- [x] Run backend test suite and frontend test suite; all green (note pre-existing failures separately).
+- [x] `npm run build` in frontend must succeed. Do NOT deploy — deployment is done separately via deploy.sh by the operator.
+- [x] Print a summary: migration applied, backfill counts, tests passing.
+
+**Verification results (2026-07-08):**
+- Migration 014 applied — `lesson_puzzles.solution_line JSONB` present.
+- Backfill (full run): 1881/1883 puzzles have `solution_line`; **1133 are multi-move** (len > 1); 2 remain NULL (pre-existing corrupt data — malformed FEN / illegal stored `solution_move`; API falls back to `[solution_move]`). Integrity: 500/500 sampled lines replay legal; 261/261 SAN `solution_move` rows equal `solution_line[0]` after UCI normalisation; 0 UCI-first-move mismatches.
+- Backend: new tests 37/37 pass (`test_solution_line_migration`, `test_backfill_solution_lines`, `test_puzzles_api`).
+- Frontend: `solutionLine` unit tests 15/15 pass; full suite 1473 pass / 3 fail — the 3 failures are pre-existing and unrelated (`api/agent`, `localization`, `coach/routes`; none touch chess/puzzles).
+- `npm run build` succeeds (exit 0, standalone output written).
 
 ## Constraints
 - Never `git add -A`; add specific files. `export HOME=/root` before git commands.

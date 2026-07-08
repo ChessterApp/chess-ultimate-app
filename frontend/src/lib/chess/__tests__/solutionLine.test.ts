@@ -48,6 +48,19 @@ describe('evaluateLineMove', () => {
       expect(r.userMove).toBe('f1f6');
       expect(r.opponentMove).toBe('g6h5');
       expect(r.nextIndex).toBe(2); // user's next move index
+      expect(r.completesAfterReply).toBe(false);
+    }
+  });
+
+  it('marks completesAfterReply for an even-length line (win-material tactic)', () => {
+    // user plays Rxd5, opponent recaptures exd5 — line ends on the reply
+    const evenLine = ['a1d5', 'e6d5'];
+    const r = evaluateLineMove(evenLine, 0, 'a1', 'd5');
+    expect(r.kind).toBe('progress');
+    if (r.kind === 'progress') {
+      expect(r.opponentMove).toBe('e6d5');
+      expect(r.completesAfterReply).toBe(true);
+      expect(r.nextIndex).toBe(2);
     }
   });
 
