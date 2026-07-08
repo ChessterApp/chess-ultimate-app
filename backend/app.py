@@ -155,6 +155,13 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import opponent analysis API: {e}")
 
 try:
+    from api.maia import maia_bp
+    app.register_blueprint(maia_bp)
+    logger.info("✅ Maia API registered (server-side bot move fallback)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import Maia API: {e}")
+
+try:
     from api.photo_to_fen import photo_fen_bp
     app.register_blueprint(photo_fen_bp)
     logger.info("✅ Photo-to-FEN API registered (image to FEN conversion)")

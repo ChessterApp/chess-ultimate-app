@@ -7,11 +7,14 @@ import {
   getMaiaState,
   subscribeMaia,
 } from '@/lib/engine/maiaSingleton'
+import { fetchMaiaMoveFromServer } from '@/lib/maia/serverFallback'
 
 interface UseMaiaResult {
   status: MaiaStatus
   progress: number
   error: string | null
+  /** True when the last evaluation was served by the backend fallback (local model not ready). */
+  usingServerFallback: boolean
   evaluatePosition: (
     fen: string,
     eloSelf: number,
@@ -28,6 +31,7 @@ interface UseMaiaResult {
  */
 export function useMaia(): UseMaiaResult {
   const [state, setState] = useState(() => getMaiaState())
+  const [usingServerFallback, setUsingServerFallback] = useState(false)
   const maiaRef = useRef<Maia | null>(null)
 
   useEffect(() => {
@@ -43,26 +47,34 @@ export function useMaia(): UseMaiaResult {
     }
   }, [])
 
+  // Once the local model is ready, we've hot-swapped away from the server.
+  useEffect(() => {
+    if (state.status === 'ready') setUsingServerFallback(false)
+  }, [state.status])
+
   const evaluatePosition = async (
     fen: string,
     eloSelf: number,
     eloOppo: number,
   ) => {
-    if (!maiaRef.current) {
-      console.error('Maia not initialized')
-      return null
+    // Fast path: local model is ready — run inference in the browser.
+    if (maiaRef.current && state.status === 'ready') {
+      try {
+        const result = await maiaRef.current.evaluateMaia3(fen, eloSelf, eloOppo)
+        if (result) return result
+      } catch (err) {
+        console.error('Local Maia evaluation failed, falling back to server:', err)
+      }
     }
 
-    if (state.status !== 'ready') {
-      console.error('Maia not ready, current status:', state.status)
-      return null
-    }
-
+    // Fallback: local model not ready (or errored) — ask the backend, which
+    // runs the same model and returns the same { policy, value } shape.
     try {
-      const result = await maiaRef.current.evaluateMaia3(fen, eloSelf, eloOppo)
+      const result = await fetchMaiaMoveFromServer(fen, eloSelf, eloOppo)
+      setUsingServerFallback(true)
       return result
     } catch (err) {
-      console.error('Evaluation error:', err)
+      console.error('Server Maia fallback failed:', err)
       return null
     }
   }
@@ -78,6 +90,7 @@ export function useMaia(): UseMaiaResult {
     status: state.status,
     progress: state.progress,
     error: state.error,
+    usingServerFallback,
     evaluatePosition,
     downloadModel,
     maia: maiaRef.current,

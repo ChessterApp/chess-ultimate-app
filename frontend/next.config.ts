@@ -29,6 +29,7 @@ const nextConfig = {
             { source: '/api/learn/:path*', destination: `${backendUrl}/api/learn/:path*` },
             { source: '/api/puzzles/:path*', destination: `${backendUrl}/api/puzzles/:path*` },
             { source: '/api/opponent/:path*', destination: `${backendUrl}/api/opponent/:path*` },
+            { source: '/api/maia/:path*', destination: `${backendUrl}/api/maia/:path*` },
             { source: '/api/user/:path*', destination: `${backendUrl}/api/user/:path*` },
             { source: '/api/scoresheet/:path*', destination: `${backendUrl}/api/scoresheet/:path*` },
             { source: '/api/games', destination: `${backendUrl}/api/games` },
