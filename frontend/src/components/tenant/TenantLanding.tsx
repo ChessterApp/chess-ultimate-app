@@ -28,6 +28,7 @@ export interface TenantLandingProps {
     | 'name'
     | 'slug'
     | 'logoUrl'
+    | 'logoMarkUrl'
     | 'primaryColor'
     | 'secondaryColor'
     | 'accentColor'
@@ -88,12 +89,12 @@ export function TenantLanding({
         }}
       >
         <div className="flex items-center gap-3">
-          {org.logoUrl ? (
+          {org.logoMarkUrl || org.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={org.logoUrl}
+              src={org.logoMarkUrl || org.logoUrl || ''}
               alt={`${org.name} logo`}
-              className="h-9 w-9 rounded-md object-cover bg-white"
+              className="h-9 w-9 rounded-md object-contain bg-white"
             />
           ) : (
             <div className="h-9 w-9 rounded-md bg-white/20 flex items-center justify-center text-sm font-semibold">

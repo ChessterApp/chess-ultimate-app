@@ -27,11 +27,11 @@ export default function NavBar() {
             onClick={() => router.push(isSignedIn ? "/dashboard" : "/")}
             className="text-xl font-bold text-gray-900 dark:text-gray-100 hover:text-purple-600 dark:hover:text-purple-400 transition-colors flex items-center gap-1"
           >
-            {branding.logoUrl ? (
+            {branding.logoMarkUrl || branding.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={branding.logoUrl} alt={branding.name} width={24} height={24} className="w-6 h-6 rounded object-cover" />
+              <img src={branding.logoMarkUrl || branding.logoUrl || ''} alt={branding.name} width={28} height={28} className="w-7 h-7 rounded object-contain" />
             ) : (
-              <Image src="/static/images/chesster-logo-v3.png" alt={branding.name} width={24} height={24} className="w-6 h-6" unoptimized />
+              <Image src="/static/images/chesster-logo-v3.png" alt={branding.name} width={28} height={28} className="w-7 h-7" unoptimized />
             )}{' '}
             {branding.name}
           </button>

@@ -39,7 +39,13 @@ export function ChessterMascot({
   const [currentMood, setCurrentMood] = useState(mood);
   const [isAnimating, setIsAnimating] = useState(false);
   const branding = useBranding();
-  const mascotSrc = branding.logoUrl || '/static/images/chesster-logo-v3.png';
+  // Small avatars (sm/md ≤64px) prefer the simplified mark so detailed badges
+  // stay legible; lg/xl (≥96px) keep the full logo. See logo-mark-brief.md.
+  const isSmall = size === 'sm' || size === 'md';
+  const mascotSrc =
+    (isSmall && branding.logoMarkUrl) ||
+    branding.logoUrl ||
+    '/static/images/chesster-logo-v3.png';
 
   useEffect(() => {
     if (mood !== currentMood) {

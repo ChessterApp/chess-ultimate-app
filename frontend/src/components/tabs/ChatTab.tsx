@@ -135,7 +135,8 @@ export const ChatTab: React.FC<ChatTabProps> = ({
   const t = useTranslations('chat');
   const theme = useTheme();
   const branding = useBranding();
-  const coachAvatarSrc = branding.logoUrl || "/static/images/chesster-logo-v3.png";
+  // Coach avatars render at ≤50px, so prefer the simplified mark when set.
+  const coachAvatarSrc = branding.logoMarkUrl || branding.logoUrl || "/static/images/chesster-logo-v3.png";
   const coachAvatarAlt = branding.name;
 
   // Translated prompt arrays (memoized to avoid re-creating on every render)

@@ -146,12 +146,12 @@ export default function DesktopSidebar() {
     >
       {/* Logo */}
       <div className={`h-16 flex items-center border-b border-gray-100 dark:border-[#2a2a2a] px-3 ${collapsed ? 'justify-center' : 'gap-2'}`}>
-        {branding.logoUrl ? (
+        {branding.logoMarkUrl || branding.logoUrl ? (
           // Tenant logos live on Supabase Storage which isn't in next.config images.remotePatterns,
           // so use a plain <img> instead of next/image.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={branding.logoUrl}
+            src={branding.logoMarkUrl || branding.logoUrl || ''}
             alt={branding.name}
             width={40}
             height={40}

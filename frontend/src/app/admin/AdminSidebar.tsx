@@ -52,8 +52,9 @@ export default function AdminSidebar({ currentRole, mobileOpen = false, onClose 
   const navBody = (
     <>
       <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-200 dark:border-gray-700">
-        {branding.logoUrl ? (
-          <img src={branding.logoUrl} alt={branding.name} className="h-8 w-8 rounded" />
+        {branding.logoMarkUrl || branding.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={branding.logoMarkUrl || branding.logoUrl || ''} alt={branding.name} className="h-8 w-8 rounded object-contain" />
         ) : (
           <div
             className="h-8 w-8 rounded flex items-center justify-center text-white font-bold text-sm"

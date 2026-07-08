@@ -144,9 +144,9 @@ export function InlineTip({ message, mood = 'thinking', variant = 'default' }: I
     return (
       <div className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
         <img
-          src={branding.logoUrl || '/static/images/chesster-logo-v3.png'}
+          src={branding.logoMarkUrl || branding.logoUrl || '/static/images/chesster-logo-v3.png'}
           alt={branding.name}
-          className="w-6 h-6"
+          className="w-6 h-6 object-contain"
         />
         <span>{message}</span>
       </div>

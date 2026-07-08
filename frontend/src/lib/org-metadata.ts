@@ -9,12 +9,14 @@ export const TENANT_DEFAULT_FAVICON = '/static/images/default-favicon.ico';
 /**
  * Resolve the effective favicon for a request.
  *
- * Fallback chain for a tenant: `faviconUrl` → `logoUrl` → neutral default.
+ * Fallback chain for a tenant: `faviconUrl` → `logoMarkUrl` → `logoUrl` →
+ * neutral default. The mark sits ahead of the full logo because favicons
+ * render at 16–32px where the detailed badge turns to mush.
  * With no org (the main Chesster site) we use the icon bundled in `public/`.
  */
 export function effectiveFaviconUrl(org: Organization | null): string {
   if (!org) return MAIN_FAVICON;
-  return org.faviconUrl || org.logoUrl || TENANT_DEFAULT_FAVICON;
+  return org.faviconUrl || org.logoMarkUrl || org.logoUrl || TENANT_DEFAULT_FAVICON;
 }
 
 export const CHESSTER_DEFAULT_METADATA: Metadata = {
