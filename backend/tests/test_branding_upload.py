@@ -106,6 +106,17 @@ class TestUploadHappyPath:
                 assert resp.status_code == 201
                 assert bucket.upload_call['path'] == f'{ORG_ID}/favicon.ico'
 
+    def test_mark_kind_writes_mark_filename(self, client):
+        # Two-tier branding: the small square "mark" lands in the same org
+        # folder alongside logo/favicon. See .ralphy/logo-mark-brief.md.
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            sb, bucket = _mock_supabase_with_bucket()
+            with patch('routes.admin._get_supabase', return_value=sb):
+                resp = _post_upload(client, ORG_ID, 'mark', b'\x89PNGmark', 'image/png', 'mark.png')
+                assert resp.status_code == 201, resp.get_json()
+                assert resp.get_json()['kind'] == 'mark'
+                assert bucket.upload_call['path'] == f'{ORG_ID}/mark.png'
+
 
 # ─── Rejection paths ─────────────────────────────────────────────────────────
 
@@ -172,6 +183,33 @@ class TestUploadRejection:
         with patch('routes.admin._get_caller_role', return_value='admin'):
             resp = _post_upload(client, ORG_ID, 'banner', b'x', 'image/png', 'banner.png')
             assert resp.status_code == 400
+
+
+# ─── Settings allowlist ───────────────────────────────────────────────────────
+
+
+class TestSettingsAllowedFields:
+    def test_logo_mark_and_pwa_icon_pass_through_the_allowlist(self, client):
+        # Two-tier branding persists logo_mark_url + pwa_icon_url via the same
+        # settings PUT that already handles logo_url. Unknown keys are dropped.
+        with patch('routes.admin._get_caller_role', return_value='admin'):
+            sb = MagicMock()
+            with patch('routes.admin._get_supabase', return_value=sb):
+                resp = client.put(
+                    f'/api/admin/organizations/{ORG_ID}/settings',
+                    json={
+                        'logo_url': 'https://x/logo.png',
+                        'logo_mark_url': 'https://x/mark.png',
+                        'pwa_icon_url': 'https://x/icon.png',
+                        'not_a_branding_field': 'nope',
+                    },
+                    headers={'X-User-Id': ADMIN_USER_ID},
+                )
+                assert resp.status_code == 200, resp.get_json()
+                update_arg = sb.table.return_value.update.call_args.args[0]
+                assert update_arg['logo_mark_url'] == 'https://x/mark.png'
+                assert update_arg['pwa_icon_url'] == 'https://x/icon.png'
+                assert 'not_a_branding_field' not in update_arg
 
 
 # ─── Object key shape ─────────────────────────────────────────────────────────

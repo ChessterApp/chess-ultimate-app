@@ -96,4 +96,30 @@ describe('NavBar tenant branding', () => {
     const logo = screen.getByAltText('Chess Empire') as HTMLImageElement;
     expect(logo.src).toContain('chesster-logo-v3.png');
   });
+
+  it('prefers the logo mark over the full logo at this small (28px) site', () => {
+    mockBranding.current = {
+      ...mockBranding.current,
+      name: 'Chess Empire',
+      logoUrl: 'https://cdn.example.com/chess-empire/logo.png',
+      logoMarkUrl: 'https://cdn.example.com/chess-empire/mark.png',
+    };
+    render(<NavBar />);
+    const logo = screen.getByAltText('Chess Empire') as HTMLImageElement;
+    expect(logo.src).toContain('chess-empire/mark.png');
+    // Small sites render with object-contain (not object-cover).
+    expect(logo.className).toContain('object-contain');
+  });
+
+  it('falls back to logoUrl when no logo mark is set', () => {
+    mockBranding.current = {
+      ...mockBranding.current,
+      name: 'Chess Empire',
+      logoUrl: 'https://cdn.example.com/chess-empire/logo.png',
+      logoMarkUrl: null,
+    };
+    render(<NavBar />);
+    const logo = screen.getByAltText('Chess Empire') as HTMLImageElement;
+    expect(logo.src).toContain('chess-empire/logo.png');
+  });
 });

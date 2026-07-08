@@ -87,6 +87,28 @@ describe('effectiveFaviconUrl', () => {
     expect(effectiveFaviconUrl(noFavicon)).toBe(TENANT_ORG.logoUrl);
   });
 
+  it('prefers the logo mark over the full logo when there is no faviconUrl', () => {
+    const withMark = {
+      ...TENANT_ORG,
+      faviconUrl: null,
+      logoMarkUrl: 'https://cdn.example.com/acme/mark.png',
+    };
+    expect(effectiveFaviconUrl(withMark)).toBe('https://cdn.example.com/acme/mark.png');
+  });
+
+  it('still prefers an explicit faviconUrl over the logo mark', () => {
+    const withMark = {
+      ...TENANT_ORG,
+      logoMarkUrl: 'https://cdn.example.com/acme/mark.png',
+    };
+    expect(effectiveFaviconUrl(withMark)).toBe(TENANT_ORG.faviconUrl);
+  });
+
+  it('falls back to logoUrl when a mark is present but empty/null', () => {
+    const nullMark = { ...TENANT_ORG, faviconUrl: null, logoMarkUrl: null };
+    expect(effectiveFaviconUrl(nullMark)).toBe(TENANT_ORG.logoUrl);
+  });
+
   it('falls back to the neutral default when the org has neither favicon nor logo', () => {
     const bare = { ...TENANT_ORG, faviconUrl: null, logoUrl: null };
     expect(effectiveFaviconUrl(bare)).toBe(TENANT_DEFAULT_FAVICON);
