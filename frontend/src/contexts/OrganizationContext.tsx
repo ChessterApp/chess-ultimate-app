@@ -15,6 +15,8 @@ const DEFAULT_BRANDING: Organization = {
   slug: '',
   name: 'Chesster',
   logoUrl: null,
+  logoMarkUrl: null,
+  pwaIconUrl: null,
   faviconUrl: null,
   primaryColor: '#1a73e8',
   secondaryColor: '#ffffff',

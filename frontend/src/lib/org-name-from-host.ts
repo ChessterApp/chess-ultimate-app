@@ -31,6 +31,8 @@ export interface BrandFromHost {
   name: string;
   slug: string;
   logoUrl: string | null;
+  logoMarkUrl: string | null;
+  pwaIconUrl: string | null;
   faviconUrl: string | null;
   primaryColor: string;
   secondaryColor: string;
@@ -52,6 +54,8 @@ export async function orgFromHost(host: string | undefined | null): Promise<Bran
       name: (data.name as string) || 'Chesster',
       slug: (data.slug as string) || slug,
       logoUrl: (data.logo_url as string) || null,
+      logoMarkUrl: (data.logo_mark_url as string) || null,
+      pwaIconUrl: (data.pwa_icon_url as string) || null,
       faviconUrl: (data.favicon_url as string) || null,
       primaryColor: (data.primary_color as string) || '#9333ea',
       secondaryColor: (data.secondary_color as string) || '#ffffff',

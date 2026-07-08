@@ -3,6 +3,11 @@ export interface Organization {
   slug: string;
   name: string;
   logoUrl: string | null;
+  // Simplified square mark for small render sites (≤48px). Falls back to
+  // logoUrl when null. See .ralphy/logo-mark-brief.md.
+  logoMarkUrl?: string | null;
+  // Dedicated maskable icon for the PWA manifest. Falls back to logoUrl.
+  pwaIconUrl?: string | null;
   faviconUrl: string | null;
   primaryColor: string;
   secondaryColor: string;

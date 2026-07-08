@@ -20,6 +20,8 @@ export async function fetchOrgForLanding(
       slug: data.slug || orgSlug,
       name: data.name || 'Chesster',
       logoUrl: data.logo_url || null,
+      logoMarkUrl: data.logo_mark_url || null,
+      pwaIconUrl: data.pwa_icon_url || null,
       faviconUrl: data.favicon_url || null,
       primaryColor: data.primary_color || '#1a73e8',
       secondaryColor: data.secondary_color || '#ffffff',
