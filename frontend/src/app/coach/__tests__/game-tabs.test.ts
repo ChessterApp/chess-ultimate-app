@@ -67,7 +67,7 @@ describe('CoachPage - Game Tabs', () => {
   });
 
   it('renders tab bar when games are open', () => {
-    expect(coachPageContent).toContain('Coach Board');
+    expect(coachPageContent).toContain("{t('coachBoard')}");
     expect(coachPageContent).toContain('{game.white} vs {game.black}');
   });
 

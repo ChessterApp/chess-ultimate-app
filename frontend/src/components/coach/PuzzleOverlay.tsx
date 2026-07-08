@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 interface PuzzleOverlayProps {
   result: 'correct' | 'wrong' | 'solved' | null;
@@ -8,6 +9,7 @@ interface PuzzleOverlayProps {
 }
 
 export default function PuzzleOverlay({ result, onDismiss }: PuzzleOverlayProps) {
+  const t = useTranslations('coach');
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -26,21 +28,21 @@ export default function PuzzleOverlay({ result, onDismiss }: PuzzleOverlayProps)
   const config = {
     correct: {
       icon: '✓',
-      text: 'Correct!',
+      text: t('puzzleCorrect'),
       bg: 'bg-green-500/20',
       border: 'border-green-500/50',
       textColor: 'text-green-400',
     },
     wrong: {
       icon: '✗',
-      text: 'Try again',
+      text: t('puzzleTryAgain'),
       bg: 'bg-red-500/20',
       border: 'border-red-500/50',
       textColor: 'text-red-400',
     },
     solved: {
       icon: '★',
-      text: 'Puzzle solved!',
+      text: t('puzzleSolved'),
       bg: 'bg-yellow-500/20',
       border: 'border-yellow-500/50',
       textColor: 'text-yellow-400',

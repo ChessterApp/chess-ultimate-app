@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useTranslations } from 'next-intl';
 import ReactMarkdown from 'react-markdown';
 import ToolIndicator from './ToolIndicator';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
@@ -20,6 +21,7 @@ export default function CoachChat({
   onSessionCreated,
   onOpenGame,
 }: CoachChatProps) {
+  const t = useTranslations('coach');
   const [messages, setMessages] = useState<CoachMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -144,7 +146,7 @@ export default function CoachChat({
             }
 
             if (data.error) {
-              fullContent += `\n\n*Error: ${data.error}*`;
+              fullContent += `\n\n*${t('errorLabel')}: ${data.error}*`;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantId ? { ...m, content: fullContent } : m
@@ -160,11 +162,11 @@ export default function CoachChat({
       if (err instanceof DOMException && err.name === 'AbortError') {
         // User cancelled
       } else {
-        const message = err instanceof Error ? err.message : 'Unknown error';
+        const message = err instanceof Error ? err.message : t('unknownError');
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: `*Connection error: ${message}*` }
+              ? { ...m, content: `*${t('connectionErrorLabel')}: ${message}*` }
               : m
           )
         );
@@ -174,7 +176,7 @@ export default function CoachChat({
       setToolActive(null);
       abortRef.current = null;
     }
-  }, [input, isStreaming, currentFen, sessionId, onBoardActions, onSessionCreated]);
+  }, [input, isStreaming, currentFen, sessionId, onBoardActions, onSessionCreated, t]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -197,16 +199,16 @@ export default function CoachChat({
         {messages.length === 0 && (
           <div className="text-center text-gray-500 mt-8">
             <div className="text-4xl mb-3">♞</div>
-            <p className="text-lg font-medium text-gray-400">AI Chess Coach</p>
+            <p className="text-lg font-medium text-gray-400">{t('emptyTitle')}</p>
             <p className="text-sm mt-1">
-              Ask me anything about chess — positions, openings, tactics, or strategy.
+              {t('emptySubtitle')}
             </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center">
               {[
-                'Analyze this position',
-                'Show me the Sicilian Defense',
-                'Give me a tactical puzzle',
-                'Explain pawn structures',
+                t('promptAnalyze'),
+                t('promptSicilian'),
+                t('promptPuzzle'),
+                t('promptPawnStructures'),
               ].map((prompt) => (
                 <button
                   key={prompt}
@@ -244,7 +246,7 @@ export default function CoachChat({
                   <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 12H7V7h2v5zm0-7H7V3h2v2z" />
                   </svg>
-                  Board updated
+                  {t('boardUpdated')}
                 </div>
               )}
               {msg.gameResults && msg.gameResults.length > 0 && (
@@ -252,11 +254,11 @@ export default function CoachChat({
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-white/5 text-gray-400">
-                        <th className="px-2 py-1.5 text-left">Date</th>
-                        <th className="px-2 py-1.5 text-left">White</th>
-                        <th className="px-2 py-1.5 text-left">Black</th>
-                        <th className="px-2 py-1.5 text-center">Result</th>
-                        <th className="px-2 py-1.5 text-left">ECO</th>
+                        <th className="px-2 py-1.5 text-left">{t('tableDate')}</th>
+                        <th className="px-2 py-1.5 text-left">{t('tableWhite')}</th>
+                        <th className="px-2 py-1.5 text-left">{t('tableBlack')}</th>
+                        <th className="px-2 py-1.5 text-center">{t('tableResult')}</th>
+                        <th className="px-2 py-1.5 text-left">{t('tableEco')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -302,7 +304,7 @@ export default function CoachChat({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask your coach..."
+            placeholder={t('inputPlaceholder')}
             rows={1}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
             disabled={isStreaming}
@@ -311,7 +313,7 @@ export default function CoachChat({
             <button
               onClick={handleAbort}
               className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
-              title="Stop"
+              title={t('stopTooltip')}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <rect x="3" y="3" width="10" height="10" rx="1" />
@@ -322,7 +324,7 @@ export default function CoachChat({
               onClick={sendMessage}
               disabled={!input.trim()}
               className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="Send (Enter)"
+              title={t('sendTooltip')}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                 <path d="M1 1l14 7-14 7V9l10-1-10-1V1z" />

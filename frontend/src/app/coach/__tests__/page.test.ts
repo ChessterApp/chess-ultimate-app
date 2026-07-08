@@ -55,7 +55,7 @@ describe('Coach Page - Premium Gating', () => {
   });
 
   it('renders UpgradePrompt for non-premium users', () => {
-    expect(pageContent).toContain('<UpgradePrompt feature="AI Chess Coach"');
+    expect(pageContent).toContain("<UpgradePrompt feature={t('feature')}");
   });
 
   it('checks subscription.active before rendering coach UI', () => {

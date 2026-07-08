@@ -3,6 +3,7 @@
 import React, { useEffect, useCallback, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useCoachBoard } from '@/hooks/useCoachBoard';
@@ -19,6 +20,7 @@ export default function CoachPage() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
   const subscription = useSubscription();
   const router = useRouter();
+  const t = useTranslations('coach');
   const [sessionId, setSessionId] = useState<string | null>(null);
 
   const board = useCoachBoard();
@@ -188,7 +190,7 @@ export default function CoachPage() {
   }
 
   if (!subscription.active) {
-    return <UpgradePrompt feature="AI Chess Coach" />;
+    return <UpgradePrompt feature={t('feature')} />;
   }
 
   return (
@@ -199,7 +201,7 @@ export default function CoachPage() {
           <Link
             href="/dashboard"
             className="text-gray-400 hover:text-white transition-colors"
-            title="Back to dashboard"
+            title={t('backToDashboard')}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
               <path
@@ -208,10 +210,10 @@ export default function CoachPage() {
               />
             </svg>
           </Link>
-          <h1 className="text-lg font-semibold text-white">AI Coach</h1>
+          <h1 className="text-lg font-semibold text-white">{t('title')}</h1>
           {board.puzzleMode && (
             <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
-              Puzzle Mode
+              {t('puzzleMode')}
             </span>
           )}
         </div>
@@ -223,7 +225,7 @@ export default function CoachPage() {
           }}
           className="text-sm text-gray-400 hover:text-white transition-colors"
         >
-          New session
+          {t('newSession')}
         </button>
       </header>
 
@@ -237,7 +239,7 @@ export default function CoachPage() {
                 onClick={() => setActiveGameId(null)}
                 className={`px-3 py-1 text-xs rounded-t ${!activeGameId ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
               >
-                Coach Board
+                {t('coachBoard')}
               </button>
               {openedGames.map((game) => (
                 <div key={game.id} className="flex items-center">
