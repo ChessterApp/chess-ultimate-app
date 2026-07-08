@@ -65,9 +65,20 @@ class Maia {
           this.options.setStatus(msg.status)
           if (msg.status === 'ready') {
             this.options.setProgress(100)
+            // A pending download means the model was just fetched (not loaded
+            // from cache) — ask for persistent storage so the ~24MB model
+            // survives eviction (notably on iOS Safari).
+            const wasDownload = this.pendingDownload !== null
             this.pendingDownload?.resolve()
             this.pendingDownload = null
             this.downloadPromise = null
+            if (wasDownload) {
+              this.storage
+                .requestPersistentStorage()
+                .catch((err) =>
+                  console.error('requestPersistentStorage failed:', err),
+                )
+            }
           }
           break
 

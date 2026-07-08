@@ -128,6 +128,11 @@ const nextConfig = {
                         key: 'Cross-Origin-Resource-Policy',
                         value: 'same-origin',
                     },
+                    {
+                        // Content-hashed runtime — safe to cache forever.
+                        key: 'Cache-Control',
+                        value: 'public, max-age=31536000, immutable',
+                    },
                 ],
             },
             {
@@ -137,6 +142,12 @@ const nextConfig = {
                     {
                         key: 'Cross-Origin-Resource-Policy',
                         value: 'same-origin',
+                    },
+                    {
+                        // Model filename is version-keyed (…_int8.onnx); cache forever
+                        // so the ~24MB download survives deploys and revisits.
+                        key: 'Cache-Control',
+                        value: 'public, max-age=31536000, immutable',
                     },
                 ],
             },

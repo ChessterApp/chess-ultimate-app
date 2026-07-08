@@ -1,4 +1,4 @@
-const CACHE_VERSION = '12';
+const CACHE_VERSION = '13';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 const STALE_CACHE = 'chesster-stale-v' + CACHE_VERSION;
 
@@ -116,12 +116,18 @@ function isStaticAsset(url) {
 function isExcludedFile(url) {
   return (
     url.pathname.endsWith('.wasm') ||
-    url.pathname.endsWith('.onnx') ||
     url.pathname.endsWith('.mjs') ||
     url.pathname === '/maia-worker.js' ||
     url.pathname.startsWith('/ort/') ||
     url.pathname.startsWith('/static/engine/')
   );
+}
+
+// Maia model files (.onnx) — cached cache-first as a second persistent copy
+// alongside IndexedDB, so an evicted IndexedDB doesn't force a re-download.
+// The filename is version-keyed (…_int8.onnx), so cache-first is always safe.
+function isMaiaModel(url) {
+  return url.pathname.startsWith('/maia3/') && url.pathname.endsWith('.onnx');
 }
 
 function isLichessExplorer(url) {
@@ -152,9 +158,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never intercept worker scripts, WASM, or ONNX model files —
+  // Never intercept worker scripts, WASM, or ORT runtime —
   // these need exact headers (CORP) for cross-origin isolation.
   if (isExcludedFile(url)) return;
+
+  // 0. Maia model (.onnx) → Cache-First. The cached Response keeps its CORP
+  //    header, so cross-origin isolation still holds. Immutable, version-keyed.
+  if (isMaiaModel(url)) {
+    cacheFirst(event);
+    return;
+  }
 
   // 1. AI chat streaming → Network-Only (real-time SSE)
   if (isAiChatStream(url)) {

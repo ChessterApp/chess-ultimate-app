@@ -26,9 +26,11 @@ if [ ! -f "$SERVER_DIR/server.js" ]; then
 fi
 
 # 2. Copy static assets into standalone (flat path where server.js lives)
+# Use -p to preserve mtimes so mtime-based ETags stay stable across deploys —
+# otherwise the 24MB Maia model re-validates (and often re-downloads) every deploy.
 echo "[2/5] Copying static assets..."
-cp -r .next/static "$SERVER_DIR/.next/"
-cp -r public "$SERVER_DIR/"
+cp -rp .next/static "$SERVER_DIR/.next/"
+cp -rp public "$SERVER_DIR/"
 
 # 3. Copy .env.local into standalone (so PM2/server.js can read it)
 echo "[3/5] Copying .env.local..."

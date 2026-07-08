@@ -5,8 +5,8 @@ import { resolve } from 'path';
 describe('Service Worker', () => {
   const swContent = readFileSync(resolve(__dirname, '../../../public/sw.js'), 'utf-8');
 
-  it('should have cache version 11 for Phase 5', () => {
-    expect(swContent).toContain("const CACHE_VERSION = '11'");
+  it('should have cache version 13', () => {
+    expect(swContent).toContain("const CACHE_VERSION = '13'");
   });
 
   it('should use stale-while-revalidate for Lichess Explorer (5min TTL)', () => {
@@ -29,10 +29,14 @@ describe('Service Worker', () => {
     expect(swContent).toContain('networkOnly');
   });
 
-  it('should exclude WASM, ONNX, and engine files from caching', () => {
+  it('should exclude WASM and engine files from caching', () => {
     expect(swContent).toContain('.wasm');
-    expect(swContent).toContain('.onnx');
     expect(swContent).toContain('/static/engine/');
+  });
+
+  it('should cache Maia .onnx model files cache-first', () => {
+    expect(swContent).toContain('isMaiaModel');
+    expect(swContent).toContain(".onnx");
   });
 
   it('should clean up old caches on activation', () => {

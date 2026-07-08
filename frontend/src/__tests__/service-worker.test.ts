@@ -46,8 +46,13 @@ describe('Service Worker', () => {
     expect(swContent).toContain('url.origin !== self.location.origin')
   })
 
-  it('excludes WASM and ONNX files from interception', () => {
+  it('excludes WASM files from interception', () => {
     expect(swContent).toContain(".endsWith('.wasm')")
+  })
+
+  it('caches Maia .onnx model files cache-first', () => {
+    expect(swContent).toContain('function isMaiaModel(url)')
+    expect(swContent).toContain('isMaiaModel(url)')
     expect(swContent).toContain(".endsWith('.onnx')")
   })
 
