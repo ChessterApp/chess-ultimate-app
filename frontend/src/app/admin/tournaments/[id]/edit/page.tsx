@@ -22,6 +22,7 @@ interface TournamentForm {
   rating_category: string;
   min_rating: string;
   max_rating: string;
+  league: string;
   is_rated: boolean;
   tournament_mode: 'offline' | 'online';
   status: string;
@@ -67,6 +68,7 @@ export default function AdminEditTournamentPage() {
           rating_category: t.rating_category || '',
           min_rating: t.min_rating?.toString() || '',
           max_rating: t.max_rating?.toString() || '',
+          league: t.league || '',
           is_rated: t.is_rated || false,
           tournament_mode: (t.tournament_mode === 'online' ? 'online' : 'offline'),
           status: t.status || 'upcoming',
@@ -320,6 +322,20 @@ export default function AdminEditTournamentPage() {
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">League</label>
+                <select
+                  value={form.league}
+                  onChange={e => updateField('league', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+                >
+                  <option value="">None</option>
+                  <option value="C">C (requires Chess Empire Level 2+)</option>
+                  <option value="B">B</option>
+                  <option value="A">A</option>
+                  <option value="Master">Master</option>
+                </select>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tournament Mode</label>
                 <select

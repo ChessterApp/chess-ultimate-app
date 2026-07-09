@@ -399,6 +399,184 @@ class TestRegistration:
             assert 'deadline' in resp.get_json()['error'].lower()
 
 
+# ─── LEAGUE C LEVEL GATE (Chess Empire Level 2+) ─────────────────────────────
+
+
+class TestLeagueCLevelGate:
+    """League C tournaments require the student to be at Chess Empire Level 2+."""
+
+    LEAGUE_C = {**SAMPLE_TOURNAMENT, 'league': 'C'}
+
+    def _tables(self, level=None, linked=True):
+        members = [{'external_student_id': 'stu-1'}] if linked else []
+        return _make_multi_table({
+            'tournaments': ([self.LEAGUE_C], None),
+            'tournament_registrations': ([], 0),
+            'organization_members': (members, None),
+        })
+
+    def _ce_client(self, level):
+        client = MagicMock()
+        client.get_student_profile.return_value = {'current_level': level}
+        return client
+
+    def test_level_1_blocked(self):
+        from services.tournament_service import register_player
+
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=self._ce_client(1)):
+            mock_sb.return_value.table = self._tables()
+            record, error = register_player(TOURNAMENT_ID, USER_ID, 'Test Player', rating=1500)
+
+        assert record == {}
+        assert isinstance(error, dict)
+        assert error['code'] == 'level_too_low'
+        assert 'Level 2' in error['message']
+
+    def test_level_2_allowed(self):
+        from services.tournament_service import register_player
+
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=self._ce_client(2)):
+            mock_sb.return_value.table = self._tables()
+            record, error = register_player(TOURNAMENT_ID, USER_ID, 'Test Player', rating=1500)
+
+        assert error is None
+        assert record.get('player_name') == 'Test Player'
+
+    def test_unlinked_student_allowed(self):
+        """No Chess Empire link → level is a school concept we cannot resolve →
+        do not block (CE client should never be consulted)."""
+        from services.tournament_service import register_player
+
+        ce_client = MagicMock()
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=ce_client):
+            mock_sb.return_value.table = self._tables(linked=False)
+            record, error = register_player(TOURNAMENT_ID, USER_ID, 'Unlinked Player')
+
+        assert error is None
+        assert record.get('player_name') == 'Unlinked Player'
+        ce_client.get_student_profile.assert_not_called()
+
+    def test_no_level_allowed(self):
+        """Linked student whose CE profile has no level → do not block."""
+        from services.tournament_service import register_player
+
+        client = MagicMock()
+        client.get_student_profile.return_value = {'id': 'stu-1'}  # no current_level
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client', return_value=client):
+            mock_sb.return_value.table = self._tables()
+            record, error = register_player(TOURNAMENT_ID, USER_ID, 'No Level Player')
+
+        assert error is None
+
+    def test_non_league_c_ignores_level(self):
+        """A Level 1 student registers fine for a non-League-C tournament; the
+        Chess Empire client is never consulted."""
+        from services.tournament_service import register_player
+
+        ce_client = MagicMock()
+        tables = _make_multi_table({
+            'tournaments': ([SAMPLE_TOURNAMENT], None),  # league is None
+            'tournament_registrations': ([], 0),
+            'organization_members': ([{'external_student_id': 'stu-1'}], None),
+        })
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=ce_client):
+            mock_sb.return_value.table = tables
+            record, error = register_player(TOURNAMENT_ID, USER_ID, 'Test Player')
+
+        assert error is None
+        ce_client.get_student_profile.assert_not_called()
+
+    def test_league_b_ignores_level(self):
+        from services.tournament_service import register_player
+
+        ce_client = MagicMock()
+        league_b = {**SAMPLE_TOURNAMENT, 'league': 'B'}
+        tables = _make_multi_table({
+            'tournaments': ([league_b], None),
+            'tournament_registrations': ([], 0),
+            'organization_members': ([{'external_student_id': 'stu-1'}], None),
+        })
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=ce_client):
+            mock_sb.return_value.table = tables
+            record, error = register_player(TOURNAMENT_ID, USER_ID, 'Test Player')
+
+        assert error is None
+        ce_client.get_student_profile.assert_not_called()
+
+    def test_route_exposes_structured_error(self, client, auth_headers):
+        """The registration API returns {code, message} for the level gate."""
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=self._ce_client(1)):
+            mock_sb.return_value.table = self._tables()
+            resp = client.post(
+                f'/api/tournaments/{TOURNAMENT_ID}/register',
+                headers=auth_headers,
+                json={'player_name': 'Level One'},
+            )
+
+        assert resp.status_code == 400
+        body = resp.get_json()
+        assert body['code'] == 'level_too_low'
+        assert 'message' in body
+
+    def test_eligibility_endpoint_reports_block(self, client, auth_headers):
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=self._ce_client(1)):
+            mock_sb.return_value.table = self._tables()
+            resp = client.get(
+                f'/api/tournaments/{TOURNAMENT_ID}/eligibility',
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['eligible'] is False
+        assert body['code'] == 'level_too_low'
+        assert body['league'] == 'C'
+
+    def test_eligibility_endpoint_allows_level_2(self, client, auth_headers):
+        with patch('services.tournament_service._get_supabase') as mock_sb, \
+             patch('services.tournament_service._get_chess_empire_client',
+                   return_value=self._ce_client(2)):
+            mock_sb.return_value.table = self._tables()
+            resp = client.get(
+                f'/api/tournaments/{TOURNAMENT_ID}/eligibility',
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        assert resp.get_json()['eligible'] is True
+
+
+class TestLeagueColumnMigration:
+    def test_league_check_constraint_present(self):
+        import os
+
+        migration_path = os.path.join(
+            os.path.dirname(__file__),
+            '..', '..', 'supabase', 'migrations',
+            '20260709_023_tournament_league.sql',
+        )
+        with open(migration_path, 'r', encoding='utf-8') as f:
+            sql = f.read()
+
+        assert 'ADD COLUMN IF NOT EXISTS league TEXT' in sql
+        assert "CHECK (league IN ('C', 'B', 'A', 'Master'))" in sql
+
+
 # ─── RESULTS UPLOAD ──────────────────────────────────────────────────────────
 
 

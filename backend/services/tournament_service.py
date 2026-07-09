@@ -25,6 +25,99 @@ def _get_supabase():
     return get_supabase_client()
 
 
+# ─── League C eligibility (Chess Empire level gate) ──────────────────────────
+
+LEVEL_TOO_LOW_CODE = 'level_too_low'
+LEAGUE_C_MIN_LEVEL = 2
+
+
+def _get_chess_empire_client():
+    """Lazy import the shared Chess Empire client (keeps tests patchable)."""
+    from services.chess_empire_client import get_client
+    return get_client()
+
+
+def _get_chess_empire_level(user_id: str) -> Optional[int]:
+    """
+    Resolve the registering student's Chess Empire ``current_level``.
+
+    Looks up the member's ``external_student_id`` link (source ``chess_empire``)
+    and reads the level from the CE student profile. Returns ``None`` when the
+    student has no linked profile, no level, or the lookup fails — callers treat
+    ``None`` as "do not block" per the League C spec.
+    """
+    supabase = _get_supabase()
+    result = (
+        supabase.table('organization_members')
+        .select('external_student_id')
+        .eq('user_id', user_id)
+        .eq('external_source', 'chess_empire')
+        .execute()
+    )
+    student_id = None
+    for row in (result.data or []):
+        if row.get('external_student_id'):
+            student_id = row['external_student_id']
+            break
+    if not student_id:
+        return None
+
+    try:
+        profile = _get_chess_empire_client().get_student_profile(student_id)
+    except Exception:
+        logger.exception('Failed to resolve Chess Empire profile for %s', user_id)
+        return None
+
+    level = profile.get('current_level') if isinstance(profile, dict) else None
+    if isinstance(level, bool) or not isinstance(level, int):
+        return None
+    return level
+
+
+def _league_c_level_error(tournament: Dict[str, Any], user_id: str) -> Optional[Dict[str, str]]:
+    """
+    Return a structured ``level_too_low`` error for League C tournaments when the
+    student is below Level 2, else ``None``.
+
+    Non-League-C tournaments, unlinked students, and unknown levels return
+    ``None`` (registration allowed).
+    """
+    if tournament.get('league') != 'C':
+        return None
+    level = _get_chess_empire_level(user_id)
+    if level is not None and level < LEAGUE_C_MIN_LEVEL:
+        return {
+            'code': LEVEL_TOO_LOW_CODE,
+            'message': (
+                'League C tournaments require Level 2 or higher. '
+                f'You are currently on Level {level} — complete your Level {level} '
+                'lessons to unlock registration.'
+            ),
+        }
+    return None
+
+
+def get_registration_eligibility(tournament_id: str, user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Pre-check whether a student may register for a tournament (used by the
+    registration page to warn before submit). Returns ``None`` if the tournament
+    does not exist, otherwise a dict with ``league``, ``eligible`` and — when
+    blocked — the ``code``/``message`` from the structured eligibility error.
+    """
+    tournament = get_tournament(tournament_id)
+    if not tournament:
+        return None
+
+    error = _league_c_level_error(tournament, user_id)
+    result: Dict[str, Any] = {
+        'league': tournament.get('league'),
+        'eligible': error is None,
+    }
+    if error:
+        result.update(error)
+    return result
+
+
 def create_tournament(data: Dict[str, Any], user_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Create a new tournament.
@@ -59,6 +152,7 @@ def create_tournament(data: Dict[str, Any], user_id: str, org_id: Optional[str] 
         'rating_category': data.get('rating_category'),
         'min_rating': data.get('min_rating'),
         'max_rating': data.get('max_rating'),
+        'league': data.get('league') or None,
         'is_rated': data.get('is_rated', False),
         'tournament_mode': data.get('tournament_mode', 'offline'),
         'organizer_org_id': org_id,
@@ -91,10 +185,13 @@ def update_tournament(tournament_id: str, data: Dict[str, Any]) -> Dict[str, Any
         'format', 'max_participants', 'entry_fee', 'currency',
         'prize_fund', 'prize_distribution', 'age_categories',
         'rating_category', 'min_rating', 'max_rating', 'is_rated',
-        'tournament_mode', 'status', 'rules_url', 'image_url',
+        'tournament_mode', 'status', 'rules_url', 'image_url', 'league',
     }
 
     update_data = {k: v for k, v in data.items() if k in allowed_fields}
+    # Empty-string league from the admin form's "None" option means "no league".
+    if update_data.get('league') == '':
+        update_data['league'] = None
     update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
 
     result = supabase.table('tournaments').update(update_data).eq('id', tournament_id).execute()
@@ -198,7 +295,7 @@ def register_player(
     player_name: str,
     age_category: Optional[str] = None,
     rating: Optional[int] = None,
-) -> Tuple[Dict[str, Any], Optional[str]]:
+) -> Tuple[Dict[str, Any], Optional[Any]]:
     """
     Register a player for a tournament.
 
@@ -206,9 +303,12 @@ def register_player(
     - Registration deadline not passed
     - Max participants not exceeded
     - Rating within allowed range
+    - League C requires Chess Empire Level 2+
 
     Returns:
-        Tuple of (registration record, error message or None)
+        Tuple of (registration record, error or None). The error is a plain
+        string for simple rejections, or a structured dict
+        ``{'code': ..., 'message': ...}`` for the League C level gate.
     """
     supabase = _get_supabase()
 
@@ -251,6 +351,11 @@ def register_player(
     allowed_statuses = ('upcoming', 'registration_open')
     if tournament.get('status') not in allowed_statuses:
         return {}, "Tournament is not accepting registrations"
+
+    # Check League C level gate (Chess Empire Level 2+)
+    league_error = _league_c_level_error(tournament, user_id)
+    if league_error:
+        return {}, league_error
 
     # Determine registration status
     entry_fee = float(tournament.get('entry_fee') or 0)

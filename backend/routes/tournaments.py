@@ -199,9 +199,26 @@ def register_player(tournament_id):
     )
 
     if error:
+        # Structured eligibility errors (e.g. League C level gate) carry a
+        # machine-readable code + message; simple rejections stay plain strings.
+        if isinstance(error, dict):
+            return jsonify(error), 400
         return jsonify({'error': error}), 400
 
     return jsonify(registration), 201
+
+
+@tournaments_bp.route('/<tournament_id>/eligibility', methods=['GET'])
+@verify_clerk_token
+def registration_eligibility(tournament_id):
+    """Pre-check the current user's registration eligibility for a tournament."""
+    service = _get_service()
+    result = service.get_registration_eligibility(tournament_id, request.user_id)
+
+    if result is None:
+        return jsonify({'error': 'Tournament not found'}), 404
+
+    return jsonify(result), 200
 
 
 @tournaments_bp.route('/<tournament_id>/register', methods=['DELETE'])

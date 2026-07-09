@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import Link from 'next/link';
+
+// Fallback banner text when the server does not supply a message (server stays
+// the source of truth for the League C level gate).
+const LEVEL_TOO_LOW_FALLBACK =
+  "League C tournaments require Level 2+. You're on Level 1 — complete your Level 1 lessons to unlock registration.";
 
 export default function TournamentRegisterPage() {
   const params = useParams();
   const router = useRouter();
+  const { getToken } = useAuth();
   const tournamentId = params?.id as string;
 
   const [playerName, setPlayerName] = useState('');
@@ -14,15 +21,46 @@ export default function TournamentRegisterPage() {
   const [ageCategory, setAgeCategory] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // When set, the student is blocked from registering (League C level gate).
+  const [levelBlock, setLevelBlock] = useState('');
+
+  // Pre-check eligibility on load: a Level 1 student on a League C tournament
+  // is warned and the submit button is disabled before they even try.
+  useEffect(() => {
+    if (!tournamentId) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+        const token = await getToken();
+        const res = await fetch(`${backendUrl}/api/tournaments/${tournamentId}/eligibility`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data.eligible === false && data.code === 'level_too_low') {
+          setLevelBlock(data.message || LEVEL_TOO_LOW_FALLBACK);
+        }
+      } catch {
+        // Non-blocking: server remains the source of truth on submit.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tournamentId, getToken]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!playerName.trim()) return;
+    if (!playerName.trim() || levelBlock) return;
     setSubmitting(true);
     setError('');
 
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+      const token = await getToken();
       const body: Record<string, unknown> = {
         player_name: playerName.trim(),
       };
@@ -31,7 +69,10 @@ export default function TournamentRegisterPage() {
 
       const res = await fetch(`${backendUrl}/api/tournaments/${tournamentId}/register`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(body),
       });
 
@@ -39,7 +80,12 @@ export default function TournamentRegisterPage() {
         router.push(`/tournaments/${tournamentId}`);
       } else {
         const data = await res.json();
-        setError(data.error || 'Registration failed');
+        if (data.code === 'level_too_low') {
+          // Fallback: render the server rejection in the same friendly banner.
+          setLevelBlock(data.message || LEVEL_TOO_LOW_FALLBACK);
+        } else {
+          setError(data.error || 'Registration failed');
+        }
       }
     } catch {
       setError('Network error. Please try again.');
@@ -59,6 +105,14 @@ export default function TournamentRegisterPage() {
       </h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {levelBlock && (
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-3 text-sm text-amber-800 dark:text-amber-200"
+          >
+            {levelBlock}
+          </div>
+        )}
         {error && (
           <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-900/20 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300">
             {error}
@@ -121,7 +175,7 @@ export default function TournamentRegisterPage() {
 
         <button
           type="submit"
-          disabled={submitting || !playerName.trim()}
+          disabled={submitting || !playerName.trim() || !!levelBlock}
           className="w-full px-6 py-3 text-sm font-medium text-white rounded-lg disabled:opacity-50 transition-colors"
           style={{ backgroundColor: 'var(--brand-primary)' }}
         >
