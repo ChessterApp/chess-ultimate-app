@@ -6,7 +6,6 @@ import { ChevronLeft, ChevronRight, Check, Trophy, RotateCcw } from 'lucide-reac
 import { useTranslations } from 'next-intl'
 import { apiFetch, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ToastProvider'
-import { useSoundEffects } from '@/hooks/useSoundEffects'
 
 interface Puzzle {
   id: string
@@ -45,7 +44,6 @@ export default function PuzzleSequence({
   const t = useTranslations('puzzles')
   const tErrors = useTranslations('errors')
   const { showToast } = useToast()
-  const { play: playSound } = useSoundEffects()
   const [puzzles, setPuzzles] = useState<Puzzle[]>([])
   const [currentIndex, setCurrentIndex] = useState(1)
   const [totalCount, setTotalCount] = useState(0)
@@ -124,9 +122,6 @@ export default function PuzzleSequence({
       ))
       setCompletedCount(prev => prev + 1)
       setJustSolved(true)
-
-      // Play the success chime on full puzzle completion (not per intermediate move)
-      playSound('success')
 
       // Check if all puzzles are complete
       if (data.lesson_complete) {

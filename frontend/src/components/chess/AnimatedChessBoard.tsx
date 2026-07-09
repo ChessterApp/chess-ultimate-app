@@ -26,6 +26,7 @@ import FeedbackDisplay, { FeedbackType } from './FeedbackDisplay';
 import BoardControls from './BoardControls';
 import TargetStar from './TargetStar';
 import { useHaptic } from '@/hooks/useHaptic';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
 import ArrowOverlay from './ArrowOverlay';
 import LottieCelebration from './LottieCelebration';
 import { useLocalStorage } from 'usehooks-ts';
@@ -127,6 +128,7 @@ export default function AnimatedChessBoard({
   // Auto-derive orientation from FEN active color if not explicitly provided
   const orientation = orientationProp ?? (fen.split(' ')[1] === 'b' ? 'black' : 'white');
   const haptic = useHaptic();
+  const { play: playSound } = useSoundEffects();
   const [animationDuration] = useLocalStorage<number>('board_ui_animation_duration', DEFAULT_BOARD_ANIMATION_DURATION);
   const boardRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<Api | null>(null);
@@ -406,6 +408,7 @@ export default function AnimatedChessBoard({
       hintShown: false,
       showCelebration: enableAnimations,
     }));
+    playSound('success');
 
     if (hintSquareRef.current) {
       removeHintPulse(hintSquareRef.current);
@@ -567,6 +570,7 @@ export default function AnimatedChessBoard({
       hintShown: false,
       showCelebration: enableAnimations,
     }));
+    playSound('success');
 
     // Remove hint if shown
     if (hintSquareRef.current) {
@@ -618,6 +622,7 @@ export default function AnimatedChessBoard({
         hintShown: false,
         showCelebration: enableAnimations,
       }));
+      playSound('success');
 
       // Remove hint if shown
       if (hintSquareRef.current) {
