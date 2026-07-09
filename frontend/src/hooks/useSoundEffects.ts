@@ -5,7 +5,11 @@ import { useLocalStorage } from 'usehooks-ts'
 
 type SoundType = 'move' | 'capture' | 'success' | 'error' | 'click' | 'navigate'
 
-// All sounds generated programmatically via Web Audio API — no external files needed
+// Path to the pre-encoded success chime sample (CC0). Played for `success`;
+// the oscillator config below is the fallback if the sample fails to load/play.
+const SUCCESS_SAMPLE_URL = '/sounds/puzzle-solved.mp3'
+
+// All other sounds are generated programmatically via the Web Audio API.
 const SOUND_CONFIGS: Record<SoundType, { frequency: number; duration: number; type: OscillatorType; volume: number; decay?: number; secondFreq?: number; delay?: number }> = {
   move: { frequency: 440, duration: 0.08, type: 'sine', volume: 0.15, decay: 0.06 },
   capture: { frequency: 300, duration: 0.12, type: 'triangle', volume: 0.2, decay: 0.1 },
@@ -19,6 +23,10 @@ export function useSoundEffects() {
   const [soundEnabled] = useLocalStorage<boolean>('sound_enabled', true)
   const [moveSound] = useLocalStorage<boolean>('sound_move', true)
   const ctxRef = useRef<AudioContext | null>(null)
+  // Lazily-created shared element for the success sample. `failed` short-circuits
+  // to the synth fallback once we know the sample can't be loaded/played.
+  const successAudioRef = useRef<HTMLAudioElement | null>(null)
+  const successFailedRef = useRef(false)
 
   const getContext = useCallback(() => {
     if (!ctxRef.current || ctxRef.current.state === 'closed') {
@@ -43,10 +51,7 @@ export function useSoundEffects() {
     osc.stop(startTime + duration)
   }, [])
 
-  const play = useCallback((sound: SoundType) => {
-    if (!soundEnabled) return
-    if ((sound === 'move' || sound === 'capture') && !moveSound) return
-
+  const playSynth = useCallback((sound: SoundType) => {
     try {
       const ctx = getContext()
       const config = SOUND_CONFIGS[sound]
@@ -61,7 +66,47 @@ export function useSoundEffects() {
     } catch {
       // Silently fail — sound is non-critical
     }
-  }, [soundEnabled, moveSound, getContext, playTone])
+  }, [getContext, playTone])
+
+  // Lazily create (and preload) the shared success sample on first use. Guarded
+  // for SSR so nothing is fetched on the server / at module load.
+  const getSuccessAudio = useCallback(() => {
+    if (typeof window === 'undefined' || successFailedRef.current) return null
+    if (!successAudioRef.current) {
+      const audio = new Audio(SUCCESS_SAMPLE_URL)
+      audio.preload = 'auto'
+      audio.volume = 0.5
+      audio.addEventListener('error', () => { successFailedRef.current = true })
+      successAudioRef.current = audio
+    }
+    return successAudioRef.current
+  }, [])
+
+  const play = useCallback((sound: SoundType) => {
+    if (!soundEnabled) return
+    if ((sound === 'move' || sound === 'capture') && !moveSound) return
+
+    if (sound === 'success') {
+      const audio = getSuccessAudio()
+      if (!audio) {
+        playSynth('success')
+        return
+      }
+      try {
+        audio.currentTime = 0
+        const result = audio.play()
+        // Fall back to the synth chime on decode / autoplay-policy failures.
+        if (result && typeof result.catch === 'function') {
+          result.catch(() => playSynth('success'))
+        }
+      } catch {
+        playSynth('success')
+      }
+      return
+    }
+
+    playSynth(sound)
+  }, [soundEnabled, moveSound, getSuccessAudio, playSynth])
 
   // Cleanup
   useEffect(() => {
