@@ -393,7 +393,13 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
                   <div className="text-[11px] uppercase tracking-widest text-slate-400 font-semibold">
                     {t('ratingTitle')}
                   </div>
-                  <div className="mt-1">
+                  <div className="mt-1 flex items-center gap-2 sm:justify-end">
+                    <span
+                      className="text-3xl leading-none"
+                      aria-hidden="true"
+                    >
+                      📈
+                    </span>
                     <span
                       data-testid="empire-rating-value"
                       className="text-5xl font-bold leading-none"
