@@ -88,7 +88,7 @@ export interface CEStudentProfile extends CEStudent {
   joined_at?: string | null;
   /** Highest value across the profile's `survival_scores` array, or null. */
   best_survival_score?: number | null;
-  /** Highest-rated bot the student has beaten, or null if no wins. */
+  /** Highest-rated bot the student has beaten, or null if none recorded. */
   best_defeated_bot?: CEBestBot | null;
 }
 
@@ -274,23 +274,14 @@ export function bestSurvivalScore(survivalScores: unknown): number | null {
   return best;
 }
 
-function isBotWin(rec: Record<string, unknown>): boolean {
-  if (rec.won === true || rec.is_win === true) return true;
-  const result = rec.result ?? rec.outcome;
-  if (typeof result === 'string') {
-    const r = result.toLowerCase();
-    return r === 'win' || r === 'won' || r === 'w';
-  }
-  return false;
-}
-
 /**
  * Highest-rated bot the student has beaten, from the CE profile's
- * `bot_battles` array. Only entries that are wins are considered; among those
- * the one with the greatest `bot_rating` wins (first-seen on a tie). Bot name
- * is read from `bot_name` / `name` and rating from `bot_rating` / `rating`.
- * Returns null when the input is missing, has no wins, or no win carries both
- * a name and a finite rating — no throws.
+ * `bot_battles` array. Every row in `bot_battles` already represents a
+ * defeated bot (the table has no win/loss field), so all entries are
+ * considered; among them the one with the greatest `bot_rating` wins
+ * (first-seen on a tie). Bot name is read from `bot_name` / `name` and rating
+ * from `bot_rating` / `rating`. Returns null when the input is missing, empty,
+ * or no entry carries both a name and a finite rating — no throws.
  */
 export function bestDefeatedBot(botBattles: unknown): CEBestBot | null {
   if (!Array.isArray(botBattles)) return null;
@@ -298,7 +289,6 @@ export function bestDefeatedBot(botBattles: unknown): CEBestBot | null {
   for (const entry of botBattles) {
     if (!entry || typeof entry !== 'object') continue;
     const rec = entry as Record<string, unknown>;
-    if (!isBotWin(rec)) continue;
     const rating = toFiniteNumber(rec.bot_rating ?? rec.rating);
     if (rating === null) continue;
     const nameRaw = rec.bot_name ?? rec.name;
@@ -325,11 +315,19 @@ export async function getStudentProfile(studentId: string): Promise<CEStudentPro
   const resp = await ceFetch(url, {
     headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
   });
-  const body = await expectJson<{ success?: boolean; data?: { student?: Record<string, unknown> } } | Record<string, unknown>>(resp);
-  const student =
-    body && typeof body === 'object' && 'data' in body && body.data && typeof body.data === 'object' && 'student' in body.data && body.data.student
-      ? (body.data.student as Record<string, unknown>)
+  const body = await expectJson<{ success?: boolean; data?: Record<string, unknown> } | Record<string, unknown>>(resp);
+  // Wrapped shape: `{ data: { student, survival_scores, bot_battles, ... } }`
+  // where the arrays are siblings of `student`. Flat/unwrapped fallback: the
+  // body itself is the student, so `data` and `student` collapse to the same
+  // object and the arrays (if any) are read directly off it.
+  const data =
+    body && typeof body === 'object' && 'data' in body && body.data && typeof body.data === 'object'
+      ? (body.data as Record<string, unknown>)
       : (body as Record<string, unknown>);
+  const student =
+    'student' in data && data.student && typeof data.student === 'object'
+      ? (data.student as Record<string, unknown>)
+      : data;
   const branches = student.branches as { name?: string } | undefined;
   const coaches = student.coaches as { first_name?: string; last_name?: string } | undefined;
   const coachName = coaches && (coaches.first_name || coaches.last_name)
@@ -339,8 +337,8 @@ export async function getStudentProfile(studentId: string): Promise<CEStudentPro
     ...(student as unknown as CEStudentProfile),
     branch_name: branches?.name ?? null,
     coach_name: coachName,
-    best_survival_score: bestSurvivalScore(student.survival_scores),
-    best_defeated_bot: bestDefeatedBot(student.bot_battles),
+    best_survival_score: bestSurvivalScore(data.survival_scores ?? student.survival_scores),
+    best_defeated_bot: bestDefeatedBot(data.bot_battles ?? student.bot_battles),
   };
 }
 
@@ -479,15 +477,17 @@ const EMPTY_RANK: CEStudentRank = {
 /**
  * Phase 3 — Personalized homepage.
  *
- * Fetch the student's leaderboard position within their branch and school.
- * This is a soft-fallback feature: the endpoint may not yet exist (Alex hasn't
- * confirmed the shape), so 404 / unknown shape / network error returns an
+ * Fetch the student's leaderboard position within their branch and school,
+ * ranked by learning progress (level → lesson → name) over all active students
+ * — matching the original CE leaderboard, not internal rating. Backed by the
+ * `progress_ranking` action of the CE analytics edge function. This stays a
+ * soft-fallback feature: a 404 / unknown shape / network error returns an
  * all-null record rather than throwing — the homepage gracefully omits the
  * rank chip when data is unavailable.
  */
 export async function getStudentRank(studentId: string): Promise<CEStudentRank> {
   const key = getServiceKey();
-  const url = `${ceFunctionsBase()}/analytics-students?action=ranking&student_id=${encodeURIComponent(
+  const url = `${ceFunctionsBase()}/analytics-students?action=progress_ranking&student_id=${encodeURIComponent(
     studentId,
   )}`;
   let resp: Response;

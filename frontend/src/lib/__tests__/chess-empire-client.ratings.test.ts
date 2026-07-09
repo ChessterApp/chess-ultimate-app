@@ -224,11 +224,11 @@ describe('chess-empire-client (Phase 3)', () => {
       expect(result.school_size).toBe(800);
     });
 
-    it('hits the ranking action (not rank) with Bearer auth', async () => {
+    it('hits the progress_ranking action with Bearer auth', async () => {
       fetchSpy.mockResolvedValue(jsonResponse({ success: true, data: {} }));
       await getStudentRank('stu-1');
       const [url, init] = fetchSpy.mock.calls[0]!;
-      expect(String(url)).toContain('action=ranking');
+      expect(String(url)).toContain('action=progress_ranking');
       const headers = (init?.headers ?? {}) as Record<string, string>;
       expect(headers.Authorization).toBe('Bearer ce-test-key');
       expect(headers['x-api-key']).toBeUndefined();
