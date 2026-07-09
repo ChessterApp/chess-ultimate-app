@@ -107,6 +107,8 @@ export async function renderEmpireHomepage(
       ratings={ratings}
       achievements={achievements}
       rank={rank}
+      bestSurvivalScore={profile.best_survival_score ?? null}
+      bestDefeatedBot={profile.best_defeated_bot ?? null}
     />
   );
 }

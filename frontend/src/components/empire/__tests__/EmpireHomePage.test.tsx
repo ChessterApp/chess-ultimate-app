@@ -242,6 +242,54 @@ describe('EmpireHomePage — verified state', () => {
     expect(seg4.querySelector('[data-testid="empire-progress-segment-current"]')).toBeTruthy();
   });
 
+  it('renders live Survivor and Bot Slayer card subtitles when data is present', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: aliProfile,
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+      bestSurvivalScore: 62,
+      bestDefeatedBot: { name: 'Titan', rating: 2100 },
+    });
+    const { getByTestId } = render(ui);
+    expect(getByTestId('empire-card-survivor-value').textContent).toBe('62');
+    expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe(
+      'Titan · 2100',
+    );
+  });
+
+  it('renders "—" in both cards when there is no survival/bot data', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: aliProfile,
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+      bestSurvivalScore: null,
+      bestDefeatedBot: null,
+    });
+    const { getByTestId } = render(ui);
+    expect(getByTestId('empire-card-survivor-value').textContent).toBe('—');
+    expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe('—');
+  });
+
+  it('defaults the highlight cards to "—" when props are omitted', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: aliProfile,
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    expect(getByTestId('empire-card-survivor-value').textContent).toBe('—');
+    expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe('—');
+  });
+
   it('renders an achievements empty state when the list is empty', async () => {
     const ui = await EmpireHomePage({
       state: 'verified',

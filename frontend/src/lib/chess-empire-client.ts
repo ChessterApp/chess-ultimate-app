@@ -71,6 +71,11 @@ export interface CEActiveStudent {
   current_league?: string | null;
 }
 
+export interface CEBestBot {
+  name: string;
+  rating: number;
+}
+
 export interface CEStudentProfile extends CEStudent {
   coach_name?: string | null;
   branch_name?: string | null;
@@ -81,6 +86,10 @@ export interface CEStudentProfile extends CEStudent {
   razryad?: string | null;
   current_league?: string | null;
   joined_at?: string | null;
+  /** Highest value across the profile's `survival_scores` array, or null. */
+  best_survival_score?: number | null;
+  /** Highest-rated bot the student has beaten, or null if no wins. */
+  best_defeated_bot?: CEBestBot | null;
 }
 
 export interface CERatingPoint {
@@ -237,6 +246,69 @@ export async function findStudentsByParentEmail(
   return expectJson<CEStudent[]>(resp);
 }
 
+function toFiniteNumber(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Best (max) survival score across the CE profile's `survival_scores` array.
+ *
+ * Tolerant of shape: entries may be plain numbers/numeric strings or objects
+ * carrying the value under `score` / `survival_score` / `value`. Returns null
+ * for a missing, non-array, empty, or all-invalid input — no throws.
+ */
+export function bestSurvivalScore(survivalScores: unknown): number | null {
+  if (!Array.isArray(survivalScores)) return null;
+  let best: number | null = null;
+  for (const entry of survivalScores) {
+    let val: number | null = null;
+    if (typeof entry === 'number' || typeof entry === 'string') {
+      val = toFiniteNumber(entry);
+    } else if (entry && typeof entry === 'object') {
+      const rec = entry as Record<string, unknown>;
+      val = toFiniteNumber(rec.score ?? rec.survival_score ?? rec.value);
+    }
+    if (val !== null && (best === null || val > best)) best = val;
+  }
+  return best;
+}
+
+function isBotWin(rec: Record<string, unknown>): boolean {
+  if (rec.won === true || rec.is_win === true) return true;
+  const result = rec.result ?? rec.outcome;
+  if (typeof result === 'string') {
+    const r = result.toLowerCase();
+    return r === 'win' || r === 'won' || r === 'w';
+  }
+  return false;
+}
+
+/**
+ * Highest-rated bot the student has beaten, from the CE profile's
+ * `bot_battles` array. Only entries that are wins are considered; among those
+ * the one with the greatest `bot_rating` wins (first-seen on a tie). Bot name
+ * is read from `bot_name` / `name` and rating from `bot_rating` / `rating`.
+ * Returns null when the input is missing, has no wins, or no win carries both
+ * a name and a finite rating — no throws.
+ */
+export function bestDefeatedBot(botBattles: unknown): CEBestBot | null {
+  if (!Array.isArray(botBattles)) return null;
+  let best: CEBestBot | null = null;
+  for (const entry of botBattles) {
+    if (!entry || typeof entry !== 'object') continue;
+    const rec = entry as Record<string, unknown>;
+    if (!isBotWin(rec)) continue;
+    const rating = toFiniteNumber(rec.bot_rating ?? rec.rating);
+    if (rating === null) continue;
+    const nameRaw = rec.bot_name ?? rec.name;
+    const name = typeof nameRaw === 'string' && nameRaw.trim() ? nameRaw.trim() : null;
+    if (!name) continue;
+    if (best === null || rating > best.rating) best = { name, rating };
+  }
+  return best;
+}
+
 /**
  * Fetch a single student's full profile by id. Wraps the CE analytics Edge
  * Function which returns `{success, data: {student: {...}, ratings, achievements}}`
@@ -267,6 +339,8 @@ export async function getStudentProfile(studentId: string): Promise<CEStudentPro
     ...(student as unknown as CEStudentProfile),
     branch_name: branches?.name ?? null,
     coach_name: coachName,
+    best_survival_score: bestSurvivalScore(student.survival_scores),
+    best_defeated_bot: bestDefeatedBot(student.bot_battles),
   };
 }
 

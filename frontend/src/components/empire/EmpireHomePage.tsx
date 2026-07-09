@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import type {
   CEAchievement,
+  CEBestBot,
   CERatingPoint,
   CEStudentProfile,
   CEStudentRank,
@@ -32,6 +33,10 @@ interface VerifiedProps {
   ratings: CERatingPoint[];
   achievements: CEAchievement[];
   rank: CEStudentRank;
+  /** Best (max) survival score; null when the student has no survival games. */
+  bestSurvivalScore?: number | null;
+  /** Highest-rated bot the student has beaten; null when no bot wins yet. */
+  bestDefeatedBot?: CEBestBot | null;
 }
 
 interface PendingConfirmProps {
@@ -165,7 +170,21 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
     );
   }
 
-  const { studentDisplayName, profile, ratings, achievements, rank } = props;
+  const {
+    studentDisplayName,
+    profile,
+    ratings,
+    achievements,
+    rank,
+    bestSurvivalScore = null,
+    bestDefeatedBot = null,
+  } = props;
+
+  const survivorSubtitle =
+    bestSurvivalScore != null ? String(bestSurvivalScore) : '—';
+  const botSlayerSubtitle = bestDefeatedBot
+    ? `${bestDefeatedBot.name} · ${bestDefeatedBot.rating}`
+    : '—';
 
   const greeting = studentDisplayName
     ? t('welcomeBackNamed', { name: studentDisplayName })
@@ -721,6 +740,82 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
               {t('achievementsTitle')}
             </h2>
           </div>
+          <ul
+            data-testid="empire-highlight-cards"
+            className="grid grid-cols-2 gap-3 mb-3"
+          >
+            <li
+              data-testid="empire-card-survivor"
+              className="rounded-xl border border-slate-200 bg-white p-3 flex items-center gap-3"
+            >
+              <div
+                className="w-10 h-10 rounded-lg grid place-items-center shrink-0"
+                style={{
+                  backgroundColor: 'rgba(16,185,129,0.12)',
+                  color: ACCENT_DIM,
+                }}
+                aria-hidden="true"
+              >
+                <svg
+                  width={20}
+                  height={20}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-800 leading-snug">
+                  {t('survivorTitle')}
+                </div>
+                <div
+                  data-testid="empire-card-survivor-value"
+                  className="text-sm text-slate-600 mt-0.5 truncate"
+                >
+                  {survivorSubtitle}
+                </div>
+              </div>
+            </li>
+            <li
+              data-testid="empire-card-bot-slayer"
+              className="rounded-xl border border-slate-200 bg-white p-3 flex items-center gap-3"
+            >
+              <div
+                className="w-10 h-10 rounded-lg grid place-items-center shrink-0"
+                style={{
+                  backgroundColor: 'rgba(16,185,129,0.12)',
+                  color: ACCENT_DIM,
+                }}
+                aria-hidden="true"
+              >
+                <svg
+                  width={20}
+                  height={20}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <rect x="4" y="8" width="16" height="11" rx="2" />
+                  <path d="M12 8V4M9 13h.01M15 13h.01" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-slate-800 leading-snug">
+                  {t('botSlayerTitle')}
+                </div>
+                <div
+                  data-testid="empire-card-bot-slayer-value"
+                  className="text-sm text-slate-600 mt-0.5 truncate"
+                >
+                  {botSlayerSubtitle}
+                </div>
+              </div>
+            </li>
+          </ul>
           {achievements.length === 0 ? (
             <p
               data-testid="empire-achievements-empty"

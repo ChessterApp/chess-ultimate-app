@@ -1651,7 +1651,9 @@
     "nextLessonTitle": "Next lesson",
     "nextLessonPlaceholder": "Scheduled by your coach",
     "withCoach": "with {coach}",
-    "prepareCta": "Prepare for lesson"
+    "prepareCta": "Prepare for lesson",
+    "survivorTitle": "Survivor",
+    "botSlayerTitle": "Bot Slayer"
   },
   "adminCe": {
     "title": "Students",

@@ -1651,7 +1651,9 @@
     "nextLessonTitle": "Келесі сабақ",
     "nextLessonPlaceholder": "Жаттықтырушының кестесі бойынша",
     "withCoach": "{coach} жаттықтырушымен",
-    "prepareCta": "Сабаққа дайындалу"
+    "prepareCta": "Сабаққа дайындалу",
+    "survivorTitle": "Аман қалған",
+    "botSlayerTitle": "Ботты жеңуші"
   },
   "adminCe": {
     "title": "Оқушылар",

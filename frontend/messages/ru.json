@@ -1651,7 +1651,9 @@
     "nextLessonTitle": "Следующее занятие",
     "nextLessonPlaceholder": "По расписанию тренера",
     "withCoach": "с {coach}",
-    "prepareCta": "Подготовиться к уроку"
+    "prepareCta": "Подготовиться к уроку",
+    "survivorTitle": "Выживший",
+    "botSlayerTitle": "Победитель ботов"
   },
   "adminCe": {
     "title": "Ученики",
