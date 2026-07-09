@@ -133,7 +133,11 @@ describe('EmpireHomePage — verified state', () => {
     );
     expect(getByTestId('empire-branch-chip').textContent).toContain('Gagarin Park');
     expect(getByTestId('empire-rating-value').textContent).toBe('856');
-    expect(getByTestId('empire-hero-sparkline')).toBeTruthy();
+    // Hero no longer renders the delta pill or sparkline (Option 2 twin columns).
+    expect(queryByTestId('empire-rating-delta')).toBeNull();
+    expect(queryByTestId('empire-hero-sparkline')).toBeNull();
+    // League column falls back to getLeague(856) = "C" when current_league is unset.
+    expect(getByTestId('empire-league-value').textContent).toContain('C');
     expect(getByTestId('empire-school-rank').textContent).toBe('#1');
     expect(getByTestId('empire-progress-level').textContent).toBe('7');
     expect(getByTestId('empire-progress-current').textContent).toBe('94');
@@ -302,6 +306,49 @@ describe('EmpireHomePage — verified state', () => {
     const { getByTestId, queryByTestId } = render(ui);
     expect(getByTestId('empire-achievements-empty')).toBeTruthy();
     expect(queryByTestId('empire-achievements-grid')).toBeNull();
+  });
+});
+
+describe('EmpireHomePage — hero league column', () => {
+  it('renders the league letter from profile.current_league', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, current_league: 'A' },
+      ratings: [{ date: '2026-06-01', rating: 856 }],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    // current_league wins over the getLeague(856) = "C" fallback.
+    expect(getByTestId('empire-league-value').textContent).toBe('A');
+  });
+
+  it('falls back to getLeague(rating) when current_league is null', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, current_league: null },
+      ratings: [{ date: '2026-06-01', rating: 1500 }],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    // 1500 → League B.
+    expect(getByTestId('empire-league-value').textContent).toBe('B');
+  });
+
+  it('shows "—" when both current_league and rating are missing', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, current_league: null, current_rating: null },
+      ratings: [],
+      achievements: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    expect(getByTestId('empire-league-value').textContent).toBe('—');
   });
 });
 

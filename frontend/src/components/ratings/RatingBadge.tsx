@@ -1,5 +1,7 @@
 'use client';
 
+import { getLeague } from '@/lib/league';
+
 interface RatingBadgeProps {
   rating: number;
   league?: string;
@@ -13,13 +15,6 @@ const LEAGUE_COLORS: Record<string, { bg: string; text: string }> = {
   A: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300' },
   Master: { bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-700 dark:text-yellow-300' },
 };
-
-function getLeague(rating: number): string {
-  if (rating >= 2200) return 'Master';
-  if (rating >= 1800) return 'A';
-  if (rating >= 1400) return 'B';
-  return 'C';
-}
 
 const LEAGUE_ICONS: Record<string, string> = {
   C: '\u2659',    // White pawn

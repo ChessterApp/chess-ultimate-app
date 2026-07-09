@@ -22,6 +22,7 @@ import type {
   CEStudentProfile,
   CEStudentRank,
 } from '@/lib/chess-empire-client';
+import { getLeague } from '@/lib/league';
 import PendingConfirmBanner from './PendingConfirmBanner';
 
 export type EmpireHomeState = 'verified' | 'pending_confirm' | 'no_link';
@@ -53,6 +54,17 @@ export type EmpireHomePageProps = VerifiedProps | PendingConfirmProps | NoLinkPr
 
 const ACCENT = '#10B981';
 const ACCENT_DIM = '#059669';
+
+/**
+ * League tier colors tuned for the dark-slate hero (the light 300-tier of
+ * each LeagueBadge tier: C gray, B blue, A purple, Master gold).
+ */
+const HERO_LEAGUE_COLOR: Record<string, string> = {
+  C: '#CBD5E1',
+  B: '#93C5FD',
+  A: '#C4B5FD',
+  Master: '#FDE047',
+};
 
 function initialFrom(name: string | null): string {
   if (!name) return '?';
@@ -198,11 +210,7 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
       ? sortedRatings[sortedRatings.length - 1].rating
       : profile.current_rating ?? null;
   const delta = computeDelta(sortedRatings);
-  const hero = buildSparkline(sortedRatings, 160, 40, 4, 4);
   const trend = buildSparkline(sortedRatings, 480, 120, 8, 8);
-  const heroPointsStr = hero.points
-    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-    .join(' ');
   const trendPointsStr = trend.points
     .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
     .join(' ');
@@ -239,6 +247,17 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
     delta === null
       ? null
       : `${delta >= 0 ? '+' : ''}${delta} ${t('ratingDeltaSuffix')}`;
+
+  const rawLeague = profile.current_league?.trim();
+  const heroLeague =
+    rawLeague && rawLeague.length > 0
+      ? rawLeague
+      : currentRating != null
+        ? getLeague(currentRating)
+        : null;
+  const heroLeagueColor = heroLeague
+    ? HERO_LEAGUE_COLOR[heroLeague] ?? '#FFFFFF'
+    : '#FFFFFF';
 
   return (
     <main
@@ -367,58 +386,61 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
                 )}
               </div>
             </div>
-            <div className="shrink-0 sm:text-right">
-              <div className="text-[11px] uppercase tracking-widest text-slate-400 font-semibold">
-                {t('ratingTitle')}
-              </div>
-              <div className="flex items-end gap-2 sm:justify-end mt-1">
-                <span
-                  data-testid="empire-rating-value"
-                  className="text-5xl font-bold leading-none"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {currentRating ?? '—'}
-                </span>
-                {deltaLabel && (
-                  <span
-                    data-testid="empire-rating-delta"
-                    className={`text-sm font-semibold pb-1 ${
-                      delta! >= 0 ? 'text-emerald-400' : 'text-rose-400'
-                    }`}
-                  >
-                    {deltaLabel}
-                  </span>
-                )}
-              </div>
-              {hero.points.length > 0 && (
-                <svg
-                  data-testid="empire-hero-sparkline"
-                  width={160}
-                  height={40}
-                  viewBox="0 0 160 40"
-                  className="mt-2"
+            <div className="shrink-0">
+              <div className="flex items-start gap-6 sm:justify-end">
+                {/* Rating column */}
+                <div className="sm:text-right">
+                  <div className="text-[11px] uppercase tracking-widest text-slate-400 font-semibold">
+                    {t('ratingTitle')}
+                  </div>
+                  <div className="mt-1">
+                    <span
+                      data-testid="empire-rating-value"
+                      className="text-5xl font-bold leading-none"
+                      style={{ fontVariantNumeric: 'tabular-nums' }}
+                    >
+                      {currentRating ?? '—'}
+                    </span>
+                  </div>
+                </div>
+                {/* Divider */}
+                <div
+                  className="self-stretch w-px bg-white/[.14]"
                   aria-hidden="true"
-                >
-                  <defs>
-                    <linearGradient id="empire-hero-grad" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor={ACCENT} stopOpacity={0.45} />
-                      <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <polyline
-                    fill="none"
-                    stroke={ACCENT}
-                    strokeWidth={1.75}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    points={heroPointsStr}
-                  />
-                  <polygon
-                    fill="url(#empire-hero-grad)"
-                    points={`${hero.points[0].x.toFixed(1)},40 ${heroPointsStr} ${hero.points[hero.points.length - 1].x.toFixed(1)},40`}
-                  />
-                </svg>
-              )}
+                />
+                {/* League column */}
+                <div className="sm:text-right">
+                  <div className="text-[11px] uppercase tracking-widest text-slate-400 font-semibold">
+                    {t('leagueLabel')}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 sm:justify-end">
+                    {heroLeague ? (
+                      <>
+                        <span
+                          className="text-3xl leading-none"
+                          aria-hidden="true"
+                        >
+                          🏆
+                        </span>
+                        <span
+                          data-testid="empire-league-value"
+                          className="text-5xl font-bold leading-none"
+                          style={{ color: heroLeagueColor }}
+                        >
+                          {heroLeague}
+                        </span>
+                      </>
+                    ) : (
+                      <span
+                        data-testid="empire-league-value"
+                        className="text-5xl font-bold leading-none text-white"
+                      >
+                        —
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </section>
