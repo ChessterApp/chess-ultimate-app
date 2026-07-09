@@ -14,6 +14,16 @@ export HOME=/root
 
 echo "=== Chesster Frontend Deploy ==="
 
+# 0. Warn if local commits haven't been pushed — Vercel (chess-empire.chesster.io
+# and other Vercel-served domains) deploys from GitHub, so unpushed commits mean
+# this VPS deploy and the Vercel sites silently diverge.
+AHEAD=$(cd "$FRONTEND_DIR" && git rev-list --count @{upstream}..HEAD 2>/dev/null || echo 0)
+if [ "$AHEAD" -gt 0 ]; then
+  echo "WARNING: local branch is $AHEAD commit(s) ahead of origin."
+  echo "         Vercel deploys from GitHub — push with 'git push origin main'"
+  echo "         or the Vercel-served sites will NOT get these changes."
+fi
+
 # 1. Build
 echo "[1/5] Building Next.js standalone..."
 cd "$FRONTEND_DIR"
