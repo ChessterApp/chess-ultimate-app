@@ -60,9 +60,6 @@ describe('EmpireHomePage — forbidden fallback strings', () => {
         { date: '2026-05-01', rating: 800 },
         { date: '2026-06-01', rating: 856 },
       ],
-      achievements: [
-        { id: 'a1', name: 'Bot Slayer', earned_at: '2026-05-01' },
-      ],
       rank: { branch_rank: null, school_rank: 1, branch_size: null, school_size: 85 },
     });
     const html = renderToStaticMarkup(ui);
@@ -88,7 +85,6 @@ describe('EmpireHomePage — forbidden fallback strings', () => {
       studentDisplayName: null,
       profile,
       ratings: [],
-      achievements: [],
       rank: {
         branch_rank: null,
         school_rank: null,

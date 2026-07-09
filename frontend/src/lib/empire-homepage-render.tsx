@@ -21,7 +21,6 @@ import EmpireHomePage from '@/components/empire/EmpireHomePage';
 import { getMembershipState } from '@/lib/chess-empire-member';
 import { resolveStudentDisplayName } from '@/lib/student-name';
 import {
-  getStudentAchievements,
   getStudentProfile,
   getStudentRank,
   getStudentRatings,
@@ -73,13 +72,9 @@ export async function renderEmpireHomepage(
     );
   }
 
-  const [ratings, achievements, rank] = await Promise.all([
+  const [ratings, rank] = await Promise.all([
     getStudentRatings(studentId, 30).catch((err) => {
       console.error('[empire-home] ratings fetch failed', err);
-      return [];
-    }),
-    getStudentAchievements(studentId).catch((err) => {
-      console.error('[empire-home] achievements fetch failed', err);
       return [];
     }),
     getStudentRank(studentId).catch((err) => {
@@ -105,7 +100,6 @@ export async function renderEmpireHomepage(
       studentDisplayName={studentDisplayName}
       profile={profile}
       ratings={ratings}
-      achievements={achievements}
       rank={rank}
       bestSurvivalScore={profile.best_survival_score ?? null}
       bestDefeatedBot={profile.best_defeated_bot ?? null}

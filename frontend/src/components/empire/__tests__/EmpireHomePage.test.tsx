@@ -64,7 +64,6 @@ describe('EmpireHomePage — verified state', () => {
         { date: '2026-05-01', rating: 800 },
         { date: '2026-06-01', rating: 856 },
       ],
-      achievements: [],
       rank: { ...emptyRank, school_rank: 1, school_size: 85 },
     });
     const { getByTestId } = render(ui);
@@ -79,7 +78,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: null,
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -97,7 +95,6 @@ describe('EmpireHomePage — verified state', () => {
         last_name: 'ShouldNotAppearInGreeting',
       },
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -115,9 +112,6 @@ describe('EmpireHomePage — verified state', () => {
         { date: '2026-04-01', rating: 700 },
         { date: '2026-05-01', rating: 800 },
         { date: '2026-06-01', rating: 856 },
-      ],
-      achievements: [
-        { id: 'a1', name: 'Bot Slayer', earned_at: '2026-05-01' },
       ],
       rank: { branch_rank: null, school_rank: 1, branch_size: null, school_size: 85 },
     });
@@ -144,8 +138,9 @@ describe('EmpireHomePage — verified state', () => {
     expect(getByTestId('empire-progress-bar')).toBeTruthy();
     expect(getByTestId('empire-trend-chart')).toBeTruthy();
     expect(getByTestId('empire-next-lesson')).toBeTruthy();
-    expect(getByTestId('empire-achievements-grid')).toBeTruthy();
-    expect(getByTestId('empire-continue-cta')).toBeTruthy();
+    expect(getByTestId('empire-achievements')).toBeTruthy();
+    expect(queryByTestId('empire-achievements-grid')).toBeNull();
+    expect(queryByTestId('empire-continue-cta')).toBeNull();
     expect(queryByTestId('empire-trend-empty')).toBeNull();
   });
 
@@ -157,7 +152,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, photo_url: photoUrl },
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -173,7 +167,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, photo_url: null },
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -188,7 +181,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -205,7 +197,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId, queryByTestId } = render(ui);
@@ -219,7 +210,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_level: 4, current_lesson: 47, total_lessons: 120 },
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -238,7 +228,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_level: undefined, current_lesson: 47, total_lessons: 120 },
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -252,7 +241,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
       bestSurvivalScore: 62,
       bestDefeatedBot: { name: 'Titan', rating: 2100 },
@@ -270,7 +258,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
       bestSurvivalScore: null,
       bestDefeatedBot: null,
@@ -286,7 +273,6 @@ describe('EmpireHomePage — verified state', () => {
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -294,18 +280,23 @@ describe('EmpireHomePage — verified state', () => {
     expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe('—');
   });
 
-  it('renders an achievements empty state when the list is empty', async () => {
+  it('no longer renders the placeholder achievements grid/empty or continue CTA', async () => {
     const ui = await EmpireHomePage({
       state: 'verified',
       studentDisplayName: 'Ali',
       profile: aliProfile,
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId, queryByTestId } = render(ui);
-    expect(getByTestId('empire-achievements-empty')).toBeTruthy();
+    // The live highlight cards remain…
+    expect(getByTestId('empire-highlight-cards')).toBeTruthy();
+    expect(getByTestId('empire-card-survivor')).toBeTruthy();
+    expect(getByTestId('empire-card-bot-slayer')).toBeTruthy();
+    // …but the API-fed placeholder grid, its empty state, and the CTA are gone.
     expect(queryByTestId('empire-achievements-grid')).toBeNull();
+    expect(queryByTestId('empire-achievements-empty')).toBeNull();
+    expect(queryByTestId('empire-continue-cta')).toBeNull();
   });
 });
 
@@ -316,7 +307,6 @@ describe('EmpireHomePage — hero league column', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: 'A' },
       ratings: [{ date: '2026-06-01', rating: 856 }],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -330,7 +320,6 @@ describe('EmpireHomePage — hero league column', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: null },
       ratings: [{ date: '2026-06-01', rating: 1500 }],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
@@ -344,7 +333,6 @@ describe('EmpireHomePage — hero league column', () => {
       studentDisplayName: 'Ali',
       profile: { ...aliProfile, current_league: null, current_rating: null },
       ratings: [],
-      achievements: [],
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);

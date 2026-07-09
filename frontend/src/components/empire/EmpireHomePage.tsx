@@ -16,7 +16,6 @@
 import Link from 'next/link';
 import { getTranslations } from 'next-intl/server';
 import type {
-  CEAchievement,
   CEBestBot,
   CERatingPoint,
   CEStudentProfile,
@@ -32,7 +31,6 @@ interface VerifiedProps {
   studentDisplayName: string | null;
   profile: CEStudentProfile;
   ratings: CERatingPoint[];
-  achievements: CEAchievement[];
   rank: CEStudentRank;
   /** Best (max) survival score; null when the student has no survival games. */
   bestSurvivalScore?: number | null;
@@ -186,7 +184,6 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
     studentDisplayName,
     profile,
     ratings,
-    achievements,
     rank,
     bestSurvivalScore = null,
     bestDefeatedBot = null,
@@ -452,7 +449,7 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
         </section>
 
         {/* Stat pills */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <div className="rounded-xl bg-white border border-slate-200 shadow-sm px-4 py-3">
             <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
               {t('rankSchoolLabel')}
@@ -489,21 +486,6 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
                   {t('ofSize', { size: rank.branch_size })}
                 </span>
               )}
-            </div>
-          </div>
-          <div className="rounded-xl bg-white border border-slate-200 shadow-sm px-4 py-3 col-span-2 sm:col-span-1">
-            <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
-              {t('achievementsCountLabel')}
-            </div>
-            <div className="mt-1 flex items-baseline gap-1">
-              <span
-                data-testid="empire-achievements-count"
-                className="text-xl font-bold"
-                style={{ fontVariantNumeric: 'tabular-nums' }}
-              >
-                {achievements.length}
-              </span>
-              <span className="text-sm text-slate-500">{t('achievementsCountUnit')}</span>
             </div>
           </div>
         </div>
@@ -844,83 +826,7 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
               </div>
             </li>
           </ul>
-          {achievements.length === 0 ? (
-            <p
-              data-testid="empire-achievements-empty"
-              className="text-sm text-slate-500"
-            >
-              {t('achievementsEmpty')}
-            </p>
-          ) : (
-            <ul
-              data-testid="empire-achievements-grid"
-              className="grid grid-cols-2 sm:grid-cols-5 gap-3"
-            >
-              {achievements.slice(0, 5).map((a, i) => (
-                <li
-                  key={a.id ?? `${a.name}-${i}`}
-                  data-testid="empire-achievement-card"
-                  className="rounded-xl border border-slate-200 bg-white p-3 flex flex-col items-center text-center"
-                >
-                  <div
-                    className="w-10 h-10 rounded-lg grid place-items-center mb-2"
-                    style={{
-                      backgroundColor: 'rgba(16,185,129,0.12)',
-                      color: ACCENT_DIM,
-                    }}
-                    aria-hidden="true"
-                  >
-                    <svg
-                      width={20}
-                      height={20}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path d="M8 21h8M12 17v4M17 4h3v3a5 5 0 0 1-5 5h-6a5 5 0 0 1-5-5V4h3" />
-                      <path d="M7 4h10v6a5 5 0 0 1-10 0z" />
-                    </svg>
-                  </div>
-                  <div className="text-xs font-semibold text-slate-800 leading-snug">
-                    {a.name}
-                  </div>
-                  {a.description && (
-                    <div className="text-[10px] text-slate-500 mt-0.5 leading-tight">
-                      {a.description}
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
         </section>
-
-        {/* CTA */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="text-sm text-slate-600">
-            {progressCopy}
-          </div>
-          <Link
-            href="/learn"
-            data-testid="empire-continue-cta"
-            className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-white font-semibold shadow-sm hover:opacity-95 transition"
-            style={{ backgroundColor: ACCENT }}
-          >
-            {t('continueCta')}
-            <svg
-              width={16}
-              height={16}
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2.5}
-              aria-hidden="true"
-            >
-              <path d="M5 12h14M12 5l7 7-7 7" />
-            </svg>
-          </Link>
-        </div>
       </div>
     </main>
   );
