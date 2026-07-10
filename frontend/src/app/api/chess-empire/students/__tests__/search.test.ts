@@ -71,6 +71,7 @@ vi.mock('@/lib/supabase-admin', () => ({
 
 vi.mock('@/lib/chess-empire-client', () => ({
   searchStudentsByBranch: vi.fn(),
+  searchCoachesByBranch: vi.fn(),
   ChessEmpireAPIError: class extends Error {
     statusCode = 500;
     body: unknown = null;
@@ -87,11 +88,15 @@ vi.mock('@/lib/in-memory-rate-limit', () => ({
 }));
 
 import { GET } from '../search/route';
-import { searchStudentsByBranch } from '@/lib/chess-empire-client';
+import {
+  searchStudentsByBranch,
+  searchCoachesByBranch,
+} from '@/lib/chess-empire-client';
 import { rateLimit } from '@/lib/in-memory-rate-limit';
 import { NextRequest } from 'next/server';
 
 const ceSearch = searchStudentsByBranch as unknown as ReturnType<typeof vi.fn>;
+const ceCoachSearch = searchCoachesByBranch as unknown as ReturnType<typeof vi.fn>;
 const rl = rateLimit as unknown as ReturnType<typeof vi.fn>;
 
 function makeReq(url: string): NextRequest {
@@ -111,6 +116,8 @@ beforeEach(() => {
   for (const k of Object.keys(scripts)) delete scripts[k];
   recorded.length = 0;
   ceSearch.mockReset();
+  ceCoachSearch.mockReset();
+  ceCoachSearch.mockResolvedValue([]);
   rl.mockReturnValue({ allowed: true, remaining: 99, retryAfterSeconds: 0 });
 });
 
@@ -173,9 +180,68 @@ describe('GET /api/chess-empire/students/search', () => {
         lastName: 'Kassymova',
         branchName: 'Debut',
         coachName: null,
+        type: 'student',
       },
     ]);
     expect(ceSearch).toHaveBeenCalledWith('br-1', 'ai', 20);
+  });
+
+  it('merges coaches into results with type:coach', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    ceSearch.mockResolvedValue([
+      { id: 'stu-1', first_name: 'Aiman', last_name: 'Kassymova', branch_id: 'br-1', status: 'active' },
+    ]);
+    ceCoachSearch.mockResolvedValue([
+      { id: 'co-1', first_name: 'Anna', last_name: 'Petrova', full_name: 'Anna Petrova', branch_id: 'br-1' },
+    ]);
+    const res = await GET(makeReq('http://x/api/?branchToken=t&q=a'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results).toEqual([
+      {
+        studentId: 'stu-1',
+        firstName: 'Aiman',
+        lastName: 'Kassymova',
+        branchName: 'Debut',
+        coachName: null,
+        type: 'student',
+      },
+      {
+        studentId: 'co-1',
+        firstName: 'Anna',
+        lastName: 'Petrova',
+        branchName: 'Debut',
+        coachName: null,
+        type: 'coach',
+      },
+    ]);
+    expect(ceCoachSearch).toHaveBeenCalledWith('br-1', 'a', 20);
+  });
+
+  it('excludes already-linked coaches like students', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    ceSearch.mockResolvedValue([]);
+    ceCoachSearch.mockResolvedValue([
+      { id: 'co-1', first_name: 'Anna', last_name: 'Petrova', full_name: 'Anna Petrova', branch_id: 'br-1' },
+      { id: 'co-2', first_name: 'Boris', last_name: 'Ivanov', full_name: 'Boris Ivanov', branch_id: 'br-1' },
+    ]);
+    // co-1 already linked
+    scripts['organization_members.select'] = [
+      { data: [{ external_student_id: 'co-1' }], error: null },
+    ];
+    const res = await GET(makeReq('http://x/api/?branchToken=t&q=o'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results).toEqual([
+      {
+        studentId: 'co-2',
+        firstName: 'Boris',
+        lastName: 'Ivanov',
+        branchName: 'Debut',
+        coachName: null,
+        type: 'coach',
+      },
+    ]);
   });
 
   it('429 when rate-limited', async () => {

@@ -17,7 +17,7 @@ from __future__ import annotations
 import hashlib
 import os
 import time
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import jwt
 from jwt.exceptions import InvalidTokenError, ExpiredSignatureError
@@ -33,9 +33,14 @@ class InviteJwtPayload(TypedDict):
     branch_id: str
     branch_token_id: str
     org_id: str
+    # Optional member role. Absent on legacy student tokens — verify normalizes
+    # a missing claim to 'student' for back-compat.
+    member_type: NotRequired[str]
 
 
 class InviteJwtClaims(InviteJwtPayload):
+    # Always present after verify (normalized to 'student' when absent).
+    member_type: str
     iat: int
     exp: int
 
@@ -93,6 +98,9 @@ def verify_invite_jwt(token: str, now: int | None = None) -> InviteJwtClaims:
     for claim in REQUIRED_CLAIMS:
         if not decoded.get(claim):
             raise InviteJwtError(f'Missing required claim: {claim}')
+
+    # Back-compat: legacy tokens carry no member_type — treat them as students.
+    decoded['member_type'] = 'coach' if decoded.get('member_type') == 'coach' else 'student'
 
     return decoded  # type: ignore[return-value]
 

@@ -175,6 +175,52 @@ describe('WelcomeFlow', () => {
     });
   });
 
+  it('renders a Coach badge on coach results and the confirm card, and sends type:coach', async () => {
+    const coachResults = [
+      { studentId: 'co-1', firstName: 'Anna', lastName: 'Petrova', branchName: 'Debut', coachName: null, type: 'coach' as const },
+    ];
+    fetchHandler = async (call) => {
+      if (call.url.includes('/search')) return jsonResponse({ results: coachResults });
+      if (call.url.includes('/verify')) return jsonResponse({ inviteJwt: 'jwt.token.sig' });
+      return jsonResponse({});
+    };
+    const { container, findByTestId, queryByTestId } = renderFlow();
+    const input = container.querySelector('#welcome-search') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'an' } });
+    await flushDebounce();
+    const list = await findByTestId('welcome-search-results');
+    // Badge in the search list.
+    expect(list.querySelector('[data-testid="welcome-coach-badge"]')).not.toBeNull();
+
+    fireEvent.click(list.querySelectorAll('button')[0]);
+    await waitFor(() => expect(container.textContent).toContain('confirmTitle'));
+    // Badge on the confirm card.
+    expect(queryByTestId('welcome-confirm-coach-badge')).not.toBeNull();
+
+    const yesButton = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('confirmYes'),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(yesButton);
+    });
+    await waitFor(() => {
+      const verifyCall = fetchCalls.find((c) => c.url.includes('/verify'));
+      expect(verifyCall).toBeDefined();
+      const body = JSON.parse(verifyCall!.init!.body as string);
+      expect(body).toEqual({ branchToken: 'tok-abc', studentId: 'co-1', type: 'coach' });
+    });
+  });
+
+  it('does not render a Coach badge for student results', async () => {
+    fetchHandler = async () => jsonResponse({ results: sampleResults });
+    const { container, findByTestId } = renderFlow();
+    const input = container.querySelector('#welcome-search') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'ai' } });
+    await flushDebounce();
+    const list = await findByTestId('welcome-search-results');
+    expect(list.querySelector('[data-testid="welcome-coach-badge"]')).toBeNull();
+  });
+
   it('shows a generic error when verify fails', async () => {
 
     fetchHandler = async (call) => {

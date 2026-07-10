@@ -213,6 +213,32 @@ class TestUserCreatedHappyPath:
         assert consumed['jti_hash'] == hashlib.sha256(jwt_token.encode()).hexdigest()
         assert consumed['clerk_user_id'] == 'user_2test'
         assert consumed['external_student_id'] == 'stu-xyz'
+        # Legacy token without member_type links as a student.
+        assert payload['role'] == 'student'
+
+
+class TestUserCreatedCoach:
+    def test_member_type_coach_writes_role_coach(self, client):
+        jwt_token = _sign_invite({'student_id': 'coach-xyz', 'member_type': 'coach'})
+        event = _make_event(jwt_token)
+        supabase = _make_supabase(
+            consumed_hits=[],
+            token_row={'id': 'tok-uuid', 'revoked_at': None},
+            org_row={'id': 'org-uuid', 'clerk_org_id': 'clerk-org-abc'},
+        )
+        mock_clerk = MagicMock()
+        mock_clerk.create_membership.return_value = {}
+        with patch('routes.webhooks.CLERK_WEBHOOK_SECRET', WEBHOOK_SECRET), \
+             patch('routes.webhooks._get_supabase', return_value=supabase), \
+             patch('services.clerk_client.get_client', return_value=mock_clerk):
+            resp = _post_event(client, event, WEBHOOK_SECRET)
+
+        assert resp.status_code == 200
+        assert len(supabase._calls['upsert']) == 1
+        payload = supabase._calls['upsert'][0]['payload']
+        assert payload['role'] == 'coach'
+        assert payload['external_student_id'] == 'coach-xyz'
+        assert payload['external_source'] == 'chess_empire'
 
 
 class TestUserCreatedReplay:

@@ -19,8 +19,10 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export const INVITE_JWT_TTL_SECONDS = 15 * 60;
 
+export type MemberType = 'student' | 'coach';
+
 export interface InviteJwtPayload {
-  /** Chess Empire student UUID. */
+  /** Chess Empire student (or coach) UUID. */
   student_id: string;
   /** Chess Empire branch UUID (mirrors the token's branch). */
   branch_id: string;
@@ -28,9 +30,17 @@ export interface InviteJwtPayload {
   branch_token_id: string;
   /** Chesster `organizations.id`. */
   org_id: string;
+  /**
+   * Member role for the linked `organization_members` row. Optional and
+   * absent for legacy student tokens — verify normalizes a missing claim to
+   * `'student'` so pre-existing tokens stay valid (back-compat).
+   */
+  member_type?: MemberType;
 }
 
 interface InviteJwtClaims extends InviteJwtPayload {
+  /** Always populated after verify — normalized to `'student'` when absent. */
+  member_type: MemberType;
   iat: number;
   exp: number;
 }
@@ -70,7 +80,9 @@ export function signInviteJwt(
 ): string {
   const secret = getSecret();
   const header = { alg: 'HS256', typ: 'JWT' };
-  const claims: InviteJwtClaims = {
+  // member_type stays optional here — an absent claim signs a legacy-shaped
+  // student token; verify normalizes a missing claim back to 'student'.
+  const claims: InviteJwtPayload & { iat: number; exp: number } = {
     ...payload,
     iat: nowSeconds,
     exp: nowSeconds + ttlSeconds,
@@ -109,6 +121,8 @@ export function verifyInviteJwt(
   if (!claims.student_id || !claims.branch_id || !claims.branch_token_id || !claims.org_id) {
     throw new InviteJwtError('Missing required claim');
   }
+  // Back-compat: legacy tokens carry no member_type — treat them as students.
+  claims.member_type = claims.member_type === 'coach' ? 'coach' : 'student';
   return claims;
 }
 

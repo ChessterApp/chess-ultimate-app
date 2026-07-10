@@ -22,8 +22,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   searchStudentsByBranch,
+  searchCoachesByBranch,
   ChessEmpireAPIError,
   type CEStudent,
+  type CECoach,
 } from '@/lib/chess-empire-client';
 import { rateLimit } from '@/lib/in-memory-rate-limit';
 
@@ -110,8 +112,14 @@ export async function GET(req: NextRequest) {
   }
 
   let students: CEStudent[];
+  let coaches: CECoach[];
   try {
-    students = await searchStudentsByBranch(token.external_branch_id, q, MAX_RESULTS);
+    // Promise.all subscribes to both promises, so a rejection from either is
+    // handled (no unhandled-rejection warning) even though it rejects on first.
+    [students, coaches] = await Promise.all([
+      searchStudentsByBranch(token.external_branch_id, q, MAX_RESULTS),
+      searchCoachesByBranch(token.external_branch_id, q, MAX_RESULTS),
+    ]);
   } catch (err) {
     if (err instanceof ChessEmpireAPIError) {
       console.error('[ce-search] CE API error:', err.statusCode, err.body);
@@ -121,21 +129,38 @@ export async function GET(req: NextRequest) {
   }
 
   // Active-only filter is enforced at the CE query layer (status=eq.active).
-  // Defensive re-filter here in case the API contract drifts.
+  // Defensive re-filter here in case the API contract drifts. Coaches have no
+  // status column, so every returned coach is a valid result.
   const activeStudents = students.filter((s) => s.status === 'active');
-  const studentIds = activeStudents.map((s) => s.id);
-  const linked = await fetchLinkedStudentIds(token.organization_id, studentIds);
+  const candidateIds = [
+    ...activeStudents.map((s) => s.id),
+    ...coaches.map((c) => c.id),
+  ];
+  const linked = await fetchLinkedStudentIds(token.organization_id, candidateIds);
 
-  const results = activeStudents
+  const studentResults = activeStudents
     .filter((s) => !linked.has(s.id))
-    .slice(0, MAX_RESULTS)
     .map((s) => ({
       studentId: s.id,
       firstName: s.first_name,
       lastName: s.last_name || '',
       branchName: token.branch_name,
       coachName: null as string | null,
+      type: 'student' as const,
     }));
+
+  const coachResults = coaches
+    .filter((c) => !linked.has(c.id))
+    .map((c) => ({
+      studentId: c.id,
+      firstName: c.first_name,
+      lastName: c.last_name || '',
+      branchName: token.branch_name,
+      coachName: null as string | null,
+      type: 'coach' as const,
+    }));
+
+  const results = [...studentResults, ...coachResults].slice(0, MAX_RESULTS);
 
   return NextResponse.json({ results });
 }

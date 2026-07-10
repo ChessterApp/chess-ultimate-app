@@ -492,10 +492,13 @@ def _handle_user_created(event: dict) -> None:
     # 5) Upsert organization_members with the external linkage. Safe on retry:
     # the (organization_id, external_student_id, external_source) unique
     # constraint turns re-runs into idempotent no-ops.
+    # Coaches share the external_student_id column, discriminated by role.
+    # verify_invite_jwt normalizes a missing member_type to 'student'.
+    member_role = 'coach' if claims.get('member_type') == 'coach' else 'student'
     member_payload = {
         'organization_id': claims['org_id'],
         'user_id': clerk_user_id,
-        'role': 'student',
+        'role': member_role,
         'joined_at': now_iso,
         'external_student_id': claims['student_id'],
         'external_source': 'chess_empire',

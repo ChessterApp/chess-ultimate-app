@@ -72,6 +72,29 @@ describe('invite-jwt', () => {
     expect(() => signInviteJwt(payload)).toThrowError(/INVITE_JWT_SECRET/);
   });
 
+  it('carries a member_type=coach claim through a round-trip', () => {
+    const token = signInviteJwt({ ...payload, member_type: 'coach' });
+    const claims = verifyInviteJwt(token);
+    expect(claims.member_type).toBe('coach');
+  });
+
+  it('defaults member_type to student when the claim is absent (back-compat)', () => {
+    // Legacy tokens were signed with no member_type field.
+    const token = signInviteJwt(payload);
+    expect(token.split('.').length).toBe(3);
+    const claims = verifyInviteJwt(token);
+    expect(claims.member_type).toBe('student');
+  });
+
+  it('normalizes an unknown member_type value to student', () => {
+    const token = signInviteJwt({
+      ...payload,
+      member_type: 'admin' as unknown as 'coach',
+    });
+    const claims = verifyInviteJwt(token);
+    expect(claims.member_type).toBe('student');
+  });
+
   it('rejects payloads missing required claims', () => {
     const token = signInviteJwt(payload);
     // Re-sign with a deliberately broken payload — same secret, broken claim.

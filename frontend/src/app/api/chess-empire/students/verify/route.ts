@@ -20,10 +20,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import {
   getStudentProfile,
+  getCoachProfile,
   ChessEmpireAPIError,
-  type CEStudentProfile,
 } from '@/lib/chess-empire-client';
-import { signInviteJwt } from '@/lib/invite-jwt';
+import { signInviteJwt, type MemberType } from '@/lib/invite-jwt';
 import { rateLimit } from '@/lib/in-memory-rate-limit';
 
 const PER_STUDENT_LIMIT = 3;
@@ -42,6 +42,8 @@ interface BranchTokenRow {
 interface VerifyBody {
   branchToken?: string;
   studentId?: string;
+  /** Optional; `'coach'` claims a CE coach instead of a student. */
+  type?: string;
 }
 
 function clientIp(req: NextRequest): string {
@@ -95,6 +97,7 @@ export async function POST(req: NextRequest) {
 
   const branchToken = body.branchToken?.trim() ?? '';
   const studentId = body.studentId?.trim() ?? '';
+  const memberType: MemberType = body.type === 'coach' ? 'coach' : 'student';
   if (!branchToken || !studentId) {
     return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
   }
@@ -165,9 +168,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let profile: CEStudentProfile;
+  // Coaches live in a separate CE table with no `status` column, so we fetch
+  // their profile (for the branch-match check) via getCoachProfile and skip
+  // the active-status gate entirely.
+  let branchId: string;
+  let status: string | null;
   try {
-    profile = await getStudentProfile(studentId);
+    if (memberType === 'coach') {
+      const coach = await getCoachProfile(studentId);
+      branchId = coach.branch_id;
+      status = null;
+    } else {
+      const profile = await getStudentProfile(studentId);
+      branchId = profile.branch_id;
+      status = profile.status;
+    }
   } catch (err) {
     if (err instanceof ChessEmpireAPIError) {
       const reason = err.statusCode === 404 ? 'not_found' : 'upstream_error';
@@ -187,7 +202,7 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  if (profile.branch_id !== token.external_branch_id) {
+  if (branchId !== token.external_branch_id) {
     await logAttempt({
       organizationId: token.organization_id,
       branchTokenId: token.id,
@@ -199,7 +214,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'branch_mismatch' }, { status: 401 });
   }
 
-  if (profile.status !== 'active') {
+  // Students must be active; coaches have no status and skip this check.
+  if (memberType === 'student' && status !== 'active') {
     await logAttempt({
       organizationId: token.organization_id,
       branchTokenId: token.id,
@@ -216,6 +232,8 @@ export async function POST(req: NextRequest) {
     branch_id: token.external_branch_id,
     branch_token_id: token.id,
     org_id: token.organization_id,
+    // Omit for students so legacy-shaped tokens stay identical (back-compat).
+    ...(memberType === 'coach' ? { member_type: 'coach' as const } : {}),
   });
 
   await logAttempt({

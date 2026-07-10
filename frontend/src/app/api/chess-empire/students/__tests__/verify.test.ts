@@ -68,6 +68,7 @@ vi.mock('@/lib/supabase-admin', () => ({
 
 vi.mock('@/lib/chess-empire-client', () => ({
   getStudentProfile: vi.fn(),
+  getCoachProfile: vi.fn(),
   ChessEmpireAPIError: class extends Error {
     statusCode = 500;
     body: unknown = null;
@@ -87,12 +88,13 @@ vi.mock('@/lib/in-memory-rate-limit', () => {
 });
 
 import { POST } from '../verify/route';
-import { getStudentProfile } from '@/lib/chess-empire-client';
+import { getStudentProfile, getCoachProfile } from '@/lib/chess-empire-client';
 import { rateLimit } from '@/lib/in-memory-rate-limit';
 import { verifyInviteJwt } from '@/lib/invite-jwt';
 import { NextRequest } from 'next/server';
 
 const ceProfile = getStudentProfile as unknown as ReturnType<typeof vi.fn>;
+const ceCoachProfile = getCoachProfile as unknown as ReturnType<typeof vi.fn>;
 const rl = rateLimit as unknown as ReturnType<typeof vi.fn>;
 
 const VALID_TOKEN = {
@@ -116,6 +118,7 @@ beforeEach(() => {
   for (const k of Object.keys(scripts)) delete scripts[k];
   inserted.length = 0;
   ceProfile.mockReset();
+  ceCoachProfile.mockReset();
   rl.mockReturnValue({ allowed: true, remaining: 99, retryAfterSeconds: 0 });
   process.env.INVITE_JWT_SECRET = 'unit-test-secret';
 });
@@ -223,5 +226,64 @@ describe('POST /api/chess-empire/students/verify', () => {
     );
     expect(res.status).toBe(429);
     expect(res.headers.get('Retry-After')).toBe('3600');
+  });
+
+  it('coach happy path: uses getCoachProfile, skips status, signs member_type=coach JWT', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    scripts['organization_members.maybeSingle'] = [{ data: null, error: null }];
+    ceCoachProfile.mockResolvedValue({
+      id: 'co-1',
+      first_name: 'Anna',
+      last_name: 'Petrova',
+      branch_id: 'br-1',
+      email: 'anna@example.com',
+    });
+    const res = await POST(
+      makeReq({ branchToken: 't', studentId: 'co-1', type: 'coach' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const claims = verifyInviteJwt(body.inviteJwt);
+    expect(claims.student_id).toBe('co-1');
+    expect(claims.member_type).toBe('coach');
+    // The student-profile path must not run for coaches.
+    expect(ceProfile).not.toHaveBeenCalled();
+    expect(ceCoachProfile).toHaveBeenCalledWith('co-1');
+    const attempt = inserted.find((i) => i.table === 'student_verify_attempts');
+    expect((attempt!.payload as { success: boolean }).success).toBe(true);
+  });
+
+  it('coach branch mismatch → 401', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    scripts['organization_members.maybeSingle'] = [{ data: null, error: null }];
+    ceCoachProfile.mockResolvedValue({
+      id: 'co-1',
+      first_name: 'Anna',
+      last_name: 'Petrova',
+      branch_id: 'br-OTHER',
+      email: null,
+    });
+    const res = await POST(
+      makeReq({ branchToken: 't', studentId: 'co-1', type: 'coach' }),
+    );
+    expect(res.status).toBe(401);
+    const body = await res.json();
+    expect(body.error).toBe('branch_mismatch');
+  });
+
+  it('coach duplicate link → 409', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    scripts['organization_members.maybeSingle'] = [
+      { data: { id: 'mem-1' }, error: null },
+    ];
+    scripts['student_verify_attempts.insert'] = [{ data: null, error: null }];
+    const res = await POST(
+      makeReq({ branchToken: 't', studentId: 'co-1', type: 'coach' }),
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toBe('ALREADY_REGISTERED');
+    // Duplicate is caught before we ever hit the CE API.
+    expect(ceCoachProfile).not.toHaveBeenCalled();
   });
 });

@@ -1580,6 +1580,7 @@
     "noResults": "No matches. Double-check the spelling or contact your branch admin.",
     "cantFind": "Can't find your child? Contact your branch admin.",
     "coachLabel": "Coach: {coach}",
+    "coachBadge": "Coach",
     "confirmTitle": "Is this you?",
     "confirmCoach": "Coach: {coach}",
     "confirmBranch": "Branch: {branch}",

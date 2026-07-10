@@ -55,8 +55,24 @@ export interface CEBranch {
 
 export interface CECoach {
   id: string;
+  first_name: string;
+  last_name: string;
+  /** Derived `${first_name} ${last_name}` — the CE table has no `full_name`. */
   full_name: string;
   branch_id?: string | null;
+}
+
+export interface CECoachProfile {
+  id: string;
+  first_name: string;
+  last_name: string;
+  branch_id: string;
+  email?: string | null;
+}
+
+/** Join first + last into a trimmed display name (CE coaches have no full_name column). */
+function coachFullName(first?: string | null, last?: string | null): string {
+  return `${(first ?? '').trim()} ${(last ?? '').trim()}`.trim();
 }
 
 export interface CEActiveStudent {
@@ -207,6 +223,92 @@ export async function searchStudentsByBranch(
     },
   });
   return expectJson<CEStudent[]>(resp);
+}
+
+/**
+ * Search coaches by branch with a name (first OR last) ILIKE filter.
+ *
+ * Mirror of `searchStudentsByBranch` for the CE `coaches` table. Coaches have
+ * no `status` column, so there is no active-only filter — every coach in the
+ * branch is a valid result. Returns up to `limit` rows with a derived
+ * `full_name`.
+ */
+export async function searchCoachesByBranch(
+  branchId: string,
+  query: string,
+  limit: number = DEFAULT_SEARCH_LIMIT,
+): Promise<CECoach[]> {
+  const key = getServiceKey();
+  const safeLimit = Math.min(Math.max(1, limit), 50);
+  const params = new URLSearchParams({
+    branch_id: `eq.${branchId}`,
+    select: 'id,first_name,last_name,branch_id',
+    limit: String(safeLimit),
+    order: 'first_name.asc',
+  });
+  const trimmed = query.trim();
+  if (trimmed) {
+    const escaped = trimmed.replace(/[,()*]/g, ' ').trim();
+    if (escaped) {
+      params.append(
+        'or',
+        `(first_name.ilike.*${escaped}*,last_name.ilike.*${escaped}*)`,
+      );
+    }
+  }
+  const url = `${ceRestBase()}/coaches?${params.toString()}`;
+  const resp = await ceFetch(url, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  });
+  const rows = await expectJson<
+    Array<{ id: string; first_name?: string | null; last_name?: string | null; branch_id?: string | null }>
+  >(resp);
+  return rows.map((r) => ({
+    id: r.id,
+    first_name: r.first_name ?? '',
+    last_name: r.last_name ?? '',
+    full_name: coachFullName(r.first_name, r.last_name),
+    branch_id: r.branch_id ?? null,
+  }));
+}
+
+/**
+ * Fetch a single coach's profile by id from the CE REST API. Used by the
+ * verify route for the branch-match check. PostgREST returns a (possibly
+ * empty) array; an empty result is surfaced as a 404 ChessEmpireAPIError to
+ * mirror `getStudentProfile`'s not-found behavior.
+ */
+export async function getCoachProfile(coachId: string): Promise<CECoachProfile> {
+  const key = getServiceKey();
+  const params = new URLSearchParams({
+    id: `eq.${coachId}`,
+    select: 'id,first_name,last_name,branch_id,email',
+    limit: '1',
+  });
+  const url = `${ceRestBase()}/coaches?${params.toString()}`;
+  const resp = await ceFetch(url, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  });
+  const rows = await expectJson<Array<Record<string, unknown>>>(resp);
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  if (!row) {
+    throw new ChessEmpireAPIError(404, `coach ${coachId} not found`);
+  }
+  return {
+    id: String(row.id),
+    first_name: (row.first_name as string | null) ?? '',
+    last_name: (row.last_name as string | null) ?? '',
+    branch_id: (row.branch_id as string | null) ?? '',
+    email: (row.email as string | null | undefined) ?? null,
+  };
 }
 
 /**
@@ -552,7 +654,14 @@ function isCEBranchArray(x: unknown): x is CEBranch[] {
   );
 }
 
-function isCECoachArray(x: unknown): x is CECoach[] {
+interface CECoachRow {
+  id: string;
+  first_name: string;
+  last_name: string;
+  branch_id?: string | null;
+}
+
+function isCECoachRowArray(x: unknown): x is CECoachRow[] {
   return (
     Array.isArray(x) &&
     x.every(
@@ -560,7 +669,8 @@ function isCECoachArray(x: unknown): x is CECoach[] {
         r &&
         typeof r === 'object' &&
         typeof (r as { id?: unknown }).id === 'string' &&
-        typeof (r as { full_name?: unknown }).full_name === 'string',
+        typeof (r as { first_name?: unknown }).first_name === 'string' &&
+        typeof (r as { last_name?: unknown }).last_name === 'string',
     )
   );
 }
@@ -636,8 +746,8 @@ export async function listCoaches(): Promise<CECoach[]> {
     return [];
   }
   const params = new URLSearchParams({
-    select: 'id,full_name,branch_id',
-    order: 'full_name.asc',
+    select: 'id,first_name,last_name,branch_id',
+    order: 'first_name.asc',
   });
   const url = `${ceRestBase()}/coaches?${params.toString()}`;
   let resp: Response;
@@ -670,7 +780,15 @@ export async function listCoaches(): Promise<CECoach[]> {
   } catch {
     return [];
   }
-  if (isCECoachArray(body)) return body;
+  if (isCECoachRowArray(body)) {
+    return body.map((r) => ({
+      id: r.id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      full_name: coachFullName(r.first_name, r.last_name),
+      branch_id: r.branch_id ?? null,
+    }));
+  }
   if (!warnedListCoaches) {
     console.warn('[ce-admin] listCoaches: unexpected shape, returning []');
     warnedListCoaches = true;

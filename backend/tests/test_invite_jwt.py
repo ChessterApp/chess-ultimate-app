@@ -68,3 +68,25 @@ def test_missing_claim_rejected():
     token = sign_invite_jwt({**PAYLOAD, 'org_id': ''}, now=now)
     with pytest.raises(InviteJwtError, match='required claim'):
         verify_invite_jwt(token, now=now)
+
+
+def test_member_type_coach_round_trip():
+    now = 1_700_000_000
+    token = sign_invite_jwt({**PAYLOAD, 'member_type': 'coach'}, now=now)
+    claims = verify_invite_jwt(token, now=now)
+    assert claims['member_type'] == 'coach'
+
+
+def test_member_type_defaults_to_student_when_absent():
+    # Legacy tokens carry no member_type — back-compat must treat them as students.
+    now = 1_700_000_000
+    token = sign_invite_jwt(PAYLOAD, now=now)
+    claims = verify_invite_jwt(token, now=now)
+    assert claims['member_type'] == 'student'
+
+
+def test_member_type_unknown_value_normalized_to_student():
+    now = 1_700_000_000
+    token = sign_invite_jwt({**PAYLOAD, 'member_type': 'admin'}, now=now)
+    claims = verify_invite_jwt(token, now=now)
+    assert claims['member_type'] == 'student'

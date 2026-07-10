@@ -34,6 +34,8 @@ interface StudentResult {
   lastName: string;
   branchName: string;
   coachName: string | null;
+  /** `'coach'` marks a CE coach result; absent/`'student'` is a student. */
+  type?: 'student' | 'coach';
 }
 
 type Step = 'search' | 'confirm';
@@ -129,6 +131,8 @@ export default function WelcomeFlow({
         body: JSON.stringify({
           branchToken,
           studentId: selected.studentId,
+          // Only sent for coaches so student request bodies stay unchanged.
+          ...(selected.type === 'coach' ? { type: 'coach' } : {}),
         }),
       });
       if (res.status === 409) {
@@ -275,8 +279,18 @@ function SearchStep({
                   onClick={() => onSelect(r)}
                   className="w-full text-left rounded-2xl border-2 border-gray-200 bg-white hover:border-purple-400 hover:bg-purple-50 transition-all p-4 focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2"
                 >
-                  <span className="block font-semibold text-gray-800">
-                    {r.firstName} {r.lastName}
+                  <span className="flex items-center gap-2 font-semibold text-gray-800">
+                    <span>
+                      {r.firstName} {r.lastName}
+                    </span>
+                    {r.type === 'coach' && (
+                      <span
+                        data-testid="welcome-coach-badge"
+                        className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700"
+                      >
+                        {t('coachBadge')}
+                      </span>
+                    )}
                   </span>
                   {r.coachName && (
                     <span className="block text-xs text-gray-500 mt-1">
@@ -327,6 +341,14 @@ function ConfirmStep({
         <p className="text-xl font-semibold text-gray-900">
           {selected.firstName} {selected.lastName}
         </p>
+        {selected.type === 'coach' && (
+          <span
+            data-testid="welcome-confirm-coach-badge"
+            className="mt-2 inline-flex items-center rounded-full bg-purple-100 px-3 py-1 text-xs font-semibold text-purple-700"
+          >
+            {t('coachBadge')}
+          </span>
+        )}
         <p className="text-sm text-gray-500 mt-2">
           {t('confirmBranch', { branch: selected.branchName })}
         </p>

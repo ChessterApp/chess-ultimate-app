@@ -80,16 +80,29 @@ describe('chess-empire-client admin helpers', () => {
   });
 
   describe('listCoaches', () => {
-    it('returns rows on happy path', async () => {
+    it('returns rows on happy path with a derived full_name', async () => {
       fetchSpy.mockResolvedValue(
         jsonResponse([
-          { id: 'co-1', full_name: 'Yerkezhan', branch_id: 'br-1' },
+          { id: 'co-1', first_name: 'Yerkezhan', last_name: 'Toktarov', branch_id: 'br-1' },
         ]),
       );
       const coaches = await listCoaches();
-      expect(coaches[0]?.full_name).toBe('Yerkezhan');
+      expect(coaches[0]?.first_name).toBe('Yerkezhan');
+      expect(coaches[0]?.last_name).toBe('Toktarov');
+      expect(coaches[0]?.full_name).toBe('Yerkezhan Toktarov');
       const [url] = fetchSpy.mock.calls[0]!;
       expect(String(url)).toContain('/rest/v1/coaches');
+      expect(String(url)).toContain('first_name');
+      // The real CE table has no full_name column — must not be selected.
+      expect(String(url)).not.toContain('full_name');
+    });
+
+    it('ignores legacy full_name-only rows (unexpected shape → [])', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([{ id: 'co-1', full_name: 'Legacy', branch_id: 'br-1' }]),
+      );
+      const coaches = await listCoaches();
+      expect(coaches).toEqual([]);
     });
 
     it('returns [] on 404', async () => {

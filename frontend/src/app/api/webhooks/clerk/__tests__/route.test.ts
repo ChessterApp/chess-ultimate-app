@@ -319,6 +319,42 @@ describe('POST /api/webhooks/clerk — user.created — JWT path', () => {
   });
 });
 
+describe('POST /api/webhooks/clerk — user.created — coach JWT', () => {
+  it('member_type=coach → writes role:coach on the member row', async () => {
+    const jwt = signValidInvite({ student_id: 'coach-xyz', member_type: 'coach' });
+    resetState({
+      tokenRow: { id: 'tok-uuid', revoked_at: null },
+      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
+    });
+    createMembership.mockResolvedValue({});
+
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toHaveLength(1);
+    const up = state.upserts[0];
+    expect(up.payload.role).toBe('coach');
+    expect(up.payload.external_student_id).toBe('coach-xyz');
+    expect(up.payload.external_source).toBe('chess_empire');
+    expect(up.payload.link_status).toBe('verified');
+
+    expect(attemptsForStatus('success')).toHaveLength(1);
+  });
+
+  it('legacy JWT without member_type → writes role:student', async () => {
+    const jwt = signValidInvite();
+    resetState({
+      tokenRow: { id: 'tok-uuid', revoked_at: null },
+      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
+    });
+    createMembership.mockResolvedValue({});
+
+    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
+    expect(res.status).toBe(200);
+    expect(state.upserts[0].payload.role).toBe('student');
+  });
+});
+
 describe('POST /api/webhooks/clerk — user.created — replay', () => {
   it('JWT already consumed → jwt_replayed attempt, no writes, no email fallback', async () => {
     const jwt = signValidInvite();

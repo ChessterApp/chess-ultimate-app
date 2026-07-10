@@ -118,6 +118,7 @@ interface JwtLinkContext {
   studentId: string;
   branchTokenId: string;
   jtiHash: string;
+  memberType: 'student' | 'coach';
 }
 
 /**
@@ -232,6 +233,8 @@ async function attemptJwtLink(
       studentId: claims.student_id,
       branchTokenId: claims.branch_token_id,
       jtiHash,
+      // verifyInviteJwt normalizes a missing claim to 'student' (back-compat).
+      memberType: claims.member_type,
     },
   };
 }
@@ -242,6 +245,8 @@ interface UpsertLinkArgs {
   studentId: string;
   linkStatus: 'verified' | 'pending_confirm';
   linkSource: AttemptSource;
+  /** Member role written to the row. Defaults to 'student'. */
+  memberType?: 'student' | 'coach';
 }
 
 async function upsertMemberLink({
@@ -250,12 +255,14 @@ async function upsertMemberLink({
   studentId,
   linkStatus,
   linkSource,
+  memberType = 'student',
 }: UpsertLinkArgs): Promise<void> {
   const nowIso = new Date().toISOString();
   const payload: Record<string, unknown> = {
     organization_id: orgId,
     user_id: clerkUserId,
-    role: 'student',
+    // Coach UUIDs share the external_student_id column, discriminated by role.
+    role: memberType === 'coach' ? 'coach' : 'student',
     joined_at: nowIso,
     external_student_id: studentId,
     external_source: 'chess_empire',
@@ -410,6 +417,7 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
         studentId: ctx.studentId,
         linkStatus: 'verified',
         linkSource: 'jwt',
+        memberType: ctx.memberType,
       });
     } catch (err) {
       await logLinkAttempt({
