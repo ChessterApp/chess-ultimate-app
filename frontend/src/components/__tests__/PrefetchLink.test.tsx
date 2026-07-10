@@ -95,7 +95,7 @@ describe('Navigation components use PrefetchLink', () => {
 
   it('BottomNavigation should use PrefetchLink for all nav items', () => {
     const navItems = [
-      '/dashboard', '/play', '/coach', '/database', '/profile',
+      '/dashboard', '/play', '/coach', '/database', '/learn',
     ];
 
     expect(navItems).toHaveLength(5);
