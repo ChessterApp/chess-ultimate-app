@@ -18,7 +18,6 @@ interface OrgChecklistSnapshot {
     accentColor?: string | null;
     customDomainStatus?: string | null;
     emailSenderStatus?: string | null;
-    landingPageConfig?: Record<string, unknown> | null;
     createdAt?: string | null;
     plan?: string | null;
   };

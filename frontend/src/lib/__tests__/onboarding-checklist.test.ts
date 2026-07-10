@@ -16,7 +16,6 @@ function snap(over: Partial<Parameters<typeof computeChecklist>[0]['org']> = {},
       accentColor: '#ffd700',
       customDomainStatus: null,
       emailSenderStatus: null,
-      landingPageConfig: null,
       createdAt: '2026-06-01T00:00:00Z',
       plan: 'starter',
       ...over,
@@ -57,11 +56,6 @@ describe('computeChecklist', () => {
       computeChecklist(snap({}, { students: 5 })).find(i => i.id === 'invite_students')?.completed,
     ).toBe(true);
   });
-
-  it('detects landing page configured when config has any entries', () => {
-    const items = computeChecklist(snap({ landingPageConfig: { hero_title: 'x' } }));
-    expect(items.find(i => i.id === 'publish_landing')?.completed).toBe(true);
-  });
 });
 
 describe('completionPercentage', () => {
@@ -74,7 +68,6 @@ describe('completionPercentage', () => {
       {
         logoUrl: 'https://x',
         primaryColor: '#7b1fa2',
-        landingPageConfig: { hero_title: 'X' },
       },
       { students: 5, teachers: 1 },
     ));
@@ -87,7 +80,6 @@ describe('completionPercentage', () => {
       {
         logoUrl: 'https://x',
         primaryColor: '#7b1fa2',
-        landingPageConfig: { hero_title: 'X' },
         plan: 'starter',
       },
       { students: 5, teachers: 1 },
@@ -100,15 +92,15 @@ describe('completionPercentage', () => {
       { logoUrl: 'https://x', plan: 'starter' },
       { students: 5 },
     ));
-    // 2 / 5 visible = 40%
-    expect(completionPercentage(items)).toBe(40);
+    // 2 / 4 visible = 50%
+    expect(completionPercentage(items)).toBe(50);
   });
 });
 
 describe('shouldShowChecklist', () => {
   it('hides once 100% complete', () => {
     const s = snap(
-      { logoUrl: 'https://x', primaryColor: '#aaaaaa', landingPageConfig: { x: 1 } },
+      { logoUrl: 'https://x', primaryColor: '#aaaaaa' },
       { students: 5, teachers: 1 },
     );
     expect(shouldShowChecklist(s)).toBe(false);

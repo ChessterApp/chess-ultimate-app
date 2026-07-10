@@ -13,11 +13,6 @@ interface BrandingConfig {
   secondary_color: string;
   accent_color: string;
   custom_css: string;
-  landing_page_config: {
-    hero_title?: string;
-    hero_subtitle?: string;
-    cta_text?: string;
-  };
 }
 
 type UploadKind = 'logo' | 'favicon' | 'mark';
@@ -38,7 +33,6 @@ export default function AdminSettingsPage() {
     secondary_color: '#ffffff',
     accent_color: '#ffd700',
     custom_css: '',
-    landing_page_config: {},
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -58,7 +52,6 @@ export default function AdminSettingsPage() {
       secondary_color: org.secondaryColor,
       accent_color: org.accentColor,
       custom_css: org.customCss || '',
-      landing_page_config: (org.landingPageConfig as BrandingConfig['landing_page_config']) || {},
     });
   }, [org]);
 
@@ -325,85 +318,6 @@ export default function AdminSettingsPage() {
                 Advanced — applied site-wide. Use at your own risk.
               </p>
             </div>
-          </div>
-        </section>
-
-        {/* Landing Page Section */}
-        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Landing Page</h2>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Hero Title
-              </label>
-              <input
-                type="text"
-                value={config.landing_page_config.hero_title || ''}
-                onChange={e => setConfig({
-                  ...config,
-                  landing_page_config: { ...config.landing_page_config, hero_title: e.target.value },
-                })}
-                placeholder="Welcome to our chess school"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Hero Subtitle
-              </label>
-              <input
-                type="text"
-                value={config.landing_page_config.hero_subtitle || ''}
-                onChange={e => setConfig({
-                  ...config,
-                  landing_page_config: { ...config.landing_page_config, hero_subtitle: e.target.value },
-                })}
-                placeholder="Learn chess with the best coaches"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                CTA Button Text
-              </label>
-              <input
-                type="text"
-                value={config.landing_page_config.cta_text || ''}
-                onChange={e => setConfig({
-                  ...config,
-                  landing_page_config: { ...config.landing_page_config, cta_text: e.target.value },
-                })}
-                placeholder="Get Started"
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Preview Panel */}
-        <section className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Preview</h2>
-          <div
-            className="rounded-lg p-6 text-center"
-            style={{ backgroundColor: config.primary_color }}
-          >
-            {config.logo_url && (
-              <img src={config.logo_url} alt="Logo preview" className="h-12 mx-auto mb-3 rounded" />
-            )}
-            <h3 className="text-xl font-bold" style={{ color: config.secondary_color }}>
-              {config.landing_page_config.hero_title || org?.name || 'Your School'}
-            </h3>
-            <p className="mt-1 text-sm opacity-80" style={{ color: config.secondary_color }}>
-              {config.landing_page_config.hero_subtitle || 'Welcome'}
-            </p>
-            <button
-              type="button"
-              className="mt-4 px-4 py-2 rounded-lg font-medium text-sm"
-              style={{ backgroundColor: config.accent_color, color: config.primary_color }}
-            >
-              {config.landing_page_config.cta_text || 'Get Started'}
-            </button>
           </div>
         </section>
 

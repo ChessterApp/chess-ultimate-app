@@ -5,12 +5,12 @@
  * targets a tenant subdomain (e.g. `chess-empire.chesster.io/`). Mocks
  * Clerk's `auth()`, Next's `headers()` and `redirect()`, the member-lookup
  * helper, and the CE client so we can drive every branch (signed-in redirect
- * / unsigned landing / other tenant) without needing the real CE Supabase.
+ * / signed-out redirect / apex) without needing the real CE Supabase.
  *
- * Since signed-in users on the tenant root now server-redirect to
- * `/dashboard` (so they get the full nav shell), the signed-in branch is
- * asserted via the mocked `redirect()`; only signed-out users reach the
- * tenant landing render path.
+ * Tenant domains have no public landing page: signed-in users server-redirect
+ * to `/dashboard` (full nav shell) and signed-out users server-redirect to
+ * `/sign-in` (branded Clerk page). Both branches are asserted via the mocked
+ * `redirect()`. Only the apex (non-tenant) domain renders a marketing page.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -99,11 +99,6 @@ vi.mock('@/lib/chess-empire-client', () => ({
   getStudentRank: vi.fn(async () => ceStore.rank),
 }));
 
-const fetchOrgStore: { current: unknown } = { current: null };
-vi.mock('@/lib/tenant-landing-fetch', () => ({
-  fetchOrgForLanding: vi.fn(async () => fetchOrgStore.current),
-}));
-
 // Stub the actual visual children so the test focuses on which top-level
 // shell renders rather than re-asserting child markup.
 vi.mock('@/components/empire/EmpireHomePage', () => ({
@@ -120,10 +115,6 @@ vi.mock('@/components/empire/EmpireHomePage', () => ({
       data-name={props.studentDisplayName ?? ''}
     />
   ),
-}));
-
-vi.mock('@/components/tenant/TenantLanding', () => ({
-  TenantLanding: () => <div data-testid="tenant-landing" />,
 }));
 
 // The apex landing pulls in lots of client islands and next-intl client hooks
@@ -200,7 +191,6 @@ beforeEach(() => {
     branch_size: null,
     school_size: null,
   };
-  fetchOrgStore.current = null;
 });
 
 afterEach(() => {
@@ -233,78 +223,40 @@ describe('tenant Page() — root redirect + landing routing', () => {
     expect(redirectMock).toHaveBeenCalledWith('/dashboard');
   });
 
-  it('does not redirect when auth() throws — treats as signed-out', async () => {
+  it('redirects a signed-out user on chess-empire root to /sign-in', async () => {
+    headersStore.current = {
+      'x-org-id': 'org-ce',
+      'x-org-slug': 'chess-empire',
+    };
+    authStore.current = { userId: null };
+
+    const Page = (await import('../page')).default;
+    await expect(Page()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirectMock).toHaveBeenCalledWith('/sign-in');
+  });
+
+  it('redirects to /sign-in when auth() throws — treats as signed-out', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
     };
     authStore.throws = true;
-    fetchOrgStore.current = {
-      id: 'org-ce',
-      slug: 'chess-empire',
-      name: 'Chess Empire',
-      logoUrl: null,
-      primaryColor: '#000',
-      secondaryColor: '#fff',
-      accentColor: '#f00',
-      landingPageConfig: {},
-    };
 
     const Page = (await import('../page')).default;
-    const ui = await Page();
-    const { getByTestId } = render(ui);
-    expect(getByTestId('tenant-landing')).toBeTruthy();
-    expect(redirectMock).not.toHaveBeenCalled();
+    await expect(Page()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirectMock).toHaveBeenCalledWith('/sign-in');
   });
 
-  it('renders <TenantLanding> when unsigned on chess-empire', async () => {
-    headersStore.current = {
-      'x-org-id': 'org-ce',
-      'x-org-slug': 'chess-empire',
-    };
-    authStore.current = { userId: null };
-    fetchOrgStore.current = {
-      id: 'org-ce',
-      slug: 'chess-empire',
-      name: 'Chess Empire',
-      logoUrl: null,
-      primaryColor: '#000',
-      secondaryColor: '#fff',
-      accentColor: '#f00',
-      landingPageConfig: {},
-    };
-
-    const Page = (await import('../page')).default;
-    const ui = await Page();
-    const { getByTestId, queryByTestId } = render(ui);
-    expect(getByTestId('tenant-landing')).toBeTruthy();
-    expect(queryByTestId('empire-home')).toBeNull();
-    expect(redirectMock).not.toHaveBeenCalled();
-  });
-
-  it('renders <TenantLanding> for unsigned non-chess-empire org', async () => {
+  it('redirects a signed-out user on any tenant org root to /sign-in', async () => {
     headersStore.current = {
       'x-org-id': 'org-other',
       'x-org-slug': 'some-other-school',
     };
     authStore.current = { userId: null };
-    fetchOrgStore.current = {
-      id: 'org-other',
-      slug: 'some-other-school',
-      name: 'Other School',
-      logoUrl: null,
-      primaryColor: '#000',
-      secondaryColor: '#fff',
-      accentColor: '#f00',
-      landingPageConfig: {},
-    };
 
     const Page = (await import('../page')).default;
-    const ui = await Page();
-    const { getByTestId, queryByTestId } = render(ui);
-    expect(getByTestId('tenant-landing')).toBeTruthy();
-    expect(queryByTestId('empire-home')).toBeNull();
-    expect(redirectMock).not.toHaveBeenCalled();
+    await expect(Page()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirectMock).toHaveBeenCalledWith('/sign-in');
   });
 
   it('renders the apex homepage when no org headers are present', async () => {
@@ -315,7 +267,7 @@ describe('tenant Page() — root redirect + landing routing', () => {
     const ui = await Page();
     const { getByTestId, queryByTestId } = render(ui);
     expect(getByTestId('apex-redirect')).toBeTruthy();
-    expect(queryByTestId('tenant-landing')).toBeNull();
+    expect(queryByTestId('empire-home')).toBeNull();
     expect(redirectMock).not.toHaveBeenCalled();
   });
 });

@@ -9,7 +9,6 @@ export type ChecklistItemId =
   | 'pick_colors'
   | 'invite_students'
   | 'invite_teacher'
-  | 'publish_landing'
   | 'verify_sender'
   | 'connect_domain';
 
@@ -29,7 +28,6 @@ export interface ChecklistSnapshot {
     accentColor?: string | null;
     customDomainStatus?: string | null;
     emailSenderStatus?: string | null;
-    landingPageConfig?: Record<string, unknown> | null;
     createdAt?: string | null;
     plan?: string | null;
   };
@@ -44,8 +42,6 @@ export function computeChecklist(snap: ChecklistSnapshot): ChecklistItem[] {
   const isPro = org.plan === 'pro' || org.plan === 'enterprise';
   const hasCustomColors =
     Boolean(org.primaryColor) && org.primaryColor !== DEFAULT_PRIMARY;
-  const landingConfigured =
-    !!org.landingPageConfig && Object.keys(org.landingPageConfig).length > 0;
 
   const items: ChecklistItem[] = [
     {
@@ -67,11 +63,6 @@ export function computeChecklist(snap: ChecklistSnapshot): ChecklistItem[] {
       id: 'invite_teacher',
       href: '/admin/students',
       completed: teacherCount >= 1,
-    },
-    {
-      id: 'publish_landing',
-      href: '/admin/settings',
-      completed: landingConfigured,
     },
     {
       id: 'verify_sender',

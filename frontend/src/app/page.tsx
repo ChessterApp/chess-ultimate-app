@@ -16,8 +16,6 @@ import { CTAButton } from '@/components/landing/CTAButton'
 import { HeroAnimatedBackground } from '@/components/landing/HeroAnimatedBackground'
 import { SocialButtons } from '@/components/landing/SocialButtons'
 import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
-import { TenantLanding } from '@/components/tenant/TenantLanding'
-import { fetchOrgForLanding } from '@/lib/tenant-landing-fetch'
 
 // Apex ISR — tenant rendering forces dynamic via headers() below.
 export const revalidate = 3600
@@ -48,25 +46,19 @@ export default async function Page() {
   const orgId = headersList.get('x-org-id')
   const orgSlug = headersList.get('x-org-slug')
   if (orgId && orgSlug) {
-    // Signed-in users landing on a bare tenant domain should get the full
-    // nav shell, which lives at /dashboard (ClientShell hides nav on `/`).
-    // Redirect them there; signed-out users keep the tenant landing page.
+    // Tenant (school) domains have no public landing page. Signed-in users get
+    // the full nav shell at /dashboard (ClientShell hides nav on `/`);
+    // signed-out visitors go straight to the branded Clerk sign-in page.
     let signedIn = false
     try {
       const session = await auth()
       signedIn = Boolean(session.userId)
     } catch {
-      // Treat auth() failures as signed-out and fall through to the landing.
+      // Treat auth() failures as signed-out.
       signedIn = false
     }
     // redirect() throws NEXT_REDIRECT — must run outside the try/catch above.
-    if (signedIn) {
-      redirect('/dashboard')
-    }
-    const org = await fetchOrgForLanding(orgId, orgSlug)
-    if (org) {
-      return <TenantLanding org={org} config={org.landingPageConfig} />
-    }
+    redirect(signedIn ? '/dashboard' : '/sign-in')
   }
   return <ApexHomePage />
 }
