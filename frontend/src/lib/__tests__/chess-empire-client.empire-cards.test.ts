@@ -112,34 +112,41 @@ describe('getStudentProfile — survival/bot extraction', () => {
     else process.env.CHESS_EMPIRE_SERVICE_KEY = originalKey;
   });
 
+  // getStudentProfile also fetches student_current_ratings, so route the
+  // mock by URL — a single shared Response body can only be consumed once.
+  function mockProfileFetch(profileBody: unknown) {
+    fetchSpy.mockImplementation(async (url) => {
+      if (String(url).includes('/rest/v1/student_current_ratings')) {
+        return jsonResponse([]);
+      }
+      return jsonResponse(profileBody);
+    });
+  }
+
   it('reads survival_scores / bot_battles as siblings of student under data', async () => {
-    fetchSpy.mockResolvedValue(
-      jsonResponse({
-        success: true,
-        data: {
-          student: {
-            id: 'stu-1',
-            first_name: 'A',
-            status: 'active',
-            branch_id: 'br-1',
-          },
-          survival_scores: [15, 62, 40],
-          bot_battles: [
-            { bot_name: 'Pawn', bot_rating: 800 },
-            { bot_name: 'Titan', bot_rating: 2100 },
-          ],
+    mockProfileFetch({
+      success: true,
+      data: {
+        student: {
+          id: 'stu-1',
+          first_name: 'A',
+          status: 'active',
+          branch_id: 'br-1',
         },
-      }),
-    );
+        survival_scores: [15, 62, 40],
+        bot_battles: [
+          { bot_name: 'Pawn', bot_rating: 800 },
+          { bot_name: 'Titan', bot_rating: 2100 },
+        ],
+      },
+    });
     const profile = await getStudentProfile('stu-1');
     expect(profile.best_survival_score).toBe(62);
     expect(profile.best_defeated_bot).toEqual({ name: 'Titan', rating: 2100 });
   });
 
   it('sets both to null when the arrays are absent', async () => {
-    fetchSpy.mockResolvedValue(
-      jsonResponse({ id: 'stu-1', first_name: 'A' }),
-    );
+    mockProfileFetch({ id: 'stu-1', first_name: 'A' });
     const profile = await getStudentProfile('stu-1');
     expect(profile.best_survival_score).toBeNull();
     expect(profile.best_defeated_bot).toBeNull();

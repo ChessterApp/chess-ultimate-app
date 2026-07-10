@@ -101,11 +101,34 @@ export interface CEStudentProfile extends CEStudent {
   current_rating?: number | null;
   razryad?: string | null;
   current_league?: string | null;
+  league_tier?: string | null;
   joined_at?: string | null;
   /** Highest value across the profile's `survival_scores` array, or null. */
   best_survival_score?: number | null;
   /** Highest-rated bot the student has beaten, or null if none recorded. */
   best_defeated_bot?: CEBestBot | null;
+}
+
+/**
+ * CE leagues are event-driven (promotions/demotions with hysteresis recorded
+ * in `student_league_events`), so the stored league in
+ * `student_current_ratings` is the source of truth — it is NOT derivable from
+ * the rating alone. `normalizeLeagueName` maps the stored "League A" form to
+ * the bare letter the UI renders.
+ */
+export function normalizeLeagueName(
+  raw: string | null | undefined,
+): string | null {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/^league\s+/i, '');
+}
+
+export interface CECurrentLeague {
+  rating: number | null;
+  rating_date: string | null;
+  league: string | null;
+  league_tier: string | null;
 }
 
 export interface CERatingPoint {
@@ -414,6 +437,9 @@ export function bestDefeatedBot(botBattles: unknown): CEBestBot | null {
 export async function getStudentProfile(studentId: string): Promise<CEStudentProfile> {
   const key = getServiceKey();
   const url = `${ceFunctionsBase()}/analytics-students?action=profile&student_id=${encodeURIComponent(studentId)}`;
+  // The profile Edge Function does not expose league data, so the current
+  // rating/league row is fetched in parallel from `student_current_ratings`.
+  const currentLeaguePromise = getStudentCurrentLeague(studentId);
   const resp = await ceFetch(url, {
     headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' },
   });
@@ -435,13 +461,54 @@ export async function getStudentProfile(studentId: string): Promise<CEStudentPro
   const coachName = coaches && (coaches.first_name || coaches.last_name)
     ? `${coaches.first_name ?? ''} ${coaches.last_name ?? ''}`.trim()
     : null;
+  const currentLeague = await currentLeaguePromise;
   return {
     ...(student as unknown as CEStudentProfile),
     branch_name: branches?.name ?? null,
     coach_name: coachName,
+    current_rating:
+      (student.current_rating as number | null | undefined) ??
+      currentLeague?.rating ??
+      null,
+    current_league:
+      normalizeLeagueName(currentLeague?.league) ??
+      normalizeLeagueName(student.current_league as string | null | undefined),
+    league_tier: currentLeague?.league_tier ?? null,
     best_survival_score: bestSurvivalScore(data.survival_scores ?? student.survival_scores),
     best_defeated_bot: bestDefeatedBot(data.bot_battles ?? student.bot_battles),
   };
+}
+
+/**
+ * Fetch the student's current rating/league row from
+ * `student_current_ratings`. Best-effort: returns null on any failure so
+ * profile rendering degrades to a league-less hero instead of blowing up.
+ */
+export async function getStudentCurrentLeague(
+  studentId: string,
+): Promise<CECurrentLeague | null> {
+  try {
+    const key = getServiceKey();
+    const params = new URLSearchParams({
+      student_id: `eq.${studentId}`,
+      select: 'rating,rating_date,league,league_tier',
+    });
+    const resp = await ceFetch(
+      `${ceRestBase()}/student_current_ratings?${params.toString()}`,
+      {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          Accept: 'application/json',
+        },
+      },
+    );
+    if (resp.status < 200 || resp.status >= 300) return null;
+    const rows = (await resp.json()) as CECurrentLeague[];
+    return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -809,8 +876,11 @@ export async function listActiveStudentsByBranch(
   const params = new URLSearchParams({
     branch_id: `eq.${branchId}`,
     status: 'eq.active',
+    // `students` has no razryad/league snapshot columns — razryad lives on the
+    // row as `razryad` and the league comes embedded from
+    // `student_current_ratings` (the source of truth for leagues).
     select:
-      'id,first_name,last_name,date_of_birth,status,branch_id,coach_id,current_razryad,current_league',
+      'id,first_name,last_name,date_of_birth,status,branch_id,coach_id,razryad,student_current_ratings(league,league_tier)',
     order: 'first_name.asc',
   });
   const url = `${ceRestBase()}/students?${params.toString()}`;
@@ -849,7 +919,22 @@ export async function listActiveStudentsByBranch(
     return [];
   }
   if (isCEActiveStudentArray(body)) {
-    return body.filter((s) => s.status === 'active');
+    type RawActiveStudent = CEActiveStudent & {
+      razryad?: string | null;
+      student_current_ratings?: Array<{
+        league?: string | null;
+        league_tier?: string | null;
+      }> | null;
+    };
+    return (body as RawActiveStudent[])
+      .filter((s) => s.status === 'active')
+      .map(({ razryad, student_current_ratings, ...rest }) => ({
+        ...rest,
+        current_razryad: razryad ?? rest.current_razryad ?? null,
+        current_league:
+          normalizeLeagueName(student_current_ratings?.[0]?.league) ??
+          normalizeLeagueName(rest.current_league),
+      }));
   }
   if (!warnedListActiveStudents) {
     console.warn(

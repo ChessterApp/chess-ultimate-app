@@ -137,6 +137,44 @@ describe('chess-empire-client admin helpers', () => {
       const s = String(url);
       expect(s).toContain('branch_id=eq.br-1');
       expect(s).toContain('status=eq.active');
+      // razryad is a plain column; league is embedded from the
+      // student_current_ratings source-of-truth table.
+      expect(decodeURIComponent(s)).toContain(
+        'student_current_ratings(league,league_tier)',
+      );
+      expect(decodeURIComponent(s)).not.toContain('current_razryad');
+    });
+
+    it('maps razryad + embedded league onto the CEActiveStudent shape', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          {
+            id: 'stu-1',
+            first_name: 'A',
+            last_name: 'B',
+            status: 'active',
+            branch_id: 'br-1',
+            razryad: '3rd',
+            student_current_ratings: [
+              { league: 'League A', league_tier: 'gold' },
+            ],
+          },
+          {
+            id: 'stu-2',
+            first_name: 'C',
+            last_name: 'D',
+            status: 'active',
+            branch_id: 'br-1',
+            razryad: null,
+            student_current_ratings: [],
+          },
+        ]),
+      );
+      const out = await listActiveStudentsByBranch('br-1');
+      expect(out[0]?.current_razryad).toBe('3rd');
+      expect(out[0]?.current_league).toBe('A');
+      expect(out[1]?.current_razryad).toBeNull();
+      expect(out[1]?.current_league).toBeNull();
     });
 
     it('returns [] for empty branchId without fetching', async () => {

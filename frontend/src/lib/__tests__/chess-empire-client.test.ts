@@ -84,37 +84,80 @@ describe('chess-empire-client', () => {
   });
 
   describe('getStudentProfile', () => {
+    // getStudentProfile fetches the analytics profile AND the current
+    // rating/league row, so route the mock by URL (a shared Response body
+    // can only be consumed once).
+    function mockProfileFetch(profileBody: unknown, leagueRows: unknown = []) {
+      fetchSpy.mockImplementation(async (url) => {
+        if (String(url).includes('/rest/v1/student_current_ratings')) {
+          return jsonResponse(leagueRows);
+        }
+        return jsonResponse(profileBody);
+      });
+    }
+
     it('hits analytics-students with Bearer auth and unwraps {data: {student}}', async () => {
-      fetchSpy.mockResolvedValue(
-        jsonResponse({
-          success: true,
-          data: {
-            student: {
-              id: 'stu-1',
-              first_name: 'A',
-              last_name: 'B',
-              status: 'active',
-              branch_id: 'br-1',
-              branches: { name: 'Debut' },
-              coaches: { first_name: 'Aleksandr', last_name: 'Olegovich' },
-            },
+      mockProfileFetch({
+        success: true,
+        data: {
+          student: {
+            id: 'stu-1',
+            first_name: 'A',
+            last_name: 'B',
+            status: 'active',
+            branch_id: 'br-1',
+            branches: { name: 'Debut' },
+            coaches: { first_name: 'Aleksandr', last_name: 'Olegovich' },
           },
-        }),
-      );
+        },
+      });
       const profile = await getStudentProfile('stu-1');
       expect(profile.id).toBe('stu-1');
       expect(profile.branch_name).toBe('Debut');
       expect(profile.coach_name).toBe('Aleksandr Olegovich');
-      const [url, init] = fetchSpy.mock.calls[0]!;
-      const urlStr = String(url);
-      expect(urlStr).toContain('/functions/v1/analytics-students?action=profile&student_id=stu-1');
+      const analyticsCall = fetchSpy.mock.calls.find(([u]) =>
+        String(u).includes('/functions/v1/analytics-students'),
+      );
+      expect(analyticsCall).toBeTruthy();
+      const [url, init] = analyticsCall!;
+      expect(String(url)).toContain(
+        '/functions/v1/analytics-students?action=profile&student_id=stu-1',
+      );
       const headers = (init?.headers ?? {}) as Record<string, string>;
       expect(headers.Authorization).toBe('Bearer ce-test-key');
       expect(headers['x-api-key']).toBeUndefined();
     });
 
+    it('merges league + rating from student_current_ratings (normalized)', async () => {
+      mockProfileFetch(
+        { success: true, data: { student: { id: 'stu-1', first_name: 'A' } } },
+        [
+          {
+            rating: 856,
+            rating_date: '2026-06-13',
+            league: 'League A',
+            league_tier: 'gold',
+          },
+        ],
+      );
+      const profile = await getStudentProfile('stu-1');
+      expect(profile.current_league).toBe('A');
+      expect(profile.league_tier).toBe('gold');
+      expect(profile.current_rating).toBe(856);
+    });
+
+    it('leaves league null when student_current_ratings has no row', async () => {
+      mockProfileFetch(
+        { success: true, data: { student: { id: 'stu-1', first_name: 'A' } } },
+        [],
+      );
+      const profile = await getStudentProfile('stu-1');
+      expect(profile.current_league).toBeNull();
+      expect(profile.league_tier).toBeNull();
+    });
+
     it('flattens a raw student payload (no envelope)', async () => {
-      fetchSpy.mockResolvedValue(jsonResponse({ id: 'stu-1', first_name: 'A' }));
+      mockProfileFetch({ id: 'stu-1', first_name: 'A' });
       const profile = await getStudentProfile('stu-1');
       expect(profile.id).toBe('stu-1');
       expect(profile.branch_name).toBeNull();
@@ -122,7 +165,7 @@ describe('chess-empire-client', () => {
     });
 
     it('throws ChessEmpireAPIError on 404', async () => {
-      fetchSpy.mockResolvedValue(jsonResponse({}, { status: 404 }));
+      fetchSpy.mockImplementation(async () => jsonResponse({}, { status: 404 }));
       await expect(getStudentProfile('missing')).rejects.toBeInstanceOf(ChessEmpireAPIError);
     });
   });

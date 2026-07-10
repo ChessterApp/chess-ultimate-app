@@ -21,7 +21,6 @@ import type {
   CEStudentProfile,
   CEStudentRank,
 } from '@/lib/chess-empire-client';
-import { getLeague } from '@/lib/league';
 import PendingConfirmBanner from './PendingConfirmBanner';
 
 export type EmpireHomeState = 'verified' | 'pending_confirm' | 'no_link';
@@ -245,13 +244,13 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
       ? null
       : `${delta >= 0 ? '+' : ''}${delta} ${t('ratingDeltaSuffix')}`;
 
-  const rawLeague = profile.current_league?.trim();
-  const heroLeague =
-    rawLeague && rawLeague.length > 0
-      ? rawLeague
-      : currentRating != null
-        ? getLeague(currentRating)
-        : null;
+  // League comes from the Chess Empire API (`student_current_ratings`) only.
+  // CE leagues are promotion-event driven, so guessing one from the rating
+  // shows wrong values — render "—" until the API provides it.
+  const rawLeague = profile.current_league
+    ?.trim()
+    .replace(/^league\s+/i, '');
+  const heroLeague = rawLeague && rawLeague.length > 0 ? rawLeague : null;
   const heroLeagueColor = heroLeague
     ? HERO_LEAGUE_COLOR[heroLeague] ?? '#FFFFFF'
     : '#FFFFFF';

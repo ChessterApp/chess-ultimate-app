@@ -45,6 +45,8 @@ const aliProfile: CEStudentProfile = {
   coach_name: 'Vasily Mikhaylovich',
   razryad: '3rd',
   current_rating: 856,
+  current_league: 'A',
+  league_tier: 'gold',
   current_level: 7,
   current_lesson: 94,
   total_lessons: 120,
@@ -130,8 +132,8 @@ describe('EmpireHomePage — verified state', () => {
     // Hero no longer renders the delta pill or sparkline (Option 2 twin columns).
     expect(queryByTestId('empire-rating-delta')).toBeNull();
     expect(queryByTestId('empire-hero-sparkline')).toBeNull();
-    // League column falls back to getLeague(856) = "C" when current_league is unset.
-    expect(getByTestId('empire-league-value').textContent).toContain('C');
+    // League comes straight from the API (`student_current_ratings`).
+    expect(getByTestId('empire-league-value').textContent).toContain('A');
     expect(getByTestId('empire-school-rank').textContent).toBe('#1');
     expect(getByTestId('empire-progress-level').textContent).toBe('7');
     expect(getByTestId('empire-progress-current').textContent).toBe('94');
@@ -310,11 +312,22 @@ describe('EmpireHomePage — hero league column', () => {
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
-    // current_league wins over the getLeague(856) = "C" fallback.
     expect(getByTestId('empire-league-value').textContent).toBe('A');
   });
 
-  it('falls back to getLeague(rating) when current_league is null', async () => {
+  it('normalizes the stored "League B" form to the bare letter', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: { ...aliProfile, current_league: 'League B' },
+      ratings: [{ date: '2026-06-01', rating: 856 }],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    expect(getByTestId('empire-league-value').textContent).toBe('B');
+  });
+
+  it('never guesses a league from the rating — shows "—" when the API has none', async () => {
     const ui = await EmpireHomePage({
       state: 'verified',
       studentDisplayName: 'Ali',
@@ -323,8 +336,9 @@ describe('EmpireHomePage — hero league column', () => {
       rank: emptyRank,
     });
     const { getByTestId } = render(ui);
-    // 1500 → League B.
-    expect(getByTestId('empire-league-value').textContent).toBe('B');
+    // Leagues are promotion-event driven in CE — a rating-derived guess can
+    // be wrong (e.g. 856 is League A after a promotion), so render "—".
+    expect(getByTestId('empire-league-value').textContent).toBe('—');
   });
 
   it('shows "—" when both current_league and rating are missing', async () => {
