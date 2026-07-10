@@ -69,7 +69,8 @@ describe('Coach API Routes', () => {
 
       const { POST } = await import('../../coach/chat/route');
 
-      const request = new Request('http://localhost:3000/api/coach/chat', {
+      const { NextRequest } = await import('next/server');
+      const request = new NextRequest('http://localhost:3000/api/coach/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: 'Analyze this position', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }),

@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const locale = request.cookies.get('NEXT_LOCALE')?.value || 'en';
+  const locale = request.cookies.get('NEXT_LOCALE')?.value || 'ru';
 
   const encoder = new TextEncoder();
 

@@ -130,7 +130,7 @@ describe('i18n config', () => {
   it('config exports correct locales', async () => {
     const config = await import('@/i18n/config');
     expect(config.locales).toEqual(['en', 'ru', 'kz']);
-    expect(config.defaultLocale).toBe('en');
+    expect(config.defaultLocale).toBe('ru');
   });
 
   it('every configured locale has a messages file', async () => {
@@ -151,18 +151,18 @@ describe('i18n config', () => {
 });
 
 describe('Clerk localization', () => {
-  it('layout exports Clerk localizations for all supported locales', async () => {
-    // Read the layout file and verify it contains localization for all 3 locales
-    const layoutPath = path.resolve(__dirname, '../layout.tsx');
-    const layoutContent = fs.readFileSync(layoutPath, 'utf-8');
+  it('clerk-localization exports Clerk localizations for all supported locales', async () => {
+    // Read the clerk-localization lib and verify it contains localization for all 3 locales
+    const libPath = path.resolve(__dirname, '../../lib/clerk-localization.ts');
+    const libContent = fs.readFileSync(libPath, 'utf-8');
 
     for (const locale of locales) {
-      expect(layoutContent, `Layout missing Clerk localization for ${locale}`).toContain(`${locale}: {`);
+      expect(libContent, `clerk-localization missing Clerk localization for ${locale}`).toContain(`${locale}: {`);
     }
 
     // Verify each locale has signIn and signUp sections
-    expect(layoutContent).toContain('signIn:');
-    expect(layoutContent).toContain('signUp:');
+    expect(libContent).toContain('signIn:');
+    expect(libContent).toContain('signUp:');
   });
 });
 

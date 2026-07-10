@@ -5,7 +5,7 @@ import { substituteAppName } from '@/lib/i18n-substitute';
 
 export const locales = ['en', 'ru', 'kz'] as const;
 export type Locale = (typeof locales)[number];
-export const defaultLocale: Locale = 'en';
+export const defaultLocale: Locale = 'ru';
 
 async function resolveAppName(): Promise<string> {
   try {
