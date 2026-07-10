@@ -11,7 +11,6 @@ import { useToast } from '@/components/ToastProvider'
 import { useBackendHealth } from '@/hooks/useBackendHealth'
 import { StreakBanner, StreakMini } from '@/components/gamification/StreakBanner'
 import { XPDisplay } from '@/components/gamification/XPDisplay'
-import { LevelBadge, getLevelFromXp } from '@/components/gamification/LevelBadge'
 import { LessonPath } from '@/components/gamification/LessonPath'
 import { SpeechBubble } from '@/components/mascot/SpeechBubble'
 
@@ -199,12 +198,11 @@ export default function ChessterDashboard() {
               <StreakMini streakDays={streakDays} />
               <XPDisplay xp={userXP} size="md" />
             </div>
-            <LevelBadge xp={userXP} size="sm" showName={false} />
           </div>
 
           <h1 className="text-2xl font-bold">{greeting}</h1>
           <p className="text-purple-200 mt-1">
-            {t(`gamification.levels.${getLevelFromXp(userXP)}`)} {t('gamification.level')} • {userXP.toLocaleString()} {t('gamification.xp')}
+            {userXP.toLocaleString()} {t('gamification.xp')}
           </p>
         </div>
       </div>

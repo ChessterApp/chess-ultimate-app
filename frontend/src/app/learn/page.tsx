@@ -8,7 +8,6 @@ import LoadingScreen from '@/components/LoadingScreen'
 import { apiFetch, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ToastProvider'
 import { LessonPath } from '@/components/gamification/LessonPath'
-import { LevelProgressCard } from '@/components/gamification/LevelBadge'
 import { SpeechBubble } from '@/components/mascot/SpeechBubble'
 
 interface Course {
@@ -47,7 +46,6 @@ export default function LearnPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Gamification state (mock data for now)
-  const [userXP] = useState(450)
   const [courseProgress, setCourseProgress] = useState<Record<string, CourseProgress>>({})
 
   useEffect(() => {
@@ -157,11 +155,6 @@ export default function LearnPage() {
           <SpeechBubble mood="encouraging" mascotSize="sm">
             {t('mascot.messages.followPath')}
           </SpeechBubble>
-        </div>
-
-        {/* Level Progress */}
-        <div className="mb-8">
-          <LevelProgressCard xp={userXP} />
         </div>
 
         {error && (

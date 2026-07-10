@@ -3,7 +3,6 @@
 import { useUser, useClerk } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { LevelProgressCard, LevelBadge } from '@/components/gamification/LevelBadge'
 import { StreakBanner } from '@/components/gamification/StreakBanner'
 import { XPDisplay } from '@/components/gamification/XPDisplay'
 import LoadingScreen from '@/components/LoadingScreen'
@@ -81,9 +80,6 @@ export default function ProfilePage() {
       </div>
 
       <div className="container mx-auto px-4 py-6 space-y-6">
-        {/* Level Progress */}
-        <LevelProgressCard xp={userXP} />
-
         {/* Streak */}
         <StreakBanner
           streakDays={streakDays}
