@@ -11,13 +11,13 @@
  * HS256 and the JWT format is small. Mirrors the Python equivalent at
  * ``backend/services/invite_jwt.py`` which uses ``pyjwt``.
  *
- * Default TTL: 900 seconds (15 min). The webhook also enforces single-use
+ * Default TTL: 3600 seconds (60 min). The webhook also enforces single-use
  * via a `consumed_at` write in Phase 2/3.
  */
 import 'server-only';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-export const INVITE_JWT_TTL_SECONDS = 15 * 60;
+export const INVITE_JWT_TTL_SECONDS = 60 * 60;
 
 export type MemberType = 'student' | 'coach';
 

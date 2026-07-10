@@ -15,8 +15,13 @@
  *   - email fallback single-match: pending_confirm upsert + success attempt.
  *   - email fallback zero-match: no writes, no_match attempt only.
  *   - email fallback multi-match: no writes, multiple_match attempt only.
- *   - Clerk 5xx: bubbles for Svix retry.
+ *   - Clerk 5xx: non-fatal — the DB link is already committed, so consumption
+ *     + success attempt still run and the webhook returns 200.
  *   - Listmonk failure: swallowed.
+ *
+ * The JWT linking logic now lives in the shared `chess-empire-jwt-link` module
+ * (reused by the client claim endpoint). Consumption is a duplicate-tolerant
+ * upsert (not an insert) so the webhook + claim race stays idempotent.
  */
 import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -280,9 +285,11 @@ describe('POST /api/webhooks/clerk — user.created — JWT path', () => {
     expect(createSubscriber).toHaveBeenCalledTimes(1);
 
     // Exactly one organization_members upsert with the expected linkage
-    expect(state.upserts).toHaveLength(1);
-    const up = state.upserts[0];
-    expect(up.table).toBe('organization_members');
+    const memberUpserts = state.upserts.filter(
+      (u) => u.table === 'organization_members',
+    );
+    expect(memberUpserts).toHaveLength(1);
+    const up = memberUpserts[0];
     expect(up.onConflict).toBe(
       'organization_id,external_student_id,external_source',
     );
@@ -300,9 +307,9 @@ describe('POST /api/webhooks/clerk — user.created — JWT path', () => {
       role: 'org:member',
     });
 
-    // Consumption row + success link_attempt row
-    const consumed = state.inserts.filter(
-      (i) => i.table === 'invite_jwts_consumed',
+    // Consumption row (duplicate-tolerant upsert) + success link_attempt row
+    const consumed = state.upserts.filter(
+      (u) => u.table === 'invite_jwts_consumed',
     );
     expect(consumed).toHaveLength(1);
     expect(consumed[0].payload.jti_hash).toBe(
@@ -331,8 +338,11 @@ describe('POST /api/webhooks/clerk — user.created — coach JWT', () => {
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
 
-    expect(state.upserts).toHaveLength(1);
-    const up = state.upserts[0];
+    const memberUpserts = state.upserts.filter(
+      (u) => u.table === 'organization_members',
+    );
+    expect(memberUpserts).toHaveLength(1);
+    const up = memberUpserts[0];
     expect(up.payload.role).toBe('coach');
     expect(up.payload.external_student_id).toBe('coach-xyz');
     expect(up.payload.external_source).toBe('chess_empire');
@@ -351,7 +361,10 @@ describe('POST /api/webhooks/clerk — user.created — coach JWT', () => {
 
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
-    expect(state.upserts[0].payload.role).toBe('student');
+    const memberUpsert = state.upserts.find(
+      (u) => u.table === 'organization_members',
+    );
+    expect(memberUpsert?.payload.role).toBe('student');
   });
 });
 
@@ -503,14 +516,16 @@ describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () 
 
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
-    expect(state.upserts).toHaveLength(1);
     expect(
-      state.inserts.filter((i) => i.table === 'invite_jwts_consumed'),
+      state.upserts.filter((u) => u.table === 'organization_members'),
+    ).toHaveLength(1);
+    expect(
+      state.upserts.filter((u) => u.table === 'invite_jwts_consumed'),
     ).toHaveLength(1);
     expect(attemptsForStatus('success')).toHaveLength(1);
   });
 
-  it('Clerk 5xx: returns 500, upsert ran but consumption + success attempt did NOT', async () => {
+  it('Clerk 5xx: non-fatal — DB link committed, so consumption + success still run (200)', async () => {
     const jwt = signValidInvite();
     resetState({
       tokenRow: { id: 'tok-uuid', revoked_at: null },
@@ -521,12 +536,16 @@ describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () 
     );
 
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
-    expect(res.status).toBe(500);
-    expect(state.upserts).toHaveLength(1);
+    expect(res.status).toBe(200);
+    // The member row (source of truth for the dashboard) is written, so a
+    // failed Clerk org-membership call must not strand the user or 500.
     expect(
-      state.inserts.filter((i) => i.table === 'invite_jwts_consumed'),
-    ).toEqual([]);
-    expect(attemptsForStatus('success')).toHaveLength(0);
+      state.upserts.filter((u) => u.table === 'organization_members'),
+    ).toHaveLength(1);
+    expect(
+      state.upserts.filter((u) => u.table === 'invite_jwts_consumed'),
+    ).toHaveLength(1);
+    expect(attemptsForStatus('success')).toHaveLength(1);
   });
 
   it('Listmonk failure does not block CE flow', async () => {
@@ -540,9 +559,11 @@ describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () 
 
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
-    expect(state.upserts).toHaveLength(1);
     expect(
-      state.inserts.filter((i) => i.table === 'invite_jwts_consumed'),
+      state.upserts.filter((u) => u.table === 'organization_members'),
+    ).toHaveLength(1);
+    expect(
+      state.upserts.filter((u) => u.table === 'invite_jwts_consumed'),
     ).toHaveLength(1);
     expect(attemptsForStatus('success')).toHaveLength(1);
     expect(createMembership).toHaveBeenCalledTimes(1);

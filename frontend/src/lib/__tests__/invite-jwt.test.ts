@@ -29,6 +29,17 @@ describe('invite-jwt', () => {
     else process.env.INVITE_JWT_SECRET = originalSecret;
   });
 
+  it('defaults the TTL to 60 minutes', () => {
+    expect(INVITE_JWT_TTL_SECONDS).toBe(60 * 60);
+  });
+
+  it('bakes the 60-minute TTL into the default exp', () => {
+    const now = 1_700_000_000;
+    const token = signInviteJwt(payload, undefined, now);
+    const claims = verifyInviteJwt(token, now);
+    expect(claims.exp).toBe(now + 3600);
+  });
+
   it('signs and verifies a round-trip', () => {
     const now = 1_700_000_000;
     const token = signInviteJwt(payload, INVITE_JWT_TTL_SECONDS, now);

@@ -4,8 +4,9 @@ import { SignUp } from '@clerk/nextjs'
 import { useTranslations } from 'next-intl'
 import Image from 'next/image'
 import { useSearchParams } from 'next/navigation'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useBranding, useOrganization } from '@/contexts/OrganizationContext'
+import { CE_INVITE_JWT_STORAGE_KEY } from '@/lib/invite-storage'
 
 interface InvitePreview {
   firstName: string | null
@@ -50,6 +51,21 @@ export default function SignUpPage() {
   const invite = useMemo(() => previewInvite(inviteJwt), [inviteJwt])
   const isChessEmpire = org?.slug === 'chess-empire'
   const hasValidInvite = !!inviteJwt && invite !== null && !invite.expired
+
+  // Persist the invite JWT so the dashboard's no_link poller can replay it to
+  // /link/claim if Clerk drops unsafeMetadata during an OAuth redirect. Written
+  // to both storages: sessionStorage survives same-origin OAuth returns, and
+  // localStorage is the belt-and-braces fallback (the JWT's own exp bounds it —
+  // a stale value simply claims as expired and is cleared).
+  useEffect(() => {
+    if (!hasValidInvite || !inviteJwt) return
+    try {
+      sessionStorage.setItem(CE_INVITE_JWT_STORAGE_KEY, inviteJwt)
+      localStorage.setItem(CE_INVITE_JWT_STORAGE_KEY, inviteJwt)
+    } catch {
+      // Storage disabled (private mode / blocked) — the webhook path still runs.
+    }
+  }, [hasValidInvite, inviteJwt])
 
   const heading = isWhiteLabel
     ? `${t('auth.signUpTitle')} · ${branding.name}`

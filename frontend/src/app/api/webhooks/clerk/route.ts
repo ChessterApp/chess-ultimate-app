@@ -1,11 +1,10 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { clerkClient } from '@clerk/nextjs/server';
 import { createSubscriber, blocklistSubscriber, LISTS } from '@/lib/listmonk';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { verifyInviteJwt, jwtJtiHash, InviteJwtError } from '@/lib/invite-jwt';
 import { findStudentsByParentEmail } from '@/lib/chess-empire-client';
+import { logLinkAttempt, upsertMemberLink, linkMemberViaInviteJwt } from '@/lib/chess-empire-jwt-link';
 
 type ClerkWebhookEvent = {
   type: string;
@@ -22,28 +21,6 @@ type ClerkUserData = {
   last_name?: string | null;
   unsafe_metadata?: Record<string, unknown> | null;
 };
-
-type AttemptSource = 'jwt' | 'email_auto' | 'admin_manual' | 'backfill';
-type AttemptStatus =
-  | 'success'
-  | 'no_match'
-  | 'multiple_match'
-  | 'jwt_missing'
-  | 'jwt_invalid'
-  | 'jwt_expired'
-  | 'jwt_replayed'
-  | 'webhook_error';
-
-interface AttemptRow {
-  organization_id: string | null;
-  user_id: string | null;
-  email: string | null;
-  attempted_source: AttemptSource;
-  status: AttemptStatus;
-  candidate_student_ids?: string[];
-  chosen_student_id?: string | null;
-  error_message?: string | null;
-}
 
 function extractPrimaryEmail(data: ClerkUserData): string | null {
   const emails = data.email_addresses;
@@ -69,33 +46,6 @@ function extractName(data: ClerkUserData): string | null {
   return full || null;
 }
 
-function isAlreadyMemberError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const e = err as { status?: number; errors?: Array<{ code?: string }> };
-  if (e.status === 422) return true;
-  if (Array.isArray(e.errors) && e.errors[0]?.code === 'already_a_member_of_organization') {
-    return true;
-  }
-  return false;
-}
-
-async function logLinkAttempt(row: AttemptRow): Promise<void> {
-  try {
-    await supabaseAdmin.from('link_attempts').insert({
-      organization_id: row.organization_id,
-      user_id: row.user_id,
-      email: row.email,
-      attempted_source: row.attempted_source,
-      status: row.status,
-      candidate_student_ids: row.candidate_student_ids ?? null,
-      chosen_student_id: row.chosen_student_id ?? null,
-      error_message: row.error_message ?? null,
-    });
-  } catch (err) {
-    console.error('[clerk-webhook] Failed to write link_attempts row:', err);
-  }
-}
-
 async function syncListmonkUserCreated(data: ClerkUserData): Promise<void> {
   const primaryEmail = extractPrimaryEmail(data);
   if (!primaryEmail) {
@@ -110,176 +60,6 @@ async function syncListmonkUserCreated(data: ClerkUserData): Promise<void> {
     { clerk_id: data.id ?? '', source: 'clerk_webhook' },
   );
   console.log(`[clerk-webhook] Subscriber ${primaryEmail}: id=${result.id}, new=${result.created}`);
-}
-
-interface JwtLinkContext {
-  orgId: string;
-  clerkOrgId: string | null;
-  studentId: string;
-  branchTokenId: string;
-  jtiHash: string;
-  memberType: 'student' | 'coach';
-}
-
-/**
- * Try the JWT-based linking path. Returns:
- *   - `{ok:true, ctx}` on happy path (caller must upsert + consume)
- *   - `{ok:false, reason, ctx?}` on any short-circuit — reason is a
- *     link_attempts status. If reason is `jwt_replayed`, the webhook should
- *     stop entirely (no fallback). All other failure reasons should trigger
- *     the email-fallback path.
- */
-async function attemptJwtLink(
-  data: ClerkUserData,
-  clerkUserId: string,
-  email: string | null,
-): Promise<
-  | { ok: true; ctx: JwtLinkContext }
-  | { ok: false; reason: AttemptStatus; orgId?: string; stopAfterLog?: boolean }
-> {
-  const unsafe = data.unsafe_metadata || {};
-  const rawJwt = unsafe['inviteJwt'];
-  if (!rawJwt || typeof rawJwt !== 'string') {
-    await logLinkAttempt({
-      organization_id: null,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'jwt',
-      status: 'jwt_missing',
-      error_message: 'inviteJwt not present in unsafe_metadata',
-    });
-    return { ok: false, reason: 'jwt_missing' };
-  }
-
-  let claims;
-  try {
-    claims = verifyInviteJwt(rawJwt);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const isExpired = err instanceof InviteJwtError && /expired/i.test(msg);
-    const status: AttemptStatus = isExpired ? 'jwt_expired' : 'jwt_invalid';
-    await logLinkAttempt({
-      organization_id: null,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'jwt',
-      status,
-      error_message: msg,
-    });
-    return { ok: false, reason: status };
-  }
-
-  const jtiHash = jwtJtiHash(rawJwt);
-
-  const existing = await supabaseAdmin
-    .from('invite_jwts_consumed')
-    .select('jti_hash')
-    .eq('jti_hash', jtiHash)
-    .limit(1);
-  if (existing.data && existing.data.length > 0) {
-    await logLinkAttempt({
-      organization_id: claims.org_id,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'jwt',
-      status: 'jwt_replayed',
-      chosen_student_id: claims.student_id,
-      error_message: 'invite_jwts_consumed already contains this jti_hash',
-    });
-    return { ok: false, reason: 'jwt_replayed', orgId: claims.org_id, stopAfterLog: true };
-  }
-
-  const tok = await supabaseAdmin
-    .from('branch_invite_tokens')
-    .select('id, revoked_at')
-    .eq('id', claims.branch_token_id)
-    .limit(1);
-  const tokRow = tok.data?.[0];
-  if (!tokRow || tokRow.revoked_at) {
-    await logLinkAttempt({
-      organization_id: claims.org_id,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'jwt',
-      status: 'jwt_invalid',
-      error_message: `branch_token ${claims.branch_token_id} revoked or missing`,
-    });
-    return { ok: false, reason: 'jwt_invalid', orgId: claims.org_id, stopAfterLog: true };
-  }
-
-  const org = await supabaseAdmin
-    .from('organizations')
-    .select('id, clerk_org_id')
-    .eq('id', claims.org_id)
-    .limit(1);
-  const orgRow = org.data?.[0];
-  if (!orgRow) {
-    await logLinkAttempt({
-      organization_id: claims.org_id,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'jwt',
-      status: 'webhook_error',
-      error_message: `unknown org ${claims.org_id}`,
-    });
-    return { ok: false, reason: 'webhook_error', orgId: claims.org_id, stopAfterLog: true };
-  }
-
-  return {
-    ok: true,
-    ctx: {
-      orgId: claims.org_id,
-      clerkOrgId: (orgRow.clerk_org_id as string | null | undefined) ?? null,
-      studentId: claims.student_id,
-      branchTokenId: claims.branch_token_id,
-      jtiHash,
-      // verifyInviteJwt normalizes a missing claim to 'student' (back-compat).
-      memberType: claims.member_type,
-    },
-  };
-}
-
-interface UpsertLinkArgs {
-  orgId: string;
-  clerkUserId: string;
-  studentId: string;
-  linkStatus: 'verified' | 'pending_confirm';
-  linkSource: AttemptSource;
-  /** Member role written to the row. Defaults to 'student'. */
-  memberType?: 'student' | 'coach';
-}
-
-async function upsertMemberLink({
-  orgId,
-  clerkUserId,
-  studentId,
-  linkStatus,
-  linkSource,
-  memberType = 'student',
-}: UpsertLinkArgs): Promise<void> {
-  const nowIso = new Date().toISOString();
-  const payload: Record<string, unknown> = {
-    organization_id: orgId,
-    user_id: clerkUserId,
-    // Coach UUIDs share the external_student_id column, discriminated by role.
-    role: memberType === 'coach' ? 'coach' : 'student',
-    joined_at: nowIso,
-    external_student_id: studentId,
-    external_source: 'chess_empire',
-    link_status: linkStatus,
-    link_source: linkSource,
-  };
-  if (linkStatus === 'verified') {
-    payload.link_verified_at = nowIso;
-  }
-  const { error } = await supabaseAdmin
-    .from('organization_members')
-    .upsert(payload, {
-      onConflict: 'organization_id,external_student_id,external_source',
-    });
-  if (error) {
-    throw new Error(`organization_members upsert failed: ${error.message}`);
-  }
 }
 
 async function tryEmailAutoMatch(
@@ -405,90 +185,30 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
   }
   const email = extractPrimaryEmail(data);
 
-  const jwtResult = await attemptJwtLink(data, clerkUserId, email);
-
-  if (jwtResult.ok) {
-    const { ctx } = jwtResult;
-
-    try {
-      await upsertMemberLink({
-        orgId: ctx.orgId,
-        clerkUserId,
-        studentId: ctx.studentId,
-        linkStatus: 'verified',
-        linkSource: 'jwt',
-        memberType: ctx.memberType,
-      });
-    } catch (err) {
-      await logLinkAttempt({
-        organization_id: ctx.orgId,
-        user_id: clerkUserId,
-        email,
-        attempted_source: 'jwt',
-        status: 'webhook_error',
-        chosen_student_id: ctx.studentId,
-        error_message: err instanceof Error ? err.message : String(err),
-      });
-      throw err;
-    }
-
-    if (ctx.clerkOrgId) {
-      try {
-        const client = await clerkClient();
-        await client.organizations.createOrganizationMembership({
-          organizationId: ctx.clerkOrgId,
-          userId: clerkUserId,
-          role: 'org:member',
-        });
-      } catch (err) {
-        if (isAlreadyMemberError(err)) {
-          console.info(
-            `[clerk-webhook] Clerk reports user ${clerkUserId} is already a member of org ${ctx.clerkOrgId}`,
-          );
-        } else {
-          console.error(
-            `[clerk-webhook] createOrganizationMembership failed for user ${clerkUserId} org ${ctx.clerkOrgId}:`,
-            err,
-          );
-          throw err;
-        }
-      }
-    } else {
-      console.warn(
-        `[clerk-webhook] Chesster org ${ctx.orgId} has no clerk_org_id; skipping Clerk membership call`,
-      );
-    }
-
-    await supabaseAdmin.from('invite_jwts_consumed').insert({
-      jti_hash: ctx.jtiHash,
-      organization_id: ctx.orgId,
-      branch_token_id: ctx.branchTokenId,
-      external_student_id: ctx.studentId,
-      clerk_user_id: clerkUserId,
-    });
-
+  const rawJwt = (data.unsafe_metadata || {})['inviteJwt'];
+  if (!rawJwt || typeof rawJwt !== 'string') {
     await logLinkAttempt({
-      organization_id: ctx.orgId,
+      organization_id: null,
       user_id: clerkUserId,
       email,
       attempted_source: 'jwt',
-      status: 'success',
-      chosen_student_id: ctx.studentId,
+      status: 'jwt_missing',
+      error_message: 'inviteJwt not present in unsafe_metadata',
     });
-
-    console.info(
-      `[clerk-webhook] user.created linked user=${clerkUserId} student=${ctx.studentId} org=${ctx.orgId}`,
-    );
+    // No JWT on the new user — OAuth often drops unsafeMetadata. Fall through
+    // to email auto-match; the client-side claim endpoint is the other backstop.
+    await tryEmailAutoMatch(clerkUserId, email);
     return;
   }
 
-  // JWT path failed. Replay + hard errors stop here — everything else falls
-  // through to email auto-match so we still catch orphans.
-  if (jwtResult.stopAfterLog) {
-    return;
-  }
+  const result = await linkMemberViaInviteJwt(rawJwt, clerkUserId, email);
+  if (result.ok) return;
 
-  await tryEmailAutoMatch(clerkUserId, email);
+  // JWT path failed. Replay + hard errors stop here — soft failures (expired /
+  // bad signature) fall through to email auto-match so we still catch orphans.
+  if (result.fallbackToEmail) {
+    await tryEmailAutoMatch(clerkUserId, email);
+  }
 }
 
 export async function POST(req: Request) {

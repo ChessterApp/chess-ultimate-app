@@ -18,12 +18,15 @@
 import 'server-only';
 import { auth } from '@clerk/nextjs/server';
 import EmpireHomePage from '@/components/empire/EmpireHomePage';
+import EmpireCoachHome from '@/components/empire/EmpireCoachHome';
+import EmpireNoLinkClient from '@/components/empire/EmpireNoLinkClient';
 import { getMembershipState } from '@/lib/chess-empire-member';
 import { resolveStudentDisplayName } from '@/lib/student-name';
 import {
   getStudentProfile,
   getStudentRank,
   getStudentRatings,
+  getCoachProfile,
 } from '@/lib/chess-empire-client';
 
 export async function renderEmpireHomepage(
@@ -47,11 +50,32 @@ export async function renderEmpireHomepage(
   }
 
   if (membership.state === 'no_link') {
-    return <EmpireHomePage state="no_link" studentDisplayName={null} />;
+    // Client wrapper polls for the async webhook / claim write and refreshes
+    // into the personalized page; the static screen is its post-timeout child.
+    return (
+      <EmpireNoLinkClient>
+        <EmpireHomePage state="no_link" studentDisplayName={null} />
+      </EmpireNoLinkClient>
+    );
   }
 
   const studentId = membership.studentId;
   if (!studentId) return null;
+
+  // Coaches share the invite flow but live in the CE `coaches` table — the
+  // student profile API 404s for them. Render the coach variant instead of
+  // silently falling back to the generic dashboard.
+  if (membership.role === 'coach') {
+    let coachDisplayName: string | null = null;
+    try {
+      const coach = await getCoachProfile(studentId);
+      coachDisplayName =
+        `${coach.first_name ?? ''} ${coach.last_name ?? ''}`.trim() || null;
+    } catch (err) {
+      console.error('[empire-home] coach profile fetch failed', err);
+    }
+    return <EmpireCoachHome coachDisplayName={coachDisplayName} />;
+  }
 
   let profile;
   try {

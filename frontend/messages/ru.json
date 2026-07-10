@@ -1654,7 +1654,12 @@
     "withCoach": "с {coach}",
     "prepareCta": "Подготовиться к уроку",
     "survivorTitle": "Выживание",
-    "botSlayerTitle": "Сильнейший Бот"
+    "botSlayerTitle": "Сильнейший Бот",
+    "settingUpProfile": "Настраиваем ваш профиль…",
+    "coachRoleLabel": "Тренер",
+    "coachWelcome": "С возвращением, тренер",
+    "coachWelcomeNamed": "С возвращением, тренер {name}",
+    "coachHomeSubtitle": "Управляйте учениками и уроками из панели тренера."
   },
   "adminCe": {
     "title": "Ученики",

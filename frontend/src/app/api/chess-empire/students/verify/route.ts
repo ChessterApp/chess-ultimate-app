@@ -3,7 +3,7 @@
  *
  * Phase 1 of the Chess Empire → Chesster onboarding arc. POST with
  * `{ branchToken, studentId }`. On success the server issues a
- * 15-minute HS256 JWT carrying the student/branch/org context — the
+ * 60-minute HS256 JWT carrying the student/branch/org context — the
  * sign-up page then forwards it through Clerk so the webhook can write
  * the `external_student_id` link on the new member row.
  *

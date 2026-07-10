@@ -1654,7 +1654,12 @@
     "withCoach": "with {coach}",
     "prepareCta": "Prepare for lesson",
     "survivorTitle": "Puzzle Rush",
-    "botSlayerTitle": "Strongest Bot"
+    "botSlayerTitle": "Strongest Bot",
+    "settingUpProfile": "Setting up your profile…",
+    "coachRoleLabel": "Coach",
+    "coachWelcome": "Welcome back, Coach",
+    "coachWelcomeNamed": "Welcome back, Coach {name}",
+    "coachHomeSubtitle": "Manage your students and lessons from your coach dashboard."
   },
   "adminCe": {
     "title": "Students",

@@ -29,17 +29,21 @@ export interface GetLinkedStudentIdArgs {
 }
 
 export type MembershipState = 'no_link' | 'pending_confirm' | 'verified';
+export type MemberRole = 'student' | 'coach';
 
 export interface MembershipStateResult {
   state: MembershipState;
   studentId: string | null;
   memberId: string | null;
+  /** Member role — 'coach' rows must not be fed to the student profile API. */
+  role: MemberRole;
 }
 
 interface MemberRow {
   id: string;
   external_student_id: string | null;
   link_status: string | null;
+  role: string | null;
 }
 
 function serviceClient() {
@@ -55,21 +59,45 @@ function serviceClient() {
   });
 }
 
-async function fetchMembershipState({
-  orgId,
-  clerkUserId,
-}: GetLinkedStudentIdArgs): Promise<MembershipStateResult> {
+function rowToState(row: MemberRow | null): MembershipStateResult {
   const noLink: MembershipStateResult = {
     state: 'no_link',
     studentId: null,
     memberId: null,
+    role: 'student',
   };
-  if (!orgId || !clerkUserId) return noLink;
+  if (!row || !row.external_student_id) return noLink;
+
+  const role: MemberRole = row.role === 'coach' ? 'coach' : 'student';
+  if (row.link_status === 'verified') {
+    return {
+      state: 'verified',
+      studentId: row.external_student_id,
+      memberId: row.id,
+      role,
+    };
+  }
+  if (row.link_status === 'pending_confirm') {
+    return {
+      state: 'pending_confirm',
+      studentId: row.external_student_id,
+      memberId: row.id,
+      role,
+    };
+  }
+  return noLink;
+}
+
+async function fetchMembershipState({
+  orgId,
+  clerkUserId,
+}: GetLinkedStudentIdArgs): Promise<MembershipStateResult> {
+  if (!orgId || !clerkUserId) return rowToState(null);
 
   const supabase = serviceClient();
   const { data, error } = await supabase
     .from('organization_members')
-    .select('id, external_student_id, link_status')
+    .select('id, external_student_id, link_status, role')
     .eq('organization_id', orgId)
     .eq('user_id', clerkUserId)
     .eq('external_source', 'chess_empire')
@@ -78,24 +106,34 @@ async function fetchMembershipState({
   if (error) {
     throw new Error(`chess-empire-member: ${error.message}`);
   }
-  const row = (data ?? null) as MemberRow | null;
-  if (!row || !row.external_student_id) return noLink;
+  return rowToState((data ?? null) as MemberRow | null);
+}
 
-  if (row.link_status === 'verified') {
-    return {
-      state: 'verified',
-      studentId: row.external_student_id,
-      memberId: row.id,
-    };
+/**
+ * Membership state resolved by Clerk user id alone (no org context).
+ *
+ * The `/api/chess-empire/link/status` polling endpoint calls this: Chess
+ * Empire is a single tenant today, so a user has at most one `chess_empire`
+ * member row and org scoping is unnecessary — matching the email-fallback
+ * assumption in the webhook.
+ */
+async function fetchMembershipStateForUser(
+  clerkUserId: string,
+): Promise<MembershipStateResult> {
+  if (!clerkUserId) return rowToState(null);
+
+  const supabase = serviceClient();
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('id, external_student_id, link_status, role')
+    .eq('user_id', clerkUserId)
+    .eq('external_source', 'chess_empire')
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`chess-empire-member: ${error.message}`);
   }
-  if (row.link_status === 'pending_confirm') {
-    return {
-      state: 'pending_confirm',
-      studentId: row.external_student_id,
-      memberId: row.id,
-    };
-  }
-  return noLink;
+  return rowToState((data ?? null) as MemberRow | null);
 }
 
 async function fetchLinkedStudentId(
@@ -106,4 +144,5 @@ async function fetchLinkedStudentId(
 }
 
 export const getMembershipState = cache(fetchMembershipState);
+export const getMembershipStateForUser = cache(fetchMembershipStateForUser);
 export const getLinkedStudentId = cache(fetchLinkedStudentId);

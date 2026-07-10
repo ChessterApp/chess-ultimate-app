@@ -1654,7 +1654,12 @@
     "withCoach": "{coach} жаттықтырушымен",
     "prepareCta": "Сабаққа дайындалу",
     "survivorTitle": "Аман қалу",
-    "botSlayerTitle": "Ең күшті бот"
+    "botSlayerTitle": "Ең күшті бот",
+    "settingUpProfile": "Профиліңіз дайындалып жатыр…",
+    "coachRoleLabel": "Жаттықтырушы",
+    "coachWelcome": "Қайта келуіңізбен, жаттықтырушы",
+    "coachWelcomeNamed": "Қайта келуіңізбен, жаттықтырушы {name}",
+    "coachHomeSubtitle": "Оқушылар мен сабақтарды жаттықтырушы панелінен басқарыңыз."
   },
   "adminCe": {
     "title": "Оқушылар",

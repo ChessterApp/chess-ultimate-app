@@ -63,6 +63,14 @@ vi.mock('@/components/empire/EmpireHomePage', () => ({
   ),
 }));
 
+// The no_link state wraps EmpireHomePage in a client poller; stub it to just
+// render its children so this delegation test stays focused (its own behavior
+// is covered in EmpireNoLinkClient.test).
+vi.mock('@/components/empire/EmpireNoLinkClient', () => ({
+  __esModule: true,
+  default: (props: { children: React.ReactNode }) => <>{props.children}</>,
+}));
+
 vi.mock('../ChessterDashboard', () => ({
   __esModule: true,
   default: () => <div data-testid="chesster-dashboard" />,
