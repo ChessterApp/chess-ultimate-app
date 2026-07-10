@@ -489,210 +489,112 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
           </div>
         </div>
 
-        {/* Progress + Trend */}
-        <div className="grid md:grid-cols-2 gap-3">
-          <section
-            data-testid="empire-progress"
-            className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
-                  {t('levelLabel')}
-                </div>
-                <div className="mt-1 flex items-baseline gap-2">
-                  <span
-                    data-testid="empire-progress-level"
-                    className="text-2xl font-bold"
-                    style={{ fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {profile.current_level ?? '—'}
-                  </span>
-                </div>
+        {/* Progress */}
+        <section
+          data-testid="empire-progress"
+          className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
+                {t('levelLabel')}
               </div>
-              <div className="text-right">
-                <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
-                  {t('lessonLabel')}
-                </div>
-                <div
-                  className="mt-1 text-sm text-slate-700"
+              <div className="mt-1 flex items-baseline gap-2">
+                <span
+                  data-testid="empire-progress-level"
+                  className="text-2xl font-bold"
                   style={{ fontVariantNumeric: 'tabular-nums' }}
                 >
-                  <span data-testid="empire-progress-current" className="font-bold">
-                    {currentLesson}
-                  </span>
-                  <span className="text-slate-400"> / {totalLessons}</span>
-                </div>
+                  {profile.current_level ?? '—'}
+                </span>
               </div>
             </div>
-            <div
-              data-testid="empire-progress-bar"
-              role="progressbar"
-              aria-valuenow={Math.round((currentLesson / totalLessons) * 100)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="mt-4"
-            >
-              <div className="flex gap-1.5">
-                {Array.from({ length: 8 }, (_, s) => {
-                  const level = s + 1;
-                  const isCurrent = level === currentLevel;
-                  return (
-                    <div
-                      key={s}
-                      data-testid={`empire-progress-segment-${level}`}
-                      title={t('journeyStepTitle', { level, total: 15 })}
-                      className={`flex-1 flex gap-[1px] p-0.5 rounded-md ${
-                        isCurrent ? 'ring-2 ring-emerald-500/50 bg-emerald-50/60' : ''
-                      }`}
-                    >
-                      {isCurrent && (
-                        <span
-                          data-testid="empire-progress-segment-current"
-                          className="sr-only"
-                          aria-hidden="true"
-                        />
-                      )}
-                      {Array.from({ length: 15 }, (_, k) => {
-                        const lesson = s * 15 + k + 1;
-                        const filled = lesson <= currentLesson;
-                        return (
-                          <div
-                            key={k}
-                            className="flex-1 h-2.5 rounded-sm"
-                            style={{
-                              background: filled
-                                ? `linear-gradient(90deg, ${ACCENT_DIM}, ${ACCENT})`
-                                : '#E5E7EB',
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+            <div className="text-right">
+              <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
+                {t('lessonLabel')}
               </div>
-              <div className="mt-2 flex gap-1.5">
-                {Array.from({ length: 8 }, (_, i) => {
-                  const level = i + 1;
-                  const cls =
-                    level === currentLevel
-                      ? 'text-emerald-600 font-bold'
-                      : level < currentLevel
-                        ? 'text-slate-700'
-                        : 'text-slate-400';
-                  return (
-                    <div
-                      key={i}
-                      className={`flex-1 text-center text-[11px] ${cls}`}
-                    >
-                      {level}
-                    </div>
-                  );
-                })}
+              <div
+                className="mt-1 text-sm text-slate-700"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                <span data-testid="empire-progress-current" className="font-bold">
+                  {currentLesson}
+                </span>
+                <span className="text-slate-400"> / {totalLessons}</span>
               </div>
             </div>
-            <div className="mt-3 text-sm text-slate-600">
-              {progressCopy}
-            </div>
-          </section>
-
-          <section
-            data-testid="empire-rating-trend"
-            className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5"
+          </div>
+          <div
+            data-testid="empire-progress-bar"
+            role="progressbar"
+            aria-valuenow={Math.round((currentLesson / totalLessons) * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            className="mt-4"
           >
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
-                  {t('trendTitle')}
-                </div>
-                <div
-                  className="mt-1 text-sm text-slate-700"
-                  style={{ fontVariantNumeric: 'tabular-nums' }}
-                >
-                  {t('trendSubtitle')}
-                </div>
-              </div>
-              <div className="text-right">
-                {deltaLabel && (
+            <div className="flex gap-1.5">
+              {Array.from({ length: 8 }, (_, s) => {
+                const level = s + 1;
+                const isCurrent = level === currentLevel;
+                return (
                   <div
-                    className={`text-sm font-semibold ${
-                      delta! >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                    key={s}
+                    data-testid={`empire-progress-segment-${level}`}
+                    title={t('journeyStepTitle', { level, total: 15 })}
+                    className={`flex-1 flex gap-[1px] p-0.5 rounded-md ${
+                      isCurrent ? 'ring-2 ring-emerald-500/50 bg-emerald-50/60' : ''
                     }`}
-                    style={{ fontVariantNumeric: 'tabular-nums' }}
                   >
-                    {deltaLabel}
+                    {isCurrent && (
+                      <span
+                        data-testid="empire-progress-segment-current"
+                        className="sr-only"
+                        aria-hidden="true"
+                      />
+                    )}
+                    {Array.from({ length: 15 }, (_, k) => {
+                      const lesson = s * 15 + k + 1;
+                      const filled = lesson <= currentLesson;
+                      return (
+                        <div
+                          key={k}
+                          className="flex-1 h-2.5 rounded-sm"
+                          style={{
+                            background: filled
+                              ? `linear-gradient(90deg, ${ACCENT_DIM}, ${ACCENT})`
+                              : '#E5E7EB',
+                          }}
+                        />
+                      );
+                    })}
                   </div>
-                )}
-                {trend.points.length > 0 && (
-                  <div
-                    className="text-xs text-slate-500"
-                    style={{ fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {trend.min} — {trend.max}
-                  </div>
-                )}
-              </div>
+                );
+              })}
             </div>
-            {trend.points.length > 0 ? (
-              <svg
-                data-testid="empire-trend-chart"
-                width="100%"
-                height={120}
-                viewBox="0 0 480 120"
-                preserveAspectRatio="none"
-                className="mt-3"
-                role="img"
-                aria-label={t('trendTitle')}
-              >
-                <defs>
-                  <linearGradient id="empire-trend-grad" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                {[0.25, 0.5, 0.75].map((r) => (
-                  <line
-                    key={r}
-                    x1={8}
-                    x2={472}
-                    y1={(120 * r).toFixed(1)}
-                    y2={(120 * r).toFixed(1)}
-                    stroke="#E2E8F0"
-                    strokeDasharray="2 3"
-                  />
-                ))}
-                <polygon
-                  fill="url(#empire-trend-grad)"
-                  points={`8,112 ${trendPointsStr} 472,112`}
-                />
-                <polyline
-                  fill="none"
-                  stroke={ACCENT}
-                  strokeWidth={2}
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  points={trendPointsStr}
-                />
-                <circle
-                  cx={trend.points[trend.points.length - 1].x}
-                  cy={trend.points[trend.points.length - 1].y}
-                  r={3.5}
-                  fill={ACCENT}
-                  stroke="white"
-                  strokeWidth={2}
-                />
-              </svg>
-            ) : (
-              <p
-                data-testid="empire-trend-empty"
-                className="mt-3 text-sm text-slate-500"
-              >
-                {t('ratingEmpty')}
-              </p>
-            )}
-          </section>
-        </div>
+            <div className="mt-2 flex gap-1.5">
+              {Array.from({ length: 8 }, (_, i) => {
+                const level = i + 1;
+                const cls =
+                  level === currentLevel
+                    ? 'text-emerald-600 font-bold'
+                    : level < currentLevel
+                      ? 'text-slate-700'
+                      : 'text-slate-400';
+                return (
+                  <div
+                    key={i}
+                    className={`flex-1 text-center text-[11px] ${cls}`}
+                  >
+                    {level}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="mt-3 text-sm text-slate-600">
+            {progressCopy}
+          </div>
+        </section>
 
         {/* Next lesson */}
         <section
@@ -825,6 +727,103 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
               </div>
             </li>
           </ul>
+        </section>
+
+        {/* Rating trend */}
+        <section
+          data-testid="empire-rating-trend"
+          className="rounded-2xl bg-white border border-slate-200 shadow-sm p-5"
+        >
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold">
+                {t('trendTitle')}
+              </div>
+              <div
+                className="mt-1 text-sm text-slate-700"
+                style={{ fontVariantNumeric: 'tabular-nums' }}
+              >
+                {t('trendSubtitle')}
+              </div>
+            </div>
+            <div className="text-right">
+              {deltaLabel && (
+                <div
+                  className={`text-sm font-semibold ${
+                    delta! >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                  }`}
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {deltaLabel}
+                </div>
+              )}
+              {trend.points.length > 0 && (
+                <div
+                  className="text-xs text-slate-500"
+                  style={{ fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {trend.min} — {trend.max}
+                </div>
+              )}
+            </div>
+          </div>
+          {trend.points.length > 0 ? (
+            <svg
+              data-testid="empire-trend-chart"
+              width="100%"
+              height={120}
+              viewBox="0 0 480 120"
+              preserveAspectRatio="none"
+              className="mt-3"
+              role="img"
+              aria-label={t('trendTitle')}
+            >
+              <defs>
+                <linearGradient id="empire-trend-grad" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="0%" stopColor={ACCENT} stopOpacity={0.35} />
+                  <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              {[0.25, 0.5, 0.75].map((r) => (
+                <line
+                  key={r}
+                  x1={8}
+                  x2={472}
+                  y1={(120 * r).toFixed(1)}
+                  y2={(120 * r).toFixed(1)}
+                  stroke="#E2E8F0"
+                  strokeDasharray="2 3"
+                />
+              ))}
+              <polygon
+                fill="url(#empire-trend-grad)"
+                points={`8,112 ${trendPointsStr} 472,112`}
+              />
+              <polyline
+                fill="none"
+                stroke={ACCENT}
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                points={trendPointsStr}
+              />
+              <circle
+                cx={trend.points[trend.points.length - 1].x}
+                cy={trend.points[trend.points.length - 1].y}
+                r={3.5}
+                fill={ACCENT}
+                stroke="white"
+                strokeWidth={2}
+              />
+            </svg>
+          ) : (
+            <p
+              data-testid="empire-trend-empty"
+              className="mt-3 text-sm text-slate-500"
+            >
+              {t('ratingEmpty')}
+            </p>
+          )}
         </section>
       </div>
     </main>

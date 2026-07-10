@@ -282,6 +282,26 @@ describe('EmpireHomePage — verified state', () => {
     expect(getByTestId('empire-card-bot-slayer-value').textContent).toBe('—');
   });
 
+  it('renders the rating trend section after achievements as the last card', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: aliProfile,
+      ratings: [
+        { date: '2026-05-01', rating: 800 },
+        { date: '2026-06-01', rating: 856 },
+      ],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    const achievements = getByTestId('empire-achievements');
+    const trend = getByTestId('empire-rating-trend');
+    expect(
+      achievements.compareDocumentPosition(trend) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('no longer renders the placeholder achievements grid/empty or continue CTA', async () => {
     const ui = await EmpireHomePage({
       state: 'verified',
