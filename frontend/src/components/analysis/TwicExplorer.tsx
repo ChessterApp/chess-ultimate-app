@@ -109,11 +109,11 @@ export const TwicExplorer: React.FC<TwicExplorerProps> = ({
         <Stack direction="row" alignItems="center" spacing={1}>
           <StorageIcon sx={{ color: "primary.main" }} />
           <Typography variant="h6" sx={{ fontWeight: 600 }}>
-            Master Games Database
+            Position Statistics
           </Typography>
           {candidatesData && (
             <Chip
-              label={`${(candidatesData.total_games ?? 0).toLocaleString()} games`}
+              label={`${(candidatesData.total_games ?? 0).toLocaleString()} games with this position`}
               size="small"
               sx={{ ml: 1 }}
             />

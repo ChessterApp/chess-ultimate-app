@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { Box, Typography, Snackbar, Alert, Chip, Switch } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
+import { apiFetch } from '@/lib/api';
 import dynamic from 'next/dynamic';
 import { Chess } from 'chess.js';
 // Import chessground CSS at page level to ensure it's included in the page's CSS bundle
@@ -153,6 +154,17 @@ export default function DebutPage() {
   const [candidateMoves, setCandidateMoves] = useState<MoveCandidate[]>([]);
   const [candidatesTotalGames, setCandidatesTotalGames] = useState(0);
   const [candidatesLoading, setCandidatesLoading] = useState(false);
+
+  // ─── Master DB global stats (updated weekly by TWIC Phase 1) ───
+  const [masterDbGameCount, setMasterDbGameCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    apiFetch<{ game_count: number }>(`${apiBase}/api/opponent/status`)
+      .then(data => { if (!cancelled) setMasterDbGameCount(data.game_count); })
+      .catch(() => { /* silent: strip just hides */ });
+    return () => { cancelled = true; };
+  }, []);
 
 
   // ─── Game viewer tabs ───
@@ -1521,6 +1533,31 @@ export default function DebutPage() {
           <Alert severity="warning" sx={{ borderRadius: 2 }}>
             ♞ Some features may be temporarily unavailable. We&apos;re working on it!
           </Alert>
+        </Box>
+      )}
+
+      {/* Master DB stats strip — auto-updates after weekly TWIC Phase 1 indexing */}
+      {masterDbGameCount !== null && (
+        <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 } }}>
+          <Box
+            sx={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              px: 1.5,
+              py: 0.75,
+              borderRadius: '9999px',
+              bgcolor: 'rgba(255,255,255,0.95)',
+              border: '1px solid rgba(31,41,55,0.1)',
+            }}
+          >
+            <Typography variant="caption" sx={{ fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+              Master Database
+            </Typography>
+            <Typography variant="body2" sx={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+              {masterDbGameCount.toLocaleString()} games
+            </Typography>
+          </Box>
         </Box>
       )}
 
