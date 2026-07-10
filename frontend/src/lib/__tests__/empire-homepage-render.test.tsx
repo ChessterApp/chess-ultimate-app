@@ -35,6 +35,19 @@ const getCoachProfile = vi.fn(async () => ({
   last_name: 'Nur',
   branch_id: 'b1',
 }));
+const listBranches = vi.fn(async () => [{ id: 'b1', name: 'Debut Branch' }]);
+const listActiveStudentsByCoach = vi.fn(async () => [
+  {
+    id: 'stu-1',
+    first_name: 'A',
+    last_name: 'B',
+    status: 'active',
+    branch_id: 'b1',
+    coach_id: 'coach-uuid',
+    current_razryad: '3rd',
+    current_league: 'A',
+  },
+]);
 vi.mock('@/lib/chess-empire-client', () => ({
   getStudentProfile: (...a: unknown[]) => getStudentProfile(...(a as [])),
   getCoachProfile: (...a: unknown[]) => getCoachProfile(...(a as [])),
@@ -45,6 +58,9 @@ vi.mock('@/lib/chess-empire-client', () => ({
     branch_size: null,
     school_size: null,
   })),
+  listBranches: (...a: unknown[]) => listBranches(...(a as [])),
+  listActiveStudentsByCoach: (...a: unknown[]) =>
+    listActiveStudentsByCoach(...(a as [])),
 }));
 
 vi.mock('@/lib/student-name', () => ({

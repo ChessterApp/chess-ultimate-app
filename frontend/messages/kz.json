@@ -1658,7 +1658,14 @@
     "coachRoleLabel": "Жаттықтырушы",
     "coachWelcome": "Қайта келуіңізбен, жаттықтырушы",
     "coachWelcomeNamed": "Қайта келуіңізбен, жаттықтырушы {name}",
-    "coachHomeSubtitle": "Оқушылар мен сабақтарды жаттықтырушы панелінен басқарыңыз."
+    "coachHomeSubtitle": "Оқушылар мен сабақтарды жаттықтырушы панелінен басқарыңыз.",
+    "coachStudentsLabel": "Менің оқушыларым",
+    "coachWithRazryadLabel": "Разрядпен",
+    "coachLeagueBreakdownLabel": "Лигалар бойынша",
+    "coachLeagueEmpty": "Лига деректері әлі жоқ.",
+    "coachBioTitle": "Өзі туралы",
+    "coachRosterTitle": "Оқушылар",
+    "coachRosterEmpty": "Оқушылар әлі жоқ."
   },
   "adminCe": {
     "title": "Оқушылар",

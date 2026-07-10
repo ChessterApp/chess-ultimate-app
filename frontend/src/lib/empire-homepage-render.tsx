@@ -27,7 +27,11 @@ import {
   getStudentRank,
   getStudentRatings,
   getCoachProfile,
+  listBranches,
+  listActiveStudentsByCoach,
 } from '@/lib/chess-empire-client';
+import type { CECoachProfile } from '@/lib/chess-empire-client';
+import { computeCoachStats } from '@/lib/empire-coach-stats';
 
 export async function renderEmpireHomepage(
   orgId: string,
@@ -66,15 +70,48 @@ export async function renderEmpireHomepage(
   // student profile API 404s for them. Render the coach variant instead of
   // silently falling back to the generic dashboard.
   if (membership.role === 'coach') {
-    let coachDisplayName: string | null = null;
+    let coach: CECoachProfile | null = null;
     try {
-      const coach = await getCoachProfile(studentId);
-      coachDisplayName =
-        `${coach.first_name ?? ''} ${coach.last_name ?? ''}`.trim() || null;
+      coach = await getCoachProfile(studentId);
     } catch (err) {
       console.error('[empire-home] coach profile fetch failed', err);
     }
-    return <EmpireCoachHome coachDisplayName={coachDisplayName} />;
+
+    // Profile fetch failed — degrade to the bare name-less coach greeting.
+    if (!coach) {
+      return <EmpireCoachHome coachDisplayName={null} />;
+    }
+
+    const coachDisplayName =
+      `${coach.first_name ?? ''} ${coach.last_name ?? ''}`.trim() || null;
+
+    // Branch name + own roster are best-effort: either failing leaves the
+    // coach home with an empty state rather than breaking the page.
+    const [branches, roster] = await Promise.all([
+      listBranches().catch((err) => {
+        console.error('[empire-home] coach branches fetch failed', err);
+        return [];
+      }),
+      listActiveStudentsByCoach(coach.id).catch((err) => {
+        console.error('[empire-home] coach roster fetch failed', err);
+        return [];
+      }),
+    ]);
+
+    const branchName =
+      branches.find((b) => b.id === coach!.branch_id)?.name ?? null;
+    const stats = computeCoachStats(roster);
+
+    return (
+      <EmpireCoachHome
+        coachDisplayName={coachDisplayName}
+        photoUrl={coach.photo_url ?? null}
+        bio={coach.bio ?? null}
+        branchName={branchName}
+        stats={stats}
+        roster={roster}
+      />
+    );
   }
 
   let profile;

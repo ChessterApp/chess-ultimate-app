@@ -1658,7 +1658,14 @@
     "coachRoleLabel": "Тренер",
     "coachWelcome": "С возвращением, тренер",
     "coachWelcomeNamed": "С возвращением, тренер {name}",
-    "coachHomeSubtitle": "Управляйте учениками и уроками из панели тренера."
+    "coachHomeSubtitle": "Управляйте учениками и уроками из панели тренера.",
+    "coachStudentsLabel": "Мои ученики",
+    "coachWithRazryadLabel": "С разрядом",
+    "coachLeagueBreakdownLabel": "По лигам",
+    "coachLeagueEmpty": "Пока нет данных о лигах.",
+    "coachBioTitle": "О себе",
+    "coachRosterTitle": "Ученики",
+    "coachRosterEmpty": "Учеников пока нет."
   },
   "adminCe": {
     "title": "Ученики",

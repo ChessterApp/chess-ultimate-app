@@ -1658,7 +1658,14 @@
     "coachRoleLabel": "Coach",
     "coachWelcome": "Welcome back, Coach",
     "coachWelcomeNamed": "Welcome back, Coach {name}",
-    "coachHomeSubtitle": "Manage your students and lessons from your coach dashboard."
+    "coachHomeSubtitle": "Manage your students and lessons from your coach dashboard.",
+    "coachStudentsLabel": "My students",
+    "coachWithRazryadLabel": "With razryad",
+    "coachLeagueBreakdownLabel": "By league",
+    "coachLeagueEmpty": "No league data yet.",
+    "coachBioTitle": "About",
+    "coachRosterTitle": "Students",
+    "coachRosterEmpty": "No students assigned yet."
   },
   "adminCe": {
     "title": "Students",

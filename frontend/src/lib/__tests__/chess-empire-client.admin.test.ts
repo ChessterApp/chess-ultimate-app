@@ -9,6 +9,7 @@ import {
   listBranches,
   listCoaches,
   listActiveStudentsByBranch,
+  listActiveStudentsByCoach,
 } from '../chess-empire-client';
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
@@ -204,6 +205,69 @@ describe('chess-empire-client admin helpers', () => {
       fetchSpy.mockResolvedValue(jsonResponse({ rows: [] }));
       const out = await listActiveStudentsByBranch('br-1');
       expect(out).toEqual([]);
+    });
+  });
+
+  describe('listActiveStudentsByCoach', () => {
+    it('queries CE REST scoped by coach_id + status + embedded league', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          {
+            id: 'stu-1',
+            first_name: 'A',
+            last_name: 'B',
+            status: 'active',
+            branch_id: 'br-1',
+            coach_id: 'co-1',
+            razryad: '3rd',
+            student_current_ratings: [
+              { league: 'League A', league_tier: 'gold' },
+            ],
+          },
+        ]),
+      );
+      const out = await listActiveStudentsByCoach('co-1');
+      expect(out).toHaveLength(1);
+      expect(out[0]?.current_razryad).toBe('3rd');
+      expect(out[0]?.current_league).toBe('A');
+      const [url] = fetchSpy.mock.calls[0]!;
+      const s = String(url);
+      expect(s).toContain('/rest/v1/students');
+      expect(s).toContain('coach_id=eq.co-1');
+      expect(s).toContain('status=eq.active');
+      expect(s).not.toContain('branch_id=eq');
+      expect(decodeURIComponent(s)).toContain(
+        'student_current_ratings(league,league_tier)',
+      );
+    });
+
+    it('returns [] for empty coachId without fetching', async () => {
+      const out = await listActiveStudentsByCoach('');
+      expect(out).toEqual([]);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns [] on 404', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({}, { status: 404 }));
+      const out = await listActiveStudentsByCoach('co-1');
+      expect(out).toEqual([]);
+    });
+
+    it('returns [] on unknown shape', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse({ rows: [] }));
+      const out = await listActiveStudentsByCoach('co-1');
+      expect(out).toEqual([]);
+    });
+
+    it('filters out non-active rows defensively', async () => {
+      fetchSpy.mockResolvedValue(
+        jsonResponse([
+          { id: 'a', first_name: 'A', last_name: '', status: 'active', branch_id: 'br-1', coach_id: 'co-1' },
+          { id: 'b', first_name: 'B', last_name: '', status: 'left', branch_id: 'br-1', coach_id: 'co-1' },
+        ]),
+      );
+      const out = await listActiveStudentsByCoach('co-1');
+      expect(out.map((r) => r.id)).toEqual(['a']);
     });
   });
 });

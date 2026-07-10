@@ -68,6 +68,8 @@ export interface CECoachProfile {
   last_name: string;
   branch_id: string;
   email?: string | null;
+  photo_url?: string | null;
+  bio?: string | null;
 }
 
 /** Join first + last into a trimmed display name (CE coaches have no full_name column). */
@@ -309,7 +311,7 @@ export async function getCoachProfile(coachId: string): Promise<CECoachProfile> 
   const key = getServiceKey();
   const params = new URLSearchParams({
     id: `eq.${coachId}`,
-    select: 'id,first_name,last_name,branch_id,email',
+    select: 'id,first_name,last_name,branch_id,email,photo_url,bio',
     limit: '1',
   });
   const url = `${ceRestBase()}/coaches?${params.toString()}`;
@@ -331,6 +333,8 @@ export async function getCoachProfile(coachId: string): Promise<CECoachProfile> 
     last_name: (row.last_name as string | null) ?? '',
     branch_id: (row.branch_id as string | null) ?? '',
     email: (row.email as string | null | undefined) ?? null,
+    photo_url: (row.photo_url as string | null | undefined) ?? null,
+    bio: (row.bio as string | null | undefined) ?? null,
   };
 }
 
@@ -707,6 +711,7 @@ export async function getStudentRank(studentId: string): Promise<CEStudentRank> 
 let warnedListBranches = false;
 let warnedListCoaches = false;
 let warnedListActiveStudents = false;
+let warnedListActiveStudentsByCoach = false;
 
 function isCEBranchArray(x: unknown): x is CEBranch[] {
   return (
@@ -941,6 +946,94 @@ export async function listActiveStudentsByBranch(
       '[ce-admin] listActiveStudentsByBranch: unexpected shape, returning []',
     );
     warnedListActiveStudents = true;
+  }
+  return [];
+}
+
+/**
+ * Coach home — active roster helper.
+ *
+ * Mirror of `listActiveStudentsByBranch` but filtered by `coach_id` instead of
+ * `branch_id`. `students.coach_id` is populated for every active student, so a
+ * coach's own roster is the coach_id-scoped set (NOT their branch). Same
+ * razryad + embedded `student_current_ratings` league shape, same graceful
+ * degradation to `[]` on any failure.
+ */
+export async function listActiveStudentsByCoach(
+  coachId: string,
+): Promise<CEActiveStudent[]> {
+  if (!coachId) return [];
+  let key: string;
+  try {
+    key = getServiceKey();
+  } catch {
+    return [];
+  }
+  const params = new URLSearchParams({
+    coach_id: `eq.${coachId}`,
+    status: 'eq.active',
+    select:
+      'id,first_name,last_name,date_of_birth,status,branch_id,coach_id,razryad,student_current_ratings(league,league_tier)',
+    order: 'first_name.asc',
+  });
+  const url = `${ceRestBase()}/students?${params.toString()}`;
+  let resp: Response;
+  try {
+    resp = await ceFetch(url, {
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Accept: 'application/json',
+      },
+    });
+  } catch {
+    if (!warnedListActiveStudentsByCoach) {
+      console.warn(
+        '[ce-admin] listActiveStudentsByCoach: network error, returning []',
+      );
+      warnedListActiveStudentsByCoach = true;
+    }
+    return [];
+  }
+  if (resp.status === 404) return [];
+  if (resp.status < 200 || resp.status >= 300) {
+    if (!warnedListActiveStudentsByCoach) {
+      console.warn(
+        `[ce-admin] listActiveStudentsByCoach: HTTP ${resp.status}, returning []`,
+      );
+      warnedListActiveStudentsByCoach = true;
+    }
+    return [];
+  }
+  let body: unknown;
+  try {
+    body = await resp.json();
+  } catch {
+    return [];
+  }
+  if (isCEActiveStudentArray(body)) {
+    type RawActiveStudent = CEActiveStudent & {
+      razryad?: string | null;
+      student_current_ratings?: Array<{
+        league?: string | null;
+        league_tier?: string | null;
+      }> | null;
+    };
+    return (body as RawActiveStudent[])
+      .filter((s) => s.status === 'active')
+      .map(({ razryad, student_current_ratings, ...rest }) => ({
+        ...rest,
+        current_razryad: razryad ?? rest.current_razryad ?? null,
+        current_league:
+          normalizeLeagueName(student_current_ratings?.[0]?.league) ??
+          normalizeLeagueName(rest.current_league),
+      }));
+  }
+  if (!warnedListActiveStudentsByCoach) {
+    console.warn(
+      '[ce-admin] listActiveStudentsByCoach: unexpected shape, returning []',
+    );
+    warnedListActiveStudentsByCoach = true;
   }
   return [];
 }

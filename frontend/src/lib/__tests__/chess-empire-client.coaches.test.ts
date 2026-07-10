@@ -85,6 +85,8 @@ describe('chess-empire-client coach helpers', () => {
             last_name: 'Petrova',
             branch_id: 'br-1',
             email: 'anna@example.com',
+            photo_url: 'https://cdn.example.com/anna.jpg',
+            bio: 'FIDE master, 10 years coaching.',
           },
         ]),
       );
@@ -92,8 +94,12 @@ describe('chess-empire-client coach helpers', () => {
       expect(coach.branch_id).toBe('br-1');
       expect(coach.first_name).toBe('Anna');
       expect(coach.email).toBe('anna@example.com');
+      expect(coach.photo_url).toBe('https://cdn.example.com/anna.jpg');
+      expect(coach.bio).toBe('FIDE master, 10 years coaching.');
       const [url] = fetchSpy.mock.calls[0]!;
       expect(String(url)).toContain('id=eq.co-1');
+      expect(String(url)).toContain('photo_url');
+      expect(String(url)).toContain('bio');
     });
 
     it('throws a 404 ChessEmpireAPIError when no row is found', async () => {
