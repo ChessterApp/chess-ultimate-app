@@ -61,7 +61,10 @@ async function getCachedModel(modelUrl, modelVersion) {
     return null
   }
 
-  return await data.data.arrayBuffer()
+  // Handle both new ArrayBuffer caches and legacy Blob caches.
+  return data.data instanceof ArrayBuffer
+    ? data.data
+    : await data.data.arrayBuffer()
 }
 
 async function storeModel(modelUrl, modelVersion, buffer) {
@@ -74,7 +77,9 @@ async function storeModel(modelUrl, modelVersion, buffer) {
       id: MODEL_KEY,
       url: modelUrl,
       version: modelVersion,
-      data: new Blob([buffer]),
+      // Store the raw ArrayBuffer (not a Blob) to avoid WebKit's
+      // "Error preparing Blob/File data to be stored in object store".
+      data: buffer,
       timestamp: Date.now(),
       size: buffer.byteLength,
     })
@@ -157,7 +162,17 @@ self.onmessage = async (e) => {
           buffer = new Uint8Array(await response.arrayBuffer())
         }
 
-        await storeModel(modelUrl, modelVersion, buffer.buffer)
+        // Cache the model best-effort. On iOS Safari (private browsing /
+        // Lockdown / low quota) IndexedDB writes can throw; the engine must
+        // still initialize from the in-memory buffer we just downloaded.
+        try {
+          await storeModel(modelUrl, modelVersion, buffer.buffer)
+        } catch (cacheError) {
+          console.warn(
+            'Maia: failed to cache model in IndexedDB, continuing with in-memory buffer:',
+            cacheError,
+          )
+        }
         await initSession(buffer.buffer)
         postMessage({ type: 'progress', progress: 100 })
         postMessage({ type: 'status', status: 'ready' })

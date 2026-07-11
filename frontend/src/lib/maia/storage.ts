@@ -2,12 +2,26 @@ interface ModelStorage {
   id: string
   url: string
   version: string
-  data: Blob
+  // New caches store the raw ArrayBuffer to avoid WebKit's blob-file storage
+  // path (which throws on iOS Safari under private browsing / low quota).
+  // Legacy caches may still hold a Blob, so the read path handles both.
+  data: Blob | ArrayBuffer
   timestamp: number
   size: number
 }
 
 const MODEL_STORAGE_KEY = 'maia-rapid-model'
+
+/**
+ * Normalize a cached model payload to an ArrayBuffer. Supports both the new
+ * ArrayBuffer format and the legacy Blob format for backwards compatibility.
+ */
+export async function modelDataToArrayBuffer(
+  data: Blob | ArrayBuffer,
+): Promise<ArrayBuffer> {
+  if (data instanceof ArrayBuffer) return data
+  return data.arrayBuffer()
+}
 
 function isCompatibleModelCache(
   modelData: ModelStorage,
@@ -59,7 +73,9 @@ export class MaiaModelStorage {
         id: MODEL_STORAGE_KEY,
         url: modelUrl,
         version: modelVersion,
-        data: new Blob([buffer]),
+        // Store the raw ArrayBuffer (not a Blob) to avoid WebKit's
+        // "Error preparing Blob/File data to be stored in object store".
+        data: buffer,
         timestamp: Date.now(),
         size: buffer.byteLength,
       }
@@ -133,9 +149,9 @@ export class MaiaModelStorage {
         return null
       }
 
-      console.log('Storage: Converting Blob to ArrayBuffer...')
-      // Convert Blob back to ArrayBuffer
-      const buffer = await modelData.data.arrayBuffer()
+      console.log('Storage: Normalizing cached model to ArrayBuffer...')
+      // Handle both new ArrayBuffer caches and legacy Blob caches.
+      const buffer = await modelDataToArrayBuffer(modelData.data)
       console.log(
         'Storage: Successfully retrieved model, size:',
         buffer.byteLength,
