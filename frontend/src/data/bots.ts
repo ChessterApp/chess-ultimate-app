@@ -82,6 +82,10 @@ export interface TierWorld {
   scenery: { primary: string; secondary: string; accent: string }
   /** CSS gradient for the section banner. */
   headerGradient: string
+  /** Full-screen 160deg world gradient dipping the in-game play screen. */
+  screenGradient: string
+  /** Three low-opacity scenery emojis floated around the in-game screen. */
+  deco: [string, string, string]
   /** Card frame palette (border + background tint) applied across the tier. */
   frame: BotColors
 }
@@ -92,6 +96,8 @@ export const TIER_WORLDS: Record<BotTier, TierWorld> = {
     emoji: '🌊',
     scenery: { primary: '#38BDF8', secondary: '#7DD3FC', accent: '#0EA5E9' },
     headerGradient: 'linear-gradient(135deg, #38BDF8 0%, #22D3EE 100%)',
+    screenGradient: 'linear-gradient(160deg, #38BDF8 0%, #22D3EE 55%, #7DD3FC 100%)',
+    deco: ['🌊', '🐟', '🫧'],
     frame: { main: '#38BDF8', deep: '#0369A1', tint: '#EAF7FF' },
   },
   intermediate: {
@@ -99,6 +105,8 @@ export const TIER_WORLDS: Record<BotTier, TierWorld> = {
     emoji: '🌲',
     scenery: { primary: '#34D399', secondary: '#10B981', accent: '#047857' },
     headerGradient: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
+    screenGradient: 'linear-gradient(160deg, #10B981 0%, #34D399 55%, #6EE7B7 100%)',
+    deco: ['🌲', '🍄', '🦋'],
     frame: { main: '#10B981', deep: '#047857', tint: '#ECFDF5' },
   },
   advanced: {
@@ -106,6 +114,8 @@ export const TIER_WORLDS: Record<BotTier, TierWorld> = {
     emoji: '🌋',
     scenery: { primary: '#FB923C', secondary: '#F97316', accent: '#EF4444' },
     headerGradient: 'linear-gradient(135deg, #F97316 0%, #EF4444 100%)',
+    screenGradient: 'linear-gradient(160deg, #F97316 0%, #EF4444 55%, #FCA5A5 100%)',
+    deco: ['🌋', '🔥', '⚡'],
     frame: { main: '#F97316', deep: '#C2410C', tint: '#FFF3E9' },
   },
   master: {
@@ -113,6 +123,8 @@ export const TIER_WORLDS: Record<BotTier, TierWorld> = {
     emoji: '🏰',
     scenery: { primary: '#6D28D9', secondary: '#4C1D95', accent: '#C4B5FD' },
     headerGradient: 'linear-gradient(135deg, #6D28D9 0%, #9333EA 100%)',
+    screenGradient: 'linear-gradient(160deg, #6D28D9 0%, #9333EA 55%, #C4B5FD 100%)',
+    deco: ['🏰', '☁️', '⭐'],
     frame: { main: '#8B5CF6', deep: '#6D28D9', tint: '#F5F1FF' },
   },
 }
@@ -312,4 +324,41 @@ export const botColors = (bot: Bot): BotColors => {
   const palette = TIER_PALETTES[bot.tier]
   const idx = getBotsByTier(bot.tier).findIndex((b) => b.id === bot.id)
   return palette[(idx < 0 ? 0 : idx) % palette.length]
+}
+
+/** Resolved theme for the V3 "Immersive World" in-game play screen. */
+export interface GameTheme {
+  /** Full-screen world gradient behind the whole in-game view. */
+  screenGradient: string
+  /** Three low-opacity scenery emojis floated around the screen. */
+  deco: [string, string, string]
+  /** World emoji + i18n key for the "world" ghost pill. */
+  worldEmoji: string
+  worldKey: string
+  /** Accent colors (border/disc/button shadow). */
+  main: string
+  /** Deep shade for bubble text, avatar shadow, soft shadows. */
+  deep: string
+  /** Soft tint for disc/thinking-bubble backgrounds. */
+  tint: string
+}
+
+/**
+ * Theme for the in-game screen: the tier's world gradient dips the whole screen,
+ * while accent colors come from the bot's personal palette (beginner heroes) or
+ * the tier frame (everyone else). Keeps play-screen components free of hardcoded
+ * hex values.
+ */
+export const gameTheme = (bot: Bot): GameTheme => {
+  const world = tierWorld(bot.tier)
+  const accent = bot.colors ?? world.frame
+  return {
+    screenGradient: world.screenGradient,
+    deco: world.deco,
+    worldEmoji: world.emoji,
+    worldKey: world.key,
+    main: accent.main,
+    deep: accent.deep,
+    tint: accent.tint,
+  }
 }

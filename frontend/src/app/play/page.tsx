@@ -3,15 +3,18 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Chess } from 'chess.js'
 import { Box, Alert } from '@mui/material'
+import { useTranslations } from 'next-intl'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import BotGrid from '@/components/play/BotGrid'
 import GameSetup from '@/components/play/GameSetup'
-import GameSidebar from '@/components/play/GameSidebar'
+import GameHeader from '@/components/play/GameHeader'
+import GameDock from '@/components/play/GameDock'
 import { useMaia } from '@/hooks/useMaia'
 import { useStockfishPlay } from '@/hooks/useStockfishPlay'
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
+import { playText } from '@/lib/botI18n'
 import type { Bot } from '@/data/bots'
-import { tierWorld } from '@/data/bots'
+import { gameTheme } from '@/data/bots'
 import type { Key } from 'chessground/types'
 
 // Import chessground CSS
@@ -45,6 +48,7 @@ function selectMove(
 }
 
 export default function PlayPage() {
+  const t = useTranslations('bots')
   const { status, error, evaluatePosition, downloadModel, usingServerFallback } =
     useMaia()
   const stockfishPlay = useStockfishPlay()
@@ -256,6 +260,20 @@ export default function PlayPage() {
     setSelectedBot(null)
   }
 
+  // Player concedes: end the game as a loss for them (bot wins). Mirrors how
+  // checkGameOver ends the game so the ended-phase UI is identical.
+  const handleResign = () => {
+    if (!selectedBot || gamePhase !== 'playing') return
+    setThinking(false)
+    setPlayerCanMove(false)
+    setGameResult(
+      playText(t, 'resigned', `You resigned. ${selectedBot.name} wins!`, {
+        name: selectedBot.name,
+      }),
+    )
+    setGamePhase('ended')
+  }
+
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
       {(error || stockfishPlay.error) && (
@@ -291,20 +309,79 @@ export default function PlayPage() {
         />
       )}
 
-      {/* Playing/ended phase */}
+      {/* Playing/ended phase — V3 "Immersive World" screen */}
       {(gamePhase === 'playing' || gamePhase === 'ended') && selectedBot && (
         <Box
+          data-testid="game-screen"
           sx={{
+            position: 'relative',
+            overflow: 'hidden',
             borderRadius: '24px',
-            p: { xs: 1.5, sm: 2.5 },
-            // Subtle world tint behind board + sidebar; fades out well above the
-            // board so it never touches square contrast.
-            background: `linear-gradient(180deg, ${tierWorld(selectedBot.tier).frame.tint} 0%, transparent 280px)`,
+            p: { xs: 2, sm: 3 },
+            // The whole in-game screen is dipped in the tier's world gradient.
+            background: gameTheme(selectedBot).screenGradient,
           }}
         >
-          <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
-            {/* Board — unchanged */}
-            <Box sx={{ flexShrink: 0 }}>
+          {/* Decorative low-opacity floating scenery emojis */}
+          {(() => {
+            const [d1, d2, d3] = gameTheme(selectedBot).deco
+            const decoSx = {
+              position: 'absolute',
+              userSelect: 'none',
+              opacity: 0.18,
+              pointerEvents: 'none',
+              zIndex: 0,
+            } as const
+            return (
+              <Box aria-hidden="true">
+                <Box component="span" sx={{ ...decoSx, top: 14, right: 18, fontSize: '56px' }}>
+                  {d1}
+                </Box>
+                <Box component="span" sx={{ ...decoSx, top: 200, left: -8, fontSize: '44px' }}>
+                  {d2}
+                </Box>
+                <Box component="span" sx={{ ...decoSx, bottom: 48, right: -6, fontSize: '64px' }}>
+                  {d3}
+                </Box>
+              </Box>
+            )
+          })()}
+
+          <Box
+            sx={{
+              position: 'relative',
+              zIndex: 1,
+              display: 'grid',
+              gap: 2,
+              alignItems: 'start',
+              justifyContent: { md: 'center' },
+              gridTemplateColumns: { xs: '1fr', md: 'auto minmax(280px, 320px)' },
+              gridTemplateAreas: {
+                xs: '"header" "board" "dock"',
+                md: '"board header" "board dock"',
+              },
+            }}
+          >
+            {/* Bot header */}
+            <Box sx={{ gridArea: 'header' }}>
+              <GameHeader
+                bot={selectedBot}
+                thinking={thinking}
+                syncing={usingServerFallback && status !== 'ready'}
+              />
+            </Box>
+
+            {/* Board card */}
+            <Box
+              sx={{
+                gridArea: 'board',
+                borderRadius: '20px',
+                overflow: 'hidden',
+                border: '5px solid rgba(255,255,255,.95)',
+                boxShadow: `0 16px 40px ${gameTheme(selectedBot).deep}59`,
+                lineHeight: 0,
+              }}
+            >
               <ChessgroundBoard
                 fen={fen}
                 onMove={handleMove}
@@ -314,15 +391,14 @@ export default function PlayPage() {
               />
             </Box>
 
-            {/* Themed opponent sidebar (compact bar above the board on mobile) */}
-            <Box sx={{ width: { xs: '100%', md: 300 }, order: { xs: -1, md: 0 } }}>
-              <GameSidebar
+            {/* Bottom dock */}
+            <Box sx={{ gridArea: 'dock' }}>
+              <GameDock
                 bot={selectedBot}
                 playerColor={actualPlayerColor}
-                thinking={thinking}
                 gameResult={gameResult}
-                syncing={usingServerFallback && status !== 'ready'}
                 onNewGame={resetGame}
+                onResign={handleResign}
               />
             </Box>
           </Box>

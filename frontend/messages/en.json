@@ -1883,7 +1883,15 @@
       "thinking": "{name} is thinking",
       "newGame": "New game",
       "youPlay": "You play",
-      "syncingEngine": "Syncing engine…"
+      "youAreColor": "You — {color}",
+      "gameInProgress": "game in progress",
+      "syncingEngine": "Syncing engine…",
+      "resign": "Resign",
+      "resigned": "You resigned. {name} wins!",
+      "resignConfirmTitle": "Give up this game?",
+      "resignConfirmBody": "If you give up, {name} wins. You can start a new game any time!",
+      "resignConfirmYes": "Yes, I give up",
+      "resignConfirmCancel": "Keep playing"
     }
   }
 }

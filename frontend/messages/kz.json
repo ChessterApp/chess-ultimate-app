@@ -1883,7 +1883,15 @@
       "thinking": "{name} ойлануда",
       "newGame": "Жаңа ойын",
       "youPlay": "Сіз ойнайсыз",
-      "syncingEngine": "Қозғалтқыш синхрондалуда…"
+      "youAreColor": "Сіз — {color}",
+      "gameInProgress": "ойын жүріп жатыр",
+      "syncingEngine": "Қозғалтқыш синхрондалуда…",
+      "resign": "Берілу",
+      "resigned": "Сіз берілдіңіз. {name} жеңеді!",
+      "resignConfirmTitle": "Бұл ойыннан бас тартасың ба?",
+      "resignConfirmBody": "Егер берілсең, {name} жеңеді. Жаңа ойынды кез келген уақытта бастай аласың!",
+      "resignConfirmYes": "Иә, берілемін",
+      "resignConfirmCancel": "Ойынды жалғастыру"
     }
   }
 }

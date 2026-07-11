@@ -1883,7 +1883,15 @@
       "thinking": "{name} думает",
       "newGame": "Новая игра",
       "youPlay": "Вы играете",
-      "syncingEngine": "Синхронизация движка…"
+      "youAreColor": "Вы — {color}",
+      "gameInProgress": "партия идёт",
+      "syncingEngine": "Синхронизация движка…",
+      "resign": "Сдаться",
+      "resigned": "Вы сдались. {name} побеждает!",
+      "resignConfirmTitle": "Сдаться в этой партии?",
+      "resignConfirmBody": "Если сдашься, {name} победит. Ты всегда можешь начать новую игру!",
+      "resignConfirmYes": "Да, сдаюсь",
+      "resignConfirmCancel": "Продолжить игру"
     }
   }
 }
