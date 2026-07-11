@@ -266,7 +266,7 @@ export const BOTS: Bot[] = [
   // Master tier (2100-2600)
   {
     id: 'magnus-2100',
-    name: 'Magnus',
+    name: 'Capa',
     rating: 2100,
     tier: 'master',
     description: 'Master-level player with exceptional endgame technique',
@@ -276,7 +276,7 @@ export const BOTS: Bot[] = [
   },
   {
     id: 'alexa-2300',
-    name: 'Alexa',
+    name: 'Magician',
     rating: 2300,
     tier: 'master',
     description: 'Dynamic attacker with sharp tactical vision',
@@ -296,7 +296,7 @@ export const BOTS: Bot[] = [
   },
   {
     id: 'garuda-2600',
-    name: 'Garuda',
+    name: 'Magnus',
     rating: 2600,
     tier: 'master',
     description: 'Elite grandmaster strength, unforgiving play',
