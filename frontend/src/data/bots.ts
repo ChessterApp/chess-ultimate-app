@@ -271,7 +271,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Master-level player with exceptional endgame technique',
     playStyle: 'Technical',
-    avatar: '/bots/magnus.webp',
+    avatar: '/bots/sky-capa.webp',
     emoji: '⚙️',
   },
   {
@@ -281,7 +281,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Dynamic attacker with sharp tactical vision',
     playStyle: 'Dynamic',
-    avatar: '/bots/alexa.webp',
+    avatar: '/bots/sky-magician.webp',
     emoji: '💥',
   },
   {
@@ -291,7 +291,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Deep strategist with computer-like precision',
     playStyle: 'Strategic',
-    avatar: '/bots/kaspar.webp',
+    avatar: '/bots/sky-kaspar.webp',
     emoji: '♟️',
   },
   {
@@ -301,7 +301,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Elite grandmaster strength, unforgiving play',
     playStyle: 'Elite',
-    avatar: '/bots/garuda.webp',
+    avatar: '/bots/sky-magnus.webp',
     emoji: '👑',
   },
 ]
