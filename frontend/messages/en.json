@@ -1872,6 +1872,18 @@
       "volcanoArena": "Volcano Arena",
       "skyCastle": "Sky Castle"
     },
-    "artComingSoon": "Art coming soon"
+    "artComingSoon": "Art coming soon",
+    "play": {
+      "changeBot": "Change bot",
+      "playAs": "Play as",
+      "white": "White",
+      "black": "Black",
+      "random": "Random",
+      "playAgainst": "Play against {name}",
+      "thinking": "{name} is thinking",
+      "newGame": "New game",
+      "youPlay": "You play",
+      "syncingEngine": "Syncing engine…"
+    }
   }
 }

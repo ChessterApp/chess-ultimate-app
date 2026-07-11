@@ -1872,6 +1872,18 @@
       "volcanoArena": "Вулканическая арена",
       "skyCastle": "Небесный замок"
     },
-    "artComingSoon": "Иллюстрация скоро появится"
+    "artComingSoon": "Иллюстрация скоро появится",
+    "play": {
+      "changeBot": "Сменить бота",
+      "playAs": "Играть за",
+      "white": "Белые",
+      "black": "Чёрные",
+      "random": "Случайно",
+      "playAgainst": "Играть против {name}",
+      "thinking": "{name} думает",
+      "newGame": "Новая игра",
+      "youPlay": "Вы играете",
+      "syncingEngine": "Синхронизация движка…"
+    }
   }
 }

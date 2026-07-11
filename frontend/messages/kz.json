@@ -1872,6 +1872,18 @@
       "volcanoArena": "Жанартау аренасы",
       "skyCastle": "Аспан сарайы"
     },
-    "artComingSoon": "Сурет жақында қосылады"
+    "artComingSoon": "Сурет жақында қосылады",
+    "play": {
+      "changeBot": "Ботты ауыстыру",
+      "playAs": "Кім болып ойнау",
+      "white": "Ақ",
+      "black": "Қара",
+      "random": "Кездейсоқ",
+      "playAgainst": "{name} қарсы ойнау",
+      "thinking": "{name} ойлануда",
+      "newGame": "Жаңа ойын",
+      "youPlay": "Сіз ойнайсыз",
+      "syncingEngine": "Қозғалтқыш синхрондалуда…"
+    }
   }
 }

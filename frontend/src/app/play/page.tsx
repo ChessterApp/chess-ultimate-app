@@ -2,26 +2,16 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { Chess } from 'chess.js'
-import {
-  Box,
-  Button,
-  Typography,
-  Paper,
-  Chip,
-  Alert,
-  Avatar,
-} from '@mui/material'
-import { useTranslations } from 'next-intl'
+import { Box, Typography, Alert } from '@mui/material'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import BotGrid from '@/components/play/BotGrid'
 import GameSetup from '@/components/play/GameSetup'
+import GameSidebar from '@/components/play/GameSidebar'
 import { useMaia } from '@/hooks/useMaia'
 import { useStockfishPlay } from '@/hooks/useStockfishPlay'
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
 import type { Bot } from '@/data/bots'
-import { getBotById } from '@/data/bots'
-import { TIER_COLORS } from '@/data/bots'
-import { botDescription } from '@/lib/botI18n'
+import { tierWorld } from '@/data/bots'
 import type { Key } from 'chessground/types'
 
 // Import chessground CSS
@@ -55,7 +45,6 @@ function selectMove(
 }
 
 export default function PlayPage() {
-  const t = useTranslations('bots')
   const { status, error, evaluatePosition, downloadModel, usingServerFallback } =
     useMaia()
   const stockfishPlay = useStockfishPlay()
@@ -308,9 +297,17 @@ export default function PlayPage() {
 
       {/* Playing/ended phase */}
       {(gamePhase === 'playing' || gamePhase === 'ended') && selectedBot && (
-        <Box>
+        <Box
+          sx={{
+            borderRadius: '24px',
+            p: { xs: 1.5, sm: 2.5 },
+            // Subtle world tint behind board + sidebar; fades out well above the
+            // board so it never touches square contrast.
+            background: `linear-gradient(180deg, ${tierWorld(selectedBot.tier).frame.tint} 0%, transparent 280px)`,
+          }}
+        >
           <Box sx={{ display: 'flex', gap: 3, flexDirection: { xs: 'column', md: 'row' } }}>
-            {/* Board */}
+            {/* Board — unchanged */}
             <Box sx={{ flexShrink: 0 }}>
               <ChessgroundBoard
                 fen={fen}
@@ -321,105 +318,16 @@ export default function PlayPage() {
               />
             </Box>
 
-            {/* Info Panel */}
-            <Box sx={{ width: { xs: '100%', md: 300 } }}>
-              <Paper sx={{ p: 2, mb: 2 }}>
-                {/* Opponent header */}
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
-                  <Avatar
-                    src={selectedBot.avatar}
-                    alt={selectedBot.name}
-                    sx={{
-                      width: 48,
-                      height: 48,
-                      bgcolor: TIER_COLORS[selectedBot.tier],
-                      fontSize: '1.25rem',
-                      fontWeight: 'bold',
-                      color: '#fff',
-                      ...(thinking && {
-                        animation: 'botThinkingPulse 1.2s ease-in-out infinite',
-                      }),
-                      '@keyframes botThinkingPulse': {
-                        '0%, 100%': {
-                          transform: 'scale(1)',
-                          boxShadow: `0 0 0 0 ${TIER_COLORS[selectedBot.tier]}66`,
-                        },
-                        '50%': {
-                          transform: 'scale(1.06)',
-                          boxShadow: `0 0 0 6px ${TIER_COLORS[selectedBot.tier]}00`,
-                        },
-                      },
-                    }}
-                  >
-                    {selectedBot.name[0]}
-                  </Avatar>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', lineHeight: 1.2 }}>
-                      {selectedBot.name} ({selectedBot.rating})
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ display: 'block', lineHeight: 1.3 }}
-                    >
-                      {botDescription(t, selectedBot)}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Typography variant="subtitle2" gutterBottom>
-                  Game Info
-                </Typography>
-                <Typography variant="body2">
-                  You: {actualPlayerColor === 'w' ? 'White' : 'Black'}
-                </Typography>
-                {thinking && (
-                  <Typography variant="body2" color="primary" sx={{ mt: 1 }}>
-                    {selectedBot.name} is thinking...
-                  </Typography>
-                )}
-                {usingServerFallback && status !== 'ready' && (
-                  <Chip
-                    label="Syncing engine…"
-                    size="small"
-                    variant="outlined"
-                    sx={{ mt: 1 }}
-                  />
-                )}
-              </Paper>
-
-              {gameResult && (
-                <Alert
-                  severity="info"
-                  icon={false}
-                  sx={{ mb: 2, '& .MuiAlert-message': { display: 'flex', alignItems: 'center', gap: 1 } }}
-                >
-                  <Avatar
-                    src={selectedBot.avatar}
-                    alt={selectedBot.name}
-                    sx={{
-                      width: 32,
-                      height: 32,
-                      bgcolor: TIER_COLORS[selectedBot.tier],
-                      fontSize: '0.9rem',
-                      fontWeight: 'bold',
-                      color: '#fff',
-                    }}
-                  >
-                    {selectedBot.name[0]}
-                  </Avatar>
-                  <span>{gameResult}</span>
-                </Alert>
-              )}
-
-              <Button
-                variant="outlined"
-                fullWidth
-                onClick={resetGame}
-                sx={{ mb: 1 }}
-              >
-                New Game
-              </Button>
+            {/* Themed opponent sidebar (compact bar above the board on mobile) */}
+            <Box sx={{ width: { xs: '100%', md: 300 }, order: { xs: -1, md: 0 } }}>
+              <GameSidebar
+                bot={selectedBot}
+                playerColor={actualPlayerColor}
+                thinking={thinking}
+                gameResult={gameResult}
+                syncing={usingServerFallback && status !== 'ready'}
+                onNewGame={resetGame}
+              />
             </Box>
           </Box>
         </Box>

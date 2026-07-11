@@ -217,6 +217,7 @@ export const BOTS: Bot[] = [
     tier: 'advanced',
     description: 'Aggressive attacker seeking sharp positions',
     playStyle: 'Aggressive',
+    avatar: '/bots/viktor.webp',
     emoji: '🔥',
   },
   {
@@ -226,6 +227,7 @@ export const BOTS: Bot[] = [
     tier: 'advanced',
     description: 'Creative player with deep calculation skills',
     playStyle: 'Creative',
+    avatar: '/bots/elena.webp',
     emoji: '🎨',
   },
   {
@@ -235,6 +237,7 @@ export const BOTS: Bot[] = [
     tier: 'advanced',
     description: 'Disciplined and patient, grinds out wins',
     playStyle: 'Endgame',
+    avatar: '/bots/kenji.webp',
     emoji: '🏁',
   },
   {
@@ -244,6 +247,7 @@ export const BOTS: Bot[] = [
     tier: 'advanced',
     description: 'Well-rounded expert with few weaknesses',
     playStyle: 'Universal',
+    avatar: '/bots/sofia.webp',
     emoji: '🌐',
   },
 
@@ -255,6 +259,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Master-level player with exceptional endgame technique',
     playStyle: 'Technical',
+    avatar: '/bots/magnus.webp',
     emoji: '⚙️',
   },
   {
@@ -264,6 +269,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Dynamic attacker with sharp tactical vision',
     playStyle: 'Dynamic',
+    avatar: '/bots/alexa.webp',
     emoji: '💥',
   },
   {
@@ -273,6 +279,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Deep strategist with computer-like precision',
     playStyle: 'Strategic',
+    avatar: '/bots/kaspar.webp',
     emoji: '♟️',
   },
   {
@@ -282,6 +289,7 @@ export const BOTS: Bot[] = [
     tier: 'master',
     description: 'Elite grandmaster strength, unforgiving play',
     playStyle: 'Elite',
+    avatar: '/bots/garuda.webp',
     emoji: '👑',
   },
 ]

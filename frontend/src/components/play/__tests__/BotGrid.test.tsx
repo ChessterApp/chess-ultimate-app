@@ -24,7 +24,7 @@ vi.mock('next/font/google', () => ({
 }));
 
 import BotGrid from '../BotGrid';
-import { TIER_WORLDS, TIER_LABELS } from '@/data/bots';
+import { TIER_WORLDS, TIER_LABELS, BOTS } from '@/data/bots';
 
 afterEach(cleanup);
 
@@ -56,13 +56,11 @@ describe('BotGrid world sections', () => {
     }
   });
 
-  it('renders real beginner avatars and placeholders for tiers without art', () => {
+  it('renders an avatar image for every bot with art, and a placeholder for the rest', () => {
     const { container } = render(<BotGrid selectedBotId={null} onSelectBot={() => {}} />);
-    // Beginner heroes have real avatar images.
-    expect(container.querySelectorAll('img').length).toBeGreaterThan(0);
-    // Non-beginner tiers show the "Art coming soon" placeholder.
-    expect(
-      container.querySelectorAll('[data-testid="bot-placeholder"]').length,
-    ).toBeGreaterThan(0);
+    const withArt = BOTS.filter((b) => b.avatar).length;
+    const withoutArt = BOTS.length - withArt;
+    expect(container.querySelectorAll('img').length).toBe(withArt);
+    expect(container.querySelectorAll('[data-testid="bot-placeholder"]').length).toBe(withoutArt);
   });
 });
