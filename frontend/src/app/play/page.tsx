@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import { Chess } from 'chess.js'
-import { Box, Typography, Alert } from '@mui/material'
+import { Box, Alert } from '@mui/material'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import BotGrid from '@/components/play/BotGrid'
 import GameSetup from '@/components/play/GameSetup'
@@ -258,10 +258,6 @@ export default function PlayPage() {
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
-      <Typography variant="h4" gutterBottom>
-        Play vs Bot
-      </Typography>
-
       {(error || stockfishPlay.error) && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error || stockfishPlay.error}
