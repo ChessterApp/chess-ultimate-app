@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslations } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
 import { apiFetch, ApiError } from '@/lib/api'
+import { usePhaseHistory } from '@/hooks/usePhaseHistory'
 import { useToast } from '@/components/ToastProvider'
 import RateLimitNotice from '@/components/RateLimitNotice'
 import PlayerSearch from '@/components/opponent/PlayerSearch'
@@ -110,6 +111,16 @@ export default function OpponentAnalysisPage() {
     eco: ''
   })
   const [selectedGame, setSelectedGame] = useState<{ game: GameData; pgn: string } | null>(null)
+
+  // Latest values read synchronously by the popstate restore below.
+  const selectedPlayerRef = useRef(selectedPlayer)
+  const selectedGameRef = useRef(selectedGame)
+  const gamesRef = useRef(games)
+  // A game id from the URL that can't be opened yet because its games page is
+  // still loading; opened as soon as the matching game appears.
+  const pendingGameRef = useRef<number | null>(null)
+  useEffect(() => { selectedPlayerRef.current = selectedPlayer }, [selectedPlayer])
+  useEffect(() => { selectedGameRef.current = selectedGame }, [selectedGame])
 
   const API_URL = process.env.NEXT_PUBLIC_API_URL || ''
 
@@ -305,6 +316,87 @@ export default function OpponentAnalysisPage() {
     }
   }, [selectedPlayer, API_URL])
 
+  // Open a game replay by id: look it up in the loaded games, fetch its PGN,
+  // and show the board. If the game isn't in the current page yet, remember it
+  // and open once it loads (see the games effect below). Failures fall back to
+  // the profile view silently — no crash, no infinite spinner.
+  const openGameById = useCallback(async (gameId: number) => {
+    const game = gamesRef.current.find((g) => g.id === gameId)
+    if (!game) {
+      pendingGameRef.current = gameId
+      return
+    }
+    pendingGameRef.current = null
+    try {
+      const data = await apiFetch<{ pgn: string }>(`${API_URL}/api/opponent/game/${gameId}/pgn`)
+      setSelectedGame({ game, pgn: data.pgn })
+    } catch (error) {
+      console.error('Error restoring game replay:', error)
+    }
+  }, [API_URL])
+
+  // Track the latest games and open any URL-restored game once it arrives.
+  useEffect(() => {
+    gamesRef.current = games
+    const pending = pendingGameRef.current
+    if (pending != null && games.some((g) => g.id === pending)) {
+      openGameById(pending)
+    }
+  }, [games, openGameById])
+
+  // Rebuild the screen from a URL phase, on mount (refresh/deep-link) and on
+  // popstate (Back/Forward). Steps are replay → profile → search: dropping the
+  // `game` param closes the replay, dropping `player` returns to search.
+  const restore = useCallback(
+    (target: { player: string | null; game: number | null }) => {
+      const curPlayer = selectedPlayerRef.current
+      const curGameId = selectedGameRef.current?.game.id ?? null
+
+      // No player in the URL → search screen.
+      if (!target.player) {
+        pendingGameRef.current = null
+        if (curPlayer !== null) {
+          setSelectedPlayer(null)
+          setPlayerData(null)
+        }
+        setSelectedGame(null)
+        return
+      }
+
+      // Different player (or first load) → (re)load the profile, then open the
+      // requested game after its games list loads.
+      if (target.player !== curPlayer) {
+        pendingGameRef.current = target.game
+        setSelectedGame(null)
+        fetchPlayerProfile(target.player)
+        return
+      }
+
+      // Same player — reconcile the game view.
+      if (target.game === null) {
+        pendingGameRef.current = null
+        setSelectedGame(null)
+        return
+      }
+      if (target.game !== curGameId) {
+        openGameById(target.game)
+      }
+    },
+    [fetchPlayerProfile, openGameById],
+  )
+
+  const history = usePhaseHistory<{ player: string | null; game: number | null }>({
+    parse: (params) => {
+      const rawGame = parseInt(params.get('game') ?? '', 10)
+      return {
+        player: params.get('player'),
+        game: Number.isFinite(rawGame) ? rawGame : null,
+      }
+    },
+    serialize: (p) => ({ player: p.player, game: p.game }),
+    onRestore: (phase) => restore(phase),
+  })
+
   // Load all data when player is selected
   useEffect(() => {
     if (selectedPlayer) {
@@ -332,7 +424,11 @@ export default function OpponentAnalysisPage() {
       dateTo: '',
       eco: ''
     })
+    pendingGameRef.current = null
+    setSelectedGame(null)
     fetchPlayerProfile(playerName)
+    // Drill-down: search → profile (or profile → another player) gets a history entry.
+    history.push({ player: playerName, game: null })
   }
 
   const handleFilterChange = (newFilters: GameFiltersState) => {
@@ -345,10 +441,13 @@ export default function OpponentAnalysisPage() {
 
   const handleSelectGame = (game: GameData, pgn: string) => {
     setSelectedGame({ game, pgn })
+    // Drill-down: profile → replay gets a history entry.
+    history.push({ player: selectedPlayer, game: game.id })
   }
 
   const handleCloseReplay = () => {
-    setSelectedGame(null)
+    // Mirror the Back button: pop the replay entry back to the profile.
+    history.back()
   }
 
   if (loading) {
