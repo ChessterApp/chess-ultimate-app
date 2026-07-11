@@ -9,8 +9,14 @@ import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { useGameData } from "@/lib/onboarding/GameDataContext";
 import { getMostPlayedOpenings } from "@/lib/onboarding/gameFetcher";
 import { translateOpeningName } from "@/lib/openings/openingNamesI18n";
+import { usePhaseHistory } from "@/hooks/usePhaseHistory";
 
 const TOTAL_STEPS = 16;
+
+// In-progress answers survive a refresh via sessionStorage (the step itself
+// lives in the URL). `gameData` is intentionally excluded — it can be large and
+// is re-fetched from `startFetch` on remount.
+const STORAGE_KEY = "chesster_onboarding_answers";
 
 const STEP_GROUPS = [
   { start: 1, end: 3 },   // About You (welcome, attribution, experience)
@@ -19,6 +25,34 @@ const STEP_GROUPS = [
   { start: 12, end: 15 }, // Assessment (puzzle, skill profile, building plan, opening DNA)
   { start: 16, end: 16 }, // Your Plan (custom plan)
 ];
+
+const clampStep = (n: number) => Math.min(TOTAL_STEPS, Math.max(1, n));
+
+// Earliest step the user could legitimately be on given their answers. Used to
+// reject deep links like `?step=12` that skip past unanswered gating questions.
+// Rating (step 6) always has a default, so it never gates.
+function earliestIncompleteStep(a: any): number {
+  if (!a?.attribution) return 2;
+  if (!a?.experience) return 3;
+  if (!a?.platform) return 4;
+  if (a.platform !== "none" && !a?.platformUsername) return 5;
+  if (!a?.focusAreas || a.focusAreas.length === 0) return 7;
+  if (!a?.challenge) return 8;
+  if (!a?.practiceTime) return 9;
+  if (!a?.goal) return 10;
+  if (!a?.timeline) return 11;
+  return TOTAL_STEPS;
+}
+
+function readStoredAnswers(): any | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function OnboardingPage() {
   const t = useTranslations("onboarding");
@@ -61,24 +95,30 @@ export default function OnboardingPage() {
     prevStartFetch.current = answers.startFetch;
   }, [answers.startFetch, answers.platform, answers.platformUsername, fetchGames]);
 
-  const goNext = useCallback(() => {
-    if (phase !== "idle") return;
-    setDirection("forward");
+  // Persist in-progress answers (minus gameData) so a refresh keeps them.
+  // Held off until the mount restore has hydrated stored answers, so the
+  // default state doesn't clobber them on first render.
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined" || !hydratedRef.current) return;
+    try {
+      const { gameData: _gameData, ...persist } = answers;
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(persist));
+    } catch {
+      /* quota / serialization errors are non-fatal */
+    }
+  }, [answers]);
+
+  // Latest step, read synchronously by the popstate restore below.
+  const stepRef = useRef(step);
+  useEffect(() => { stepRef.current = step; }, [step]);
+
+  // Shared slide animation to an explicit target step.
+  const animateTo = useCallback((target: number, dir: "forward" | "back") => {
+    setDirection(dir);
     setPhase("exiting");
     setTimeout(() => {
-      if (step >= TOTAL_STEPS) {
-        router.push("/learn");
-      } else {
-        // Skip step 5 (username) if platform is 'none'
-        if (step === 4 && answers.platform === "none") {
-          setStep(6);
-        // Skip step 15 (opening DNA) only if no platform selected
-        } else if (step === 14 && answers.platform === "none") {
-          setStep(16);
-        } else {
-          setStep((s) => s + 1);
-        }
-      }
+      setStep(target);
       setPhase("entering");
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -86,28 +126,76 @@ export default function OnboardingPage() {
         });
       });
     }, 300);
-  }, [phase, step, router, answers.platform, answers.gameData]);
+  }, []);
+
+  // Forward skip logic: username (5) and opening-DNA (15) are skipped when no
+  // platform is connected. Back navigation is driven by history entries, which
+  // already reflect these skips, so it needs no mirror logic.
+  const computeNext = useCallback((s: number): number => {
+    if (s === 4 && answers.platform === "none") return 6;
+    if (s === 14 && answers.platform === "none") return 16;
+    return s + 1;
+  }, [answers.platform]);
+
+  const restore = useCallback(
+    (
+      target: { step: number },
+      meta: { initial: boolean; replace: (p: { step: number }) => void },
+    ) => {
+      if (meta.initial) {
+        // Refresh / deep-link: restore answers, then clamp the URL step to the
+        // earliest step the answers actually justify (guards `?step=12` links).
+        const stored = readStoredAnswers();
+        if (stored) setAnswers((a) => ({ ...a, ...stored }));
+        hydratedRef.current = true;
+        const allowed = earliestIncompleteStep(stored);
+        let next = clampStep(target.step);
+        if (next > allowed) next = allowed;
+        setStep(next);
+        // Normalize the base entry so it carries `?step=N` for Forward/Back.
+        meta.replace({ step: next });
+        return;
+      }
+      // Browser/in-app Back or Forward: animate to the entry's step.
+      const next = clampStep(target.step);
+      const prev = stepRef.current;
+      if (next === prev) return;
+      animateTo(next, next < prev ? "back" : "forward");
+    },
+    [animateTo],
+  );
+
+  const history = usePhaseHistory<{ step: number }>({
+    parse: (params) => {
+      const raw = parseInt(params.get("step") ?? "", 10);
+      return { step: Number.isFinite(raw) && raw >= 1 ? raw : 1 };
+    },
+    serialize: (p) => ({ step: p.step }),
+    onRestore: restore,
+  });
+
+  // Advance to a specific step and push a matching history entry.
+  const advanceTo = useCallback((target: number) => {
+    animateTo(target, "forward");
+    history.push({ step: target });
+  }, [animateTo, history]);
+
+  const goNext = useCallback(() => {
+    if (phase !== "idle") return;
+    if (step >= TOTAL_STEPS) {
+      setDirection("forward");
+      setPhase("exiting");
+      setTimeout(() => router.push("/learn"), 300);
+      return;
+    }
+    advanceTo(computeNext(step));
+  }, [phase, step, router, advanceTo, computeNext]);
 
   const goBack = useCallback(() => {
     if (phase !== "idle" || step <= 1) return;
-    setDirection("back");
-    setPhase("exiting");
-    setTimeout(() => {
-      setStep((s) => {
-        // Skip step 5 going back if platform is 'none'
-        if (s === 6 && answers.platform === "none") return 4;
-        // Skip step 15 going back if platform is 'none'
-        if (s === 16 && answers.platform === "none") return 14;
-        return s - 1;
-      });
-      setPhase("entering");
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          setPhase("idle");
-        });
-      });
-    }, 300);
-  }, [phase, step, answers.platform]);
+    // Pop one history entry; the popstate restore animates to the prior step.
+    history.back();
+  }, [phase, step, history]);
 
   const isEntering = phase === "entering";
   const slideClass =
@@ -167,7 +255,7 @@ export default function OnboardingPage() {
           {step === 1 && <StepWelcome t={t} onNext={goNext} />}
           {step === 2 && <StepAttribution t={t} onSelect={(v: string) => { setAnswers(a => ({ ...a, attribution: v })); goNext(); }} />}
           {step === 3 && <StepExperience t={t} onSelect={(v: string) => { setAnswers(a => ({ ...a, experience: v })); goNext(); }} />}
-          {step === 4 && <StepPlatform t={t} onSelect={(v: "chessdotcom" | "lichess" | "none") => { setAnswers(a => ({ ...a, platform: v })); if (v === "none") { setDirection("forward"); setPhase("exiting"); setTimeout(() => { setStep(6); setPhase("entering"); requestAnimationFrame(() => { requestAnimationFrame(() => { setPhase("idle"); }); }); }, 300); } else { goNext(); } }} />}
+          {step === 4 && <StepPlatform t={t} onSelect={(v: "chessdotcom" | "lichess" | "none") => { setAnswers(a => ({ ...a, platform: v })); if (v === "none") { advanceTo(6); } else { goNext(); } }} />}
           {step === 5 && answers.platform !== "none" && <StepUsername t={t} answers={answers} setAnswers={setAnswers} onNext={goNext} />}
           {step === 6 && <StepRating t={t} answers={answers} setAnswers={setAnswers} onNext={goNext} />}
           {step === 7 && <StepFocusAreas t={t} answers={answers} setAnswers={setAnswers} onNext={goNext} />}
