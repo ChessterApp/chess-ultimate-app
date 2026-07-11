@@ -212,7 +212,7 @@ export const BOTS: Bot[] = [
   // Advanced tier (1700-2000)
   {
     id: 'viktor-1700',
-    name: 'Viktor',
+    name: 'Kai',
     rating: 1700,
     tier: 'advanced',
     description: 'Aggressive attacker seeking sharp positions',
@@ -222,7 +222,7 @@ export const BOTS: Bot[] = [
   },
   {
     id: 'elena-1800',
-    name: 'Elena',
+    name: 'Blaze',
     rating: 1800,
     tier: 'advanced',
     description: 'Creative player with deep calculation skills',
@@ -232,7 +232,7 @@ export const BOTS: Bot[] = [
   },
   {
     id: 'kenji-1900',
-    name: 'Kenji',
+    name: 'Vulcan',
     rating: 1900,
     tier: 'advanced',
     description: 'Disciplined and patient, grinds out wins',
@@ -242,7 +242,7 @@ export const BOTS: Bot[] = [
   },
   {
     id: 'sofia-2000',
-    name: 'Sofia',
+    name: 'Ember',
     rating: 2000,
     tier: 'advanced',
     description: 'Well-rounded expert with few weaknesses',
