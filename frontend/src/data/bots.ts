@@ -67,6 +67,59 @@ export const TIER_LABELS: Record<BotTier, string> = {
   master: 'Master',
 }
 
+/**
+ * Each tier is a bright, kid-friendly "world" the player travels through as
+ * they climb the ladder. World colors compose with {@link botColors}: the frame
+ * (border/tint) themes every card in the tier, while beginner heroes keep their
+ * personal signature colors on the name banner so the four stay distinct.
+ */
+export interface TierWorld {
+  /** i18n key under `bots.worlds.*`. */
+  key: string
+  /** Emoji shown before the world name in the section banner. */
+  emoji: string
+  /** Scenery colors painted into the card art backdrop (SVG/CSS, no images). */
+  scenery: { primary: string; secondary: string; accent: string }
+  /** CSS gradient for the section banner. */
+  headerGradient: string
+  /** Card frame palette (border + background tint) applied across the tier. */
+  frame: BotColors
+}
+
+export const TIER_WORLDS: Record<BotTier, TierWorld> = {
+  beginner: {
+    key: 'freshRiver',
+    emoji: '🌊',
+    scenery: { primary: '#38BDF8', secondary: '#7DD3FC', accent: '#0EA5E9' },
+    headerGradient: 'linear-gradient(135deg, #38BDF8 0%, #22D3EE 100%)',
+    frame: { main: '#38BDF8', deep: '#0369A1', tint: '#EAF7FF' },
+  },
+  intermediate: {
+    key: 'emeraldForest',
+    emoji: '🌲',
+    scenery: { primary: '#34D399', secondary: '#10B981', accent: '#047857' },
+    headerGradient: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
+    frame: { main: '#10B981', deep: '#047857', tint: '#ECFDF5' },
+  },
+  advanced: {
+    key: 'volcanoArena',
+    emoji: '🌋',
+    scenery: { primary: '#FB923C', secondary: '#F97316', accent: '#EF4444' },
+    headerGradient: 'linear-gradient(135deg, #F97316 0%, #EF4444 100%)',
+    frame: { main: '#F97316', deep: '#C2410C', tint: '#FFF3E9' },
+  },
+  master: {
+    key: 'skyCastle',
+    emoji: '🏰',
+    scenery: { primary: '#6D28D9', secondary: '#4C1D95', accent: '#C4B5FD' },
+    headerGradient: 'linear-gradient(135deg, #6D28D9 0%, #9333EA 100%)',
+    frame: { main: '#8B5CF6', deep: '#6D28D9', tint: '#F5F1FF' },
+  },
+}
+
+/** The world config for a tier. */
+export const tierWorld = (tier: BotTier): TierWorld => TIER_WORLDS[tier]
+
 export const BOTS: Bot[] = [
   // Beginner tier (1100-1300)
   {

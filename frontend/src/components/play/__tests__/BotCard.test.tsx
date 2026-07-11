@@ -61,10 +61,22 @@ describe('BotCard', () => {
     expect(img?.getAttribute('alt')).toBe('Luna');
   });
 
-  it('falls back to the name initial when bot.avatar is missing', () => {
+  it('shows the silhouette placeholder + "Art coming soon" when bot.avatar is missing', () => {
     const { container } = render(<BotCard bot={noAvatar} onClick={() => {}} />);
     expect(container.querySelector('img')).toBeNull();
-    expect(container.textContent).toContain('S');
+    expect(container.querySelector('[data-testid="bot-placeholder"]')).not.toBeNull();
+    expect(container.textContent).toContain('Art coming soon');
+  });
+
+  it('paints the world scenery behind every card art area', () => {
+    const beginner = render(<BotCard bot={withAvatar} onClick={() => {}} />);
+    const riverScenery = beginner.container.querySelector('[data-testid="world-scenery"]');
+    expect(riverScenery).not.toBeNull();
+    expect(riverScenery?.getAttribute('data-tier')).toBe('beginner');
+
+    const intermediate = render(<BotCard bot={noAvatar} onClick={() => {}} />);
+    const forestScenery = intermediate.container.querySelector('[data-testid="world-scenery"]');
+    expect(forestScenery?.getAttribute('data-tier')).toBe('intermediate');
   });
 
   it('keeps the bot name visible', () => {

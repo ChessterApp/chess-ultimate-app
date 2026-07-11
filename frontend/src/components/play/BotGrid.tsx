@@ -3,8 +3,8 @@ import { Box, Typography } from '@mui/material'
 import { useTranslations } from 'next-intl'
 import BotCard from './BotCard'
 import type { Bot, BotTier } from '@/data/bots'
-import { getBotsByTier } from '@/data/bots'
-import { tierLabel } from '@/lib/botI18n'
+import { getBotsByTier, tierWorld } from '@/data/bots'
+import { tierLabel, worldName } from '@/lib/botI18n'
 import { fredoka, nunito } from '@/lib/fonts'
 
 interface BotGridProps {
@@ -13,9 +13,6 @@ interface BotGridProps {
 }
 
 const TIER_ORDER: BotTier[] = ['beginner', 'intermediate', 'advanced', 'master']
-
-const INK = '#28324E'
-const INK_SOFT = '#5C6784'
 
 export default function BotGrid({ selectedBotId, onSelectBot }: BotGridProps) {
   const t = useTranslations('bots')
@@ -26,39 +23,70 @@ export default function BotGrid({ selectedBotId, onSelectBot }: BotGridProps) {
         const bots = getBotsByTier(tier)
         if (bots.length === 0) return null
 
+        const world = tierWorld(tier)
+
         return (
           <Box key={tier} sx={{ mb: 5 }}>
-            {/* Tier header */}
-            <Typography
-              component="h2"
+            {/* World banner — travel to the next world as you scroll */}
+            <Box
               sx={{
-                fontFamily: fredoka.style.fontFamily,
-                fontWeight: 700,
-                fontSize: '28px',
-                color: INK,
-                mb: tier === 'beginner' ? 0.5 : 2,
+                mb: tier === 'beginner' ? 1.5 : 2.5,
+                px: { xs: 2.5, sm: 3 },
+                py: { xs: 2, sm: 2.25 },
+                borderRadius: '22px',
+                background: world.headerGradient,
+                boxShadow: '0 10px 24px rgba(40,50,78,.16)',
               }}
             >
-              {tierLabel(t, tier)}
-            </Typography>
-
-            {/* Collectible subtitle (beginner heroes only) */}
-            {tier === 'beginner' && (
+              <Typography
+                component="h2"
+                sx={{
+                  fontFamily: fredoka.style.fontFamily,
+                  fontWeight: 700,
+                  fontSize: { xs: '26px', sm: '32px' },
+                  lineHeight: 1.1,
+                  color: '#fff',
+                  textShadow: '0 2px 6px rgba(40,50,78,.28)',
+                }}
+              >
+                <Box component="span" sx={{ mr: 1 }} aria-hidden="true">
+                  {world.emoji}
+                </Box>
+                {worldName(t, tier)}
+              </Typography>
               <Typography
                 component="p"
                 sx={{
+                  mt: 0.25,
                   fontFamily: nunito.style.fontFamily,
-                  fontWeight: 700,
-                  fontSize: '17px',
-                  color: INK_SOFT,
-                  mb: 2,
+                  fontWeight: 800,
+                  fontSize: '14px',
+                  letterSpacing: '0.06em',
+                  textTransform: 'uppercase',
+                  color: 'rgba(255,255,255,0.92)',
                 }}
               >
-                {t.has('collectSubtitle')
-                  ? t('collectSubtitle')
-                  : 'Collect a win against every character!'}
+                {tierLabel(t, tier)}
               </Typography>
-            )}
+
+              {/* Collectible subtitle (beginner heroes only) */}
+              {tier === 'beginner' && (
+                <Typography
+                  component="p"
+                  sx={{
+                    mt: 1,
+                    fontFamily: nunito.style.fontFamily,
+                    fontWeight: 700,
+                    fontSize: '16px',
+                    color: '#fff',
+                  }}
+                >
+                  {t.has('collectSubtitle')
+                    ? t('collectSubtitle')
+                    : 'Collect a win against every character!'}
+                </Typography>
+              )}
+            </Box>
 
             {/* Bot cards grid */}
             <Box

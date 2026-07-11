@@ -1865,6 +1865,13 @@
       "intermediate": "Intermediate",
       "advanced": "Advanced",
       "master": "Master"
-    }
+    },
+    "worlds": {
+      "freshRiver": "Fresh River",
+      "emeraldForest": "Emerald Forest",
+      "volcanoArena": "Volcano Arena",
+      "skyCastle": "Sky Castle"
+    },
+    "artComingSoon": "Art coming soon"
   }
 }

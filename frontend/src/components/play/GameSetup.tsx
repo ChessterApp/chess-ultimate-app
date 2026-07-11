@@ -2,7 +2,7 @@ import React from 'react'
 import { Box, Button, Typography, Avatar, Paper, ButtonGroup } from '@mui/material'
 import { useTranslations } from 'next-intl'
 import type { Bot } from '@/data/bots'
-import { botColors } from '@/data/bots'
+import { botColors, tierWorld } from '@/data/bots'
 import { botDescription } from '@/lib/botI18n'
 import { fredoka, nunito } from '@/lib/fonts'
 
@@ -31,7 +31,10 @@ export default function GameSetup({
   disabled = false,
 }: GameSetupProps) {
   const t = useTranslations('bots')
-  const { main, deep, tint } = botColors(bot)
+  const { deep } = botColors(bot)
+  // Carry the opponent's world theme into the pre-game screen.
+  const world = tierWorld(bot.tier)
+  const { main, tint } = world.frame
 
   return (
     <Paper
@@ -39,8 +42,9 @@ export default function GameSetup({
         p: 4,
         maxWidth: 600,
         mx: 'auto',
-        bgcolor: '#F3F7FF',
+        bgcolor: tint,
         borderRadius: '24px',
+        border: `3px solid ${main}`,
       }}
     >
       {/* Selected bot mini-card */}
@@ -51,7 +55,7 @@ export default function GameSetup({
           gap: 2,
           mb: 3,
           p: 2,
-          bgcolor: tint,
+          bgcolor: '#fff',
           borderRadius: '20px',
           border: `3px solid ${main}`,
         }}

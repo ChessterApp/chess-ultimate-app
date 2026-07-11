@@ -1865,6 +1865,13 @@
       "intermediate": "Средний",
       "advanced": "Продвинутый",
       "master": "Мастер"
-    }
+    },
+    "worlds": {
+      "freshRiver": "Свежая река",
+      "emeraldForest": "Изумрудный лес",
+      "volcanoArena": "Вулканическая арена",
+      "skyCastle": "Небесный замок"
+    },
+    "artComingSoon": "Иллюстрация скоро появится"
   }
 }

@@ -2,9 +2,10 @@ import React from 'react'
 import { Box, Typography } from '@mui/material'
 import { useTranslations } from 'next-intl'
 import type { Bot } from '@/data/bots'
-import { botColors } from '@/data/bots'
+import { tierWorld } from '@/data/bots'
 import { botDescription, botPlayStyle } from '@/lib/botI18n'
 import { fredoka, nunito } from '@/lib/fonts'
+import WorldScenery from './WorldScenery'
 
 interface BotCardProps {
   bot: Bot
@@ -19,7 +20,12 @@ const GOLD_TEXT = '#6B4A00'
 
 export default function BotCard({ bot, selected = false, onClick }: BotCardProps) {
   const t = useTranslations('bots')
-  const { main, deep, tint } = botColors(bot)
+  const world = tierWorld(bot.tier)
+  // World frame themes the whole tier (border + card tint); beginner heroes keep
+  // their personal signature colors on the name banner + chip so the four stay
+  // distinct, everyone else inherits the world frame.
+  const { main, deep, tint } = world.frame
+  const signature = bot.colors ?? world.frame
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -62,40 +68,73 @@ export default function BotCard({ bot, selected = false, onClick }: BotCardProps
         },
       }}
     >
-      {/* Card top: art + rating pill + name banner */}
+      {/* Card top: world scenery + art + rating pill + name banner */}
       <Box sx={{ position: 'relative' }}>
-        {bot.avatar ? (
-          <Box
-            component="img"
-            src={bot.avatar}
-            alt={bot.name}
-            sx={{
-              display: 'block',
-              width: '100%',
-              aspectRatio: '1 / 1',
-              objectFit: 'cover',
-            }}
-          />
-        ) : (
-          <Box
-            aria-hidden="true"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '100%',
-              aspectRatio: '1 / 1',
-              bgcolor: tint,
-              fontFamily: fredoka.style.fontFamily,
-              fontWeight: 700,
-              fontSize: '96px',
-              lineHeight: 1,
-              color: deep,
-            }}
-          >
-            {bot.name[0]}
-          </Box>
-        )}
+        {/* Square art slot — world scenery painted behind every card */}
+        <Box sx={{ position: 'relative', width: '100%', aspectRatio: '1 / 1' }}>
+          <WorldScenery tier={bot.tier} />
+
+          {bot.avatar ? (
+            <Box
+              component="img"
+              src={bot.avatar}
+              alt={bot.name}
+              sx={{
+                position: 'relative',
+                display: 'block',
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
+            />
+          ) : (
+            /* Friendly silhouette placeholder — drop-in art slot for bots whose
+               character image is not ready yet. */
+            <Box
+              data-testid="bot-placeholder"
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '14px',
+              }}
+            >
+              <Box
+                component="svg"
+                viewBox="0 0 100 100"
+                aria-hidden="true"
+                sx={{ width: '46%', height: 'auto', filter: 'drop-shadow(0 4px 6px rgba(40,50,78,.2))' }}
+              >
+                {/* Rounded pawn — a friendly, world-neutral stand-in */}
+                <circle cx="50" cy="30" r="16" fill="#FFFFFF" opacity="0.92" />
+                <path
+                  d="M32 82 C32 60 44 52 50 52 C56 52 68 60 68 82 Z"
+                  fill="#FFFFFF"
+                  opacity="0.92"
+                />
+              </Box>
+              <Box
+                component="span"
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                  color: deep,
+                  fontFamily: nunito.style.fontFamily,
+                  fontWeight: 800,
+                  fontSize: '13px',
+                  borderRadius: '999px',
+                  px: '12px',
+                  py: '4px',
+                  boxShadow: '0 2px 6px rgba(40,50,78,.18)',
+                }}
+              >
+                {t.has('artComingSoon') ? t('artComingSoon') : 'Art coming soon'}
+              </Box>
+            </Box>
+          )}
+        </Box>
 
         {/* Rating pill */}
         <Box
@@ -125,7 +164,7 @@ export default function BotCard({ bot, selected = false, onClick }: BotCardProps
             right: 0,
             bottom: 0,
             padding: '34px 16px 10px',
-            background: `linear-gradient(180deg, transparent, color-mix(in srgb, ${deep} 88%, black) 92%)`,
+            background: `linear-gradient(180deg, transparent, color-mix(in srgb, ${signature.deep} 88%, black) 92%)`,
           }}
         >
           <Typography
@@ -165,7 +204,7 @@ export default function BotCard({ bot, selected = false, onClick }: BotCardProps
             display: 'inline-block',
             mt: '10px',
             bgcolor: '#fff',
-            border: `2.5px solid ${main}`,
+            border: `2.5px solid ${signature.main}`,
             color: INK,
             borderRadius: '999px',
             fontFamily: nunito.style.fontFamily,

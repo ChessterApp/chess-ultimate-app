@@ -1865,6 +1865,13 @@
       "intermediate": "Орта",
       "advanced": "Жетілдірілген",
       "master": "Шебер"
-    }
+    },
+    "worlds": {
+      "freshRiver": "Мөлдір өзен",
+      "emeraldForest": "Зүмірет орман",
+      "volcanoArena": "Жанартау аренасы",
+      "skyCastle": "Аспан сарайы"
+    },
+    "artComingSoon": "Сурет жақында қосылады"
   }
 }
