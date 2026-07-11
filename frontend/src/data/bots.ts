@@ -7,6 +7,7 @@ export interface Bot {
   tier: BotTier
   description: string
   playStyle: string
+  avatar?: string
 }
 
 export const TIER_COLORS: Record<BotTier, string> = {
@@ -32,6 +33,7 @@ export const BOTS: Bot[] = [
     tier: 'beginner',
     description: 'Friendly and encouraging, perfect for your first games',
     playStyle: 'Patient',
+    avatar: '/bots/luna.webp',
   },
   {
     id: 'rex-1200',
@@ -40,6 +42,7 @@ export const BOTS: Bot[] = [
     tier: 'beginner',
     description: 'Straightforward player learning the basics',
     playStyle: 'Solid',
+    avatar: '/bots/rex.webp',
   },
   {
     id: 'milo-1300',
@@ -48,6 +51,7 @@ export const BOTS: Bot[] = [
     tier: 'beginner',
     description: 'Casual player who loves a good game',
     playStyle: 'Relaxed',
+    avatar: '/bots/milo.webp',
   },
   {
     id: 'zara-1300',
@@ -56,6 +60,7 @@ export const BOTS: Bot[] = [
     tier: 'beginner',
     description: 'Enthusiastic learner eager to improve',
     playStyle: 'Eager',
+    avatar: '/bots/zara.webp',
   },
 
   // Intermediate tier (1400-1600)

@@ -1,7 +1,9 @@
 import React from 'react'
 import { Card, CardContent, Box, Typography, Chip, Avatar } from '@mui/material'
+import { useTranslations } from 'next-intl'
 import type { Bot } from '@/data/bots'
 import { TIER_COLORS } from '@/data/bots'
+import { botDescription, botPlayStyle } from '@/lib/botI18n'
 
 interface BotCardProps {
   bot: Bot
@@ -10,6 +12,7 @@ interface BotCardProps {
 }
 
 export default function BotCard({ bot, selected = false, onClick }: BotCardProps) {
+  const t = useTranslations('bots')
   const tierColor = TIER_COLORS[bot.tier]
 
   return (
@@ -30,13 +33,15 @@ export default function BotCard({ bot, selected = false, onClick }: BotCardProps
     >
       <CardContent sx={{ p: 2.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
-          {/* Avatar with initials */}
+          {/* Avatar (falls back to initial for bots without an image) */}
           <Avatar
+            src={bot.avatar}
+            alt={bot.name}
             sx={{
-              width: 48,
-              height: 48,
+              width: 56,
+              height: 56,
               bgcolor: tierColor,
-              fontSize: '1.25rem',
+              fontSize: '1.5rem',
               fontWeight: 'bold',
               color: '#fff',
             }}
@@ -72,12 +77,12 @@ export default function BotCard({ bot, selected = false, onClick }: BotCardProps
           color="text.secondary"
           sx={{ mb: 1, fontSize: '0.875rem', lineHeight: 1.4 }}
         >
-          {bot.description}
+          {botDescription(t, bot)}
         </Typography>
 
         {/* Play style tag */}
         <Chip
-          label={bot.playStyle}
+          label={botPlayStyle(t, bot)}
           size="small"
           variant="outlined"
           sx={{

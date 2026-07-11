@@ -1793,5 +1793,77 @@
     "toolAnalyzing": "Analyzing position…",
     "toolWorking": "Working…",
     "fullPageTooltip": "Open full coach page with board control"
+  },
+  "bots": {
+    "luna-1100": {
+      "description": "Friendly and encouraging, perfect for your first games",
+      "playStyle": "Patient"
+    },
+    "rex-1200": {
+      "description": "Straightforward player learning the basics",
+      "playStyle": "Solid"
+    },
+    "milo-1300": {
+      "description": "Casual player who loves a good game",
+      "playStyle": "Relaxed"
+    },
+    "zara-1300": {
+      "description": "Enthusiastic learner eager to improve",
+      "playStyle": "Eager"
+    },
+    "sven-1400": {
+      "description": "Strategic thinker with solid fundamentals",
+      "playStyle": "Strategic"
+    },
+    "nina-1500": {
+      "description": "Balanced player with good positional sense",
+      "playStyle": "Positional"
+    },
+    "oscar-1500": {
+      "description": "Tactical player who loves combinations",
+      "playStyle": "Tactical"
+    },
+    "priya-1600": {
+      "description": "Precise and methodical in her approach",
+      "playStyle": "Precise"
+    },
+    "viktor-1700": {
+      "description": "Aggressive attacker seeking sharp positions",
+      "playStyle": "Aggressive"
+    },
+    "elena-1800": {
+      "description": "Creative player with deep calculation skills",
+      "playStyle": "Creative"
+    },
+    "kenji-1900": {
+      "description": "Disciplined and patient, grinds out wins",
+      "playStyle": "Endgame"
+    },
+    "sofia-2000": {
+      "description": "Well-rounded expert with few weaknesses",
+      "playStyle": "Universal"
+    },
+    "magnus-2100": {
+      "description": "Master-level player with exceptional endgame technique",
+      "playStyle": "Technical"
+    },
+    "alexa-2300": {
+      "description": "Dynamic attacker with sharp tactical vision",
+      "playStyle": "Dynamic"
+    },
+    "kaspar-2400": {
+      "description": "Deep strategist with computer-like precision",
+      "playStyle": "Strategic"
+    },
+    "garuda-2600": {
+      "description": "Elite grandmaster strength, unforgiving play",
+      "playStyle": "Elite"
+    },
+    "tiers": {
+      "beginner": "Beginner",
+      "intermediate": "Intermediate",
+      "advanced": "Advanced",
+      "master": "Master"
+    }
   }
 }

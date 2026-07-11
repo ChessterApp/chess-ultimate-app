@@ -1,7 +1,9 @@
 import React from 'react'
 import { Box, Button, Typography, Avatar, Chip, Paper, ButtonGroup } from '@mui/material'
+import { useTranslations } from 'next-intl'
 import type { Bot } from '@/data/bots'
 import { TIER_COLORS } from '@/data/bots'
+import { botDescription } from '@/lib/botI18n'
 
 type PlayerColor = 'white' | 'black' | 'random'
 
@@ -22,6 +24,7 @@ export default function GameSetup({
   onChangeBot,
   disabled = false,
 }: GameSetupProps) {
+  const t = useTranslations('bots')
   const tierColor = TIER_COLORS[bot.tier]
 
   return (
@@ -40,11 +43,13 @@ export default function GameSetup({
         }}
       >
         <Avatar
+          src={bot.avatar}
+          alt={bot.name}
           sx={{
-            width: 56,
-            height: 56,
+            width: 64,
+            height: 64,
             bgcolor: tierColor,
-            fontSize: '1.5rem',
+            fontSize: '1.75rem',
             fontWeight: 'bold',
             color: '#fff',
           }}
@@ -68,6 +73,13 @@ export default function GameSetup({
               color: '#fff',
             }}
           />
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mt: 0.75, fontSize: '0.875rem', lineHeight: 1.4 }}
+          >
+            {botDescription(t, bot)}
+          </Typography>
         </Box>
 
         <Button

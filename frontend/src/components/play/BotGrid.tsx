@@ -1,8 +1,10 @@
 import React from 'react'
 import { Box, Typography } from '@mui/material'
+import { useTranslations } from 'next-intl'
 import BotCard from './BotCard'
 import type { Bot, BotTier } from '@/data/bots'
-import { BOTS, TIER_LABELS, getBotsByTier } from '@/data/bots'
+import { getBotsByTier } from '@/data/bots'
+import { tierLabel } from '@/lib/botI18n'
 
 interface BotGridProps {
   selectedBotId: string | null
@@ -12,6 +14,8 @@ interface BotGridProps {
 const TIER_ORDER: BotTier[] = ['beginner', 'intermediate', 'advanced', 'master']
 
 export default function BotGrid({ selectedBotId, onSelectBot }: BotGridProps) {
+  const t = useTranslations('bots')
+
   return (
     <Box>
       {TIER_ORDER.map((tier) => {
@@ -29,7 +33,7 @@ export default function BotGrid({ selectedBotId, onSelectBot }: BotGridProps) {
                 color: 'text.primary',
               }}
             >
-              {TIER_LABELS[tier]}
+              {tierLabel(t, tier)}
             </Typography>
 
             {/* Bot cards grid */}
