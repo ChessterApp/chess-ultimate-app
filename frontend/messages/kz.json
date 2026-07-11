@@ -1859,6 +1859,7 @@
       "description": "Элиталық гроссмейстер күші, аяусыз ойын",
       "playStyle": "Элиталық"
     },
+    "collectSubtitle": "Әр кейіпкерден жеңіске жет!",
     "tiers": {
       "beginner": "Бастауыш",
       "intermediate": "Орта",

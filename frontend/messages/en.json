@@ -1859,6 +1859,7 @@
       "description": "Elite grandmaster strength, unforgiving play",
       "playStyle": "Elite"
     },
+    "collectSubtitle": "Collect a win against every character!",
     "tiers": {
       "beginner": "Beginner",
       "intermediate": "Intermediate",

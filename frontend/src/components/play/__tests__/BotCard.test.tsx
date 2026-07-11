@@ -19,6 +19,13 @@ vi.mock('next-intl', () => ({
   },
 }));
 
+// next/font/google is compiled by Next's SWC plugin and can't run under Vitest,
+// so stub the font loaders to return the shape the component reads (`style.fontFamily`).
+vi.mock('next/font/google', () => ({
+  Fredoka: () => ({ style: { fontFamily: 'Fredoka' }, variable: 'fredoka', className: 'fredoka' }),
+  Nunito: () => ({ style: { fontFamily: 'Nunito' }, variable: 'nunito', className: 'nunito' }),
+}));
+
 import BotCard from '../BotCard';
 import type { Bot } from '@/data/bots';
 
@@ -30,6 +37,8 @@ const withAvatar: Bot = {
   description: 'Friendly and encouraging, perfect for your first games',
   playStyle: 'Patient',
   avatar: '/bots/luna.webp',
+  emoji: '🌙',
+  colors: { main: '#38BDF8', deep: '#0369A1', tint: '#EAF7FF' },
 };
 
 const noAvatar: Bot = {
@@ -69,5 +78,21 @@ describe('BotCard', () => {
       'Friendly and encouraging, perfect for your first games',
     );
     expect(container.textContent).toContain('Patient');
+  });
+
+  it('shows the rating pill and play-style emoji', () => {
+    const { container } = render(<BotCard bot={withAvatar} onClick={() => {}} />);
+    expect(container.textContent).toContain('1100');
+    expect(container.textContent).toContain('🌙');
+  });
+
+  it('is keyboard-focusable and exposes selected state', () => {
+    const { container } = render(
+      <BotCard bot={withAvatar} selected onClick={() => {}} />,
+    );
+    const card = container.querySelector('[role="button"]');
+    expect(card).not.toBeNull();
+    expect(card?.getAttribute('tabindex')).toBe('0');
+    expect(card?.getAttribute('aria-pressed')).toBe('true');
   });
 });

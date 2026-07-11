@@ -281,10 +281,18 @@ export default function PlayPage() {
 
       {/* Bot selection phase */}
       {gamePhase === 'selecting' && (
-        <BotGrid
-          selectedBotId={selectedBot?.id || null}
-          onSelectBot={handleBotSelect}
-        />
+        <Box
+          sx={{
+            bgcolor: '#F3F7FF',
+            borderRadius: '24px',
+            p: { xs: 2, sm: 3, md: 4 },
+          }}
+        >
+          <BotGrid
+            selectedBotId={selectedBot?.id || null}
+            onSelectBot={handleBotSelect}
+          />
+        </Box>
       )}
 
       {/* Game setup phase */}

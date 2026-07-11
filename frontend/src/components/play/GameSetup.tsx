@@ -1,9 +1,10 @@
 import React from 'react'
-import { Box, Button, Typography, Avatar, Chip, Paper, ButtonGroup } from '@mui/material'
+import { Box, Button, Typography, Avatar, Paper, ButtonGroup } from '@mui/material'
 import { useTranslations } from 'next-intl'
 import type { Bot } from '@/data/bots'
-import { TIER_COLORS } from '@/data/bots'
+import { botColors } from '@/data/bots'
 import { botDescription } from '@/lib/botI18n'
+import { fredoka, nunito } from '@/lib/fonts'
 
 type PlayerColor = 'white' | 'black' | 'random'
 
@@ -16,6 +17,11 @@ interface GameSetupProps {
   disabled?: boolean
 }
 
+const INK = '#28324E'
+const INK_SOFT = '#5C6784'
+const GOLD = '#FFC53D'
+const GOLD_TEXT = '#6B4A00'
+
 export default function GameSetup({
   bot,
   playerColor,
@@ -25,10 +31,18 @@ export default function GameSetup({
   disabled = false,
 }: GameSetupProps) {
   const t = useTranslations('bots')
-  const tierColor = TIER_COLORS[bot.tier]
+  const { main, deep, tint } = botColors(bot)
 
   return (
-    <Paper sx={{ p: 4, maxWidth: 600, mx: 'auto' }}>
+    <Paper
+      sx={{
+        p: 4,
+        maxWidth: 600,
+        mx: 'auto',
+        bgcolor: '#F3F7FF',
+        borderRadius: '24px',
+      }}
+    >
       {/* Selected bot mini-card */}
       <Box
         sx={{
@@ -37,46 +51,68 @@ export default function GameSetup({
           gap: 2,
           mb: 3,
           p: 2,
-          bgcolor: '#0f0f0f',
-          borderRadius: 1,
-          border: `1px solid ${tierColor}40`,
+          bgcolor: tint,
+          borderRadius: '20px',
+          border: `3px solid ${main}`,
         }}
       >
         <Avatar
           src={bot.avatar}
           alt={bot.name}
           sx={{
-            width: 64,
-            height: 64,
-            bgcolor: tierColor,
-            fontSize: '1.75rem',
-            fontWeight: 'bold',
-            color: '#fff',
+            width: 80,
+            height: 80,
+            bgcolor: tint,
+            border: `3px solid ${main}`,
+            fontFamily: fredoka.style.fontFamily,
+            fontSize: '2rem',
+            fontWeight: 700,
+            color: deep,
           }}
         >
           {bot.name[0]}
         </Avatar>
 
-        <Box sx={{ flex: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography
+            component="div"
+            sx={{
+              fontFamily: fredoka.style.fontFamily,
+              fontWeight: 700,
+              fontSize: '24px',
+              color: INK,
+              lineHeight: 1.15,
+            }}
+          >
             {bot.name}
           </Typography>
-          <Chip
-            label={bot.rating}
-            size="small"
+          <Box
+            component="span"
             sx={{
+              display: 'inline-block',
               mt: 0.5,
-              height: 20,
-              fontSize: '0.75rem',
-              fontWeight: 'bold',
-              bgcolor: tierColor,
-              color: '#fff',
+              bgcolor: GOLD,
+              color: GOLD_TEXT,
+              fontFamily: nunito.style.fontFamily,
+              fontWeight: 800,
+              fontSize: '13px',
+              borderRadius: '999px',
+              px: '10px',
+              py: '3px',
             }}
-          />
+          >
+            ⭐ {bot.rating}
+          </Box>
           <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ mt: 0.75, fontSize: '0.875rem', lineHeight: 1.4 }}
+            component="p"
+            sx={{
+              mt: 0.75,
+              fontFamily: nunito.style.fontFamily,
+              fontWeight: 700,
+              fontSize: '14px',
+              color: INK_SOFT,
+              lineHeight: 1.4,
+            }}
           >
             {botDescription(t, bot)}
           </Typography>
@@ -86,7 +122,13 @@ export default function GameSetup({
           variant="text"
           size="small"
           onClick={onChangeBot}
-          sx={{ color: tierColor, textTransform: 'none' }}
+          sx={{
+            color: deep,
+            fontFamily: nunito.style.fontFamily,
+            fontWeight: 800,
+            textTransform: 'none',
+            alignSelf: 'flex-start',
+          }}
         >
           Change Bot
         </Button>
@@ -94,7 +136,16 @@ export default function GameSetup({
 
       {/* Color choice */}
       <Box sx={{ mb: 4 }}>
-        <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 'bold' }}>
+        <Typography
+          component="div"
+          sx={{
+            mb: 1.5,
+            fontFamily: fredoka.style.fontFamily,
+            fontWeight: 600,
+            fontSize: '16px',
+            color: INK,
+          }}
+        >
           Play as
         </Typography>
         <ButtonGroup fullWidth size="large">
