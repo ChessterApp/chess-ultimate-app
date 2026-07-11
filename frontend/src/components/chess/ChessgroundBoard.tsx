@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Chessground as ChessgroundApi } from 'chessground';
 import { Api } from 'chessground/api';
 import { Config } from 'chessground/config';
@@ -48,33 +48,44 @@ export default function ChessgroundBoard({
   premovable = false,
   onRightClick,
 }: ChessgroundBoardProps) {
-  // When no explicit boardSize is passed, size the board responsively to the
-  // viewport so it never overflows small screens. Callers that pass an explicit
-  // boardSize keep full control and are unaffected.
-  const [windowWidth, setWindowWidth] = useState<number>(
-    typeof window !== 'undefined' ? window.innerWidth : 1024
-  );
+  const boardRef = useRef<HTMLDivElement>(null);
+  const cgRef = useRef<Api | null>(null);
+
+  // Maximum default size on roomy layouts (desktop). Container measurement
+  // caps to this so the board never grows unbounded when placed in a wide,
+  // definite-width container without an explicit boardSize.
+  const MAX_DEFAULT_BOARD_SIZE = 520;
+
+  // When no explicit boardSize is passed, size the board to fit its actual
+  // parent container (measured with a ResizeObserver) rather than the raw
+  // window width. This keeps the full board visible inside chrome (page
+  // padding, card padding, board border) instead of clipping the right edge.
+  // Callers that pass an explicit boardSize keep full control and are
+  // unaffected.
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
 
   useEffect(() => {
     if (boardSize !== undefined) return;
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    if (typeof window === 'undefined' || typeof ResizeObserver === 'undefined') return;
+
+    const el = boardRef.current?.parentElement;
+    if (!el) return;
+
+    const measure = () => setContainerWidth(el.clientWidth);
+    measure();
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [boardSize]);
 
-  const responsiveBoardSize = useMemo(() => {
-    if (windowWidth < 400) return Math.min(windowWidth - 32, 520);
-    if (windowWidth < 600) return Math.min(windowWidth - 24, 520);
-    if (windowWidth < 768) return Math.min(windowWidth - 32, 520);
-    if (windowWidth < 1024) return Math.min(windowWidth - 48, 520);
-    return 520;
-  }, [windowWidth]);
+  const responsiveBoardSize =
+    containerWidth && containerWidth > 0
+      ? Math.min(containerWidth, MAX_DEFAULT_BOARD_SIZE)
+      : MAX_DEFAULT_BOARD_SIZE;
 
   const effectiveBoardSize = boardSize ?? responsiveBoardSize;
 
-  const boardRef = useRef<HTMLDivElement>(null);
-  const cgRef = useRef<Api | null>(null);
   const onMoveRef = useRef(onMove);
   onMoveRef.current = onMove;
 

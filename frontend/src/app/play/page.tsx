@@ -275,7 +275,7 @@ export default function PlayPage() {
   }
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', p: 3 }}>
+    <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 1, sm: 3 } }}>
       {(error || stockfishPlay.error) && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error || stockfishPlay.error}
@@ -317,7 +317,7 @@ export default function PlayPage() {
             position: 'relative',
             overflow: 'hidden',
             borderRadius: '24px',
-            p: { xs: 2, sm: 3 },
+            p: { xs: 1, sm: 3 },
             // The whole in-game screen is dipped in the tier's world gradient.
             background: gameTheme(selectedBot).screenGradient,
           }}
@@ -377,7 +377,8 @@ export default function PlayPage() {
                 gridArea: 'board',
                 borderRadius: '20px',
                 overflow: 'hidden',
-                border: '5px solid rgba(255,255,255,.95)',
+                border: 'solid rgba(255,255,255,.95)',
+                borderWidth: { xs: '3px', sm: '5px' },
                 boxShadow: `0 16px 40px ${gameTheme(selectedBot).deep}59`,
                 lineHeight: 0,
               }}
