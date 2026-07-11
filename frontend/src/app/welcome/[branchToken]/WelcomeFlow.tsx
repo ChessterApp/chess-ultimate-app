@@ -16,11 +16,12 @@
  */
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
 import { useBranding } from '@/contexts/OrganizationContext';
+import { usePhaseHistory } from '@/hooks/usePhaseHistory';
 
 interface WelcomeFlowProps {
   branchToken: string;
@@ -108,17 +109,55 @@ export default function WelcomeFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, branchToken]);
 
-  const onSelectResult = useCallback((result: StudentResult) => {
-    setSelected(result);
-    setVerifyError(null);
-    setStep('confirm');
-  }, []);
+  // Latest selection, read synchronously by the popstate restore below.
+  const selectedRef = useRef(selected);
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
+
+  // Rebuild the step from the URL, on mount (refresh/deep-link) and on popstate
+  // (Back/Forward). The selection is in-memory only, so a refresh on
+  // `?step=confirm` with nothing selected falls back to search cleanly.
+  const restore = useCallback(
+    (
+      target: { step: Step },
+      meta: { initial: boolean; replace: (p: { step: Step }) => void },
+    ) => {
+      if (target.step === 'confirm' && selectedRef.current) {
+        setStep('confirm');
+        return;
+      }
+      // Confirm without a selection (refresh/deep-link) → normalize the URL.
+      if (target.step === 'confirm') {
+        meta.replace({ step: 'search' });
+      }
+      setSelected(null);
+      setVerifyError(null);
+      setStep('search');
+    },
+    [],
+  );
+
+  const history = usePhaseHistory<{ step: Step }>({
+    parse: (params) => ({ step: params.get('step') === 'confirm' ? 'confirm' : 'search' }),
+    serialize: (p) => ({ step: p.step === 'confirm' ? 'confirm' : '' }),
+    onRestore: restore,
+  });
+
+  const onSelectResult = useCallback(
+    (result: StudentResult) => {
+      setSelected(result);
+      setVerifyError(null);
+      setStep('confirm');
+      history.push({ step: 'confirm' });
+    },
+    [history],
+  );
 
   const onConfirmBack = useCallback(() => {
-    setSelected(null);
-    setVerifyError(null);
-    setStep('search');
-  }, []);
+    // Pop the confirm entry; the popstate restore returns to search.
+    history.back();
+  }, [history]);
 
   const onConfirmYes = useCallback(async () => {
     if (!selected || verifying) return;
