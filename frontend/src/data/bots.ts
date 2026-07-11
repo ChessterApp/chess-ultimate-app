@@ -175,6 +175,7 @@ export const BOTS: Bot[] = [
     tier: 'intermediate',
     description: 'Strategic thinker with solid fundamentals',
     playStyle: 'Strategic',
+    avatar: '/bots/sven.webp',
     emoji: '🧠',
   },
   {
@@ -184,6 +185,7 @@ export const BOTS: Bot[] = [
     tier: 'intermediate',
     description: 'Balanced player with good positional sense',
     playStyle: 'Positional',
+    avatar: '/bots/nina.webp',
     emoji: '🗺️',
   },
   {
@@ -193,15 +195,17 @@ export const BOTS: Bot[] = [
     tier: 'intermediate',
     description: 'Tactical player who loves combinations',
     playStyle: 'Tactical',
+    avatar: '/bots/oscar.webp',
     emoji: '⚡',
   },
   {
-    id: 'priya-1600',
-    name: 'Priya',
+    id: 'kristy-1600',
+    name: 'Kristy',
     rating: 1600,
     tier: 'intermediate',
     description: 'Precise and methodical in her approach',
     playStyle: 'Precise',
+    avatar: '/bots/kristy.webp',
     emoji: '🎯',
   },
 
