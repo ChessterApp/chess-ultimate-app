@@ -9,7 +9,7 @@ import BotAvatar from './BotAvatar'
 
 interface GameHeaderProps {
   bot: Bot
-  /** Show the animated "thinking…" speech bubble. */
+  /** Show the animated "thinking…" speech bubble (always mounted, toggled via visibility). */
   thinking: boolean
   /** Engine still syncing to the local model (shows a subtle pill). */
   syncing?: boolean
@@ -147,28 +147,33 @@ export default function GameHeader({ bot, thinking, syncing = false }: GameHeade
         </Box>
       </Box>
 
-      {thinking && (
-        <Box
-          data-testid="thinking-bubble"
-          sx={{
-            mt: 1.75,
-            bgcolor: '#fff',
-            borderRadius: '16px 16px 16px 4px',
-            px: '14px',
-            py: '10px',
-            fontFamily: nunito.style.fontFamily,
-            fontWeight: 800,
-            fontSize: '14px',
-            color: deep,
-            boxShadow: `0 6px 18px ${deep}33`,
-            display: 'inline-flex',
-            alignItems: 'center',
-          }}
-        >
-          {playText(t, 'thinking', `${bot.name} is thinking`, { name: bot.name })}
-          <ThinkingDots color={deep} />
-        </Box>
-      )}
+      {/* Always mounted so the header keeps a constant height — a conditional
+          mount here shifts the board below on every bot move. */}
+      <Box
+        data-testid="thinking-bubble"
+        data-thinking={thinking}
+        aria-hidden={!thinking}
+        sx={{
+          mt: 1.75,
+          bgcolor: '#fff',
+          borderRadius: '16px 16px 16px 4px',
+          px: '14px',
+          py: '10px',
+          fontFamily: nunito.style.fontFamily,
+          fontWeight: 800,
+          fontSize: '14px',
+          color: deep,
+          boxShadow: `0 6px 18px ${deep}33`,
+          display: 'inline-flex',
+          alignItems: 'center',
+          visibility: thinking ? 'visible' : 'hidden',
+          opacity: thinking ? 1 : 0,
+          transition: 'opacity 150ms ease',
+        }}
+      >
+        {playText(t, 'thinking', `${bot.name} is thinking`, { name: bot.name })}
+        <ThinkingDots color={deep} />
+      </Box>
     </Box>
   )
 }

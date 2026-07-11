@@ -355,7 +355,9 @@ export default function PlayPage() {
               gap: 2,
               alignItems: 'start',
               justifyContent: { md: 'center' },
-              gridTemplateColumns: { xs: '1fr', md: 'auto minmax(280px, 320px)' },
+              // Fixed side column: content changes (thinking bubble, syncing
+              // pill) must never resize the column and re-center the board.
+              gridTemplateColumns: { xs: '1fr', md: 'auto 320px' },
               gridTemplateAreas: {
                 xs: '"header" "board" "dock"',
                 md: '"board header" "board dock"',

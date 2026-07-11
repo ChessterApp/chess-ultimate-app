@@ -3,7 +3,7 @@
  *
  * GameHeader is the V3 "Immersive World" bot header: rounded-square avatar,
  * white bot name, gold rating pill + translucent world pill, and a themed
- * "thinking…" speech bubble shown only while the bot is thinking.
+ * "thinking…" speech bubble (always mounted; visible only while thinking).
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -54,14 +54,23 @@ describe('GameHeader', () => {
     expect(text).toContain(world.emoji);
   });
 
-  it('shows the thinking bubble only while thinking', () => {
+  it('keeps the thinking bubble mounted in both states so the header never changes height', () => {
+    // Regression: a conditionally-mounted bubble grew/shrank the header on
+    // every bot move, pushing the board down and back up ("board wobble").
     const idle = render(<GameHeader bot={makeBot('beginner', '/bots/test.webp')} thinking={false} />);
-    expect(idle.container.querySelector('[data-testid="thinking-bubble"]')).toBeNull();
+    const idleBubble = idle.container.querySelector<HTMLElement>('[data-testid="thinking-bubble"]');
+    expect(idleBubble).not.toBeNull();
+    expect(idleBubble?.getAttribute('data-thinking')).toBe('false');
+    // Hidden via visibility (space stays reserved), never unmounted or display:none.
+    expect(getComputedStyle(idleBubble!).visibility).toBe('hidden');
+    expect(getComputedStyle(idleBubble!).display).not.toBe('none');
     cleanup();
 
     const busy = render(<GameHeader bot={makeBot('beginner', '/bots/test.webp')} thinking />);
-    const bubble = busy.container.querySelector('[data-testid="thinking-bubble"]');
+    const bubble = busy.container.querySelector<HTMLElement>('[data-testid="thinking-bubble"]');
     expect(bubble).not.toBeNull();
+    expect(bubble?.getAttribute('data-thinking')).toBe('true');
+    expect(getComputedStyle(bubble!).visibility).toBe('visible');
     expect(bubble?.textContent).toContain('is thinking');
   });
 
