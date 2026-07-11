@@ -11,10 +11,11 @@ import GameHeader from '@/components/play/GameHeader'
 import GameDock from '@/components/play/GameDock'
 import { useMaia } from '@/hooks/useMaia'
 import { useStockfishPlay } from '@/hooks/useStockfishPlay'
+import { usePhaseHistory } from '@/hooks/usePhaseHistory'
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
 import { playText } from '@/lib/botI18n'
 import type { Bot } from '@/data/bots'
-import { gameTheme } from '@/data/bots'
+import { gameTheme, getBotById } from '@/data/bots'
 import type { Key } from 'chessground/types'
 
 // Import chessground CSS
@@ -24,6 +25,12 @@ import '@/styles/chessground-theme.css'
 
 type GamePhase = 'selecting' | 'setup' | 'playing' | 'ended'
 type PlayerColor = 'white' | 'black' | 'random'
+
+// Phase + selected bot, mirrored to `/play?phase=…&bot=…` history entries.
+interface PlayPhaseState {
+  phase: GamePhase
+  bot: string | null
+}
 
 // Temperature-based move selection
 function selectMove(
@@ -71,6 +78,30 @@ export default function PlayPage() {
   const [lastMove, setLastMove] = useState<[Key, Key] | undefined>(undefined)
   const [playerCanMove, setPlayerCanMove] = useState(true)
 
+  // Bot-move cancellation: the pending "thinking" setTimeout and a generation
+  // counter that invalidates any in-flight makeBotMove. When the user leaves
+  // the game (Back button → popstate), cancelBotWork() clears both so no stale
+  // move fires or mutates state after we've left the board.
+  const botMoveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const moveGeneration = useRef(0)
+
+  const cancelBotWork = () => {
+    if (botMoveTimer.current) {
+      clearTimeout(botMoveTimer.current)
+      botMoveTimer.current = null
+    }
+    moveGeneration.current += 1
+    setThinking(false)
+  }
+
+  const scheduleBotMove = () => {
+    if (botMoveTimer.current) clearTimeout(botMoveTimer.current)
+    botMoveTimer.current = setTimeout(() => {
+      botMoveTimer.current = null
+      makeBotMove()
+    }, 500)
+  }
+
   // Auto-download model when not cached
   const downloadTriggered = useRef(false)
 
@@ -81,13 +112,49 @@ export default function PlayPage() {
     }
   }, [status, downloadModel])
 
+  // Rebuild the screen from a URL phase, on mount (refresh/deep-link) and on
+  // popstate (Back/Forward). A live game can't be restored from the URL alone,
+  // so `playing`/`ended` land on `setup` for the selected bot instead of a hard
+  // reset to `selecting`. Any pending bot move is cancelled whenever we land
+  // anywhere other than `playing`.
+  const restoreFromUrl = (target: PlayPhaseState, replace: (p: PlayPhaseState) => void) => {
+    const bot = target.bot ? getBotById(target.bot) ?? null : null
+
+    if (target.phase !== 'playing') cancelBotWork()
+
+    if ((target.phase === 'setup' || target.phase === 'playing' || target.phase === 'ended') && bot) {
+      setSelectedBot(bot)
+      setGamePhase('setup')
+      setGameResult(null)
+      // Correct the URL in place (no new entry) when downgrading playing/ended.
+      if (target.phase !== 'setup') replace({ phase: 'setup', bot: bot.id })
+      return
+    }
+
+    // selecting (or a phase whose bot no longer exists)
+    setSelectedBot(null)
+    setGamePhase('selecting')
+    setGameResult(null)
+  }
+
+  const history = usePhaseHistory<PlayPhaseState>({
+    parse: (params) => ({
+      phase: (params.get('phase') as GamePhase) || 'selecting',
+      bot: params.get('bot'),
+    }),
+    serialize: (p) => ({ phase: p.phase, bot: p.bot }),
+    onRestore: (phase, meta) => restoreFromUrl(phase, meta.replace),
+  })
+
   const handleBotSelect = (bot: Bot) => {
     setSelectedBot(bot)
     setGamePhase('setup')
+    history.push({ phase: 'setup', bot: bot.id })
   }
 
   const handleChangeBot = () => {
-    setGamePhase('selecting')
+    // Mirror the Back button: pop the `setup` entry back to `selecting`.
+    history.back()
   }
 
   const startGame = () => {
@@ -101,6 +168,8 @@ export default function PlayPage() {
       actualColor = playerColor === 'white' ? 'w' : 'b'
     }
 
+    // Fresh game: drop any pending bot work from a previous one.
+    cancelBotWork()
     setActualPlayerColor(actualColor)
     chess.reset()
     setFen(chess.fen())
@@ -108,11 +177,12 @@ export default function PlayPage() {
     setGamePhase('playing')
     setLastMove(undefined)
     engineWaitTracked.current = false
+    history.push({ phase: 'playing', bot: selectedBot.id })
 
     // If player is black, bot moves first
     if (actualColor === 'b') {
       setPlayerCanMove(false)
-      setTimeout(() => makeBotMove(), 500)
+      scheduleBotMove()
     } else {
       setPlayerCanMove(true)
     }
@@ -124,6 +194,9 @@ export default function PlayPage() {
       return
     }
 
+    // Snapshot the generation so a move started before a Back-nav is discarded
+    // instead of mutating the board after we've left the game.
+    const generation = moveGeneration.current
     setThinking(true)
     try {
       const currentFen = chess.fen()
@@ -172,6 +245,9 @@ export default function PlayPage() {
         selectedMove = move
       }
 
+      // Bailed out of the game while the engine was thinking → drop the move.
+      if (generation !== moveGeneration.current) return
+
       // Apply move
       const from = selectedMove.substring(0, 2) as Key
       const to = selectedMove.substring(2, 4) as Key
@@ -189,9 +265,10 @@ export default function PlayPage() {
       checkGameOver()
     } catch (err) {
       console.error('Bot move error:', err)
-      setPlayerCanMove(true)
+      if (generation === moveGeneration.current) setPlayerCanMove(true)
     } finally {
-      setThinking(false)
+      // Don't clobber a fresh game's thinking state if we were invalidated.
+      if (generation === moveGeneration.current) setThinking(false)
     }
   }
 
@@ -225,7 +302,7 @@ export default function PlayPage() {
       }
 
       // Bot's turn after a delay
-      setTimeout(() => makeBotMove(), 500)
+      scheduleBotMove()
       return true
     } catch (err) {
       console.error('Move error:', err)
@@ -233,10 +310,17 @@ export default function PlayPage() {
     }
   }
 
+  // `ended` shares `playing`'s history slot (replace, not push) so Back from a
+  // finished game returns to `setup` rather than into the dead game.
+  const enterEndedPhase = () => {
+    setGamePhase('ended')
+    if (selectedBot) history.replace({ phase: 'ended', bot: selectedBot.id })
+  }
+
   const checkGameOver = () => {
     if (chess.isCheckmate()) {
       setGameResult(chess.turn() === 'w' ? 'Black wins by checkmate!' : 'White wins by checkmate!')
-      setGamePhase('ended')
+      enterEndedPhase()
     } else if (chess.isDraw()) {
       if (chess.isStalemate()) {
         setGameResult('Draw by stalemate')
@@ -247,31 +331,33 @@ export default function PlayPage() {
       } else {
         setGameResult('Draw by 50-move rule')
       }
-      setGamePhase('ended')
+      enterEndedPhase()
     }
   }
 
   const resetGame = () => {
+    cancelBotWork()
     chess.reset()
     setFen(chess.fen())
     setGamePhase('selecting')
     setGameResult(null)
     setLastMove(undefined)
     setSelectedBot(null)
+    history.push({ phase: 'selecting', bot: null })
   }
 
   // Player concedes: end the game as a loss for them (bot wins). Mirrors how
   // checkGameOver ends the game so the ended-phase UI is identical.
   const handleResign = () => {
     if (!selectedBot || gamePhase !== 'playing') return
-    setThinking(false)
+    cancelBotWork()
     setPlayerCanMove(false)
     setGameResult(
       playText(t, 'resigned', `You resigned. ${selectedBot.name} wins!`, {
         name: selectedBot.name,
       }),
     )
-    setGamePhase('ended')
+    enterEndedPhase()
   }
 
   return (
