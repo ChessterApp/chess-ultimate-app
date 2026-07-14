@@ -133,11 +133,14 @@ export const TIER_WORLDS: Record<BotTier, TierWorld> = {
 export const tierWorld = (tier: BotTier): TierWorld => TIER_WORLDS[tier]
 
 export const BOTS: Bot[] = [
-  // Beginner tier (1100-1300)
+  // Beginner tier (300-1000). Ratings feed the Maia engine directly as
+  // elo_self, so the displayed number IS the playing strength. Values below
+  // Maia3's 1100 training floor are extrapolation: the model still weakens
+  // monotonically down to ~200, but is not calibrated to human Elo there.
   {
     id: 'luna-1100',
     name: 'Luna',
-    rating: 1100,
+    rating: 300,
     tier: 'beginner',
     description: 'Friendly and encouraging, perfect for your first games',
     playStyle: 'Patient',
@@ -148,7 +151,7 @@ export const BOTS: Bot[] = [
   {
     id: 'rex-1200',
     name: 'Rex',
-    rating: 1200,
+    rating: 500,
     tier: 'beginner',
     description: 'Straightforward player learning the basics',
     playStyle: 'Solid',
@@ -159,7 +162,7 @@ export const BOTS: Bot[] = [
   {
     id: 'milo-1300',
     name: 'Milo',
-    rating: 1300,
+    rating: 750,
     tier: 'beginner',
     description: 'Casual player who loves a good game',
     playStyle: 'Relaxed',
@@ -170,7 +173,7 @@ export const BOTS: Bot[] = [
   {
     id: 'zara-1300',
     name: 'Zara',
-    rating: 1300,
+    rating: 1000,
     tier: 'beginner',
     description: 'Enthusiastic learner eager to improve',
     playStyle: 'Eager',

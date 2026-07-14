@@ -203,7 +203,7 @@ export default function PlayPage() {
       let selectedMove: string
 
       if (selectedBot.rating <= 2000) {
-        // Maia (ELO 1100-2000). evaluatePosition transparently uses the server
+        // Maia (ELO 300-2000). evaluatePosition transparently uses the server
         // fallback when the local model isn't ready, so a move always comes back.
         if (status !== 'ready' && !engineWaitTracked.current) {
           engineWaitTracked.current = true
@@ -214,7 +214,9 @@ export default function PlayPage() {
           })
         }
 
-        const evaluation = await evaluatePosition(currentFen, selectedBot.rating, 1500)
+        // elo_oppo mirrors elo_self: the model plays most naturally when it
+        // believes the matchup is symmetric, especially at low ratings.
+        const evaluation = await evaluatePosition(currentFen, selectedBot.rating, selectedBot.rating)
 
         if (!evaluation || !evaluation.policy) {
           console.error('No evaluation returned')
