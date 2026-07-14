@@ -12,17 +12,24 @@ interface LottieCelebrationProps {
   duration?: number;
   /** Callback when animation completes */
   onComplete?: () => void;
+  /**
+   * Cover the whole viewport (fixed) instead of the centered board overlay.
+   * Used behind the game-end result modal; defaults to the puzzle-board layout.
+   */
+  fullScreen?: boolean;
 }
 
 /**
- * LottieCelebration - Displays a celebratory Lottie animation overlay
- * Shown in the center of the chess board when the user solves a puzzle
- * Uses local .lottie file for reliable loading without external dependencies
+ * LottieCelebration - Displays a celebratory Lottie animation overlay.
+ * By default it centers over the chess board when the user solves a puzzle; in
+ * `fullScreen` mode it covers the viewport (e.g. confetti behind a result modal).
+ * Uses local .lottie file for reliable loading without external dependencies.
  */
 export default function LottieCelebration({
   visible,
   duration = 1500,
   onComplete,
+  fullScreen = false,
 }: LottieCelebrationProps) {
   const [show, setShow] = useState(visible);
 
@@ -42,9 +49,17 @@ export default function LottieCelebration({
 
   if (!show) return null;
 
-  return (
-    <div
-      style={{
+  const containerStyle: React.CSSProperties = fullScreen
+    ? {
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1310,
+        pointerEvents: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }
+    : {
         position: 'absolute',
         top: '50%',
         left: '50%',
@@ -56,8 +71,10 @@ export default function LottieCelebration({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-      }}
-    >
+      };
+
+  return (
+    <div style={containerStyle}>
       <DotLottieReact
         src="/animations/celebration.lottie"
         loop={false}

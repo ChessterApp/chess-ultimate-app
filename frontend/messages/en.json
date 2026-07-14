@@ -1794,6 +1794,21 @@
     "toolWorking": "Working…",
     "fullPageTooltip": "Open full coach page with board control"
   },
+  "gameEnd": {
+    "winTitle": "Checkmate! You win!",
+    "winBubble": "Wow, you got me!",
+    "lossTitle": "Checkmate — {botName} wins!",
+    "lossBubble": "Gotcha! Rematch?",
+    "lossEncourage": "So close! Try again — you've got this.",
+    "resignTitle": "You resigned — {botName} wins",
+    "drawTitle": "It's a draw!",
+    "drawSubtitle": "Great fight — nobody wins this time.",
+    "playAgain": "Play again",
+    "rematch": "Rematch",
+    "tryStronger": "Try a stronger bot",
+    "chooseAnother": "Choose another bot",
+    "ariaResult": "You won by checkmate against {botName}"
+  },
   "bots": {
     "luna-1100": {
       "description": "Friendly and encouraging, perfect for your first games",

@@ -3,12 +3,15 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Chess } from 'chess.js'
 import { Box, Alert } from '@mui/material'
+import { useReducedMotion } from 'framer-motion'
 import { useTranslations } from 'next-intl'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import BotGrid from '@/components/play/BotGrid'
 import GameSetup from '@/components/play/GameSetup'
 import GameHeader from '@/components/play/GameHeader'
 import GameDock from '@/components/play/GameDock'
+import GameEndModal from '@/components/play/GameEndModal'
+import { outcomeFromPosition, type GameOutcome } from '@/lib/gameOutcome'
 import { useMaia } from '@/hooks/useMaia'
 import { useStockfishPlay } from '@/hooks/useStockfishPlay'
 import { usePhaseHistory } from '@/hooks/usePhaseHistory'
@@ -74,9 +77,15 @@ export default function PlayPage() {
   const [fen, setFen] = useState(chess.fen())
   const [actualPlayerColor, setActualPlayerColor] = useState<'w' | 'b'>('w')
   const [gameResult, setGameResult] = useState<string | null>(null)
+  // Structured outcome (player POV) driving the celebratory result modal. Kept
+  // alongside the plain `gameResult` string, which still powers the dock.
+  const [gameOutcome, setGameOutcome] = useState<GameOutcome | null>(null)
+  const [resigned, setResigned] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
   const [thinking, setThinking] = useState(false)
   const [lastMove, setLastMove] = useState<[Key, Key] | undefined>(undefined)
   const [playerCanMove, setPlayerCanMove] = useState(true)
+  const prefersReducedMotion = useReducedMotion()
 
   // Bot-move cancellation: the pending "thinking" setTimeout and a generation
   // counter that invalidates any in-flight makeBotMove. When the user leaves
@@ -112,6 +121,18 @@ export default function PlayPage() {
     }
   }, [status, downloadModel])
 
+  // Reveal the result modal ~0.8s after the game ends so the final position is
+  // visible first. Reduced-motion users skip the deliberate delay.
+  useEffect(() => {
+    if (gamePhase !== 'ended' || !gameOutcome) {
+      setModalOpen(false)
+      return
+    }
+    const delay = prefersReducedMotion ? 0 : 800
+    const timer = setTimeout(() => setModalOpen(true), delay)
+    return () => clearTimeout(timer)
+  }, [gamePhase, gameOutcome, prefersReducedMotion])
+
   // Rebuild the screen from a URL phase, on mount (refresh/deep-link) and on
   // popstate (Back/Forward). A live game can't be restored from the URL alone,
   // so `playing`/`ended` land on `setup` for the selected bot instead of a hard
@@ -126,6 +147,7 @@ export default function PlayPage() {
       setSelectedBot(bot)
       setGamePhase('setup')
       setGameResult(null)
+      setGameOutcome(null)
       // Correct the URL in place (no new entry) when downgrading playing/ended.
       if (target.phase !== 'setup') replace({ phase: 'setup', bot: bot.id })
       return
@@ -135,6 +157,7 @@ export default function PlayPage() {
     setSelectedBot(null)
     setGamePhase('selecting')
     setGameResult(null)
+    setGameOutcome(null)
   }
 
   const history = usePhaseHistory<PlayPhaseState>({
@@ -157,8 +180,9 @@ export default function PlayPage() {
     history.back()
   }
 
-  const startGame = () => {
-    if (!selectedBot) return
+  const startGame = (bot: Bot | null = selectedBot) => {
+    if (!bot) return
+    setSelectedBot(bot)
 
     // Determine actual player color
     let actualColor: 'w' | 'b' = 'w'
@@ -174,10 +198,13 @@ export default function PlayPage() {
     chess.reset()
     setFen(chess.fen())
     setGameResult(null)
+    setGameOutcome(null)
+    setResigned(false)
+    setModalOpen(false)
     setGamePhase('playing')
     setLastMove(undefined)
     engineWaitTracked.current = false
-    history.push({ phase: 'playing', bot: selectedBot.id })
+    history.push({ phase: 'playing', bot: bot.id })
 
     // If player is black, bot moves first
     if (actualColor === 'b') {
@@ -322,6 +349,8 @@ export default function PlayPage() {
   const checkGameOver = () => {
     if (chess.isCheckmate()) {
       setGameResult(chess.turn() === 'w' ? 'Black wins by checkmate!' : 'White wins by checkmate!')
+      setGameOutcome(outcomeFromPosition(chess, actualPlayerColor))
+      setResigned(false)
       enterEndedPhase()
     } else if (chess.isDraw()) {
       if (chess.isStalemate()) {
@@ -333,6 +362,8 @@ export default function PlayPage() {
       } else {
         setGameResult('Draw by 50-move rule')
       }
+      setGameOutcome('draw')
+      setResigned(false)
       enterEndedPhase()
     }
   }
@@ -343,6 +374,9 @@ export default function PlayPage() {
     setFen(chess.fen())
     setGamePhase('selecting')
     setGameResult(null)
+    setGameOutcome(null)
+    setResigned(false)
+    setModalOpen(false)
     setLastMove(undefined)
     setSelectedBot(null)
     history.push({ phase: 'selecting', bot: null })
@@ -359,8 +393,16 @@ export default function PlayPage() {
         name: selectedBot.name,
       }),
     )
+    setGameOutcome('botWin')
+    setResigned(true)
     enterEndedPhase()
   }
+
+  // Play again / Rematch: fresh game vs the same bot.
+  const handlePlayAgain = () => startGame(selectedBot)
+
+  // Try a stronger bot: fresh game vs the next bot in BOTS order.
+  const handleTryStronger = (nextBot: Bot) => startGame(nextBot)
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 1, sm: 3 } }}>
@@ -392,7 +434,7 @@ export default function PlayPage() {
           bot={selectedBot}
           playerColor={playerColor}
           onColorChange={setPlayerColor}
-          onPlay={startGame}
+          onPlay={() => startGame()}
           onChangeBot={handleChangeBot}
         />
       )}
@@ -493,6 +535,19 @@ export default function PlayPage() {
               />
             </Box>
           </Box>
+
+          {gameOutcome && (
+            <GameEndModal
+              bot={selectedBot}
+              outcome={gameOutcome}
+              resigned={resigned}
+              open={modalOpen}
+              onClose={() => setModalOpen(false)}
+              onPlayAgain={handlePlayAgain}
+              onTryStronger={handleTryStronger}
+              onChooseAnother={resetGame}
+            />
+          )}
         </Box>
       )}
     </Box>
