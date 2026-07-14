@@ -15,6 +15,11 @@ const { evaluatePositionMock, getMoveMock } = vi.hoisted(() => ({
   getMoveMock: vi.fn(),
 }));
 
+vi.mock('next/font/google', () => ({
+  Fredoka: () => ({ style: { fontFamily: 'Fredoka' }, variable: 'fredoka', className: 'fredoka' }),
+  Nunito: () => ({ style: { fontFamily: 'Nunito' }, variable: 'nunito', className: 'nunito' }),
+}));
+
 vi.mock('next-intl', () => ({
   useTranslations: () => {
     const t = (k: string) => k;
