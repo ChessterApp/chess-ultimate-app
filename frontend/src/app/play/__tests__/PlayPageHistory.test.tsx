@@ -145,6 +145,35 @@ describe('PlayPage URL history sync', () => {
     expect(window.location.search).toBe('?phase=setup&bot=luna-1100');
   });
 
+  it('renders the back button in setup and triggers history.back()', () => {
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const { getByTestId } = render(<PlayPage />);
+
+    fireEvent.click(getByTestId('pick-bot'));
+    expect(getByTestId('setup-screen')).toBeTruthy();
+
+    const backButton = getByTestId('play-back-button');
+    expect(backButton).toBeTruthy();
+
+    fireEvent.click(backButton);
+    expect(backSpy).toHaveBeenCalled();
+  });
+
+  it('renders the back button in playing and triggers history.back()', () => {
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const { getByTestId } = render(<PlayPage />);
+
+    fireEvent.click(getByTestId('pick-bot'));
+    fireEvent.click(getByTestId('play'));
+    expect(window.location.search).toBe('?phase=playing&bot=luna-1100');
+
+    const backButton = getByTestId('play-back-button');
+    expect(backButton).toBeTruthy();
+
+    fireEvent.click(backButton);
+    expect(backSpy).toHaveBeenCalled();
+  });
+
   it('fires the bot move when the game is NOT interrupted (control)', async () => {
     vi.useFakeTimers();
     const { getByTestId } = render(<PlayPage />);

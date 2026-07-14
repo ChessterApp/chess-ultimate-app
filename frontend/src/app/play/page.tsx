@@ -404,6 +404,51 @@ export default function PlayPage() {
   // Try a stronger bot: fresh game vs the next bot in BOTS order.
   const handleTryStronger = (nextBot: Bot) => startGame(nextBot)
 
+  // Visible back arrow shown in setup/playing/ended. Delegates to
+  // history.back() so the existing popstate logic runs the phase transition
+  // (playing → setup → selecting) and stale bot-move cancellation. Styled from
+  // the selected bot's world theme to match the rest of the play screen.
+  const backButton = selectedBot && (
+    <Box
+      component="button"
+      type="button"
+      onClick={() => history.back()}
+      aria-label={playText(t, 'back', 'Back')}
+      data-testid="play-back-button"
+      sx={{
+        position: 'absolute',
+        top: { xs: 10, sm: 16 },
+        left: { xs: 10, sm: 16 },
+        zIndex: 2,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        width: 40,
+        height: 40,
+        p: 0,
+        border: 'none',
+        borderRadius: '999px',
+        cursor: 'pointer',
+        color: gameTheme(selectedBot).deep,
+        bgcolor: 'rgba(255,255,255,0.92)',
+        boxShadow: `0 4px 12px ${gameTheme(selectedBot).deep}33`,
+        transition: 'transform 120ms ease, box-shadow 120ms ease',
+        '&:hover': {
+          transform: 'translateY(-1px)',
+          boxShadow: `0 6px 16px ${gameTheme(selectedBot).deep}47`,
+        },
+        '&:focus-visible': {
+          outline: `3px solid ${gameTheme(selectedBot).main}`,
+          outlineOffset: '2px',
+        },
+      }}
+    >
+      <Box component="span" aria-hidden="true" sx={{ fontSize: 22, lineHeight: 1 }}>
+        ←
+      </Box>
+    </Box>
+  )
+
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', p: { xs: 1, sm: 3 } }}>
       {(error || stockfishPlay.error) && (
@@ -430,13 +475,16 @@ export default function PlayPage() {
 
       {/* Game setup phase */}
       {gamePhase === 'setup' && selectedBot && (
-        <GameSetup
-          bot={selectedBot}
-          playerColor={playerColor}
-          onColorChange={setPlayerColor}
-          onPlay={() => startGame()}
-          onChangeBot={handleChangeBot}
-        />
+        <Box sx={{ position: 'relative', maxWidth: 660, mx: 'auto' }}>
+          {backButton}
+          <GameSetup
+            bot={selectedBot}
+            playerColor={playerColor}
+            onColorChange={setPlayerColor}
+            onPlay={() => startGame()}
+            onChangeBot={handleChangeBot}
+          />
+        </Box>
       )}
 
       {/* Playing/ended phase — V3 "Immersive World" screen */}
@@ -452,6 +500,8 @@ export default function PlayPage() {
             background: gameTheme(selectedBot).screenGradient,
           }}
         >
+          {backButton}
+
           {/* Decorative low-opacity floating scenery emojis */}
           {(() => {
             const [d1, d2, d3] = gameTheme(selectedBot).deco
