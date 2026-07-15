@@ -38,6 +38,9 @@ frontend/npm-debug.log*
 frontend/yarn-debug.log*
 frontend/yarn-error.log*
 
+# Redundant PM2 config containing secrets (use ecosystem.config.js instead)
+pm2.json
+
 # ===========================
 # Backend (Python/Flask)
 # ===========================
@@ -83,6 +86,15 @@ backend/nohup.out
 # PID files
 backend/*.pid
 
+# Runtime artifacts (loader progress/stats, ETL output, ad-hoc flags)
+backend/*_progress.json
+backend/*_stats.json
+backend/*_results.json
+backend/*_response.json
+backend/*.db-journal
+backend/processed_data/
+backend/stop_2025_loading.txt
+
 # SQLite databases
 backend/*.db
 backend/*.sqlite
@@ -102,6 +114,14 @@ docker-compose.override.yml
 # ===========================
 # Data Files
 # ===========================
+# Root-level large binary artifacts (transient working-tree blobs, never commit)
+/*.data
+/*.db
+/*.db-journal
+/*.sqlite
+/*.sqlite3
+/*.onnx
+
 # Large data files should not be committed
 backend/data/twic/*.pgn
 backend/data/lichess/*.pgn
