@@ -22,7 +22,6 @@ pyjwt  # For Clerk JWT verification
 
 # Development & Testing
 pytest
-pytest-mock
 rich  # For better logging
 
 # Note: Stockfish, whisper, and elevenlabs removed
