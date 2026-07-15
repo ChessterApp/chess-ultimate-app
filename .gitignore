@@ -95,10 +95,13 @@ backend/*.db-journal
 backend/processed_data/
 backend/stop_2025_loading.txt
 
-# SQLite databases
+# SQLite databases (top-level and nested under backend/)
 backend/*.db
 backend/*.sqlite
 backend/*.sqlite3
+backend/**/*.db
+backend/**/*.db-journal
+backend/**/*.sqlite*
 
 # Model checkpoints and weights
 backend/**/*.h5
