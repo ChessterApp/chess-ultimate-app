@@ -1805,6 +1805,9 @@
     "drawSubtitle": "Great fight — nobody wins this time.",
     "playAgain": "Play again",
     "rematch": "Rematch",
+    "rematchCreating": "Creating rematch…",
+    "rematchFailed": "Couldn't create a rematch. Try again.",
+    "backToPlay": "Back to Play",
     "tryStronger": "Try a stronger bot",
     "chooseAnother": "Choose another bot",
     "ariaResult": "You won by checkmate against {botName}"

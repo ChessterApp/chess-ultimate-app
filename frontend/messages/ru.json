@@ -1805,6 +1805,9 @@
     "drawSubtitle": "Отличная игра — на этот раз ничья.",
     "playAgain": "Играть снова",
     "rematch": "Реванш",
+    "rematchCreating": "Создаём реванш…",
+    "rematchFailed": "Не удалось создать реванш. Попробуйте снова.",
+    "backToPlay": "Назад к игре",
     "tryStronger": "Сразись с ботом посильнее",
     "chooseAnother": "Выбрать другого бота",
     "ariaResult": "Ты победил {botName} матом"

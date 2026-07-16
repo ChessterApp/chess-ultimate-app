@@ -10,6 +10,7 @@
 import React, { useState } from 'react';
 import { Box, Button, Typography, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { useRouter } from 'next/navigation';
+import { fredoka } from '@/lib/fonts';
 import type { ColorChoice } from '@/lib/live-game/types';
 
 interface TimeControl {
@@ -86,7 +87,10 @@ export default function PlayFriendCard() {
         boxShadow: '0 8px 24px rgba(30,60,120,0.08)',
       }}
     >
-      <Typography variant="h6" sx={{ fontWeight: 800, color: '#1E2A44', mb: 0.5 }}>
+      <Typography
+        variant="h6"
+        sx={{ fontFamily: fredoka.style.fontFamily, fontWeight: 700, color: '#1E2A44', mb: 0.5 }}
+      >
         Play a friend
       </Typography>
       <Typography variant="body2" sx={{ color: '#5C6B85', mb: 2 }}>

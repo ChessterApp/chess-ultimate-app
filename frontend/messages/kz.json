@@ -1805,6 +1805,9 @@
     "drawSubtitle": "Тамаша ойын — бұл жолы ешкім жеңген жоқ.",
     "playAgain": "Қайта ойнау",
     "rematch": "Реванш",
+    "rematchCreating": "Реванш жасалуда…",
+    "rematchFailed": "Реванш жасалмады. Қайталап көріңіз.",
+    "backToPlay": "Ойынға оралу",
     "tryStronger": "Күштірек ботпен ойнап көр",
     "chooseAnother": "Басқа бот таңдау",
     "ariaResult": "Сен {botName} ботын матпен жеңдің"

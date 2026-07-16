@@ -1,23 +1,35 @@
 'use client';
 
 /**
- * Live game page (phase 3) — one route, driven entirely by `useLiveGame`.
+ * Live game page (phase 3–5) — one route, driven entirely by `useLiveGame`.
  *
  * States: lobby (creator waiting on a challenge), joining (recipient accepting),
- * playing (active board), and a terminal result banner. Resign/draw/flag
- * controls are phase 4; this page only renders an already-terminal game cleanly.
+ * playing (active board with header/dock chrome), and a terminal result. Phase 5
+ * reskins the UI to the bot-game design language: rounded white cards, world
+ * scenery behind the board, and the celebratory `LiveGameEndModal` on a real
+ * result (aborted/expired games keep their quiet banner — an abandoned game is
+ * not a result).
  *
  * Gated behind ONLINE_PLAY_ENABLED — the whole route 404s when the flag is off.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, notFound } from 'next/navigation';
-import { Box, Button, Typography, CircularProgress, Chip } from '@mui/material';
+import { useAuth } from '@clerk/nextjs';
+import { Box, Typography } from '@mui/material';
+import { useReducedMotion } from 'framer-motion';
 import { Chess } from 'chess.js';
 import type { Key } from 'chessground/types';
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard';
+import WorldScenery from '@/components/play/WorldScenery';
+import LiveGameHeader from '@/components/play/LiveGameHeader';
+import LiveGameDock from '@/components/play/LiveGameDock';
+import LiveGameEndModal from '@/components/play/LiveGameEndModal';
 import { useLiveGame } from '@/hooks/useLiveGame';
+import { liveOutcome } from '@/lib/liveOutcome';
+import { fredoka, nunito } from '@/lib/fonts';
+import { LIVE_PLAY_THEME, LIVE_INK, LIVE_INK_SOFT } from '@/lib/livePlayTheme';
 import { ONLINE_PLAY_ENABLED } from '@/lib/feature-flags';
 
 const INVITE_BASE = 'https://chesster.io';
@@ -51,9 +63,10 @@ function moveToUci(fen: string, from: Key, to: Key): string | null {
   }
 }
 
+/** Rounded white card in the play-section language, centered on the page. */
 function CenterCard({ children }: { children: React.ReactNode }) {
   return (
-    <Box sx={{ maxWidth: 560, mx: 'auto', p: { xs: 2, sm: 4 } }}>
+    <Box sx={{ maxWidth: 520, mx: 'auto', p: { xs: 2, sm: 4 } }}>
       <Box
         sx={{
           p: { xs: 3, sm: 4 },
@@ -62,6 +75,7 @@ function CenterCard({ children }: { children: React.ReactNode }) {
           border: '1px solid #E3EAF6',
           boxShadow: '0 12px 32px rgba(30,60,120,0.10)',
           textAlign: 'center',
+          fontFamily: nunito.style.fontFamily,
         }}
       >
         {children}
@@ -70,17 +84,103 @@ function CenterCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Fredoka heading used across the lobby / accept / status cards. */
+function CardTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography
+      component="h1"
+      sx={{
+        fontFamily: fredoka.style.fontFamily,
+        fontWeight: 700,
+        fontSize: { xs: 22, sm: 26 },
+        color: LIVE_INK,
+        mb: 1,
+      }}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+/** Primary pill button in the online-play language. */
+function PrimaryPill({
+  children,
+  onClick,
+  href,
+  disabled,
+  testId,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  href?: string;
+  disabled?: boolean;
+  testId?: string;
+}) {
+  const sx = {
+    display: 'inline-block',
+    bgcolor: LIVE_PLAY_THEME.main,
+    color: '#fff',
+    border: 'none',
+    fontFamily: nunito.style.fontFamily,
+    fontWeight: 800,
+    fontSize: '15px',
+    borderRadius: '999px',
+    py: '12px',
+    px: 4,
+    cursor: disabled ? 'default' : 'pointer',
+    opacity: disabled ? 0.65 : 1,
+    textDecoration: 'none',
+    boxShadow: `0 8px 18px ${LIVE_PLAY_THEME.deep}33`,
+  } as const;
+  if (href) {
+    return (
+      <Box component={Link} href={href} data-testid={testId} sx={sx}>
+        {children}
+      </Box>
+    );
+  }
+  return (
+    <Box component="button" type="button" onClick={onClick} disabled={disabled} data-testid={testId} sx={sx}>
+      {children}
+    </Box>
+  );
+}
+
 export default function LiveGamePage() {
   const params = useParams<{ gameId: string }>();
   const gameId = params?.gameId ?? '';
+  const { userId } = useAuth();
   const game = useLiveGame(gameId);
+  const reduce = useReducedMotion();
   const [copied, setCopied] = useState(false);
   const [accepting, setAccepting] = useState(false);
-  const [confirmResign, setConfirmResign] = useState(false);
-
-  if (!ONLINE_PLAY_ENABLED) notFound();
+  const [modalOpen, setModalOpen] = useState(false);
 
   const inviteUrl = `${INVITE_BASE}/play/live/${gameId}`;
+
+  // Reveal the result modal ~0.8s after a game ends so the final position is
+  // visible first. Reduced-motion users skip the deliberate delay. Only a real
+  // result (not an abort/expiry) shows the modal.
+  const outcome = game.terminal.isOver
+    ? liveOutcome(
+        {
+          winnerId: game.terminal.winnerId,
+          result: game.terminal.result,
+          reason: game.terminal.reason,
+        },
+        userId ?? null,
+      )
+    : null;
+
+  const hasResult = outcome !== null;
+  useEffect(() => {
+    if (!hasResult) return;
+    const delay = reduce ? 0 : 800;
+    const timer = setTimeout(() => setModalOpen(true), delay);
+    return () => clearTimeout(timer);
+  }, [hasResult, reduce]);
+
+  if (!ONLINE_PLAY_ENABLED) notFound();
 
   const copyLink = async () => {
     try {
@@ -107,20 +207,18 @@ export default function LiveGamePage() {
   if (game.loading) {
     return (
       <CenterCard>
-        <CircularProgress />
-        <Typography sx={{ mt: 2, color: '#5C6B85' }}>Loading game…</Typography>
+        <CardTitle>Loading game…</CardTitle>
+        <Typography sx={{ color: LIVE_INK_SOFT }}>Setting up the board.</Typography>
       </CenterCard>
     );
   }
 
-  // ── Hard errors (not found / expired / unauthorized) ────────────────────────
+  // ── Hard errors (not found / expired) ───────────────────────────────────────
   if (game.error === 'not_found') {
     return (
       <CenterCard>
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-          Game not found
-        </Typography>
-        <Typography sx={{ color: '#5C6B85' }}>
+        <CardTitle>Game not found</CardTitle>
+        <Typography sx={{ color: LIVE_INK_SOFT }}>
           This challenge link is invalid or has been removed.
         </Typography>
       </CenterCard>
@@ -129,64 +227,66 @@ export default function LiveGamePage() {
   if (game.status === 'expired' || game.error === 'expired') {
     return (
       <CenterCard>
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-          Challenge expired
-        </Typography>
-        <Typography sx={{ color: '#5C6B85', mb: 3 }}>
+        <CardTitle>Challenge expired</CardTitle>
+        <Typography sx={{ color: LIVE_INK_SOFT, mb: 3 }}>
           This challenge is no longer available. Ask your friend for a new link.
         </Typography>
-        <Button
-          component={Link}
-          href="/play"
-          variant="contained"
-          data-testid="new-challenge"
-          sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 800, px: 4 }}
-        >
+        <PrimaryPill href="/play" testId="new-challenge">
           Create a new challenge
-        </Button>
+        </PrimaryPill>
       </CenterCard>
     );
   }
 
-  // ── Terminal result banner ──────────────────────────────────────────────────
+  // ── Terminal result ─────────────────────────────────────────────────────────
   if (game.terminal.isOver) {
-    const { outcome, reason } = game.terminal;
-    const heading =
-      reason === 'abort'
-        ? 'Game aborted'
-        : outcome === 'win'
-          ? 'You won!'
-          : outcome === 'loss'
-            ? 'You lost'
-            : 'Game drawn';
-    const subtitle = [game.terminal.result, reason?.replace(/_/g, ' ')]
-      .filter(Boolean)
-      .join(' · ');
+    // Aborted / expired: no result, keep a quiet banner (an abandoned game is
+    // not a celebration).
+    if (!outcome) {
+      const reason = game.terminal.reason?.replace(/_/g, ' ');
+      return (
+        <Box sx={{ maxWidth: 640, mx: 'auto', p: { xs: 2, sm: 3 } }}>
+          <CenterCard>
+            <CardTitle>Game aborted</CardTitle>
+            {reason && (
+              <Typography sx={{ color: LIVE_INK_SOFT }}>{reason}</Typography>
+            )}
+          </CenterCard>
+          <ReviewBoard fen={game.fen} orientation={game.orientation} />
+        </Box>
+      );
+    }
+
+    // A real result: board reviewable underneath, celebratory modal on top.
     return (
-      <Box sx={{ maxWidth: 720, mx: 'auto', p: { xs: 2, sm: 3 } }}>
-        <CenterCard>
-          <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>
-            {heading}
-          </Typography>
-          <Typography sx={{ color: '#5C6B85', mb: 2 }}>{subtitle}</Typography>
-        </CenterCard>
+      <GameSurface>
         <Box
           sx={{
-            maxWidth: 520,
+            position: 'relative',
+            zIndex: 1,
+            maxWidth: 560,
             mx: 'auto',
-            borderRadius: '16px',
+            borderRadius: '20px',
             overflow: 'hidden',
+            border: 'solid rgba(255,255,255,.95)',
+            borderWidth: { xs: '3px', sm: '5px' },
+            boxShadow: `0 16px 40px ${LIVE_PLAY_THEME.deep}59`,
             lineHeight: 0,
           }}
         >
-          <ChessgroundBoard
-            fen={game.fen}
-            orientation={game.orientation}
-            movable={false}
-            viewOnly
-          />
+          <ChessgroundBoard fen={game.fen} orientation={game.orientation} movable={false} viewOnly />
         </Box>
-      </Box>
+        <LiveGameEndModal
+          outcome={outcome.outcome}
+          resigned={outcome.resigned}
+          opponentName="Opponent"
+          myColor={game.myColor}
+          initialSec={game.initialSec}
+          incrementSec={game.incrementSec}
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+        />
+      </GameSurface>
     );
   }
 
@@ -194,10 +294,8 @@ export default function LiveGamePage() {
   if (game.status === 'challenge' && game.isCreator) {
     return (
       <CenterCard>
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-          Waiting for your opponent…
-        </Typography>
-        <Typography sx={{ color: '#5C6B85', mb: 3 }}>
+        <CardTitle>Waiting for your opponent…</CardTitle>
+        <Typography sx={{ color: LIVE_INK_SOFT, mb: 3 }}>
           Share this link. The game starts automatically when they join.
         </Typography>
         <Box
@@ -213,12 +311,12 @@ export default function LiveGamePage() {
             sx={{
               px: 2,
               py: 1,
-              borderRadius: '10px',
-              bgcolor: '#F3F7FF',
-              border: '1px solid #E3EAF6',
+              borderRadius: '12px',
+              bgcolor: LIVE_PLAY_THEME.tint,
+              border: `1px solid ${LIVE_PLAY_THEME.main}`,
               fontFamily: 'monospace',
               fontSize: 13,
-              color: '#1E2A44',
+              color: LIVE_INK,
               maxWidth: '100%',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
@@ -227,16 +325,11 @@ export default function LiveGamePage() {
           >
             {inviteUrl}
           </Box>
-          <Button
-            variant="contained"
-            onClick={copyLink}
-            data-testid="copy-link"
-            sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-          >
+          <PrimaryPill onClick={copyLink} testId="copy-link">
             {copied ? 'Copied!' : 'Copy link'}
-          </Button>
+          </PrimaryPill>
         </Box>
-        <Typography variant="caption" sx={{ display: 'block', mt: 3, color: '#8A97AD' }}>
+        <Typography sx={{ display: 'block', mt: 3, fontSize: 13, color: '#8A97AD' }}>
           {tcLabel(game.initialSec, game.incrementSec)} ·{' '}
           {game.colorChoice === 'random' ? 'random colors' : `you play ${game.colorChoice}`}
         </Typography>
@@ -250,231 +343,145 @@ export default function LiveGamePage() {
       game.colorChoice === 'random' ? 'a random color' : game.colorChoice;
     return (
       <CenterCard>
-        <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
-          You&apos;ve been challenged!
-        </Typography>
-        <Typography sx={{ color: '#5C6B85', mb: 3 }}>
+        <CardTitle>You&apos;ve been challenged!</CardTitle>
+        <Typography sx={{ color: LIVE_INK_SOFT, mb: 3 }}>
           {tcLabel(game.initialSec, game.incrementSec)} · the creator plays {creatorColor}.
         </Typography>
         {game.error && game.error !== 'not_found' && (
-          <Typography variant="body2" sx={{ color: '#C62828', mb: 2 }}>
+          <Typography sx={{ color: '#C62828', mb: 2, fontWeight: 700 }}>
             Could not join: {game.error.replace(/_/g, ' ')}
           </Typography>
         )}
-        <Button
-          variant="contained"
-          onClick={accept}
-          disabled={accepting}
-          data-testid="accept-challenge"
-          sx={{
-            borderRadius: '999px',
-            textTransform: 'none',
-            fontWeight: 800,
-            px: 4,
-            py: 1.25,
-          }}
-        >
+        <PrimaryPill onClick={accept} disabled={accepting} testId="accept-challenge">
           {accepting ? 'Joining…' : 'Accept & play'}
-        </Button>
+        </PrimaryPill>
       </CenterCard>
     );
   }
 
   // ── Playing (active board) ──────────────────────────────────────────────────
-  const topClock = game.orientation === 'white' ? game.clocks.blackMs : game.clocks.whiteMs;
-  const bottomClock = game.orientation === 'white' ? game.clocks.whiteMs : game.clocks.blackMs;
+  const opponentClock = game.orientation === 'white' ? game.clocks.blackMs : game.clocks.whiteMs;
+  const myClock = game.orientation === 'white' ? game.clocks.whiteMs : game.clocks.blackMs;
 
   return (
-    <Box sx={{ maxWidth: 1000, mx: 'auto', p: { xs: 1, sm: 3 } }}>
-      {!game.opponentConnected && (
-        <Box
-          sx={{
-            maxWidth: 640,
-            mx: 'auto',
-            mb: 2,
-            px: 2,
-            py: 1,
-            borderRadius: '10px',
-            bgcolor: '#FFF4E5',
-            border: '1px solid #FFE0B2',
-            color: '#8A5A00',
-            fontSize: 14,
-            textAlign: 'center',
-          }}
-          data-testid="opponent-disconnected"
-        >
-          Opponent disconnected — their clock keeps running.
-        </Box>
-      )}
+    <GameSurface>
       <Box
         sx={{
+          position: 'relative',
+          zIndex: 1,
           display: 'grid',
           gap: 2,
           alignItems: 'start',
           justifyContent: { md: 'center' },
-          gridTemplateColumns: { xs: '1fr', md: 'auto 300px' },
+          gridTemplateColumns: { xs: '1fr', md: 'auto 320px' },
+          gridTemplateAreas: {
+            xs: '"header" "board" "dock"',
+            md: '"board header" "board dock"',
+          },
         }}
       >
-        <Box>
-          <ClockRow ms={topClock} active={!game.isMyTurn} />
-          <Box
-            sx={{
-              borderRadius: '16px',
-              overflow: 'hidden',
-              border: '4px solid #FFFFFF',
-              boxShadow: '0 12px 32px rgba(30,60,120,0.14)',
-              lineHeight: 0,
-              my: 1,
-            }}
-          >
-            <ChessgroundBoard
-              fen={game.fen}
-              orientation={game.orientation}
-              onMove={handleMove}
-              movable={game.isMyTurn}
-            />
-          </Box>
-          <ClockRow ms={bottomClock} active={game.isMyTurn} />
-        </Box>
-
-        <Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <Chip
-              size="small"
-              label={game.opponentConnected ? 'Opponent online' : 'Opponent offline'}
-              color={game.opponentConnected ? 'success' : 'default'}
-              variant={game.opponentConnected ? 'filled' : 'outlined'}
-            />
-            <Chip
-              size="small"
-              label={game.isMyTurn ? 'Your turn' : 'Their turn'}
-              variant="outlined"
-            />
-          </Box>
-          <Typography variant="caption" sx={{ fontWeight: 700, color: '#5C6B85' }}>
-            MOVES
-          </Typography>
-          <MoveList moves={game.moves} />
-
-          {game.drawOffer.fromOpponent && (
+        <Box sx={{ gridArea: 'header' }}>
+          <LiveGameHeader
+            opponentName="Opponent"
+            connected={game.opponentConnected}
+            clock={fmtClock(opponentClock)}
+            clockActive={!game.isMyTurn}
+          />
+          {!game.opponentConnected && (
             <Box
+              data-testid="opponent-disconnected"
               sx={{
-                mt: 2,
-                p: 1.5,
+                mt: 1,
+                px: 1.5,
+                py: 1,
                 borderRadius: '12px',
-                bgcolor: '#F3F7FF',
-                border: '1px solid #C9DAF8',
+                bgcolor: '#FFF4E5',
+                border: '1px solid #FFE0B2',
+                color: '#8A5A00',
+                fontFamily: nunito.style.fontFamily,
+                fontWeight: 700,
+                fontSize: 13,
+                textAlign: 'center',
               }}
-              data-testid="draw-offer-banner"
             >
-              <Typography sx={{ fontWeight: 700, mb: 1, color: '#1E2A44' }}>
-                Opponent offers a draw
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1 }}>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => void game.acceptDraw()}
-                  data-testid="accept-draw"
-                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-                >
-                  Accept
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => void game.declineDraw()}
-                  data-testid="decline-draw"
-                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-                >
-                  Decline
-                </Button>
-              </Box>
+              Opponent disconnected — their clock keeps running.
             </Box>
           )}
-
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
-            {game.canAbort && (
-              <Button
-                size="small"
-                variant="outlined"
-                color="inherit"
-                onClick={() => void game.abort()}
-                data-testid="abort"
-                sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-              >
-                Abort
-              </Button>
-            )}
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => void game.offerDraw()}
-              disabled={game.drawOffer.fromMe}
-              data-testid="offer-draw"
-              sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-            >
-              {game.drawOffer.fromMe ? 'Draw offered' : 'Offer draw'}
-            </Button>
-            {confirmResign ? (
-              <>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="error"
-                  onClick={() => void game.resign()}
-                  data-testid="confirm-resign"
-                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-                >
-                  Confirm resign
-                </Button>
-                <Button
-                  size="small"
-                  variant="text"
-                  color="inherit"
-                  onClick={() => setConfirmResign(false)}
-                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-                >
-                  Cancel
-                </Button>
-              </>
-            ) : (
-              <Button
-                size="small"
-                variant="outlined"
-                color="error"
-                onClick={() => setConfirmResign(true)}
-                data-testid="resign"
-                sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
-              >
-                Resign
-              </Button>
-            )}
-          </Box>
         </Box>
+
+        <Box
+          sx={{
+            gridArea: 'board',
+            borderRadius: '20px',
+            overflow: 'hidden',
+            border: 'solid rgba(255,255,255,.95)',
+            borderWidth: { xs: '3px', sm: '5px' },
+            boxShadow: `0 16px 40px ${LIVE_PLAY_THEME.deep}59`,
+            lineHeight: 0,
+          }}
+        >
+          <ChessgroundBoard
+            fen={game.fen}
+            orientation={game.orientation}
+            onMove={handleMove}
+            movable={game.isMyTurn}
+          />
+        </Box>
+
+        <Box sx={{ gridArea: 'dock' }}>
+          <LiveGameDock
+            playerColor={game.orientation}
+            clock={fmtClock(myClock)}
+            clockActive={game.isMyTurn}
+            drawOfferedByMe={game.drawOffer.fromMe}
+            drawOfferedByOpponent={game.drawOffer.fromOpponent}
+            canAbort={game.canAbort}
+            onAbort={() => void game.abort()}
+            onOfferDraw={() => void game.offerDraw()}
+            onAcceptDraw={() => void game.acceptDraw()}
+            onDeclineDraw={() => void game.declineDraw()}
+            onResign={() => void game.resign()}
+          />
+          <MoveList moves={game.moves} />
+        </Box>
+      </Box>
+    </GameSurface>
+  );
+}
+
+/** The in-game screen: world scenery gradient behind a rounded surface. */
+function GameSurface({ children }: { children: React.ReactNode }) {
+  return (
+    <Box sx={{ maxWidth: 1000, mx: 'auto', p: { xs: 1, sm: 3 } }}>
+      <Box
+        sx={{
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: '24px',
+          p: { xs: 1.5, sm: 3 },
+        }}
+      >
+        <WorldScenery tier="beginner" />
+        {children}
       </Box>
     </Box>
   );
 }
 
-function ClockRow({ ms, active }: { ms: number | null; active: boolean }) {
+/** View-only board used on an aborted-game review screen. */
+function ReviewBoard({ fen, orientation }: { fen: string; orientation: 'white' | 'black' }) {
   return (
     <Box
       sx={{
-        display: 'inline-flex',
-        px: 2,
-        py: 0.75,
-        borderRadius: '10px',
-        bgcolor: active ? '#1E2A44' : '#EEF2FA',
-        color: active ? '#FFFFFF' : '#1E2A44',
-        fontVariantNumeric: 'tabular-nums',
-        fontWeight: 800,
-        fontSize: 22,
-        minWidth: 84,
-        justifyContent: 'center',
+        maxWidth: 520,
+        mx: 'auto',
+        mt: 1,
+        borderRadius: '16px',
+        overflow: 'hidden',
+        lineHeight: 0,
       }}
     >
-      {fmtClock(ms)}
+      <ChessgroundBoard fen={fen} orientation={orientation} movable={false} viewOnly />
     </Box>
   );
 }
@@ -484,30 +491,46 @@ function MoveList({
 }: {
   moves: Array<{ ply: number; san: string | null; uci: string }>;
 }) {
+  if (moves.length === 0) return null;
   return (
     <Box
       sx={{
-        mt: 0.5,
-        maxHeight: 360,
-        overflowY: 'auto',
-        display: 'grid',
-        gridTemplateColumns: 'auto 1fr 1fr',
-        rowGap: 0.25,
-        columnGap: 1,
-        fontSize: 14,
+        mt: 2,
+        p: 1.5,
+        borderRadius: '18px',
+        bgcolor: 'rgba(255,255,255,.95)',
+        boxShadow: `0 10px 26px ${LIVE_PLAY_THEME.deep}33`,
+        fontFamily: nunito.style.fontFamily,
       }}
     >
-      {Array.from({ length: Math.ceil(moves.length / 2) }).map((_, i) => {
-        const white = moves[i * 2];
-        const black = moves[i * 2 + 1];
-        return (
-          <React.Fragment key={i}>
-            <Box sx={{ color: '#8A97AD' }}>{i + 1}.</Box>
-            <Box sx={{ fontWeight: 600 }}>{white?.san ?? white?.uci ?? ''}</Box>
-            <Box sx={{ fontWeight: 600 }}>{black?.san ?? black?.uci ?? ''}</Box>
-          </React.Fragment>
-        );
-      })}
+      <Typography
+        sx={{ fontWeight: 900, fontSize: 12, color: LIVE_INK_SOFT, mb: 0.5, letterSpacing: 0.5 }}
+      >
+        MOVES
+      </Typography>
+      <Box
+        sx={{
+          maxHeight: 300,
+          overflowY: 'auto',
+          display: 'grid',
+          gridTemplateColumns: 'auto 1fr 1fr',
+          rowGap: 0.25,
+          columnGap: 1,
+          fontSize: 14,
+        }}
+      >
+        {Array.from({ length: Math.ceil(moves.length / 2) }).map((_, i) => {
+          const white = moves[i * 2];
+          const black = moves[i * 2 + 1];
+          return (
+            <React.Fragment key={i}>
+              <Box sx={{ color: '#8A97AD' }}>{i + 1}.</Box>
+              <Box sx={{ fontWeight: 700, color: LIVE_INK }}>{white?.san ?? white?.uci ?? ''}</Box>
+              <Box sx={{ fontWeight: 700, color: LIVE_INK }}>{black?.san ?? black?.uci ?? ''}</Box>
+            </React.Fragment>
+          );
+        })}
+      </Box>
     </Box>
   );
 }
