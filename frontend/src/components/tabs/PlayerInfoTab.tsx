@@ -6,7 +6,7 @@ import {
   Avatar,
   Chip
 } from '@mui/material';
-import { BoardOrientation } from 'react-chessboard/dist/chessboard/types';
+type BoardOrientation = "white" | "black";
 
 interface PlayerInfoType {
     gameInfo: Record<string, string> | undefined;

@@ -6,7 +6,7 @@ import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import { BookmarkAdd } from "@mui/icons-material";
 import { Bookmark } from "@mui/icons-material";
 import ReactMarkdown from "react-markdown";
-import { Chessboard } from "react-chessboard";
+import ChessgroundBoard from "@/components/chess/ChessgroundBoard";
 import {
   Stack,
   Box,
@@ -663,15 +663,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
                     }
                   }}
                 >
-                  <Chessboard
-                    position={position.fen || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}
-                    arePiecesDraggable={false}
-                    boardWidth={190}
-                    customBoardStyle={{
-                      borderRadius: "4px",
-                      border: `1px solid ${theme.palette.divider}`
-                    }}
-
+                  <ChessgroundBoard
+                    fen={position.fen || "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}
+                    viewOnly
+                    boardSize={190}
                   />
                 </Box>
               </Box>
@@ -1633,14 +1628,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
             mx: "auto"
           }}>
             {selectedFen && (
-              <Chessboard 
-                position={selectedFen}
-                arePiecesDraggable={false}
-                boardWidth={350}
-                customBoardStyle={{
-                  borderRadius: "8px",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)"
-                }}
+              <ChessgroundBoard
+                fen={selectedFen}
+                viewOnly
+                boardSize={350}
               />
             )}
           </Box>

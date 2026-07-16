@@ -1,8 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Chessboard } from 'react-chessboard'
 import { Chess } from 'chess.js'
+import type { Key } from 'chessground/types'
+import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import { useTranslations } from 'next-intl'
 import { useReplayStockfish } from '@/hooks/useReplayStockfish'
 import ReplayEvalBar from './ReplayEvalBar'
@@ -44,7 +45,7 @@ export default function GameReplayBoard({
   const { positions, moves, game } = useMemo(() => {
     const chess = new Chess()
     const positionHistory: string[] = [chess.fen()] // Starting position
-    const moveHistory: { san: string; color: 'w' | 'b' }[] = []
+    const moveHistory: { san: string; color: 'w' | 'b'; from: Key; to: Key }[] = []
 
     try {
       chess.loadPgn(pgn)
@@ -57,7 +58,7 @@ export default function GameReplayBoard({
       for (const move of history) {
         chess.move(move.san)
         positionHistory.push(chess.fen())
-        moveHistory.push({ san: move.san, color: move.color })
+        moveHistory.push({ san: move.san, color: move.color, from: move.from as Key, to: move.to as Key })
       }
     } catch (error) {
       console.error('Error parsing PGN:', error)
@@ -88,6 +89,12 @@ export default function GameReplayBoard({
 
   // Current position FEN
   const currentFen = positions[currentMoveIndex + 1] || positions[0]
+
+  // Highlight the move that led to the current position (none at start)
+  const lastMove = useMemo<[Key, Key] | null>(() => {
+    const move = moves[currentMoveIndex]
+    return move ? [move.from, move.to] : null
+  }, [moves, currentMoveIndex])
 
   // Trigger Stockfish analysis when position changes
   useEffect(() => {
@@ -264,14 +271,12 @@ export default function GameReplayBoard({
 
               {/* Chess board */}
               <div className="w-[400px] aspect-square">
-                <Chessboard
-                  position={currentFen}
-                  boardOrientation={orientation}
-                  arePiecesDraggable={false}
-                  customBoardStyle={{
-                    borderRadius: '4px',
-                    boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3)'
-                  }}
+                <ChessgroundBoard
+                  fen={currentFen}
+                  orientation={orientation}
+                  viewOnly
+                  lastMove={lastMove}
+                  boardSize={400}
                 />
               </div>
             </div>
