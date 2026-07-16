@@ -8,7 +8,7 @@
 
 ## Context
 
-PRD `PRD-whitelabel-ratings-calendar.md` turns Chesster into a B2B platform: each chess school is an `organization` with branded UI, isolated student/course data, and its own admin shell. Phases 1–6 + 7A/7B are code-complete on `main`; the open question is **how do tenants reach their branded experience on the network**.
+PRD `../prd/PRD-whitelabel-ratings-calendar.md` turns Chesster into a B2B platform: each chess school is an `organization` with branded UI, isolated student/course data, and its own admin shell. Phases 1–6 + 7A/7B are code-complete on `main`; the open question is **how do tenants reach their branded experience on the network**.
 
 Three operational pressures shape the answer:
 

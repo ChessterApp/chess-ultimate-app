@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to colorize Lichess Alpha pieces with vibrant palette
-# Based on ANIMATED_BOARD_PRD.md color scheme
+# Based on docs/prd/ANIMATED_BOARD_PRD.md color scheme
 
 SOURCE_DIR="../frontend/public/pieces/alpha"
 OUTPUT_DIR="../frontend/public/pieces/alpha-vibrant"

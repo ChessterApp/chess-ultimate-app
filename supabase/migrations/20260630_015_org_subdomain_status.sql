@@ -1,5 +1,5 @@
 -- Migration: Track Vercel registration status for each org's *.chesster.io subdomain.
--- Source: PRD-self-serve-school-onboarding.md + cosmic-mixing-wall fix plan.
+-- Source: docs/prd/PRD-self-serve-school-onboarding.md + cosmic-mixing-wall fix plan.
 --
 -- Adds:
 --   * organizations.subdomain_status ('pending'|'verifying'|'active'|'failed')

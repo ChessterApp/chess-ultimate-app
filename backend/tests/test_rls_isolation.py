@@ -20,7 +20,7 @@ How it works:
     `finally` block — even on test failure or interpreter exception.
 
 Skips: if no DB connection can be established the whole module is skipped.
-RLS leaks detected here are written to /root/chess-app/RLS-FAILURES.md.
+RLS leaks detected here are written to /root/chess-app/docs/archive/RLS-FAILURES.md.
 """
 
 from __future__ import annotations
@@ -433,7 +433,7 @@ def _row_visible(conn, table: str, row_id: str) -> bool:
     A policy error (e.g. infinite recursion, permission denied) is treated as
     'access denied' — the row is not visible. This is the security-relevant
     outcome: if the database refuses to evaluate the query, no data leaks.
-    Underlying policy bugs are documented separately in RLS-FAILURES.md."""
+    Underlying policy bugs are documented separately in docs/archive/RLS-FAILURES.md."""
     cur = conn.cursor()
     try:
         cur.execute(f"SELECT 1 FROM {table} WHERE id = %s", (row_id,))
@@ -660,7 +660,7 @@ def test_clerk_uid_returns_non_uuid_clerk_sub_as_text():
     Real Clerk IDs look like `user_2abcDEF...` and are not valid UUIDs. If
     clerk_uid() ever calls `::uuid` on the value, this will raise
     `invalid input syntax for type uuid` — which is the production-token
-    failure mode described in RLS-FAILURES.md §3.
+    failure mode described in docs/archive/RLS-FAILURES.md §3.
     """
     clerk_sub = "user_2abcDEFghi3456789"
     with authed(clerk_sub) as conn:
@@ -674,7 +674,7 @@ def test_clerk_uid_returns_non_uuid_clerk_sub_as_text():
 
 def test_is_org_member_does_not_recurse(tenants):
     """is_org_member must NOT trigger `infinite recursion detected in policy
-    for relation organization_members` (RLS-FAILURES.md §2).
+    for relation organization_members` (docs/archive/RLS-FAILURES.md §2).
 
     Successful evaluation under the `authenticated` role — no
     InvalidObjectDefinition raised — is the success signal."""

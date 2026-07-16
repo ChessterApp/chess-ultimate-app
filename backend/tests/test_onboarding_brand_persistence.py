@@ -1,6 +1,6 @@
 """Tests for `create_org_self_serve` merging brand fields from pending_onboarding.
 
-Bug B from WHITE_LABEL_SWEEP_TASK.md Phase 0: the initial insert dropped any
+Bug B from docs/plans/WHITE_LABEL_SWEEP_TASK.md Phase 0: the initial insert dropped any
 brand fields the wizard collected before payment, leaving the org row with
 defaults until a separate PUT landed (which sometimes raced or failed).
 

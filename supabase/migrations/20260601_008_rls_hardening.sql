@@ -1,6 +1,6 @@
 -- Migration: RLS Hardening — close the three white-label tenancy leaks.
--- Source PRD: /root/chess-app/PRD-rls-hardening.md
--- Failure catalogue: /root/chess-app/RLS-FAILURES.md
+-- Source PRD: /root/chess-app/docs/prd/PRD-rls-hardening.md
+-- Failure catalogue: /root/chess-app/docs/archive/RLS-FAILURES.md
 --
 -- Fixes:
 --   1. Add `clerk_uid()` helper (returns JWT `sub` as text, never casts to

@@ -1,5 +1,5 @@
 -- Migration: Track which promo code (if any) an org redeemed at signup.
--- Source: WHITE_LABEL_PROMO_TASK.md T2.
+-- Source: docs/plans/WHITE_LABEL_PROMO_TASK.md T2.
 --
 -- Adds:
 --   * organization_billing.redeemed_promo_code (TEXT) — code text, e.g. 'FREE'
