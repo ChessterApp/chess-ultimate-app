@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useLocalStorage } from 'usehooks-ts'
-import { BOARD_THEMES, PIECE_STYLE_TYPES, DEFAULT_BOARD_SHOW_COORDINATE, DEFAULT_BOARD_ANIMATION_DURATION } from '@/libs/setting/helper'
+import { BOARD_THEMES, PIECE_STYLE_TYPES, DEFAULT_BOARD_SHOW_COORDINATE, DEFAULT_BOARD_ANIMATION_DURATION } from '@/lib/setting/helper'
 import { useDarkMode } from '@/hooks/useDarkMode'
 import Image from 'next/image'
 

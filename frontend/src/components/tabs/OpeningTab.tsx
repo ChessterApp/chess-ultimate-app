@@ -19,7 +19,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { Settings as SettingsIcon, TrendingUp } from "@mui/icons-material";
-import { MasterGames, Moves } from "../../libs/openingdatabase/helper";
+import { MasterGames, Moves } from "../../lib/openingdatabase/helper";
 
 type ExplorerType = 'master' | 'lichess';
 

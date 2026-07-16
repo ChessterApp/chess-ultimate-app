@@ -28,7 +28,7 @@ import {
 import { MoveAnalysis, MoveQuality } from "../../hooks/useGameReview";
 import EvalGraph from "./EvalGraph";
 import { GameReviewDialog} from "./GameReviewDialog";
-import { GameReviewTheme } from "@/libs/themes/helper";
+import { GameReviewTheme } from "@/lib/themes/helper";
 export interface MoveStats {
   Best: number;
   "Very Good": number;

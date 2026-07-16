@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Box, Typography, TextField, Button } from "@mui/material";
 import { Analytics } from "@mui/icons-material";
-import { parsePgnChapters } from "@/libs/game/helper";
+import { parsePgnChapters } from "@/lib/game/helper";
 import { apiFetch, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ToastProvider';
 

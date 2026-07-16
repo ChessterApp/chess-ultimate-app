@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { GameReviewTheme } from '@/libs/themes/helper';
+import { GameReviewTheme } from '@/lib/themes/helper';
 import { apiFetch, ApiError } from '@/lib/api';
 
 interface UseGameThemeReturn {

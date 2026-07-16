@@ -12,7 +12,7 @@ import {
   getCurrentThemeColors,
   DEFAULT_BOARD_SHOW_COORDINATE,
   DEFAULT_BOARD_ANIMATION_DURATION,
-} from '@/libs/setting/helper';
+} from '@/lib/setting/helper';
 
 // ─── ChessBase-style SVG icons ───
 

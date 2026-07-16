@@ -6,7 +6,7 @@ import {
   getOpeningStats,
   Moves,
   getLichessOpeningStats,
-} from "@/libs/openingdatabase/helper";
+} from "@/lib/openingdatabase/helper";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 // Clerk authentication for server-managed LLM
 import { useAuth } from "@clerk/nextjs";
@@ -16,7 +16,7 @@ import { CandidateMove, getChessDBSpeech, useChessDB } from "../components/tabs/
 import { useLocalStorage } from "usehooks-ts";
 import useGameReview, { MoveAnalysis, MoveQuality } from "./useGameReview";
 import { ApiSettings } from "../components/tabs/ModelSetting";
-import { DEFAULT_ENGINE_LINES, DEFAULT_ENGINE_DEPTH, MAX_PV_MOVES, ANALYSIS_DELAY } from "@/libs/setting/helper";
+import { DEFAULT_ENGINE_LINES, DEFAULT_ENGINE_DEPTH, MAX_PV_MOVES, ANALYSIS_DELAY } from "@/lib/setting/helper";
 
 // Types
 export interface ChatMessage {

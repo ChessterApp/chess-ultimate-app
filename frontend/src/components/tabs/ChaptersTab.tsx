@@ -2,7 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { Stack, Card, CardContent, Typography, Chip, Box, } from '@mui/material';
 import OpenInFullIcon from '@mui/icons-material/OpenInFull';
 import { useLocalStorage } from 'usehooks-ts';
-import { DEFAULT_CHAPTER_DIMENIONS } from '@/libs/setting/helper';
+import { DEFAULT_CHAPTER_DIMENIONS } from '@/lib/setting/helper';
 
 interface ResizableChapterSelectorProps {
   chapters: { title: string; url: string; pgn: string }[];

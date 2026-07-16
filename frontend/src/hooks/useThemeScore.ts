@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Color } from 'chess.js';
-import { ThemeScore } from '@/libs/themes/helper';
+import { ThemeScore } from '@/lib/themes/helper';
 import { apiFetch, ApiError } from '@/lib/api';
 
 interface UseThemeScoreResult {

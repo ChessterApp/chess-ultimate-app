@@ -59,7 +59,7 @@ import {
 import { Refresh, SkipNext } from "@mui/icons-material";
 import Slider from "@/components/stockfish/Slider";
 import { useLocalStorage } from "usehooks-ts";
-import { PuzzleData, PuzzleQuery, PUZZLE_THEMES, DIFFICULTY_THEMES } from "@/libs/puzzle/helper";
+import { PuzzleData, PuzzleQuery, PUZZLE_THEMES, DIFFICULTY_THEMES } from "@/lib/puzzle/helper";
 import Loader from "@/components/loading/Loader";
 import Warning from "@/components/loading/SignUpWarning";
 import Breadcrumbs from "@/components/Breadcrumbs";

@@ -23,7 +23,7 @@ import {
 import { RadarChart } from "@mui/x-charts";
 import { useThemeScore } from "@/hooks/useThemeScore";
 import { Color } from "chess.js";
-import { getThemeLabelColor, ThemeScore } from "@/libs/themes/helper";
+import { getThemeLabelColor, ThemeScore } from "@/lib/themes/helper";
 
 interface PositionFenThemeAnalysisProps {
   fen: string;

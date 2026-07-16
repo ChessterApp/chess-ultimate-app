@@ -23,7 +23,7 @@ import UserPGNUploader from "@/components/lichess/UserPGNUpload";
 import GameDownloader from "@/components/gamedownloader/GameDownloader";
 import PGNView from "@/components/tabs/PgnView";
 import ResizableChapterSelector from "@/components/tabs/ChaptersTab";
-import { extractMovesWithComments, extractGameInfo } from "@/libs/game/helper";
+import { extractMovesWithComments, extractGameInfo } from "@/lib/game/helper";
 import { useGameTheme } from "@/hooks/useGameTheme";
 import Loader from "@/components/loading/Loader";
 import LoadingScreen from "@/components/LoadingScreen";

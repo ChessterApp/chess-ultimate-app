@@ -27,7 +27,7 @@ import { MoveQuality, MoveAnalysis, } from '../../hooks/useGameReview';
 import { getMoveClassificationStyle } from './GameReviewTab';
 import { AgentMessage } from '../../hooks/useChesster';
 import { useLocalStorage } from 'usehooks-ts';
-import { DEFAULT_PGN_PANEL_DIMENSIONS } from '@/libs/setting/helper';
+import { DEFAULT_PGN_PANEL_DIMENSIONS } from '@/lib/setting/helper';
 
 export interface Move {
   from: string;

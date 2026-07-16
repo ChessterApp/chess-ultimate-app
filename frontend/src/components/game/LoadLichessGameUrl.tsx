@@ -9,7 +9,7 @@ import {
   fetchLichessGame,
   extractMovesWithComments,
   extractGameInfo,
-} from "@/libs/game/helper";
+} from "@/lib/game/helper";
 import { Chess } from "chess.js";
 import { MoveAnalysis } from "@/hooks/useGameReview";
 import { useTranslations } from "next-intl";

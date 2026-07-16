@@ -27,7 +27,7 @@ import {
   SwapHoriz as SwapHorizIcon,
 } from '@mui/icons-material';
 import { useLocalStorage } from 'usehooks-ts';
-import { LANGUAGES, PROVIDERS } from '@/libs/docs/helper';
+import { LANGUAGES, PROVIDERS } from '@/lib/docs/helper';
 
 
 export interface ApiSettings {

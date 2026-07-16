@@ -29,13 +29,13 @@ import ChatTab from "../tabs/ChatTab";
 import TwicExplorer from "./TwicExplorer";
 import ScoresheetScanner from "./ScoresheetScanner";
 import { PositionEval, LineEval } from "@/stockfish/engine/engine";
-import { MasterGames, Moves } from "@/libs/openingdatabase/helper";
+import { MasterGames, Moves } from "@/lib/openingdatabase/helper";
 import { CandidateMove, } from "../tabs/Chessdb";
 
 import { ChatMessage } from "@/hooks/useChesster";
 import { MoveAnalysis } from "@/hooks/useGameReview";
 import { UciEngine } from "@/stockfish/engine/UciEngine";
-import { GameReviewTheme } from "@/libs/themes/helper";
+import { GameReviewTheme } from "@/lib/themes/helper";
 import { PositionRadarAnalysis } from "../tabs/PositionRadarAnalysis";
 import { PositionFenThemeAnalysis } from "../tabs/PositionalFenThemeAnalysis";
 import GamesDatabase, { GameMetadata } from "../game/GamesDatabase";

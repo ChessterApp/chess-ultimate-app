@@ -4,7 +4,7 @@ import { UciEngine } from "@/stockfish/engine/UciEngine";
 import { LineEval } from "@/stockfish/engine/engine";
 import { Color } from "chess.js";
 import { CandidateMove } from "../components/tabs/Chessdb";
-import { isFenInAllDatabases } from "../libs/openingdatabase/ecoDatabase";
+import { isFenInAllDatabases } from "../lib/openingdatabase/ecoDatabase";
 import { apiFetch } from '@/lib/api';
 
 

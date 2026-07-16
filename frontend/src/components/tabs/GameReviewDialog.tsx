@@ -28,8 +28,8 @@ import {
 import { BarChart, LineChart, RadarChart } from "@mui/x-charts";
 import { MoveAnalysis } from "@/hooks/useGameReview";
 import { PositionRadarAnalysis } from "./PositionRadarAnalysis";
-import { GameReviewTheme, getThemeLabelColor, themeColors } from "@/libs/themes/helper";
-import { ThemeScore } from "@/libs/themes/helper";
+import { GameReviewTheme, getThemeLabelColor, themeColors } from "@/lib/themes/helper";
+import { ThemeScore } from "@/lib/themes/helper";
 
 
 interface GameReviewDialogProps {

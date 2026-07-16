@@ -83,11 +83,11 @@ const CBFlipBoardIcon = (props: SvgIconProps) => (
 );
 import { Chess, Square } from "chess.js";
 import { PositionEval } from "@/stockfish/engine/engine";
-import { MasterGames } from "../../libs/openingdatabase/helper";
+import { MasterGames } from "../../lib/openingdatabase/helper";
 import { MoveAnalysis } from "../../hooks/useGameReview";
 import { getMoveClassificationStyle } from "../tabs/GameReviewTab";
 import PGNView from "../tabs/PgnView";
-import { Board } from "../../libs/tacticalboard/board";
+import { Board } from "../../lib/tacticalboard/board";
 import { useLocalStorage } from "usehooks-ts";
 import {
   BOARD_THEMES,
@@ -101,7 +101,7 @@ import {
   DEFAULT_BOARD_SIZE,
   getCurrentThemeColors,
   PIECE_STYLE_TYPES,
-} from "@/libs/setting/helper";
+} from "@/lib/setting/helper";
 import PlayerInfoBar from "../tabs/PlayerInfoTab";
 import { EvalBar } from "./EvalBar";
 import BoardEditor from "@/components/editor/BoardEditor";

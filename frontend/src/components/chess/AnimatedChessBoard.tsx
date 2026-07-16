@@ -30,7 +30,7 @@ import { useSoundEffects } from '@/hooks/useSoundEffects';
 import ArrowOverlay from './ArrowOverlay';
 import LottieCelebration from './LottieCelebration';
 import { useLocalStorage } from 'usehooks-ts';
-import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/libs/setting/helper';
+import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/lib/setting/helper';
 
 // Import chessground CSS
 import 'chessground/assets/chessground.base.css';

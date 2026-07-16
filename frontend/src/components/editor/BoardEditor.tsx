@@ -19,7 +19,7 @@ import {
   getPieceImageSrc,
 } from "@/lib/chess/fenEditor";
 import { useLocalStorage } from "usehooks-ts";
-import { getCurrentThemeColors, BOARD_THEMES } from "@/libs/setting/helper";
+import { getCurrentThemeColors, BOARD_THEMES } from "@/lib/setting/helper";
 
 type BoardPieceMap = Record<string, string>;
 

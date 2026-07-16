@@ -20,7 +20,7 @@ import {
 import { RadarChart } from "@mui/x-charts";
 import { MoveAnalysis, MoveQuality } from "@/hooks/useGameReview";
 import { getMoveClassificationStyle } from "./GameReviewTab";
-import { ThemeScore, GameReviewTheme, getThemeLabelColor } from "@/libs/themes/helper";
+import { ThemeScore, GameReviewTheme, getThemeLabelColor } from "@/lib/themes/helper";
 
 
 interface CurrentPositionAnalysisProps {
