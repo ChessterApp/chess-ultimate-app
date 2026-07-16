@@ -26,7 +26,7 @@ const MuiProvider = lazy(() => import("@/components/providers/MuiProvider"))
 const HIDE_NAV_PATHS = ['/sign-in', '/sign-up', '/', '/onboarding', '/admin', '/for-schools/start']
 
 // Routes that use MUI components and need ThemeProvider
-const MUI_ROUTES = ['/database', '/game', '/position', '/puzzle', '/repertoire', '/practice', '/courses']
+const MUI_ROUTES = ['/database', '/game', '/position', '/puzzle', '/practice', '/courses']
 
 export default function ClientShell({ children }: { children: ReactNode }) {
   const pathname = usePathname()
