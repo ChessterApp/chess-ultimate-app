@@ -19,10 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-def _get_supabase():
-    """Lazy import to avoid circular imports."""
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 # ─── League C eligibility (Chess Empire level gate) ──────────────────────────

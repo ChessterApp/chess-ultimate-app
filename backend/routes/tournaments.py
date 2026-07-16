@@ -33,10 +33,7 @@ logger = logging.getLogger(__name__)
 tournaments_bp = Blueprint('tournaments', __name__, url_prefix='/api/tournaments')
 
 
-def _get_supabase():
-    """Lazy import to avoid circular imports."""
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def _get_service():

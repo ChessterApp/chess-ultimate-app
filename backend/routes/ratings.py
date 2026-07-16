@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 ratings_bp = Blueprint('ratings', __name__, url_prefix='/api/ratings')
 
 
-def _get_supabase():
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def _is_admin(user_id: str, org_id: str = None) -> bool:

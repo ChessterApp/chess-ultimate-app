@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 REFUND_EVENT_PREFIXES = ('refund.', 'payment.refunded')
 
 
-def _get_supabase():
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def is_refund_event(event_name: str | None) -> bool:

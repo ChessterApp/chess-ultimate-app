@@ -32,10 +32,7 @@ CLERK_WEBHOOK_SECRET = os.getenv('CLERK_WEBHOOK_SECRET', '')
 VERCEL_WEBHOOK_SECRET = os.getenv('VERCEL_WEBHOOK_SECRET', '')
 
 
-def _get_supabase():
-    """Lazy import to avoid circular imports at module level."""
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def verify_svix_signature(payload: bytes, headers: dict) -> bool:

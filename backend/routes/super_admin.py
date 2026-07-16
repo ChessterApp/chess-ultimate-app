@@ -54,9 +54,7 @@ WHOP_API_BASE = "https://api.whop.com/api/v5"
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
 
-def _get_supabase():
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def _audit(action: str, target_type: str, target_id: str, payload: Optional[dict] = None) -> None:

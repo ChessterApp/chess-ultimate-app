@@ -105,10 +105,7 @@ def get_seat_limit(tier_id: str) -> int | None:
 # ─── Quota enforcement ───────────────────────────────────────────────────────
 
 
-def _get_supabase():
-    """Lazy import to avoid circular imports."""
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def get_org_plan(org_id: str) -> str:

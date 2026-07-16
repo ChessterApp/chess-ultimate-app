@@ -26,9 +26,7 @@ logger = logging.getLogger(__name__)
 ownership_transfer_bp = Blueprint('ownership_transfer', __name__)
 
 
-def _get_supabase():
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def _require_owner(org_id: str):

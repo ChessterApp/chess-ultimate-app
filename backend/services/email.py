@@ -25,9 +25,7 @@ RESEND_API_URL = 'https://api.resend.com/emails'
 DEFAULT_INVITE_FROM = os.getenv('RESEND_INVITE_FROM', 'invites@chesster.io')
 
 
-def _get_supabase():
-    from services.supabase_client import get_supabase_client
-    return get_supabase_client()
+from utils.supabase_client import get_supabase as _get_supabase
 
 
 def _public_app_url() -> str:
