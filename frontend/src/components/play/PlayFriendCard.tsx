@@ -2,7 +2,7 @@
 
 /**
  * "Play a friend" entry (phase 3). Pick a time control + colour, create a
- * challenge via POST /api/games/challenge, copy the invite link, and navigate
+ * challenge via POST /api/live-games/challenge, copy the invite link, and navigate
  * the creator to the live-game lobby. Rendered by the play page only when
  * ONLINE_PLAY_ENABLED is on (the flag gate lives at the call site).
  */
@@ -51,7 +51,7 @@ export default function PlayFriendCard() {
     setError(null);
     const tc = TIME_CONTROLS.find((t) => t.key === tcKey) ?? TIME_CONTROLS[1];
     try {
-      const res = await fetch('/api/games/challenge', {
+      const res = await fetch('/api/live-games/challenge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

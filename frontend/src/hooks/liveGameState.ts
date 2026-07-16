@@ -3,7 +3,7 @@
  * transition is a plain reducer and every piece of exposed UI state is a
  * selector, so the whole thing is unit-testable without a live socket.
  *
- * Postgres is truth: `hydrate` (from `GET /api/games/[gameId]`) seeds the whole
+ * Postgres is truth: `hydrate` (from `GET /api/live-games/[gameId]`) seeds the whole
  * state; broadcast events (`game.start` / `game.move` / `game.end`) are applied
  * on top and are always idempotent — a stale or duplicate event never rewinds
  * the game. On any Realtime reconnect the hook re-hydrates, so this reducer only

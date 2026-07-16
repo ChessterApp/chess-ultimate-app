@@ -26,7 +26,7 @@ function params() {
 }
 
 function req(body: unknown): Request {
-  return new Request(`https://chesster.io/api/games/${GID}/move`, {
+  return new Request(`https://chesster.io/api/live-games/${GID}/move`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -59,7 +59,7 @@ function activeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('POST /api/games/[gameId]/move', () => {
+describe('POST /api/live-games/[gameId]/move', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();

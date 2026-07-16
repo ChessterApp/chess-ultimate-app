@@ -25,7 +25,7 @@ function params() {
   return { params: Promise.resolve({ gameId: GID }) };
 }
 function req(): Request {
-  return new Request(`https://chesster.io/api/games/${GID}/claim-flag`, { method: 'POST' });
+  return new Request(`https://chesster.io/api/live-games/${GID}/claim-flag`, { method: 'POST' });
 }
 
 function activeRow(over: Record<string, unknown> = {}) {
@@ -55,7 +55,7 @@ function activeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('POST /api/games/[gameId]/claim-flag', () => {
+describe('POST /api/live-games/[gameId]/claim-flag', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();

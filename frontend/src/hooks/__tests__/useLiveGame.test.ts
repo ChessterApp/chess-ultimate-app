@@ -96,7 +96,7 @@ beforeEach(() => {
 
 describe('useLiveGame', () => {
   it('hydrates from GET and exposes derived state', async () => {
-    mockFetch({ 'GET /api/games/g1': activePayload });
+    mockFetch({ 'GET /api/live-games/g1': activePayload });
     const { result } = renderHook(() => useLiveGame('g1'));
 
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -109,7 +109,7 @@ describe('useLiveGame', () => {
   });
 
   it('applies a broadcast game.move through the reducer', async () => {
-    mockFetch({ 'GET /api/games/g1': activePayload });
+    mockFetch({ 'GET /api/live-games/g1': activePayload });
     const { result } = renderHook(() => useLiveGame('g1'));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
@@ -133,8 +133,8 @@ describe('useLiveGame', () => {
 
   it('makeMove POSTs and reconciles from the response', async () => {
     mockFetch({
-      'GET /api/games/g1': activePayload,
-      'POST /api/games/g1/move': () => ({
+      'GET /api/live-games/g1': activePayload,
+      'POST /api/live-games/g1/move': () => ({
         ply: 1,
         uci: 'e2e4',
         san: 'e4',
@@ -157,7 +157,7 @@ describe('useLiveGame', () => {
 
   it('re-hydrates on SUBSCRIBED (reconnect resync)', async () => {
     const spy = vi.fn(activePayload);
-    mockFetch({ 'GET /api/games/g1': spy });
+    mockFetch({ 'GET /api/live-games/g1': spy });
     renderHook(() => useLiveGame('g1'));
     await waitFor(() => expect(subscribeCb).not.toBeNull());
 

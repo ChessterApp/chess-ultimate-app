@@ -18,17 +18,17 @@ function mockAuth(userId: string | null) {
   });
 }
 
-const GID = '55555555-5555-5555-5555-555555555555';
+const GID = '88888888-8888-8888-8888-888888888888';
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
 function params() {
   return { params: Promise.resolve({ gameId: GID }) };
 }
 function req(): Request {
-  return new Request(`https://chesster.io/api/games/${GID}/resign`, { method: 'POST' });
+  return new Request(`https://chesster.io/api/live-games/${GID}/abort`, { method: 'POST' });
 }
 
-function activeRow(over: Record<string, unknown> = {}) {
+function row(over: Record<string, unknown> = {}) {
   return {
     id: GID,
     creator_id: 'user_white',
@@ -40,7 +40,7 @@ function activeRow(over: Record<string, unknown> = {}) {
     initial_sec: 300,
     increment_sec: 3,
     fen: START,
-    ply: 4,
+    ply: 0,
     white_ms: 300_000,
     black_ms: 300_000,
     last_move_at: new Date(Date.now() - 1000).toISOString(),
@@ -55,7 +55,7 @@ function activeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('POST /api/games/[gameId]/resign', () => {
+describe('POST /api/live-games/[gameId]/abort', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();
@@ -76,73 +76,88 @@ describe('POST /api/games/[gameId]/resign', () => {
     expect(r.status).toBe(404);
   });
 
-  it('409 when the game is not active', async () => {
+  it('active + fewer than 2 plies: either player may abort', async () => {
+    mockAuth('user_black');
+    scripts['games.select'] = [{ data: row({ ply: 1 }), error: null }];
+    scripts['games.update'] = [{ data: row({ status: 'aborted' }), error: null }];
+    const { POST } = await import('../route');
+    const r = await POST(req() as never, params());
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.status).toBe('aborted');
+    expect(body.reason).toBe('abort');
+    expect(body.result).toBeNull();
+
+    const upd = recorded.find((x) => x.table === 'games' && x.op === 'update');
+    expect(upd!.filters).toEqual(expect.arrayContaining([['status', 'active']]));
+    expect((upd!.payload as Record<string, unknown>).status).toBe('aborted');
+    expect(broadcastGameEvent).toHaveBeenCalledWith(
+      GID,
+      'game.end',
+      expect.objectContaining({ reason: 'abort', status: 'aborted' }),
+    );
+  });
+
+  it('active + 2+ plies: 409 too_late', async () => {
     mockAuth('user_white');
-    scripts['games.select'] = [{ data: activeRow({ status: 'finished' }), error: null }];
+    scripts['games.select'] = [{ data: row({ ply: 2 }), error: null }];
     const { POST } = await import('../route');
     const r = await POST(req() as never, params());
     expect(r.status).toBe(409);
-    expect((await r.json()).error).toBe('not_active');
+    expect((await r.json()).error).toBe('too_late');
+    expect(broadcastGameEvent).not.toHaveBeenCalled();
   });
 
-  it('403 when a non-player resigns', async () => {
+  it('active + non-player: 403', async () => {
     mockAuth('user_stranger');
-    scripts['games.select'] = [{ data: activeRow(), error: null }];
+    scripts['games.select'] = [{ data: row({ ply: 1 }), error: null }];
     const { POST } = await import('../route');
     const r = await POST(req() as never, params());
     expect(r.status).toBe(403);
     expect((await r.json()).error).toBe('not_player');
   });
 
-  it('happy path: white resigns → black wins, broadcasts game.end, guards on active', async () => {
+  it('challenge + creator: cancels the challenge (guards on status=challenge)', async () => {
     mockAuth('user_white');
-    scripts['games.select'] = [{ data: activeRow(), error: null }];
-    scripts['games.update'] = [{ data: activeRow({ status: 'finished' }), error: null }];
+    scripts['games.select'] = [
+      { data: row({ status: 'challenge', white_id: null, black_id: null, opponent_id: null }), error: null },
+    ];
+    scripts['games.update'] = [{ data: row({ status: 'aborted' }), error: null }];
     const { POST } = await import('../route');
     const r = await POST(req() as never, params());
     expect(r.status).toBe(200);
-    const body = await r.json();
-    expect(body.result).toBe('0-1');
-    expect(body.winnerId).toBe('user_black');
-    expect(body.reason).toBe('resign');
-    expect(body.status).toBe('finished');
-
     const upd = recorded.find((x) => x.table === 'games' && x.op === 'update');
-    expect(upd!.filters).toEqual(
-      expect.arrayContaining([
-        ['id', GID],
-        ['status', 'active'],
-      ]),
-    );
-    const p = upd!.payload as Record<string, unknown>;
-    expect(p.end_reason).toBe('resign');
-    expect(p.draw_offer_by).toBeNull();
-
-    expect(broadcastGameEvent).toHaveBeenCalledWith(
-      GID,
-      'game.end',
-      expect.objectContaining({ reason: 'resign', winnerId: 'user_black' }),
-    );
+    expect(upd!.filters).toEqual(expect.arrayContaining([['status', 'challenge']]));
   });
 
-  it('black resigns → white wins (1-0)', async () => {
-    mockAuth('user_black');
-    scripts['games.select'] = [{ data: activeRow(), error: null }];
-    scripts['games.update'] = [{ data: activeRow({ status: 'finished' }), error: null }];
+  it('challenge + non-creator: 403', async () => {
+    mockAuth('user_joiner');
+    scripts['games.select'] = [
+      { data: row({ status: 'challenge', white_id: null, black_id: null, opponent_id: null }), error: null },
+    ];
     const { POST } = await import('../route');
     const r = await POST(req() as never, params());
-    const body = await r.json();
-    expect(body.result).toBe('1-0');
-    expect(body.winnerId).toBe('user_white');
+    expect(r.status).toBe(403);
+    expect((await r.json()).error).toBe('not_creator');
   });
 
-  it('409 when the conditional update finds no active row (already ended)', async () => {
+  it('finished game: 409 not_abortable', async () => {
     mockAuth('user_white');
-    scripts['games.select'] = [{ data: activeRow(), error: null }];
+    scripts['games.select'] = [{ data: row({ status: 'finished' }), error: null }];
+    const { POST } = await import('../route');
+    const r = await POST(req() as never, params());
+    expect(r.status).toBe(409);
+    expect((await r.json()).error).toBe('not_abortable');
+  });
+
+  it('409 when the conditional update finds no matching row', async () => {
+    mockAuth('user_white');
+    scripts['games.select'] = [{ data: row({ ply: 0 }), error: null }];
     scripts['games.update'] = [{ data: null, error: null }];
     const { POST } = await import('../route');
     const r = await POST(req() as never, params());
     expect(r.status).toBe(409);
+    expect((await r.json()).error).toBe('not_abortable');
     expect(broadcastGameEvent).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,7 @@ function mockAuth(userId: string | null) {
 }
 
 function req(body: unknown): Request {
-  return new Request('https://chesster.io/api/games/challenge', {
+  return new Request('https://chesster.io/api/live-games/challenge', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -26,7 +26,7 @@ function req(body: unknown): Request {
 
 const GID = '11111111-1111-1111-1111-111111111111';
 
-describe('POST /api/games/challenge', () => {
+describe('POST /api/live-games/challenge', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();

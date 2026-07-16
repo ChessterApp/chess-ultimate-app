@@ -60,7 +60,7 @@ export interface Clocks {
   blackMs: number | null;
 }
 
-/** Hydration payload returned by `GET /api/games/[gameId]`. */
+/** Hydration payload returned by `GET /api/live-games/[gameId]`. */
 export interface HydrationPayload {
   game: {
     id: string;

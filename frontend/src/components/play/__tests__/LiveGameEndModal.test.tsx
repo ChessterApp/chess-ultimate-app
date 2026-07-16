@@ -127,7 +127,7 @@ describe('LiveGameEndModal actions', () => {
 
     await waitFor(() => expect(pushSpy).toHaveBeenCalledWith('/play/live/g2'))
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/games/challenge', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/live-games/challenge', expect.any(Object))
     const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string)
     // White this game → rematch created as black (colors swapped).
     expect(body).toMatchObject({ colorChoice: 'black', initialSec: 300, incrementSec: 0 })

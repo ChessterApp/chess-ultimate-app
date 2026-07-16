@@ -4,7 +4,7 @@
  * useLiveGame — owns all client state for a challenge-link live game (phase 3).
  *
  * Truth model: Postgres is authoritative. The hook hydrates from
- * `GET /api/games/[gameId]` on mount and again on every Realtime (re)connect,
+ * `GET /api/live-games/[gameId]` on mount and again on every Realtime (re)connect,
  * then applies `game.start` / `game.move` / `game.end` broadcasts on top via the
  * pure `liveGameReducer`. A dropped socket or page refresh therefore never loses
  * state — the reconnect re-hydration re-establishes truth (the classic
@@ -123,7 +123,7 @@ export function useLiveGame(gameId: string): UseLiveGame {
   /** Re-fetch the authoritative hydration payload and seed the reducer. */
   const hydrate = useCallback(async (): Promise<void> => {
     try {
-      const res = await fetch(`/api/games/${gameId}`, { cache: 'no-store' });
+      const res = await fetch(`/api/live-games/${gameId}`, { cache: 'no-store' });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         if (mountedRef.current) {
@@ -258,7 +258,7 @@ export function useLiveGame(gameId: string): UseLiveGame {
     async (move: MoveInput): Promise<boolean> => {
       const uci = toUci(move);
       try {
-        const res = await fetch(`/api/games/${gameId}/move`, {
+        const res = await fetch(`/api/live-games/${gameId}/move`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ uci }),
@@ -286,7 +286,7 @@ export function useLiveGame(gameId: string): UseLiveGame {
 
   const join = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/games/${gameId}/join`, { method: 'POST' });
+      const res = await fetch(`/api/live-games/${gameId}/join`, { method: 'POST' });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         if (mountedRef.current) setError(body.error || 'join_failed');
@@ -308,7 +308,7 @@ export function useLiveGame(gameId: string): UseLiveGame {
   const endAction = useCallback(
     async (path: string, body?: unknown, quiet = false): Promise<boolean> => {
       try {
-        const res = await fetch(`/api/games/${gameId}/${path}`, {
+        const res = await fetch(`/api/live-games/${gameId}/${path}`, {
           method: 'POST',
           ...(body !== undefined
             ? {
@@ -350,7 +350,7 @@ export function useLiveGame(gameId: string): UseLiveGame {
 
   const offerDraw = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/games/${gameId}/draw`, {
+      const res = await fetch(`/api/live-games/${gameId}/draw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'offer' }),
@@ -375,7 +375,7 @@ export function useLiveGame(gameId: string): UseLiveGame {
 
   const declineDraw = useCallback(async (): Promise<boolean> => {
     try {
-      const res = await fetch(`/api/games/${gameId}/draw`, {
+      const res = await fetch(`/api/live-games/${gameId}/draw`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'decline' }),

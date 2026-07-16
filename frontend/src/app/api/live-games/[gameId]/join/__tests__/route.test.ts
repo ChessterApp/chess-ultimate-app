@@ -25,7 +25,7 @@ function params() {
 }
 
 function req(): Request {
-  return new Request(`https://chesster.io/api/games/${GID}/join`, {
+  return new Request(`https://chesster.io/api/live-games/${GID}/join`, {
     method: 'POST',
   });
 }
@@ -56,7 +56,7 @@ function challengeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('POST /api/games/[gameId]/join', () => {
+describe('POST /api/live-games/[gameId]/join', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();

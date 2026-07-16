@@ -23,7 +23,7 @@ function params() {
   return { params: Promise.resolve({ gameId: GID }) };
 }
 function req() {
-  return new Request(`https://chesster.io/api/games/${GID}`);
+  return new Request(`https://chesster.io/api/live-games/${GID}`);
 }
 
 function row(over: Record<string, unknown> = {}) {
@@ -52,7 +52,7 @@ function row(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('GET /api/games/[gameId]', () => {
+describe('GET /api/live-games/[gameId]', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();

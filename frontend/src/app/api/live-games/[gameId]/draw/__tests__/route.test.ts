@@ -25,7 +25,7 @@ function params() {
   return { params: Promise.resolve({ gameId: GID }) };
 }
 function req(body: unknown): Request {
-  return new Request(`https://chesster.io/api/games/${GID}/draw`, {
+  return new Request(`https://chesster.io/api/live-games/${GID}/draw`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -59,7 +59,7 @@ function activeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('POST /api/games/[gameId]/draw', () => {
+describe('POST /api/live-games/[gameId]/draw', () => {
   beforeEach(() => {
     resetSupabaseMock();
     vi.clearAllMocks();

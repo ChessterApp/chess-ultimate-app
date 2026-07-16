@@ -86,7 +86,7 @@ export default function LiveGameEndModal({
     const colorChoice =
       myColor === 'white' ? 'black' : myColor === 'black' ? 'white' : 'random'
     try {
-      const res = await fetch('/api/games/challenge', {
+      const res = await fetch('/api/live-games/challenge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ colorChoice, initialSec, incrementSec }),
