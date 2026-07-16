@@ -40,7 +40,6 @@
     "onnxruntime-web": "^1.24.3",
     "posthog-js": "^1.362.0",
     "react": "^19.0.3",
-    "react-chessboard": "^4.7.3",
     "react-dom": "^19.2.3",
     "react-markdown": "^10.1.0",
     "svix": "^1.85.0",

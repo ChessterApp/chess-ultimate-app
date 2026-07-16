@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * GameReplayBoard is migrated from react-chessboard to the shared
+ * GameReplayBoard is migrated from the legacy chessboard library to the shared
  * ChessgroundBoard wrapper (phase 5a). These tests stub ChessgroundBoard to
  * capture the props it receives, verifying the replay board stays view-only,
  * tracks the current FEN as you navigate, orients to the player's colour, and

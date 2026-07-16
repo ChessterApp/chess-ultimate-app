@@ -2,8 +2,8 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslations } from "next-intl";
-import { Chessboard } from "react-chessboard";
 import { useRouter, useSearchParams } from "next/navigation";
+import ChessgroundBoard from "@/components/chess/ChessgroundBoard";
 import SparePieces from "./SparePieces";
 import EditorControls from "./EditorControls";
 import {
@@ -16,12 +16,10 @@ import {
   piecesToFen,
   togglePieceColor,
   computeCastlingAvailability,
-  getPieceImageSrc,
 } from "@/lib/chess/fenEditor";
 import { useLocalStorage } from "usehooks-ts";
-import { getCurrentThemeColors, BOARD_THEMES } from "@/lib/setting/helper";
 
-type BoardPieceMap = Record<string, string>;
+const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
 export interface EditorState {
   turn: "w" | "b";
@@ -82,7 +80,6 @@ export default function BoardEditor({
 
   // User settings from localStorage
   const [pieceSet] = useLocalStorage<string>("board_piece_type", "Fritz");
-  const [boardTheme] = useLocalStorage<string>("board_theme", "chessbase");
 
   // Initialize from prop, URL param, or starting position
   const startFen = propFen || searchParams?.get("fen") || STARTING_FEN;
@@ -136,48 +133,6 @@ export default function BoardEditor({
     return `${window.location.origin}/editor?fen=${encodeURIComponent(currentFen)}`;
   }, [currentFen]);
 
-  // Convert EditorPieces to react-chessboard position format
-  const boardPosition: BoardPieceMap = useMemo(() => {
-    const pos: BoardPieceMap = {};
-    for (const [sq, piece] of Object.entries(pieces)) {
-      pos[sq] = piece;
-    }
-    return pos;
-  }, [pieces]);
-
-  // Custom pieces renderer for the board
-  const customPieces = useMemo(() => {
-    const allPieces = ["P", "N", "B", "R", "Q", "K"];
-    const colors = ["w", "b"];
-    const result: Record<
-      string,
-      ({ squareWidth }: { squareWidth: number }) => React.JSX.Element
-    > = {};
-
-    colors.forEach((color) => {
-      allPieces.forEach((p) => {
-        const key = `${color}${p}`;
-        const src = getPieceImageSrc(key as PieceCode, pieceSet);
-        result[key] = ({ squareWidth }) => (
-          <img
-            src={src}
-            style={{ width: squareWidth, height: squareWidth }}
-            draggable={false}
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (!img.dataset.retried) {
-                img.dataset.retried = '1';
-                img.src = src + '&t=' + Date.now();
-              }
-            }}
-          />
-        );
-      });
-    });
-
-    return result;
-  }, [pieceSet]);
-
   // Handle clicking on a square
   const handleSquareClick = useCallback(
     (square: string) => {
@@ -208,25 +163,29 @@ export default function BoardEditor({
     []
   );
 
-  // Handle piece drop on the board (moving existing piece)
-  const handlePieceDrop = useCallback(
-    (sourceSquare: string, targetSquare: string, piece: string) => {
-      setPieces((prev) => {
-        const next = { ...prev };
-        delete next[sourceSquare];
-        next[targetSquare] = piece as PieceCode;
-        return next;
-      });
-      return true;
-    },
-    []
-  );
-
-  // Handle spare piece drop onto the board
-  const handlePieceDropOutsideBoard = useCallback(() => {
-    // react-chessboard calls this when a piece is dragged off the board — remove it
-    // We handle this via onPieceDrop returning false for off-board drops
+  // Sync piece state after a chessground board change (drag/drop, delete-on-drop-off).
+  // Chessground reports the new placement FEN; turn/castling/en-passant are unaffected.
+  const handleBoardChange = useCallback((boardFen: string) => {
+    const parsed = fenToPieces(boardFen);
+    setPieces(parsed.pieces);
   }, []);
+
+  // Right-click a square to toggle the colour of the piece on it. Chessground has
+  // no right-click event, so derive the square from the pointer position.
+  const handleBoardContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      const cell = rect.width / 8;
+      const col = Math.floor((e.clientX - rect.left) / cell);
+      const row = Math.floor((e.clientY - rect.top) / cell);
+      if (col < 0 || col > 7 || row < 0 || row > 7) return;
+      const file = orientation === "white" ? FILES[col] : FILES[7 - col];
+      const rank = orientation === "white" ? 8 - row : row + 1;
+      handleSquareRightClick(`${file}${rank}`);
+    },
+    [orientation, handleSquareRightClick]
+  );
 
   // Handle drag from spare pieces
   const handleSpareDragStart = useCallback(
@@ -236,15 +195,6 @@ export default function BoardEditor({
     },
     []
   );
-
-  // Handle drop on square (from spare pieces via HTML5 drag)
-  const handleSquareDrop = useCallback((e: React.DragEvent, square: string) => {
-    e.preventDefault();
-    const piece = e.dataTransfer.getData("text/plain") as PieceCode;
-    if (piece && piece.length === 2) {
-      setPieces((prev) => ({ ...prev, [square]: piece }));
-    }
-  }, []);
 
   // Load FEN from input field
   const handleFenSubmit = useCallback((fenStr: string) => {
@@ -324,8 +274,6 @@ export default function BoardEditor({
     }
   }, [turn, castling, enPassant, pieces, onEditorStateChange, handlePreset, handleStartingPosition, handleClearBoard, handleFlipBoard, handleAnalysisBoard, handleContinueFromHere, handleStudy, photoPreview, photoLoading, photoError, onPhotoUpload]);
 
-  const themeColors = getCurrentThemeColors(boardTheme);
-
   // Standalone editor: shrink the board to fit narrow viewports (container has
   // 16px padding each side). Embedded mode and explicit widths are unchanged.
   const responsiveStandaloneSize = Math.min(480, windowWidth - 32);
@@ -363,28 +311,17 @@ export default function BoardEditor({
         {/* Board */}
         <div
           style={{ flex: "0 0 auto" }}
-          onDragOver={(e) => e.preventDefault()}
+          onContextMenu={handleBoardContextMenu}
         >
-          <Chessboard
-            id="board-editor"
-            position={boardPosition}
-            boardWidth={boardSize}
-            boardOrientation={orientation}
-            arePiecesDraggable={true}
-            onPieceDrop={handlePieceDrop}
-            onSquareClick={handleSquareClick}
-            onSquareRightClick={handleSquareRightClick}
-            customBoardStyle={{
-              borderRadius: "4px",
-            }}
-            customDarkSquareStyle={{
-              backgroundColor: themeColors.darkSquareColor,
-            }}
-            customLightSquareStyle={{
-              backgroundColor: themeColors.lightSquareColor,
-            }}
-            customPieces={customPieces}
+          <ChessgroundBoard
+            editable
+            fen={currentFen}
+            orientation={orientation}
+            boardSize={boardSize}
+            showCoordinates
             animationDuration={0}
+            onChange={handleBoardChange}
+            onSelect={handleSquareClick}
           />
         </div>
 

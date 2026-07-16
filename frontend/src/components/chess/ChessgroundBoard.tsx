@@ -26,6 +26,12 @@ interface ChessgroundBoardProps {
   showCoordinates?: boolean;
   premovable?: boolean;
   onRightClick?: (key: Key) => void;
+  /** Free-placement editor mode: drag pieces anywhere, drag off board to delete. */
+  editable?: boolean;
+  /** Fired in editable mode whenever the board position changes (drag/drop/delete). Receives the placement FEN. */
+  onChange?: (fen: string) => void;
+  /** Fired when a square is clicked (left button). In editable mode used for click-to-place. */
+  onSelect?: (key: Key) => void;
 }
 
 /**
@@ -47,6 +53,9 @@ export default function ChessgroundBoard({
   showCoordinates = true,
   premovable = false,
   onRightClick,
+  editable = false,
+  onChange,
+  onSelect,
 }: ChessgroundBoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const cgRef = useRef<Api | null>(null);
@@ -88,6 +97,10 @@ export default function ChessgroundBoard({
 
   const onMoveRef = useRef(onMove);
   onMoveRef.current = onMove;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   // Convert chess.js legal moves to chessground dests format
   const getLegalMoves = useCallback((fen: string): Map<Key, Key[]> => {
@@ -142,6 +155,32 @@ export default function ChessgroundBoard({
   // Initialize chessground
   useEffect(() => {
     if (!boardRef.current) return;
+
+    // Free-placement editor mode: pieces move anywhere, dragging off the board
+    // deletes, and every change is reported back via onChange as a placement FEN.
+    if (editable) {
+      const editorConfig: Config = {
+        fen,
+        orientation,
+        coordinates: showCoordinates,
+        disableContextMenu: true,
+        movable: { free: true, color: 'both', showDests: false },
+        draggable: { enabled: true, showGhost: true, deleteOnDropOff: true },
+        selectable: { enabled: true },
+        drawable: { enabled: false },
+        highlight: { lastMove: false, check: false },
+        animation: { enabled: true, duration: animationDuration },
+        events: {
+          change: () => onChangeRef.current?.(cgRef.current?.getFen() ?? ''),
+          select: (key: Key) => onSelectRef.current?.(key),
+        },
+      };
+      cgRef.current = ChessgroundApi(boardRef.current, editorConfig);
+      return () => {
+        cgRef.current?.destroy();
+        cgRef.current = null;
+      };
+    }
 
     const config: Config = {
       fen,
@@ -221,6 +260,12 @@ export default function ChessgroundBoard({
   useEffect(() => {
     if (!cgRef.current) return;
 
+    // Editor mode keeps free placement; only push the new position.
+    if (editable) {
+      cgRef.current.set({ fen });
+      return;
+    }
+
     cgRef.current.set({
       fen,
       turnColor: getTurnColor(fen),
@@ -241,7 +286,7 @@ export default function ChessgroundBoard({
     if (lastMove) {
       cgRef.current.set({ lastMove });
     }
-  }, [fen, movable, viewOnly, check, lastMove, getLegalMoves, getTurnColor, isInCheck]);
+  }, [fen, movable, viewOnly, check, lastMove, editable, getLegalMoves, getTurnColor, isInCheck]);
 
   // Update orientation
   useEffect(() => {

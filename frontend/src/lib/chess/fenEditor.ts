@@ -1,4 +1,4 @@
-// Piece representation used by react-chessboard
+// Piece representation used by the board editor (colour + piece letter)
 export type PieceCode =
   | "wP" | "wN" | "wB" | "wR" | "wQ" | "wK"
   | "bP" | "bN" | "bB" | "bR" | "bQ" | "bK";
@@ -21,7 +21,7 @@ export interface EditorState {
   selected: "pointer" | "trash" | PieceCode;
 }
 
-// Map from piece letter in FEN to react-chessboard piece code
+// Map from piece letter in FEN to editor piece code
 const FEN_TO_PIECE: Record<string, PieceCode> = {
   P: "wP", N: "wN", B: "wB", R: "wR", Q: "wQ", K: "wK",
   p: "bP", n: "bN", b: "bB", r: "bR", q: "bQ", k: "bK",
