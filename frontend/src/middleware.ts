@@ -26,8 +26,14 @@ const isPublicRoute = createRouteMatcher([
 
 const isSuperAdminRoute = createRouteMatcher(['/super-admin(.*)'])
 
+// Online play (phase 3): live-game pages must be auth-gated even though the
+// broader `/play(.*)` is public — a recipient clicking a challenge link should
+// hit Clerk sign-in/up and return to the game URL after auth. This overrides
+// the public match for `/play/live/*` only.
+const isLiveGameRoute = createRouteMatcher(['/play/live(.*)'])
+
 const clerk = clerkMiddleware(async (auth, request) => {
-  if (!isPublicRoute(request)) {
+  if (isLiveGameRoute(request) || !isPublicRoute(request)) {
     await auth.protect()
   }
 })

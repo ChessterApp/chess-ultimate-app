@@ -7,6 +7,8 @@ import { useReducedMotion } from 'framer-motion'
 import { useTranslations } from 'next-intl'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import BotGrid from '@/components/play/BotGrid'
+import PlayFriendCard from '@/components/play/PlayFriendCard'
+import { ONLINE_PLAY_ENABLED } from '@/lib/feature-flags'
 import GameSetup from '@/components/play/GameSetup'
 import GameHeader from '@/components/play/GameHeader'
 import GameDock from '@/components/play/GameDock'
@@ -470,6 +472,8 @@ export default function PlayPage() {
             selectedBotId={selectedBot?.id || null}
             onSelectBot={handleBotSelect}
           />
+          {/* Online play (phase 3) — gated behind ONLINE_PLAY_ENABLED. */}
+          {ONLINE_PLAY_ENABLED && <PlayFriendCard />}
         </Box>
       )}
 

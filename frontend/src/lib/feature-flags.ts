@@ -35,3 +35,10 @@ export const SYNC_INDICATOR =
 
 export const OFFLINE_MODE =
   process.env.NEXT_PUBLIC_OFFLINE_MODE === 'true';
+
+/**
+ * Online play (challenge-link live games). Gates the `/play/live/*` route and
+ * the "Play a friend" entry UI. Off by default until the feature ships.
+ */
+export const ONLINE_PLAY_ENABLED =
+  process.env.NEXT_PUBLIC_ONLINE_PLAY_ENABLED === 'true';
