@@ -129,6 +129,9 @@ docker-compose.override.yml
 backend/data/twic/*.pgn
 backend/data/lichess/*.pgn
 backend/data/chess_com/*.pgn
+backend/data/**/*.pgn
+backend/data/**/*.pgn.gz
+backend/input/
 backend/data/conversations.db
 
 # Keep directory structure but ignore contents
