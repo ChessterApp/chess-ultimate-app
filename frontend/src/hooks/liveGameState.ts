@@ -21,6 +21,8 @@ import type {
   GameStartPayload,
   GameMovePayload,
   GameEndPayload,
+  GameDrawOfferPayload,
+  GameDrawDeclinePayload,
 } from '@/lib/live-game/types';
 
 /** A single played move, as accumulated from hydration + broadcasts. */
@@ -51,6 +53,8 @@ export interface LiveGameState {
   result: string | null;
   winnerId: string | null;
   endReason: string | null;
+  /** Clerk id of the player with a standing draw offer, or null. */
+  drawOfferBy: string | null;
   moves: MoveEntry[];
 }
 
@@ -58,7 +62,9 @@ export type LiveGameAction =
   | { type: 'hydrate'; payload: HydrationPayload; at: number }
   | { type: 'start'; payload: GameStartPayload; at: number }
   | { type: 'move'; payload: GameMovePayload; at: number }
-  | { type: 'end'; payload: GameEndPayload; at: number };
+  | { type: 'end'; payload: GameEndPayload; at: number }
+  | { type: 'draw_offer'; payload: GameDrawOfferPayload; at: number }
+  | { type: 'draw_decline'; payload: GameDrawDeclinePayload; at: number };
 
 /** Empty starting state before the first hydration lands. */
 export function emptyLiveGameState(): LiveGameState {
@@ -79,6 +85,7 @@ export function emptyLiveGameState(): LiveGameState {
     result: null,
     winnerId: null,
     endReason: null,
+    drawOfferBy: null,
     moves: [],
   };
 }
@@ -125,6 +132,7 @@ export function liveGameReducer(
         result: g.result,
         winnerId: g.winnerId,
         endReason: g.endReason,
+        drawOfferBy: g.drawOfferBy ?? null,
         moves: action.payload.moves.map((m) => ({
           ply: m.ply,
           uci: m.uci,
@@ -167,6 +175,8 @@ export function liveGameReducer(
         whiteMs: p.whiteMs,
         blackMs: p.blackMs,
         clockFrom: action.at,
+        // A move clears any standing draw offer (mirrors the move route).
+        drawOfferBy: null,
         moves: nextMoves,
       };
       if (p.gameOver) {
@@ -189,14 +199,26 @@ export function liveGameReducer(
       const p = action.payload;
       return {
         ...state,
-        status: 'finished',
+        // 'finished' for resign/draw/flag/mate, 'aborted' for abort.
+        status: p.status ?? 'finished',
         result: p.result,
         winnerId: p.winnerId,
         endReason: p.reason,
         whiteMs: p.whiteMs,
         blackMs: p.blackMs,
+        drawOfferBy: null,
         clockFrom: action.at,
       };
+    }
+
+    case 'draw_offer': {
+      // Ignore stale offers once the game is terminal.
+      if (TERMINAL.has(state.status)) return state;
+      return { ...state, drawOfferBy: action.payload.by };
+    }
+
+    case 'draw_decline': {
+      return { ...state, drawOfferBy: null };
     }
 
     default:
@@ -312,4 +334,42 @@ export function deriveTerminal(
     winnerId: state.winnerId,
     reason: state.endReason,
   };
+}
+
+export interface DrawOfferInfo {
+  /** True when there is any standing draw offer (from either side). */
+  pending: boolean;
+  /** True when this viewer is the one who offered (awaiting a reply). */
+  fromMe: boolean;
+  /** True when the opponent offered and this viewer must accept/decline. */
+  fromOpponent: boolean;
+}
+
+/** Draw-offer state from this viewer's POV — only meaningful while active. */
+export function deriveDrawOffer(
+  state: LiveGameState,
+  userId: string | null,
+): DrawOfferInfo {
+  const by = state.status === 'active' ? state.drawOfferBy : null;
+  if (!by) return { pending: false, fromMe: false, fromOpponent: false };
+  const fromMe = !!userId && by === userId;
+  return { pending: true, fromMe, fromOpponent: !fromMe };
+}
+
+/**
+ * Auto-flag detection (pure so it's unit-testable). Returns the side that has
+ * flagged — i.e. the side to move whose cosmetic bank has reached 0 at `now` —
+ * or null. Only fires for an active, timed game. The hook uses this to fire a
+ * single guarded `claimFlag()`; the server re-verifies before ending the game.
+ */
+export function deriveAutoFlag(
+  state: LiveGameState,
+  now: number,
+): Turn | null {
+  if (state.status !== 'active') return null;
+  if (state.whiteMs === null || state.blackMs === null) return null; // untimed
+  const turn = deriveTurn(state);
+  const clocks = deriveClocks(state, now);
+  const bank = turn === 'w' ? clocks.whiteMs : clocks.blackMs;
+  return bank !== null && bank <= 0 ? turn : null;
 }

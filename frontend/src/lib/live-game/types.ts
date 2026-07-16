@@ -37,6 +37,7 @@ export interface GameRow {
   result: string | null;
   winner_id: string | null;
   end_reason: string | null;
+  draw_offer_by: string | null;
   expires_at: string | null;
   created_at: string;
   updated_at: string;
@@ -74,6 +75,8 @@ export interface HydrationPayload {
     result: string | null;
     winnerId: string | null;
     endReason: string | null;
+    /** Clerk id of the player with a standing draw offer, or null. */
+    drawOfferBy?: string | null;
     creatorId: string;
     // Player identities are only exposed once the game leaves 'challenge'.
     whiteId?: string | null;
@@ -90,7 +93,12 @@ export interface HydrationPayload {
 }
 
 /** Realtime broadcast event names on topic `game:{id}`. */
-export type BroadcastEvent = 'game.start' | 'game.move' | 'game.end';
+export type BroadcastEvent =
+  | 'game.start'
+  | 'game.move'
+  | 'game.end'
+  | 'game.draw_offer'
+  | 'game.draw_decline';
 
 export interface GameStartPayload {
   gameId: string;
@@ -115,9 +123,23 @@ export interface GameMovePayload {
 
 export interface GameEndPayload {
   gameId: string;
-  result: string;
+  /** '1-0' | '0-1' | '1/2-1/2', or null for a non-result end (abort). */
+  result: string | null;
   winnerId: string | null;
   reason: string;
+  /** Terminal status — 'finished' for resign/draw/flag/mate, 'aborted' for abort.
+   * Defaults to 'finished' in the reducer when omitted. */
+  status?: GameStatus;
   whiteMs: number | null;
   blackMs: number | null;
+}
+
+export interface GameDrawOfferPayload {
+  gameId: string;
+  /** Clerk id of the player making the offer. */
+  by: string;
+}
+
+export interface GameDrawDeclinePayload {
+  gameId: string;
 }

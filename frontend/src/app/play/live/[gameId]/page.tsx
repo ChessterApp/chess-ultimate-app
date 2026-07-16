@@ -11,6 +11,7 @@
  */
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { useParams, notFound } from 'next/navigation';
 import { Box, Button, Typography, CircularProgress, Chip } from '@mui/material';
 import { Chess } from 'chess.js';
@@ -75,6 +76,7 @@ export default function LiveGamePage() {
   const game = useLiveGame(gameId);
   const [copied, setCopied] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [confirmResign, setConfirmResign] = useState(false);
 
   if (!ONLINE_PLAY_ENABLED) notFound();
 
@@ -130,9 +132,18 @@ export default function LiveGamePage() {
         <Typography variant="h5" sx={{ fontWeight: 800, mb: 1 }}>
           Challenge expired
         </Typography>
-        <Typography sx={{ color: '#5C6B85' }}>
+        <Typography sx={{ color: '#5C6B85', mb: 3 }}>
           This challenge is no longer available. Ask your friend for a new link.
         </Typography>
+        <Button
+          component={Link}
+          href="/play"
+          variant="contained"
+          data-testid="new-challenge"
+          sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 800, px: 4 }}
+        >
+          Create a new challenge
+        </Button>
       </CenterCard>
     );
   }
@@ -141,17 +152,23 @@ export default function LiveGamePage() {
   if (game.terminal.isOver) {
     const { outcome, reason } = game.terminal;
     const heading =
-      outcome === 'win' ? 'You won!' : outcome === 'loss' ? 'You lost' : 'Game drawn';
+      reason === 'abort'
+        ? 'Game aborted'
+        : outcome === 'win'
+          ? 'You won!'
+          : outcome === 'loss'
+            ? 'You lost'
+            : 'Game drawn';
+    const subtitle = [game.terminal.result, reason?.replace(/_/g, ' ')]
+      .filter(Boolean)
+      .join(' · ');
     return (
       <Box sx={{ maxWidth: 720, mx: 'auto', p: { xs: 2, sm: 3 } }}>
         <CenterCard>
           <Typography variant="h4" sx={{ fontWeight: 900, mb: 1 }}>
             {heading}
           </Typography>
-          <Typography sx={{ color: '#5C6B85', mb: 2 }}>
-            {game.terminal.result}
-            {reason ? ` · ${reason.replace(/_/g, ' ')}` : ''}
-          </Typography>
+          <Typography sx={{ color: '#5C6B85', mb: 2 }}>{subtitle}</Typography>
         </CenterCard>
         <Box
           sx={{
@@ -269,6 +286,26 @@ export default function LiveGamePage() {
 
   return (
     <Box sx={{ maxWidth: 1000, mx: 'auto', p: { xs: 1, sm: 3 } }}>
+      {!game.opponentConnected && (
+        <Box
+          sx={{
+            maxWidth: 640,
+            mx: 'auto',
+            mb: 2,
+            px: 2,
+            py: 1,
+            borderRadius: '10px',
+            bgcolor: '#FFF4E5',
+            border: '1px solid #FFE0B2',
+            color: '#8A5A00',
+            fontSize: 14,
+            textAlign: 'center',
+          }}
+          data-testid="opponent-disconnected"
+        >
+          Opponent disconnected — their clock keeps running.
+        </Box>
+      )}
       <Box
         sx={{
           display: 'grid',
@@ -318,6 +355,102 @@ export default function LiveGamePage() {
             MOVES
           </Typography>
           <MoveList moves={game.moves} />
+
+          {game.drawOffer.fromOpponent && (
+            <Box
+              sx={{
+                mt: 2,
+                p: 1.5,
+                borderRadius: '12px',
+                bgcolor: '#F3F7FF',
+                border: '1px solid #C9DAF8',
+              }}
+              data-testid="draw-offer-banner"
+            >
+              <Typography sx={{ fontWeight: 700, mb: 1, color: '#1E2A44' }}>
+                Opponent offers a draw
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => void game.acceptDraw()}
+                  data-testid="accept-draw"
+                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+                >
+                  Accept
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => void game.declineDraw()}
+                  data-testid="decline-draw"
+                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+                >
+                  Decline
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
+            {game.canAbort && (
+              <Button
+                size="small"
+                variant="outlined"
+                color="inherit"
+                onClick={() => void game.abort()}
+                data-testid="abort"
+                sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+              >
+                Abort
+              </Button>
+            )}
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => void game.offerDraw()}
+              disabled={game.drawOffer.fromMe}
+              data-testid="offer-draw"
+              sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+            >
+              {game.drawOffer.fromMe ? 'Draw offered' : 'Offer draw'}
+            </Button>
+            {confirmResign ? (
+              <>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="error"
+                  onClick={() => void game.resign()}
+                  data-testid="confirm-resign"
+                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+                >
+                  Confirm resign
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  color="inherit"
+                  onClick={() => setConfirmResign(false)}
+                  sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="small"
+                variant="outlined"
+                color="error"
+                onClick={() => setConfirmResign(true)}
+                data-testid="resign"
+                sx={{ borderRadius: '999px', textTransform: 'none', fontWeight: 700 }}
+              >
+                Resign
+              </Button>
+            )}
+          </Box>
         </Box>
       </Box>
     </Box>

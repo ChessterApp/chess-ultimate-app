@@ -40,6 +40,22 @@ export async function GET(
   }
   const game = gameData as GameRow;
 
+  // Lazy challenge expiry (no cron): flip a stale challenge to 'expired' on read
+  // so the accept/lobby screens render the expired state. Conditional update
+  // guards against a concurrent accept.
+  if (
+    game.status === 'challenge' &&
+    game.expires_at &&
+    new Date(game.expires_at).getTime() < Date.now()
+  ) {
+    await supabaseAdmin
+      .from('games')
+      .update({ status: 'expired' })
+      .eq('id', gameId)
+      .eq('status', 'challenge');
+    game.status = 'expired';
+  }
+
   const isPlayer = [
     game.creator_id,
     game.opponent_id,
@@ -90,6 +106,7 @@ export async function GET(
       result: game.result,
       winnerId: game.winner_id,
       endReason: game.end_reason,
+      drawOfferBy: game.draw_offer_by,
       creatorId: game.creator_id,
       // Player identities only once the game has left 'challenge'.
       ...(isChallenge

@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase-admin', async () => {
 });
 
 import { auth } from '@clerk/nextjs/server';
-import { scripts, resetSupabaseMock } from '@/test/liveGameSupabaseMock';
+import { scripts, recorded, resetSupabaseMock } from '@/test/liveGameSupabaseMock';
 
 function mockAuth(userId: string | null) {
   (auth as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue({
@@ -101,6 +101,38 @@ describe('GET /api/games/[gameId]', () => {
     expect(body.game.status).toBe('challenge');
     expect(body.game.creatorId).toBe('user_creator');
     expect('whiteId' in body.game).toBe(false);
+  });
+
+  it('lazily flips a stale challenge to expired on read', async () => {
+    mockAuth('user_creator');
+    scripts['games.select'] = [
+      {
+        data: row({
+          status: 'challenge',
+          expires_at: '2020-01-01T00:00:00Z',
+          white_id: null,
+          black_id: null,
+          opponent_id: null,
+        }),
+        error: null,
+      },
+    ];
+    scripts['games.update'] = [{ data: null, error: null }];
+    scripts['game_moves.select'] = [{ data: [], error: null }];
+    const { GET } = await import('../route');
+    const r = await GET(req() as never, params());
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    expect(body.game.status).toBe('expired');
+    // The lazy flip is a conditional update guarded on status='challenge'.
+    const upd = recorded.find((x) => x.table === 'games' && x.op === 'update');
+    expect(upd!.filters).toEqual(
+      expect.arrayContaining([
+        ['id', GID],
+        ['status', 'challenge'],
+      ]),
+    );
+    expect((upd!.payload as Record<string, unknown>).status).toBe('expired');
   });
 
   it('player hydration: recomputes clocks and returns the move list', async () => {

@@ -172,6 +172,8 @@ describe('POST /api/games/[gameId]/move', () => {
     const gp = gameUpd!.payload as Record<string, unknown>;
     expect(gp.ply).toBe(1);
     expect(gp.fen).toBe(body.fenAfter);
+    // Every successful move clears a standing draw offer.
+    expect(gp.draw_offer_by).toBeNull();
 
     expect(broadcastGameEvent).toHaveBeenCalledWith(
       GID,

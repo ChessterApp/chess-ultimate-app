@@ -159,6 +159,8 @@ export async function POST(
     white_ms: clocks.whiteMs,
     black_ms: clocks.blackMs,
     last_move_at: new Date(now).toISOString(),
+    // Any move clears a standing draw offer (lichess rule).
+    draw_offer_by: null,
   };
   if (gameOver) {
     update.status = 'finished';

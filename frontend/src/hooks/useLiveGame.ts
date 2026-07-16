@@ -34,6 +34,7 @@ import type {
   GameStartPayload,
   GameMovePayload,
   GameEndPayload,
+  GameDrawOfferPayload,
 } from '@/lib/live-game/types';
 import {
   liveGameReducer,
@@ -45,9 +46,12 @@ import {
   deriveIsCreator,
   deriveClocks,
   deriveTerminal,
+  deriveDrawOffer,
+  deriveAutoFlag,
   type MoveEntry,
   type PlayerColor,
   type TerminalInfo,
+  type DrawOfferInfo,
 } from './liveGameState';
 
 /** A move argument accepted by `makeMove` — either raw UCI or squares. */
@@ -73,6 +77,9 @@ export interface UseLiveGame {
   moves: MoveEntry[];
   opponentConnected: boolean;
   terminal: TerminalInfo;
+  drawOffer: DrawOfferInfo;
+  /** True while active with <2 plies played — an abort is legal. */
+  canAbort: boolean;
   colorChoice: string;
   initialSec: number | null;
   incrementSec: number | null;
@@ -81,6 +88,12 @@ export interface UseLiveGame {
   error: string | null;
   makeMove: (move: MoveInput) => Promise<boolean>;
   join: () => Promise<boolean>;
+  resign: () => Promise<boolean>;
+  offerDraw: () => Promise<boolean>;
+  acceptDraw: () => Promise<boolean>;
+  declineDraw: () => Promise<boolean>;
+  claimFlag: () => Promise<boolean>;
+  abort: () => Promise<boolean>;
   refetch: () => Promise<void>;
 }
 
@@ -180,6 +193,20 @@ export function useLiveGame(gameId: string): UseLiveGame {
             at: Date.now(),
           });
         })
+        .on('broadcast', { event: 'game.draw_offer' }, ({ payload }) => {
+          safeDispatch({
+            type: 'draw_offer',
+            payload: payload as GameDrawOfferPayload,
+            at: Date.now(),
+          });
+        })
+        .on('broadcast', { event: 'game.draw_decline' }, ({ payload }) => {
+          safeDispatch({
+            type: 'draw_decline',
+            payload: payload as { gameId: string },
+            at: Date.now(),
+          });
+        })
         .on('presence', { event: 'sync' }, syncPresence)
         .on('presence', { event: 'join' }, syncPresence)
         .on('presence', { event: 'leave' }, syncPresence)
@@ -275,6 +302,114 @@ export function useLiveGame(gameId: string): UseLiveGame {
     }
   }, [gameId, hydrate]);
 
+  // Lifecycle actions that end the game (resign / claim-flag / accept-draw /
+  // abort) all return a game.end payload — POST, then reconcile via the reducer
+  // (the matching broadcast is then an idempotent no-op).
+  const endAction = useCallback(
+    async (path: string, body?: unknown, quiet = false): Promise<boolean> => {
+      try {
+        const res = await fetch(`/api/games/${gameId}/${path}`, {
+          method: 'POST',
+          ...(body !== undefined
+            ? {
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+              }
+            : {}),
+        });
+        if (!res.ok) {
+          const b = (await res.json().catch(() => ({}))) as { error?: string };
+          if (mountedRef.current && !quiet) setError(b.error || `${path}_failed`);
+          return false;
+        }
+        const payload = (await res.json()) as GameEndPayload;
+        safeDispatch({ type: 'end', payload, at: Date.now() });
+        if (mountedRef.current && !quiet) setError(null);
+        return true;
+      } catch {
+        if (mountedRef.current && !quiet) setError('network_error');
+        return false;
+      }
+    },
+    [gameId, safeDispatch],
+  );
+
+  const resign = useCallback(() => endAction('resign'), [endAction]);
+  const acceptDraw = useCallback(
+    () => endAction('draw', { action: 'accept' }),
+    [endAction],
+  );
+  const abort = useCallback(() => endAction('abort'), [endAction]);
+
+  // Auto-flag: fired by the countdown effect below, so it must stay quiet — a
+  // benign 'not_flagged' race (clock drift) should never surface an error.
+  const claimFlag = useCallback(
+    () => endAction('claim-flag', undefined, true),
+    [endAction],
+  );
+
+  const offerDraw = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/games/${gameId}/draw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'offer' }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        if (mountedRef.current) setError(b.error || 'draw_failed');
+        return false;
+      }
+      safeDispatch({
+        type: 'draw_offer',
+        payload: { gameId, by: userId ?? '' },
+        at: Date.now(),
+      });
+      if (mountedRef.current) setError(null);
+      return true;
+    } catch {
+      if (mountedRef.current) setError('network_error');
+      return false;
+    }
+  }, [gameId, userId, safeDispatch]);
+
+  const declineDraw = useCallback(async (): Promise<boolean> => {
+    try {
+      const res = await fetch(`/api/games/${gameId}/draw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'decline' }),
+      });
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        if (mountedRef.current) setError(b.error || 'draw_failed');
+        return false;
+      }
+      safeDispatch({ type: 'draw_decline', payload: { gameId }, at: Date.now() });
+      if (mountedRef.current) setError(null);
+      return true;
+    } catch {
+      if (mountedRef.current) setError('network_error');
+      return false;
+    }
+  }, [gameId, safeDispatch]);
+
+  // Auto-flag detection: when the player-to-move's cosmetic clock hits 0, fire a
+  // single guarded claimFlag(). The ref resets whenever the game leaves 'active'
+  // so a later game can flag again; the server re-verifies before ending.
+  const flagClaimedRef = useRef(false);
+  useEffect(() => {
+    if (state.status !== 'active') {
+      flagClaimedRef.current = false;
+      return;
+    }
+    if (flagClaimedRef.current) return;
+    if (deriveAutoFlag(state, now) !== null) {
+      flagClaimedRef.current = true;
+      void claimFlag();
+    }
+  }, [state, now, claimFlag]);
+
   // ── Derived, view-facing state ──────────────────────────────────────────────
   const clocks = useMemo(() => deriveClocks(state, now), [state, now]);
 
@@ -291,6 +426,8 @@ export function useLiveGame(gameId: string): UseLiveGame {
     moves: state.moves,
     opponentConnected,
     terminal: deriveTerminal(state, userId ?? null),
+    drawOffer: deriveDrawOffer(state, userId ?? null),
+    canAbort: state.status === 'active' && state.ply < 2,
     colorChoice: state.colorChoice,
     initialSec: state.initialSec,
     incrementSec: state.incrementSec,
@@ -299,6 +436,12 @@ export function useLiveGame(gameId: string): UseLiveGame {
     error,
     makeMove,
     join,
+    resign,
+    offerDraw,
+    acceptDraw,
+    declineDraw,
+    claimFlag,
+    abort,
     refetch: hydrate,
   };
 }
