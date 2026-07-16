@@ -229,7 +229,7 @@
     "profile": "Profile",
     "database": "Database",
     "learn": "Learn",
-    "playBot": "Play Bot",
+    "playBot": "Play",
     "opponent": "Opponent Prep",
     "editor": "Board Editor",
     "settings": "Settings",
@@ -1910,7 +1910,17 @@
       "resignConfirmTitle": "Give up this game?",
       "resignConfirmBody": "If you give up, {name} wins. You can start a new game any time!",
       "resignConfirmYes": "Yes, I give up",
-      "resignConfirmCancel": "Keep playing"
+      "resignConfirmCancel": "Keep playing",
+      "sectionBots": "Play the bots",
+      "sectionFriend": "Play a friend",
+      "friendSubtitle": "Create a game and share the link — it opens live for both of you.",
+      "timeControl": "TIME CONTROL",
+      "yourColor": "YOUR COLOR",
+      "untimed": "Untimed",
+      "createGameLink": "Create game link",
+      "creating": "Creating…",
+      "errCreate": "Could not create the game. Try again.",
+      "errNetwork": "Network error. Try again."
     }
   }
 }

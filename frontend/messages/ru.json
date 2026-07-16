@@ -229,7 +229,7 @@
     "profile": "Профиль",
     "database": "База партий",
     "learn": "Обучение",
-    "playBot": "Игра с ботом",
+    "playBot": "Играть",
     "opponent": "Подготовка",
     "editor": "Редактор",
     "settings": "Настройки",
@@ -1910,7 +1910,17 @@
       "resignConfirmTitle": "Сдаться в этой партии?",
       "resignConfirmBody": "Если сдашься, {name} победит. Ты всегда можешь начать новую игру!",
       "resignConfirmYes": "Да, сдаюсь",
-      "resignConfirmCancel": "Продолжить игру"
+      "resignConfirmCancel": "Продолжить игру",
+      "sectionBots": "Игра с ботами",
+      "sectionFriend": "Сыграть с другом",
+      "friendSubtitle": "Создайте партию и поделитесь ссылкой — она откроется вживую для вас обоих.",
+      "timeControl": "КОНТРОЛЬ ВРЕМЕНИ",
+      "yourColor": "ВАШ ЦВЕТ",
+      "untimed": "Без времени",
+      "createGameLink": "Создать ссылку на игру",
+      "creating": "Создание…",
+      "errCreate": "Не удалось создать партию. Попробуйте ещё раз.",
+      "errNetwork": "Ошибка сети. Попробуйте ещё раз."
     }
   }
 }

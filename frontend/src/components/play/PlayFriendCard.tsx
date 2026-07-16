@@ -10,12 +10,16 @@
 import React, { useState } from 'react';
 import { Box, Button, Typography, ToggleButton, ToggleButtonGroup } from '@mui/material';
 import { useRouter } from 'next/navigation';
-import { fredoka } from '@/lib/fonts';
+import { useTranslations } from 'next-intl';
+import { playText } from '@/lib/botI18n';
 import type { ColorChoice } from '@/lib/live-game/types';
 
 interface TimeControl {
   key: string;
+  // Time labels are formatted (e.g. "3 + 2"); `untimedKey` marks the one entry
+  // whose label is a localized word rather than a number pair.
   label: string;
+  untimedKey?: boolean;
   initialSec: number | null;
   incrementSec: number | null;
 }
@@ -24,16 +28,17 @@ const TIME_CONTROLS: TimeControl[] = [
   { key: '3+2', label: '3 + 2', initialSec: 180, incrementSec: 2 },
   { key: '5+0', label: '5 + 0', initialSec: 300, incrementSec: 0 },
   { key: '10+0', label: '10 + 0', initialSec: 600, incrementSec: 0 },
-  { key: 'untimed', label: 'Untimed', initialSec: null, incrementSec: null },
+  { key: 'untimed', label: 'Untimed', untimedKey: true, initialSec: null, incrementSec: null },
 ];
 
-const COLORS: Array<{ key: ColorChoice; label: string }> = [
-  { key: 'white', label: 'White' },
-  { key: 'random', label: 'Random' },
-  { key: 'black', label: 'Black' },
+const COLORS: Array<{ key: ColorChoice; colorKey: string }> = [
+  { key: 'white', colorKey: 'white' },
+  { key: 'random', colorKey: 'random' },
+  { key: 'black', colorKey: 'black' },
 ];
 
 export default function PlayFriendCard() {
+  const t = useTranslations('bots');
   const router = useRouter();
   const [tcKey, setTcKey] = useState('5+0');
   const [color, setColor] = useState<ColorChoice>('random');
@@ -57,7 +62,7 @@ export default function PlayFriendCard() {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        setError(body.error || 'Could not create the game. Try again.');
+        setError(body.error || playText(t, 'errCreate', 'Could not create the game. Try again.'));
         setCreating(false);
         return;
       }
@@ -70,7 +75,7 @@ export default function PlayFriendCard() {
       }
       router.push(`/play/live/${gameId}`);
     } catch {
-      setError('Network error. Try again.');
+      setError(playText(t, 'errNetwork', 'Network error. Try again.'));
       setCreating(false);
     }
   };
@@ -79,7 +84,6 @@ export default function PlayFriendCard() {
     <Box
       data-testid="play-friend-card"
       sx={{
-        mt: 3,
         p: { xs: 2, sm: 3 },
         borderRadius: '20px',
         bgcolor: '#FFFFFF',
@@ -87,18 +91,12 @@ export default function PlayFriendCard() {
         boxShadow: '0 8px 24px rgba(30,60,120,0.08)',
       }}
     >
-      <Typography
-        variant="h6"
-        sx={{ fontFamily: fredoka.style.fontFamily, fontWeight: 700, color: '#1E2A44', mb: 0.5 }}
-      >
-        Play a friend
-      </Typography>
       <Typography variant="body2" sx={{ color: '#5C6B85', mb: 2 }}>
-        Create a game and share the link — it opens live for both of you.
+        {playText(t, 'friendSubtitle', 'Create a game and share the link — it opens live for both of you.')}
       </Typography>
 
       <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: '#5C6B85', mb: 0.75 }}>
-        TIME CONTROL
+        {playText(t, 'timeControl', 'TIME CONTROL')}
       </Typography>
       <ToggleButtonGroup
         value={tcKey}
@@ -112,13 +110,13 @@ export default function PlayFriendCard() {
             value={tc.key}
             sx={{ borderRadius: '12px !important', border: '1px solid #E3EAF6 !important', px: 2 }}
           >
-            {tc.label}
+            {tc.untimedKey ? playText(t, 'untimed', tc.label) : tc.label}
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
 
       <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, color: '#5C6B85', mb: 0.75 }}>
-        YOUR COLOR
+        {playText(t, 'yourColor', 'YOUR COLOR')}
       </Typography>
       <ToggleButtonGroup
         value={color}
@@ -132,7 +130,7 @@ export default function PlayFriendCard() {
             value={c.key}
             sx={{ borderRadius: '12px !important', border: '1px solid #E3EAF6 !important', px: 2 }}
           >
-            {c.label}
+            {playText(t, c.colorKey, c.key)}
           </ToggleButton>
         ))}
       </ToggleButtonGroup>
@@ -158,7 +156,7 @@ export default function PlayFriendCard() {
           '&:hover': { bgcolor: '#2258db' },
         }}
       >
-        {creating ? 'Creating…' : 'Create game link'}
+        {creating ? playText(t, 'creating', 'Creating…') : playText(t, 'createGameLink', 'Create game link')}
       </Button>
     </Box>
   );

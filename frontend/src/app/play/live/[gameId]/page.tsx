@@ -31,6 +31,7 @@ import { liveOutcome } from '@/lib/liveOutcome';
 import { fredoka, nunito } from '@/lib/fonts';
 import { LIVE_PLAY_THEME, LIVE_INK, LIVE_INK_SOFT } from '@/lib/livePlayTheme';
 import { ONLINE_PLAY_ENABLED } from '@/lib/feature-flags';
+import LiveGameGuard from './LiveGameGuard';
 
 const INVITE_BASE = 'https://chesster.io';
 
@@ -147,6 +148,17 @@ function PrimaryPill({
 }
 
 export default function LiveGamePage() {
+  if (!ONLINE_PLAY_ENABLED) notFound();
+  // Tenant hosts skip Clerk edge auth (middleware pass-through); guard signed-out
+  // visitors here before the game view fires any authed API calls.
+  return (
+    <LiveGameGuard>
+      <LiveGameView />
+    </LiveGameGuard>
+  );
+}
+
+function LiveGameView() {
   const params = useParams<{ gameId: string }>();
   const gameId = params?.gameId ?? '';
   const { userId } = useAuth();
@@ -179,8 +191,6 @@ export default function LiveGamePage() {
     const timer = setTimeout(() => setModalOpen(true), delay);
     return () => clearTimeout(timer);
   }, [hasResult, reduce]);
-
-  if (!ONLINE_PLAY_ENABLED) notFound();
 
   const copyLink = async () => {
     try {

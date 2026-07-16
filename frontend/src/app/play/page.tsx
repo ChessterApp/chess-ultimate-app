@@ -19,6 +19,7 @@ import { useStockfishPlay } from '@/hooks/useStockfishPlay'
 import { usePhaseHistory } from '@/hooks/usePhaseHistory'
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
 import { playText } from '@/lib/botI18n'
+import { fredoka } from '@/lib/fonts'
 import type { Bot } from '@/data/bots'
 import { gameTheme, getBotById } from '@/data/bots'
 import type { Key } from 'chessground/types'
@@ -468,12 +469,41 @@ export default function PlayPage() {
             p: { xs: 2, sm: 3, md: 4 },
           }}
         >
-          <BotGrid
-            selectedBotId={selectedBot?.id || null}
-            onSelectBot={handleBotSelect}
-          />
-          {/* Online play (phase 3) — gated behind ONLINE_PLAY_ENABLED. */}
-          {ONLINE_PLAY_ENABLED && <PlayFriendCard />}
+          {/* Two labeled sections: bots (primary) and, when online play is on,
+              a friend challenge card beside the grid on desktop so it's visible
+              without scrolling past the whole grid. */}
+          <Box
+            sx={{
+              display: 'grid',
+              gap: { xs: 4, md: 4 },
+              alignItems: 'start',
+              gridTemplateColumns: {
+                xs: '1fr',
+                md: ONLINE_PLAY_ENABLED ? 'minmax(0, 1fr) 340px' : '1fr',
+              },
+            }}
+          >
+            {/* Play the bots */}
+            <Box component="section" aria-labelledby="play-bots-heading">
+              <SectionHeading id="play-bots-heading">
+                {playText(t, 'sectionBots', 'Play the bots')}
+              </SectionHeading>
+              <BotGrid
+                selectedBotId={selectedBot?.id || null}
+                onSelectBot={handleBotSelect}
+              />
+            </Box>
+
+            {/* Play a friend — online play (phase 3), gated by ONLINE_PLAY_ENABLED. */}
+            {ONLINE_PLAY_ENABLED && (
+              <Box component="section" aria-labelledby="play-friend-heading">
+                <SectionHeading id="play-friend-heading">
+                  {playText(t, 'sectionFriend', 'Play a friend')}
+                </SectionHeading>
+                <PlayFriendCard />
+              </Box>
+            )}
+          </Box>
         </Box>
       )}
 
@@ -604,6 +634,26 @@ export default function PlayPage() {
           )}
         </Box>
       )}
+    </Box>
+  )
+}
+
+/** Fredoka section heading for the two /play sections (bots / friend). */
+function SectionHeading({ id, children }: { id: string; children: React.ReactNode }) {
+  return (
+    <Box
+      component="h2"
+      id={id}
+      sx={{
+        m: 0,
+        mb: { xs: 1.5, sm: 2 },
+        fontFamily: fredoka.style.fontFamily,
+        fontWeight: 700,
+        fontSize: { xs: '22px', sm: '26px' },
+        color: '#1E2A44',
+      }}
+    >
+      {children}
     </Box>
   )
 }
