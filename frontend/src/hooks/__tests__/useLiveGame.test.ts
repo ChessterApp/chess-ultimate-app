@@ -19,6 +19,9 @@ vi.mock('@clerk/nextjs', () => ({
 type Handler = (msg: { payload: unknown }) => void;
 const handlers: Record<string, Handler> = {};
 let subscribeCb: ((s: string) => void) | null = null;
+// Mutable presence state the tests drive directly (keys other than the caller
+// count as "opponent present").
+let presenceStateValue: Record<string, unknown> = {};
 
 const fakeChannel = {
   on(type: string, filter: { event: string }, cb: Handler) {
@@ -30,19 +33,43 @@ const fakeChannel = {
     return fakeChannel;
   },
   track: () => Promise.resolve('ok'),
-  presenceState: () => ({}),
+  presenceState: () => presenceStateValue,
 };
 
+const channelSpy = vi.fn(() => fakeChannel);
+const setAuthSpy = vi.fn();
 const fakeClient = {
-  channel: () => fakeChannel,
+  channel: channelSpy,
   removeChannel: () => Promise.resolve('ok'),
-  realtime: { setAuth: () => {} },
+  realtime: { setAuth: setAuthSpy },
 };
 
 vi.mock('@/lib/supabase', () => ({
   createClerkSupabaseClient: () => fakeClient,
   setRealtimeAuth: () => Promise.resolve(),
 }));
+
+/** Invoke every registered presence handler (sync/join/leave) once. */
+function firePresence() {
+  handlers['presence:sync']?.({ payload: {} });
+  handlers['presence:join']?.({ payload: {} });
+  handlers['presence:leave']?.({ payload: {} });
+}
+
+/** How many telemetry POSTs (to the /telemetry route) fetch has seen so far. */
+function telemetryCalls(action?: string): number {
+  const f = global.fetch as unknown as {
+    mock?: { calls: Array<[string, RequestInit?]> };
+  };
+  const calls = f.mock?.calls ?? [];
+  return calls.filter(([url, init]) => {
+    if (!url.includes('/telemetry') || (init?.method ?? 'GET') !== 'POST') {
+      return false;
+    }
+    if (!action) return true;
+    return typeof init?.body === 'string' && init.body.includes(`"${action}"`);
+  }).length;
+}
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
@@ -117,6 +144,9 @@ beforeEach(() => {
   mockUserId = 'creator';
   for (const k of Object.keys(handlers)) delete handlers[k];
   subscribeCb = null;
+  presenceStateValue = {};
+  channelSpy.mockClear();
+  setAuthSpy.mockClear();
 });
 
 describe('useLiveGame', () => {
@@ -207,7 +237,7 @@ describe('useLiveGame', () => {
     expect(result.current.error).toBe('realtime_error');
   });
 
-  it('polls hydrate while waiting on challenge, and stops once active', async () => {
+  it('polls hydrate while waiting on challenge, then keeps polling once active (safety net)', async () => {
     vi.useFakeTimers();
     let live = false;
     const spy = vi.fn(() => (live ? activePayload() : challengePayload()));
@@ -228,20 +258,170 @@ describe('useLiveGame', () => {
     });
     expect(spy.mock.calls.length).toBeGreaterThan(afterMount);
 
-    // DB flips to active; the next poll observes it and clears the interval.
+    // DB flips to active; the next poll observes it.
     live = true;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(result.current.status).toBe('active');
 
-    // Polling has stopped — advancing further produces no more hydrate fetches.
+    // Task 6: while active, the safety-net poll KEEPS re-hydrating every 5s so a
+    // silently-dead socket can't freeze the board.
     const afterActive = spy.mock.calls.length;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(15000);
     });
-    expect(spy.mock.calls.length).toBe(afterActive);
+    expect(spy.mock.calls.length).toBeGreaterThan(afterActive);
 
     vi.useRealTimers();
+  });
+
+  it('refreshes the Realtime auth token every 30s (setAuth)', async () => {
+    vi.useFakeTimers();
+    mockFetch({ 'GET /api/live-games/g1': activePayload });
+    renderHook(() => useLiveGame('g1'));
+
+    // Flush mount + initial connect (setAuth is NOT called on connect — that
+    // path uses the mocked setRealtimeAuth helper, not client.realtime.setAuth).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(setAuthSpy).not.toHaveBeenCalled();
+
+    // One refresh interval → a fresh token is pushed onto the socket.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(setAuthSpy).toHaveBeenCalledTimes(1);
+    expect(setAuthSpy).toHaveBeenCalledWith('fake-jwt');
+    expect(telemetryCalls('token_refresh')).toBeGreaterThan(0);
+
+    // A second interval → refreshed again.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(setAuthSpy).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it('resubscribes with backoff after a channel error (new channel + hydrate)', async () => {
+    vi.useFakeTimers();
+    const spy = vi.fn(activePayload);
+    mockFetch({ 'GET /api/live-games/g1': spy });
+    const { result } = renderHook(() => useLiveGame('g1'));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const channelsAfterConnect = channelSpy.mock.calls.length;
+    expect(channelsAfterConnect).toBeGreaterThan(0);
+
+    // Socket drops.
+    await act(async () => {
+      subscribeCb?.('CHANNEL_ERROR');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.error).toBe('realtime_error');
+    expect(telemetryCalls('resubscribe')).toBeGreaterThan(0);
+
+    // Backoff is 1s for the first retry → a fresh channel is opened.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(channelSpy.mock.calls.length).toBeGreaterThan(channelsAfterConnect);
+
+    // The reconnected channel subscribes successfully → re-hydrate to catch
+    // anything missed while the socket was down, and clear the error banner.
+    const hydratesBeforeRecovery = spy.mock.calls.length;
+    await act(async () => {
+      subscribeCb?.('SUBSCRIBED');
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(spy.mock.calls.length).toBeGreaterThan(hydratesBeforeRecovery);
+    expect(result.current.error).toBeNull();
+
+    vi.useRealTimers();
+  });
+
+  it('presence: shows the disconnect banner only after a 7s grace period', async () => {
+    vi.useFakeTimers();
+    mockFetch({ 'GET /api/live-games/g1': activePayload });
+    const { result } = renderHook(() => useLiveGame('g1'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    // Opponent joins.
+    presenceStateValue = { joiner: [{ userId: 'joiner' }] };
+    await act(async () => {
+      firePresence();
+    });
+    expect(result.current.opponentConnected).toBe(true);
+
+    // Opponent leaves — banner must NOT show immediately (grace period).
+    presenceStateValue = {};
+    await act(async () => {
+      firePresence();
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(result.current.opponentConnected).toBe(true);
+
+    // After a full 7s of continuous absence, the banner shows.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.opponentConnected).toBe(false);
+    expect(telemetryCalls('disconnect_shown')).toBeGreaterThan(0);
+
+    vi.useRealTimers();
+  });
+
+  it('presence: a rejoin within the grace period cancels the disconnect', async () => {
+    vi.useFakeTimers();
+    mockFetch({ 'GET /api/live-games/g1': activePayload });
+    const { result } = renderHook(() => useLiveGame('g1'));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    presenceStateValue = { joiner: [{ userId: 'joiner' }] };
+    await act(async () => {
+      firePresence();
+    });
+    expect(result.current.opponentConnected).toBe(true);
+
+    // Leave, wait part of the grace window, then rejoin before it fires.
+    presenceStateValue = {};
+    await act(async () => {
+      firePresence();
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    presenceStateValue = { joiner: [{ userId: 'joiner' }] };
+    await act(async () => {
+      firePresence();
+    });
+
+    // Advancing past the original 7s must NOT flip to disconnected — the timer
+    // was cancelled by the rejoin.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(result.current.opponentConnected).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it('sends channel_status telemetry on subscription status changes', async () => {
+    mockFetch({ 'GET /api/live-games/g1': activePayload });
+    renderHook(() => useLiveGame('g1'));
+    await waitFor(() => expect(subscribeCb).not.toBeNull());
+
+    await act(async () => {
+      subscribeCb?.('SUBSCRIBED');
+    });
+    await waitFor(() =>
+      expect(telemetryCalls('channel_status')).toBeGreaterThan(0),
+    );
   });
 });

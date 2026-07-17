@@ -64,6 +64,16 @@ function toUci(move: MoveInput): string {
   return `${move.from}${move.to}${move.promotion ?? ''}`.toLowerCase();
 }
 
+/** How long an opponent may be absent from presence before we show the banner. */
+const PRESENCE_GRACE_MS = 7000;
+/** Realtime auth-token refresh cadence — well under Clerk's ~60s token TTL. */
+const TOKEN_REFRESH_MS = 30000;
+/** Backoff bounds for resubscribing after a channel error. */
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 15000;
+/** Active-game safety-net re-hydration cadence (dead socket → frozen board). */
+const ACTIVE_POLL_MS = 5000;
+
 export interface UseLiveGame {
   status: GameStatus;
   fen: string;
@@ -111,6 +121,12 @@ export function useLiveGame(gameId: string): UseLiveGame {
   const mountedRef = useRef(true);
   const clientRef = useRef<SupabaseClient | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  // Disconnect grace timer + whether the opponent has ever been present, so the
+  // pre-join waiting state never surfaces a "disconnected" banner.
+  const presenceGraceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const opponentEverConnectedRef = useRef(false);
+  // Telemetry de-dupe: `action(+detail)` → last-sent epoch ms.
+  const telemetryRef = useRef<Record<string, number>>({});
 
   // Stable token getter for the Supabase client (Clerk's getToken accepts
   // optional options — narrow it to the () => Promise<string|null> shape).
@@ -121,6 +137,35 @@ export function useLiveGame(gameId: string): UseLiveGame {
   const safeDispatch = useCallback((action: Parameters<typeof dispatch>[0]) => {
     if (mountedRef.current) dispatch(action);
   }, []);
+
+  /**
+   * Fire-and-forget client telemetry → `POST /telemetry`. Never awaited, never
+   * throws into a render/effect path, and de-duped per `action(+detail)` within
+   * `minIntervalMs` so realtime churn can't spam the log.
+   */
+  const sendTelemetry = useCallback(
+    (
+      action: string,
+      detail?: Record<string, unknown>,
+      minIntervalMs = 2000,
+    ): void => {
+      const key = detail ? `${action}:${JSON.stringify(detail)}` : action;
+      const at = Date.now();
+      if (at - (telemetryRef.current[key] ?? 0) < minIntervalMs) return;
+      telemetryRef.current[key] = at;
+      try {
+        void fetch(`/api/live-games/${gameId}/telemetry`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(detail ? { action, detail } : { action }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {
+        /* telemetry must never surface an error */
+      }
+    },
+    [gameId],
+  );
 
   /** Re-fetch the authoritative hydration payload and seed the reducer. */
   const hydrate = useCallback(async (): Promise<void> => {
@@ -136,7 +181,10 @@ export function useLiveGame(gameId: string): UseLiveGame {
       const payload = (await res.json()) as HydrationPayload;
       if (!mountedRef.current) return;
       safeDispatch({ type: 'hydrate', payload, at: Date.now() });
-      setError(null);
+      // A successful hydrate clears load/network errors, but must NOT clear a
+      // standing 'realtime_error' — the socket is still down even though the DB
+      // is reachable; only a fresh SUBSCRIBED clears that banner.
+      setError((prev) => (prev === 'realtime_error' ? prev : null));
     } catch {
       if (mountedRef.current) setError('network_error');
     } finally {
@@ -145,6 +193,10 @@ export function useLiveGame(gameId: string): UseLiveGame {
   }, [gameId, safeDispatch]);
 
   // ── Subscribe: hydrate + private channel + presence + reconnect resync ──────
+  // Owns the whole realtime lifecycle: initial hydrate, private-channel
+  // subscribe, presence (with a disconnect grace period), a 30s token refresh so
+  // the short-lived Clerk JWT never lets the socket die mid-game, and an
+  // exponential-backoff resubscribe (with re-hydration) on channel errors.
   useEffect(() => {
     mountedRef.current = true;
     if (!isLoaded || !gameId) return;
@@ -152,28 +204,80 @@ export function useLiveGame(gameId: string): UseLiveGame {
     const client = createClerkSupabaseClient(tokenFn);
     clientRef.current = client;
 
-    let channel: RealtimeChannel | null = null;
     let cancelled = false;
+    let channel: RealtimeChannel | null = null;
+    let backoffMs = RECONNECT_BASE_MS;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const setup = async () => {
+    const teardownChannel = () => {
+      const c = channel;
+      channel = null;
+      channelRef.current = null;
+      if (c) void client.removeChannel(c);
+    };
+
+    const scheduleReconnect = (reason: string) => {
+      if (cancelled || reconnectTimer) return;
+      teardownChannel();
+      const delay = backoffMs;
+      backoffMs = Math.min(backoffMs * 2, RECONNECT_MAX_MS);
+      sendTelemetry('resubscribe', { reason, delayMs: delay });
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, delay);
+    };
+
+    // Presence with a grace window: only flip to "disconnected" after the
+    // opponent has been continuously absent for PRESENCE_GRACE_MS. A rejoin
+    // clears the timer (and the banner) immediately; the pre-join waiting state
+    // (opponent never present) shows no banner at all.
+    const syncPresence = (thisChannel: RealtimeChannel) => {
+      if (cancelled || thisChannel !== channel || !mountedRef.current) return;
+      const presence = thisChannel.presenceState();
+      const others = Object.keys(presence).filter((k) => k !== userId);
+      if (others.length > 0) {
+        opponentEverConnectedRef.current = true;
+        if (presenceGraceRef.current) {
+          clearTimeout(presenceGraceRef.current);
+          presenceGraceRef.current = null;
+        }
+        setOpponentConnected(true);
+        sendTelemetry('presence_join');
+        return;
+      }
+      if (!opponentEverConnectedRef.current) {
+        setOpponentConnected(false);
+        return;
+      }
+      sendTelemetry('presence_leave');
+      if (!presenceGraceRef.current) {
+        presenceGraceRef.current = setTimeout(() => {
+          presenceGraceRef.current = null;
+          if (mountedRef.current) {
+            setOpponentConnected(false);
+            sendTelemetry('disconnect_shown');
+          }
+        }, PRESENCE_GRACE_MS);
+      }
+    };
+
+    const connect = async () => {
+      if (cancelled) return;
       // Push a fresh Clerk token onto the socket before joining the private
       // channel — the broadcast/presence RLS runs against this token.
       await setRealtimeAuth(client, tokenFn);
       if (cancelled) return;
 
-      channel = client.channel(`game:${gameId}`, {
+      const thisChannel = client.channel(`game:${gameId}`, {
         config: { private: true, presence: { key: userId ?? 'anon' } },
       });
-      channelRef.current = channel;
+      channel = thisChannel;
+      channelRef.current = thisChannel;
 
-      const syncPresence = () => {
-        if (!channel || !mountedRef.current) return;
-        const presence = channel.presenceState();
-        const others = Object.keys(presence).filter((k) => k !== userId);
-        setOpponentConnected(others.length > 0);
-      };
+      const onPresence = () => syncPresence(thisChannel);
 
-      channel
+      thisChannel
         .on('broadcast', { event: 'game.start' }, ({ payload }) => {
           safeDispatch({
             type: 'start',
@@ -209,23 +313,33 @@ export function useLiveGame(gameId: string): UseLiveGame {
             at: Date.now(),
           });
         })
-        .on('presence', { event: 'sync' }, syncPresence)
-        .on('presence', { event: 'join' }, syncPresence)
-        .on('presence', { event: 'leave' }, syncPresence)
+        .on('presence', { event: 'sync' }, onPresence)
+        .on('presence', { event: 'join' }, onPresence)
+        .on('presence', { event: 'leave' }, onPresence)
         .subscribe(async (subStatus) => {
+          if (cancelled || thisChannel !== channel) return;
+          sendTelemetry('channel_status', { status: subStatus });
           if (subStatus === 'SUBSCRIBED') {
-            // Reconnect resync: DB is truth, re-hydrate on every (re)connect so
-            // a dropped socket / refresh never loses state.
+            // Recovered — reset backoff, clear any error, and re-hydrate (DB is
+            // truth) so a dropped socket / refresh never loses state.
+            backoffMs = RECONNECT_BASE_MS;
+            if (mountedRef.current) setError(null);
             await hydrate();
-            if (!cancelled && channel) {
-              await channel.track({ userId: userId ?? 'anon' });
+            if (!cancelled && thisChannel === channel) {
+              await thisChannel.track({ userId: userId ?? 'anon' });
             }
-          } else if (subStatus === 'CHANNEL_ERROR' || subStatus === 'TIMED_OUT') {
-            // Realtime failed to establish. Surface it so the waiting screen can
-            // warn the creator; the polling fallback below still advances state
-            // from the authoritative DB. Do NOT throw. 'CLOSED' is normal
-            // teardown and is intentionally left unhandled.
+          } else if (
+            subStatus === 'CHANNEL_ERROR' ||
+            subStatus === 'TIMED_OUT' ||
+            subStatus === 'CLOSED'
+          ) {
+            // Socket dropped (token death, blip, server close). Surface it,
+            // re-hydrate from the authoritative DB to catch anything missed,
+            // then resubscribe with backoff. Not fatal — the poll below and the
+            // reconnect both advance state from truth.
             if (mountedRef.current) setError('realtime_error');
+            void hydrate();
+            scheduleReconnect(subStatus);
           }
         });
     };
@@ -233,14 +347,30 @@ export function useLiveGame(gameId: string): UseLiveGame {
     // Kick an immediate hydration too, so the UI paints from truth even before
     // the socket handshake completes.
     void hydrate();
-    void setup();
+    void connect();
+
+    // Refresh the Realtime auth token on an interval. Clerk template tokens
+    // expire in ~60s; without this the socket silently dies mid-game and the
+    // peer sees a presence 'leave' / frozen board.
+    const refreshTimer = setInterval(() => {
+      if (cancelled) return;
+      void (async () => {
+        const token = await tokenFn();
+        if (cancelled) return;
+        client.realtime.setAuth(token ?? undefined);
+        sendTelemetry('token_refresh');
+      })();
+    }, TOKEN_REFRESH_MS);
 
     return () => {
       cancelled = true;
-      if (channel) {
-        void client.removeChannel(channel);
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearInterval(refreshTimer);
+      if (presenceGraceRef.current) {
+        clearTimeout(presenceGraceRef.current);
+        presenceGraceRef.current = null;
       }
-      channelRef.current = null;
+      teardownChannel();
       clientRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -272,6 +402,19 @@ export function useLiveGame(gameId: string): UseLiveGame {
     }, 5000);
     return () => clearInterval(id);
   }, [state.status, hydrate]);
+
+  // Active-game safety net: while the game is live, re-hydrate from the
+  // authoritative DB every 5s so a silently-dead socket can't leave the board
+  // frozen mid-game. The reducer's ply guard dedupes this against broadcasts, so
+  // it's idempotent. Telemetry is throttled hard (30s) to stay out of the way.
+  useEffect(() => {
+    if (state.status !== 'active') return;
+    const id = setInterval(() => {
+      void hydrate();
+      sendTelemetry('poll_fallback_hydrate', undefined, 30000);
+    }, ACTIVE_POLL_MS);
+    return () => clearInterval(id);
+  }, [state.status, hydrate, sendTelemetry]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const makeMove = useCallback(
