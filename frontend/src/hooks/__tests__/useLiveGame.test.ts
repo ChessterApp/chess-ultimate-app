@@ -71,6 +71,30 @@ function activePayload(): HydrationPayload {
   };
 }
 
+function challengePayload(): HydrationPayload {
+  return {
+    game: {
+      id: 'g1',
+      status: 'challenge',
+      colorChoice: 'white',
+      initialSec: 300,
+      incrementSec: 2,
+      fen: START_FEN,
+      ply: 0,
+      whiteMs: 300000,
+      blackMs: 300000,
+      result: null,
+      winnerId: null,
+      endReason: null,
+      creatorId: 'creator',
+      whiteId: null,
+      blackId: null,
+      opponentId: null,
+    },
+    moves: [],
+  };
+}
+
 function mockFetch(routes: Record<string, () => unknown>) {
   global.fetch = vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
@@ -89,6 +113,7 @@ function mockFetch(routes: Record<string, () => unknown>) {
 import { useLiveGame } from '../useLiveGame';
 
 beforeEach(() => {
+  vi.useRealTimers();
   mockUserId = 'creator';
   for (const k of Object.keys(handlers)) delete handlers[k];
   subscribeCb = null;
@@ -166,5 +191,57 @@ describe('useLiveGame', () => {
       subscribeCb?.('SUBSCRIBED');
     });
     await waitFor(() => expect(spy.mock.calls.length).toBeGreaterThan(before));
+  });
+
+  it('surfaces an error when the subscription reports CHANNEL_ERROR', async () => {
+    mockFetch({ 'GET /api/live-games/g1': challengePayload });
+    const { result } = renderHook(() => useLiveGame('g1'));
+    await waitFor(() => expect(subscribeCb).not.toBeNull());
+    expect(result.current.error).toBeNull();
+
+    await act(async () => {
+      subscribeCb?.('CHANNEL_ERROR');
+    });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error).toBe('realtime_error');
+  });
+
+  it('polls hydrate while waiting on challenge, and stops once active', async () => {
+    vi.useFakeTimers();
+    let live = false;
+    const spy = vi.fn(() => (live ? activePayload() : challengePayload()));
+    mockFetch({ 'GET /api/live-games/g1': spy });
+
+    const { result } = renderHook(() => useLiveGame('g1'));
+    // Flush the immediate mount hydration.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.status).toBe('challenge');
+
+    const afterMount = spy.mock.calls.length;
+
+    // One poll interval (~5s) → at least one more authoritative re-fetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(spy.mock.calls.length).toBeGreaterThan(afterMount);
+
+    // DB flips to active; the next poll observes it and clears the interval.
+    live = true;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(result.current.status).toBe('active');
+
+    // Polling has stopped — advancing further produces no more hydrate fetches.
+    const afterActive = spy.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15000);
+    });
+    expect(spy.mock.calls.length).toBe(afterActive);
+
+    vi.useRealTimers();
   });
 });

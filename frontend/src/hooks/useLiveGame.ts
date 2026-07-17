@@ -220,6 +220,12 @@ export function useLiveGame(gameId: string): UseLiveGame {
             if (!cancelled && channel) {
               await channel.track({ userId: userId ?? 'anon' });
             }
+          } else if (subStatus === 'CHANNEL_ERROR' || subStatus === 'TIMED_OUT') {
+            // Realtime failed to establish. Surface it so the waiting screen can
+            // warn the creator; the polling fallback below still advances state
+            // from the authoritative DB. Do NOT throw. 'CLOSED' is normal
+            // teardown and is intentionally left unhandled.
+            if (mountedRef.current) setError('realtime_error');
           }
         });
     };
@@ -254,6 +260,18 @@ export function useLiveGame(gameId: string): UseLiveGame {
     const id = setInterval(() => setNow(Date.now()), 250);
     return () => clearInterval(id);
   }, [state.status]);
+
+  // Waiting-screen safety net: while the creator sits on 'challenge', re-hydrate
+  // from the authoritative DB on an interval so the board still appears even if
+  // the `game.start` broadcast never arrives (silent realtime failure). Stops as
+  // soon as status leaves 'challenge' (active/finished/aborted/expired).
+  useEffect(() => {
+    if (state.status !== 'challenge') return;
+    const id = setInterval(() => {
+      void hydrate();
+    }, 5000);
+    return () => clearInterval(id);
+  }, [state.status, hydrate]);
 
   // ── Actions ────────────────────────────────────────────────────────────────
   const makeMove = useCallback(
