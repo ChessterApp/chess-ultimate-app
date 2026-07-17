@@ -1,8 +1,9 @@
 import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { broadcastGameEvent } from '@/lib/live-game/broadcast';
+import { logLiveGameEvent, createStageTimer } from '@/lib/live-game/log';
 import { remainingMs } from '@/lib/live-game/clocks';
 import { turnFromFen } from '@/lib/live-game/validate';
 import type { GameRow } from '@/lib/live-game/types';
@@ -23,48 +24,71 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ gameId: string }> },
 ) {
+  const timer = createStageTimer();
   const { userId } = await auth();
+  const { gameId } = await params;
+  let drawAction: DrawAction | null = null;
+  const log = (outcome: string) =>
+    logLiveGameEvent({
+      source: 'server',
+      action: 'draw',
+      gameId,
+      userId,
+      outcome,
+      durationMs: timer.total(),
+      stages: timer.stages,
+      detail: drawAction ? { drawAction } : null,
+    });
+  timer.mark('auth');
   if (!userId) {
+    log('unauthorized');
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  const { gameId } = await params;
 
   let body: { action?: unknown };
   try {
     body = await req.json();
   } catch {
+    log('bad_json');
     return NextResponse.json({ error: 'bad_json' }, { status: 400 });
   }
   const action = body.action;
   if (action !== 'offer' && action !== 'accept' && action !== 'decline') {
+    log('bad_action');
     return NextResponse.json({ error: 'bad_action' }, { status: 400 });
   }
-  const drawAction = action as DrawAction;
+  drawAction = action as DrawAction;
 
   const { data: gameData, error: loadErr } = await supabaseAdmin
     .from('games')
     .select('*')
     .eq('id', gameId)
     .maybeSingle();
+  timer.mark('load');
   if (loadErr) {
     console.error('[games/draw] load failed', loadErr);
+    log('lookup_failed');
     return NextResponse.json({ error: 'lookup_failed' }, { status: 500 });
   }
   if (!gameData) {
+    log('not_found');
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
   const game = gameData as GameRow;
 
   if (game.status !== 'active') {
+    log('not_active');
     return NextResponse.json({ error: 'not_active' }, { status: 409 });
   }
   if (userId !== game.white_id && userId !== game.black_id) {
+    log('not_player');
     return NextResponse.json({ error: 'not_player' }, { status: 403 });
   }
 
   // ── Accept: the other player must have a standing offer ─────────────────────
   if (drawAction === 'accept') {
     if (!game.draw_offer_by || game.draw_offer_by === userId) {
+      log('no_offer');
       return NextResponse.json({ error: 'no_offer' }, { status: 409 });
     }
 
@@ -97,11 +121,14 @@ export async function POST(
       .eq('status', 'active')
       .select('*')
       .maybeSingle();
+    timer.mark('write');
     if (updErr) {
       console.error('[games/draw] accept update failed', updErr);
+      log('draw_failed');
       return NextResponse.json({ error: 'draw_failed' }, { status: 500 });
     }
     if (!ended) {
+      log('not_active');
       return NextResponse.json({ error: 'not_active' }, { status: 409 });
     }
 
@@ -114,7 +141,8 @@ export async function POST(
       whiteMs: clocks.whiteMs,
       blackMs: clocks.blackMs,
     };
-    await broadcastGameEvent(gameId, 'game.end', payload);
+    after(() => broadcastGameEvent(gameId, 'game.end', payload));
+    log('ok');
     return NextResponse.json(payload, { status: 200 });
   }
 
@@ -125,11 +153,14 @@ export async function POST(
       .update({ draw_offer_by: null })
       .eq('id', gameId)
       .eq('status', 'active');
+    timer.mark('write');
     if (updErr) {
       console.error('[games/draw] decline update failed', updErr);
+      log('draw_failed');
       return NextResponse.json({ error: 'draw_failed' }, { status: 500 });
     }
-    await broadcastGameEvent(gameId, 'game.draw_decline', { gameId });
+    after(() => broadcastGameEvent(gameId, 'game.draw_decline', { gameId }));
+    log('ok');
     return NextResponse.json({ action: 'decline' }, { status: 200 });
   }
 
@@ -139,10 +170,13 @@ export async function POST(
     .update({ draw_offer_by: userId })
     .eq('id', gameId)
     .eq('status', 'active');
+  timer.mark('write');
   if (updErr) {
     console.error('[games/draw] offer update failed', updErr);
+    log('draw_failed');
     return NextResponse.json({ error: 'draw_failed' }, { status: 500 });
   }
-  await broadcastGameEvent(gameId, 'game.draw_offer', { gameId, by: userId });
+  after(() => broadcastGameEvent(gameId, 'game.draw_offer', { gameId, by: userId }));
+  log('ok');
   return NextResponse.json({ action: 'offer', by: userId }, { status: 200 });
 }

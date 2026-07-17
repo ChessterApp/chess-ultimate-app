@@ -1,8 +1,9 @@
 import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { broadcastGameEvent } from '@/lib/live-game/broadcast';
+import { logLiveGameEvent, createStageTimer } from '@/lib/live-game/log';
 import { remainingMs } from '@/lib/live-game/clocks';
 import { turnFromFen } from '@/lib/live-game/validate';
 import type { GameRow } from '@/lib/live-game/types';
@@ -18,30 +19,48 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ gameId: string }> },
 ) {
+  const timer = createStageTimer();
   const { userId } = await auth();
+  const { gameId } = await params;
+  const log = (outcome: string) =>
+    logLiveGameEvent({
+      source: 'server',
+      action: 'resign',
+      gameId,
+      userId,
+      outcome,
+      durationMs: timer.total(),
+      stages: timer.stages,
+    });
+  timer.mark('auth');
   if (!userId) {
+    log('unauthorized');
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  const { gameId } = await params;
 
   const { data: gameData, error: loadErr } = await supabaseAdmin
     .from('games')
     .select('*')
     .eq('id', gameId)
     .maybeSingle();
+  timer.mark('load');
   if (loadErr) {
     console.error('[games/resign] load failed', loadErr);
+    log('lookup_failed');
     return NextResponse.json({ error: 'lookup_failed' }, { status: 500 });
   }
   if (!gameData) {
+    log('not_found');
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
   const game = gameData as GameRow;
 
   if (game.status !== 'active') {
+    log('not_active');
     return NextResponse.json({ error: 'not_active' }, { status: 409 });
   }
   if (userId !== game.white_id && userId !== game.black_id) {
+    log('not_player');
     return NextResponse.json({ error: 'not_player' }, { status: 403 });
   }
 
@@ -78,12 +97,15 @@ export async function POST(
     .eq('status', 'active')
     .select('*')
     .maybeSingle();
+  timer.mark('write');
   if (updErr) {
     console.error('[games/resign] update failed', updErr);
+    log('resign_failed');
     return NextResponse.json({ error: 'resign_failed' }, { status: 500 });
   }
   if (!ended) {
     // Someone finalised the game between our read and write.
+    log('not_active');
     return NextResponse.json({ error: 'not_active' }, { status: 409 });
   }
 
@@ -96,7 +118,8 @@ export async function POST(
     whiteMs: clocks.whiteMs,
     blackMs: clocks.blackMs,
   };
-  await broadcastGameEvent(gameId, 'game.end', payload);
+  after(() => broadcastGameEvent(gameId, 'game.end', payload));
 
+  log('ok');
   return NextResponse.json(payload, { status: 200 });
 }

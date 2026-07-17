@@ -1,8 +1,9 @@
 import 'server-only';
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { broadcastGameEvent } from '@/lib/live-game/broadcast';
+import { logLiveGameEvent, createStageTimer } from '@/lib/live-game/log';
 import type { GameRow } from '@/lib/live-game/types';
 
 // Online play (phase 2) — idempotent accept of a challenge.
@@ -28,30 +29,48 @@ export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ gameId: string }> },
 ) {
+  const timer = createStageTimer();
   const { userId } = await auth();
+  const { gameId } = await params;
+  const log = (outcome: string) =>
+    logLiveGameEvent({
+      source: 'server',
+      action: 'join',
+      gameId,
+      userId,
+      outcome,
+      durationMs: timer.total(),
+      stages: timer.stages,
+    });
+  timer.mark('auth');
   if (!userId) {
+    log('unauthorized');
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  const { gameId } = await params;
 
   const { data: gameData, error: loadErr } = await supabaseAdmin
     .from('games')
     .select('*')
     .eq('id', gameId)
     .maybeSingle();
+  timer.mark('load');
   if (loadErr) {
     console.error('[games/join] load failed', loadErr);
+    log('lookup_failed');
     return NextResponse.json({ error: 'lookup_failed' }, { status: 500 });
   }
   if (!gameData) {
+    log('not_found');
     return NextResponse.json({ error: 'not_found' }, { status: 404 });
   }
   const game = gameData as GameRow;
 
   if (game.creator_id === userId) {
+    log('cannot_join_own');
     return NextResponse.json({ error: 'cannot_join_own' }, { status: 403 });
   }
   if (game.status !== 'challenge') {
+    log('not_open');
     return NextResponse.json({ error: 'not_open' }, { status: 409 });
   }
   if (game.expires_at && new Date(game.expires_at).getTime() < Date.now()) {
@@ -61,6 +80,7 @@ export async function POST(
       .update({ status: 'expired' })
       .eq('id', gameId)
       .eq('status', 'challenge');
+    log('expired');
     return NextResponse.json({ error: 'expired' }, { status: 410 });
   }
 
@@ -86,27 +106,33 @@ export async function POST(
     .eq('status', 'challenge')
     .select('*')
     .maybeSingle();
+  timer.mark('write');
   if (updErr) {
     console.error('[games/join] accept update failed', updErr);
+    log('accept_failed');
     return NextResponse.json({ error: 'accept_failed' }, { status: 500 });
   }
   if (!updated) {
     // Someone else accepted between our read and write.
+    log('already_taken');
     return NextResponse.json({ error: 'already_taken' }, { status: 409 });
   }
   const row = updated as GameRow;
 
-  await broadcastGameEvent(gameId, 'game.start', {
-    gameId,
-    status: row.status,
-    fen: row.fen,
-    whiteId: row.white_id,
-    blackId: row.black_id,
-    whiteMs: row.white_ms,
-    blackMs: row.black_ms,
-    lastMoveAt: row.last_move_at,
-  });
+  after(() =>
+    broadcastGameEvent(gameId, 'game.start', {
+      gameId,
+      status: row.status,
+      fen: row.fen,
+      whiteId: row.white_id,
+      blackId: row.black_id,
+      whiteMs: row.white_ms,
+      blackMs: row.black_ms,
+      lastMoveAt: row.last_move_at,
+    }),
+  );
 
+  log('ok');
   return NextResponse.json(
     {
       gameId,

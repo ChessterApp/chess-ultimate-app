@@ -2,6 +2,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { logLiveGameEvent, createStageTimer } from '@/lib/live-game/log';
 import type { ColorChoice } from '@/lib/live-game/types';
 
 // Online play (phase 2) — create a challenge link.
@@ -18,8 +19,22 @@ function isValidTimeControl(v: unknown): v is number | undefined | null {
 }
 
 export async function POST(req: NextRequest) {
+  const timer = createStageTimer();
   const { userId } = await auth();
+  let gameId: string | null = null;
+  const log = (outcome: string) =>
+    logLiveGameEvent({
+      source: 'server',
+      action: 'challenge',
+      gameId,
+      userId,
+      outcome,
+      durationMs: timer.total(),
+      stages: timer.stages,
+    });
+  timer.mark('auth');
   if (!userId) {
+    log('unauthorized');
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -31,14 +46,17 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
+    log('bad_json');
     return NextResponse.json({ error: 'bad_json' }, { status: 400 });
   }
 
   const colorChoice = body.colorChoice as ColorChoice | undefined;
   if (!colorChoice || !VALID_COLORS.has(colorChoice)) {
+    log('invalid_color');
     return NextResponse.json({ error: 'invalid_color' }, { status: 400 });
   }
   if (!isValidTimeControl(body.initialSec) || !isValidTimeControl(body.incrementSec)) {
+    log('invalid_time_control');
     return NextResponse.json({ error: 'invalid_time_control' }, { status: 400 });
   }
 
@@ -64,13 +82,16 @@ export async function POST(req: NextRequest) {
     })
     .select('id')
     .single();
+  timer.mark('insert');
 
   if (error || !data) {
     console.error('[games/challenge] insert failed', error);
+    log('create_failed');
     return NextResponse.json({ error: 'create_failed' }, { status: 500 });
   }
 
-  const gameId = (data as { id: string }).id;
+  gameId = (data as { id: string }).id;
   const url = `${new URL(req.url).origin}/play/live/${gameId}`;
+  log('ok');
   return NextResponse.json({ gameId, url }, { status: 201 });
 }

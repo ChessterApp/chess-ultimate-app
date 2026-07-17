@@ -3,6 +3,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@clerk/nextjs/server', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/live-game/broadcast', () => ({ broadcastGameEvent: vi.fn() }));
 
+// Stage A: run next/server `after()` callbacks synchronously so the broadcast
+// assertions still fire, and stub the telemetry logger to keep it out of the way.
+vi.mock('next/server', async () => {
+  const actual = await vi.importActual<typeof import('next/server')>('next/server');
+  return { ...actual, after: (fn: () => unknown) => { fn(); } };
+});
+vi.mock('@/lib/live-game/log', () => ({
+  logLiveGameEvent: vi.fn(),
+  createStageTimer: () => ({ stages: {}, mark: () => {}, total: () => 0 }),
+}));
+
 vi.mock('@/lib/supabase-admin', async () => {
   const m = await import('@/test/liveGameSupabaseMock');
   return { supabaseAdmin: { from: (t: string) => m.makeBuilder(t) } };
