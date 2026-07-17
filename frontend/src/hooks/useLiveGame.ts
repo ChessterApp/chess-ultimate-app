@@ -114,7 +114,9 @@ export function useLiveGame(gameId: string): UseLiveGame {
 
   // Stable token getter for the Supabase client (Clerk's getToken accepts
   // optional options — narrow it to the () => Promise<string|null> shape).
-  const tokenFn = useCallback(() => getToken(), [getToken]);
+  // The `supabase` JWT template adds the `role: authenticated` claim that
+  // Supabase third-party auth requires; the default session token lacks it.
+  const tokenFn = useCallback(() => getToken({ template: 'supabase' }), [getToken]);
 
   const safeDispatch = useCallback((action: Parameters<typeof dispatch>[0]) => {
     if (mountedRef.current) dispatch(action);
