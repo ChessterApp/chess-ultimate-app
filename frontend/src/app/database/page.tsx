@@ -1536,9 +1536,12 @@ export default function DebutPage() {
         </Box>
       )}
 
-      {/* Master DB stats strip — auto-updates after weekly TWIC Phase 1 indexing */}
-      {masterDbGameCount !== null && (
-        <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 } }}>
+      {/* Master DB stats strip — auto-updates after weekly TWIC Phase 1 indexing.
+          Height is reserved up-front (container always rendered) so the async
+          pop-in never shifts the board below it — a shift desyncs chessground's
+          cached pointer bounds and taps land one rank off. */}
+      <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, height: { xs: 42, sm: 50 }, boxSizing: 'border-box' }}>
+        {masterDbGameCount !== null && (
           <Box
             sx={{
               display: 'inline-flex',
@@ -1558,8 +1561,8 @@ export default function DebutPage() {
               {masterDbGameCount.toLocaleString()} games
             </Typography>
           </Box>
-        </Box>
-      )}
+        )}
+      </Box>
 
       {/* Mode switcher + Tab bar */}
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>

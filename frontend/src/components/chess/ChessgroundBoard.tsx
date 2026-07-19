@@ -88,6 +88,20 @@ export default function ChessgroundBoard({
     return () => observer.disconnect();
   }, [boardSize]);
 
+  // Chessground memoizes the board's getBoundingClientRect() and only clears
+  // it on window resize — a pure layout shift (async content above the board
+  // pushing it down without resizing it) leaves the pointer→square mapping
+  // offset by the shift amount, so taps register one rank off. Re-measure on
+  // any document-level layout change.
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      cgRef.current?.redrawAll();
+    });
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, []);
+
   const responsiveBoardSize =
     containerWidth && containerWidth > 0
       ? Math.min(containerWidth, MAX_DEFAULT_BOARD_SIZE)
