@@ -644,6 +644,9 @@ export default function DebutPage() {
   const currentTreeRef = useRef(currentTree);
   currentTreeRef.current = currentTree;
 
+  // FEN history for browsing without a repertoire (moves aren't persisted)
+  const noRepHistoryRef = useRef<string[]>([]);
+
   // ─── Fetch repertoires on mount ───
   useEffect(() => { fetchRepertoires(); }, [fetchRepertoires]);
 
@@ -1114,7 +1117,13 @@ export default function DebutPage() {
   const handleBoardMove = useCallback(async (
     from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
   ) => {
-    if (!selectedNodeRef.current || !selectedRepertoireId || !currentTreeRef.current) return;
+    if (!selectedNodeRef.current || !selectedRepertoireId || !currentTreeRef.current) {
+      // No repertoire loaded — browse the master DB without persistence.
+      // Games list and candidate moves follow boardFen via their public fallbacks.
+      setBoardFen(newFen);
+      noRepHistoryRef.current.push(newFen);
+      return;
+    }
 
     // Optimistic: update board FEN immediately so the piece stays in place
     setBoardFen(newFen);
@@ -1148,42 +1157,56 @@ export default function DebutPage() {
 
   // Handle move tree click — navigate to the child node matching the clicked move
   const handleMoveTreeClick = useCallback((move: MoveCandidate) => {
-    if (!selectedNode || !currentTree) return;
-    // Look for existing child with matching UCI
-    const child = selectedNode.children?.find(c => c.move_uci === move.uci);
-    if (child) {
-      handleNodeSelect(child);
-      return;
+    // Look for existing child with matching UCI (repertoire mode only)
+    if (selectedNode && currentTree) {
+      const child = selectedNode.children?.find(c => c.move_uci === move.uci);
+      if (child) {
+        handleNodeSelect(child);
+        return;
+      }
     }
     // If no existing child, simulate a board move
     if (move.uci && move.uci.length >= 4) {
       const from = move.uci.substring(0, 2);
       const to = move.uci.substring(2, 4);
+      const baseFen = selectedNode?.fen ?? boardFen;
       import('chess.js').then(({ Chess }) => {
-        const chess = new Chess(selectedNode.fen);
+        const chess = new Chess(baseFen);
         const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
         if (result) {
           handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
         }
       });
     }
-  }, [selectedNode, currentTree, handleNodeSelect, handleBoardMove]);
+  }, [selectedNode, currentTree, boardFen, handleNodeSelect, handleBoardMove]);
 
   // Navigation handlers
   const handleReset = useCallback(() => {
     if (currentTree) {
       handleNodeSelect(currentTree);
+      return;
     }
+    noRepHistoryRef.current = [];
+    setBoardFen(STARTING_FEN);
   }, [currentTree, handleNodeSelect]);
 
   const handleGoToStart = useCallback(() => {
     if (currentTree) {
       handleNodeSelect(currentTree);
+      return;
     }
+    noRepHistoryRef.current = [];
+    setBoardFen(STARTING_FEN);
   }, [currentTree, handleNodeSelect]);
 
   const handlePrev = useCallback(() => {
-    if (!selectedNode?.parent_id || !currentTree) return;
+    if (!currentTree) {
+      const history = noRepHistoryRef.current;
+      history.pop();
+      setBoardFen(history[history.length - 1] ?? STARTING_FEN);
+      return;
+    }
+    if (!selectedNode?.parent_id) return;
     const parent = findNode(currentTree, selectedNode.parent_id);
     if (parent) handleNodeSelect(parent);
   }, [selectedNode, currentTree, findNode, handleNodeSelect]);
