@@ -94,6 +94,16 @@ import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
+// Suspended in-flight requests (e.g. iOS backgrounding the service worker) never
+// settle, leaving loading state stuck forever — force-reject so the UI recovers.
+const FETCH_TIMEOUT_MS = 12000;
+function withTimeout<T>(promise: Promise<T>, ms = FETCH_TIMEOUT_MS): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('fetch timeout')), ms)),
+  ]);
+}
+
 export default function DebutPage() {
   const t = useTranslations('debut');
   const backendHealthy = useBackendHealth();
@@ -805,7 +815,7 @@ export default function DebutPage() {
             }));
         })();
 
-    fetchPromise
+    withTimeout(fetchPromise)
       .then((data) => {
         if (!cancelled) {
           // Deduplicate by game ID to prevent visual duplicates
@@ -866,7 +876,7 @@ export default function DebutPage() {
             moves: Array.isArray(data.moves) ? data.moves : [],
           }));
 
-    fetchPromise
+    withTimeout(fetchPromise)
       .then((data) => {
         if (!cancelled) {
           setCandidateMoves(data.moves);
@@ -1165,19 +1175,29 @@ export default function DebutPage() {
         return;
       }
     }
-    // If no existing child, simulate a board move
-    if (move.uci && move.uci.length >= 4) {
-      const from = move.uci.substring(0, 2);
-      const to = move.uci.substring(2, 4);
-      const baseFen = selectedNode?.fen ?? boardFen;
-      import('chess.js').then(({ Chess }) => {
-        const chess = new Chess(baseFen);
-        const result = chess.move({ from, to, promotion: move.uci.length > 4 ? move.uci[4] : undefined });
-        if (result) {
-          handleBoardMove(from, to, '', chess.fen(), result.san, move.uci);
-        }
-      });
-    }
+    // If no existing child, simulate a board move.
+    // The public candidates endpoint returns empty uci, so fall back to SAN.
+    const baseFen = selectedNode?.fen ?? boardFen;
+    import('chess.js').then(({ Chess }) => {
+      const chess = new Chess(baseFen);
+      let result = null;
+      try {
+        result = move.uci && move.uci.length >= 4
+          ? chess.move({
+              from: move.uci.substring(0, 2),
+              to: move.uci.substring(2, 4),
+              promotion: move.uci.length > 4 ? move.uci[4] : undefined,
+            })
+          : move.san
+            ? chess.move(move.san)
+            : null;
+      } catch {
+        result = null;
+      }
+      if (result) {
+        handleBoardMove(result.from, result.to, '', chess.fen(), result.san, result.from + result.to + (result.promotion ?? ''));
+      }
+    });
   }, [selectedNode, currentTree, boardFen, handleNodeSelect, handleBoardMove]);
 
   // Navigation handlers
@@ -2013,6 +2033,7 @@ export default function DebutPage() {
                   {/* Master Games + Linked Games */}
                   <NodeDetailsPanel
                     node={selectedNode}
+                    fallbackFen={boardFen}
                     onUpdateNotes={handleUpdateNotes}
                     onToggleCritical={handleToggleCritical}
                     onDeleteNode={handleDeleteNode}

@@ -21,6 +21,8 @@ import EmptyState from './EmptyState';
 
 interface NodeDetailsPanelProps {
   node: OpeningNode | null;
+  /** Board FEN to use when no repertoire node is selected (browse mode) */
+  fallbackFen?: string;
   onUpdateNotes: (nodeId: string, notes: string) => Promise<void>;
   onToggleCritical: (nodeId: string, isCritical: boolean) => Promise<void>;
   onDeleteNode: (nodeId: string) => Promise<void>;
@@ -40,7 +42,7 @@ interface NodeDetailsPanelProps {
 }
 
 export default function NodeDetailsPanel({
-  node, onUpdateNotes, onToggleCritical, onDeleteNode,
+  node, fallbackFen, onUpdateNotes, onToggleCritical, onDeleteNode,
   onSearchGames, gameLinks, gameLinksLoading,
   masterGames = [], masterGamesTotal = 0, masterGamesLoading = false,
   onOpenGame,
@@ -161,10 +163,10 @@ export default function NodeDetailsPanel({
               </Box>
             )}
 
-            {masterGamesTotal > masterGames.length && (
+            {masterGamesTotal > masterGames.length && (node?.fen || fallbackFen) && (
               <Button
                 size="small"
-                onClick={() => onSearchGames(node!.fen)}
+                onClick={() => onSearchGames(node?.fen ?? fallbackFen!)}
                 sx={{ color: '#14b8a6', fontSize: 11, textTransform: 'none', mt: 0.5 }}
               >
                 {t('viewAllGames', { count: (masterGamesTotal ?? 0).toLocaleString() })}
