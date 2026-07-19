@@ -3,7 +3,7 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createSubscriber, blocklistSubscriber, LISTS } from '@/lib/listmonk';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { findStudentsByParentEmail } from '@/lib/chess-empire-client';
+import { findStudentsByParentEmail, findCoachesByEmail } from '@/lib/chess-empire-client';
 import { logLinkAttempt, upsertMemberLink, linkMemberViaInviteJwt } from '@/lib/chess-empire-jwt-link';
 
 type ClerkWebhookEvent = {
@@ -117,6 +117,66 @@ async function tryEmailAutoMatch(
   }
 
   if (candidates.length === 0) {
+    // No student matched this email. Coaches sign up through the same flow,
+    // and a bare coach signup (Shokan) slipped through because we only checked
+    // students.parent_email — additionally try an exact, case-insensitive CE
+    // coaches.email match before giving up. A student match always wins because
+    // we only reach here when there were zero student candidates.
+    let coaches;
+    try {
+      coaches = await findCoachesByEmail(orgId, email);
+    } catch (err) {
+      await logLinkAttempt({
+        organization_id: orgId,
+        user_id: clerkUserId,
+        email,
+        attempted_source: 'email_auto',
+        status: 'webhook_error',
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+
+    if (coaches.length === 1) {
+      const coach = coaches[0];
+      try {
+        await upsertMemberLink({
+          orgId,
+          clerkUserId,
+          studentId: coach.id,
+          linkStatus: 'pending_confirm',
+          linkSource: 'email_auto',
+          memberType: 'coach',
+        });
+      } catch (err) {
+        await logLinkAttempt({
+          organization_id: orgId,
+          user_id: clerkUserId,
+          email,
+          attempted_source: 'email_auto',
+          status: 'webhook_error',
+          candidate_student_ids: [coach.id],
+          chosen_student_id: coach.id,
+          error_message: err instanceof Error ? err.message : String(err),
+        });
+        return;
+      }
+      await logLinkAttempt({
+        organization_id: orgId,
+        user_id: clerkUserId,
+        email,
+        attempted_source: 'email_auto',
+        status: 'success',
+        candidate_student_ids: [coach.id],
+        chosen_student_id: coach.id,
+      });
+      console.info(
+        `[clerk-webhook] email_auto matched user=${clerkUserId} coach=${coach.id} org=${orgId} (pending_confirm)`,
+      );
+      return;
+    }
+
+    // Zero or multiple coach matches → unchanged no_match behavior.
     await logLinkAttempt({
       organization_id: orgId,
       user_id: clerkUserId,

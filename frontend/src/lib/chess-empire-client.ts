@@ -375,6 +375,57 @@ export async function findStudentsByParentEmail(
   return expectJson<CEStudent[]>(resp);
 }
 
+/**
+ * Look up CE `coaches` rows by `email` (exact, case-insensitive).
+ *
+ * The webhook email fallback checks `students.parent_email` first; when that
+ * finds nothing it also tries this so a coach who signs up bare on the
+ * white-label welcome flow (their `coaches.email` matching the sign-up email)
+ * still gets soft-linked instead of being stranded on `no_match`.
+ *
+ * PostgREST `ilike` without wildcards is a case-insensitive exact compare, but
+ * a `%`/`_` embedded in the address would be treated as a wildcard — the JS
+ * `toLowerCase()` filter re-checks equality so only true exact matches survive.
+ *
+ * `orgId` is accepted for symmetry with `findStudentsByParentEmail` but not
+ * filtered on — CE data doesn't carry a Chesster org id; the webhook only calls
+ * this for Chess Empire signups, so scoping is enforced upstream.
+ */
+export async function findCoachesByEmail(
+  _orgId: string,
+  email: string,
+): Promise<CECoachProfile[]> {
+  const key = getServiceKey();
+  const trimmed = (email || '').trim();
+  if (!trimmed) return [];
+  const params = new URLSearchParams({
+    email: `ilike.${trimmed}`,
+    select: 'id,first_name,last_name,branch_id,email,photo_url,bio',
+    limit: '10',
+  });
+  const url = `${ceRestBase()}/coaches?${params.toString()}`;
+  const resp = await ceFetch(url, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  });
+  const rows = await expectJson<Array<Record<string, unknown>>>(resp);
+  const lower = trimmed.toLowerCase();
+  return rows
+    .map((row) => ({
+      id: String(row.id),
+      first_name: (row.first_name as string | null) ?? '',
+      last_name: (row.last_name as string | null) ?? '',
+      branch_id: (row.branch_id as string | null) ?? '',
+      email: (row.email as string | null | undefined) ?? null,
+      photo_url: (row.photo_url as string | null | undefined) ?? null,
+      bio: (row.bio as string | null | undefined) ?? null,
+    }))
+    .filter((c) => (c.email ?? '').trim().toLowerCase() === lower);
+}
+
 function toFiniteNumber(v: unknown): number | null {
   const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN;
   return Number.isFinite(n) ? n : null;

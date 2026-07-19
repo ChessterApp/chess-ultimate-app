@@ -179,8 +179,10 @@ vi.mock('@/lib/listmonk', () => ({
 
 // ---- CE client mock --------------------------------------------------------
 const findByEmail = vi.fn();
+const findCoaches = vi.fn();
 vi.mock('@/lib/chess-empire-client', () => ({
   findStudentsByParentEmail: (...args: unknown[]) => findByEmail(...args),
+  findCoachesByEmail: (...args: unknown[]) => findCoaches(...args),
 }));
 
 // ---- imports under test (must come after mocks) ----------------------------
@@ -259,6 +261,8 @@ beforeEach(() => {
   blocklistSubscriber.mockReset();
   findByEmail.mockReset();
   findByEmail.mockResolvedValue([]);
+  findCoaches.mockReset();
+  findCoaches.mockResolvedValue([]);
   resetState();
 });
 
@@ -485,6 +489,88 @@ describe('POST /api/webhooks/clerk — user.created — JWT missing / expired / 
     expect(state.upserts).toHaveLength(1);
     expect(state.upserts[0].payload.link_status).toBe('pending_confirm');
     expect(state.upserts[0].payload.external_student_id).toBe('stu-vasco');
+  });
+});
+
+describe('POST /api/webhooks/clerk — user.created — coach email fallback', () => {
+  it('no student + SINGLE coach email match → links as coach (pending_confirm) + success attempt', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([]);
+    findCoaches.mockResolvedValue([
+      {
+        id: 'coach-shokan',
+        first_name: 'Shokan',
+        last_name: 'Karimov',
+        branch_id: 'br',
+        email: 'karimov.shokan@gmail.com',
+      },
+    ]);
+    const res = await POST(
+      makeRequest(makeEvent({ inviteJwt: null, email: 'karimov.shokan@gmail.com' })),
+    );
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toHaveLength(1);
+    const up = state.upserts[0];
+    expect(up.table).toBe('organization_members');
+    expect(up.payload.role).toBe('coach');
+    expect(up.payload.link_status).toBe('pending_confirm');
+    expect(up.payload.link_source).toBe('email_auto');
+    expect(up.payload.external_student_id).toBe('coach-shokan');
+    expect(up.payload.link_verified_at).toBeUndefined();
+
+    const successes = attemptsForStatus('success');
+    expect(successes).toHaveLength(1);
+    expect(successes[0].attempted_source).toBe('email_auto');
+    expect(successes[0].chosen_student_id).toBe('coach-shokan');
+    expect(attemptsForStatus('no_match')).toHaveLength(0);
+    // Student lookup ran first, then the coach fallback.
+    expect(findByEmail).toHaveBeenCalledTimes(1);
+    expect(findCoaches).toHaveBeenCalledTimes(1);
+  });
+
+  it('no student + MULTIPLE coach email matches → no_match, no writes', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([]);
+    findCoaches.mockResolvedValue([
+      { id: 'coach-a', first_name: 'A', last_name: '', branch_id: 'b', email: 'dup@x.com' },
+      { id: 'coach-b', first_name: 'B', last_name: '', branch_id: 'b', email: 'dup@x.com' },
+    ]);
+    const res = await POST(
+      makeRequest(makeEvent({ inviteJwt: null, email: 'dup@x.com' })),
+    );
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toEqual([]);
+    expect(attemptsForStatus('no_match')).toHaveLength(1);
+    expect(attemptsForStatus('success')).toHaveLength(0);
+  });
+
+  it('student match takes precedence — coach lookup never runs', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([
+      {
+        id: 'stu-matched',
+        first_name: 'Aiman',
+        last_name: 'K',
+        branch_id: 'br',
+        status: 'active',
+        date_of_birth: null,
+      },
+    ]);
+    // Even if a coach shared the email, the single student wins.
+    findCoaches.mockResolvedValue([
+      { id: 'coach-x', first_name: 'X', last_name: '', branch_id: 'b', email: 'shared@x.com' },
+    ]);
+    const res = await POST(
+      makeRequest(makeEvent({ inviteJwt: null, email: 'shared@x.com' })),
+    );
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toHaveLength(1);
+    expect(state.upserts[0].payload.role).toBe('student');
+    expect(state.upserts[0].payload.external_student_id).toBe('stu-matched');
+    expect(findCoaches).not.toHaveBeenCalled();
   });
 });
 
