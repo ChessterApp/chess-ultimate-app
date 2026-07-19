@@ -3,10 +3,15 @@
 import { SignUp } from '@clerk/nextjs'
 import { useTranslations } from 'next-intl'
 import Image from 'next/image'
-import { useSearchParams } from 'next/navigation'
-import { useEffect, useMemo } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useMemo, useState } from 'react'
 import { useBranding, useOrganization } from '@/contexts/OrganizationContext'
-import { CE_INVITE_JWT_STORAGE_KEY } from '@/lib/invite-storage'
+import {
+  CE_INVITE_JWT_STORAGE_KEY,
+  clearInviteOnboardingState,
+  readWelcomeOnboardingUrl,
+} from '@/lib/invite-storage'
+import { computeSignupGuard } from '@/lib/signup-guard'
 
 interface InvitePreview {
   firstName: string | null
@@ -45,12 +50,37 @@ function previewInvite(jwt: string | null): InvitePreview | null {
 export default function SignUpPage() {
   const t = useTranslations()
   const branding = useBranding()
+  const router = useRouter()
   const { isWhiteLabel, org } = useOrganization()
   const searchParams = useSearchParams()
   const inviteJwt = searchParams?.get('invite') ?? null
   const invite = useMemo(() => previewInvite(inviteJwt), [inviteJwt])
   const isChessEmpire = org?.slug === 'chess-empire'
   const hasValidInvite = !!inviteJwt && invite !== null && !invite.expired
+
+  // Bare-registration guard: on a white-label org domain a sign-up MUST arrive
+  // through the welcome flow with a valid invite JWT. Without one, clear any
+  // stale invite/onboarding state and bounce back to onboarding so the user
+  // re-does find-yourself → confirm. Main-domain sign-up is unaffected. Runs
+  // client-side only (storage + host resolution), so it gates rendering via
+  // `blocked` to avoid flashing the form before the redirect.
+  const [blocked, setBlocked] = useState(false)
+  useEffect(() => {
+    const decision = computeSignupGuard({
+      isWhiteLabel,
+      hasValidInvite,
+      storedWelcomeUrl: readWelcomeOnboardingUrl(),
+    })
+    if (decision.action === 'redirect') {
+      clearInviteOnboardingState()
+      // Client-only gate: the decision depends on sessionStorage + host, which
+      // aren't available during SSR/first paint, so it must live in an effect.
+      // Deriving it at render time would cause a hydration mismatch.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setBlocked(true)
+      router.replace(decision.target)
+    }
+  }, [isWhiteLabel, hasValidInvite, router])
 
   // Persist the invite JWT so the dashboard's no_link poller can replay it to
   // /link/claim if Clerk drops unsafeMetadata during an OAuth redirect. Written
@@ -70,6 +100,17 @@ export default function SignUpPage() {
   const heading = isWhiteLabel
     ? `${t('auth.signUpTitle')} · ${branding.name}`
     : t('auth.signUpTitle')
+
+  // Blocked bare sign-up: render nothing but a minimal placeholder while the
+  // redirect to onboarding is in flight, so the Clerk form never appears.
+  if (blocked) {
+    return (
+      <div
+        data-testid="signup-blocked"
+        className="flex min-h-screen items-center justify-center bg-purple-600 md:bg-gray-50"
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">

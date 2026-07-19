@@ -22,6 +22,7 @@ import { useTranslations } from 'next-intl';
 import Image from 'next/image';
 import { useBranding } from '@/contexts/OrganizationContext';
 import { usePhaseHistory } from '@/hooks/usePhaseHistory';
+import { persistWelcomeOnboardingUrl } from '@/lib/invite-storage';
 
 interface WelcomeFlowProps {
   branchToken: string;
@@ -67,6 +68,15 @@ export default function WelcomeFlow({
   const [selected, setSelected] = useState<StudentResult | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+
+  // Persist where onboarding started so the sign-up guard can bounce an
+  // abandoned bare sign-up back here (white-label domains only). Runs once on
+  // mount — the welcome page URL is stable for the life of the flow.
+  useEffect(() => {
+    persistWelcomeOnboardingUrl(
+      window.location.pathname + window.location.search,
+    );
+  }, []);
 
   // Debounce the query.
   useEffect(() => {

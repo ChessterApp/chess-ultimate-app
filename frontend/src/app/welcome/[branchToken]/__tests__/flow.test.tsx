@@ -101,6 +101,14 @@ describe('WelcomeFlow', () => {
     expect(container.querySelector('#welcome-search')).not.toBeNull();
   });
 
+  it('persists the welcome URL in sessionStorage on mount', () => {
+    sessionStorage.clear();
+    renderFlow();
+    expect(sessionStorage.getItem('ce_welcome_url')).toBe(
+      window.location.pathname + window.location.search,
+    );
+  });
+
   it('does not search for query shorter than 2 chars', async () => {
 
     const { container } = renderFlow();
