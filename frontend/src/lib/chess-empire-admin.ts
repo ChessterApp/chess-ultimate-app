@@ -454,6 +454,8 @@ export interface AdminLinkArgs {
   actorClerkUserId: string;
   notes?: string | null;
   source?: 'admin_manual' | 'backfill';
+  /** Member role written to the row. Defaults to 'student'. */
+  memberType?: 'student' | 'coach';
 }
 
 /**
@@ -475,6 +477,7 @@ export async function adminLinkStudent(
     actorClerkUserId,
     notes = null,
     source = 'admin_manual',
+    memberType = 'student',
   } = args;
   if (!orgId || !targetUserId || !studentId) {
     throw new Error('adminLinkStudent: orgId, targetUserId, studentId required');
@@ -496,7 +499,7 @@ export async function adminLinkStudent(
   const nowIso = new Date().toISOString();
   const commonPatch: Record<string, unknown> = {
     user_id: targetUserId,
-    role: 'student',
+    role: memberType === 'coach' ? 'coach' : 'student',
     link_status: 'verified',
     link_source: source,
     link_approved_by: actorClerkUserId,

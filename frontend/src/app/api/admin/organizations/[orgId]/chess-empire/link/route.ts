@@ -19,6 +19,7 @@ interface Body {
   studentId?: string;
   notes?: string | null;
   source?: 'admin_manual' | 'backfill';
+  memberType?: 'student' | 'coach';
 }
 
 export async function POST(
@@ -45,6 +46,14 @@ export async function POST(
       { status: 400 },
     );
   }
+  if (
+    body.memberType !== undefined &&
+    body.memberType !== 'student' &&
+    body.memberType !== 'coach'
+  ) {
+    return NextResponse.json({ error: 'invalid_memberType' }, { status: 400 });
+  }
+  const memberType = body.memberType === 'coach' ? 'coach' : 'student';
 
   try {
     const member = await adminLinkStudent({
@@ -54,6 +63,7 @@ export async function POST(
       actorClerkUserId: guard.userId,
       notes,
       source,
+      memberType,
     });
     await logAdminLinkAttempt({
       orgId,

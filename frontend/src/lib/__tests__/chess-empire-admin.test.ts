@@ -11,6 +11,7 @@ import {
   rotateBranchToken,
   revokeBranchToken,
   insertBranchToken,
+  adminLinkStudent,
   freezeMember,
   unfreezeMember,
   revokeMember,
@@ -334,6 +335,61 @@ describe('insertBranchToken', () => {
     const insertOp = ops.find((o) => o.op === 'insert');
     expect(insertOp?.payload?.external_branch_id).toBe('br-1');
     expect(insertOp?.payload?.branch_name).toBe('Debut');
+  });
+});
+
+describe('adminLinkStudent — member role', () => {
+  it('defaults role to student on a fresh insert', async () => {
+    scripts.organization_members = {
+      insertRow: { id: 'm-new', role: 'student', external_student_id: 's-1' },
+    };
+    await adminLinkStudent({
+      orgId: 'org-1',
+      targetUserId: 'user-1',
+      studentId: 's-1',
+      actorClerkUserId: 'admin-1',
+    });
+    const insertOp = ops.find(
+      (o) => o.op === 'insert' && o.table === 'organization_members',
+    );
+    expect(insertOp?.payload?.role).toBe('student');
+    expect(insertOp?.payload?.external_student_id).toBe('s-1');
+  });
+
+  it('writes role:coach when memberType=coach', async () => {
+    scripts.organization_members = {
+      insertRow: { id: 'm-new', role: 'coach', external_student_id: 'c-1' },
+    };
+    await adminLinkStudent({
+      orgId: 'org-1',
+      targetUserId: 'user-1',
+      studentId: 'c-1',
+      actorClerkUserId: 'admin-1',
+      memberType: 'coach',
+    });
+    const insertOp = ops.find(
+      (o) => o.op === 'insert' && o.table === 'organization_members',
+    );
+    expect(insertOp?.payload?.role).toBe('coach');
+    expect(insertOp?.payload?.external_student_id).toBe('c-1');
+  });
+
+  it('threads role:coach through the existing-student update path', async () => {
+    scripts.organization_members = {
+      existingActiveIds: ['m-existing'],
+      updateRow: { id: 'm-existing', role: 'coach' },
+    };
+    await adminLinkStudent({
+      orgId: 'org-1',
+      targetUserId: 'user-1',
+      studentId: 'c-1',
+      actorClerkUserId: 'admin-1',
+      memberType: 'coach',
+    });
+    const updateOp = ops.find(
+      (o) => o.op === 'update' && o.table === 'organization_members',
+    );
+    expect(updateOp?.patch?.role).toBe('coach');
   });
 });
 
