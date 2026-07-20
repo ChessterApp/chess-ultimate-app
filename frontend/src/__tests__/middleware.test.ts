@@ -7,11 +7,13 @@ vi.mock('@clerk/nextjs/server', () => ({
       // Simulate Clerk middleware: invoke handler; if it calls auth.protect()
       // and there's no session cookie, redirect to /sign-in. Otherwise NextResponse.next().
       let protectCalled = false;
-      const fakeAuth = {
+      // Real Clerk `auth` is callable (session resolution) and also carries
+      // .protect() — the pass-through middleware now calls `await auth()`.
+      const fakeAuth = Object.assign(async () => ({ userId: null }), {
         protect: async () => {
           protectCalled = true;
         },
-      };
+      });
       await handler(fakeAuth, req);
       const hasSession = req.cookies?.get?.('__session');
       if (protectCalled && !hasSession) {
