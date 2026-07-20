@@ -15,6 +15,11 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: routerReplace, push: vi.fn() }),
 }));
 
+const authStore = { isSignedIn: false as boolean };
+vi.mock('@clerk/nextjs', () => ({
+  useAuth: () => ({ isSignedIn: authStore.isSignedIn }),
+}));
+
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string, opts?: Record<string, unknown>) =>
     opts ? `${key}:${Object.values(opts).join(',')}` : key,
@@ -64,6 +69,7 @@ let fetchHandler: (call: FetchCall) => Promise<MockResponse>;
 beforeEach(() => {
   fetchCalls = [];
   fetchHandler = async () => jsonResponse({ results: [] });
+  authStore.isSignedIn = false;
   routerReplace.mockReset();
   global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -180,6 +186,72 @@ describe('WelcomeFlow', () => {
     });
     await waitFor(() => {
       expect(routerReplace).toHaveBeenCalledWith('/sign-up?invite=jwt.token.sig');
+    });
+  });
+
+  it('already signed-in: claims server-side and redirects to /dashboard (never /sign-up)', async () => {
+    authStore.isSignedIn = true;
+    fetchHandler = async (call) => {
+      if (call.url.includes('/search')) return jsonResponse({ results: sampleResults });
+      if (call.url.includes('/verify')) return jsonResponse({ inviteJwt: 'jwt.token.sig' });
+      if (call.url.includes('/link/claim')) return jsonResponse({ ok: true, state: 'verified' });
+      return jsonResponse({});
+    };
+    const { container, findByTestId } = renderFlow();
+    const input = container.querySelector('#welcome-search') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'ai' } });
+    await flushDebounce();
+    const list = await findByTestId('welcome-search-results');
+    fireEvent.click(list.querySelectorAll('button')[0]);
+
+    await waitFor(() => expect(container.textContent).toContain('confirmTitle'));
+    const yesButton = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('confirmYes'),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(yesButton);
+    });
+
+    await waitFor(() => {
+      const claimCall = fetchCalls.find((c) => c.url.includes('/link/claim'));
+      expect(claimCall).toBeDefined();
+      const body = JSON.parse(claimCall!.init!.body as string);
+      expect(body).toEqual({ inviteJwt: 'jwt.token.sig' });
+    });
+    await waitFor(() => {
+      expect(routerReplace).toHaveBeenCalledWith('/dashboard');
+    });
+    // Must NOT bounce an already-authenticated user through sign-up.
+    expect(
+      routerReplace.mock.calls.some(([url]) => String(url).startsWith('/sign-up')),
+    ).toBe(false);
+  });
+
+  it('already signed-in: still redirects to /dashboard even if the claim request fails', async () => {
+    authStore.isSignedIn = true;
+    fetchHandler = async (call) => {
+      if (call.url.includes('/search')) return jsonResponse({ results: sampleResults });
+      if (call.url.includes('/verify')) return jsonResponse({ inviteJwt: 'jwt.token.sig' });
+      if (call.url.includes('/link/claim')) throw new Error('network');
+      return jsonResponse({});
+    };
+    const { container, findByTestId } = renderFlow();
+    const input = container.querySelector('#welcome-search') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'ai' } });
+    await flushDebounce();
+    const list = await findByTestId('welcome-search-results');
+    fireEvent.click(list.querySelectorAll('button')[0]);
+
+    await waitFor(() => expect(container.textContent).toContain('confirmTitle'));
+    const yesButton = Array.from(container.querySelectorAll('button')).find((b) =>
+      b.textContent?.includes('confirmYes'),
+    ) as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(yesButton);
+    });
+
+    await waitFor(() => {
+      expect(routerReplace).toHaveBeenCalledWith('/dashboard');
     });
   });
 

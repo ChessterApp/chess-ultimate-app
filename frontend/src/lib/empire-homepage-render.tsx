@@ -33,38 +33,65 @@ import {
 import type { CECoachProfile } from '@/lib/chess-empire-client';
 import { computeCoachStats } from '@/lib/empire-coach-stats';
 
+/**
+ * Discriminated result of the render pipeline. Splitting the old bare `null`
+ * lets the caller (`/dashboard`) tell WHY personalization was skipped and stop
+ * masking real failures behind the generic Chesster dashboard on tenant hosts:
+ *  - `ok`          → render `node` (verified student / coach / pending_confirm).
+ *  - `no_link`     → render `node` (the poller + "profile getting ready" screen).
+ *  - `auth_null`   → no server-side session (stale token / signed-out).
+ *  - `lookup_error`→ a required fetch threw; `error` is logged with a stable prefix.
+ */
+export type EmpireHomeResult =
+  | { status: 'ok'; node: React.ReactElement }
+  | { status: 'no_link'; node: React.ReactElement }
+  | { status: 'auth_null' }
+  | { status: 'lookup_error'; error: unknown };
+
 export async function renderEmpireHomepage(
   orgId: string,
-): Promise<React.ReactElement | null> {
+): Promise<EmpireHomeResult> {
   let userId: string | null = null;
   try {
     const session = await auth();
     userId = session.userId ?? null;
-  } catch {
-    return null;
+  } catch (err) {
+    console.error('[empire-home] auth() threw', err);
+    return { status: 'auth_null' };
   }
-  if (!userId) return null;
+  if (!userId) return { status: 'auth_null' };
 
   let membership;
   try {
     membership = await getMembershipState({ orgId, clerkUserId: userId });
   } catch (err) {
     console.error('[empire-home] member lookup failed', err);
-    return null;
+    return { status: 'lookup_error', error: err };
   }
 
   if (membership.state === 'no_link') {
     // Client wrapper polls for the async webhook / claim write and refreshes
     // into the personalized page; the static screen is its post-timeout child.
-    return (
-      <EmpireNoLinkClient>
-        <EmpireHomePage state="no_link" studentDisplayName={null} />
-      </EmpireNoLinkClient>
-    );
+    return {
+      status: 'no_link',
+      node: (
+        <EmpireNoLinkClient>
+          <EmpireHomePage state="no_link" studentDisplayName={null} />
+        </EmpireNoLinkClient>
+      ),
+    };
   }
 
   const studentId = membership.studentId;
-  if (!studentId) return null;
+  if (!studentId) {
+    // A verified/pending_confirm row with no external_student_id is a data
+    // inconsistency — surface it as a lookup error rather than a blank fallback.
+    const error = new Error(
+      `membership state ${membership.state} has no studentId`,
+    );
+    console.error('[empire-home] missing studentId', error);
+    return { status: 'lookup_error', error };
+  }
 
   // Coaches share the invite flow but live in the CE `coaches` table — the
   // student profile API 404s for them. Render the coach variant instead of
@@ -79,7 +106,7 @@ export async function renderEmpireHomepage(
 
     // Profile fetch failed — degrade to the bare name-less coach greeting.
     if (!coach) {
-      return <EmpireCoachHome coachDisplayName={null} />;
+      return { status: 'ok', node: <EmpireCoachHome coachDisplayName={null} /> };
     }
 
     const coachDisplayName =
@@ -102,16 +129,19 @@ export async function renderEmpireHomepage(
       branches.find((b) => b.id === coach!.branch_id)?.name ?? null;
     const stats = computeCoachStats(roster);
 
-    return (
-      <EmpireCoachHome
-        coachDisplayName={coachDisplayName}
-        photoUrl={coach.photo_url ?? null}
-        bio={coach.bio ?? null}
-        branchName={branchName}
-        stats={stats}
-        roster={roster}
-      />
-    );
+    return {
+      status: 'ok',
+      node: (
+        <EmpireCoachHome
+          coachDisplayName={coachDisplayName}
+          photoUrl={coach.photo_url ?? null}
+          bio={coach.bio ?? null}
+          branchName={branchName}
+          stats={stats}
+          roster={roster}
+        />
+      ),
+    };
   }
 
   let profile;
@@ -119,18 +149,21 @@ export async function renderEmpireHomepage(
     profile = await getStudentProfile(studentId);
   } catch (err) {
     console.error('[empire-home] profile fetch failed', err);
-    return null;
+    return { status: 'lookup_error', error: err };
   }
 
   const studentDisplayName = resolveStudentDisplayName(profile);
 
   if (membership.state === 'pending_confirm') {
-    return (
-      <EmpireHomePage
-        state="pending_confirm"
-        studentDisplayName={studentDisplayName}
-      />
-    );
+    return {
+      status: 'ok',
+      node: (
+        <EmpireHomePage
+          state="pending_confirm"
+          studentDisplayName={studentDisplayName}
+        />
+      ),
+    };
   }
 
   const [ratings, rank] = await Promise.all([
@@ -155,15 +188,18 @@ export async function renderEmpireHomepage(
     );
   }
 
-  return (
-    <EmpireHomePage
-      state="verified"
-      studentDisplayName={studentDisplayName}
-      profile={profile}
-      ratings={ratings}
-      rank={rank}
-      bestSurvivalScore={profile.best_survival_score ?? null}
-      bestDefeatedBot={profile.best_defeated_bot ?? null}
-    />
-  );
+  return {
+    status: 'ok',
+    node: (
+      <EmpireHomePage
+        state="verified"
+        studentDisplayName={studentDisplayName}
+        profile={profile}
+        ratings={ratings}
+        rank={rank}
+        bestSurvivalScore={profile.best_survival_score ?? null}
+        bestDefeatedBot={profile.best_defeated_bot ?? null}
+      />
+    ),
+  };
 }

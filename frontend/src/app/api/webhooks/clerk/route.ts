@@ -1,9 +1,11 @@
 import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { clerkClient } from '@clerk/nextjs/server';
 import { createSubscriber, blocklistSubscriber, LISTS } from '@/lib/listmonk';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { findStudentsByParentEmail, findCoachesByEmail } from '@/lib/chess-empire-client';
+import { getMembershipStateForUser } from '@/lib/chess-empire-member';
 import { logLinkAttempt, upsertMemberLink, linkMemberViaInviteJwt } from '@/lib/chess-empire-jwt-link';
 
 type ClerkWebhookEvent = {
@@ -271,6 +273,70 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
   }
 }
 
+type ClerkSessionData = {
+  user_id?: string;
+};
+
+/**
+ * Read a Clerk user's primary email and any invite JWT still sitting in
+ * `unsafe_metadata` — session.created events carry only `user_id`, so we have
+ * to fetch the full user to recover this context.
+ */
+async function fetchClerkUserContext(
+  clerkUserId: string,
+): Promise<{ email: string | null; inviteJwt: string | null }> {
+  try {
+    const client = await clerkClient();
+    const user = await client.users.getUser(clerkUserId);
+    const primaryId = user.primaryEmailAddressId;
+    const hit = user.emailAddresses.find((e) => e.id === primaryId);
+    const email =
+      hit?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
+    const rawJwt = (user.unsafeMetadata || {})['inviteJwt'];
+    const inviteJwt = typeof rawJwt === 'string' && rawJwt ? rawJwt : null;
+    return { email, inviteJwt };
+  } catch (err) {
+    console.error('[clerk-webhook] fetchClerkUserContext failed:', err);
+    return { email: null, inviteJwt: null };
+  }
+}
+
+/**
+ * `session.created` (sign-in) linking backstop. Pre-existing Chesster accounts
+ * never fire `user.created`, so the primary linking path is skipped entirely
+ * for them. On sign-in we re-run the same claim: a lingering invite JWT first,
+ * then parent-email / coach-email auto-match. Idempotent — a verified link is
+ * terminal, so we no-op rather than downgrade it to pending_confirm.
+ */
+async function completeChessEmpireSignIn(data: ClerkSessionData): Promise<void> {
+  const clerkUserId = data.user_id;
+  if (!clerkUserId) {
+    console.warn('[clerk-webhook] session.created without user id, skipping CE');
+    return;
+  }
+
+  // A verified CE link is terminal — never touch it again on later sign-ins.
+  let membership;
+  try {
+    membership = await getMembershipStateForUser(clerkUserId);
+  } catch (err) {
+    console.error('[clerk-webhook] session.created membership lookup failed:', err);
+    return;
+  }
+  if (membership.state === 'verified') return;
+
+  const { email, inviteJwt } = await fetchClerkUserContext(clerkUserId);
+
+  if (inviteJwt) {
+    const result = await linkMemberViaInviteJwt(inviteJwt, clerkUserId, email);
+    // Success or a hard/replay stop → done. Only soft JWT failures fall through
+    // to the email auto-match, matching the user.created behavior.
+    if (result.ok || !result.fallbackToEmail) return;
+  }
+
+  await tryEmailAutoMatch(clerkUserId, email);
+}
+
 export async function POST(req: Request) {
   const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
   if (!WEBHOOK_SECRET) {
@@ -314,6 +380,11 @@ export async function POST(req: Request) {
           console.error('[clerk-webhook] Listmonk sync failed:', err);
         }
         await completeChessEmpireOnboarding(data);
+        break;
+      }
+
+      case 'session.created': {
+        await completeChessEmpireSignIn(evt.data as ClerkSessionData);
         break;
       }
 

@@ -7,8 +7,10 @@
  * Chesster dashboard unchanged.
  */
 import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { renderEmpireHomepage } from '@/lib/empire-homepage-render';
 import ChessterDashboard from './ChessterDashboard';
+import EmpireError from './EmpireError';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,8 +20,19 @@ export default async function DashboardPage() {
   const orgSlug = headersList.get('x-org-slug');
 
   if (orgId && orgSlug === 'chess-empire') {
-    const empire = await renderEmpireHomepage(orgId);
-    if (empire) return empire;
+    // On the tenant host we NEVER fall back to the generic ChessterDashboard —
+    // that masked real auth/lookup failures as "personalization missing". Map
+    // each distinct state to an honest outcome instead.
+    const result = await renderEmpireHomepage(orgId);
+    if (result.status === 'auth_null') {
+      // Stale/absent server session — bounce through sign-in and return here.
+      redirect('/sign-in?redirect_url=/dashboard');
+    }
+    if (result.status === 'lookup_error') {
+      return <EmpireError />;
+    }
+    // 'ok' | 'no_link' — render the personalized node.
+    return result.node;
   }
 
   return <ChessterDashboard />;

@@ -16,6 +16,19 @@ vi.mock('next/headers', () => ({
   }),
 }));
 
+// redirect() throws NEXT_REDIRECT in Next; mirror that so the switch stops.
+class RedirectError extends Error {
+  constructor(public url: string) {
+    super(`NEXT_REDIRECT:${url}`);
+  }
+}
+const redirect = vi.fn((url: string) => {
+  throw new RedirectError(url);
+});
+vi.mock('next/navigation', () => ({
+  redirect: (url: string) => redirect(url),
+}));
+
 const authStore: { current: { userId: string | null } } = {
   current: { userId: null },
 };
@@ -26,13 +39,18 @@ vi.mock('@clerk/nextjs/server', () => ({
 const memberStore: {
   studentId: string | null;
   state: 'no_link' | 'pending_confirm' | 'verified';
-} = { studentId: null, state: 'no_link' };
+  throws: boolean;
+} = { studentId: null, state: 'no_link', throws: false };
 vi.mock('@/lib/chess-empire-member', () => ({
-  getMembershipState: vi.fn(async () => ({
-    state: memberStore.state,
-    studentId: memberStore.studentId,
-    memberId: memberStore.studentId ? 'mem-x' : null,
-  })),
+  getMembershipState: vi.fn(async () => {
+    if (memberStore.throws) throw new Error('membership db down');
+    return {
+      state: memberStore.state,
+      studentId: memberStore.studentId,
+      memberId: memberStore.studentId ? 'mem-x' : null,
+      role: 'student',
+    };
+  }),
 }));
 
 const ceStore: { profile: unknown } = { profile: null };
@@ -81,7 +99,9 @@ beforeEach(() => {
   authStore.current = { userId: null };
   memberStore.studentId = null;
   memberStore.state = 'no_link';
+  memberStore.throws = false;
   ceStore.profile = null;
+  redirect.mockClear();
 });
 
 afterEach(() => {
@@ -155,7 +175,7 @@ describe('/dashboard tenant delegation', () => {
     expect(queryByTestId('empire-home')).toBeNull();
   });
 
-  it('falls back to Chesster dashboard when unsigned on chess-empire', async () => {
+  it('redirects to sign-in (never Chesster dashboard) when unsigned on chess-empire', async () => {
     headersStore.current = {
       'x-org-id': 'org-ce',
       'x-org-slug': 'chess-empire',
@@ -163,10 +183,25 @@ describe('/dashboard tenant delegation', () => {
     authStore.current = { userId: null };
 
     const Page = (await import('../page')).default;
+    // auth_null → redirect() throws NEXT_REDIRECT; the generic dashboard is
+    // never reached on the tenant host.
+    await expect(Page()).rejects.toThrow('NEXT_REDIRECT');
+    expect(redirect).toHaveBeenCalledWith('/sign-in?redirect_url=/dashboard');
+  });
+
+  it('renders the error/retry UI (never Chesster dashboard) on a lookup_error on chess-empire', async () => {
+    headersStore.current = {
+      'x-org-id': 'org-ce',
+      'x-org-slug': 'chess-empire',
+    };
+    authStore.current = { userId: 'user-1' };
+    memberStore.throws = true;
+
+    const Page = (await import('../page')).default;
     const ui = await Page();
-    const { getByTestId, queryByTestId } = render(ui);
-    // renderEmpireHomepage returns null when unsigned, so we fall through.
-    expect(getByTestId('chesster-dashboard')).toBeTruthy();
+    const { getByText, queryByTestId } = render(ui);
+    expect(getByText('Retry')).toBeTruthy();
+    expect(queryByTestId('chesster-dashboard')).toBeNull();
     expect(queryByTestId('empire-home')).toBeNull();
   });
 });

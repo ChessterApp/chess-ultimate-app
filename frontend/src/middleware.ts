@@ -42,8 +42,16 @@ const clerk = clerkMiddleware(async (auth, request) => {
 // server components, but never calls auth.protect() — the per-page layout
 // (e.g. src/app/admin/layout.tsx) handles unauthenticated redirects and
 // sends them to the apex sign-in.
-const clerkPassThrough = clerkMiddleware(async () => {
-  // no-op: populates auth context, enforces nothing
+//
+// Resolving the session with `await auth()` (without protect()) lets Clerk run
+// its handshake and refresh a STALE session token server-side. Pure pass-through
+// skipped this, so old-account users (known chesster.io old-cookie issue) read
+// as signed-out in server `auth()` even while client-side Clerk showed them
+// signed in — the silent-fallback bug on tenant hosts. This only refreshes
+// tokens; it never enforces auth, so public tenant pages (welcome links,
+// landing) stay open to signed-out visitors.
+const clerkPassThrough = clerkMiddleware(async (auth) => {
+  await auth()
 })
 
 function clearClerkCookies(request: NextRequest, redirectPath: string) {

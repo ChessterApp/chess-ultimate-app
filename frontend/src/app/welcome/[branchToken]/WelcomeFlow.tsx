@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import { useTranslations } from 'next-intl';
 import Image from 'next/image';
 import { useBranding } from '@/contexts/OrganizationContext';
@@ -53,6 +54,7 @@ export default function WelcomeFlow({
 }: WelcomeFlowProps) {
   const t = useTranslations('welcome');
   const router = useRouter();
+  const { isSignedIn } = useAuth();
   const branding = useBranding();
   // The org context drives header branding; in the chess-empire tenant the
   // host resolves it from the subdomain. We still pass `organizationId`
@@ -197,13 +199,34 @@ export default function WelcomeFlow({
         setVerifyError(t('genericError'));
         return;
       }
+
+      // Already-authenticated visitor (e.g. an existing coach who confirmed on
+      // another device and signed in here): claim the invite server-side right
+      // away instead of bouncing through /sign-up. Uses the SAME claim logic as
+      // the dashboard poller replay. Whatever the claim outcome, the dashboard
+      // reflects the resulting member row — so we always land there.
+      if (isSignedIn) {
+        try {
+          await fetch('/api/chess-empire/link/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inviteJwt: body.inviteJwt }),
+          });
+        } catch {
+          // Network failure claiming — the dashboard's no_link poller replays
+          // the stored JWT as a backstop, so still route there.
+        }
+        router.replace('/dashboard');
+        return;
+      }
+
       router.replace(`/sign-up?invite=${encodeURIComponent(body.inviteJwt)}`);
     } catch {
       setVerifyError(t('genericError'));
     } finally {
       setVerifying(false);
     }
-  }, [selected, verifying, branchToken, router, t]);
+  }, [selected, verifying, branchToken, isSignedIn, router, t]);
 
   return (
     <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">

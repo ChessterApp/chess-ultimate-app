@@ -14,6 +14,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
+vi.mock('@clerk/nextjs', () => ({
+  useAuth: () => ({ isSignedIn: false }),
+}));
+
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string, opts?: Record<string, unknown>) =>
     opts ? `${key}:${Object.values(opts).join(',')}` : key,

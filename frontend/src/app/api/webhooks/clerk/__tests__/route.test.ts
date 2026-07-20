@@ -160,12 +160,22 @@ vi.mock('next/headers', () => ({
 
 // ---- Clerk mock ------------------------------------------------------------
 const createMembership = vi.fn();
+const getUser = vi.fn();
 vi.mock('@clerk/nextjs/server', () => ({
   clerkClient: async () => ({
     organizations: {
       createOrganizationMembership: createMembership,
     },
+    users: {
+      getUser,
+    },
   }),
+}));
+
+// ---- membership lookup mock (session.created idempotency) -------------------
+const membershipState = vi.fn();
+vi.mock('@/lib/chess-empire-member', () => ({
+  getMembershipStateForUser: (...args: unknown[]) => membershipState(...args),
 }));
 
 // ---- Listmonk mock ---------------------------------------------------------
@@ -256,6 +266,19 @@ beforeEach(() => {
   process.env.CLERK_WEBHOOK_SECRET = 'whsec_test';
   process.env.INVITE_JWT_SECRET = 'phase2-melodic-webhook-secret';
   createMembership.mockReset();
+  getUser.mockReset();
+  getUser.mockResolvedValue({
+    primaryEmailAddressId: 'em_1',
+    emailAddresses: [{ id: 'em_1', emailAddress: 'signin@example.com' }],
+    unsafeMetadata: {},
+  });
+  membershipState.mockReset();
+  membershipState.mockResolvedValue({
+    state: 'no_link',
+    studentId: null,
+    memberId: null,
+    role: 'student',
+  });
   createSubscriber.mockReset();
   createSubscriber.mockResolvedValue({ id: 1, created: true });
   blocklistSubscriber.mockReset();
@@ -653,6 +676,101 @@ describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () 
     ).toHaveLength(1);
     expect(attemptsForStatus('success')).toHaveLength(1);
     expect(createMembership).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('POST /api/webhooks/clerk — session.created (sign-in backstop)', () => {
+  function makeSessionEvent(userId = 'user_signin'): unknown {
+    return { type: 'session.created', data: { user_id: userId } };
+  }
+
+  it('links a pending-invite user by coach email match (pending_confirm)', async () => {
+    resetState();
+    findByEmail.mockResolvedValue([]);
+    findCoaches.mockResolvedValue([
+      {
+        id: 'coach-signin',
+        first_name: 'Aigerim',
+        last_name: 'Nur',
+        branch_id: 'br',
+        email: 'signin@example.com',
+      },
+    ]);
+
+    const res = await POST(makeRequest(makeSessionEvent()));
+    expect(res.status).toBe(200);
+
+    const memberUpserts = state.upserts.filter(
+      (u) => u.table === 'organization_members',
+    );
+    expect(memberUpserts).toHaveLength(1);
+    expect(memberUpserts[0].payload.role).toBe('coach');
+    expect(memberUpserts[0].payload.link_status).toBe('pending_confirm');
+    expect(memberUpserts[0].payload.external_student_id).toBe('coach-signin');
+
+    expect(attemptsForStatus('success')).toHaveLength(1);
+  });
+
+  it('is idempotent: a verified link is left untouched (no writes, no Clerk fetch)', async () => {
+    resetState();
+    membershipState.mockResolvedValue({
+      state: 'verified',
+      studentId: 'coach-signin',
+      memberId: 'mem-1',
+      role: 'coach',
+    });
+
+    const res = await POST(makeRequest(makeSessionEvent()));
+    expect(res.status).toBe(200);
+
+    expect(state.upserts).toEqual([]);
+    expect(getUser).not.toHaveBeenCalled();
+    expect(findByEmail).not.toHaveBeenCalled();
+    expect(findCoaches).not.toHaveBeenCalled();
+  });
+
+  it('consumes a lingering invite JWT on the user (verified link)', async () => {
+    const jwt = signValidInvite({ student_id: 'coach-jwt', member_type: 'coach' });
+    resetState({
+      tokenRow: { id: 'tok-uuid', revoked_at: null },
+      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
+    });
+    getUser.mockResolvedValue({
+      primaryEmailAddressId: 'em_1',
+      emailAddresses: [{ id: 'em_1', emailAddress: 'signin@example.com' }],
+      unsafeMetadata: { inviteJwt: jwt },
+    });
+    createMembership.mockResolvedValue({});
+
+    const res = await POST(makeRequest(makeSessionEvent()));
+    expect(res.status).toBe(200);
+
+    const memberUpserts = state.upserts.filter(
+      (u) => u.table === 'organization_members',
+    );
+    expect(memberUpserts).toHaveLength(1);
+    expect(memberUpserts[0].payload.role).toBe('coach');
+    expect(memberUpserts[0].payload.link_status).toBe('verified');
+    expect(memberUpserts[0].payload.external_student_id).toBe('coach-jwt');
+
+    // JWT succeeded → email auto-match must NOT run.
+    expect(findByEmail).not.toHaveBeenCalled();
+    expect(attemptsForStatus('success')).toHaveLength(1);
+  });
+
+  it('no email + no invite → no writes, no crash', async () => {
+    resetState();
+    getUser.mockResolvedValue({
+      primaryEmailAddressId: null,
+      emailAddresses: [],
+      unsafeMetadata: {},
+    });
+
+    const res = await POST(makeRequest(makeSessionEvent()));
+    expect(res.status).toBe(200);
+    expect(
+      state.upserts.filter((u) => u.table === 'organization_members'),
+    ).toEqual([]);
   });
 });
 
