@@ -98,8 +98,11 @@ describe('Service Worker', () => {
       expect(swContent).toContain('10 * 60 * 1000')
     })
 
-    it('routes TWIC game queries to cache-first', () => {
+    it('routes TWIC game queries to stale-while-revalidate with 1h TTL', () => {
       expect(swContent).toContain("url.pathname === '/api/openings/games/by-position'")
+      expect(swContent).toContain('TWIC_TTL')
+      expect(swContent).toContain('60 * 60 * 1000')
+      expect(swContent).toMatch(/isTwicGames\(url\)\)\s*\{\s*staleWhileRevalidate\(event, TWIC_TTL\)/)
     })
 
     it('routes AI chat streaming to network-only', () => {

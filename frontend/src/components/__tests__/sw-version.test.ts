@@ -5,8 +5,8 @@ import { resolve } from 'path';
 describe('Service Worker', () => {
   const swContent = readFileSync(resolve(__dirname, '../../../public/sw.js'), 'utf-8');
 
-  it('should have cache version 13', () => {
-    expect(swContent).toContain("const CACHE_VERSION = '13'");
+  it('should have cache version 14', () => {
+    expect(swContent).toContain("const CACHE_VERSION = '14'");
   });
 
   it('should use stale-while-revalidate for Lichess Explorer (5min TTL)', () => {
@@ -19,9 +19,11 @@ describe('Service Worker', () => {
     expect(swContent).toContain('10 * 60 * 1000');
   });
 
-  it('should use cache-first for TWIC games (immutable)', () => {
+  it('should use stale-while-revalidate for TWIC games (1h TTL — weekly imports add games)', () => {
     expect(swContent).toContain('isTwicGames');
-    expect(swContent).toContain('cacheFirst');
+    expect(swContent).toContain('TWIC_TTL');
+    expect(swContent).toContain('60 * 60 * 1000');
+    expect(swContent).not.toMatch(/isTwicGames\(url\)\)\s*\{\s*cacheFirst/);
   });
 
   it('should use network-only for AI chat streams', () => {

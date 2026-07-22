@@ -1,10 +1,11 @@
-const CACHE_VERSION = '13';
+const CACHE_VERSION = '14';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 const STALE_CACHE = 'chesster-stale-v' + CACHE_VERSION;
 
 // Cache TTLs in milliseconds
 const EXPLORER_TTL = 5 * 60 * 1000;   // 5 minutes for Lichess Explorer
 const CHESSCOM_TTL = 10 * 60 * 1000;  // 10 minutes for Chess.com
+const TWIC_TTL = 60 * 60 * 1000;      // 1 hour for TWIC game queries
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -187,9 +188,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 4. TWIC game queries → Cache-First (games are immutable)
+  // 4. TWIC game queries → Stale-While-Revalidate (1h). Individual games are
+  //    immutable, but query results are not: the weekly TWIC import adds new
+  //    games to existing positions. Cache-First here served June results in
+  //    July until users cleared site data.
   if (isTwicGames(url)) {
-    cacheFirst(event);
+    staleWhileRevalidate(event, TWIC_TTL);
     return;
   }
 
