@@ -4,7 +4,8 @@ import {
   PowerSyncBackendConnector,
   UpdateType,
 } from '@powersync/web';
-import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClerkSupabaseClient } from '@/lib/supabase';
 
 /** Function signature matching Clerk's getToken() */
 export type GetTokenFn = () => Promise<string | null>;
@@ -15,9 +16,13 @@ export type GetTokenFn = () => Promise<string | null>;
  */
 export class SupabasePowerSyncConnector implements PowerSyncBackendConnector {
   private getToken: GetTokenFn;
+  private writeClient: SupabaseClient;
 
   constructor(getToken: GetTokenFn) {
     this.getToken = getToken;
+    // Client writes carry the Clerk JWT (role: authenticated, sub = user id)
+    // so user-scoped RLS policies apply. See Phase 2b RLS lockdown migration.
+    this.writeClient = createClerkSupabaseClient(getToken);
   }
 
   async fetchCredentials() {
@@ -55,14 +60,14 @@ export class SupabasePowerSyncConnector implements PowerSyncBackendConnector {
 
     switch (op.op) {
       case UpdateType.PUT: {
-        const { data, error } = await supabase
+        const { data, error } = await this.writeClient
           .from(table)
           .upsert({ id, ...op.opData });
         if (error) throw error;
         return;
       }
       case UpdateType.PATCH: {
-        const { error } = await supabase
+        const { error } = await this.writeClient
           .from(table)
           .update(op.opData!)
           .eq('id', id);
@@ -70,7 +75,7 @@ export class SupabasePowerSyncConnector implements PowerSyncBackendConnector {
         return;
       }
       case UpdateType.DELETE: {
-        const { error } = await supabase
+        const { error } = await this.writeClient
           .from(table)
           .delete()
           .eq('id', id);

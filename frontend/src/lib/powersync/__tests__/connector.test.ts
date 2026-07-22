@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SupabasePowerSyncConnector } from '../connector';
+import { createClerkSupabaseClient } from '@/lib/supabase';
 
-// Mock supabase
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
+// Mock supabase — the connector builds its write client via
+// createClerkSupabaseClient(getToken), so return a mocked query builder there
+// (from -> upsert / update.eq / delete.eq). Factory is hoisted, so keep the
+// builder self-contained inside it.
+vi.mock('@/lib/supabase', () => {
+  const queryBuilder = {
     from: vi.fn(() => ({
       upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
       update: vi.fn(() => ({
@@ -13,8 +17,12 @@ vi.mock('@/lib/supabase', () => ({
         eq: vi.fn().mockResolvedValue({ data: null, error: null }),
       })),
     })),
-  },
-}));
+  };
+  return {
+    supabase: queryBuilder,
+    createClerkSupabaseClient: vi.fn(() => queryBuilder),
+  };
+});
 
 describe('SupabasePowerSyncConnector', () => {
   const mockGetToken = vi.fn();
@@ -22,6 +30,12 @@ describe('SupabasePowerSyncConnector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.NEXT_PUBLIC_POWERSYNC_URL = 'https://ps.example.com';
+  });
+
+  it('builds the write client with the connector getToken (authenticated writes)', () => {
+    new SupabasePowerSyncConnector(mockGetToken);
+
+    expect(createClerkSupabaseClient).toHaveBeenCalledWith(mockGetToken);
   });
 
   describe('fetchCredentials', () => {
