@@ -57,10 +57,14 @@ export default function NodeDetailsPanel({
   const [gamesPage, setGamesPage] = useState(0);
   const GAMES_PER_PAGE = 10;
 
-  // Reset page when node changes
+  // Position shown in the panel: selected repertoire node, or the raw board
+  // position in browse mode (no repertoire loaded).
+  const fen = node?.fen ?? fallbackFen ?? '';
+
+  // Reset page when position changes
   useEffect(() => {
     setGamesPage(0);
-  }, [node?.id]);
+  }, [fen]);
 
   // Master DB global game count — mirrors the MasterDatabaseHero fetch in
   // /database so the panel shows "reach this position" vs the full DB total.
@@ -74,20 +78,14 @@ export default function NodeDetailsPanel({
     return () => { cancelled = true; };
   }, []);
 
-  if (!node) {
+  // Only bail out when there is no position at all — in browse mode (no
+  // repertoire node selected) fallbackFen still drives the Master Games list.
+  if (!node && !fallbackFen) {
     return (
       <Box sx={{ p: 2, color: 'text.secondary' }}>
         <Typography variant="body2">{t('selectMoveDetails')}</Typography>
       </Box>
     );
-  }
-
-  const isRoot = node.move_san === null;
-  let moveDisplay = t('startingPosition');
-  if (node.move_san) {
-    moveDisplay = node.is_white_move
-      ? `${node.move_number}. ${node.move_san}`
-      : `${node.move_number}... ${node.move_san}`;
   }
 
   // TWIC tab content
@@ -163,10 +161,10 @@ export default function NodeDetailsPanel({
               </Box>
             )}
 
-            {masterGamesTotal > masterGames.length && (node?.fen || fallbackFen) && (
+            {masterGamesTotal > masterGames.length && fen && (
               <Button
                 size="small"
-                onClick={() => onSearchGames(node?.fen ?? fallbackFen!)}
+                onClick={() => onSearchGames(fen)}
                 sx={{ color: '#14b8a6', fontSize: 11, textTransform: 'none', mt: 0.5 }}
               >
                 {t('viewAllGames', { count: (masterGamesTotal ?? 0).toLocaleString() })}
@@ -208,7 +206,7 @@ export default function NodeDetailsPanel({
   // Lichess tab content
   const lichessContent = (
     <LichessExplorerTab
-      fen={node.fen}
+      fen={fen}
       database={lichessDatabase}
       onDatabaseChange={(db) => onLichessDatabaseChange?.(db)}
       onOpenGame={onOpenGame}
@@ -218,7 +216,7 @@ export default function NodeDetailsPanel({
   // Chess.com tab content
   const chesscomContent = (
     <ChessComExplorerTab
-      fen={node.fen}
+      fen={fen}
       onOpenGame={onOpenGame}
     />
   );
