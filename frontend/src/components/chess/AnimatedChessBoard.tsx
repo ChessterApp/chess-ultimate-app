@@ -15,6 +15,7 @@ import type { Key } from 'chessground/types';
 import { MoveValidator } from '@/lib/chess/moveValidator';
 import { getChessgroundConfig } from '@/lib/chess/chessgroundConfig';
 import { evaluateLineMove, colorToMove } from '@/lib/chess/solutionLine';
+import { squareToPercent } from '@/lib/chess/boardGeometry';
 import {
   showSuccessCelebration,
   showErrorFeedback,
@@ -790,9 +791,9 @@ export default function AnimatedChessBoard({
     // Extract destination square from the hint move (last 2 characters)
     const destSquare = hintMove.slice(2, 4);
 
-    // Calculate position: squares are indexed 0-7 for files (a-h) and ranks (1-8)
-    const file = destSquare.charCodeAt(0) - 'a'.charCodeAt(0); // 0-7
-    const rank = 8 - parseInt(destSquare[1]); // 0-7 (top to bottom)
+    // Position the overlay, accounting for board orientation (black-oriented
+    // boards are rotated 180°, so both axes flip). See squareToPercent.
+    const { left: hintLeft, top: hintTop } = squareToPercent(destSquare, orientation);
 
     // Create a hint overlay div
     const hintDiv = document.createElement('div');
@@ -801,8 +802,8 @@ export default function AnimatedChessBoard({
       position: absolute;
       width: 12.5%;
       height: 12.5%;
-      left: ${file * 12.5}%;
-      top: ${rank * 12.5}%;
+      left: ${hintLeft}%;
+      top: ${hintTop}%;
       background-color: rgba(255, 255, 0, 0.4);
       border: 3px solid #f59e0b;
       border-radius: 50%;
@@ -832,7 +833,7 @@ export default function AnimatedChessBoard({
         feedback: 'idle',
       }));
     }, ANIMATION_DURATIONS.HINT_APPEAR_DELAY + 3000);
-  }, [state.isSolved, state.hintShown, showHints, solutionMove, solutionLine, isLineMode]);
+  }, [state.isSolved, state.hintShown, showHints, solutionMove, solutionLine, isLineMode, orientation]);
 
   /**
    * Reset board to initial position
