@@ -4,12 +4,12 @@ import React from 'react';
 import type { Key } from 'chessground/types';
 import { promotionLayout, type PromotionRole } from '@/lib/chess/promotion';
 
-/** Filled glyph + human label for each promotable piece. */
-const PIECES: Record<PromotionRole, { glyph: string; label: string }> = {
-  q: { glyph: '♛', label: 'Queen' },
-  r: { glyph: '♜', label: 'Rook' },
-  b: { glyph: '♝', label: 'Bishop' },
-  n: { glyph: '♞', label: 'Knight' },
+/** Fritz sprite letter + human label for each promotable piece. */
+const PIECES: Record<PromotionRole, { sprite: string; label: string }> = {
+  q: { sprite: 'Q', label: 'Queen' },
+  r: { sprite: 'R', label: 'Rook' },
+  b: { sprite: 'B', label: 'Bishop' },
+  n: { sprite: 'N', label: 'Knight' },
 };
 
 interface PromotionOverlayProps {
@@ -74,14 +74,20 @@ export default function PromotionOverlay({
             border: 'none',
             borderRadius: '50%',
             cursor: 'pointer',
-            fontSize: square * 0.72,
-            lineHeight: 1,
-            background: color === 'white' ? '#f7f7f7' : '#2b2b2b',
-            color: color === 'white' ? '#111' : '#f7f7f7',
+            background: '#b0b0b0',
             boxShadow: '0 2px 10px rgba(0,0,0,0.55)',
           }}
         >
-          {PIECES[role].glyph}
+          <img
+            src={`/static/pieces/Fritz/${color === 'white' ? 'w' : 'b'}${PIECES[role].sprite}.svg`}
+            alt={PIECES[role].label}
+            draggable={false}
+            style={{
+              width: square * 0.82,
+              height: square * 0.82,
+              pointerEvents: 'none',
+            }}
+          />
         </button>
       ))}
     </div>

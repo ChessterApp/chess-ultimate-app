@@ -29,6 +29,34 @@ describe('PromotionOverlay', () => {
     }
   });
 
+  it('renders white Fritz sprites when white is promoting', () => {
+    renderOverlay({ color: 'white' });
+    for (const [role, sprite] of [
+      ['q', 'wQ'],
+      ['r', 'wR'],
+      ['b', 'wB'],
+      ['n', 'wN'],
+    ] as const) {
+      const img = screen.getByTestId(`promotion-${role}`).querySelector('img');
+      expect(img).toBeTruthy();
+      expect(img!.getAttribute('src')).toBe(`/static/pieces/Fritz/${sprite}.svg`);
+    }
+  });
+
+  it('renders black Fritz sprites when black is promoting', () => {
+    renderOverlay({ color: 'black', to: 'e1' });
+    for (const [role, sprite] of [
+      ['q', 'bQ'],
+      ['r', 'bR'],
+      ['b', 'bB'],
+      ['n', 'bN'],
+    ] as const) {
+      const img = screen.getByTestId(`promotion-${role}`).querySelector('img');
+      expect(img).toBeTruthy();
+      expect(img!.getAttribute('src')).toBe(`/static/pieces/Fritz/${sprite}.svg`);
+    }
+  });
+
   it('reports the picked piece when knight is chosen', () => {
     const { onSelect, onCancel } = renderOverlay();
     fireEvent.click(screen.getByTestId('promotion-n'));
