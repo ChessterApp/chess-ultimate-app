@@ -17,7 +17,7 @@ interface CoachBoardProps {
   moveIndex: number;
   pgnLength: number;
   boardSize?: number;
-  onMove: (from: Key, to: Key) => void;
+  onMove: (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => void;
   onFirst: () => void;
   onPrev: () => void;
   onNext: () => void;
@@ -47,12 +47,12 @@ export default function CoachBoard({
   const [puzzleResult, setPuzzleResult] = useState<'correct' | 'wrong' | 'solved' | null>(null);
 
   const handleMove = useCallback(
-    (from: Key, to: Key) => {
+    (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
       if (puzzleMode && puzzleState && !puzzleState.solved) {
         const result = onPuzzleMove(from as string, to as string);
         setPuzzleResult(result);
       } else {
-        onMove(from, to);
+        onMove(from, to, promotion);
       }
     },
     [puzzleMode, puzzleState, onPuzzleMove, onMove]

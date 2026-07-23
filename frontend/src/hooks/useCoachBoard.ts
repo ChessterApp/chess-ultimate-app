@@ -18,7 +18,7 @@ interface UseCoachBoardReturn extends CoachBoardState {
   lastMove: () => void;
   validatePuzzleMove: (from: string, to: string) => 'correct' | 'wrong' | 'solved';
   resetBoard: () => void;
-  setFenFromMove: (from: Key, to: Key) => void;
+  setFenFromMove: (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => void;
 }
 
 /**
@@ -238,10 +238,10 @@ export function useCoachBoard(): UseCoachBoardReturn {
     setOrientation('white');
   }, []);
 
-  const setFenFromMove = useCallback((from: Key, to: Key) => {
+  const setFenFromMove = useCallback((from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
     try {
       const chess = new Chess(fen);
-      chess.move({ from: from as string, to: to as string, promotion: 'q' });
+      chess.move({ from: from as string, to: to as string, promotion: promotion ?? 'q' });
       setFen(chess.fen());
     } catch {
       // Illegal move, ignore

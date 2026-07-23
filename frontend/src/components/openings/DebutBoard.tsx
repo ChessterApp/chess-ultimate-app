@@ -101,13 +101,13 @@ export default function DebutBoard({
   }, [windowWidth]);
 
   // Handle chessground move
-  const handleMove = useCallback((from: Key, to: Key) => {
+  const handleMove = useCallback((from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
     try {
       const game = new Chess(fen);
       const move = game.move({
         from,
         to,
-        promotion: 'q', // Auto-queen promotion for simplicity
+        promotion: promotion ?? 'q', // Board picks the piece; queen by default.
       });
       if (move) {
         onMove(from, to, move.piece, game.fen(), move.san, move.from + move.to);

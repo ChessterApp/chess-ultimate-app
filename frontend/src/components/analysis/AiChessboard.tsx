@@ -125,7 +125,7 @@ interface AiChessboardPanelProps {
   puzzleMode?: boolean;
   playMode?: boolean;
   gameReviewMode?: boolean;
-  onDropPuzzle?: (source: string, target: string) => boolean;
+  onDropPuzzle?: (source: string, target: string, promotion?: string) => boolean;
   handleSquarePuzzleClick?: (square: string) => void;
   reviewMove?: MoveAnalysis;
   puzzleCustomSquareStyle?: {
@@ -474,7 +474,7 @@ export default function AiChessboardPanel({
 
   // Custom onDrop handler for gameplay - adapted for chessground
   const handlePlayerMove = useCallback(
-    (from: Key, to: Key) => {
+    (from: Key, to: Key, promotion?: "q" | "r" | "b" | "n") => {
       if (playMode) {
         if (!canPlayerMove()) return;
 
@@ -482,7 +482,7 @@ export default function AiChessboardPanel({
           const move = game.move({
             from,
             to,
-            promotion: "q",
+            promotion: promotion ?? "q",
           });
 
           if (move) {
@@ -501,7 +501,7 @@ export default function AiChessboardPanel({
           const move = gameInstance.move({
             from,
             to,
-            promotion: "q",
+            promotion: promotion ?? "q",
           });
           if (move) {
             playSound(move.captured ? 'capture' : 'move');
@@ -576,9 +576,9 @@ export default function AiChessboardPanel({
 
   // Puzzle mode move handler - adapted for chessground
   const handlePuzzleMove = useCallback(
-    (from: Key, to: Key) => {
+    (from: Key, to: Key, promotion?: string) => {
       if (onDropPuzzle) {
-        onDropPuzzle(from, to);
+        onDropPuzzle(from, to, promotion);
       }
     },
     [onDropPuzzle]

@@ -10,11 +10,18 @@ import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
 import { DEFAULT_BOARD_ANIMATION_DURATION } from '@/lib/setting/helper';
+import { isPromotionMove, type PromotionRole } from '@/lib/chess/promotion';
+import PromotionOverlay from './PromotionOverlay';
 
 interface ChessgroundBoardProps {
   fen: string;
   orientation?: 'white' | 'black';
-  onMove?: (from: Key, to: Key) => void;
+  /**
+   * Fired after a legal move. `promotion` is supplied only when a pawn reaches
+   * the last rank and the user picks a piece from the promotion overlay;
+   * callers that ignore it keep their old two-argument behaviour.
+   */
+  onMove?: (from: Key, to: Key, promotion?: PromotionRole) => void;
   movable?: boolean;
   viewOnly?: boolean;
   arrows?: Array<{ from: Key; to: Key; brush: string }>;
@@ -58,7 +65,16 @@ export default function ChessgroundBoard({
   onSelect,
 }: ChessgroundBoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const cgRef = useRef<Api | null>(null);
+
+  // A pawn move to the last rank is held here (not yet reported) while the
+  // player picks a promotion piece from the overlay.
+  const [pendingPromotion, setPendingPromotion] = useState<{
+    from: Key;
+    to: Key;
+    color: 'white' | 'black';
+  } | null>(null);
 
   // Maximum default size on roomy layouts (desktop). Container measurement
   // caps to this so the board never grows unbounded when placed in a wide,
@@ -77,7 +93,7 @@ export default function ChessgroundBoard({
     if (boardSize !== undefined) return;
     if (typeof window === 'undefined' || typeof ResizeObserver === 'undefined') return;
 
-    const el = boardRef.current?.parentElement;
+    const el = wrapperRef.current?.parentElement;
     if (!el) return;
 
     const measure = () => setContainerWidth(el.clientWidth);
@@ -111,6 +127,9 @@ export default function ChessgroundBoard({
 
   const onMoveRef = useRef(onMove);
   onMoveRef.current = onMove;
+  // Latest FEN, readable inside the once-mounted chessground `after` handler.
+  const fenRef = useRef(fen);
+  fenRef.current = fen;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const onSelectRef = useRef(onSelect);
@@ -208,7 +227,15 @@ export default function ChessgroundBoard({
         showDests: true, // Show legal move indicators
         events: {
           after: (orig: Key, dest: Key) => {
-            onMoveRef.current?.(orig, dest);
+            if (!onMoveRef.current) return;
+            const currentFen = fenRef.current;
+            // Pawn reaching the last rank: hold the move and let the player pick
+            // a piece. The overlay resolves it via onMove(orig, dest, role).
+            if (isPromotionMove(currentFen, orig, dest)) {
+              setPendingPromotion({ from: orig, to: dest, color: getTurnColor(currentFen) });
+              return;
+            }
+            onMoveRef.current(orig, dest);
           },
         },
       },
@@ -350,17 +377,43 @@ export default function ChessgroundBoard({
     cgRef.current.set({ coordinates: showCoordinates });
   }, [showCoordinates]);
 
+  // Player picked a promotion piece: report the held move with the chosen role.
+  const handlePromotionSelect = useCallback((role: PromotionRole) => {
+    setPendingPromotion((pending) => {
+      if (pending) onMoveRef.current?.(pending.from, pending.to, role);
+      return null;
+    });
+  }, []);
+
+  // Cancelled (click-away): drop the held move and snap the pawn back home.
+  const handlePromotionCancel = useCallback(() => {
+    setPendingPromotion(null);
+    cgRef.current?.set({ fen: fenRef.current });
+  }, []);
+
   return (
-    <div
-      ref={boardRef}
-      className="chessground-board"
-      style={{
-        width: effectiveBoardSize,
-        height: effectiveBoardSize,
-        borderRadius: '2px',
-        boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
-        ['--cg-animation-duration' as any]: `${animationDuration}ms`,
-      }}
-    />
+    <div ref={wrapperRef} style={{ position: 'relative', display: 'inline-block', lineHeight: 0 }}>
+      <div
+        ref={boardRef}
+        className="chessground-board"
+        style={{
+          width: effectiveBoardSize,
+          height: effectiveBoardSize,
+          borderRadius: '2px',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+          ['--cg-animation-duration' as any]: `${animationDuration}ms`,
+        }}
+      />
+      {pendingPromotion && (
+        <PromotionOverlay
+          to={pendingPromotion.to}
+          color={pendingPromotion.color}
+          orientation={orientation}
+          boardSize={effectiveBoardSize}
+          onSelect={handlePromotionSelect}
+          onCancel={handlePromotionCancel}
+        />
+      )}
+    </div>
   );
 }

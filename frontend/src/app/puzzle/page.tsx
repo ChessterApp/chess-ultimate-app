@@ -411,7 +411,7 @@ export default function PuzzlePage() {
 
   // Handle piece drop
   const onDrop = useCallback(
-    (source: string, target: string) => {
+    (source: string, target: string, promotion?: string) => {
       if (puzzleComplete || puzzleFailed || showingSolution) return false;
 
       try {
@@ -419,7 +419,7 @@ export default function PuzzlePage() {
         const move = gameCopy.move({
           from: source,
           to: target,
-          promotion: "q",
+          promotion: promotion ?? "q",
         });
 
         if (!move) return false;

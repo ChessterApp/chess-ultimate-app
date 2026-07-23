@@ -50,14 +50,14 @@ function tcLabel(initialSec: number | null, incrementSec: number | null): string
   return `${Math.floor(initialSec / 60)} + ${incrementSec ?? 0}`;
 }
 
-/** Build the UCI for a board drag, auto-queening a promotion. */
-function moveToUci(fen: string, from: Key, to: Key): string | null {
+/** Build the UCI for a board drag, using the chosen promotion piece (queen by default). */
+function moveToUci(fen: string, from: Key, to: Key, promotion?: string): string | null {
   try {
     const chess = new Chess(fen);
     const legal = chess.moves({ verbose: true });
     const m = legal.find((mv) => mv.from === from && mv.to === to);
     if (!m) return null;
-    const promo = m.promotion ? 'q' : '';
+    const promo = m.promotion ? promotion ?? 'q' : '';
     return `${from}${to}${promo}`;
   } catch {
     return null;
@@ -208,8 +208,8 @@ function LiveGameView() {
     if (!ok) setAccepting(false);
   };
 
-  const handleMove = (from: Key, to: Key) => {
-    const uci = moveToUci(game.fen, from, to);
+  const handleMove = (from: Key, to: Key, promotion?: string) => {
+    const uci = moveToUci(game.fen, from, to, promotion);
     if (uci) void game.makeMove(uci);
   };
 

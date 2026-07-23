@@ -304,7 +304,7 @@ export default function PlayPage() {
     }
   }
 
-  const handleMove = (from: Key, to: Key) => {
+  const handleMove = (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
     // Attempt the move
     try {
       const moves = chess.moves({ verbose: true })
@@ -318,8 +318,8 @@ export default function PlayPage() {
         ((move.to[1] === '8' && chess.turn() === 'w') ||
           (move.to[1] === '1' && chess.turn() === 'b'))
       ) {
-        // Auto-promote to queen for simplicity
-        chess.move({ from, to, promotion: 'q' })
+        // Board supplies the chosen piece; fall back to queen if omitted.
+        chess.move({ from, to, promotion: promotion ?? 'q' })
       } else {
         chess.move({ from, to })
       }
