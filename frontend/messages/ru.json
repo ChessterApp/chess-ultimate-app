@@ -1665,7 +1665,9 @@
     "coachLeagueEmpty": "Пока нет данных о лигах.",
     "coachBioTitle": "О себе",
     "coachRosterTitle": "Ученики",
-    "coachRosterEmpty": "Учеников пока нет."
+    "coachRosterEmpty": "Учеников пока нет.",
+    "noLinkRefresh": "Обновить",
+    "noLinkStartOver": "Начать заново"
   },
   "adminCe": {
     "title": "Ученики",

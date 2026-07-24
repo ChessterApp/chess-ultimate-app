@@ -25,6 +25,11 @@ import {
 } from '@/lib/chess-empire-client';
 import { signInviteJwt, type MemberType } from '@/lib/invite-jwt';
 import { rateLimit } from '@/lib/in-memory-rate-limit';
+import {
+  insertPendingRegistration,
+  CE_PENDING_COOKIE,
+  PENDING_COOKIE_MAX_AGE_SECONDS,
+} from '@/lib/pending-registration';
 
 const PER_STUDENT_LIMIT = 3;
 const PER_IP_LIMIT = 10;
@@ -236,6 +241,16 @@ export async function POST(req: NextRequest) {
     ...(memberType === 'coach' ? { member_type: 'coach' as const } : {}),
   });
 
+  // Durable pending link: persist the row + drop an httpOnly cookie carrying
+  // the raw JWT so completion survives dropped OAuth metadata and the short
+  // JWT TTL. Best-effort — the JWT itself is still the primary carrier.
+  await insertPendingRegistration({
+    rawJwt: inviteJwt,
+    studentId,
+    orgId: token.organization_id,
+    memberType,
+  });
+
   await logAttempt({
     organizationId: token.organization_id,
     branchTokenId: token.id,
@@ -245,5 +260,13 @@ export async function POST(req: NextRequest) {
     reason: null,
   });
 
-  return NextResponse.json({ inviteJwt });
+  const res = NextResponse.json({ inviteJwt });
+  res.cookies.set(CE_PENDING_COOKIE, inviteJwt, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: PENDING_COOKIE_MAX_AGE_SECONDS,
+  });
+  return res;
 }

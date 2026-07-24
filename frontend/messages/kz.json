@@ -1665,7 +1665,9 @@
     "coachLeagueEmpty": "Лига деректері әлі жоқ.",
     "coachBioTitle": "Өзі туралы",
     "coachRosterTitle": "Оқушылар",
-    "coachRosterEmpty": "Оқушылар әлі жоқ."
+    "coachRosterEmpty": "Оқушылар әлі жоқ.",
+    "noLinkRefresh": "Жаңарту",
+    "noLinkStartOver": "Қайта бастау"
   },
   "adminCe": {
     "title": "Оқушылар",

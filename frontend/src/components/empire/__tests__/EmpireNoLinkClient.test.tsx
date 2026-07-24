@@ -1,9 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * Behavior tests for the no_link polling client (Tasks 1 & 2):
+ * Behavior tests for the no_link polling client:
  *   - replays a stored invite JWT to /link/claim on mount, refreshing on success
- *   - clears storage on a terminal claim error
+ *   - clears storage only on a signature-class (`invalid`) terminal error
+ *   - does NOT wipe the stored JWT on an expiry 410 (server may accept it later)
+ *   - retries the claim + poll on every fresh mount (remount restarts polling)
  *   - polls /link/status and refreshes when the state leaves no_link
  *   - shows the spinner while polling
  */
@@ -80,13 +82,13 @@ describe('EmpireNoLinkClient', () => {
     await waitFor(() => expect(screen.getByTestId('static-message')).toBeTruthy());
   });
 
-  it('clears storage on a terminal claim error and keeps polling', async () => {
-    localStorage.setItem(KEY, 'expired.jwt.tok');
-    sessionStorage.setItem(KEY, 'expired.jwt.tok');
+  it('clears storage on a signature-class (invalid) terminal error and keeps polling', async () => {
+    localStorage.setItem(KEY, 'bad.sig.tok');
+    sessionStorage.setItem(KEY, 'bad.sig.tok');
     fetchMock.mockImplementation((url: string) =>
       Promise.resolve(
         String(url).includes('/claim')
-          ? jsonRes(410, { error: 'expired', terminal: true })
+          ? jsonRes(400, { error: 'invalid', terminal: true })
           : jsonRes(200, { state: 'no_link' }),
       ),
     );
@@ -101,6 +103,79 @@ describe('EmpireNoLinkClient', () => {
     expect(sessionStorage.getItem(KEY)).toBeNull();
     expect(refresh).not.toHaveBeenCalled();
     expect(screen.getByTestId('empire-home-nolink-polling')).toBeTruthy();
+  });
+
+  it('does NOT wipe the stored JWT on an expiry 410 (server may accept it later)', async () => {
+    localStorage.setItem(KEY, 'expired.jwt.tok');
+    sessionStorage.setItem(KEY, 'expired.jwt.tok');
+    let claimCalls = 0;
+    fetchMock.mockImplementation((url: string) => {
+      if (String(url).includes('/claim')) {
+        claimCalls += 1;
+        return Promise.resolve(jsonRes(410, { error: 'expired', terminal: true }));
+      }
+      return Promise.resolve(jsonRes(200, { state: 'no_link' }));
+    });
+
+    render(
+      <EmpireNoLinkClient>
+        <Static />
+      </EmpireNoLinkClient>,
+    );
+
+    await waitFor(() => expect(claimCalls).toBeGreaterThan(0));
+    // Expiry is recoverable — the JWT must survive for the next attempt.
+    expect(localStorage.getItem(KEY)).toBe('expired.jwt.tok');
+    expect(sessionStorage.getItem(KEY)).toBe('expired.jwt.tok');
+    expect(refresh).not.toHaveBeenCalled();
+    expect(screen.getByTestId('empire-home-nolink-polling')).toBeTruthy();
+  });
+
+  it('retries the claim + poll on a fresh mount (remount restarts polling)', async () => {
+    localStorage.setItem(KEY, 'stored.jwt.tok');
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        String(url).includes('/claim')
+          ? jsonRes(410, { error: 'expired', terminal: true })
+          : jsonRes(200, { state: 'no_link' }),
+      ),
+    );
+
+    const first = render(
+      <EmpireNoLinkClient>
+        <Static />
+      </EmpireNoLinkClient>,
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/claim')),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/status')),
+      ).toBe(true),
+    );
+
+    // Unmount and remount — a fresh page load must retry both the claim and poll.
+    first.unmount();
+    fetchMock.mockClear();
+
+    render(
+      <EmpireNoLinkClient>
+        <Static />
+      </EmpireNoLinkClient>,
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/claim')),
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/status')),
+      ).toBe(true),
+    );
   });
 
   it('polls /link/status and refreshes when the state leaves no_link', async () => {

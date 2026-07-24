@@ -19,6 +19,15 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 export const INVITE_JWT_TTL_SECONDS = 15 * 60;
 
+/**
+ * Grace window (seconds) applied ONLY on the authenticated client-replay claim
+ * path. A claim caller is a signed-in Clerk user whose JWT already proves they
+ * passed branch validation, and jti single-use is still enforced — so an
+ * expired-but-valid signature is safe to accept for a bounded window after
+ * `exp`. NEVER used by the webhook path; the default `verifyInviteJwt` grace is 0.
+ */
+export const INVITE_JWT_CLAIM_GRACE_SECONDS = 24 * 60 * 60;
+
 export type MemberType = 'student' | 'coach';
 
 export interface InviteJwtPayload {
@@ -96,6 +105,11 @@ export function signInviteJwt(
 export function verifyInviteJwt(
   token: string,
   nowSeconds: number = Math.floor(Date.now() / 1000),
+  /**
+   * Seconds past `exp` still accepted. Defaults to 0 (strict) — do not loosen
+   * for the webhook. The claim path passes `INVITE_JWT_CLAIM_GRACE_SECONDS`.
+   */
+  graceSeconds: number = 0,
 ): InviteJwtClaims {
   const secret = getSecret();
   const parts = token.split('.');
@@ -115,7 +129,7 @@ export function verifyInviteJwt(
   } catch {
     throw new InviteJwtError('Malformed payload');
   }
-  if (typeof claims.exp !== 'number' || claims.exp < nowSeconds) {
+  if (typeof claims.exp !== 'number' || claims.exp + graceSeconds < nowSeconds) {
     throw new InviteJwtError('Token expired');
   }
   if (!claims.student_id || !claims.branch_id || !claims.branch_token_id || !claims.org_id) {

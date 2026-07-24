@@ -53,6 +53,11 @@ vi.mock('@/lib/chess-empire-member', () => ({
   }),
 }));
 
+// Server-side pending auto-claim is a no-op in the dashboard delegation tests.
+vi.mock('@/lib/pending-registration', () => ({
+  autoClaimPendingCookie: vi.fn(async () => false),
+}));
+
 const ceStore: { profile: unknown } = { profile: null };
 vi.mock('@/lib/chess-empire-client', () => ({
   getStudentProfile: vi.fn(async () => ceStore.profile),

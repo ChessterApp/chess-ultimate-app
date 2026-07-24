@@ -66,6 +66,15 @@ vi.mock('@/lib/supabase-admin', () => ({
   },
 }));
 
+// The durable pending-row write is a best-effort side effect covered by its
+// own tests; stub it so the verify happy path doesn't depend on the pending
+// table's query shape.
+vi.mock('@/lib/pending-registration', () => ({
+  insertPendingRegistration: vi.fn(async () => {}),
+  CE_PENDING_COOKIE: 'ce_pending_jti',
+  PENDING_COOKIE_MAX_AGE_SECONDS: 7 * 24 * 60 * 60,
+}));
+
 vi.mock('@/lib/chess-empire-client', () => ({
   getStudentProfile: vi.fn(),
   getCoachProfile: vi.fn(),

@@ -23,7 +23,10 @@ import { useTranslations } from 'next-intl';
 import Image from 'next/image';
 import { useBranding } from '@/contexts/OrganizationContext';
 import { usePhaseHistory } from '@/hooks/usePhaseHistory';
-import { persistWelcomeOnboardingUrl } from '@/lib/invite-storage';
+import {
+  persistWelcomeOnboardingUrl,
+  persistBranchWelcomeUrl,
+} from '@/lib/invite-storage';
 
 interface WelcomeFlowProps {
   branchToken: string;
@@ -199,6 +202,10 @@ export default function WelcomeFlow({
         setVerifyError(t('genericError'));
         return;
       }
+
+      // Durably stash where this branch flow started so the dashboard no-link
+      // screen can offer a "start over" link even after an OAuth round-trip.
+      persistBranchWelcomeUrl(`/welcome/${encodeURIComponent(branchToken)}`);
 
       // Already-authenticated visitor (e.g. an existing coach who confirmed on
       // another device and signed in here): claim the invite server-side right

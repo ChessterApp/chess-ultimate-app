@@ -10,6 +10,7 @@ import {
   jwtJtiHash,
   InviteJwtError,
   INVITE_JWT_TTL_SECONDS,
+  INVITE_JWT_CLAIM_GRACE_SECONDS,
 } from '../invite-jwt';
 
 const payload = {
@@ -104,6 +105,48 @@ describe('invite-jwt', () => {
     });
     const claims = verifyInviteJwt(token);
     expect(claims.member_type).toBe('student');
+  });
+
+  describe('grace window', () => {
+    const now = 1_700_000_000;
+
+    it('exposes a 24-hour claim grace constant', () => {
+      expect(INVITE_JWT_CLAIM_GRACE_SECONDS).toBe(24 * 60 * 60);
+    });
+
+    it('defaults to strict (grace 0): expired one second past exp is rejected', () => {
+      const token = signInviteJwt(payload, 60, now); // exp = now + 60
+      expect(() => verifyInviteJwt(token, now + 61)).toThrowError(/expired/i);
+    });
+
+    it('accepts a valid signature expired within the grace window', () => {
+      const token = signInviteJwt(payload, 60, now); // exp = now + 60
+      // now + 120 is 60s past exp, well within a 100s grace window.
+      const claims = verifyInviteJwt(token, now + 120, 100);
+      expect(claims.student_id).toBe(payload.student_id);
+    });
+
+    it('accepts exactly at the grace boundary (exp + grace === now)', () => {
+      const token = signInviteJwt(payload, 60, now); // exp = now + 60
+      // now = exp + grace exactly → still accepted (boundary is inclusive).
+      expect(() => verifyInviteJwt(token, now + 160, 100)).not.toThrow();
+    });
+
+    it('rejects a signature expired beyond the grace window', () => {
+      const token = signInviteJwt(payload, 60, now); // exp = now + 60
+      expect(() => verifyInviteJwt(token, now + 161, 100)).toThrowError(/expired/i);
+    });
+
+    it('rejects a bad signature even within the grace window', () => {
+      const token = signInviteJwt(payload, 60, now).slice(0, -4) + 'AAAA';
+      expect(() => verifyInviteJwt(token, now + 120, 100)).toThrowError(/signature/i);
+    });
+
+    it('accepts a still-valid token within grace (grace never shrinks validity)', () => {
+      const token = signInviteJwt(payload, 900, now);
+      const claims = verifyInviteJwt(token, now + 100, INVITE_JWT_CLAIM_GRACE_SECONDS);
+      expect(claims.org_id).toBe(payload.org_id);
+    });
   });
 
   it('rejects payloads missing required claims', () => {

@@ -21,6 +21,7 @@ import EmpireHomePage from '@/components/empire/EmpireHomePage';
 import EmpireCoachHome from '@/components/empire/EmpireCoachHome';
 import EmpireNoLinkClient from '@/components/empire/EmpireNoLinkClient';
 import { getMembershipState } from '@/lib/chess-empire-member';
+import { autoClaimPendingCookie } from '@/lib/pending-registration';
 import { resolveStudentDisplayName } from '@/lib/student-name';
 import {
   getStudentProfile,
@@ -60,6 +61,16 @@ export async function renderEmpireHomepage(
     return { status: 'auth_null' };
   }
   if (!userId) return { status: 'auth_null' };
+
+  // Server-side auto-claim: if a same-browser sign-up left a `ce_pending_jti`
+  // cookie, complete the pending link BEFORE reading membership so a signed-in
+  // student never even reaches the waiting screen. Best-effort — the cached
+  // membership read below reflects the freshly-written row.
+  try {
+    await autoClaimPendingCookie(userId);
+  } catch (err) {
+    console.error('[empire-home] pending auto-claim threw', err);
+  }
 
   let membership;
   try {

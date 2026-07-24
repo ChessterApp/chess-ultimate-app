@@ -15,6 +15,12 @@
  */
 export const CE_INVITE_JWT_STORAGE_KEY = 'ce_invite_jwt';
 export const CE_WELCOME_URL_STORAGE_KEY = 'ce_welcome_url';
+/**
+ * Durable (localStorage) copy of the branch welcome URL, stashed at the confirm
+ * step so the dashboard's no-link screen can offer a "start over" link even
+ * after an OAuth round-trip cleared sessionStorage.
+ */
+export const CE_BRANCH_WELCOME_URL_STORAGE_KEY = 'ce_branch_welcome_url';
 
 /**
  * Persist the current welcome-flow URL/path so the sign-up guard can send an
@@ -39,15 +45,37 @@ export function readWelcomeOnboardingUrl(): string | null {
 }
 
 /**
+ * Persist the branch welcome URL durably (localStorage) so the no-link "start
+ * over" link survives an OAuth round-trip. Best-effort.
+ */
+export function persistBranchWelcomeUrl(url: string): void {
+  try {
+    localStorage.setItem(CE_BRANCH_WELCOME_URL_STORAGE_KEY, url);
+  } catch {
+    // Storage disabled — the "start over" link simply won't render.
+  }
+}
+
+/** Read the durable branch welcome URL, or null if none / storage unavailable. */
+export function readBranchWelcomeUrl(): string | null {
+  try {
+    return localStorage.getItem(CE_BRANCH_WELCOME_URL_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Clear every trace of an in-flight invite/onboarding so a blocked bare sign-up
  * can't later replay stale state. Wipes the invite JWT from both storages and
- * the stored welcome URL.
+ * the stored welcome URLs.
  */
 export function clearInviteOnboardingState(): void {
   try {
     sessionStorage.removeItem(CE_INVITE_JWT_STORAGE_KEY);
     localStorage.removeItem(CE_INVITE_JWT_STORAGE_KEY);
     sessionStorage.removeItem(CE_WELCOME_URL_STORAGE_KEY);
+    localStorage.removeItem(CE_BRANCH_WELCOME_URL_STORAGE_KEY);
   } catch {
     // Storage disabled — nothing to clear.
   }

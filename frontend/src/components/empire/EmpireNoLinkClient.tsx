@@ -4,28 +4,35 @@
  * Client wrapper for the Chess Empire `no_link` dashboard state.
  *
  * The member row is written asynchronously — by the Clerk `user.created`
- * webhook, and (for OAuth signups that dropped `unsafeMetadata`) by the
- * client-side claim. Either can land after the dashboard first renders, which
- * would otherwise strand the user on the static "no link" screen.
+ * webhook, by the server-side pending-cookie auto-claim, and (for OAuth signups
+ * that dropped `unsafeMetadata`) by the client-side claim. Any of these can
+ * land after the dashboard first renders, which would otherwise strand the user
+ * on the static "no link" screen.
  *
- * On mount this:
- *   1. Replays any stashed invite JWT to `/api/chess-empire/link/claim`
- *      (the OAuth-metadata-loss fallback), clearing storage on success or a
- *      terminal error.
- *   2. Polls `/api/chess-empire/link/status` (~2s, backing off, ~60s cap) and
- *      `router.refresh()`es as soon as the state leaves `no_link`.
- *
- * While polling it shows a subtle spinner; after the cap it renders `children`
- * — the server-rendered static `no_link` message.
+ * On every mount (initial load, `router.refresh`, or the manual Refresh button)
+ * this:
+ *   1. Replays any stashed invite JWT to `/api/chess-empire/link/claim`. The
+ *      server accepts an expired-but-signed JWT within a 24h grace window, and
+ *      falls back to the `ce_pending_jti` cookie → pending row. The stashed JWT
+ *      is cleared ONLY on success or a signature-class (`invalid`) terminal —
+ *      an expiry never wipes it, since the server may still accept it.
+ *   2. Polls `/api/chess-empire/link/status` with capped exponential backoff
+ *      (up to ~10 min) and `router.refresh()`es the moment the state leaves
+ *      `no_link`. After the cap it shows the static screen plus a Refresh
+ *      action that restarts polling; any fresh page load restarts it too.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { CE_INVITE_JWT_STORAGE_KEY } from '@/lib/invite-storage'
+import {
+  CE_INVITE_JWT_STORAGE_KEY,
+  readBranchWelcomeUrl,
+} from '@/lib/invite-storage'
 
-const POLL_MAX_MS = 60_000
+// Keep polling slowly for ~10 min before falling back to the manual Refresh.
+const POLL_MAX_MS = 10 * 60_000
 const POLL_BASE_MS = 2_000
-const POLL_MAX_INTERVAL_MS = 8_000
+const POLL_MAX_INTERVAL_MS = 30_000
 
 function readStoredJwt(): string | null {
   try {
@@ -55,6 +62,15 @@ export default function EmpireNoLinkClient({
   const router = useRouter()
   const t = useTranslations('empire')
   const [polling, setPolling] = useState(true)
+  // Bumping this re-runs the claim + poll cycle (Refresh button / restart).
+  const [runId, setRunId] = useState(0)
+  const [startOverUrl, setStartOverUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    // localStorage isn't available during SSR, so this must read in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStartOverUrl(readBranchWelcomeUrl())
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -83,7 +99,9 @@ export default function EmpireNoLinkClient({
           return
         }
         const data = await res.json().catch(() => ({}))
-        if (data?.terminal) clearStoredJwt()
+        // Only a signature-class terminal is truly hopeless. An expired JWT may
+        // still be claimable later via the server-side pending row, so keep it.
+        if (data?.error === 'invalid') clearStoredJwt()
       } catch {
         // Network hiccup — polling still runs and the webhook is the backstop.
       }
@@ -124,30 +142,74 @@ export default function EmpireNoLinkClient({
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [router])
+  }, [router, runId])
 
-  if (!polling) return <>{children}</>
+  const restart = useCallback(() => {
+    setPolling(true)
+    setRunId((n) => n + 1)
+  }, [])
 
-  return (
-    <main
-      data-testid="empire-home-nolink-polling"
-      className="min-h-screen px-4 sm:px-6 lg:px-10 py-12 lg:py-20"
-      style={{ backgroundColor: '#F6F7F9', color: '#0F172A' }}
-    >
-      <div className="max-w-2xl mx-auto text-center flex flex-col items-center gap-4">
-        <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 text-white p-8 sm:p-10 shadow-sm w-full">
-          <div className="flex items-center justify-center gap-3">
-            <span
-              aria-hidden
-              className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-500 border-t-white"
-            />
-            <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
-              {t('settingUpProfile')}
-            </h1>
+  if (polling) {
+    return (
+      <main
+        data-testid="empire-home-nolink-polling"
+        className="min-h-screen px-4 sm:px-6 lg:px-10 py-12 lg:py-20"
+        style={{ backgroundColor: '#F6F7F9', color: '#0F172A' }}
+      >
+        <div className="max-w-2xl mx-auto text-center flex flex-col items-center gap-4">
+          <div className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-700 text-white p-8 sm:p-10 shadow-sm w-full">
+            <div className="flex items-center justify-center gap-3">
+              <span
+                aria-hidden
+                className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-slate-500 border-t-white"
+              />
+              <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
+                {t('settingUpProfile')}
+              </h1>
+            </div>
+            <p className="mt-3 text-slate-300 text-sm">{t('noLinkSubtitle')}</p>
           </div>
-          <p className="mt-3 text-slate-300 text-sm">{t('noLinkSubtitle')}</p>
+          {startOverUrl && (
+            <a
+              data-testid="empire-nolink-startover"
+              href={startOverUrl}
+              className="text-sm font-semibold text-slate-500 underline underline-offset-4 hover:text-slate-700"
+            >
+              {t('noLinkStartOver')}
+            </a>
+          )}
         </div>
+      </main>
+    )
+  }
+
+  // Polling gave up (cap reached) — show the static screen, but keep an
+  // escape hatch: Refresh restarts polling, Start over re-runs onboarding.
+  return (
+    <>
+      {children}
+      <div
+        data-testid="empire-nolink-stalled"
+        className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-center gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 text-sm shadow-[0_-1px_8px_rgba(0,0,0,0.06)] backdrop-blur"
+      >
+        <button
+          type="button"
+          data-testid="empire-nolink-refresh"
+          onClick={restart}
+          className="rounded-full bg-slate-900 px-4 py-2 font-semibold text-white hover:bg-slate-700"
+        >
+          {t('noLinkRefresh')}
+        </button>
+        {startOverUrl && (
+          <a
+            data-testid="empire-nolink-startover"
+            href={startOverUrl}
+            className="font-semibold text-slate-500 underline underline-offset-4 hover:text-slate-700"
+          >
+            {t('noLinkStartOver')}
+          </a>
+        )}
       </div>
-    </main>
+    </>
   )
 }

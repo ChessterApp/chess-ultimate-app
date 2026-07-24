@@ -30,6 +30,7 @@ import {
 export type AttemptSource = 'jwt' | 'email_auto' | 'admin_manual' | 'backfill';
 export type AttemptStatus =
   | 'success'
+  | 'pending_row_success'
   | 'no_match'
   | 'multiple_match'
   | 'jwt_missing'
@@ -136,10 +137,15 @@ export async function linkMemberViaInviteJwt(
   rawJwt: string,
   clerkUserId: string,
   email: string | null,
+  /**
+   * Claim-path only: seconds past `exp` still accepted. The webhook omits this
+   * (strict). Signature + jti single-use are unchanged either way.
+   */
+  opts: { graceSeconds?: number } = {},
 ): Promise<JwtLinkResult> {
   let claims;
   try {
-    claims = verifyInviteJwt(rawJwt);
+    claims = verifyInviteJwt(rawJwt, undefined, opts.graceSeconds ?? 0);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const isExpired = err instanceof InviteJwtError && /expired/i.test(msg);

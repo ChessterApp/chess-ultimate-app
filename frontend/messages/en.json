@@ -1665,7 +1665,9 @@
     "coachLeagueEmpty": "No league data yet.",
     "coachBioTitle": "About",
     "coachRosterTitle": "Students",
-    "coachRosterEmpty": "No students assigned yet."
+    "coachRosterEmpty": "No students assigned yet.",
+    "noLinkRefresh": "Refresh",
+    "noLinkStartOver": "Start over"
   },
   "adminCe": {
     "title": "Students",

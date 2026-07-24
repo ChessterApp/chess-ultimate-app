@@ -34,6 +34,11 @@ vi.mock('@/lib/chess-empire-member', () => ({
   })),
 }));
 
+// Server-side pending auto-claim is a no-op in these render tests.
+vi.mock('@/lib/pending-registration', () => ({
+  autoClaimPendingCookie: vi.fn(async () => false),
+}));
+
 const getStudentProfile = vi.fn(async () => ({ id: 'stu', first_name: 'S' }));
 const getCoachProfile = vi.fn(async () => ({
   id: 'coach-uuid',

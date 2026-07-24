@@ -30,6 +30,14 @@ vi.mock('@/lib/chess-empire-jwt-link', () => ({
   linkMemberViaInviteJwt: (...args: unknown[]) => linkSpy(...(args as [])),
 }));
 
+// The cookie→pending-row fallback is unit-tested separately; here it never
+// finds a row (the test Request carries no cookie anyway).
+const pendingSpy = vi.fn(async () => ({ ok: false, reason: 'not_found' }));
+vi.mock('@/lib/pending-registration', () => ({
+  CE_PENDING_COOKIE: 'ce_pending_jti',
+  claimPendingByJwt: (...args: unknown[]) => pendingSpy(...(args as [])),
+}));
+
 import { POST } from '../claim/route';
 import { _resetRateLimitForTests } from '@/lib/in-memory-rate-limit';
 
@@ -72,7 +80,13 @@ describe('POST /api/chess-empire/link/claim', () => {
     const res = await POST(makeReq({ inviteJwt: 'good.jwt.tok' }) as never);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, state: 'verified', studentId: 'stu-1' });
-    expect(linkSpy).toHaveBeenCalledWith('good.jwt.tok', 'user-1', 'a@b.com');
+    // Now called with the claim-path grace window as a 4th arg.
+    expect(linkSpy).toHaveBeenCalledWith(
+      'good.jwt.tok',
+      'user-1',
+      'a@b.com',
+      expect.objectContaining({ graceSeconds: expect.any(Number) }),
+    );
   });
 
   it('410 terminal on expired JWT', async () => {

@@ -22,6 +22,12 @@ vi.mock('@/lib/chess-empire-member', () => ({
   }),
 }));
 
+// Auto-claim is a no-op here (no pending cookie); its own path is tested in
+// pending-registration.test.ts.
+vi.mock('@/lib/pending-registration', () => ({
+  autoClaimPendingCookie: vi.fn(async () => false),
+}));
+
 import { GET } from '../status/route';
 
 beforeEach(() => {

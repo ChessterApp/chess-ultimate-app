@@ -11,6 +11,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getMembershipStateForUser } from '@/lib/chess-empire-member';
+import { autoClaimPendingCookie } from '@/lib/pending-registration';
 
 export async function GET() {
   const { userId } = await auth();
@@ -18,6 +19,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
   try {
+    // Auto-claim any pending cookie before reporting state, so a polling client
+    // that never managed a body-JWT replay still links from the cookie alone.
+    await autoClaimPendingCookie(userId);
     const membership = await getMembershipStateForUser(userId);
     return NextResponse.json({ state: membership.state, role: membership.role });
   } catch (err) {
