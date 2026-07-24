@@ -7,14 +7,16 @@
  *     consume JWT → log success attempt.
  *   - replay: JWT already consumed → jwt_replayed attempt logged, no writes,
  *     no email fallback.
- *   - non-CE signup: no inviteJwt → jwt_missing attempt, email fallback runs
- *     (no CE match → no_match attempt).
- *   - invalid JWT: jwt_invalid attempt + email fallback.
- *   - expired JWT: jwt_expired attempt + email fallback resolves (single
- *     student match writes pending_confirm).
- *   - email fallback single-match: pending_confirm upsert + success attempt.
- *   - email fallback zero-match: no writes, no_match attempt only.
- *   - email fallback multi-match: no writes, multiple_match attempt only.
+ *   - non-CE signup: no inviteJwt → jwt_missing attempt, coach-email fallback
+ *     runs (no coach match → no_match attempt).
+ *   - invalid JWT: jwt_invalid attempt + coach-email fallback.
+ *   - expired JWT: jwt_expired attempt + coach-email fallback resolves (single
+ *     coach match writes pending_confirm).
+ *   - coach-email fallback single-match: pending_confirm upsert + success attempt.
+ *   - coach-email fallback zero/multi-match: no writes, no_match attempt only.
+ *   - a signup email that would match a student's parent_email is NEVER linked:
+ *     students are only matched via the invite JWT / pending_registrations path,
+ *     so with no coach match the email fallback records no_match.
  *   - Clerk 5xx: non-fatal — the DB link is already committed, so consumption
  *     + success attempt still run and the webhook returns 200.
  *   - Listmonk failure: swallowed.
@@ -188,10 +190,8 @@ vi.mock('@/lib/listmonk', () => ({
 }));
 
 // ---- CE client mock --------------------------------------------------------
-const findByEmail = vi.fn();
 const findCoaches = vi.fn();
 vi.mock('@/lib/chess-empire-client', () => ({
-  findStudentsByParentEmail: (...args: unknown[]) => findByEmail(...args),
   findCoachesByEmail: (...args: unknown[]) => findCoaches(...args),
 }));
 
@@ -282,8 +282,6 @@ beforeEach(() => {
   createSubscriber.mockReset();
   createSubscriber.mockResolvedValue({ id: 1, created: true });
   blocklistSubscriber.mockReset();
-  findByEmail.mockReset();
-  findByEmail.mockResolvedValue([]);
   findCoaches.mockReset();
   findCoaches.mockResolvedValue([]);
   resetState();
@@ -349,7 +347,7 @@ describe('POST /api/webhooks/clerk — user.created — JWT path', () => {
     expect(successes[0].chosen_student_id).toBe('stu-xyz');
 
     // Fallback path must NOT have run on happy JWT
-    expect(findByEmail).not.toHaveBeenCalled();
+    expect(findCoaches).not.toHaveBeenCalled();
   });
 });
 
@@ -409,7 +407,7 @@ describe('POST /api/webhooks/clerk — user.created — replay', () => {
 
     expect(state.upserts).toEqual([]);
     expect(createMembership).not.toHaveBeenCalled();
-    expect(findByEmail).not.toHaveBeenCalled();
+    expect(findCoaches).not.toHaveBeenCalled();
 
     const replayed = attemptsForStatus('jwt_replayed');
     expect(replayed).toHaveLength(1);
@@ -420,89 +418,61 @@ describe('POST /api/webhooks/clerk — user.created — replay', () => {
   });
 });
 
-describe('POST /api/webhooks/clerk — user.created — JWT missing / expired / invalid → email fallback', () => {
-  it('JWT missing + email matches ZERO CE students → jwt_missing + no_match attempts, no writes', async () => {
+describe('POST /api/webhooks/clerk — user.created — JWT missing / expired / invalid → coach-email fallback', () => {
+  it('JWT missing + email matches NO coach → jwt_missing + no_match attempts, no writes', async () => {
     resetState();
-    findByEmail.mockResolvedValue([]);
+    findCoaches.mockResolvedValue([]);
     const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
     expect(res.status).toBe(200);
 
     expect(attemptsForStatus('jwt_missing')).toHaveLength(1);
     expect(attemptsForStatus('no_match')).toHaveLength(1);
     expect(state.upserts).toEqual([]);
-    expect(findByEmail).toHaveBeenCalledTimes(1);
+    expect(findCoaches).toHaveBeenCalledTimes(1);
   });
 
-  it('JWT missing + email matches SINGLE CE student → jwt_missing + success attempts, pending_confirm upsert', async () => {
+  it('a signup email that WOULD match a student parent_email is NOT linked → no_match', async () => {
+    // The student parent_email guess is gone: students are only linked via the
+    // invite JWT / pending_registrations path. Even though a `students` row
+    // could carry this address as `parent_email`, the webhook never queries it,
+    // so with no coach match the signup falls through to no_match — no member
+    // row is written and no student is guessed.
     resetState();
-    findByEmail.mockResolvedValue([
-      {
-        id: 'stu-matched',
-        first_name: 'Aiman',
-        last_name: 'K',
-        branch_id: 'br',
-        status: 'active',
-        date_of_birth: null,
-      },
-    ]);
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
-    expect(res.status).toBe(200);
-
-    expect(state.upserts).toHaveLength(1);
-    const up = state.upserts[0];
-    expect(up.table).toBe('organization_members');
-    expect(up.payload.link_status).toBe('pending_confirm');
-    expect(up.payload.link_source).toBe('email_auto');
-    expect(up.payload.external_student_id).toBe('stu-matched');
-    // No link_verified_at set for pending_confirm
-    expect(up.payload.link_verified_at).toBeUndefined();
-
-    const successes = attemptsForStatus('success');
-    expect(successes).toHaveLength(1);
-    expect(successes[0].attempted_source).toBe('email_auto');
-    expect(successes[0].chosen_student_id).toBe('stu-matched');
-    expect(attemptsForStatus('jwt_missing')).toHaveLength(1);
-  });
-
-  it('JWT missing + email matches MULTIPLE CE students → jwt_missing + multiple_match attempts, no writes', async () => {
-    resetState();
-    findByEmail.mockResolvedValue([
-      { id: 'stu-a', first_name: 'A', last_name: '', branch_id: 'b', status: 'active', date_of_birth: null },
-      { id: 'stu-b', first_name: 'B', last_name: '', branch_id: 'b', status: 'active', date_of_birth: null },
-    ]);
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: null })));
+    findCoaches.mockResolvedValue([]);
+    const res = await POST(
+      makeRequest(makeEvent({ inviteJwt: null, email: 'sharedparent@example.com' })),
+    );
     expect(res.status).toBe(200);
 
     expect(state.upserts).toEqual([]);
-    const multi = attemptsForStatus('multiple_match');
-    expect(multi).toHaveLength(1);
-    expect(multi[0].candidate_student_ids).toEqual(['stu-a', 'stu-b']);
-    expect(attemptsForStatus('jwt_missing')).toHaveLength(1);
+    expect(attemptsForStatus('no_match')).toHaveLength(1);
+    expect(attemptsForStatus('success')).toHaveLength(0);
+    // Only the coach email is ever consulted — no student lookup exists anymore.
+    expect(findCoaches).toHaveBeenCalledTimes(1);
   });
 
-  it('invalid JWT: jwt_invalid attempt + email fallback runs', async () => {
+  it('invalid JWT: jwt_invalid attempt + coach-email fallback runs', async () => {
     resetState();
-    findByEmail.mockResolvedValue([]);
+    findCoaches.mockResolvedValue([]);
     const res = await POST(makeRequest(makeEvent({ inviteJwt: 'this.is.not-a-real-jwt' })));
     expect(res.status).toBe(200);
 
     expect(state.upserts).toEqual([]);
     expect(createMembership).not.toHaveBeenCalled();
     expect(attemptsForStatus('jwt_invalid')).toHaveLength(1);
-    expect(findByEmail).toHaveBeenCalledTimes(1);
+    expect(findCoaches).toHaveBeenCalledTimes(1);
   });
 
-  it('expired JWT: jwt_expired attempt + email fallback single-match → pending_confirm upsert', async () => {
+  it('expired JWT: jwt_expired attempt + coach-email fallback single-match → pending_confirm upsert', async () => {
     resetState();
     const expiredJwt = signExpiredInvite();
-    findByEmail.mockResolvedValue([
+    findCoaches.mockResolvedValue([
       {
-        id: 'stu-vasco',
+        id: 'coach-vasco',
         first_name: 'Turabay',
         last_name: 'Ali',
         branch_id: 'br',
-        status: 'active',
-        date_of_birth: null,
+        email: 'parent@example.com',
       },
     ]);
     const res = await POST(makeRequest(makeEvent({ inviteJwt: expiredJwt })));
@@ -510,15 +480,15 @@ describe('POST /api/webhooks/clerk — user.created — JWT missing / expired / 
 
     expect(attemptsForStatus('jwt_expired')).toHaveLength(1);
     expect(state.upserts).toHaveLength(1);
+    expect(state.upserts[0].payload.role).toBe('coach');
     expect(state.upserts[0].payload.link_status).toBe('pending_confirm');
-    expect(state.upserts[0].payload.external_student_id).toBe('stu-vasco');
+    expect(state.upserts[0].payload.external_student_id).toBe('coach-vasco');
   });
 });
 
 describe('POST /api/webhooks/clerk — user.created — coach email fallback', () => {
-  it('no student + SINGLE coach email match → links as coach (pending_confirm) + success attempt', async () => {
+  it('SINGLE coach email match → links as coach (pending_confirm) + success attempt', async () => {
     resetState();
-    findByEmail.mockResolvedValue([]);
     findCoaches.mockResolvedValue([
       {
         id: 'coach-shokan',
@@ -547,14 +517,11 @@ describe('POST /api/webhooks/clerk — user.created — coach email fallback', (
     expect(successes[0].attempted_source).toBe('email_auto');
     expect(successes[0].chosen_student_id).toBe('coach-shokan');
     expect(attemptsForStatus('no_match')).toHaveLength(0);
-    // Student lookup ran first, then the coach fallback.
-    expect(findByEmail).toHaveBeenCalledTimes(1);
     expect(findCoaches).toHaveBeenCalledTimes(1);
   });
 
-  it('no student + MULTIPLE coach email matches → no_match, no writes', async () => {
+  it('MULTIPLE coach email matches → no_match, no writes', async () => {
     resetState();
-    findByEmail.mockResolvedValue([]);
     findCoaches.mockResolvedValue([
       { id: 'coach-a', first_name: 'A', last_name: '', branch_id: 'b', email: 'dup@x.com' },
       { id: 'coach-b', first_name: 'B', last_name: '', branch_id: 'b', email: 'dup@x.com' },
@@ -567,33 +534,6 @@ describe('POST /api/webhooks/clerk — user.created — coach email fallback', (
     expect(state.upserts).toEqual([]);
     expect(attemptsForStatus('no_match')).toHaveLength(1);
     expect(attemptsForStatus('success')).toHaveLength(0);
-  });
-
-  it('student match takes precedence — coach lookup never runs', async () => {
-    resetState();
-    findByEmail.mockResolvedValue([
-      {
-        id: 'stu-matched',
-        first_name: 'Aiman',
-        last_name: 'K',
-        branch_id: 'br',
-        status: 'active',
-        date_of_birth: null,
-      },
-    ]);
-    // Even if a coach shared the email, the single student wins.
-    findCoaches.mockResolvedValue([
-      { id: 'coach-x', first_name: 'X', last_name: '', branch_id: 'b', email: 'shared@x.com' },
-    ]);
-    const res = await POST(
-      makeRequest(makeEvent({ inviteJwt: null, email: 'shared@x.com' })),
-    );
-    expect(res.status).toBe(200);
-
-    expect(state.upserts).toHaveLength(1);
-    expect(state.upserts[0].payload.role).toBe('student');
-    expect(state.upserts[0].payload.external_student_id).toBe('stu-matched');
-    expect(findCoaches).not.toHaveBeenCalled();
   });
 });
 
@@ -609,7 +549,7 @@ describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () 
     expect(res.status).toBe(200);
     expect(state.upserts).toEqual([]);
     expect(createMembership).not.toHaveBeenCalled();
-    expect(findByEmail).not.toHaveBeenCalled();
+    expect(findCoaches).not.toHaveBeenCalled();
     expect(attemptsForStatus('jwt_invalid')).toHaveLength(1);
   });
 
@@ -686,7 +626,6 @@ describe('POST /api/webhooks/clerk — session.created (sign-in backstop)', () =
 
   it('links a pending-invite user by coach email match (pending_confirm)', async () => {
     resetState();
-    findByEmail.mockResolvedValue([]);
     findCoaches.mockResolvedValue([
       {
         id: 'coach-signin',
@@ -725,7 +664,6 @@ describe('POST /api/webhooks/clerk — session.created (sign-in backstop)', () =
 
     expect(state.upserts).toEqual([]);
     expect(getUser).not.toHaveBeenCalled();
-    expect(findByEmail).not.toHaveBeenCalled();
     expect(findCoaches).not.toHaveBeenCalled();
   });
 
@@ -754,7 +692,7 @@ describe('POST /api/webhooks/clerk — session.created (sign-in backstop)', () =
     expect(memberUpserts[0].payload.external_student_id).toBe('coach-jwt');
 
     // JWT succeeded → email auto-match must NOT run.
-    expect(findByEmail).not.toHaveBeenCalled();
+    expect(findCoaches).not.toHaveBeenCalled();
     expect(attemptsForStatus('success')).toHaveLength(1);
   });
 

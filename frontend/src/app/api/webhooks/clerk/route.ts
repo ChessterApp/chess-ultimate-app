@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { clerkClient } from '@clerk/nextjs/server';
 import { createSubscriber, blocklistSubscriber, LISTS } from '@/lib/listmonk';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { findStudentsByParentEmail, findCoachesByEmail } from '@/lib/chess-empire-client';
+import { findCoachesByEmail } from '@/lib/chess-empire-client';
 import { getMembershipStateForUser } from '@/lib/chess-empire-member';
 import { logLinkAttempt, upsertMemberLink, linkMemberViaInviteJwt } from '@/lib/chess-empire-jwt-link';
 
@@ -103,9 +103,16 @@ async function tryEmailAutoMatch(
   }
   const orgId = orgRow.id as string;
 
-  let candidates;
+  // The only legitimate email-based match is a coach signing up with their OWN
+  // `coaches.email`. Students are never matched by email — a branch-link signup
+  // uses any email, so the address carries no signal about which student was
+  // picked (that link is handled server-side via pending_registrations / the
+  // invite JWT). An exact, case-insensitive `coaches.email` match with a single
+  // coach in the org is soft-linked (`pending_confirm`); anything else is
+  // `no_match`, which the client-side retry + pending-claim recovery depend on.
+  let coaches;
   try {
-    candidates = await findStudentsByParentEmail(orgId, email);
+    coaches = await findCoachesByEmail(orgId, email);
   } catch (err) {
     await logLinkAttempt({
       organization_id: orgId,
@@ -118,15 +125,17 @@ async function tryEmailAutoMatch(
     return;
   }
 
-  if (candidates.length === 0) {
-    // No student matched this email. Coaches sign up through the same flow,
-    // and a bare coach signup (Shokan) slipped through because we only checked
-    // students.parent_email — additionally try an exact, case-insensitive CE
-    // coaches.email match before giving up. A student match always wins because
-    // we only reach here when there were zero student candidates.
-    let coaches;
+  if (coaches.length === 1) {
+    const coach = coaches[0];
     try {
-      coaches = await findCoachesByEmail(orgId, email);
+      await upsertMemberLink({
+        orgId,
+        clerkUserId,
+        studentId: coach.id,
+        linkStatus: 'pending_confirm',
+        linkSource: 'email_auto',
+        memberType: 'coach',
+      });
     } catch (err) {
       await logLinkAttempt({
         organization_id: orgId,
@@ -134,109 +143,36 @@ async function tryEmailAutoMatch(
         email,
         attempted_source: 'email_auto',
         status: 'webhook_error',
+        candidate_student_ids: [coach.id],
+        chosen_student_id: coach.id,
         error_message: err instanceof Error ? err.message : String(err),
       });
       return;
     }
-
-    if (coaches.length === 1) {
-      const coach = coaches[0];
-      try {
-        await upsertMemberLink({
-          orgId,
-          clerkUserId,
-          studentId: coach.id,
-          linkStatus: 'pending_confirm',
-          linkSource: 'email_auto',
-          memberType: 'coach',
-        });
-      } catch (err) {
-        await logLinkAttempt({
-          organization_id: orgId,
-          user_id: clerkUserId,
-          email,
-          attempted_source: 'email_auto',
-          status: 'webhook_error',
-          candidate_student_ids: [coach.id],
-          chosen_student_id: coach.id,
-          error_message: err instanceof Error ? err.message : String(err),
-        });
-        return;
-      }
-      await logLinkAttempt({
-        organization_id: orgId,
-        user_id: clerkUserId,
-        email,
-        attempted_source: 'email_auto',
-        status: 'success',
-        candidate_student_ids: [coach.id],
-        chosen_student_id: coach.id,
-      });
-      console.info(
-        `[clerk-webhook] email_auto matched user=${clerkUserId} coach=${coach.id} org=${orgId} (pending_confirm)`,
-      );
-      return;
-    }
-
-    // Zero or multiple coach matches → unchanged no_match behavior.
     await logLinkAttempt({
       organization_id: orgId,
       user_id: clerkUserId,
       email,
       attempted_source: 'email_auto',
-      status: 'no_match',
-      candidate_student_ids: [],
+      status: 'success',
+      candidate_student_ids: [coach.id],
+      chosen_student_id: coach.id,
     });
+    console.info(
+      `[clerk-webhook] email_auto matched user=${clerkUserId} coach=${coach.id} org=${orgId} (pending_confirm)`,
+    );
     return;
   }
 
-  if (candidates.length > 1) {
-    await logLinkAttempt({
-      organization_id: orgId,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'email_auto',
-      status: 'multiple_match',
-      candidate_student_ids: candidates.map((c) => c.id),
-    });
-    return;
-  }
-
-  const chosen = candidates[0];
-  try {
-    await upsertMemberLink({
-      orgId,
-      clerkUserId,
-      studentId: chosen.id,
-      linkStatus: 'pending_confirm',
-      linkSource: 'email_auto',
-    });
-  } catch (err) {
-    await logLinkAttempt({
-      organization_id: orgId,
-      user_id: clerkUserId,
-      email,
-      attempted_source: 'email_auto',
-      status: 'webhook_error',
-      candidate_student_ids: [chosen.id],
-      chosen_student_id: chosen.id,
-      error_message: err instanceof Error ? err.message : String(err),
-    });
-    return;
-  }
-
+  // Zero or multiple coach matches → no_match.
   await logLinkAttempt({
     organization_id: orgId,
     user_id: clerkUserId,
     email,
     attempted_source: 'email_auto',
-    status: 'success',
-    candidate_student_ids: [chosen.id],
-    chosen_student_id: chosen.id,
+    status: 'no_match',
+    candidate_student_ids: [],
   });
-  console.info(
-    `[clerk-webhook] email_auto matched user=${clerkUserId} student=${chosen.id} org=${orgId} (pending_confirm)`,
-  );
 }
 
 async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void> {
@@ -305,7 +241,7 @@ async function fetchClerkUserContext(
  * `session.created` (sign-in) linking backstop. Pre-existing Chesster accounts
  * never fire `user.created`, so the primary linking path is skipped entirely
  * for them. On sign-in we re-run the same claim: a lingering invite JWT first,
- * then parent-email / coach-email auto-match. Idempotent — a verified link is
+ * then coach-email auto-match. Idempotent — a verified link is
  * terminal, so we no-op rather than downgrade it to pending_confirm.
  */
 async function completeChessEmpireSignIn(data: ClerkSessionData): Promise<void> {

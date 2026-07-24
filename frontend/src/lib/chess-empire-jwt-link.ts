@@ -32,7 +32,6 @@ export type AttemptStatus =
   | 'success'
   | 'pending_row_success'
   | 'no_match'
-  | 'multiple_match'
   | 'jwt_missing'
   | 'jwt_invalid'
   | 'jwt_expired'
@@ -130,7 +129,7 @@ export type JwtLinkResult =
  * discriminated result — the caller decides HTTP status / email fallback.
  *
  * `fallbackToEmail` is only `true` for soft JWT failures (missing signature
- * secret aside — expired/invalid signature): the webhook then tries parent
+ * secret aside — expired/invalid signature): the webhook then tries coach
  * email auto-match. Replay and hard errors set it `false` (stop).
  */
 export async function linkMemberViaInviteJwt(

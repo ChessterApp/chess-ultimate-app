@@ -339,57 +339,21 @@ export async function getCoachProfile(coachId: string): Promise<CECoachProfile> 
 }
 
 /**
- * Look up CE `students` rows by `parent_email` (case-insensitive).
- *
- * Used by the Clerk webhook fallback path when `inviteJwt` is missing /
- * expired / invalid — an exact `parent_email` match with a single active
- * student in the org is treated as a soft link (`link_status='pending_confirm'`)
- * and the user has to confirm on the homepage before it's promoted to
- * `verified`. Zero or multiple matches short-circuit to the admin queue.
- *
- * `orgId` is accepted for symmetry with the plan spec but not filtered on —
- * CE data doesn't carry a Chesster org id. The webhook only calls this for
- * Chess Empire signups, so scoping is enforced upstream.
- */
-export async function findStudentsByParentEmail(
-  _orgId: string,
-  email: string,
-): Promise<CEStudent[]> {
-  const key = getServiceKey();
-  const trimmed = (email || '').trim();
-  if (!trimmed) return [];
-  const params = new URLSearchParams({
-    parent_email: `eq.${trimmed}`,
-    status: 'eq.active',
-    select: 'id,first_name,last_name,branch_id,status,date_of_birth,coach_id,photo_url',
-    limit: '10',
-  });
-  const url = `${ceRestBase()}/students?${params.toString()}`;
-  const resp = await ceFetch(url, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      Accept: 'application/json',
-    },
-  });
-  return expectJson<CEStudent[]>(resp);
-}
-
-/**
  * Look up CE `coaches` rows by `email` (exact, case-insensitive).
  *
- * The webhook email fallback checks `students.parent_email` first; when that
- * finds nothing it also tries this so a coach who signs up bare on the
- * white-label welcome flow (their `coaches.email` matching the sign-up email)
- * still gets soft-linked instead of being stranded on `no_match`.
+ * The webhook email fallback tries this so a coach who signs up bare on the
+ * white-label welcome flow (their OWN `coaches.email` matching the sign-up
+ * email) gets soft-linked instead of being stranded on `no_match`. Students
+ * are never matched by email — a branch-link signup uses any email, so the
+ * address carries no signal about which student was picked.
  *
  * PostgREST `ilike` without wildcards is a case-insensitive exact compare, but
  * a `%`/`_` embedded in the address would be treated as a wildcard — the JS
  * `toLowerCase()` filter re-checks equality so only true exact matches survive.
  *
- * `orgId` is accepted for symmetry with `findStudentsByParentEmail` but not
- * filtered on — CE data doesn't carry a Chesster org id; the webhook only calls
- * this for Chess Empire signups, so scoping is enforced upstream.
+ * `orgId` is accepted for symmetry but not filtered on — CE data doesn't carry
+ * a Chesster org id; the webhook only calls this for Chess Empire signups, so
+ * scoping is enforced upstream.
  */
 export async function findCoachesByEmail(
   _orgId: string,
