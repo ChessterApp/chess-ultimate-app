@@ -466,7 +466,7 @@ function SearchStep({
             onClick={onTrial}
             disabled={trialLoading}
             data-testid="welcome-trial-cta"
-            className="w-full rounded-2xl border-2 border-purple-600 bg-white py-4 font-bold uppercase tracking-wide text-purple-700 hover:bg-purple-50 disabled:border-gray-300 disabled:text-gray-400 active:translate-y-0.5 transition-all focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
+            className="w-full rounded-2xl bg-gradient-to-b from-purple-600 to-purple-700 py-4 font-bold uppercase tracking-wide text-white border-b-4 border-purple-800 hover:from-purple-500 hover:to-purple-600 active:border-b-2 active:translate-y-0.5 disabled:from-gray-300 disabled:to-gray-400 disabled:border-gray-400 disabled:active:border-b-4 disabled:active:translate-y-0 transition-all focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
           >
             {trialLoading ? t('verifying') : t('trialCta')}
           </button>
