@@ -28,6 +28,8 @@ export function useKeyboardShortcuts() {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
+      // Autofill/password managers dispatch synthetic keydown events with no key
+      if (!e.key) return;
       const key = e.key.toLowerCase();
 
       // Always handle Escape
