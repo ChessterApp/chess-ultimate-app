@@ -1716,13 +1716,6 @@
     "tooManyAttempts": "Too many attempts. Try again in an hour or contact your branch admin.",
     "invalidDob": "Please enter a valid date of birth (DD MM YYYY).",
     "genericError": "Something went wrong. Please try again.",
-    "online": {
-      "title": "Welcome, online students",
-      "subtitle": "Enter your name to create your free Chesster account.",
-      "nameLabel": "Your name",
-      "namePlaceholder": "Type your name…",
-      "continue": "Continue"
-    },
     "linkInvalidTitle": "This link is no longer valid",
     "linkInvalidBody": "Please contact your branch admin for an updated link.",
     "registered": {

@@ -211,6 +211,8 @@ describe('rotateBranchToken', () => {
       external_branch_id: 'br-1',
       branch_name: 'Debut',
       token: 'old-token',
+      kind: 'branch',
+      access_ttl_hours: null,
       expires_at: null,
       revoked_at: null,
       created_at: '2026-06-30T18:17:00Z',
@@ -233,6 +235,36 @@ describe('rotateBranchToken', () => {
     const insertOp = ops.find((o) => o.op === 'insert');
     expect(insertOp?.payload?.created_by).toBe('user-x');
     expect(insertOp?.payload?.external_branch_id).toBe('br-1');
+  });
+
+  it('carries kind + access_ttl_hours onto the rotated row (online stays online)', async () => {
+    const existing: BranchTokenRow = {
+      id: 't-online',
+      organization_id: 'org-1',
+      external_branch_id: 'br-online',
+      branch_name: 'Онлайн',
+      token: 'old-online-token',
+      kind: 'online',
+      access_ttl_hours: 72,
+      expires_at: null,
+      revoked_at: null,
+      created_at: '2026-06-30T18:17:00Z',
+      created_by: 'user-creator',
+    };
+    scripts.branch_invite_tokens = {
+      selectRow: existing,
+      updateRow: { ...existing, revoked_at: '2026-06-30T19:00:00Z' },
+      insertRow: { ...existing, id: 't-online-2', token: 'new-online-token', revoked_at: null },
+    };
+    await rotateBranchToken({
+      orgId: 'org-1',
+      tokenId: 't-online',
+      actorClerkUserId: 'user-x',
+    });
+    const insertOp = ops.find((o) => o.op === 'insert');
+    // Without these the replacement would silently demote to a branch token.
+    expect(insertOp?.payload?.kind).toBe('online');
+    expect(insertOp?.payload?.access_ttl_hours).toBe(72);
   });
 
   it('throws OrgScopeError on org mismatch', async () => {

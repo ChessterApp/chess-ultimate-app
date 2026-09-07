@@ -57,6 +57,8 @@ export interface BranchTokenRow {
   external_branch_id: string;
   branch_name: string;
   token: string;
+  kind: string | null;
+  access_ttl_hours: number | null;
   expires_at: string | null;
   revoked_at: string | null;
   created_at: string;
@@ -193,6 +195,11 @@ export async function rotateBranchToken({
       organization_id: existing.organization_id,
       external_branch_id: existing.external_branch_id,
       branch_name: existing.branch_name,
+      // Carry the token's class + trial window onto the replacement row, or a
+      // rotated online token would silently demote to a plain branch token
+      // (its purple picker card would jump into the branch list).
+      kind: existing.kind,
+      access_ttl_hours: existing.access_ttl_hours,
       token: newToken(),
       created_by: actorClerkUserId,
     })

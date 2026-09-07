@@ -1,30 +1,58 @@
 /**
  * @vitest-environment jsdom
  *
- * Client tests for OnlineWelcomeFlow. Online invite tokens skip the roster
- * search AND the old name interstitial: on mount the component POSTs
- * `{ branchToken }` to `/api/chess-empire/online/register` and hands off to Clerk
- * sign-up. Covers: auto-register on mount, single call under StrictMode, the
- * signed-out redirect to `/sign-up?invite`, the signed-in `/dashboard` path, and
- * the error + retry branch.
+ * Online-kind invite tokens now render the SAME roster-search flow
+ * (`WelcomeFlow`) as branch tokens — the synthetic auto-register path
+ * (`OnlineWelcomeFlow` + `/api/chess-empire/online/register`) was retired.
+ *
+ * These drive the server page end-to-end for a `kind='online'` token: it
+ * resolves the token and renders the search flow, and the search request is
+ * scoped to the Online branch token (`students/search?branchToken=<online>`).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import React, { StrictMode } from 'react';
+import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 
-const routerReplace = vi.fn();
+const ONLINE_TOKEN = 'online-tok-xyz';
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: routerReplace, push: vi.fn() }),
+interface ScriptedResponse {
+  data?: unknown;
+  error?: unknown;
+}
+
+const branchScript: { current: ScriptedResponse } = { current: { data: null, error: null } };
+
+vi.mock('@/lib/supabase-admin', () => ({
+  supabaseAdmin: {
+    from: () => {
+      const chain: Record<string, unknown> = {
+        select: () => chain,
+        eq: () => chain,
+        maybeSingle: () => Promise.resolve(branchScript.current),
+      };
+      return chain;
+    },
+  },
 }));
 
-const authStore = { isSignedIn: false as boolean };
+vi.mock('next-intl/server', () => ({
+  getLocale: async () => 'en',
+  getTranslations: async () => (key: string, opts?: Record<string, unknown>) =>
+    opts ? `${key}:${JSON.stringify(opts)}` : key,
+}));
+
+// Client-side deps pulled in by the real WelcomeFlow.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+
 vi.mock('@clerk/nextjs', () => ({
-  useAuth: () => ({ isSignedIn: authStore.isSignedIn }),
+  useAuth: () => ({ isSignedIn: false }),
 }));
 
 vi.mock('next-intl', () => ({
-  useTranslations: () => (key: string) => key,
+  useTranslations: () => (key: string, opts?: Record<string, unknown>) =>
+    opts ? `${key}:${Object.values(opts).join(',')}` : key,
 }));
 
 vi.mock('next/image', () => ({
@@ -39,24 +67,16 @@ vi.mock('@/contexts/OrganizationContext', () => ({
   useOrganization: () => ({ org: null, isWhiteLabel: false }),
 }));
 
-const persistWelcomeOnboardingUrl = vi.fn();
-const persistBranchWelcomeUrl = vi.fn();
-vi.mock('@/lib/invite-storage', () => ({
-  persistWelcomeOnboardingUrl: (...a: unknown[]) => persistWelcomeOnboardingUrl(...a),
-  persistBranchWelcomeUrl: (...a: unknown[]) => persistBranchWelcomeUrl(...a),
-}));
+import WelcomePage from '../page';
 
-import OnlineWelcomeFlow from '../OnlineWelcomeFlow';
-
-interface MockResponse {
-  ok: boolean;
-  status: number;
-  json: () => Promise<unknown>;
-}
-
-function jsonResponse(body: unknown, status = 200): MockResponse {
-  return { ok: status >= 200 && status < 300, status, json: async () => body };
-}
+const ONLINE_ROW = {
+  organization_id: 'org-1',
+  external_branch_id: 'br-online',
+  branch_name: 'Онлайн',
+  kind: 'online',
+  expires_at: null,
+  revoked_at: null,
+};
 
 interface FetchCall {
   url: string;
@@ -64,100 +84,56 @@ interface FetchCall {
 }
 
 let fetchCalls: FetchCall[];
-let fetchHandler: (call: FetchCall) => Promise<MockResponse>;
 
 beforeEach(() => {
+  branchScript.current = { data: ONLINE_ROW, error: null };
   fetchCalls = [];
-  fetchHandler = async () => jsonResponse({ inviteJwt: 'jwt.token.sig' });
-  authStore.isSignedIn = false;
-  routerReplace.mockReset();
-  persistWelcomeOnboardingUrl.mockReset();
-  persistBranchWelcomeUrl.mockReset();
   global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
     fetchCalls.push({ url, init });
-    return (await fetchHandler({ url, init })) as unknown as Response;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ results: [] }),
+    } as unknown as Response;
   });
 });
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
-function registerCalls() {
-  return fetchCalls.filter((c) => c.url.includes('/online/register'));
+function makeParams(token: string) {
+  return { params: Promise.resolve({ branchToken: token }) };
 }
 
-describe('OnlineWelcomeFlow', () => {
-  it('auto-registers on mount with just the branchToken and redirects to sign-up', async () => {
-    render(<OnlineWelcomeFlow branchToken="tok-abc" />);
+async function flushDebounce() {
+  // 250 ms search debounce + a small buffer for fetch microtasks.
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 320));
+  });
+}
 
-    await waitFor(() => {
-      expect(routerReplace).toHaveBeenCalledWith('/sign-up?invite=jwt.token.sig');
-    });
-
-    const calls = registerCalls();
-    expect(calls).toHaveLength(1);
-    const body = JSON.parse(calls[0].init!.body as string);
-    expect(body).toEqual({ branchToken: 'tok-abc' });
-    // No name is collected or sent anymore.
-    expect(body).not.toHaveProperty('name');
-    expect(persistBranchWelcomeUrl).toHaveBeenCalledWith('/welcome/tok-abc');
+describe('welcome/[branchToken] — online-kind token', () => {
+  it('renders the roster-search flow (not the retired synthetic flow)', async () => {
+    const ui = await WelcomePage(makeParams(ONLINE_TOKEN));
+    const { container, getByRole } = render(ui);
+    // A branch-name heading + a search box are proof this is WelcomeFlow, not
+    // the old auto-register interstitial.
+    expect(getByRole('heading').textContent).toContain('Онлайн');
+    expect(container.querySelector('#welcome-search')).not.toBeNull();
   });
 
-  it('fires register exactly once under StrictMode (double-invoked effects)', async () => {
-    render(
-      <StrictMode>
-        <OnlineWelcomeFlow branchToken="tok-abc" />
-      </StrictMode>,
-    );
-
-    await waitFor(() => {
-      expect(routerReplace).toHaveBeenCalledWith('/sign-up?invite=jwt.token.sig');
-    });
-    expect(registerCalls()).toHaveLength(1);
-  });
-
-  it('already signed-in: claims server-side and redirects to /dashboard (never /sign-up)', async () => {
-    authStore.isSignedIn = true;
-    fetchHandler = async (call) => {
-      if (call.url.includes('/online/register')) return jsonResponse({ inviteJwt: 'jwt.token.sig' });
-      if (call.url.includes('/link/claim')) return jsonResponse({ ok: true, state: 'verified' });
-      return jsonResponse({});
-    };
-    render(<OnlineWelcomeFlow branchToken="tok-abc" />);
-
-    await waitFor(() => {
-      const claimCall = fetchCalls.find((c) => c.url.includes('/link/claim'));
-      expect(claimCall).toBeDefined();
-      expect(JSON.parse(claimCall!.init!.body as string)).toEqual({
-        inviteJwt: 'jwt.token.sig',
-      });
-    });
-    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith('/dashboard'));
-    expect(
-      routerReplace.mock.calls.some(([url]) => String(url).startsWith('/sign-up')),
-    ).toBe(false);
-  });
-
-  it('shows a generic error with a retry button when register fails, then recovers', async () => {
-    fetchHandler = async () => jsonResponse({ error: 'upstream' }, 502);
-    const { container, getByRole } = render(<OnlineWelcomeFlow branchToken="tok-abc" />);
-
-    await waitFor(() => expect(container.textContent).toContain('genericError'));
-    expect(routerReplace).not.toHaveBeenCalled();
-    expect(registerCalls()).toHaveLength(1);
-
-    // Retry succeeds this time.
-    fetchHandler = async () => jsonResponse({ inviteJwt: 'jwt.token.sig' });
-    await act(async () => {
-      fireEvent.click(getByRole('button'));
-    });
-
-    await waitFor(() => {
-      expect(routerReplace).toHaveBeenCalledWith('/sign-up?invite=jwt.token.sig');
-    });
-    expect(registerCalls()).toHaveLength(2);
+  it('scopes the roster search to the online branch token', async () => {
+    const ui = await WelcomePage(makeParams(ONLINE_TOKEN));
+    const { container } = render(ui);
+    const input = container.querySelector('#welcome-search') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'ai' } });
+    await flushDebounce();
+    await waitFor(() => expect(fetchCalls.length).toBeGreaterThan(0));
+    expect(fetchCalls[0].url).toContain('/api/chess-empire/students/search');
+    expect(fetchCalls[0].url).toContain(`branchToken=${ONLINE_TOKEN}`);
   });
 });
