@@ -1703,7 +1703,11 @@
     "subHeading": "Find your child's name to claim their free Chesster account.",
     "onlineHeading": "Hello, dear students!",
     "onlineSubHeading": "Please enter your name or email to activate your Chess Empire Online account.",
-    "trialCta": "Or try free for 3 days",
+    "trialCta": {
+      "title": "Free Trial",
+      "badge": "3 days",
+      "subtitle": "Full access to all app features."
+    },
     "searchPlaceholder": "Type in English…",
     "minCharsHint": "Type at least 2 letters to search.",
     "searching": "Searching…",

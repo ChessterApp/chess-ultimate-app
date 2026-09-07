@@ -134,7 +134,9 @@ describe('welcome/[branchToken] — online-kind token', () => {
     expect(getByRole('heading').textContent).toBe('onlineHeading');
     expect(container.textContent).toContain('onlineSubHeading');
     expect(container.querySelector('#welcome-search')).not.toBeNull();
-    expect(getByTestId('welcome-trial-cta').textContent).toContain('trialCta');
+    expect(getByTestId('welcome-trial-cta').textContent).toContain('trialCta.title');
+    expect(getByTestId('welcome-trial-cta').textContent).toContain('trialCta.badge');
+    expect(getByTestId('welcome-trial-cta').textContent).toContain('trialCta.subtitle');
   });
 
   it('scopes the roster search to the online branch token', async () => {
