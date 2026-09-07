@@ -32,6 +32,8 @@ interface WelcomeFlowProps {
   branchToken: string;
   branchName: string;
   organizationId: string;
+  /** Online-branch tokens get the CE Online copy + a 3-day trial CTA. */
+  isOnline?: boolean;
 }
 
 interface StudentResult {
@@ -54,6 +56,7 @@ export default function WelcomeFlow({
   branchToken,
   branchName,
   organizationId,
+  isOnline = false,
 }: WelcomeFlowProps) {
   const t = useTranslations('welcome');
   const router = useRouter();
@@ -73,6 +76,8 @@ export default function WelcomeFlow({
   const [selected, setSelected] = useState<StudentResult | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [trialLoading, setTrialLoading] = useState(false);
+  const [trialError, setTrialError] = useState<string | null>(null);
 
   // Persist where onboarding started so the sign-up guard can bounce an
   // abandoned bare sign-up back here (white-label domains only). Runs once on
@@ -235,6 +240,52 @@ export default function WelcomeFlow({
     }
   }, [selected, verifying, branchToken, isSignedIn, router, t]);
 
+  // Online-only 3-day trial: mint a synthetic-student invite JWT and hand off to
+  // the Clerk sign-up page, mirroring the roster confirm path's redirect + claim.
+  const onTrial = useCallback(async () => {
+    if (trialLoading) return;
+    setTrialLoading(true);
+    setTrialError(null);
+    try {
+      const res = await fetch('/api/chess-empire/online/trial', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ branchToken }),
+      });
+      if (!res.ok) {
+        setTrialError(t('genericError'));
+        return;
+      }
+      const body = (await res.json()) as { inviteJwt?: string };
+      if (!body.inviteJwt) {
+        setTrialError(t('genericError'));
+        return;
+      }
+
+      persistBranchWelcomeUrl(`/welcome/${encodeURIComponent(branchToken)}`);
+
+      if (isSignedIn) {
+        try {
+          await fetch('/api/chess-empire/link/claim', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inviteJwt: body.inviteJwt }),
+          });
+        } catch {
+          // Dashboard no_link poller replays the stashed JWT as a backstop.
+        }
+        router.replace('/dashboard');
+        return;
+      }
+
+      router.replace(`/sign-up?invite=${encodeURIComponent(body.inviteJwt)}`);
+    } catch {
+      setTrialError(t('genericError'));
+    } finally {
+      setTrialLoading(false);
+    }
+  }, [trialLoading, branchToken, isSignedIn, router, t]);
+
   return (
     <div className="flex flex-col items-center justify-start pt-16 md:justify-center md:pt-0 min-h-screen bg-purple-600 md:bg-gray-50 px-4 pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-md bg-white md:bg-white rounded-3xl md:rounded-3xl p-6 md:p-8 mt-4 md:mt-0 shadow-xl">
@@ -263,12 +314,16 @@ export default function WelcomeFlow({
         {step === 'search' && (
           <SearchStep
             branchName={branchName}
+            isOnline={isOnline}
             query={query}
             onQueryChange={setQuery}
             searching={searching}
             results={results}
             searchError={searchError}
             onSelect={onSelectResult}
+            onTrial={onTrial}
+            trialLoading={trialLoading}
+            trialError={trialError}
           />
         )}
 
@@ -288,20 +343,28 @@ export default function WelcomeFlow({
 
 function SearchStep({
   branchName,
+  isOnline,
   query,
   onQueryChange,
   searching,
   results,
   searchError,
   onSelect,
+  onTrial,
+  trialLoading,
+  trialError,
 }: {
   branchName: string;
+  isOnline: boolean;
   query: string;
   onQueryChange: (v: string) => void;
   searching: boolean;
   results: StudentResult[] | null;
   searchError: string | null;
   onSelect: (r: StudentResult) => void;
+  onTrial: () => void;
+  trialLoading: boolean;
+  trialError: string | null;
 }) {
   const t = useTranslations('welcome');
   const trimmed = query.trim();
@@ -310,9 +373,11 @@ function SearchStep({
   return (
     <>
       <h1 className="text-2xl font-bold text-gray-800 text-center">
-        {t('heading', { branch: branchName })}
+        {isOnline ? t('onlineHeading') : t('heading', { branch: branchName })}
       </h1>
-      <p className="text-sm text-gray-500 mt-2 text-center">{t('subHeading')}</p>
+      <p className="text-sm text-gray-500 mt-2 text-center">
+        {isOnline ? t('onlineSubHeading') : t('subHeading')}
+      </p>
 
       <div className="mt-6">
         <label htmlFor="welcome-search" className="sr-only">
@@ -384,6 +449,25 @@ function SearchStep({
       </div>
 
       <p className="text-xs text-gray-400 mt-6 text-center">{t('cantFind')}</p>
+
+      {isOnline && (
+        <div className="mt-6 border-t border-gray-100 pt-6">
+          {trialError && (
+            <p role="alert" className="text-sm text-red-500 mb-3 text-center">
+              {trialError}
+            </p>
+          )}
+          <button
+            type="button"
+            onClick={onTrial}
+            disabled={trialLoading}
+            data-testid="welcome-trial-cta"
+            className="w-full rounded-2xl border-2 border-purple-600 bg-white py-4 font-bold uppercase tracking-wide text-purple-700 hover:bg-purple-50 disabled:border-gray-300 disabled:text-gray-400 active:translate-y-0.5 transition-all focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
+          >
+            {trialLoading ? t('verifying') : t('trialCta')}
+          </button>
+        </div>
+      )}
     </>
   );
 }

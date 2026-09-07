@@ -44,8 +44,21 @@ vi.mock('next/image', () => ({
 
 // Stub the client flow so we don't pull in branding context / next-intl client hooks.
 vi.mock('../WelcomeFlow', () => ({
-  default: ({ branchName, branchToken }: { branchName: string; branchToken: string }) => (
-    <div data-testid="welcome-flow" data-branch={branchName} data-token={branchToken} />
+  default: ({
+    branchName,
+    branchToken,
+    isOnline,
+  }: {
+    branchName: string;
+    branchToken: string;
+    isOnline?: boolean;
+  }) => (
+    <div
+      data-testid="welcome-flow"
+      data-branch={branchName}
+      data-token={branchToken}
+      data-online={isOnline ? 'true' : 'false'}
+    />
   ),
 }));
 
@@ -73,13 +86,21 @@ describe('welcome/[branchToken] server page', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the welcome flow for a valid token', async () => {
+  it('renders the welcome flow for a valid token (branch, not online)', async () => {
     branchScript.current = { data: VALID_TOKEN, error: null };
     const ui = await WelcomePage(makeParams('good'));
     const { getByTestId } = render(ui);
     const flow = getByTestId('welcome-flow');
     expect(flow.getAttribute('data-branch')).toBe('Debut');
     expect(flow.getAttribute('data-token')).toBe('good');
+    expect(flow.getAttribute('data-online')).toBe('false');
+  });
+
+  it('passes isOnline=true for a kind=online token', async () => {
+    branchScript.current = { data: { ...VALID_TOKEN, kind: 'online' }, error: null };
+    const ui = await WelcomePage(makeParams('online-tok'));
+    const { getByTestId } = render(ui);
+    expect(getByTestId('welcome-flow').getAttribute('data-online')).toBe('true');
   });
 
   it('renders the link-invalid screen when token not found', async () => {

@@ -116,14 +116,25 @@ async function flushDebounce() {
   });
 }
 
+const BRANCH_ROW = {
+  organization_id: 'org-1',
+  external_branch_id: 'br-debut',
+  branch_name: 'Debut',
+  kind: 'branch',
+  expires_at: null,
+  revoked_at: null,
+};
+
 describe('welcome/[branchToken] — online-kind token', () => {
-  it('renders the roster-search flow (not the retired synthetic flow)', async () => {
+  it('renders the CE Online copy + trial CTA (roster-search flow, online variant)', async () => {
     const ui = await WelcomePage(makeParams(ONLINE_TOKEN));
-    const { container, getByRole } = render(ui);
-    // A branch-name heading + a search box are proof this is WelcomeFlow, not
-    // the old auto-register interstitial.
-    expect(getByRole('heading').textContent).toContain('Онлайн');
+    const { container, getByRole, getByTestId } = render(ui);
+    // Online tokens use the CE Online heading keys (mock echoes the raw key)
+    // and expose the 3-day trial CTA — a search box still proves it's WelcomeFlow.
+    expect(getByRole('heading').textContent).toBe('onlineHeading');
+    expect(container.textContent).toContain('onlineSubHeading');
     expect(container.querySelector('#welcome-search')).not.toBeNull();
+    expect(getByTestId('welcome-trial-cta').textContent).toContain('trialCta');
   });
 
   it('scopes the roster search to the online branch token', async () => {
@@ -135,5 +146,32 @@ describe('welcome/[branchToken] — online-kind token', () => {
     await waitFor(() => expect(fetchCalls.length).toBeGreaterThan(0));
     expect(fetchCalls[0].url).toContain('/api/chess-empire/students/search');
     expect(fetchCalls[0].url).toContain(`branchToken=${ONLINE_TOKEN}`);
+  });
+
+  it('posts the branch token to the trial endpoint when the CTA is clicked', async () => {
+    const ui = await WelcomePage(makeParams(ONLINE_TOKEN));
+    const { getByTestId } = render(ui);
+    fireEvent.click(getByTestId('welcome-trial-cta'));
+    await waitFor(() =>
+      expect(
+        fetchCalls.some((c) => c.url.includes('/api/chess-empire/online/trial')),
+      ).toBe(true),
+    );
+    const trialCall = fetchCalls.find((c) =>
+      c.url.includes('/api/chess-empire/online/trial'),
+    )!;
+    expect(trialCall.init?.method).toBe('POST');
+    expect(String(trialCall.init?.body)).toContain(ONLINE_TOKEN);
+  });
+
+  it('branch-kind token keeps the old heading and shows no trial CTA', async () => {
+    branchScript.current = { data: BRANCH_ROW, error: null };
+    const ui = await WelcomePage(makeParams('branch-tok'));
+    const { container, getByRole, queryByTestId } = render(ui);
+    // Branch heading uses the shared `heading` key with the branch name arg.
+    expect(getByRole('heading').textContent).toContain('heading');
+    expect(getByRole('heading').textContent).toContain('Debut');
+    expect(container.textContent).not.toContain('onlineHeading');
+    expect(queryByTestId('welcome-trial-cta')).toBeNull();
   });
 });

@@ -253,9 +253,12 @@ export async function searchStudentsByBranch(
     // PostgREST `or=` with comma-separated predicates. ILIKE wildcards are `*`.
     const escaped = trimmed.replace(/[,()*]/g, ' ').trim();
     if (escaped) {
+      // Match on name OR parent_email — parent_email is the only email column in
+      // CE (used for Online students). Deliberately NOT added to `select`, so the
+      // email is used for matching but never returned to the client.
       params.append(
         'or',
-        `(first_name.ilike.*${escaped}*,last_name.ilike.*${escaped}*)`,
+        `(first_name.ilike.*${escaped}*,last_name.ilike.*${escaped}*,parent_email.ilike.*${escaped}*)`,
       );
     }
   }

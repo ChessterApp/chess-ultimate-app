@@ -54,6 +54,23 @@ describe('chess-empire-client', () => {
       expect(headers.Authorization).toBe('Bearer ce-test-key');
     });
 
+    it('matches on parent_email without adding it to the returned select', async () => {
+      // Simulate CE REST honoring our select (no parent_email column requested),
+      // so the row it returns has no email even though it matched on one.
+      fetchSpy.mockResolvedValue(
+        jsonResponse([{ id: 'stu-9', first_name: 'Dana', last_name: 'K', status: 'active' }]),
+      );
+      const result = await searchStudentsByBranch('br-1', 'dana@x.io', 5);
+      const [url] = fetchSpy.mock.calls[0]!;
+      const urlStr = decodeURIComponent(String(url));
+      // The email is used for matching…
+      expect(urlStr).toContain('parent_email.ilike.*dana@x.io*');
+      // …but never requested back, so it can't leak to the client.
+      const selectParam = new URL(String(url)).searchParams.get('select') ?? '';
+      expect(selectParam).not.toContain('parent_email');
+      expect(result.every((r) => !('parent_email' in r))).toBe(true);
+    });
+
     it('omits the or= filter when query is empty', async () => {
       fetchSpy.mockResolvedValue(jsonResponse([]));
       await searchStudentsByBranch('br-1', '   ');
