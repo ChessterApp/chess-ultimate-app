@@ -105,6 +105,22 @@ export default function NodeDetailsPanel({
               sx={{ height: 16, fontSize: 10, bgcolor: '#1f2937', color: '#fff', ml: 'auto' }}
             />
           )}
+          {masterGamesFilters?.playerColor && onMasterGamesFilterChange && (
+            <Chip
+              label={`${masterGamesFilters.playerColor === 'white' ? '♔' : '♚'} ${masterGamesFilters.playerName?.trim() || t('colorFilterPlayer')} ${masterGamesFilters.playerColor === 'white' ? t('asWhite') : t('asBlack')}`}
+              size="small"
+              onDelete={() => onMasterGamesFilterChange({ ...masterGamesFilters, playerColor: '' })}
+              sx={{
+                height: 20,
+                fontSize: 10,
+                bgcolor: 'rgba(20,184,166,0.14)',
+                color: '#14b8a6',
+                border: '1px solid rgba(20,184,166,0.35)',
+                ml: masterGamesTotal > 0 ? 0.5 : 'auto',
+                '& .MuiChip-deleteIcon': { color: '#14b8a6', fontSize: 14, '&:hover': { color: '#0d9488' } },
+              }}
+            />
+          )}
         </Box>
         {masterDbGameCount !== null && (
           <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10, opacity: 0.7, display: 'block', mb: 0.5 }}>

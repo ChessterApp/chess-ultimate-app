@@ -2080,6 +2080,19 @@ def games_by_position():
     player_color = request.args.get('player_color', '').strip().lower()
     if player_color not in ('white', 'black', ''):
         player_color = ''
+    # opponent_color is a linked view of the same single filter: the opponent's
+    # colour is the inverse of the player's. Reconcile the two into player_color
+    # so the query logic below stays untouched.
+    opponent_color = request.args.get('opponent_color', '').strip().lower()
+    if opponent_color not in ('white', 'black', ''):
+        opponent_color = ''
+    if opponent_color:
+        inverse = 'black' if opponent_color == 'white' else 'white'
+        if player_color and player_color != inverse:
+            # Both sides claim the same colour (white/white or black/black) —
+            # unrepresentable in a single game.
+            return jsonify({'error': 'player_color and opponent_color cannot both be the same colour'}), 400
+        player_color = inverse
     player_name = request.args.get('player_name', '').strip()
     opponent_name = request.args.get('opponent_name', '').strip()
     sort_by = request.args.get('sort_by', 'date_desc')

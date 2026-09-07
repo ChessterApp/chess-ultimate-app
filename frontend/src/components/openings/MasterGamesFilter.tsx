@@ -3,9 +3,101 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, TextField, InputAdornment, Select, MenuItem, FormControl, Chip, Collapse, Slider, Typography,
+  Box, TextField, InputAdornment, Select, MenuItem, FormControl, Chip, Collapse, Slider, Typography, Tooltip,
 } from '@mui/material';
-import { Search, TuneRounded } from '@mui/icons-material';
+import { Search, TuneRounded, LinkRounded } from '@mui/icons-material';
+
+type ColorValue = '' | 'white' | 'black';
+
+const INVERSE_COLOR: Record<ColorValue, ColorValue> = { '': '', white: 'black', black: 'white' };
+
+/**
+ * Compact 3-state color toggle (Any / ♔ white / ♚ black) that lives inside a
+ * name input's end adornment. `linked` draws a dashed ring on the active
+ * non-Any chip to signal it was auto-set by the other (linked) toggle.
+ */
+function ColorSegToggle({
+  value,
+  linked,
+  anyLabel,
+  tooltips,
+  onSelect,
+}: {
+  value: ColorValue;
+  linked: boolean;
+  anyLabel: string;
+  tooltips: { any: string; white: string; black: string };
+  onSelect: (v: ColorValue) => void;
+}) {
+  const opt = {
+    height: 24,
+    minWidth: 28,
+    px: 0.75,
+    borderRadius: '6px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 600,
+    lineHeight: 1,
+    cursor: 'pointer',
+    color: 'text.secondary',
+    userSelect: 'none' as const,
+  };
+  const dashed = linked ? { outline: '1px dashed', outlineColor: 'primary.main', outlineOffset: '1px' } : {};
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        gap: '2px',
+        bgcolor: 'background.default',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: '8px',
+        p: '2px',
+      }}
+    >
+      <Tooltip title={tooltips.any} arrow>
+        <Box
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSelect('')}
+          sx={{
+            ...opt,
+            fontSize: 11,
+            ...(value === '' && { bgcolor: 'rgba(20,184,166,0.14)', color: 'primary.main' }),
+          }}
+        >
+          {anyLabel}
+        </Box>
+      </Tooltip>
+      <Tooltip title={tooltips.white} arrow>
+        <Box
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSelect('white')}
+          sx={{
+            ...opt,
+            fontSize: 15,
+            ...(value === 'white' && { bgcolor: '#e8e6e1', color: '#1a1a1a', ...dashed }),
+          }}
+        >
+          ♔
+        </Box>
+      </Tooltip>
+      <Tooltip title={tooltips.black} arrow>
+        <Box
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onSelect('black')}
+          sx={{
+            ...opt,
+            fontSize: 15,
+            ...(value === 'black' && { bgcolor: '#0a0a0a', color: '#f5f5f5', boxShadow: 'inset 0 0 0 1px #3a3a3a', ...dashed }),
+          }}
+        >
+          ♚
+        </Box>
+      </Tooltip>
+    </Box>
+  );
+}
 
 export interface MasterGamesFilterState {
   playerName: string;
@@ -30,6 +122,9 @@ interface MasterGamesFilterProps {
 
 export default function MasterGamesFilter({ filters, onFilterChange }: MasterGamesFilterProps) {
   const t = useTranslations('debut');
+  // Which toggle the user last set — drives the dashed "auto-set" ring on the
+  // other (linked) toggle. Cleared whenever the color filter is cleared.
+  const [colorSetBy, setColorSetBy] = useState<'player' | 'opponent' | null>(null);
   const [localPlayerName, setLocalPlayerName] = useState(filters.playerName);
   const [localOpponentName, setLocalOpponentName] = useState(filters.opponentName);
   const [ratingExpanded, setRatingExpanded] = useState(false);
@@ -156,11 +251,20 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
     setLocalEventName(filters.eventName);
   }, [filters.eventName]);
 
-  const colorOptions = [
-    { value: '', label: t('anyColor') || 'Any Color' },
-    { value: 'white', label: t('whiteGames') || 'White Games' },
-    { value: 'black', label: t('blackGames') || 'Black Games' },
-  ];
+  const playerColor = (filters.playerColor || '') as ColorValue;
+
+  // Keep the dashed-ring source in sync when the filter is cleared externally.
+  useEffect(() => {
+    if (playerColor === '') setColorSetBy(null);
+  }, [playerColor]);
+
+  const setPlayerColor = (value: ColorValue, source: 'player' | 'opponent') => {
+    setColorSetBy(value === '' ? null : source);
+    onFilterChange({ ...filtersRef.current, playerColor: value });
+  };
+
+  const playerNameLabel = localPlayerName.trim() || t('colorFilterPlayer');
+  const opponentNameLabel = localOpponentName.trim() || t('colorFilterOpponent');
 
   const resultOptions = [
     { value: '', label: t('anyResult') || 'Any Result' },
@@ -200,6 +304,21 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
                 <Search sx={{ fontSize: 18, color: 'primary.light' }} />
               </InputAdornment>
             ),
+            endAdornment: (
+              <InputAdornment position="end">
+                <ColorSegToggle
+                  value={playerColor}
+                  linked={colorSetBy === 'opponent' && playerColor !== ''}
+                  anyLabel={t('colorAny')}
+                  tooltips={{
+                    any: t('anyColor'),
+                    white: t('playsWhite', { name: playerNameLabel }),
+                    black: t('playsBlack', { name: playerNameLabel }),
+                  }}
+                  onSelect={(v) => setPlayerColor(v, 'player')}
+                />
+              </InputAdornment>
+            ),
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
@@ -237,6 +356,21 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
                 <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
               </InputAdornment>
             ),
+            endAdornment: (
+              <InputAdornment position="end">
+                <ColorSegToggle
+                  value={INVERSE_COLOR[playerColor]}
+                  linked={colorSetBy === 'player' && playerColor !== ''}
+                  anyLabel={t('colorAny')}
+                  tooltips={{
+                    any: t('anyColor'),
+                    white: t('playsWhite', { name: opponentNameLabel }),
+                    black: t('playsBlack', { name: opponentNameLabel }),
+                  }}
+                  onSelect={(v) => setPlayerColor(INVERSE_COLOR[v], 'opponent')}
+                />
+              </InputAdornment>
+            ),
           }}
           sx={{
             '& .MuiOutlinedInput-root': {
@@ -261,25 +395,16 @@ export default function MasterGamesFilter({ filters, onFilterChange }: MasterGam
         )}
       </Box>
 
-      {/* Player Color + Result + Sort row */}
-      <Box sx={{ display: 'flex', gap: 0.75 }}>
-        <FormControl size="small" sx={{ flex: 1 }}>
-          <Select
-            value={filters.playerColor}
-            onChange={(e) => onFilterChange({ ...filters, playerColor: e.target.value })}
-            displayEmpty
-            renderValue={(val) => val === '' ? <span style={{ opacity: 1 }}>{t('anyColor') || 'Any Color'}</span> : colorOptions.find(o => o.value === val)?.label}
-            sx={{ ...selectSx, bgcolor: 'background.paper', borderRadius: 1.5 }}
-            MenuProps={{ PaperProps: { sx: { bgcolor: 'background.paper', backgroundImage: 'none', color: 'text.secondary' } } }}
-          >
-            {colorOptions.map(opt => (
-              <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: 12 }}>
-                {opt.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+      {/* Linked-colors hint — shown while a color is active on either toggle */}
+      {colorSetBy !== null && playerColor !== '' && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'primary.main', fontSize: 11, px: 0.25 }}>
+          <LinkRounded sx={{ fontSize: 14 }} />
+          {t('colorsLinked')}
+        </Box>
+      )}
 
+      {/* Result + Sort row */}
+      <Box sx={{ display: 'flex', gap: 0.75 }}>
         <FormControl size="small" sx={{ flex: 1 }}>
           <Select
             value={filters.result}

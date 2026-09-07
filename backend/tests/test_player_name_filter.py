@@ -254,3 +254,91 @@ def test_short_player_token_returns_empty_no_timeout(app_client):
     assert data["games"] == []
     assert data["total"] == 0
     assert not data.get("timeout"), data
+
+
+# ─────────────────────────────────────────────
+# Per-player color toggle: player_color / opponent_color linkage.
+# The two toggles are two linked views of a single `player_color` filter;
+# `opponent_color` is reconciled into `player_color` server-side.
+# ─────────────────────────────────────────────
+
+
+def test_two_names_player_color_white_player_is_white(app_client):
+    """Two names + player_color=white → the player (carlsen) is white and the
+    opponent (caruana) is black in every returned row."""
+    data = _get_json(
+        app_client, fen=START_FEN,
+        player_name="carlsen", opponent_name="caruana",
+        player_color="white", limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert "carlsen" in (g.get("white_name") or "").lower(), g
+        assert "caruana" in (g.get("black_name") or "").lower(), g
+
+
+def test_two_names_player_color_black_is_inverse(app_client):
+    """Two names + player_color=black → the player (carlsen) is black and the
+    opponent (caruana) is white — the exact inverse of the white case."""
+    data = _get_json(
+        app_client, fen=START_FEN,
+        player_name="carlsen", opponent_name="caruana",
+        player_color="black", limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert "carlsen" in (g.get("black_name") or "").lower(), g
+        assert "caruana" in (g.get("white_name") or "").lower(), g
+
+
+def test_opponent_color_white_maps_to_player_black(app_client):
+    """`opponent_name=Shomoev&opponent_color=white` → opponent is white, so
+    the mapped player_color is black. Shomoev must appear on the white side."""
+    data = _get_json(
+        app_client, fen=START_FEN,
+        opponent_name="Shomoev", opponent_color="white", limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert "shomoev" in (g.get("white_name") or "").lower(), g
+
+
+def test_conflicting_colors_returns_400(app_client):
+    """player_color=white & opponent_color=white is unrepresentable (both
+    sides white) → 400 with a JSON error."""
+    resp = app_client.get(
+        f"/api/openings/games/by-position?fen={START_FEN}"
+        "&player_name=carlsen&player_color=white&opponent_color=white"
+    )
+    assert resp.status_code == 400, resp.data
+    assert "error" in resp.get_json()
+
+
+def test_complementary_colors_are_noop(app_client):
+    """player_color=white & opponent_color=black are complementary → treated
+    as player_color=white (no error, player stays white)."""
+    data = _get_json(
+        app_client, fen=START_FEN,
+        player_name="carlsen", player_color="white", opponent_color="black",
+        limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert "carlsen" in (g.get("white_name") or "").lower(), g
+
+
+def test_no_colors_unchanged_behavior(app_client):
+    """Regression: with no color params the two-name search returns games with
+    carlsen on either side (unchanged pre-feature behavior)."""
+    data = _get_json(
+        app_client, fen=START_FEN,
+        player_name="carlsen", limit=20,
+    )
+    assert not data.get("timeout"), data
+    assert len(data["games"]) > 0
+    for g in data["games"]:
+        assert _has_carlsen(g), g
