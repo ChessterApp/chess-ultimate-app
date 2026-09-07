@@ -207,6 +207,33 @@ describe('ChessEmpirePanel', () => {
     expect(container.textContent).toContain('counterPending');
   });
 
+  it('renders a warning banner when the roster payload carries warnings', async () => {
+    setupFetch(async (url) => {
+      if (url.includes('/chess-empire/roster'))
+        return jsonResponse({
+          ...ROSTER_PAYLOAD,
+          warnings: ['branches: HTTP 400 Bad Request'],
+        });
+      return jsonResponse({});
+    });
+    const { findByTestId } = render(<ChessEmpirePanel />);
+    const banner = await findByTestId('roster-warnings');
+    expect(banner.textContent).toContain('warningsTitle');
+    expect(banner.textContent).toContain('branches: HTTP 400 Bad Request');
+  });
+
+  it('does not render the warning banner when warnings are empty', async () => {
+    setupFetch(async (url) => {
+      if (url.includes('/chess-empire/roster'))
+        return jsonResponse({ ...ROSTER_PAYLOAD, warnings: [] });
+      return jsonResponse({});
+    });
+    const { findByTestId, queryByTestId } = render(<ChessEmpirePanel />);
+    await findByTestId('tabs');
+    await flush();
+    expect(queryByTestId('roster-warnings')).toBeNull();
+  });
+
   it('renders three tabs with derived counts', async () => {
     setupFetch(async (url) => {
       if (url.includes('/chess-empire/roster')) return jsonResponse(ROSTER_PAYLOAD);

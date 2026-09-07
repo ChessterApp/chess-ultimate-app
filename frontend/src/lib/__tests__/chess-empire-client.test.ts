@@ -8,6 +8,7 @@ import {
   searchStudentsByBranch,
   getStudentProfile,
   getBranches,
+  listBranches,
   countActiveStudentsInBranch,
   ChessEmpireAPIError,
 } from '../chess-empire-client';
@@ -188,13 +189,28 @@ describe('chess-empire-client', () => {
   });
 
   describe('getBranches', () => {
-    it('hits REST branches endpoint with select + order', async () => {
+    it('hits REST branches endpoint with select=id,name (no address) + order', async () => {
       fetchSpy.mockResolvedValue(jsonResponse([{ id: 'br-1', name: 'Debut' }]));
       const branches = await getBranches();
       expect(branches[0]?.name).toBe('Debut');
       const [url] = fetchSpy.mock.calls[0]!;
       expect(String(url)).toContain('/rest/v1/branches');
+      // `branches` has no `address` column — requesting it 400s (the outage).
+      expect(String(url)).toContain('select=id%2Cname');
+      expect(String(url)).not.toContain('address');
       expect(String(url)).toContain('order=name.asc');
+    });
+  });
+
+  describe('listBranches', () => {
+    it('requests select=id,name only — never the phantom address column', async () => {
+      fetchSpy.mockResolvedValue(jsonResponse([{ id: 'br-1', name: 'Debut' }]));
+      const branches = await listBranches();
+      expect(branches).toEqual([{ id: 'br-1', name: 'Debut' }]);
+      const [url] = fetchSpy.mock.calls[0]!;
+      expect(String(url)).toContain('/rest/v1/branches');
+      expect(String(url)).toContain('select=id%2Cname');
+      expect(String(url)).not.toContain('address');
     });
   });
 

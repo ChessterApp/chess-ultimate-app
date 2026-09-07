@@ -50,7 +50,6 @@ export interface CEStudent {
 export interface CEBranch {
   id: string;
   name: string;
-  address?: string | null;
 }
 
 export interface CECoach {
@@ -559,7 +558,7 @@ export async function getStudentCurrentLeague(
 export async function getBranches(): Promise<CEBranch[]> {
   const key = getServiceKey();
   const params = new URLSearchParams({
-    select: 'id,name,address',
+    select: 'id,name',
     order: 'name.asc',
   });
   const url = `${ceRestBase()}/branches?${params.toString()}`;
@@ -806,7 +805,7 @@ export async function listBranches(): Promise<CEBranch[]> {
     return [];
   }
   const params = new URLSearchParams({
-    select: 'id,name,address',
+    select: 'id,name',
     order: 'name.asc',
   });
   const url = `${ceRestBase()}/branches?${params.toString()}`;

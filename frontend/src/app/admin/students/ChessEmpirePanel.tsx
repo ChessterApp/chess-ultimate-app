@@ -36,7 +36,6 @@ interface CEActiveStudent {
 interface CEBranch {
   id: string;
   name: string;
-  address?: string | null;
 }
 
 interface CECoach {
@@ -62,6 +61,8 @@ interface RosterPayload {
   ceActiveStudents: CEActiveStudent[];
   branches: CEBranch[];
   coaches: CECoach[];
+  /** Non-fatal per-source load failures — rendered as a banner (empty = healthy). */
+  warnings?: string[];
 }
 
 type TabKey = 'registered' | 'pending' | 'unregistered' | 'online' | 'unlinked';
@@ -1073,6 +1074,20 @@ export default function ChessEmpirePanel() {
 
       {error && (
         <div className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</div>
+      )}
+
+      {(data?.warnings?.length ?? 0) > 0 && (
+        <div
+          data-testid="roster-warnings"
+          className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          <div className="font-medium">{t('warningsTitle')}</div>
+          <ul className="mt-1 list-disc pl-5">
+            {data!.warnings!.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Table */}

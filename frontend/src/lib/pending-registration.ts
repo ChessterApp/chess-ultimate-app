@@ -211,6 +211,9 @@ export async function claimPendingByJwt(
       linkStatus: 'verified',
       linkSource: 'jwt',
       memberType,
+      // Email is at hand from the claim request; name isn't tracked on the
+      // pending row, so it's left for the webhook / backfill to fill.
+      email,
     });
   } catch (err) {
     // Roll the lock back so the row can be retried by the webhook / JWT-body

@@ -131,6 +131,14 @@ export interface UpsertLinkArgs {
    * null means the access never expires.
    */
   accessTtlHours?: number | null;
+  /**
+   * Registering user's email + display name, written to the roster row so the
+   * admin panel can show them without a separate Clerk lookup. Both are optional:
+   * a caller that doesn't have them omits the field and the column is left
+   * untouched (never overwritten with null).
+   */
+  email?: string | null;
+  name?: string | null;
 }
 
 export async function upsertMemberLink({
@@ -142,6 +150,8 @@ export async function upsertMemberLink({
   memberType = 'student',
   externalSource = 'chess_empire',
   accessTtlHours = null,
+  email,
+  name,
 }: UpsertLinkArgs): Promise<void> {
   const nowIso = new Date().toISOString();
   const payload: Record<string, unknown> = {
@@ -155,6 +165,10 @@ export async function upsertMemberLink({
     link_status: linkStatus,
     link_source: linkSource,
   };
+  // Only stamp email/name when the caller actually has them — an omitted field
+  // must not clobber a value backfilled by another path.
+  if (email != null) payload.email = email;
+  if (name != null) payload.name = name;
   if (linkStatus === 'verified') {
     payload.link_verified_at = nowIso;
   }
@@ -193,10 +207,12 @@ export async function linkMemberViaInviteJwt(
   clerkUserId: string,
   email: string | null,
   /**
-   * Claim-path only: seconds past `exp` still accepted. The webhook omits this
-   * (strict). Signature + jti single-use are unchanged either way.
+   * `graceSeconds` (claim-path only): seconds past `exp` still accepted; the
+   * webhook omits it (strict). `name`: the registering user's display name for
+   * the roster row — falls back to the JWT's `first_name` claim (online invites)
+   * when the caller doesn't supply one. Signature + jti single-use are unchanged.
    */
-  opts: { graceSeconds?: number } = {},
+  opts: { graceSeconds?: number; name?: string | null } = {},
 ): Promise<JwtLinkResult> {
   let claims;
   try {
@@ -284,6 +300,8 @@ export async function linkMemberViaInviteJwt(
       // tokens omit both, so this defaults back to the legacy chess_empire path.
       externalSource: claims.external_source,
       accessTtlHours: claims.access_ttl_hours ?? null,
+      email,
+      name: opts.name ?? claims.first_name ?? null,
     });
   } catch (err) {
     await logLinkAttempt({

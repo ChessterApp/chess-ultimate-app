@@ -1874,6 +1874,7 @@
     "confirmRevokeToken": "После отзыва у филиала не будет работающей ссылки, пока вы её не обновите.",
     "toastRotateCopied": "Новая ссылка скопирована — перешлите её родителям.",
     "errorLoad": "Не удалось загрузить список. Попробуйте ещё раз через минуту.",
+    "warningsTitle": "Некоторые данные не удалось загрузить",
     "unlinkedColUser": "Пользователь Clerk",
     "unlinkedColEmail": "Email",
     "unlinkedColLatestAttempt": "Последняя попытка",

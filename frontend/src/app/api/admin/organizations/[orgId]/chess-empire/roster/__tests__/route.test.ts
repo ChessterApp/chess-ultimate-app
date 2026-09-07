@@ -96,6 +96,8 @@ describe('GET /api/admin/organizations/[orgId]/chess-empire/roster', () => {
     expect(data.branches).toHaveLength(1);
     expect(data.coaches).toHaveLength(1);
     expect(data.ceActiveStudents).toHaveLength(1);
+    // No source failed → no warnings.
+    expect(data.warnings).toEqual([]);
   });
 
   it('returns 200 with empty branches when CE branches call fails', async () => {
@@ -121,5 +123,12 @@ describe('GET /api/admin/organizations/[orgId]/chess-empire/roster', () => {
     const data = await r.json();
     expect(data.branches).toEqual([]);
     expect(data.ceActiveStudents).toEqual([]);
+    // The failure must surface as a warning, not a silent-empty dashboard.
+    expect(Array.isArray(data.warnings)).toBe(true);
+    expect(
+      data.warnings.some(
+        (w: string) => w.startsWith('branches:') && w.includes('CE down'),
+      ),
+    ).toBe(true);
   });
 });

@@ -62,7 +62,11 @@ vi.mock('@clerk/nextjs/server', () => ({
   }),
 }));
 
-import { linkMemberViaInviteJwt, logStrandedUserOnce } from '../chess-empire-jwt-link';
+import {
+  linkMemberViaInviteJwt,
+  logStrandedUserOnce,
+  upsertMemberLink,
+} from '../chess-empire-jwt-link';
 import { signInviteJwt } from '../invite-jwt';
 
 const payload = {
@@ -164,6 +168,42 @@ describe('linkMemberViaInviteJwt', () => {
     const res = await linkMemberViaInviteJwt(token, 'clerk-user', 'a@b.com');
     expect(res).toEqual({ ok: false, reason: 'jwt_invalid', fallbackToEmail: false });
     expect(upserted).toHaveLength(0);
+  });
+});
+
+describe('upsertMemberLink', () => {
+  const base = {
+    orgId: 'org-1',
+    clerkUserId: 'user-1',
+    studentId: 'stu-1',
+    linkStatus: 'verified' as const,
+    linkSource: 'jwt' as const,
+  };
+
+  it('includes email + name in the upsert payload when provided', async () => {
+    scripts['organization_members.upsert'] = [{ error: null }];
+    await upsertMemberLink({ ...base, email: 'p@e.com', name: 'Aidana K' });
+
+    const up = upserted.find((u) => u.table === 'organization_members');
+    expect(up?.payload).toMatchObject({ email: 'p@e.com', name: 'Aidana K' });
+  });
+
+  it('omits email + name keys when not provided', async () => {
+    scripts['organization_members.upsert'] = [{ error: null }];
+    await upsertMemberLink(base);
+
+    const up = upserted.find((u) => u.table === 'organization_members');
+    expect(up?.payload).not.toHaveProperty('email');
+    expect(up?.payload).not.toHaveProperty('name');
+  });
+
+  it('omits keys for null email/name rather than clobbering with null', async () => {
+    scripts['organization_members.upsert'] = [{ error: null }];
+    await upsertMemberLink({ ...base, email: null, name: null });
+
+    const up = upserted.find((u) => u.table === 'organization_members');
+    expect(up?.payload).not.toHaveProperty('email');
+    expect(up?.payload).not.toHaveProperty('name');
   });
 });
 

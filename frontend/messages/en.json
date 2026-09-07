@@ -1874,6 +1874,7 @@
     "confirmRevokeToken": "This branch will have no working invite until you rotate.",
     "toastRotateCopied": "New link copied — share with the parent group.",
     "errorLoad": "Could not load the roster. Try again in a moment.",
+    "warningsTitle": "Some data failed to load",
     "unlinkedColUser": "Clerk user",
     "unlinkedColEmail": "Email",
     "unlinkedColLatestAttempt": "Latest attempt",

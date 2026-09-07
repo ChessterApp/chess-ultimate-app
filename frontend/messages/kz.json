@@ -1874,6 +1874,7 @@
     "confirmRevokeToken": "Қайтарылғаннан кейін филиалда жұмыс істейтін сілтеме болмайды.",
     "toastRotateCopied": "Жаңа сілтеме көшірілді — ата-аналарға жіберіңіз.",
     "errorLoad": "Тізімді жүктеу мүмкін болмады. Сәл кейін қайталап көріңіз.",
+    "warningsTitle": "Кейбір деректер жүктелмеді",
     "unlinkedColUser": "Clerk пайдаланушысы",
     "unlinkedColEmail": "Email",
     "unlinkedColLatestAttempt": "Соңғы әрекет",

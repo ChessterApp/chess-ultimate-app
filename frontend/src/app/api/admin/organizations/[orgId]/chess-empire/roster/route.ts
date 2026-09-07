@@ -25,15 +25,30 @@ export async function GET(
   const guard = await requireOrgAdmin(orgId);
   if (!guard.ok) return guard.response;
 
+  // Each source still degrades to [] so the panel renders, but a failure now
+  // records a warning surfaced in the response — a silent-empty roster hid a
+  // 2-month CE outage. `warnings` is empty on full success.
+  const warnings: string[] = [];
+  function degrade<T>(source: string, fallback: T) {
+    return (err: unknown): T => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[ce-roster] ${source} failed:`, message);
+      warnings.push(`${source}: ${message}`);
+      return fallback;
+    };
+  }
+
   const [ceMembers, branches, coaches] = await Promise.all([
-    listOrgCeMembers(orgId).catch(() => []),
-    listBranches().catch(() => []),
-    listCoaches().catch(() => []),
+    listOrgCeMembers(orgId).catch(degrade('members', [])),
+    listBranches().catch(degrade('branches', [])),
+    listCoaches().catch(degrade('coaches', [])),
   ]);
 
   const studentLists = await Promise.all(
     branches.map((b) =>
-      listActiveStudentsByBranch(b.id).catch(() => [] as CEActiveStudent[]),
+      listActiveStudentsByBranch(b.id).catch(
+        degrade(`students(${b.id})`, [] as CEActiveStudent[]),
+      ),
     ),
   );
   const ceActiveStudents = studentLists.flat();
@@ -43,5 +58,6 @@ export async function GET(
     ceActiveStudents,
     branches,
     coaches,
+    warnings,
   });
 }

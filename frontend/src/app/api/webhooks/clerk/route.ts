@@ -158,6 +158,8 @@ async function tryEmailAutoMatch(
         linkStatus: 'pending_confirm',
         linkSource: 'email_auto',
         memberType: 'coach',
+        // Email is already at hand; name isn't fetched on this path.
+        email,
       });
     } catch (err) {
       await logLinkAttempt({
@@ -222,7 +224,10 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
     return;
   }
 
-  const result = await linkMemberViaInviteJwt(rawJwt, clerkUserId, email);
+  // Reuse the webhook payload's own user fields — no extra Clerk fetch. Prefer
+  // the invite JWT's name (online members) → Clerk profile name.
+  const name = extractInviteName(data) || extractName(data);
+  const result = await linkMemberViaInviteJwt(rawJwt, clerkUserId, email, { name });
   if (result.ok) return;
 
   // JWT path failed. Replay + hard errors stop here — soft failures (expired /
@@ -243,7 +248,7 @@ type ClerkSessionData = {
  */
 async function fetchClerkUserContext(
   clerkUserId: string,
-): Promise<{ email: string | null; inviteJwt: string | null }> {
+): Promise<{ email: string | null; name: string | null; inviteJwt: string | null }> {
   try {
     const client = await clerkClient();
     const user = await client.users.getUser(clerkUserId);
@@ -251,12 +256,16 @@ async function fetchClerkUserContext(
     const hit = user.emailAddresses.find((e) => e.id === primaryId);
     const email =
       hit?.emailAddress ?? user.emailAddresses[0]?.emailAddress ?? null;
+    // Same already-fetched user object — no extra Clerk call.
+    const name =
+      `${(user.firstName || '').trim()} ${(user.lastName || '').trim()}`.trim() ||
+      null;
     const rawJwt = (user.unsafeMetadata || {})['inviteJwt'];
     const inviteJwt = typeof rawJwt === 'string' && rawJwt ? rawJwt : null;
-    return { email, inviteJwt };
+    return { email, name, inviteJwt };
   } catch (err) {
     console.error('[clerk-webhook] fetchClerkUserContext failed:', err);
-    return { email: null, inviteJwt: null };
+    return { email: null, name: null, inviteJwt: null };
   }
 }
 
@@ -284,10 +293,12 @@ async function completeChessEmpireSignIn(data: ClerkSessionData): Promise<void> 
   }
   if (membership.state === 'verified') return;
 
-  const { email, inviteJwt } = await fetchClerkUserContext(clerkUserId);
+  const { email, name, inviteJwt } = await fetchClerkUserContext(clerkUserId);
 
   if (inviteJwt) {
-    const result = await linkMemberViaInviteJwt(inviteJwt, clerkUserId, email);
+    const result = await linkMemberViaInviteJwt(inviteJwt, clerkUserId, email, {
+      name,
+    });
     // Success or a hard/replay stop → done. Only soft JWT failures fall through
     // to the email auto-match, matching the user.created behavior.
     if (result.ok || !result.fallbackToEmail) return;
