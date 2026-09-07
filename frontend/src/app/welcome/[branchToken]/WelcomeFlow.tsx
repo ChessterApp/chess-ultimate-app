@@ -400,7 +400,11 @@ function SearchStep({
         )}
       </div>
 
-      <div className="mt-4 min-h-[120px]" role="region" aria-live="polite">
+      <div
+        className={`mt-4 ${searching || searchError || results !== null ? 'min-h-[120px]' : ''}`}
+        role="region"
+        aria-live="polite"
+      >
         {searching && (
           <div data-testid="welcome-search-loading" className="space-y-2">
             <SearchSkeleton />
@@ -448,7 +452,7 @@ function SearchStep({
         )}
       </div>
 
-      <p className="text-xs text-gray-400 mt-6 text-center">{t('cantFind')}</p>
+      <p className="text-xs text-gray-400 mt-3 text-center">{t('cantFind')}</p>
 
       {isOnline && (
         <div className="mt-6 border-t border-gray-100 pt-6">

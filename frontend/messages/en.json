@@ -1708,7 +1708,7 @@
     "minCharsHint": "Type at least 2 letters to search.",
     "searching": "Searching…",
     "noResults": "No matches. Double-check the spelling or contact your branch admin.",
-    "cantFind": "Can't find your child? Contact your branch admin.",
+    "cantFind": "Can't find yourself? Contact your branch admin.",
     "coachLabel": "Coach: {coach}",
     "coachBadge": "Coach",
     "confirmTitle": "Is this you?",
