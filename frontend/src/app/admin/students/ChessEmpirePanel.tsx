@@ -14,9 +14,11 @@ interface CeMemberRow {
   email?: string | null;
   name?: string | null;
   external_student_id: string | null;
+  external_source?: string | null;
   link_status: LinkStatus;
   link_verified_at: string | null;
   link_revoked_at: string | null;
+  access_expires_at?: string | null;
 }
 
 interface CEActiveStudent {
@@ -62,7 +64,37 @@ interface RosterPayload {
   coaches: CECoach[];
 }
 
-type TabKey = 'registered' | 'pending' | 'unregistered' | 'unlinked';
+type TabKey = 'registered' | 'pending' | 'unregistered' | 'online' | 'unlinked';
+
+type OnlineStatus = 'trial' | 'expired' | 'full';
+
+interface OnlineMemberRow {
+  id: string;
+  name: string;
+  email: string | null;
+  joinedAt: string;
+  accessExpiresAt: string | null;
+  status: OnlineStatus;
+}
+
+/** Fixed Asia/Almaty offset (UTC+5, no DST). */
+const ALMATY_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+function onlineStatusOf(accessExpiresAt: string | null): OnlineStatus {
+  if (!accessExpiresAt) return 'full';
+  return new Date(accessExpiresAt).getTime() > Date.now() ? 'trial' : 'expired';
+}
+
+/** UTC ISO → `YYYY-MM-DDTHH:mm` wall-clock string in Asia/Almaty. */
+function toAlmatyLocalInput(iso: string | null): string {
+  const base = iso ? new Date(iso) : new Date();
+  return new Date(base.getTime() + ALMATY_OFFSET_MS).toISOString().slice(0, 16);
+}
+
+/** `YYYY-MM-DDTHH:mm` Almaty wall-clock → UTC ISO string. */
+function almatyLocalToUtcIso(local: string): string {
+  return new Date(`${local}:00+05:00`).toISOString();
+}
 
 interface UnlinkedUserRow {
   user_id: string;
@@ -279,16 +311,36 @@ export default function ChessEmpirePanel() {
     return m;
   }, [coaches]);
 
+  const rosterMembers = useMemo(
+    () => ceMembers.filter((m) => m.external_source !== 'online'),
+    [ceMembers],
+  );
+
+  const onlineRows = useMemo<OnlineMemberRow[]>(
+    () =>
+      ceMembers
+        .filter((m) => m.external_source === 'online')
+        .map((m) => ({
+          id: m.id,
+          name: m.name ?? m.email ?? m.user_id,
+          email: m.email ?? null,
+          joinedAt: m.joined_at,
+          accessExpiresAt: m.access_expires_at ?? null,
+          status: onlineStatusOf(m.access_expires_at ?? null),
+        })),
+    [ceMembers],
+  );
+
   const statusCounts = useMemo(() => {
     const counts = { verified: 0, pending: 0, frozen: 0, revoked: 0 };
-    for (const m of ceMembers) {
+    for (const m of rosterMembers) {
       if (m.link_status === 'verified') counts.verified++;
       else if (m.link_status === 'pending') counts.pending++;
       else if (m.link_status === 'frozen') counts.frozen++;
       else if (m.link_status === 'revoked') counts.revoked++;
     }
     return counts;
-  }, [ceMembers]);
+  }, [rosterMembers]);
 
   const totalActive = ceActiveStudents.length;
 
@@ -331,17 +383,20 @@ export default function ChessEmpirePanel() {
 
   const linkedExternalIds = useMemo(() => {
     const s = new Set<string>();
-    for (const m of ceMembers) {
+    for (const m of rosterMembers) {
       if (m.external_student_id) s.add(m.external_student_id);
     }
     return s;
-  }, [ceMembers]);
+  }, [rosterMembers]);
 
-  const rowsByTab: Record<Exclude<TabKey, 'unlinked'>, StudentRow[]> = useMemo(() => {
-    const registered = ceMembers
+  const rowsByTab: Record<
+    'registered' | 'pending' | 'unregistered',
+    StudentRow[]
+  > = useMemo(() => {
+    const registered = rosterMembers
       .filter((m) => m.link_status === 'verified' || m.link_status === 'frozen')
       .map(rowFromMember);
-    const pending = ceMembers
+    const pending = rosterMembers
       .filter((m) => m.link_status === 'pending')
       .map(rowFromMember);
     const unregistered = ceActiveStudents
@@ -349,10 +404,10 @@ export default function ChessEmpirePanel() {
       .map(rowFromActiveStudent);
     return { registered, pending, unregistered };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ceMembers, ceActiveStudents, linkedExternalIds, studentByExternalId]);
+  }, [rosterMembers, ceActiveStudents, linkedExternalIds, studentByExternalId]);
 
   const visibleRows: StudentRow[] = useMemo(() => {
-    if (tab === 'unlinked') return [];
+    if (tab === 'unlinked' || tab === 'online') return [];
     let rows = rowsByTab[tab];
     if (branchFilter !== 'all') {
       rows = rows.filter((r) => r.branchId === branchFilter);
@@ -426,6 +481,76 @@ export default function ChessEmpirePanel() {
     } finally {
       markBusy(memberId, false);
     }
+  }
+
+  async function setAccessExpiry(
+    memberId: string,
+    accessExpiresAt: string | null,
+  ): Promise<boolean> {
+    if (!org?.id) return false;
+    const before = ceMembers.find((m) => m.id === memberId);
+    markBusy(memberId, true);
+    // Optimistic: apply immediately, roll back on failure (same UX as freeze).
+    setData((cur) =>
+      cur
+        ? {
+            ...cur,
+            ceMembers: cur.ceMembers.map((m) =>
+              m.id === memberId ? { ...m, access_expires_at: accessExpiresAt } : m,
+            ),
+          }
+        : cur,
+    );
+    try {
+      const res = await fetch(
+        `/api/admin/organizations/${org.id}/chess-empire/members/${memberId}/access`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accessExpiresAt }),
+        },
+      );
+      if (!res.ok) throw new Error('request_failed');
+      const payload = (await res.json()) as { member?: CeMemberRow };
+      if (payload.member) {
+        const updated = payload.member;
+        setData((cur) =>
+          cur
+            ? {
+                ...cur,
+                ceMembers: cur.ceMembers.map((m) =>
+                  m.id === updated.id ? { ...m, ...updated } : m,
+                ),
+              }
+            : cur,
+        );
+      }
+      flashToast(t('accessUpdated'));
+      return true;
+    } catch {
+      // Roll back to the pre-request value.
+      setData((cur) =>
+        cur
+          ? {
+              ...cur,
+              ceMembers: cur.ceMembers.map((m) =>
+                m.id === memberId
+                  ? { ...m, access_expires_at: before?.access_expires_at ?? null }
+                  : m,
+              ),
+            }
+          : cur,
+      );
+      flashToast(t('accessUpdateError'));
+      return false;
+    } finally {
+      markBusy(memberId, false);
+    }
+  }
+
+  async function handleUpgradeToFull(memberId: string) {
+    if (!confirm(t('confirmUpgradeFull'))) return;
+    await setAccessExpiry(memberId, null);
   }
 
   async function handleRowFreeze(row: StudentRow) {
@@ -784,10 +909,14 @@ export default function ChessEmpirePanel() {
         data-testid="tabs"
         className="flex gap-2 mb-4 border-b border-gray-200 dark:border-gray-700"
       >
-        {(['registered', 'pending', 'unregistered', 'unlinked'] as TabKey[]).map((k) => {
+        {(['registered', 'pending', 'unregistered', 'online', 'unlinked'] as TabKey[]).map((k) => {
           const isActive = tab === k;
           const count =
-            k === 'unlinked' ? unlinkedRows.length : rowsByTab[k as Exclude<TabKey, 'unlinked'>].length;
+            k === 'unlinked'
+              ? unlinkedRows.length
+              : k === 'online'
+                ? onlineRows.length
+                : rowsByTab[k as 'registered' | 'pending' | 'unregistered'].length;
           return (
             <button
               key={k}
@@ -807,6 +936,17 @@ export default function ChessEmpirePanel() {
           );
         })}
       </div>
+
+      {tab === 'online' && (
+        <OnlineTab
+          rows={onlineRows}
+          loading={loading}
+          busyIds={busyMemberIds}
+          onUpgrade={handleUpgradeToFull}
+          onChangeExpiry={setAccessExpiry}
+          t={t}
+        />
+      )}
 
       {tab === 'unlinked' && (
         <UnlinkedTab
@@ -845,7 +985,7 @@ export default function ChessEmpirePanel() {
       )}
 
       {/* Filters */}
-      {tab !== 'unlinked' && (
+      {tab !== 'unlinked' && tab !== 'online' && (
       <div className="flex flex-wrap gap-2 mb-4">
         <input
           type="text"
@@ -936,7 +1076,7 @@ export default function ChessEmpirePanel() {
       )}
 
       {/* Table */}
-      {tab !== 'unlinked' && (
+      {tab !== 'unlinked' && tab !== 'online' && (
       <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
         <table className="w-full text-sm">
           <thead>
@@ -1134,6 +1274,178 @@ export default function ChessEmpirePanel() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+interface OnlineTabProps {
+  rows: OnlineMemberRow[];
+  loading: boolean;
+  busyIds: Set<string>;
+  onUpgrade: (memberId: string) => void;
+  onChangeExpiry: (memberId: string, iso: string | null) => Promise<boolean>;
+  t: ReturnType<typeof useTranslations>;
+}
+
+const ONLINE_BADGE: Record<OnlineStatus, LinkStatus> = {
+  trial: 'pending',
+  expired: 'revoked',
+  full: 'verified',
+};
+
+function OnlineTab({
+  rows,
+  loading,
+  busyIds,
+  onUpgrade,
+  onChangeExpiry,
+  t,
+}: OnlineTabProps) {
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  function startEdit(row: OnlineMemberRow) {
+    setEditId(row.id);
+    setEditValue(toAlmatyLocalInput(row.accessExpiresAt));
+  }
+
+  async function saveEdit(memberId: string) {
+    if (!editValue) return;
+    const ok = await onChangeExpiry(memberId, almatyLocalToUtcIso(editValue));
+    if (ok) setEditId(null);
+  }
+
+  return (
+    <div
+      data-testid="online-tab"
+      className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"
+    >
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-gray-200 dark:border-gray-700">
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('colName')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('colEmail')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('onlineColRegistered')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('onlineColExpiry')}
+            </th>
+            <th className="text-left px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('onlineColStatus')}
+            </th>
+            <th className="text-right px-3 py-3 font-medium text-gray-500 dark:text-gray-400">
+              {t('colActions')}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <tr>
+              <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                {t('loading')}
+              </td>
+            </tr>
+          ) : rows.length === 0 ? (
+            <tr>
+              <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                {t('onlineEmpty')}
+              </td>
+            </tr>
+          ) : (
+            rows.map((row) => {
+              const busy = busyIds.has(row.id);
+              const statusLabel =
+                row.status === 'trial'
+                  ? t('statusTrial')
+                  : row.status === 'expired'
+                    ? t('statusExpired')
+                    : t('statusFull');
+              return (
+                <tr
+                  key={row.id}
+                  data-testid={`online-row-${row.id}`}
+                  className="border-b border-gray-100 dark:border-gray-700 last:border-0"
+                >
+                  <td className="px-3 py-2 font-medium text-gray-900 dark:text-gray-100">
+                    {row.name}
+                  </td>
+                  <td className="px-3 py-2 text-gray-500">{row.email ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-500">
+                    {row.joinedAt
+                      ? new Date(row.joinedAt).toLocaleDateString()
+                      : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-gray-500">
+                    {row.accessExpiresAt
+                      ? new Date(row.accessExpiresAt).toLocaleString()
+                      : t('neverExpires')}
+                  </td>
+                  <td className="px-3 py-2">
+                    <StatusBadge
+                      status={ONLINE_BADGE[row.status]}
+                      label={statusLabel}
+                    />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    {editId === row.id ? (
+                      <div className="flex justify-end gap-2 items-center">
+                        <input
+                          type="datetime-local"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          aria-label={t('onlineColExpiry')}
+                          data-testid={`online-expiry-input-${row.id}`}
+                          className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-xs"
+                        />
+                        <button
+                          onClick={() => saveEdit(row.id)}
+                          disabled={busy || !editValue}
+                          data-testid={`online-save-${row.id}`}
+                          className="text-xs text-gray-700 dark:text-gray-200 disabled:opacity-50"
+                        >
+                          {busy ? t('working') : t('saveExpiry')}
+                        </button>
+                        <button
+                          onClick={() => setEditId(null)}
+                          className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400"
+                        >
+                          {t('cancel')}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex justify-end gap-2 items-center">
+                        {row.status !== 'full' && (
+                          <button
+                            onClick={() => onUpgrade(row.id)}
+                            disabled={busy}
+                            data-testid={`online-upgrade-${row.id}`}
+                            className="text-xs text-green-700 hover:text-green-900 dark:text-green-400 disabled:opacity-50"
+                          >
+                            {busy ? t('working') : t('upgradeToFull')}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => startEdit(row)}
+                          disabled={busy}
+                          data-testid={`online-change-expiry-${row.id}`}
+                          className="text-xs text-gray-700 dark:text-gray-200 disabled:opacity-50"
+                        >
+                          {t('changeExpiry')}
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

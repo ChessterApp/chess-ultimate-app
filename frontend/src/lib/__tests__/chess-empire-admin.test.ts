@@ -15,8 +15,10 @@ import {
   freezeMember,
   unfreezeMember,
   revokeMember,
+  setMemberAccessExpiry,
   OrgScopeError,
   NotFoundError,
+  NotOnlineMemberError,
   ExistingActiveTokenError,
   type CeMemberRow,
   type BranchTokenRow,
@@ -178,7 +180,11 @@ describe('listOrgCeMembers', () => {
       (o) => o.table === 'organization_members' && o.op === 'select',
     );
     expect(selectOp?.filters.organization_id).toBe('org-1');
-    expect(selectOp?.filters.external_source).toBe('chess_empire');
+    // Both onboarding tracks are now included (chess_empire + online).
+    expect(selectOp?.filters.external_source__in).toEqual([
+      'chess_empire',
+      'online',
+    ]);
   });
 
   it('returns [] for empty orgId', async () => {
@@ -496,6 +502,121 @@ describe('freezeMember / unfreezeMember / revokeMember', () => {
     setMemberScript(null);
     await expect(
       revokeMember({ orgId: 'org-1', memberId: 'm-x', actorClerkUserId: 'u' }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+});
+
+describe('setMemberAccessExpiry', () => {
+  function setOnlineMember(row: Partial<CeMemberRow> | null) {
+    scripts.organization_members = {
+      selectRow: row,
+      updateRow: row ? { ...row, _updated: true } : null,
+    };
+  }
+
+  it('upgrades to full access by writing access_expires_at = null', async () => {
+    setOnlineMember({
+      id: 'm-1',
+      organization_id: 'org-1',
+      external_source: 'online',
+      link_status: 'verified',
+      access_expires_at: '2026-01-01T00:00:00Z',
+    });
+    await setMemberAccessExpiry({
+      orgId: 'org-1',
+      memberId: 'm-1',
+      accessExpiresAt: null,
+      actorClerkUserId: 'admin-1',
+    });
+    const updateOp = ops.find((o) => o.op === 'update');
+    expect(updateOp?.patch?.access_expires_at).toBeNull();
+  });
+
+  it('changes the expiry to a new ISO date', async () => {
+    setOnlineMember({
+      id: 'm-1',
+      organization_id: 'org-1',
+      external_source: 'online',
+      link_status: 'verified',
+      access_expires_at: '2026-01-01T00:00:00Z',
+    });
+    await setMemberAccessExpiry({
+      orgId: 'org-1',
+      memberId: 'm-1',
+      accessExpiresAt: '2026-12-31T18:00:00.000Z',
+      actorClerkUserId: 'admin-1',
+    });
+    const updateOp = ops.find((o) => o.op === 'update');
+    expect(updateOp?.patch?.access_expires_at).toBe('2026-12-31T18:00:00.000Z');
+  });
+
+  it('re-activates an expired member by moving expiry into the future', async () => {
+    setOnlineMember({
+      id: 'm-1',
+      organization_id: 'org-1',
+      external_source: 'online',
+      link_status: 'verified',
+      access_expires_at: '2020-01-01T00:00:00Z', // already past
+    });
+    const future = '2099-01-01T00:00:00.000Z';
+    await setMemberAccessExpiry({
+      orgId: 'org-1',
+      memberId: 'm-1',
+      accessExpiresAt: future,
+      actorClerkUserId: 'admin-1',
+    });
+    const updateOp = ops.find((o) => o.op === 'update');
+    expect(updateOp?.patch?.access_expires_at).toBe(future);
+  });
+
+  it('throws OrgScopeError when member belongs to another org', async () => {
+    setOnlineMember({
+      id: 'm-1',
+      organization_id: 'other-org',
+      external_source: 'online',
+      link_status: 'verified',
+      access_expires_at: null,
+    });
+    await expect(
+      setMemberAccessExpiry({
+        orgId: 'org-1',
+        memberId: 'm-1',
+        accessExpiresAt: null,
+        actorClerkUserId: 'admin-1',
+      }),
+    ).rejects.toBeInstanceOf(OrgScopeError);
+    // Must not have written anything.
+    expect(ops.find((o) => o.op === 'update')).toBeUndefined();
+  });
+
+  it('rejects a non-online (chess_empire) member', async () => {
+    setOnlineMember({
+      id: 'm-1',
+      organization_id: 'org-1',
+      external_source: 'chess_empire',
+      link_status: 'verified',
+      access_expires_at: null,
+    });
+    await expect(
+      setMemberAccessExpiry({
+        orgId: 'org-1',
+        memberId: 'm-1',
+        accessExpiresAt: null,
+        actorClerkUserId: 'admin-1',
+      }),
+    ).rejects.toBeInstanceOf(NotOnlineMemberError);
+    expect(ops.find((o) => o.op === 'update')).toBeUndefined();
+  });
+
+  it('throws NotFoundError when member missing', async () => {
+    setOnlineMember(null);
+    await expect(
+      setMemberAccessExpiry({
+        orgId: 'org-1',
+        memberId: 'm-x',
+        accessExpiresAt: null,
+        actorClerkUserId: 'admin-1',
+      }),
     ).rejects.toBeInstanceOf(NotFoundError);
   });
 });

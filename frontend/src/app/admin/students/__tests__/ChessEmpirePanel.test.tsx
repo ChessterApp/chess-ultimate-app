@@ -130,6 +130,56 @@ const ROSTER_PAYLOAD = {
   coaches: [{ id: 'co-1', full_name: 'Yerkezhan', branch_id: 'br-1' }],
 };
 
+const ONLINE_PAYLOAD = {
+  ceMembers: [
+    {
+      id: 'on-1',
+      user_id: 'u-on1',
+      role: 'student',
+      joined_at: '2026-06-15T00:00:00Z',
+      email: 'trial@example.com',
+      name: 'Trial User',
+      external_student_id: 'x-1',
+      external_source: 'online',
+      link_status: 'verified',
+      link_verified_at: '2026-06-15T00:00:00Z',
+      link_revoked_at: null,
+      access_expires_at: '2099-01-01T00:00:00Z', // clearly future → Trial
+    },
+    {
+      id: 'on-2',
+      user_id: 'u-on2',
+      role: 'student',
+      joined_at: '2026-05-01T00:00:00Z',
+      email: 'expired@example.com',
+      name: 'Expired User',
+      external_student_id: 'x-2',
+      external_source: 'online',
+      link_status: 'verified',
+      link_verified_at: '2026-05-01T00:00:00Z',
+      link_revoked_at: null,
+      access_expires_at: '2020-01-01T00:00:00Z', // clearly past → Expired
+    },
+    {
+      id: 'on-3',
+      user_id: 'u-on3',
+      role: 'student',
+      joined_at: '2026-04-01T00:00:00Z',
+      email: 'full@example.com',
+      name: 'Full User',
+      external_student_id: 'x-3',
+      external_source: 'online',
+      link_status: 'verified',
+      link_verified_at: '2026-04-01T00:00:00Z',
+      link_revoked_at: null,
+      access_expires_at: null, // null → Full
+    },
+  ],
+  ceActiveStudents: [],
+  branches: [],
+  coaches: [],
+};
+
 async function flush() {
   for (let i = 0; i < 5; i++) {
     await Promise.resolve();
@@ -215,6 +265,88 @@ describe('ChessEmpirePanel', () => {
     // After the call, the row should reflect the new status (unfreeze visible).
     await flush();
     expect(container.textContent).toContain('unfreeze');
+  });
+
+  it('Online tab renders Trial / Expired / Full badges', async () => {
+    setupFetch(async (url) => {
+      if (url.includes('/chess-empire/roster')) return jsonResponse(ONLINE_PAYLOAD);
+      return jsonResponse({});
+    });
+    const { findByTestId, container } = render(<ChessEmpirePanel />);
+    await findByTestId('tabs');
+    fireEvent.click(await findByTestId('tab-online'));
+    await flush();
+    expect(container.textContent).toContain('Trial User');
+    expect(container.textContent).toContain('Expired User');
+    expect(container.textContent).toContain('Full User');
+    // Badge labels come through as raw i18n keys under the test mock.
+    expect(container.textContent).toContain('statusTrial');
+    expect(container.textContent).toContain('statusExpired');
+    expect(container.textContent).toContain('statusFull');
+  });
+
+  it('Upgrade to full fires PATCH with accessExpiresAt=null', async () => {
+    vi.stubGlobal('confirm', () => true);
+    const calls: { url: string; init?: RequestInit }[] = [];
+    setupFetch(async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes('/chess-empire/roster')) return jsonResponse(ONLINE_PAYLOAD);
+      if (url.includes('/members/on-1/access')) {
+        return jsonResponse({
+          member: { ...ONLINE_PAYLOAD.ceMembers[0], access_expires_at: null },
+        });
+      }
+      return jsonResponse({});
+    });
+    const { findByTestId } = render(<ChessEmpirePanel />);
+    await findByTestId('tabs');
+    fireEvent.click(await findByTestId('tab-online'));
+    await flush();
+    fireEvent.click(await findByTestId('online-upgrade-on-1'));
+    await flush();
+    const patch = calls.find((c) => c.url.includes('/members/on-1/access'));
+    expect(patch).toBeTruthy();
+    expect(patch!.init?.method).toBe('PATCH');
+    expect(JSON.parse(patch!.init!.body as string)).toEqual({
+      accessExpiresAt: null,
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('Change expiry converts Almaty wall-clock to UTC ISO', async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    setupFetch(async (url, init) => {
+      calls.push({ url, init });
+      if (url.includes('/chess-empire/roster')) return jsonResponse(ONLINE_PAYLOAD);
+      if (url.includes('/members/on-3/access')) {
+        return jsonResponse({
+          member: {
+            ...ONLINE_PAYLOAD.ceMembers[2],
+            access_expires_at: '2026-06-15T07:00:00.000Z',
+          },
+        });
+      }
+      return jsonResponse({});
+    });
+    const { findByTestId } = render(<ChessEmpirePanel />);
+    await findByTestId('tabs');
+    fireEvent.click(await findByTestId('tab-online'));
+    await flush();
+    fireEvent.click(await findByTestId('online-change-expiry-on-3'));
+    await flush();
+    const input = (await findByTestId(
+      'online-expiry-input-on-3',
+    )) as HTMLInputElement;
+    // 12:00 Almaty (UTC+5) → 07:00 UTC.
+    fireEvent.change(input, { target: { value: '2026-06-15T12:00' } });
+    fireEvent.click(await findByTestId('online-save-on-3'));
+    await flush();
+    const patch = calls.find((c) => c.url.includes('/members/on-3/access'));
+    expect(patch).toBeTruthy();
+    expect(patch!.init?.method).toBe('PATCH');
+    expect(JSON.parse(patch!.init!.body as string)).toEqual({
+      accessExpiresAt: '2026-06-15T07:00:00.000Z',
+    });
   });
 
   it('branch filter narrows visible rows', async () => {

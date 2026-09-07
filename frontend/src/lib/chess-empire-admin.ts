@@ -29,6 +29,18 @@ export class NotFoundError extends Error {
   }
 }
 
+/**
+ * Thrown when an access-expiry mutation targets a non-`online` member. Trial
+ * windows only apply to online signups — roster (`chess_empire`) students are
+ * managed by the CE database and must not be edited here.
+ */
+export class NotOnlineMemberError extends Error {
+  constructor(message: string = 'not_online_member') {
+    super(message);
+    this.name = 'NotOnlineMemberError';
+  }
+}
+
 export type LinkStatus =
   | 'pending'
   | 'verified'
@@ -49,7 +61,13 @@ export interface CeMemberRow {
   link_verified_at: string | null;
   link_revoked_at: string | null;
   organization_id: string;
+  /** Absolute access expiry; NULL means never expires (online trials only). */
+  access_expires_at: string | null;
 }
+
+/** Columns selected for every `organization_members` read/return in this module. */
+const MEMBER_COLUMNS =
+  'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id, access_expires_at';
 
 export interface BranchTokenRow {
   id: string;
@@ -107,11 +125,11 @@ export async function listOrgCeMembers(orgId: string): Promise<CeMemberRow[]> {
   const supabase = adminClient();
   const { data, error } = await supabase
     .from('organization_members')
-    .select(
-      'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
-    )
+    .select(MEMBER_COLUMNS)
     .eq('organization_id', orgId)
-    .eq('external_source', 'chess_empire')
+    // Both onboarding tracks funnel through the same roster panel — online
+    // trial signups render under the dedicated "Online" tab.
+    .in('external_source', ['chess_empire', 'online'])
     .order('joined_at', { ascending: false });
   if (error) throw new Error(`listOrgCeMembers: ${error.message}`);
   return (data ?? []) as CeMemberRow[];
@@ -150,9 +168,7 @@ async function loadMember(
 ): Promise<CeMemberRow | null> {
   const { data, error } = await supabase
     .from('organization_members')
-    .select(
-      'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
-    )
+    .select(MEMBER_COLUMNS)
     .eq('id', memberId)
     .maybeSingle();
   if (error) throw new Error(`loadMember: ${error.message}`);
@@ -309,9 +325,7 @@ async function updateMemberStatus(
     .from('organization_members')
     .update(patch)
     .eq('id', existing.id)
-    .select(
-      'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
-    )
+    .select(MEMBER_COLUMNS)
     .single();
   if (error) throw new Error(`updateMemberStatus: ${error.message}`);
   return data as CeMemberRow;
@@ -338,6 +352,57 @@ export async function revokeMember(args: MemberActionArgs): Promise<CeMemberRow>
     link_status: 'revoked',
     link_revoked_at: now,
   });
+}
+
+export interface SetMemberAccessExpiryArgs {
+  orgId: string;
+  memberId: string;
+  /** New expiry (ISO). `null` grants permanent (full) access. */
+  accessExpiresAt: string | null;
+  actorClerkUserId: string;
+}
+
+/**
+ * Set an online trial member's `access_expires_at`. `null` upgrades to full
+ * (permanent) access; a past/future ISO string moves the trial window (a
+ * future value re-activates an already-expired member — expiry is evaluated
+ * live on read in `chess-empire-member.ts`). Roster (`chess_empire`) members
+ * are rejected with `NotOnlineMemberError` — their access is managed by CE.
+ */
+export async function setMemberAccessExpiry({
+  orgId,
+  memberId,
+  accessExpiresAt,
+  actorClerkUserId,
+}: SetMemberAccessExpiryArgs): Promise<CeMemberRow> {
+  const supabase = adminClient();
+  const existing = await loadMember(supabase, memberId);
+  if (!existing) throw new NotFoundError('member_not_found');
+  if (existing.organization_id !== orgId) throw new OrgScopeError();
+  if (existing.external_source !== 'online') throw new NotOnlineMemberError();
+
+  const { data, error } = await supabase
+    .from('organization_members')
+    .update({ access_expires_at: accessExpiresAt })
+    .eq('id', existing.id)
+    .select(MEMBER_COLUMNS)
+    .single();
+  if (error) throw new Error(`setMemberAccessExpiry: ${error.message}`);
+
+  // Audit trail — no dedicated table exists for this action, so log a
+  // structured line (actor, member, old → new) for after-the-fact review.
+  console.info(
+    '[ce-admin] setMemberAccessExpiry',
+    JSON.stringify({
+      actor: actorClerkUserId,
+      orgId,
+      memberId,
+      from: existing.access_expires_at ?? null,
+      to: accessExpiresAt,
+    }),
+  );
+
+  return data as CeMemberRow;
 }
 
 // ─── Phase 4 — Unlinked queue + manual link ──────────────────────────────
@@ -494,9 +559,7 @@ export async function adminLinkStudent(
   // 1) Row already exists for this student in this org? Update it.
   const { data: byStudent, error: byStudentErr } = await supabase
     .from('organization_members')
-    .select(
-      'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
-    )
+    .select(MEMBER_COLUMNS)
     .eq('organization_id', orgId)
     .eq('external_source', 'chess_empire')
     .eq('external_student_id', studentId)
@@ -522,7 +585,7 @@ export async function adminLinkStudent(
       .update(commonPatch)
       .eq('id', existing.id)
       .select(
-        'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
+        MEMBER_COLUMNS,
       )
       .single();
     if (error) throw new Error(`adminLinkStudent.update: ${error.message}`);
@@ -552,7 +615,7 @@ export async function adminLinkStudent(
       .update({ ...commonPatch, external_student_id: studentId })
       .eq('id', row.id)
       .select(
-        'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
+        MEMBER_COLUMNS,
       )
       .single();
     if (error) throw new Error(`adminLinkStudent.updateUser: ${error.message}`);
@@ -569,9 +632,7 @@ export async function adminLinkStudent(
       joined_at: nowIso,
       ...commonPatch,
     })
-    .select(
-      'id, user_id, role, joined_at, email, name, external_student_id, external_source, link_status, link_verified_at, link_revoked_at, organization_id',
-    )
+    .select(MEMBER_COLUMNS)
     .single();
   if (error) throw new Error(`adminLinkStudent.insert: ${error.message}`);
   return data as CeMemberRow;

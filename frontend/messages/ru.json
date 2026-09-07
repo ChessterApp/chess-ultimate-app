@@ -1820,7 +1820,8 @@
       "registered": "Зарегистрированы",
       "pending": "В ожидании",
       "unregistered": "Ещё не зарегистрированы",
-      "unlinked": "Не привязаны"
+      "unlinked": "Не привязаны",
+      "online": "Онлайн"
     },
     "searchPlaceholder": "Поиск по имени…",
     "filterAllBranches": "Все филиалы",
@@ -1886,7 +1887,22 @@
     "linkModalSearchPlaceholder": "например, Али",
     "linkModalNoResults": "Нет учеников для этого филиала/запроса.",
     "linkModalNotes": "Заметки (опционально)",
-    "linkModalNotesPlaceholder": "напр. Ручная привязка 2026-07-04"
+    "linkModalNotesPlaceholder": "напр. Ручная привязка 2026-07-04",
+    "onlineColRegistered": "Регистрация",
+    "onlineColExpiry": "Истекает",
+    "onlineColStatus": "Статус",
+    "onlineEmpty": "Пока нет онлайн-регистраций.",
+    "statusTrial": "Пробный",
+    "statusExpired": "Истёк",
+    "statusFull": "Полный",
+    "neverExpires": "Никогда",
+    "upgradeToFull": "Открыть полный доступ",
+    "changeExpiry": "Изменить срок",
+    "saveExpiry": "Сохранить",
+    "cancel": "Отмена",
+    "confirmUpgradeFull": "Предоставить этому участнику постоянный полный доступ?",
+    "accessUpdated": "Доступ обновлён",
+    "accessUpdateError": "Не удалось обновить доступ"
   },
   "coach": {
     "title": "ИИ-тренер",

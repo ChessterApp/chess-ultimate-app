@@ -1820,7 +1820,8 @@
       "registered": "Тіркелген",
       "pending": "Күтуде",
       "unregistered": "Әлі тіркелмеген",
-      "unlinked": "Байланыспаған"
+      "unlinked": "Байланыспаған",
+      "online": "Онлайн"
     },
     "searchPlaceholder": "Атымен іздеу…",
     "filterAllBranches": "Барлық филиалдар",
@@ -1886,7 +1887,22 @@
     "linkModalSearchPlaceholder": "мысалы, Али",
     "linkModalNoResults": "Осы филиал/сұрау үшін оқушылар жоқ.",
     "linkModalNotes": "Ескертпе (міндетті емес)",
-    "linkModalNotesPlaceholder": "мысалы, Қолмен толықтыру 2026-07-04"
+    "linkModalNotesPlaceholder": "мысалы, Қолмен толықтыру 2026-07-04",
+    "onlineColRegistered": "Тіркелген",
+    "onlineColExpiry": "Аяқталуы",
+    "onlineColStatus": "Күйі",
+    "onlineEmpty": "Әзірге онлайн тіркелулер жоқ.",
+    "statusTrial": "Сынақ",
+    "statusExpired": "Аяқталды",
+    "statusFull": "Толық",
+    "neverExpires": "Ешқашан",
+    "upgradeToFull": "Толық қолжетімділік беру",
+    "changeExpiry": "Мерзімін өзгерту",
+    "saveExpiry": "Сақтау",
+    "cancel": "Болдырмау",
+    "confirmUpgradeFull": "Осы қатысушыға тұрақты толық қолжетімділік берілсін бе?",
+    "accessUpdated": "Қолжетімділік жаңартылды",
+    "accessUpdateError": "Қолжетімділікті жаңарту мүмкін болмады"
   },
   "coach": {
     "title": "ЖИ-жаттықтырушы",

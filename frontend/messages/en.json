@@ -1820,7 +1820,8 @@
       "registered": "Registered",
       "pending": "Pending",
       "unregistered": "Not yet registered",
-      "unlinked": "Unlinked users"
+      "unlinked": "Unlinked users",
+      "online": "Online"
     },
     "searchPlaceholder": "Search by name…",
     "filterAllBranches": "All branches",
@@ -1886,7 +1887,22 @@
     "linkModalSearchPlaceholder": "e.g. Ali",
     "linkModalNoResults": "No students match this branch/query.",
     "linkModalNotes": "Notes (optional)",
-    "linkModalNotesPlaceholder": "e.g. Manual backfill 2026-07-04 missing webhook link"
+    "linkModalNotesPlaceholder": "e.g. Manual backfill 2026-07-04 missing webhook link",
+    "onlineColRegistered": "Registered",
+    "onlineColExpiry": "Expiry",
+    "onlineColStatus": "Status",
+    "onlineEmpty": "No online signups yet.",
+    "statusTrial": "Trial",
+    "statusExpired": "Expired",
+    "statusFull": "Full",
+    "neverExpires": "Never",
+    "upgradeToFull": "Upgrade to full",
+    "changeExpiry": "Change expiry",
+    "saveExpiry": "Save",
+    "cancel": "Cancel",
+    "confirmUpgradeFull": "Grant this member permanent full access?",
+    "accessUpdated": "Access updated",
+    "accessUpdateError": "Could not update access"
   },
   "coach": {
     "title": "AI Coach",
