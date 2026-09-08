@@ -469,10 +469,10 @@ function SearchStep({
             className="w-full rounded-2xl p-4 text-left bg-gradient-to-b from-purple-600 to-purple-700 text-white border-b-4 border-purple-800 hover:from-purple-500 hover:to-purple-600 active:border-b-2 active:translate-y-0.5 disabled:from-gray-300 disabled:to-gray-400 disabled:border-gray-400 disabled:active:border-b-4 disabled:active:translate-y-0 transition-all focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-300 focus-visible:ring-offset-2"
           >
             <span className="flex items-center justify-between gap-3">
-              <span className="font-bold uppercase tracking-wide whitespace-nowrap">
+              <span className="font-bold uppercase tracking-wide whitespace-nowrap text-[clamp(0.75rem,3.8vw,1rem)]">
                 {trialLoading ? t('verifying') : t('trialCta.title')}
               </span>
-              <span className="shrink-0 whitespace-nowrap rounded-full bg-white/25 px-3 py-1 text-xs font-bold uppercase tracking-wide">
+              <span className="shrink-0 whitespace-nowrap rounded-full bg-white/25 px-3 py-1 font-bold uppercase tracking-wide text-[clamp(0.5625rem,2.8vw,0.75rem)]">
                 {t('trialCta.badge')}
               </span>
             </span>
