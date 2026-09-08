@@ -868,4 +868,227 @@ describe('useGeminiLive', () => {
     nowSpy.mockRestore();
     vi.useRealTimers();
   });
+
+  // ── Phase 2 voice-path instrumentation ───────────────────────────────────────
+
+  // Capture every /api/coach/metrics beacon while serving token + tool responses.
+  function metricsCapturingFetch(
+    metrics: any[],
+    opts?: { tool?: (url: string, o: any) => any; remainingSeconds?: number | null },
+  ) {
+    return vi.fn(async (url: string, o: any) => {
+      const u = String(url);
+      if (u.includes('/api/coach/live-token')) {
+        return {
+          ok: true,
+          json: async () => ({
+            token: 'auth_tokens/abc',
+            model: 'gemini-3.1-flash-live-preview',
+            remainingSeconds: opts?.remainingSeconds,
+          }),
+        };
+      }
+      if (u.includes('/api/coach/metrics')) {
+        metrics.push(JSON.parse(o.body));
+        return { ok: true, json: async () => ({}) };
+      }
+      if (u.includes('/api/coach/tool')) {
+        return opts?.tool
+          ? opts.tool(url, o)
+          : { ok: true, json: async () => ({ result: { ok: true } }) };
+      }
+      return { ok: true, json: async () => ({ ok: true }) };
+    });
+  }
+
+  const flushMicro = () => new Promise((r) => setTimeout(r, 0));
+
+  it('tool beacon carries ok=true + a turn_id on a successful call', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics));
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1' }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+    await act(async () => {
+      g.connectArgs.value.callbacks.onmessage({
+        toolCall: { functionCalls: [{ id: 'c1', name: 'analyze_position', args: {} }] },
+      });
+      await flushMicro();
+    });
+
+    const tool = metrics.find((m) => m.event === 'tool');
+    expect(tool).toBeTruthy();
+    expect(tool.ok).toBe(true);
+    expect(tool.tool_name).toBe('analyze_position');
+    expect(typeof tool.turn_id).toBe('string');
+    expect(tool.turn_id.length).toBeGreaterThan(0);
+  });
+
+  it('tool beacon carries ok=false + error_code on a proxy rejection', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal(
+      'fetch',
+      metricsCapturingFetch(metrics, {
+        tool: () => ({ ok: false, status: 429, json: async () => ({ error: 'rate' }) }),
+      }),
+    );
+
+    const { result } = renderHook(() => useGeminiLive());
+    await act(async () => {
+      await result.current.connect();
+    });
+    await act(async () => {
+      g.connectArgs.value.callbacks.onmessage({
+        toolCall: { functionCalls: [{ id: 'c1', name: 'analyze_position', args: {} }] },
+      });
+      await flushMicro();
+    });
+
+    const tool = metrics.find((m) => m.event === 'tool');
+    expect(tool).toBeTruthy();
+    expect(tool.ok).toBe(false);
+    expect(tool.error_code).toBe('http_429');
+  });
+
+  it('emits a tool_timeout beacon (not a tool beacon) when the 10s abort fires', async () => {
+    vi.useFakeTimers();
+    try {
+      const metrics: any[] = [];
+      vi.stubGlobal(
+        'fetch',
+        metricsCapturingFetch(metrics, {
+          tool: (_url, o) =>
+            new Promise((_res, reject) => {
+              o.signal.addEventListener('abort', () =>
+                reject(new DOMException('aborted', 'AbortError')),
+              );
+            }),
+        }),
+      );
+
+      const { result } = renderHook(() => useGeminiLive());
+      await act(async () => {
+        await result.current.connect();
+      });
+      act(() => {
+        g.connectArgs.value.callbacks.onmessage({
+          toolCall: { functionCalls: [{ id: 'c1', name: 'analyze_position', args: {} }] },
+        });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+
+      const timeout = metrics.find((m) => m.event === 'tool_timeout');
+      expect(timeout).toBeTruthy();
+      expect(timeout.error_code).toBe('timeout');
+      expect(timeout.ok).toBe(false);
+      // A timeout must NOT also emit a plain 'tool' beacon (avoids double-logging).
+      expect(metrics.find((m) => m.event === 'tool')).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('emits a barge_in beacon when local RMS interrupts coach audio', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics));
+
+    const { result } = renderHook(() => useGeminiLive());
+    await act(async () => {
+      await result.current.connect();
+    });
+    // Model speaks -> status speaking.
+    act(() => {
+      g.connectArgs.value.callbacks.onmessage({
+        serverContent: {
+          modelTurn: {
+            parts: [{ inlineData: { data: AUDIO_B64, mimeType: 'audio/pcm;rate=24000' } }],
+          },
+        },
+      });
+    });
+    expect(result.current.status).toBe('speaking');
+    // User speaks over the coach.
+    act(() => {
+      lastWorkletNode.port.onmessage({ data: { pcm: new ArrayBuffer(4), rms: 0.9 } });
+    });
+
+    expect(metrics.find((m) => m.event === 'barge_in')).toBeTruthy();
+    expect(result.current.status).toBe('listening');
+  });
+
+  it('emits a session_end beacon with end_reason=user_stop on disconnect', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics, { remainingSeconds: null }));
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1' }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+    act(() => {
+      result.current.disconnect();
+    });
+
+    const end = metrics.find((m) => m.event === 'session_end');
+    expect(end).toBeTruthy();
+    expect(end.end_reason).toBe('user_stop');
+    // The metering 'end' beacon is still emitted alongside it.
+    expect(metrics.find((m) => m.event === 'end')).toBeTruthy();
+  });
+
+  it('reconnect after an unexpected drop emits a reconnect (not connect) beacon', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics));
+
+    const { result } = renderHook(() => useGeminiLive());
+    await act(async () => {
+      await result.current.connect();
+    });
+    const first = g.connectArgs.value;
+    act(() => {
+      first.callbacks.onmessage({
+        sessionResumptionUpdate: { resumable: true, newHandle: 'H1' },
+      });
+    });
+    await act(async () => {
+      first.callbacks.onclose();
+      await flushMicro();
+    });
+
+    expect(metrics.filter((m) => m.event === 'connect').length).toBe(1);
+    expect(metrics.filter((m) => m.event === 'reconnect').length).toBe(1);
+  });
+
+  it('emits session_end with end_reason=quota_exhausted when the countdown hits zero', async () => {
+    vi.useFakeTimers();
+    let t = 0;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => t);
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics, { remainingSeconds: 30 }));
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1', onQuotaExhausted: vi.fn() }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+    t = 40000; // exceed the 30s allowance
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+
+    const end = metrics.find((m) => m.event === 'session_end');
+    expect(end).toBeTruthy();
+    expect(end.end_reason).toBe('quota_exhausted');
+
+    nowSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });

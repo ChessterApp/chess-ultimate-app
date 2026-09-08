@@ -170,6 +170,9 @@ async function fetchVoiceQuota(
     const url = new URL(`${HERMES_URL}/internal/voice/quota`);
     url.searchParams.set('user_id', userId);
     url.searchParams.set('tier', tier);
+    // This is the mint enforcement check — ask Hermes to emit a quota_exhausted
+    // coach event when the user is out of minutes (Phase 2, Task 3).
+    url.searchParams.set('enforce', 'true');
     const res = await fetch(url, {
       headers: { 'X-User-Id': userId, 'x-subscription-tier': tier },
       signal: AbortSignal.timeout(5000),
@@ -191,6 +194,34 @@ async function fetchVoiceQuota(
   } catch (err) {
     console.warn('[live-token] voice quota fetch failed:', err);
     return null;
+  }
+}
+
+/**
+ * Emit a `mint_rejected` voice event to Hermes so a refused/failed token mint —
+ * something the browser can't self-report, since it never gets a session — still
+ * lands in coach_events with the user id. Routed through the existing metrics
+ * endpoint (the simplest path); fully fire-and-forget so it never delays or
+ * breaks the mint response.
+ */
+async function reportMintRejected(
+  userId: string,
+  sessionId: string | null,
+  reason: 'quota_exhausted' | 'rate_limited' | 'error',
+): Promise<void> {
+  try {
+    await fetch(`${HERMES_URL}/api/coach/metrics`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': userId },
+      body: JSON.stringify({
+        sessionId: sessionId ?? undefined,
+        event: 'mint_rejected',
+        reason,
+      }),
+      signal: AbortSignal.timeout(2000),
+    });
+  } catch {
+    // Telemetry only — never surface a mint-logging failure.
   }
 }
 
@@ -354,6 +385,7 @@ export async function POST(request: Request) {
     quota.remainingSeconds !== null &&
     quota.remainingSeconds <= 0
   ) {
+    void reportMintRejected(userId, sessionId, 'quota_exhausted');
     return jsonResponse(
       {
         error: 'voice_quota_exhausted',
@@ -367,6 +399,7 @@ export async function POST(request: Request) {
 
   // Rate limited by Hermes → refuse to mint so sessions can't spawn unboundedly.
   if (voiceContext && voiceContext.ok === false) {
+    void reportMintRejected(userId, sessionId, 'rate_limited');
     return jsonResponse(
       {
         error: 'rate_limited',
@@ -449,6 +482,7 @@ export async function POST(request: Request) {
     );
   } catch (err) {
     console.error('[live-token] failed to mint ephemeral token:', err);
+    void reportMintRejected(userId, sessionId, 'error');
     return jsonResponse({ error: 'Failed to start live session' }, 502);
   }
 }

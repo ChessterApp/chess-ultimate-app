@@ -58,7 +58,12 @@ from src.billing import (
     get_subscription_status,
     handle_webhook_event,
 )
-from src.voice_metrics import MAX_BODY_BYTES, record_metric, sanitize_metric
+from src.voice_metrics import (
+    MAX_BODY_BYTES,
+    beacon_to_event,
+    record_metric,
+    sanitize_metric,
+)
 from src.voice_quota import voice_quota_ledger
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
@@ -512,6 +517,11 @@ class CoachMessageRequest(BaseModel):
     role: str
     content: str
     source: Optional[str] = None
+    # Phase 2 (Task 4): true utterance timestamp (ISO8601, stamped in the browser
+    # at turn completion) and the turn correlation id, so voice message rows carry
+    # the spoken time — not the write time — and join to coach_events by turn_id.
+    client_ts: Optional[str] = None
+    turn_id: Optional[str] = None
 
 
 class CheckoutRequest(BaseModel):
@@ -1056,7 +1066,13 @@ async def coach_append_message(
             raise HTTPException(status_code=404, detail="Session not found")
         session = session_store.create(user_id=user_id, session_id=session_id)
 
-    session.add_message(body.role, body.content, source=body.source or "text")
+    # Stamp the utterance time + turn id onto the row (migration 008 columns).
+    # Fail-soft: persist_message drops these if the columns don't exist yet.
+    extra = {"client_ts": body.client_ts, "turn_id": body.turn_id}
+    extra = {k: v for k, v in extra.items() if v}
+    session.add_message(
+        body.role, body.content, source=body.source or "text", extra=extra or None
+    )
 
     return {
         "ok": True,
@@ -1473,6 +1489,16 @@ async def coach_metrics(request: Request):
                 duration_ms=record.get("session_ms"),
             )
 
+        # Phase 2: also persist the beacon to coach_events (same taxonomy as the
+        # text loop). Fail-open — an event-log error must never 500 the endpoint,
+        # and each request maps at most one beacon so nothing is double-logged.
+        try:
+            evt = beacon_to_event(payload, user_id)
+            if evt is not None:
+                log_event(**evt)
+        except Exception:  # pragma: no cover - defensive: telemetry never 5xx
+            logger.debug("coach_events beacon mapping failed", exc_info=True)
+
     return Response(status_code=204)
 
 
@@ -1499,15 +1525,24 @@ async def voice_heartbeat(body: VoiceHeartbeatRequest, request: Request):
 
 
 @app.get("/internal/voice/quota")
-async def voice_quota(request: Request, user_id: str, tier: str = DEFAULT_TIER):
+async def voice_quota(
+    request: Request, user_id: str, tier: str = DEFAULT_TIER, enforce: bool = False
+):
     """Return the user's monthly voice quota state for ``tier``.
 
     ``{limit_seconds, used_seconds, remaining_seconds, month_key, unlimited}``.
     ``limit_seconds``/``remaining_seconds`` are ``None`` when the tier is
     unlimited. Reads degrade to the in-memory fallback on a Supabase error.
+
+    ``enforce=true`` marks this as the mint enforcement check: when the user is
+    out of minutes a ``quota_exhausted`` coach event is emitted (Phase 2). Plain
+    display reads (``enforce`` absent) never emit, so the event isn't spammed.
     """
     _verify_api_key(request)
-    return voice_quota_ledger.get_quota(user_id, tier)
+    quota = voice_quota_ledger.get_quota(user_id, tier)
+    if enforce:
+        voice_quota_ledger.check_exhausted(user_id, tier, quota=quota)
+    return quota
 
 
 # ── Analytics endpoint ─────────────────────────────────────────────────

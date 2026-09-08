@@ -83,9 +83,20 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     user: '',
     model: '',
   });
+  // Turn correlation id per in-progress utterance, captured on its first chunk,
+  // so the persisted row joins to the voice coach_events for the same turn.
+  const voiceTurnIdRef = useRef<{ user: string | null; model: string | null }>({
+    user: null,
+    model: null,
+  });
 
   const handleTranscript = useCallback(
-    (tr: { role: 'user' | 'model'; text: string; final: boolean }) => {
+    (tr: {
+      role: 'user' | 'model';
+      text: string;
+      final: boolean;
+      turnId?: string;
+    }) => {
       const mappedRole: 'user' | 'assistant' =
         tr.role === 'user' ? 'user' : 'assistant';
       const currentId = voiceMsgIdRef.current[tr.role];
@@ -100,6 +111,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         const id = crypto.randomUUID();
         voiceMsgIdRef.current[tr.role] = id;
         voiceTextRef.current[tr.role] = tr.text;
+        // Capture the turn id at the start of the utterance so the whole message
+        // persists under one correlation id even as chunks stream in.
+        voiceTurnIdRef.current[tr.role] = tr.turnId ?? null;
         setMessages((prev) => [
           ...prev,
           { id, role: mappedRole, content: tr.text, timestamp: new Date() },
@@ -118,6 +132,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               role: mappedRole,
               content: fullText,
               source: 'voice',
+              // Phase 2: true utterance time (not the write time) + turn id.
+              client_ts: new Date().toISOString(),
+              turn_id:
+                voiceTurnIdRef.current[tr.role] ?? tr.turnId ?? undefined,
             }),
           }).catch((err) =>
             console.error('[coach] transcript write-back failed:', err)
@@ -125,6 +143,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         }
         voiceMsgIdRef.current[tr.role] = null;
         voiceTextRef.current[tr.role] = '';
+        voiceTurnIdRef.current[tr.role] = null;
       }
     },
     []

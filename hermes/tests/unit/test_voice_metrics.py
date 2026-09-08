@@ -6,13 +6,14 @@ input never produces a 5xx.
 """
 
 import json
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from src import voice_metrics
 from src.server import app
-from src.voice_metrics import record_metric, sanitize_metric
+from src.voice_metrics import beacon_to_event, record_metric, sanitize_metric
 
 USER_HEADERS = {"X-User-Id": "test-user-123"}
 
@@ -173,3 +174,207 @@ class TestSessionEndEvent:
     def test_negative_session_ms_clamped_to_zero(self):
         record = sanitize_metric({"sessionId": "s1", "event": "end", "session_ms": -5})
         assert record["session_ms"] == 0
+
+
+@pytest.mark.unit
+class TestSanitizePhase2Fields:
+    """Task 1: the sanitizer keeps error cause + correlation fields; drops junk."""
+
+    def test_error_cause_retained(self):
+        rec = sanitize_metric(
+            {"sessionId": "s1", "event": "error", "error": "NotAllowedError: mic blocked"}
+        )
+        assert rec is not None
+        assert rec["error"] == "NotAllowedError: mic blocked"
+
+    def test_error_cause_truncated_to_500(self):
+        rec = sanitize_metric(
+            {"sessionId": "s1", "event": "error", "error": "x" * 5000}
+        )
+        assert len(rec["error"]) == 500
+
+    def test_keeps_turn_id_ok_and_error_code(self):
+        rec = sanitize_metric(
+            {
+                "sessionId": "s1",
+                "event": "tool",
+                "turn_id": "t-abc",
+                "ok": False,
+                "error_code": "http_429",
+                "tool_name": "analyze_position",
+            }
+        )
+        assert rec["turn_id"] == "t-abc"
+        assert rec["ok"] is False
+        assert rec["error_code"] == "http_429"
+
+    def test_new_events_are_valid(self):
+        for event in ("reconnect", "tool_timeout", "barge_in", "session_end", "drop"):
+            rec = sanitize_metric({"sessionId": "s1", "event": event})
+            assert rec is not None, event
+            assert rec["event"] == event
+
+    def test_unknown_fields_still_dropped(self):
+        rec = sanitize_metric(
+            {"sessionId": "s1", "event": "turn", "evil": "haxx", "nested": {"a": 1}}
+        )
+        assert "evil" not in rec
+        assert "nested" not in rec
+
+    def test_non_bool_ok_dropped(self):
+        rec = sanitize_metric({"sessionId": "s1", "event": "tool", "ok": "yes"})
+        assert "ok" not in rec
+
+
+@pytest.mark.unit
+class TestBeaconToEvent:
+    """Task 2: each beacon type maps to the right coach_events row (or None)."""
+
+    def test_connect(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "connect", "connect_ms": 300, "token_ms": 40},
+            "u1",
+        )
+        assert evt["event_type"] == "voice_connect"
+        assert evt["surface"] == "voice"
+        assert evt["user_id"] == "u1"
+        assert evt["session_id"] == "s1"
+        assert evt["duration_ms"] == 300
+        assert evt["payload"]["token_ms"] == 40
+
+    def test_reconnect(self):
+        evt = beacon_to_event({"sessionId": "s1", "event": "reconnect", "connect_ms": 90}, "u1")
+        assert evt["event_type"] == "voice_reconnect"
+
+    def test_error_maps_to_voice_drop_with_cause(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "error", "error": "boom"}, "u1"
+        )
+        assert evt["event_type"] == "voice_drop"
+        assert evt["severity"] == "error"
+        assert evt["ok"] is False
+        assert evt["payload"]["cause"] == "boom"
+
+    def test_drop_maps_to_voice_drop(self):
+        evt = beacon_to_event({"sessionId": "s1", "event": "drop"}, "u1")
+        assert evt["event_type"] == "voice_drop"
+
+    def test_failed_tool_beacon_maps_with_source_beacon(self):
+        evt = beacon_to_event(
+            {
+                "sessionId": "s1",
+                "event": "tool",
+                "ok": False,
+                "error_code": "http_429",
+                "tool_name": "analyze_position",
+                "tool_ms": 12,
+            },
+            "u1",
+        )
+        assert evt["event_type"] == "tool_call"
+        assert evt["ok"] is False
+        assert evt["error_code"] == "http_429"
+        assert evt["tool_name"] == "analyze_position"
+        assert evt["duration_ms"] == 12
+        assert evt["payload"]["source"] == "beacon"
+
+    def test_successful_tool_beacon_is_not_logged(self):
+        # Server-side execution already logs the authoritative row.
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "tool", "ok": True, "tool_name": "x"}, "u1"
+        )
+        assert evt is None
+
+    def test_tool_timeout(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "tool_timeout", "tool_name": "x", "tool_ms": 10000},
+            "u1",
+        )
+        assert evt["event_type"] == "tool_timeout"
+        assert evt["error_code"] == "timeout"
+        assert evt["ok"] is False
+        assert evt["payload"]["source"] == "beacon"
+
+    def test_barge_in(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "barge_in", "turn": 3, "turn_id": "t3"}, "u1"
+        )
+        assert evt["event_type"] == "barge_in"
+        assert evt["turn_id"] == "t3"
+
+    def test_turn_maps_to_turn_end(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "turn", "ttfa_ms": 700, "turn": 2, "turn_id": "t2"},
+            "u1",
+        )
+        assert evt["event_type"] == "turn_end"
+        assert evt["duration_ms"] == 700
+        assert evt["payload"]["ttfa_ms"] == 700
+
+    def test_session_end(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "session_end", "session_ms": 42000,
+             "end_reason": "user_stop"},
+            "u1",
+        )
+        assert evt["event_type"] == "session_end"
+        assert evt["duration_ms"] == 42000
+        assert evt["payload"]["end_reason"] == "user_stop"
+
+    def test_end_beacon_has_no_coach_event(self):
+        # 'end' is metering-only (record_voice_event handles it).
+        assert beacon_to_event({"sessionId": "s1", "event": "end", "session_ms": 1}, "u1") is None
+
+    def test_mint_rejected_classification(self):
+        for reason, severity in [
+            ("quota_exhausted", "warn"),
+            ("rate_limited", "warn"),
+            ("error", "error"),
+        ]:
+            evt = beacon_to_event(
+                {"event": "mint_rejected", "reason": reason}, "u1"
+            )
+            assert evt["event_type"] == "mint_rejected"
+            assert evt["error_code"] == reason
+            assert evt["severity"] == severity
+            # No session needed — a mint is rejected before a session exists.
+            assert evt["user_id"] == "u1"
+
+    def test_mint_rejected_defaults_reason_to_error(self):
+        evt = beacon_to_event({"event": "mint_rejected"}, "u1")
+        assert evt["error_code"] == "error"
+
+    def test_unknown_event_returns_none(self):
+        assert beacon_to_event({"sessionId": "s1", "event": "bogus"}, "u1") is None
+        assert beacon_to_event("not a dict", "u1") is None
+
+
+@pytest.mark.unit
+class TestMetricsEndpointLogsEvents:
+    """Task 2: the metrics endpoint maps a beacon to a coach_events row."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @patch("src.server.log_event")
+    def test_beacon_logged_to_coach_events(self, mock_log, _tmp_metrics_dir):
+        resp = self.client.post(
+            "/api/coach/metrics",
+            headers=USER_HEADERS,
+            json={"sessionId": "s1", "event": "connect", "connect_ms": 100},
+        )
+        assert resp.status_code == 204
+        assert mock_log.called
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["event_type"] == "voice_connect"
+        assert kwargs["user_id"] == "test-user-123"
+        assert kwargs["surface"] == "voice"
+
+    @patch("src.server.log_event", side_effect=RuntimeError("logger down"))
+    def test_event_log_failure_never_500s(self, _mock_log, _tmp_metrics_dir):
+        resp = self.client.post(
+            "/api/coach/metrics",
+            headers=USER_HEADERS,
+            json={"sessionId": "s1", "event": "connect"},
+        )
+        assert resp.status_code == 204

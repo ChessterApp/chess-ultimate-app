@@ -703,4 +703,118 @@ describe('POST /api/coach/live-token', () => {
     expect(String((quotaCall as any[])[0])).toContain('tier=free');
     expect((quotaCall as any[])[1].headers['x-subscription-tier']).toBe('free');
   });
+
+  // ── mint_rejected coach events (Phase 2, Task 3) ────────────────────────────
+
+  it('passes enforce=true to the quota check so Hermes emits quota_exhausted', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (String(url).includes('/internal/voice/quota')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            limit_seconds: 1800,
+            used_seconds: 0,
+            remaining_seconds: 1800,
+            month_key: '2026-09',
+            unlimited: false,
+          }),
+        };
+      }
+      if (String(url).includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: [] }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+    });
+    global.fetch = fetchSpy as any;
+
+    const { POST } = await import('../live-token/route');
+    await POST(makeRequest({}));
+
+    const quotaCall = fetchSpy.mock.calls.find((c: any[]) =>
+      String(c[0]).includes('/internal/voice/quota'),
+    );
+    expect(String((quotaCall as any[])[0])).toContain('enforce=true');
+  });
+
+  // Serve a quota result, capture any /api/coach/metrics beacon.
+  const fetchWithMetricsCapture = (
+    metrics: any[],
+    quota: Record<string, unknown>,
+    mintRejects = false,
+  ) => {
+    global.fetch = vi.fn(async (url: string, opts?: any) => {
+      const u = String(url);
+      if (u.includes('/api/coach/metrics')) {
+        metrics.push({ body: JSON.parse(opts.body), headers: opts.headers });
+        return { ok: true, json: async () => ({}) };
+      }
+      if (u.includes('/internal/voice/quota')) {
+        return { ok: true, status: 200, json: async () => quota };
+      }
+      if (u.includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: [] }) };
+      }
+      if (u.includes('/api/coach/voice/prompt')) {
+        return { ok: true, json: async () => ({ system_prompt: 'p' }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+    }) as any;
+    if (mintRejects) createMock.mockRejectedValue(new Error('google boom'));
+  };
+
+  it('emits mint_rejected(quota_exhausted) when minutes are used up', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'tok' });
+    const metrics: any[] = [];
+    fetchWithMetricsCapture(metrics, {
+      limit_seconds: 1800,
+      used_seconds: 1800,
+      remaining_seconds: 0,
+      month_key: '2026-09',
+      unlimited: false,
+    });
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ session_id: 'sess_9' }));
+    expect(response.status).toBe(429);
+
+    const rejected = metrics.find((m) => m.body.event === 'mint_rejected');
+    expect(rejected).toBeTruthy();
+    expect(rejected.body.reason).toBe('quota_exhausted');
+    expect(rejected.body.sessionId).toBe('sess_9');
+    // Lands in coach_events with the authenticated user.
+    expect(rejected.headers['X-User-Id']).toBe('user_123');
+  });
+
+  it('emits mint_rejected(error) when the token mint throws', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const metrics: any[] = [];
+    fetchWithMetricsCapture(
+      metrics,
+      {
+        limit_seconds: 1800,
+        used_seconds: 0,
+        remaining_seconds: 1800,
+        month_key: '2026-09',
+        unlimited: false,
+      },
+      true, // mint rejects
+    );
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(502);
+
+    const rejected = metrics.find((m) => m.body.event === 'mint_rejected');
+    expect(rejected).toBeTruthy();
+    expect(rejected.body.reason).toBe('error');
+    errorSpy.mockRestore();
+  });
 });

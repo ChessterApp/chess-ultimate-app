@@ -159,6 +159,59 @@ class TestToolDispatch:
         # The model-supplied user_id must be replaced with the header identity.
         assert captured["args"]["user_id"] == "test-user-123"
 
+    def test_voice_tool_call_event_emitted_on_success(self):
+        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        with patch("src.tool_bridge.log_event") as mock_log:
+            resp = self.client.post(
+                "/api/coach/tool/board_control",
+                headers=USER_HEADERS,
+                json={
+                    "args": {"action_type": "set_fen", "fen": fen},
+                    "session_id": "sess-evt",
+                },
+            )
+        assert resp.status_code == 200
+        assert mock_log.called
+        etype = mock_log.call_args.args[0]
+        kwargs = mock_log.call_args.kwargs
+        assert etype == "tool_call"
+        assert kwargs["surface"] == "voice"
+        assert kwargs["tool_name"] == "board_control"
+        assert kwargs["user_id"] == "test-user-123"
+        assert kwargs["session_id"] == "sess-evt"
+        assert kwargs["ok"] is True
+        assert isinstance(kwargs["duration_ms"], int)
+
+    def test_voice_tool_call_event_ok_false_on_error(self):
+        with patch("src.tool_bridge.log_event") as mock_log:
+            resp = self.client.post(
+                "/api/coach/tool/board_control",
+                headers=USER_HEADERS,
+                json={"args": {"action_type": "bogus_action"}},
+            )
+        assert resp.status_code == 200
+        assert mock_log.called
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["ok"] is False
+        assert kwargs["error_code"]
+
+    def test_voice_check_moves_verdict_in_event_payload(self):
+        result = json.dumps({"results": [{"legal": True}, {"legal": False}]})
+        with patch.object(tool_bridge.registry, "dispatch", return_value=result), \
+                patch("src.tool_bridge.log_event") as mock_log:
+            resp = self.client.post(
+                "/api/coach/tool/check_moves",
+                headers=USER_HEADERS,
+                json={"args": {"fen": "x", "moves": ["e4", "Ke2"]}},
+            )
+        assert resp.status_code == 200
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["payload"]["check_moves_verdict"] == {
+            "candidates": 2,
+            "legal": 1,
+            "illegal": 1,
+        }
+
     def test_board_state_sync_on_set_fen(self):
         session = session_store.create(user_id="test-user-123", session_id="sess-1")
         fen = "8/8/8/8/8/8/8/K6k w - - 0 1"

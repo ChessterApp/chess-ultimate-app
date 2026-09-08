@@ -4,6 +4,7 @@ No live-database access — a mocked supabase client (httpx) and an in-memory
 fake backend stand in for Supabase.
 """
 
+import threading
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -269,6 +270,75 @@ class TestSessionPersistenceHttp:
             assert mock_log.call_args.args[0] == "persistence_failure"
             assert mock_log.call_args.kwargs["severity"] == "error"
             assert mock_log.call_args.kwargs["turn_id"] == "t1"
+
+
+@pytest.mark.unit
+class TestFirstTurnRace:
+    """Task 5: the message insert must never win the race against the session
+    upsert it references — even when the session insert is slow."""
+
+    def _persistence(self):
+        return SessionPersistence(url="https://sb.example", key="secret")
+
+    def test_message_insert_waits_for_slow_session_insert(self):
+        import time
+
+        p = self._persistence()
+        order: list[str] = []
+        lock = threading.Lock()
+
+        def fake_post(url, *args, **kwargs):
+            # The session insert is slow; the message insert is instant. Without
+            # the ordering gate the (instant) message POST would land first —
+            # exactly the FK-violation race. Record each POST as it lands.
+            if url.endswith("/rest/v1/coach_sessions"):
+                time.sleep(0.2)
+                with lock:
+                    order.append("session")
+            else:
+                with lock:
+                    order.append("message")
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch("src.session_persistence.httpx") as mock_httpx:
+            mock_httpx.post.side_effect = fake_post
+            # Fire both as the real request path does: session first (create),
+            # then the first user message — both on background threads.
+            p.persist_session("sid-race", "user1", "fen")
+            p.persist_message("sid-race", "user", "first message", "voice")
+
+            # Wait for both background writes to land (bounded).
+            deadline = time.monotonic() + 3.0
+            while time.monotonic() < deadline:
+                with lock:
+                    if len(order) >= 2:
+                        break
+                time.sleep(0.01)
+
+        assert order == ["session", "message"], (
+            f"message insert raced ahead of the session insert: {order}"
+        )
+
+    def test_message_does_not_hang_when_no_session_pending(self):
+        """A message with no pending session write proceeds immediately."""
+        import time
+
+        p = self._persistence()
+        landed = threading.Event()
+
+        def fake_post(url, *args, **kwargs):
+            landed.set()
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        with patch("src.session_persistence.httpx") as mock_httpx:
+            mock_httpx.post.side_effect = fake_post
+            # No persist_session() first — the message must not block on a gate.
+            p.persist_message("sid-orphan", "user", "hi", "voice")
+            assert landed.wait(timeout=2.0) is True
 
     def test_load_session_parses_first_row(self):
         p = self._persistence()

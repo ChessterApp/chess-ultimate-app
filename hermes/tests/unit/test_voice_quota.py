@@ -154,3 +154,66 @@ class TestInternalEndpoints:
         )
         r = client.get("/internal/voice/quota", params={"user_id": "u-cap", "tier": "free"})
         assert r.json()["used_seconds"] == MAX_HEARTBEAT_DELTA
+
+
+@pytest.mark.unit
+class TestCheckExhausted:
+    """Task 3: the enforcement check emits a quota_exhausted event when out."""
+
+    def test_emits_event_when_exhausted(self, monkeypatch):
+        monkeypatch.setenv("VOICE_MINUTES_FREE", "1")  # 60s cap
+        ledger = VoiceQuotaLedger()
+        ledger.record_heartbeat("u-exh", "s1", MAX_HEARTBEAT_DELTA)  # 120s > 60s
+        with patch("src.event_logger.log_event") as mock_log:
+            assert ledger.check_exhausted("u-exh", "free") is True
+        assert mock_log.called
+        assert mock_log.call_args.args[0] == "quota_exhausted"
+        kwargs = mock_log.call_args.kwargs
+        assert kwargs["surface"] == "voice"
+        assert kwargs["user_id"] == "u-exh"
+        assert kwargs["error_code"] == "quota_exhausted"
+
+    def test_no_event_when_within_quota(self):
+        ledger = VoiceQuotaLedger()
+        with patch("src.event_logger.log_event") as mock_log:
+            assert ledger.check_exhausted("u-ok", "free") is False
+        assert not mock_log.called
+
+    def test_no_event_when_unlimited(self, monkeypatch):
+        monkeypatch.setenv("VOICE_MINUTES_FREE", "0")  # unlimited
+        ledger = VoiceQuotaLedger()
+        with patch("src.event_logger.log_event") as mock_log:
+            assert ledger.check_exhausted("u-unl", "free") is False
+        assert not mock_log.called
+
+    def test_enforce_param_emits_via_endpoint(self, monkeypatch):
+        monkeypatch.setenv("VOICE_MINUTES_FREE", "1")
+        client = TestClient(app)
+        client.post(
+            "/internal/voice/heartbeat",
+            json={"user_id": "u-ep", "session_id": "s1", "seconds_delta": MAX_HEARTBEAT_DELTA},
+        )
+        with patch("src.event_logger.log_event") as mock_log:
+            r = client.get(
+                "/internal/voice/quota",
+                params={"user_id": "u-ep", "tier": "free", "enforce": "true"},
+            )
+        assert r.status_code == 200
+        assert any(c.args and c.args[0] == "quota_exhausted" for c in mock_log.call_args_list)
+
+    def test_display_read_does_not_emit(self, monkeypatch):
+        monkeypatch.setenv("VOICE_MINUTES_FREE", "1")
+        client = TestClient(app)
+        client.post(
+            "/internal/voice/heartbeat",
+            json={"user_id": "u-disp", "session_id": "s1", "seconds_delta": MAX_HEARTBEAT_DELTA},
+        )
+        with patch("src.event_logger.log_event") as mock_log:
+            r = client.get(
+                "/internal/voice/quota",
+                params={"user_id": "u-disp", "tier": "free"},  # no enforce
+            )
+        assert r.status_code == 200
+        assert not any(
+            c.args and c.args[0] == "quota_exhausted" for c in mock_log.call_args_list
+        )

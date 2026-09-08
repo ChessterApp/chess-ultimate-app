@@ -14,6 +14,7 @@ tool schema is ever hand-copied here.
 
 import json
 import logging
+import time
 from typing import Any, Optional
 
 import chess
@@ -24,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 from src import config
 from src.board_protocol import ActionType
 from src.cost_monitor import record_voice_event
+from src.event_logger import log_event
 from src.middleware.rate_limiter import enforce_rate_limit, voice_tool_rate_limiter
 from src.sessions import session_store
 from src.tool_selector import select_tool_subset
@@ -222,6 +224,45 @@ def _tool_error_payload(name: str, exc: Exception) -> dict:
     }
 
 
+def _classify_tool_result(name: str, args: dict, raw: Any) -> tuple[bool, Optional[str], dict]:
+    """Build (ok, error_code, payload) for a voice ``tool_call`` coach event.
+
+    Mirrors the text loop's ``_tool_call_payload`` (server.py): parses the result
+    to classify success/failure, truncates args + a result summary, and folds in
+    the ``check_moves`` legal/illegal verdict (the hallucination metric).
+    """
+    parsed = None
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+
+    ok = True
+    error_code: Optional[str] = None
+    if isinstance(parsed, dict) and "error" in parsed:
+        ok = False
+        err = parsed.get("error")
+        if isinstance(err, dict):
+            error_code = str(err.get("type") or err.get("message") or "error")[:100]
+        else:
+            error_code = str(err)[:100]
+
+    payload: dict = {
+        "args": str(args)[:500],
+        "result_summary": str(raw)[:500],
+    }
+    if name == "check_moves" and isinstance(parsed, dict):
+        results = parsed.get("results")
+        if isinstance(results, list):
+            legal = sum(1 for r in results if isinstance(r, dict) and r.get("legal") is True)
+            payload["check_moves_verdict"] = {
+                "candidates": len(results),
+                "legal": legal,
+                "illegal": len(results) - legal,
+            }
+    return ok, error_code, payload
+
+
 def dispatch_tool_safely(name: str, args: dict) -> str:
     """Dispatch a tool, converting any raised exception into a structured error.
 
@@ -295,7 +336,26 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     # don't freeze concurrent requests such as /health. dispatch_tool_safely
     # additionally converts any raised exception into a structured error
     # envelope so a malformed tool call never bubbles a fatal 500.
+    started = time.monotonic()
     raw = await run_in_threadpool(dispatch_tool_safely, name, args)
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    # Persist the voice tool execution to coach_events (Phase 2, Task 3). This is
+    # the authoritative record — the browser's tool beacon only surfaces calls the
+    # server never executed (rate-limited / proxy failures). Fail-open.
+    ok, error_code, evt_payload = _classify_tool_result(name, args, raw)
+    log_event(
+        "tool_call",
+        severity="info" if ok else "warn",
+        surface="voice",
+        user_id=user_id,
+        session_id=body.session_id,
+        tool_name=name,
+        duration_ms=duration_ms,
+        ok=ok,
+        error_code=error_code,
+        payload=evt_payload,
+    )
 
     try:
         parsed = json.loads(raw) if isinstance(raw, str) else raw

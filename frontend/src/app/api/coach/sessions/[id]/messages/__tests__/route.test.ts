@@ -140,5 +140,37 @@ describe('/api/coach/sessions/[id]/messages proxy', () => {
         source: 'voice',
       });
     });
+
+    it('forwards client_ts and turn_id for voice write-back (Phase 2)', async () => {
+      (auth as any).mockResolvedValue({ userId: 'user_123' });
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true, message_count: 1 }),
+      });
+      global.fetch = fetchSpy as any;
+
+      const { POST } = await import('../route');
+      const { NextRequest } = await import('next/server');
+      const req = new NextRequest(
+        'http://localhost:3000/api/coach/sessions/s1/messages',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            role: 'user',
+            content: 'spoken hello',
+            source: 'voice',
+            client_ts: '2026-09-08T12:00:00.000Z',
+            turn_id: 't-voice-1',
+          }),
+        },
+      );
+      const res = await POST(req, makeParams('s1'));
+
+      expect(res.status).toBe(200);
+      const sent = JSON.parse(fetchSpy.mock.calls[0][1].body);
+      expect(sent.client_ts).toBe('2026-09-08T12:00:00.000Z');
+      expect(sent.turn_id).toBe('t-voice-1');
+    });
   });
 });

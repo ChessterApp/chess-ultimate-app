@@ -164,6 +164,40 @@ class TestCoachSessionMessages:
         assert stored.messages[0].content == "spoken hello"
         assert stored.messages[0].source == "voice"
 
+    def test_post_message_threads_client_ts_and_turn_id(self):
+        """Task 4: utterance time + turn id reach persist_message as extra."""
+        from unittest.mock import MagicMock, patch
+
+        from src.sessions import SessionStore
+
+        # A recording persistence backend captures the extra columns the endpoint
+        # builds (client_ts + turn_id), without needing a live Supabase.
+        fake = MagicMock()
+        store = SessionStore(persistence=fake)
+        session = store.create(user_id="test-user-123", session_id="sess-ts")
+
+        with patch("src.server.session_store", store):
+            resp = self.client.post(
+                f"/api/coach/sessions/{session.id}/messages",
+                headers=USER_HEADERS,
+                json={
+                    "role": "user",
+                    "content": "spoken hello",
+                    "source": "voice",
+                    "client_ts": "2026-09-08T12:00:00.000Z",
+                    "turn_id": "t-voice-1",
+                },
+            )
+        assert resp.status_code == 200
+        assert fake.persist_message.called
+        args, kwargs = fake.persist_message.call_args
+        # add_message passes (session_id, role, content, source) positionally.
+        assert args[3] == "voice"
+        assert kwargs["extra"] == {
+            "client_ts": "2026-09-08T12:00:00.000Z",
+            "turn_id": "t-voice-1",
+        }
+
     def test_post_message_defaults_source_to_text(self):
         session = session_store.create(user_id="test-user-123")
         resp = self.client.post(

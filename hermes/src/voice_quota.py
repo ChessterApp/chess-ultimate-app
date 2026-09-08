@@ -242,6 +242,46 @@ class VoiceQuotaLedger:
             "unlimited": False,
         }
 
+    def check_exhausted(
+        self, user_id: str, tier: str, quota: Optional[dict] = None
+    ) -> bool:
+        """Return whether the user is out of monthly voice minutes.
+
+        This is the enforcement check the mint path runs. When it rejects for
+        exhaustion it emits a ``quota_exhausted`` coach event (Phase 2, Task 3)
+        so the block is visible in ``coach_events`` alongside the client-side
+        ``mint_rejected``. Pass an already-fetched ``quota`` to avoid a second
+        ledger read. Fail-open: an event-log failure never affects the return
+        value or the request.
+        """
+        if quota is None:
+            quota = self.get_quota(user_id, tier)
+        exhausted = (
+            not quota["unlimited"]
+            and quota["remaining_seconds"] is not None
+            and quota["remaining_seconds"] <= 0
+        )
+        if exhausted:
+            try:
+                from src.event_logger import log_event
+
+                log_event(
+                    "quota_exhausted",
+                    severity="warn",
+                    surface="voice",
+                    user_id=user_id,
+                    ok=False,
+                    error_code="quota_exhausted",
+                    payload={
+                        "used_seconds": quota["used_seconds"],
+                        "limit_seconds": quota["limit_seconds"],
+                        "month_key": quota["month_key"],
+                    },
+                )
+            except Exception:  # pragma: no cover - telemetry never breaks metering
+                pass
+        return exhausted
+
 
 # Global instance shared by the server endpoints.
 voice_quota_ledger = VoiceQuotaLedger()

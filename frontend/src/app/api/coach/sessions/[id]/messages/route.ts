@@ -60,7 +60,13 @@ export async function POST(
 
   const { id } = await params;
 
-  let body: { role?: string; content?: string; source?: string };
+  let body: {
+    role?: string;
+    content?: string;
+    source?: string;
+    client_ts?: string;
+    turn_id?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -87,6 +93,9 @@ export async function POST(
           role: body.role,
           content: body.content,
           source: body.source,
+          // Phase 2: true utterance time + turn correlation id (voice write-back).
+          client_ts: typeof body.client_ts === 'string' ? body.client_ts : undefined,
+          turn_id: typeof body.turn_id === 'string' ? body.turn_id : undefined,
         }),
         signal: AbortSignal.timeout(10000),
       },

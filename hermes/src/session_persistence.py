@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 from datetime import datetime, timezone
+from typing import Optional
 
 import httpx
 
@@ -57,6 +58,12 @@ class SessionPersistence:
         self.url = url if url is not None else os.environ.get("SUPABASE_URL", "")
         self.key = key if key is not None else os.environ.get("SUPABASE_SERVICE_KEY", "")
         self._warned = False
+        # Per-session ordering gate (fixes the first-turn FK race, Phase 2 Task 5):
+        # the session-row insert sets its Event when done, and a message insert for
+        # that session waits on it so ``coach_messages`` can never win the race
+        # against the ``coach_sessions`` upsert it references.
+        self._session_ready: dict[str, threading.Event] = {}
+        self._ready_lock = threading.Lock()
         if not self.enabled:
             self._warn_once()
 
@@ -85,14 +92,50 @@ class SessionPersistence:
         t = threading.Thread(target=fn, args=args, daemon=True)
         t.start()
 
+    # -------------------------------------------------- per-session ordering gate
+
+    def _register_session_pending(self, session_id: str) -> threading.Event:
+        """Reserve (or reuse) the readiness Event for a session, synchronously.
+
+        Called on the request thread inside ``persist_session`` BEFORE the write
+        thread is spawned, so it is guaranteed to exist by the time the first
+        ``persist_message`` for the same session runs (add_message follows
+        create() on the same thread) — closing the register/read race.
+        """
+        with self._ready_lock:
+            ev = self._session_ready.get(session_id)
+            if ev is None:
+                ev = threading.Event()
+                self._session_ready[session_id] = ev
+            return ev
+
+    def _await_session_ready(self, session_id: str) -> None:
+        """Block until the session row insert for *session_id* has finished.
+
+        No-op when no session write is pending (e.g. the session was persisted in
+        an earlier request and its Event already fired, or persistence is used
+        for messages only). Bounded by ``TIMEOUT`` so a stuck session write can
+        never wedge a message write forever.
+        """
+        with self._ready_lock:
+            ev = self._session_ready.get(session_id)
+        if ev is not None and not ev.is_set():
+            ev.wait(timeout=TIMEOUT)
+
     # ------------------------------------------------------------------ writes
 
     def persist_session(self, session_id: str, user_id: str, board_state: str) -> None:
         if not self.enabled:
             return
-        self._run_bg(self._persist_session, session_id, user_id, board_state)
+        # Reserve the readiness gate on THIS thread so a racing message write
+        # (spawned moments later) always finds it and waits.
+        ev = self._register_session_pending(session_id)
+        self._run_bg(self._persist_session, session_id, user_id, board_state, ev)
 
-    def _persist_session(self, session_id: str, user_id: str, board_state: str) -> None:
+    def _persist_session(
+        self, session_id: str, user_id: str, board_state: str,
+        ready: Optional["threading.Event"] = None,
+    ) -> None:
         try:
             now = datetime.now(timezone.utc).isoformat()
             headers = self._headers()
@@ -111,6 +154,12 @@ class SessionPersistence:
             ).raise_for_status()
         except Exception:
             logger.debug("Failed to persist coach session %s", session_id, exc_info=True)
+        finally:
+            # Release message writers whether the insert succeeded or failed — a
+            # genuine failure surfaces as a persistence_failure on the message
+            # write, not a hung thread.
+            if ready is not None:
+                ready.set()
 
     def persist_message(
         self,
@@ -143,6 +192,10 @@ class SessionPersistence:
         extra: dict | None = None,
         evt: dict | None = None,
     ) -> None:
+        # Ordering gate: never insert a message row before the session row it
+        # references exists (fixes the first-turn FK race, Phase 2 Task 5).
+        self._await_session_ready(session_id)
+
         base = {
             "session_id": session_id,
             "role": role,
@@ -229,6 +282,9 @@ class SessionPersistence:
     def delete_session(self, session_id: str) -> None:
         if not self.enabled:
             return
+        # Drop the ordering gate for this session (bounded memory).
+        with self._ready_lock:
+            self._session_ready.pop(session_id, None)
         self._run_bg(self._delete_session, session_id)
 
     def _delete_session(self, session_id: str) -> None:

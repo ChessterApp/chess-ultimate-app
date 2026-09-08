@@ -22,7 +22,13 @@ export interface UseGeminiLiveOptions {
   getFen?: () => string;
   /** Current coach session id, so the minted token carries the shared conversation memory. */
   getSessionId?: () => string | null | undefined;
-  onTranscript?: (t: { role: 'user' | 'model'; text: string; final: boolean }) => void;
+  onTranscript?: (t: {
+    role: 'user' | 'model';
+    text: string;
+    final: boolean;
+    /** Turn correlation id for this utterance, so persisted rows join to events. */
+    turnId?: string;
+  }) => void;
   onError?: (msg: string) => void;
   onStatusChange?: (s: LiveStatus) => void;
   /** Fired after a voice tool call resolves, so the UI can apply board actions / game lists. */
@@ -70,25 +76,60 @@ const HEALTHY_RECONNECT_RESET_MS = 60000;
 // re-evaluate the local minutes countdown while a session is live.
 const VOICE_HEARTBEAT_INTERVAL_MS = 60000;
 
-// Latency telemetry contract shared with Hermes POST /api/coach/metrics.
-// 'end' is the session-lifecycle beacon fired on disconnect (carries session_ms);
-// the server meters a voice session row from it.
-type LiveMetricEvent = 'connect' | 'turn' | 'tool' | 'error' | 'end';
+// Latency + lifecycle telemetry contract shared with Hermes POST /api/coach/metrics.
+// 'end' is the metering beacon fired on disconnect (carries session_ms; the server
+// meters a voice session row from it); 'session_end' is the event-log lifecycle
+// beacon (carries end_reason). Phase 2 also adds reconnect / tool_timeout /
+// barge_in for full voice-path instrumentation in coach_events.
+type LiveMetricEvent =
+  | 'connect'
+  | 'reconnect'
+  | 'turn'
+  | 'tool'
+  | 'tool_timeout'
+  | 'barge_in'
+  | 'error'
+  | 'drop'
+  | 'end'
+  | 'session_end';
+/** Why a voice session ended, carried on the 'session_end' beacon. */
+type SessionEndReason = 'user_stop' | 'quota_exhausted' | 'error' | 'drop';
 interface LiveMetricRecord {
   sessionId?: string;
   turn: number;
   event: LiveMetricEvent;
+  /** Per-utterance correlation id (client-generated UUID), on every beacon. */
+  turn_id?: string;
   ttfa_ms?: number;
   connect_ms?: number;
   token_ms?: number;
   tool_name?: string;
   tool_ms?: number;
   prompt_bytes?: number;
-  /** Whole-session duration in ms, sent on the 'end' beacon. */
+  /** Whole-session duration in ms, sent on the 'end'/'session_end' beacons. */
   session_ms?: number;
   /** Actual failure detail (DOMException name+message, or String(err)) for 'error' events. */
   error?: string;
+  /** Tool-call outcome + failure code on 'tool'/'tool_timeout' beacons. */
+  ok?: boolean;
+  error_code?: string;
+  /** End reason on the 'session_end' beacon. */
+  end_reason?: SessionEndReason;
   ts: number;
+}
+
+// Per-utterance correlation id. Prefers crypto.randomUUID (present in all voice-
+// capable browsers + the test env); falls back to a random token so telemetry
+// never throws where it's unavailable.
+function genTurnId(): string {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    /* fall through */
+  }
+  return `t_${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 }
 
 // Human/telemetry-readable failure text. Preserves the DOMException name (e.g.
@@ -187,6 +228,10 @@ export default function useGeminiLive(
   // ── Latency instrumentation ────────────────────────────────────────────────
   // Turn counter for per-turn TTFA records.
   const turnRef = useRef(0);
+  // Client-generated correlation id for the current utterance/turn. Set lazily
+  // when a turn begins (user speech / a tool call) and cleared at turn end, so a
+  // fresh turn gets a fresh id. Stamped on every beacon + the transcript rows.
+  const turnIdRef = useRef<string | null>(null);
   // performance.now() of the user's most recent spoken (above-threshold) mic
   // frame — approximates VAD end, the start of the time-to-first-audio window.
   const lastUserSpeechAtRef = useRef<number | null>(null);
@@ -221,12 +266,20 @@ export default function useGeminiLive(
   // monthly quota is exhausted mid-call.
   const endForQuotaRef = useRef<() => void>(() => {});
 
+  // Return the current turn's correlation id, minting one if a turn is in flight
+  // without a user-speech frame yet (e.g. a model-initiated tool call).
+  const ensureTurnId = useCallback((): string => {
+    if (!turnIdRef.current) turnIdRef.current = genTurnId();
+    return turnIdRef.current;
+  }, []);
+
   const reportMetric = useCallback(
     (partial: Partial<LiveMetricRecord> & { event: LiveMetricEvent }) => {
       const record: LiveMetricRecord = {
         sessionId: optionsRef.current.getSessionId?.() ?? undefined,
         turn: partial.turn ?? turnRef.current,
         event: partial.event,
+        turn_id: partial.turn_id ?? turnIdRef.current ?? undefined,
         ttfa_ms: partial.ttfa_ms,
         connect_ms: partial.connect_ms,
         token_ms: partial.token_ms,
@@ -235,6 +288,9 @@ export default function useGeminiLive(
         prompt_bytes: partial.prompt_bytes,
         session_ms: partial.session_ms,
         error: partial.error,
+        ok: partial.ok,
+        error_code: partial.error_code,
+        end_reason: partial.end_reason,
         ts: Date.now(),
       };
       try {
@@ -305,6 +361,27 @@ export default function useGeminiLive(
     }
   }, [postHeartbeat]);
 
+  // End-of-session telemetry: flush the residual metered seconds, then emit the
+  // metering 'end' beacon (unchanged) and the 'session_end' lifecycle beacon
+  // (with the end reason). Guarded on sessionStartRef so it fires exactly once
+  // per session — it nulls sessionStartRef, so a later call is a no-op.
+  const emitSessionEnd = useCallback(
+    (reason: SessionEndReason) => {
+      if (sessionStartRef.current === null) return;
+      const elapsedMs = performance.now() - sessionStartRef.current;
+      const residual = Math.floor(elapsedMs / 1000) - bookedSecondsRef.current;
+      if (residual > 0) {
+        postHeartbeat(residual);
+        bookedSecondsRef.current += residual;
+      }
+      const session_ms = Math.round(elapsedMs);
+      reportMetric({ event: 'end', session_ms });
+      reportMetric({ event: 'session_end', session_ms, end_reason: reason });
+      sessionStartRef.current = null;
+    },
+    [postHeartbeat, reportMetric],
+  );
+
   // Detect capability once mounted (SSR-safe).
   useEffect(() => {
     const supported =
@@ -332,8 +409,10 @@ export default function useGeminiLive(
   // Barge-in: flush playback and hand the floor back to the user.
   const flushPlayback = useCallback(() => {
     stopSources();
-    // The interrupted turn is over — arm TTFA measurement for the next one.
+    // The interrupted turn is over — arm TTFA measurement for the next one and
+    // clear the turn id so the next utterance correlates under a fresh id.
     firstAudioPendingRef.current = true;
+    turnIdRef.current = null;
     if (statusRef.current === 'speaking') {
       setStatus('listening');
     }
@@ -449,6 +528,7 @@ export default function useGeminiLive(
           reportMetric({
             event: 'turn',
             turn: turnRef.current,
+            turn_id: ensureTurnId(),
             ttfa_ms: Math.round(performance.now() - startedAt),
           });
         }
@@ -476,13 +556,15 @@ export default function useGeminiLive(
       src.onended = () => {
         playSourcesRef.current.delete(src);
         if (playSourcesRef.current.size === 0 && statusRef.current === 'speaking') {
-          // Model finished this turn — arm TTFA measurement for the next one.
+          // Model finished this turn — arm TTFA measurement for the next one and
+          // clear the turn id so the next utterance gets a fresh one.
           firstAudioPendingRef.current = true;
+          turnIdRef.current = null;
           setStatus('listening');
         }
       };
     },
-    [setStatus, reportMetric],
+    [setStatus, reportMetric, ensureTurnId],
   );
 
   // Cancel in-flight tool fetches the model no longer wants a response for.
@@ -517,11 +599,17 @@ export default function useGeminiLive(
       calls.map(async (fc) => {
         const controller = new AbortController();
         if (fc.id) toolAbortRef.current.set(fc.id, controller);
+        // Correlate this tool call with the current turn's events.
+        const toolTurnId = ensureTurnId();
         const toolStart = performance.now();
         let aborted = false;
         // Bound the tool at 10s. A timeout aborts the same controller, so we flag
         // it to tell a slow-tool timeout apart from a model-initiated cancel.
         let timedOut = false;
+        // Tool-call outcome, recorded on the 'tool' beacon (success/failure was
+        // previously never captured). error_code distinguishes proxy vs network.
+        let toolOk = true;
+        let toolErrorCode: string | undefined;
         const timeout = setTimeout(() => {
           timedOut = true;
           try {
@@ -544,6 +632,10 @@ export default function useGeminiLive(
           });
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
+            // Proxy/rate-limit rejection — the tool did NOT execute server-side,
+            // so this outcome is captured only via the beacon.
+            toolOk = false;
+            toolErrorCode = `http_${res.status}`;
             return {
               id: fc.id,
               name: fc.name,
@@ -569,6 +661,8 @@ export default function useGeminiLive(
             // Timed out — still answer, with an error, so the model can say out
             // loud it couldn't check instead of stalling the turn silently.
             if (timedOut) {
+              toolOk = false;
+              toolErrorCode = 'timeout';
               return {
                 id: fc.id,
                 name: fc.name,
@@ -583,19 +677,38 @@ export default function useGeminiLive(
             aborted = true;
             return null;
           }
+          toolOk = false;
+          toolErrorCode = 'network';
           const message = err instanceof Error ? err.message : 'tool call failed';
           return { id: fc.id, name: fc.name, response: { error: message } };
         } finally {
           clearTimeout(timeout);
           if (fc.id) toolAbortRef.current.delete(fc.id);
-          // Per-call tool latency: functionCall received → response ready.
-          // Skip cancelled calls (no response is sent for them).
+          // Per-call tool telemetry: functionCall received → response ready.
+          // Skip cancelled calls (no response is sent for them). A timeout gets a
+          // dedicated 'tool_timeout' beacon; every other outcome (success or a
+          // client-observed failure) rides the 'tool' beacon with ok/error_code.
           if (!aborted) {
-            reportMetric({
-              event: 'tool',
-              tool_name: fc.name ?? undefined,
-              tool_ms: Math.round(performance.now() - toolStart),
-            });
+            const tool_ms = Math.round(performance.now() - toolStart);
+            if (timedOut) {
+              reportMetric({
+                event: 'tool_timeout',
+                tool_name: fc.name ?? undefined,
+                turn_id: toolTurnId,
+                tool_ms,
+                ok: false,
+                error_code: 'timeout',
+              });
+            } else {
+              reportMetric({
+                event: 'tool',
+                tool_name: fc.name ?? undefined,
+                turn_id: toolTurnId,
+                tool_ms,
+                ok: toolOk,
+                error_code: toolErrorCode,
+              });
+            }
           }
         }
       }),
@@ -610,7 +723,7 @@ export default function useGeminiLive(
     } catch {
       /* session may be closing */
     }
-  }, [reportMetric]);
+  }, [reportMetric, ensureTurnId]);
 
   const handleMessage = useCallback(
     (msg: LiveServerMessage) => {
@@ -631,10 +744,13 @@ export default function useGeminiLive(
       if (!sc) return;
 
       if (sc.inputTranscription?.text) {
+        // A user utterance starts a turn; mint the id now so the transcript row
+        // and the turn's events (tool_call, turn_end) share one turn_id.
         optionsRef.current.onTranscript?.({
           role: 'user',
           text: sc.inputTranscription.text,
           final: !!sc.inputTranscription.finished,
+          turnId: ensureTurnId(),
         });
       }
       if (sc.outputTranscription?.text) {
@@ -642,6 +758,7 @@ export default function useGeminiLive(
           role: 'model',
           text: sc.outputTranscription.text,
           final: !!sc.outputTranscription.finished,
+          turnId: turnIdRef.current ?? undefined,
         });
       }
 
@@ -659,7 +776,7 @@ export default function useGeminiLive(
         }
       }
     },
-    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation],
+    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId],
   );
 
   const fail = useCallback(
@@ -672,8 +789,11 @@ export default function useGeminiLive(
       // Carry the real failure detail into telemetry so the 'error' event is
       // diagnosable (previously it reported an empty error).
       reportMetric({ event: 'error', error: msg });
+      // Close out the session lifecycle. A terminal drop calls emitSessionEnd
+      // with 'drop' first (so this no-ops); other failures land as 'error'.
+      emitSessionEnd('error');
     },
-    [cleanup, setStatus, reportMetric],
+    [cleanup, setStatus, reportMetric, emitSessionEnd],
   );
 
   // Acquire the mic and BOTH AudioContexts. This is the gesture-critical step:
@@ -742,10 +862,19 @@ export default function useGeminiLive(
         // approximation). The mic streams continuously, so gate on speech energy.
         if (data.rms > SPEECH_RMS) {
           lastUserSpeechAtRef.current = performance.now();
+          // A new utterance begins the moment the model isn't speaking — mint the
+          // turn id here so tool calls fired before any audio share it.
+          if (firstAudioPendingRef.current) ensureTurnId();
         }
 
-        // Local barge-in: user speaks over the coach.
+        // Local barge-in: user speaks over the coach. Record it (with the turn it
+        // interrupted) BEFORE flushPlayback clears the turn id.
         if (data.rms > BARGE_IN_RMS && statusRef.current === 'speaking') {
+          reportMetric({
+            event: 'barge_in',
+            turn_id: turnIdRef.current ?? undefined,
+            turn: turnRef.current,
+          });
           flushPlayback();
         }
 
@@ -764,7 +893,7 @@ export default function useGeminiLive(
       source.connect(node);
       node.connect(ctx.destination);
     },
-    [flushPlayback],
+    [flushPlayback, reportMetric, ensureTurnId],
   );
 
   // Lets the connection callbacks reach the drop handler without a dependency
@@ -874,9 +1003,10 @@ export default function useGeminiLive(
       }
 
       // Record connect-phase latency (token mint + WebSocket setup). Off the
-      // hot path — a fresh turn's TTFA is measured separately.
+      // hot path — a fresh turn's TTFA is measured separately. A resume handle
+      // means this is a mid-session auto-reconnect, logged distinctly.
       reportMetric({
-        event: 'connect',
+        event: resumeHandle ? 'reconnect' : 'connect',
         token_ms: tokenMs,
         connect_ms: connectMs,
         prompt_bytes: typeof promptBytes === 'number' ? promptBytes : undefined,
@@ -961,10 +1091,12 @@ export default function useGeminiLive(
       // No handle (or reconnect already used): terminal. Deliberate stops and
       // already-surfaced errors returned at the top, so reaching here means an
       // unexpected drop we can't recover — surface it instead of going silently
-      // idle, so the UI can prompt the user to restart.
+      // idle, so the UI can prompt the user to restart. Mark the lifecycle end
+      // as a 'drop' before fail() (whose emitSessionEnd('error') then no-ops).
+      emitSessionEnd('drop');
       fail(errMsg ?? 'Live coach disconnected. Please restart to continue.');
     },
-    [cleanup, fail, setStatus, openConnection],
+    [cleanup, fail, setStatus, openConnection, emitSessionEnd],
   );
   handleDropRef.current = handleDrop;
 
@@ -1019,33 +1151,32 @@ export default function useGeminiLive(
     }
   }, [setStatus, openConnection, fail]);
 
-  const disconnect = useCallback(() => {
-    userStoppedRef.current = true;
-    // Session-end metering beacon: report the whole session's duration so the
-    // server can record a voice session row. Only when a session actually opened.
-    if (sessionStartRef.current !== null) {
-      const elapsedMs = performance.now() - sessionStartRef.current;
-      // Final minutes flush: book the residual seconds not yet reported by a
-      // heartbeat, so the ledger reflects the whole session on disconnect.
-      const residual = Math.floor(elapsedMs / 1000) - bookedSecondsRef.current;
-      if (residual > 0) {
-        postHeartbeat(residual);
-        bookedSecondsRef.current += residual;
-      }
-      reportMetric({ event: 'end', session_ms: Math.round(elapsedMs) });
-      sessionStartRef.current = null;
-    }
-    cleanup();
-    setIsActive(false);
-    setRemainingSeconds(null);
-    setStatus('idle');
-  }, [cleanup, setStatus, reportMetric, postHeartbeat]);
+  const disconnect = useCallback(
+    (reason: SessionEndReason = 'user_stop') => {
+      userStoppedRef.current = true;
+      // Guard: a caller wiring disconnect straight to onClick would pass an event
+      // here — coerce anything but a known reason back to 'user_stop'.
+      const endReason: SessionEndReason =
+        reason === 'quota_exhausted' || reason === 'error' || reason === 'drop'
+          ? reason
+          : 'user_stop';
+      // Session-end telemetry (metering 'end' + lifecycle 'session_end'). No-op
+      // when no session actually opened.
+      emitSessionEnd(endReason);
+      cleanup();
+      setIsActive(false);
+      setRemainingSeconds(null);
+      setStatus('idle');
+    },
+    [cleanup, setStatus, emitSessionEnd],
+  );
 
   // Gracefully end a session because the monthly voice quota ran out. Notify the
-  // caller (for the "minutes used up" message) then tear down like a normal stop.
+  // caller (for the "minutes used up" message) then tear down like a normal stop,
+  // tagging the lifecycle end reason as quota exhaustion.
   endForQuotaRef.current = () => {
     optionsRef.current.onQuotaExhausted?.();
-    disconnect();
+    disconnect('quota_exhausted');
   };
 
   // Push the current board position into the open session mid-conversation.
