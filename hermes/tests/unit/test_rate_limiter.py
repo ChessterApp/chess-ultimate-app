@@ -110,9 +110,11 @@ class TestSlidingWindowRateLimiter:
         assert info3["remaining"] == 0
 
     def test_default_tier_limits(self):
-        assert TIER_LIMITS["free"] == 5
-        assert TIER_LIMITS["premium"] == 30
-        assert TIER_LIMITS["pro"] == 100
+        # Text chat is unlimited by product decision (2026-09-08); these are the
+        # raised abuse-guard ceilings, not a monthly quota.
+        assert TIER_LIMITS["free"] == 30
+        assert TIER_LIMITS["premium"] == 60
+        assert TIER_LIMITS["pro"] == 120
         assert DEFAULT_TIER == "free"
 
 

@@ -50,6 +50,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolActive, setToolActive] = useState<string | null>(null);
+  // Set when the monthly voice quota is exhausted, so we show the "minutes used
+  // up — text is unlimited" message in place of a connection error.
+  const [voiceQuotaExhausted, setVoiceQuotaExhausted] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -164,6 +167,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     [onBoardActions]
   );
 
+  const handleVoiceQuotaExhausted = useCallback(() => {
+    setVoiceQuotaExhausted(true);
+  }, []);
+
   const {
     status: voiceStatus,
     isSupported: voiceSupported,
@@ -173,11 +180,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     connect: voiceConnect,
     disconnect: voiceDisconnect,
     sendBoardUpdate: voiceSendBoardUpdate,
+    remainingSeconds: voiceRemainingSeconds,
   } = useGeminiLive({
     getFen,
     getSessionId,
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
+    onQuotaExhausted: handleVoiceQuotaExhausted,
   });
 
   // While voice mode is live, push every board change into the session so the
@@ -226,6 +235,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       voiceDisconnect();
       return;
     }
+    // Fresh attempt — clear any prior "minutes used up" banner.
+    setVoiceQuotaExhausted(false);
     // Grab the mic FIRST, inside this tap handler, before any network await.
     // On mobile Safari the user-activation window closes after a network round
     // trip, so acquiring the mic after ensureVoiceSession()/token fetch would
@@ -561,6 +572,34 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               className="px-3 py-1 rounded-full text-xs bg-red-500/10 text-red-300 text-center"
             >
               {(voiceError || t('voiceError')) + ' · ' + t('voiceRetryHint')}
+            </span>
+          </div>
+        )}
+        {/* Monthly voice minutes ran out — text chat stays unlimited. */}
+        {voiceQuotaExhausted && (
+          <div className="mb-2 flex justify-center">
+            <span
+              data-testid="voice-quota-pill"
+              className="px-3 py-1 rounded-full text-xs bg-amber-500/10 text-amber-300 text-center"
+            >
+              {t('voiceQuotaExhausted')}
+            </span>
+          </div>
+        )}
+        {/* Remaining voice minutes near the toggle; warns at ≤5 min left. */}
+        {voiceActive && voiceRemainingSeconds !== null && (
+          <div className="mb-2 flex justify-center">
+            <span
+              data-testid="voice-minutes-left"
+              className={`px-3 py-1 rounded-full text-xs ${
+                voiceRemainingSeconds <= 5 * 60
+                  ? 'bg-amber-500/10 text-amber-300'
+                  : 'bg-white/5 text-gray-300'
+              }`}
+            >
+              {t('voiceMinutesLeft', {
+                minutes: Math.ceil(voiceRemainingSeconds / 60),
+              })}
             </span>
           </div>
         )}

@@ -733,4 +733,139 @@ describe('useGeminiLive', () => {
     expect(captureCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
     expect(result.current.status).toBe('listening');
   });
+
+  // ── Voice minutes metering + quota (Task 4) ──────────────────────────────────
+
+  const tokenWithRemaining = (remainingSeconds: number | null) =>
+    vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/live-token')) {
+        return {
+          ok: true,
+          json: async () => ({
+            token: 'auth_tokens/abc',
+            model: 'gemini-3.1-flash-live-preview',
+            remainingSeconds,
+          }),
+        };
+      }
+      // The voice-usage heartbeat proxy.
+      return { ok: true, json: async () => ({ ok: true }) };
+    });
+
+  it('seeds remainingSeconds from the mint response and books a heartbeat every 60s', async () => {
+    vi.useFakeTimers();
+    let t = 0;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => t);
+    const fetchMock = tokenWithRemaining(1800);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1' }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+    expect(result.current.remainingSeconds).toBe(1800);
+
+    // 65s of session elapsed, then the 60s heartbeat interval fires.
+    t = 65000;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+
+    const hb = fetchMock.mock.calls.find((c: any[]) =>
+      String(c[0]).includes('/api/coach/voice-usage'),
+    );
+    expect(hb).toBeTruthy();
+    const body = JSON.parse((hb as any[])[1].body);
+    expect(body.session_id).toBe('s1');
+    expect(body.seconds_delta).toBe(65);
+    expect(result.current.remainingSeconds).toBe(1800 - 65);
+
+    nowSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('ends the session and fires onQuotaExhausted when the local countdown hits zero', async () => {
+    vi.useFakeTimers();
+    let t = 0;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => t);
+    const onQuotaExhausted = vi.fn();
+    const fetchMock = tokenWithRemaining(30);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1', onQuotaExhausted }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+    expect(result.current.isActive).toBe(true);
+
+    // 40s elapsed > 30s remaining → exhausted on the next tick.
+    t = 40000;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+
+    expect(onQuotaExhausted).toHaveBeenCalledTimes(1);
+    expect(result.current.isActive).toBe(false);
+    expect(result.current.status).toBe('idle');
+
+    nowSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('surfaces quota exhaustion (not a connection error) when the mint returns 429', async () => {
+    const onQuotaExhausted = vi.fn();
+    const onError = vi.fn();
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 429,
+      json: async () => ({ error: 'voice_quota_exhausted', remainingSeconds: 0 }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1', onQuotaExhausted, onError }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    expect(onQuotaExhausted).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+    expect(result.current.isActive).toBe(false);
+    expect(result.current.status).toBe('idle');
+  });
+
+  it('flushes the residual seconds on disconnect', async () => {
+    vi.useFakeTimers();
+    let t = 0;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => t);
+    const fetchMock = tokenWithRemaining(1800);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { result } = renderHook(() =>
+      useGeminiLive({ getSessionId: () => 's1' }),
+    );
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    // Disconnect after 25s with no heartbeat tick yet — the residual is flushed.
+    t = 25000;
+    act(() => {
+      result.current.disconnect();
+    });
+
+    const hb = fetchMock.mock.calls.find((c: any[]) =>
+      String(c[0]).includes('/api/coach/voice-usage'),
+    );
+    expect(hb).toBeTruthy();
+    expect(JSON.parse((hb as any[])[1].body).seconds_delta).toBe(25);
+
+    nowSpy.mockRestore();
+    vi.useRealTimers();
+  });
 });

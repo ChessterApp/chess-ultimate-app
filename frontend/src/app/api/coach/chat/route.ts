@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 
+import { resolveUserTier } from '@/lib/subscription-tier';
+
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
 /**
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
   }
 
   const locale = request.cookies.get('NEXT_LOCALE')?.value || 'ru';
+  const tier = await resolveUserTier(userId);
 
   const encoder = new TextEncoder();
 
@@ -49,6 +52,7 @@ export async function POST(request: NextRequest) {
           headers: {
             'Content-Type': 'application/json',
             'X-User-Id': userId,
+            'x-subscription-tier': tier,
           },
           body: JSON.stringify({
             message: body.message,

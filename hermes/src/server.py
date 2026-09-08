@@ -40,6 +40,7 @@ from src.middleware.rate_limiter import (  # noqa: E402
     rate_limiter,
     voice_token_rate_limiter,
     get_user_tier,
+    DEFAULT_TIER,
 )
 from src.middleware.circuit_breaker import stockfish_circuit, supabase_circuit
 from src.model_router import route_model
@@ -57,6 +58,7 @@ from src.billing import (
     handle_webhook_event,
 )
 from src.voice_metrics import MAX_BODY_BYTES, record_metric, sanitize_metric
+from src.voice_quota import voice_quota_ledger
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -698,6 +700,12 @@ class VoicePromptRequest(BaseModel):
     tools_available: bool = True
 
 
+class VoiceHeartbeatRequest(BaseModel):
+    user_id: str
+    session_id: str
+    seconds_delta: int = 0
+
+
 # Short-lived cache for the voice profile fetch (the one Supabase round-trip in
 # the mint path). Keyed by user, TTL'd so a burst of mints doesn't re-fetch the
 # same profile. The prompt itself is rebuilt every call (cheap, in-memory) and
@@ -1257,6 +1265,40 @@ async def coach_metrics(request: Request):
             )
 
     return Response(status_code=204)
+
+
+# ── Voice minutes quota ledger ─────────────────────────────────────────
+# Internal routes (called only by the Next.js coach proxies, which resolve the
+# user server-side). Voice Mode is metered by minutes per calendar month; text
+# chat is unlimited. Auth mirrors the rest of Hermes: the shared API key when
+# one is configured (no-op otherwise), plus a required user identity.
+
+
+@app.post("/internal/voice/heartbeat")
+async def voice_heartbeat(body: VoiceHeartbeatRequest, request: Request):
+    """Accumulate a live session's spoken seconds into the voice ledger.
+
+    Idempotent-ish: a single heartbeat delta is capped at 120s server-side so a
+    replayed/bad beacon can't inflate usage. Never raises on a storage failure —
+    the ledger falls back to its in-memory store and logs a warning.
+    """
+    _verify_api_key(request)
+    voice_quota_ledger.record_heartbeat(
+        body.user_id, body.session_id, body.seconds_delta
+    )
+    return {"ok": True}
+
+
+@app.get("/internal/voice/quota")
+async def voice_quota(request: Request, user_id: str, tier: str = DEFAULT_TIER):
+    """Return the user's monthly voice quota state for ``tier``.
+
+    ``{limit_seconds, used_seconds, remaining_seconds, month_key, unlimited}``.
+    ``limit_seconds``/``remaining_seconds`` are ``None`` when the tier is
+    unlimited. Reads degrade to the in-memory fallback on a Supabase error.
+    """
+    _verify_api_key(request)
+    return voice_quota_ledger.get_quota(user_id, tier)
 
 
 # ── Analytics endpoint ─────────────────────────────────────────────────

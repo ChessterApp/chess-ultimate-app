@@ -1,6 +1,8 @@
 import { auth } from '@clerk/nextjs/server';
 import { GoogleGenAI, Modality } from '@google/genai';
 
+import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
+
 // Region pin is load-bearing: Gemini mint calls are geo-blocked outside iad1.
 export const runtime = 'nodejs';
 export const preferredRegion = 'iad1';
@@ -100,12 +102,21 @@ type VoiceContext =
  */
 async function fetchVoiceContext(
   userId: string,
-  opts: { fen?: string; locale?: string; toolsAvailable: boolean },
+  opts: {
+    fen?: string;
+    locale?: string;
+    toolsAvailable: boolean;
+    tier: SubscriptionTier;
+  },
 ): Promise<VoiceContext | null> {
   try {
     const res = await fetch(`${HERMES_URL}/api/coach/voice/prompt`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-User-Id': userId },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+        'x-subscription-tier': opts.tier,
+      },
       body: JSON.stringify({
         fen: opts.fen,
         locale: opts.locale,
@@ -137,6 +148,56 @@ async function fetchVoiceContext(
     console.warn('[live-token] voice/prompt fetch failed:', err);
     return null;
   }
+}
+
+interface VoiceQuota {
+  remainingSeconds: number | null; // null = unlimited tier
+  limitSeconds: number | null;
+  unlimited: boolean;
+}
+
+/**
+ * Fetch the caller's monthly voice-minutes quota from Hermes. Returns `null` on
+ * any failure/timeout so the mint path FAILS OPEN — an outage in the quota
+ * lookup must never lock a user out of voice.
+ */
+async function fetchVoiceQuota(
+  userId: string,
+  tier: SubscriptionTier,
+): Promise<VoiceQuota | null> {
+  try {
+    const url = new URL(`${HERMES_URL}/internal/voice/quota`);
+    url.searchParams.set('user_id', userId);
+    url.searchParams.set('tier', tier);
+    const res = await fetch(url, {
+      headers: { 'X-User-Id': userId, 'x-subscription-tier': tier },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      console.warn('[live-token] voice quota returned', res.status);
+      return null;
+    }
+    const data = await res.json();
+    return {
+      remainingSeconds:
+        typeof data?.remaining_seconds === 'number'
+          ? data.remaining_seconds
+          : null,
+      limitSeconds:
+        typeof data?.limit_seconds === 'number' ? data.limit_seconds : null,
+      unlimited: !!data?.unlimited,
+    };
+  } catch (err) {
+    console.warn('[live-token] voice quota fetch failed:', err);
+    return null;
+  }
+}
+
+/** First instant of next month, UTC, ISO string — when the monthly quota resets. */
+function nextMonthResetAt(now = new Date()): string {
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0),
+  ).toISOString();
 }
 
 /**
@@ -267,16 +328,41 @@ export async function POST(request: Request) {
       ? body.session_id
       : null;
 
+  // Resolve the caller's tier server-side (shared helper) so every Hermes call
+  // below carries the same x-subscription-tier and the quota check uses it.
+  const tier = await resolveUserTier(userId);
+
   // Fetch the single-source spoken prompt (+ enforce the mint rate limit), the
-  // conversation recap, and the tool declarations from Hermes in parallel — all
-  // independent 5s-timeout calls, so running them concurrently keeps mint latency
-  // flat. Each degrades gracefully: a Hermes outage yields the hardcoded prompt /
-  // no recap / no tools but still mints the session.
-  const [voiceContext, recapMessages, rawTools] = await Promise.all([
-    fetchVoiceContext(userId, { fen, locale, toolsAvailable: true }),
+  // conversation recap, the tool declarations, and the voice-minutes quota from
+  // Hermes in parallel — all independent 5s-timeout calls, so running them
+  // concurrently keeps mint latency flat. Each degrades gracefully: a Hermes
+  // outage yields the hardcoded prompt / no recap / no tools / fail-open quota
+  // but still mints the session.
+  const [voiceContext, recapMessages, rawTools, quota] = await Promise.all([
+    fetchVoiceContext(userId, { fen, locale, toolsAvailable: true, tier }),
     sessionId ? fetchRecapMessages(sessionId, userId) : Promise.resolve([]),
     fetchToolDeclarations(),
+    fetchVoiceQuota(userId, tier),
   ]);
+
+  // Voice minutes exhausted → refuse to mint. quota === null means the lookup
+  // failed; fail open (mint anyway) so an outage never locks users out.
+  if (
+    quota &&
+    !quota.unlimited &&
+    quota.remainingSeconds !== null &&
+    quota.remainingSeconds <= 0
+  ) {
+    return jsonResponse(
+      {
+        error: 'voice_quota_exhausted',
+        remainingSeconds: 0,
+        limitSeconds: quota.limitSeconds,
+        resetAt: nextMonthResetAt(),
+      },
+      429,
+    );
+  }
 
   // Rate limited by Hermes → refuse to mint so sessions can't spawn unboundedly.
   if (voiceContext && voiceContext.ok === false) {
@@ -353,6 +439,10 @@ export async function POST(request: Request) {
         expiresAt: expireTime,
         // Byte size of the assembled system prompt, for client latency telemetry.
         promptBytes: Buffer.byteLength(systemInstruction, 'utf8'),
+        // Voice minutes left this month so the UI can display / count down from
+        // it. null when the tier is unlimited or the quota lookup failed open.
+        remainingSeconds: quota ? quota.remainingSeconds : null,
+        limitSeconds: quota ? quota.limitSeconds : null,
       },
       200,
     );

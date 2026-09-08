@@ -40,6 +40,7 @@ function makeReturn(overrides: Partial<UseGeminiLiveReturn> = {}): UseGeminiLive
     connect: vi.fn(async () => {}),
     disconnect: vi.fn(),
     sendBoardUpdate: vi.fn(),
+    remainingSeconds: null,
     ...overrides,
   };
 }
@@ -101,6 +102,42 @@ describe('CoachChat voice mode', () => {
     renderChat();
     fireEvent.click(screen.getByTestId('voice-toggle'));
     expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows remaining voice minutes while active', () => {
+    // 1600s → ceil(1600/60) = 27 min left.
+    live.ret = makeReturn({ status: 'listening', isActive: true, remainingSeconds: 1600 });
+    renderChat();
+    const label = screen.getByTestId('voice-minutes-left');
+    expect(label.textContent).toContain('27 min left');
+    // Above the 5-min threshold → not the warning styling.
+    expect(label.className).not.toContain('amber');
+  });
+
+  it('warns (amber) when ≤5 minutes remain', () => {
+    live.ret = makeReturn({ status: 'listening', isActive: true, remainingSeconds: 180 });
+    renderChat();
+    const label = screen.getByTestId('voice-minutes-left');
+    expect(label.textContent).toContain('3 min left');
+    expect(label.className).toContain('amber');
+  });
+
+  it('does not show the minutes label when remaining is unknown (null)', () => {
+    live.ret = makeReturn({ status: 'listening', isActive: true, remainingSeconds: null });
+    renderChat();
+    expect(screen.queryByTestId('voice-minutes-left')).toBeNull();
+  });
+
+  it('shows the "minutes used up" banner after the quota is exhausted', () => {
+    live.ret = makeReturn({ status: 'idle', isActive: false });
+    renderChat();
+    expect(screen.queryByTestId('voice-quota-pill')).toBeNull();
+    // The hook fires onQuotaExhausted when minutes run out.
+    act(() => {
+      (live.options as { onQuotaExhausted?: () => void })?.onQuotaExhausted?.();
+    });
+    const banner = screen.getByTestId('voice-quota-pill');
+    expect(banner.textContent).toContain('text chat is unlimited');
   });
 
   it('shows the listening pill when status is listening', () => {

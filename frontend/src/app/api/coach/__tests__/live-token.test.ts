@@ -438,7 +438,7 @@ describe('POST /api/coach/live-token', () => {
 
   // ── Parallelized Hermes fetches ─────────────────────────────────────────────
 
-  it('fetches the voice prompt, recap and tools concurrently (not serialized)', async () => {
+  it('fetches the voice prompt, recap, tools and quota concurrently (not serialized)', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
     createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
@@ -459,8 +459,8 @@ describe('POST /api/coach/live-token', () => {
     const { POST } = await import('../live-token/route');
     await POST(makeRequest({ session_id: 'sess_1' }));
 
-    // All three Hermes calls (voice/prompt, recap, tools) overlapped.
-    expect(maxInFlight).toBe(3);
+    // All four Hermes calls (voice/prompt, recap, tools, quota) overlapped.
+    expect(maxInFlight).toBe(4);
   });
 
   // ── Single-source prompt + mint rate limit (Tasks 2/3 & 1) ──────────────────
@@ -537,5 +537,141 @@ describe('POST /api/coach/live-token', () => {
     expect(response.status).toBe(200);
     // Hardcoded fallback persona is used (voice must never break).
     expect(systemInstructionFromMint()).toContain("Chesster's chess coach");
+  });
+
+  // ── Voice minutes quota enforcement (Task 3) ────────────────────────────────
+
+  const mockFetchWithQuota = (quota: Record<string, unknown> | { throw: true }) => {
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/internal/voice/quota')) {
+        if ('throw' in quota) throw new Error('quota lookup down');
+        return { ok: true, status: 200, json: async () => quota };
+      }
+      if (String(url).includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: [] }) };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+  };
+
+  it('returns 429 voice_quota_exhausted (no mint) when minutes are used up', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    mockFetchWithQuota({
+      limit_seconds: 1800,
+      used_seconds: 1800,
+      remaining_seconds: 0,
+      month_key: '2026-09',
+      unlimited: false,
+    });
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(429);
+    const data = await response.json();
+    expect(data.error).toBe('voice_quota_exhausted');
+    expect(data.remainingSeconds).toBe(0);
+    expect(data.limitSeconds).toBe(1800);
+    expect(typeof data.resetAt).toBe('string');
+    // First of next month, UTC.
+    expect(data.resetAt.endsWith('T00:00:00.000Z')).toBe(true);
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('mints and returns remainingSeconds when minutes remain', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    mockFetchWithQuota({
+      limit_seconds: 1800,
+      used_seconds: 180,
+      remaining_seconds: 1620,
+      month_key: '2026-09',
+      unlimited: false,
+    });
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.token).toBe('ephemeral-token-xyz');
+    expect(data.remainingSeconds).toBe(1620);
+    expect(data.limitSeconds).toBe(1800);
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('mints (fail-open) when the quota lookup itself fails', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFetchWithQuota({ throw: true });
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.token).toBe('ephemeral-token-xyz');
+    // Unknown quota → remainingSeconds null, session still minted.
+    expect(data.remainingSeconds).toBeNull();
+    expect(createMock).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
+  it('mints without enforcement for an unlimited tier', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    mockFetchWithQuota({
+      limit_seconds: null,
+      used_seconds: 99999,
+      remaining_seconds: null,
+      month_key: '2026-09',
+      unlimited: true,
+    });
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.remainingSeconds).toBeNull();
+    expect(createMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the resolved x-subscription-tier header to the quota + prompt calls', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (String(url).includes('/internal/voice/quota')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            limit_seconds: 1800,
+            used_seconds: 0,
+            remaining_seconds: 1800,
+            month_key: '2026-09',
+            unlimited: false,
+          }),
+        };
+      }
+      if (String(url).includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: [] }) };
+      }
+      return { ok: true, status: 200, json: async () => ({ messages: [] }) };
+    });
+    global.fetch = fetchSpy as any;
+
+    const { POST } = await import('../live-token/route');
+    await POST(makeRequest({ fen: 'somefen' }));
+
+    const quotaCall = fetchSpy.mock.calls.find((c: any[]) =>
+      String(c[0]).includes('/internal/voice/quota'),
+    );
+    expect(quotaCall).toBeTruthy();
+    expect(String((quotaCall as any[])[0])).toContain('tier=free');
+    expect((quotaCall as any[])[1].headers['x-subscription-tier']).toBe('free');
   });
 });

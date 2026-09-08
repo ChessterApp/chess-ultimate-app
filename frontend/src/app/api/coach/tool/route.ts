@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 
+import { resolveUserTier } from '@/lib/subscription-tier';
+
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
 // Some tools run Stockfish or hit external APIs — allow a generous timeout.
@@ -28,6 +30,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing tool name' }, { status: 400 });
   }
 
+  const tier = await resolveUserTier(userId);
+
   try {
     const response = await fetch(
       `${HERMES_URL}/api/coach/tool/${encodeURIComponent(body.name)}`,
@@ -36,6 +40,7 @@ export async function POST(request: NextRequest) {
         headers: {
           'Content-Type': 'application/json',
           'X-User-Id': userId,
+          'x-subscription-tier': tier,
         },
         body: JSON.stringify({
           args: body.args ?? {},

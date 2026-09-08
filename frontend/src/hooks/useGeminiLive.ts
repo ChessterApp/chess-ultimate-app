@@ -27,6 +27,12 @@ export interface UseGeminiLiveOptions {
   onStatusChange?: (s: LiveStatus) => void;
   /** Fired after a voice tool call resolves, so the UI can apply board actions / game lists. */
   onToolResult?: (name: string, result: unknown) => void;
+  /**
+   * Fired when the monthly voice-minutes quota runs out — either the mint was
+   * refused (429) or the local countdown reached zero and the session was ended.
+   * The UI shows the "minutes used up" message instead of a connection error.
+   */
+  onQuotaExhausted?: () => void;
 }
 
 export interface UseGeminiLiveReturn {
@@ -39,6 +45,12 @@ export interface UseGeminiLiveReturn {
   connect: () => Promise<void>;
   disconnect: () => void;
   sendBoardUpdate: (fen: string) => void;
+  /**
+   * Voice minutes left this month, counted down locally from the mint response.
+   * `null` when unknown (before connect), unlimited, or the quota lookup failed
+   * open. Updated once per heartbeat tick while a session is live.
+   */
+  remainingSeconds: number | null;
 }
 
 // Gemini Live audio formats (non-negotiable, per spec).
@@ -54,6 +66,9 @@ const TOOL_CALL_TIMEOUT_MS = 10000;
 // After this long on a healthy connection, restore the one-shot reconnect budget
 // so a later, unrelated drop can still auto-recover.
 const HEALTHY_RECONNECT_RESET_MS = 60000;
+// How often to report accumulated voice seconds to the metering ledger and to
+// re-evaluate the local minutes countdown while a session is live.
+const VOICE_HEARTBEAT_INTERVAL_MS = 60000;
 
 // Latency telemetry contract shared with Hermes POST /api/coach/metrics.
 // 'end' is the session-lifecycle beacon fired on disconnect (carries session_ms);
@@ -133,6 +148,8 @@ export default function useGeminiLive(
   const [isSupported, setIsSupported] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Voice minutes left this month (see UseGeminiLiveReturn.remainingSeconds).
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
 
   // Keep the latest options accessible from stable callbacks without re-binding them.
   const optionsRef = useRef<UseGeminiLiveOptions>(options);
@@ -190,6 +207,20 @@ export default function useGeminiLive(
   // compute session_ms for the 'end' metering beacon.
   const sessionStartRef = useRef<number | null>(null);
 
+  // ── Voice minutes metering ─────────────────────────────────────────────────
+  // Remaining seconds at connect time (from the mint response); null = unknown /
+  // unlimited, so no local enforcement. The countdown is derived from this minus
+  // session elapsed time.
+  const quotaInitialRef = useRef<number | null>(null);
+  // Seconds already reported to the metering ledger for this session, so each
+  // heartbeat only sends the newly-elapsed delta (survives reconnects).
+  const bookedSecondsRef = useRef(0);
+  // Periodic heartbeat/countdown timer while a session is live.
+  const heartbeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Set below (after disconnect is defined) to gracefully end a session when the
+  // monthly quota is exhausted mid-call.
+  const endForQuotaRef = useRef<() => void>(() => {});
+
   const reportMetric = useCallback(
     (partial: Partial<LiveMetricRecord> & { event: LiveMetricEvent }) => {
       const record: LiveMetricRecord = {
@@ -223,6 +254,56 @@ export default function useGeminiLive(
     },
     [],
   );
+
+  // Fire-and-forget a metering heartbeat to the voice-usage proxy (which sets
+  // the user server-side and forwards to Hermes). Off the audio hot path: never
+  // awaited, fully wrapped, keepalive so a final flush survives page unload.
+  const postHeartbeat = useCallback((secondsDelta: number) => {
+    if (secondsDelta <= 0) return;
+    const sessionId = optionsRef.current.getSessionId?.() ?? undefined;
+    if (!sessionId) return;
+    try {
+      void fetch('/api/coach/voice-usage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ session_id: sessionId, seconds_delta: secondsDelta }),
+        keepalive: true,
+      }).catch(() => {
+        /* metering is best-effort — swallow */
+      });
+    } catch {
+      /* metering must never break the audio path */
+    }
+  }, []);
+
+  const stopHeartbeat = useCallback(() => {
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
+  }, []);
+
+  // Book the seconds elapsed since the last heartbeat and, when metered, update
+  // the local countdown — ending the session gracefully once it hits zero.
+  const heartbeatTick = useCallback(() => {
+    if (sessionStartRef.current === null) return;
+    const elapsedSec = Math.floor(
+      (performance.now() - sessionStartRef.current) / 1000,
+    );
+    const delta = elapsedSec - bookedSecondsRef.current;
+    if (delta > 0) {
+      postHeartbeat(delta);
+      bookedSecondsRef.current = elapsedSec;
+    }
+    if (quotaInitialRef.current !== null) {
+      const remaining = Math.max(0, quotaInitialRef.current - elapsedSec);
+      setRemainingSeconds(remaining);
+      if (remaining <= 0) {
+        endForQuotaRef.current();
+      }
+    }
+  }, [postHeartbeat]);
 
   // Detect capability once mounted (SSR-safe).
   useEffect(() => {
@@ -266,6 +347,11 @@ export default function useGeminiLive(
     const keepMedia = opts?.keepMedia ?? false;
     // Invalidate the active connection so its late close/error callbacks no-op.
     connGenRef.current += 1;
+    // Stop the metering/countdown timer; a reconnect restarts it in openConnection.
+    if (heartbeatTimerRef.current) {
+      clearInterval(heartbeatTimerRef.current);
+      heartbeatTimerRef.current = null;
+    }
     if (healthyTimerRef.current) {
       clearTimeout(healthyTimerRef.current);
       healthyTimerRef.current = null;
@@ -694,6 +780,10 @@ export default function useGeminiLive(
       // Idempotent: on a reconnect this reuses the live stream/contexts.
       await acquireMedia();
 
+      // First open of this session (vs. a mid-session reconnect) — only then do
+      // we seed the minutes countdown from the mint response.
+      const isFirstOpen = sessionStartRef.current === null;
+
       const fen = optionsRef.current.getFen?.();
       const sessionId = optionsRef.current.getSessionId?.();
       const tokenStart = performance.now();
@@ -708,16 +798,35 @@ export default function useGeminiLive(
         }),
       });
       if (!res.ok) {
+        // Voice minutes exhausted — surface as quota, not a connection error, so
+        // the caller can show the "minutes used up" message.
+        if (res.status === 429) {
+          const detail = await res.json().catch(() => ({}));
+          if ((detail as { error?: string })?.error === 'voice_quota_exhausted') {
+            const quotaErr = new Error('voice_quota_exhausted');
+            (quotaErr as Error & { code?: string }).code = 'voice_quota_exhausted';
+            throw quotaErr;
+          }
+        }
         throw new Error(`Live coach unavailable (${res.status})`);
       }
-      const { token, model, promptBytes } = (await res.json()) as {
-        token?: string;
-        model?: string;
-        promptBytes?: number;
-      };
+      const { token, model, promptBytes, remainingSeconds: mintedRemaining } =
+        (await res.json()) as {
+          token?: string;
+          model?: string;
+          promptBytes?: number;
+          remainingSeconds?: number | null;
+        };
       const tokenMs = Math.round(performance.now() - tokenStart);
       if (!token || !model) {
         throw new Error('Invalid live-token response');
+      }
+
+      // Seed the local minutes countdown from the mint response (first open only;
+      // a reconnect keeps the original countdown anchored to the session start).
+      if (isFirstOpen && typeof mintedRemaining === 'number') {
+        quotaInitialRef.current = mintedRemaining;
+        setRemainingSeconds(mintedRemaining);
       }
 
       const ai = new GoogleGenAI({
@@ -799,8 +908,23 @@ export default function useGeminiLive(
           reconnectUsedRef.current = false;
         }
       }, HEALTHY_RECONNECT_RESET_MS);
+
+      // Start the metering/countdown heartbeat (cleared in cleanup on any drop).
+      stopHeartbeat();
+      heartbeatTimerRef.current = setInterval(
+        heartbeatTick,
+        VOICE_HEARTBEAT_INTERVAL_MS,
+      );
     },
-    [handleMessage, acquireMedia, wireCapture, setStatus, reportMetric],
+    [
+      handleMessage,
+      acquireMedia,
+      wireCapture,
+      setStatus,
+      reportMetric,
+      stopHeartbeat,
+      heartbeatTick,
+    ],
   );
 
   // React to a session drop: reconnect ONCE with the stored handle if the drop
@@ -822,6 +946,13 @@ export default function useGeminiLive(
         cleanup({ keepMedia: true });
         setStatus('connecting');
         openConnection(handle).catch((err) => {
+          if (
+            err instanceof Error &&
+            (err as Error & { code?: string }).code === 'voice_quota_exhausted'
+          ) {
+            endForQuotaRef.current();
+            return;
+          }
           fail(describeError(err, 'Failed to resume live coach'));
         });
         return;
@@ -865,10 +996,23 @@ export default function useGeminiLive(
     turnRef.current = 0;
     lastUserSpeechAtRef.current = null;
     firstAudioPendingRef.current = true;
+    // Reset voice-minutes metering for the new session.
+    quotaInitialRef.current = null;
+    bookedSecondsRef.current = 0;
+    setRemainingSeconds(null);
 
     try {
       await openConnection();
     } catch (err) {
+      // Quota exhausted at mint: end gracefully with the "minutes used up"
+      // message instead of a generic connection error.
+      if (
+        err instanceof Error &&
+        (err as Error & { code?: string }).code === 'voice_quota_exhausted'
+      ) {
+        endForQuotaRef.current();
+        return;
+      }
       // If the mic was granted but connect failed, fail() -> cleanup() stops the
       // held tracks so no mic indicator lingers.
       fail(describeError(err, 'Failed to start live coach'));
@@ -880,16 +1024,29 @@ export default function useGeminiLive(
     // Session-end metering beacon: report the whole session's duration so the
     // server can record a voice session row. Only when a session actually opened.
     if (sessionStartRef.current !== null) {
-      reportMetric({
-        event: 'end',
-        session_ms: Math.round(performance.now() - sessionStartRef.current),
-      });
+      const elapsedMs = performance.now() - sessionStartRef.current;
+      // Final minutes flush: book the residual seconds not yet reported by a
+      // heartbeat, so the ledger reflects the whole session on disconnect.
+      const residual = Math.floor(elapsedMs / 1000) - bookedSecondsRef.current;
+      if (residual > 0) {
+        postHeartbeat(residual);
+        bookedSecondsRef.current += residual;
+      }
+      reportMetric({ event: 'end', session_ms: Math.round(elapsedMs) });
       sessionStartRef.current = null;
     }
     cleanup();
     setIsActive(false);
+    setRemainingSeconds(null);
     setStatus('idle');
-  }, [cleanup, setStatus, reportMetric]);
+  }, [cleanup, setStatus, reportMetric, postHeartbeat]);
+
+  // Gracefully end a session because the monthly voice quota ran out. Notify the
+  // caller (for the "minutes used up" message) then tear down like a normal stop.
+  endForQuotaRef.current = () => {
+    optionsRef.current.onQuotaExhausted?.();
+    disconnect();
+  };
 
   // Push the current board position into the open session mid-conversation.
   // turnComplete:false injects context without interrupting the audio turn.
@@ -922,5 +1079,6 @@ export default function useGeminiLive(
     connect,
     disconnect,
     sendBoardUpdate,
+    remainingSeconds,
   };
 }

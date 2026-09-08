@@ -1942,6 +1942,8 @@
     "voiceError": "Voice error",
     "voiceRetryHint": "Tap the mic to retry",
     "voiceUnsupported": "Voice mode is not supported in this browser",
+    "voiceMinutesLeft": "{minutes} min left",
+    "voiceQuotaExhausted": "Voice minutes used up for this month — text chat is unlimited",
     "resetBoard": "Reset board",
     "firstMove": "First move",
     "previousMove": "Previous move",

@@ -304,7 +304,7 @@ class TestToolDispatchRateLimitAndMetering:
 
         statuses = []
         with patch.object(tool_bridge.registry, "dispatch", side_effect=_ok):
-            for _ in range(32):
+            for _ in range(62):
                 statuses.append(
                     self.client.post(
                         "/api/coach/tool/get_user_progress",
@@ -312,8 +312,8 @@ class TestToolDispatchRateLimitAndMetering:
                         json={"args": {}},
                     ).status_code
                 )
-        # Free tier: 30 voice tool calls/min, then 429 with a clear payload.
-        assert statuses.count(200) == 30
+        # Free tier: 60 voice tool calls/min, then 429 with a clear payload.
+        assert statuses.count(200) == 60
         assert 429 in statuses
 
     @patch("src.tool_bridge.record_voice_event")
@@ -323,7 +323,7 @@ class TestToolDispatchRateLimitAndMetering:
 
         with patch.object(tool_bridge.registry, "dispatch", side_effect=_ok):
             last = None
-            for _ in range(31):
+            for _ in range(61):
                 last = self.client.post(
                     "/api/coach/tool/get_user_progress",
                     headers=USER_HEADERS,

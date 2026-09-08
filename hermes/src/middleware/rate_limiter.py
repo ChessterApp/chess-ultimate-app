@@ -1,9 +1,14 @@
 """Rate limiting middleware — sliding window per-user, per-tier.
 
 Enforces request limits based on subscription tier:
-  - free:    5 req/min
-  - premium: 30 req/min
-  - pro:     100 req/min
+  - free:    30 req/min
+  - premium: 60 req/min
+  - pro:     120 req/min
+
+Product decision (2026-09-08): TEXT CHAT HAS NO MONTHLY QUOTA. Text messages are
+unlimited; these per-minute sliding windows exist purely as an abuse guard and
+are set high enough that a normal user never hits them. (Voice Mode, by
+contrast, is metered by minutes per calendar month — see src/voice_quota.py.)
 """
 
 import time
@@ -13,11 +18,12 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-# Tier limits: max requests per 60-second window
+# Tier limits: max requests per 60-second window. Abuse guard only — NOT a
+# product quota (text chat is unlimited by the 2026-09-08 product decision).
 TIER_LIMITS = {
-    "free": 5,
-    "premium": 30,
-    "pro": 100,
+    "free": 30,
+    "premium": 60,
+    "pro": 120,
 }
 
 DEFAULT_TIER = "free"
@@ -89,7 +95,7 @@ rate_limiter = SlidingWindowRateLimiter()
 # gets its own limiter with higher per-tier ceilings than text chat. Same
 # sliding-window mechanism and free/premium/pro tiers.
 VOICE_TOOL_TIER_LIMITS = {
-    "free": 30,
+    "free": 60,
     "premium": 120,
     "pro": 400,
 }
