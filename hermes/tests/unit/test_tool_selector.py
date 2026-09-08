@@ -83,6 +83,25 @@ class TestSelectToolSubset:
         b = select_tool_subset(SAMPLE, "opening repertoire", topk=4)
         assert _names(a) == _names(b)
 
+    def test_board_question_keeps_position_and_engine_tools(self):
+        """A board question must retain the board/engine analysis tools.
+
+        With the subset feature now default-ON, the position/engine tools are in
+        CORE_TOOLS and must survive selection at the production default TOPK so a
+        student asking about the current position always has them available.
+        """
+        from src.config import COACH_TOOL_SUBSET_TOPK
+
+        subset = _names(
+            select_tool_subset(
+                SAMPLE,
+                "is this position winning for white? what's the best move here",
+                topk=COACH_TOOL_SUBSET_TOPK,
+            )
+        )
+        assert "analyze_position" in subset
+        assert "board_control" in subset
+
 
 OAI_SAMPLE = [_oai(d["name"], d["description"]) for d in SAMPLE]
 

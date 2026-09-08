@@ -91,10 +91,11 @@ def _env_flag(name: str, default: bool = False) -> bool:
 COACH_NORMALIZE_INPUT = _env_flag("COACH_NORMALIZE_INPUT", False)
 
 # Semantic tool subsetting: select a query-relevant topK subset of chess tools
-# per turn instead of sending all ~20 schemas. Default OFF so the coach sends
-# the full toolset unchanged; enable with COACH_TOOL_SUBSET=true. The topK
-# (excluding the always-present core set) is configurable.
-COACH_TOOL_SUBSET = _env_flag("COACH_TOOL_SUBSET", False)
+# per turn instead of sending all ~20 schemas. Default ON to shrink the per-turn
+# token payload and cache-align the tool block; the always-present core set keeps
+# board/engine tools available every turn. Disable without a deploy with
+# COACH_TOOL_SUBSET=false. The topK (excluding the core set) is configurable.
+COACH_TOOL_SUBSET = _env_flag("COACH_TOOL_SUBSET", True)
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
 # Self-hosted engine MCP: connect to external MCP servers configured in

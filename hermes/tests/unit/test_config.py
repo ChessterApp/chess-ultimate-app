@@ -1,5 +1,6 @@
 """Unit tests for chess coach configuration loading."""
 
+import importlib
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
+import src.config as config
 from src.config import (
     PROFILE_DIR,
     PROJECT_ROOT,
@@ -17,6 +19,53 @@ from src.config import (
     load_profile_config,
     load_soul,
 )
+
+
+@pytest.fixture
+def reload_config():
+    """Reload src.config under a controlled environment, then restore baseline.
+
+    Module-level flags are resolved from os.environ at import, so exercising the
+    default vs an env override requires reloading the module.
+    """
+    def _reload(**env):
+        for key, value in env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        return importlib.reload(config)
+
+    saved = {k: os.environ.get(k) for k in ("COACH_TOOL_SUBSET", "COACH_TOOL_SUBSET_TOPK")}
+    yield _reload
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    importlib.reload(config)
+
+
+@pytest.mark.unit
+def test_coach_tool_subset_defaults_on(reload_config):
+    """With no env override the tool-subset flag is ON and TOPK is 7."""
+    cfg = reload_config(COACH_TOOL_SUBSET=None, COACH_TOOL_SUBSET_TOPK=None)
+    assert cfg.COACH_TOOL_SUBSET is True
+    assert cfg.COACH_TOOL_SUBSET_TOPK == 7
+
+
+@pytest.mark.unit
+def test_coach_tool_subset_env_override_disables(reload_config):
+    """The env override still turns the flag off without a deploy."""
+    cfg = reload_config(COACH_TOOL_SUBSET="false")
+    assert cfg.COACH_TOOL_SUBSET is False
+
+
+@pytest.mark.unit
+def test_coach_tool_subset_topk_env_override(reload_config):
+    """TOPK is configurable via the environment."""
+    cfg = reload_config(COACH_TOOL_SUBSET_TOPK="3")
+    assert cfg.COACH_TOOL_SUBSET_TOPK == 3
 
 
 @pytest.mark.unit
