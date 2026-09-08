@@ -34,12 +34,29 @@ class Session(BaseModel):
     # Optional write-through backend. Not part of the serialized model.
     _persistence: Optional[SessionPersistence] = PrivateAttr(default=None)
 
-    def add_message(self, role: str, content: str, source: str = "text") -> None:
+    def add_message(
+        self,
+        role: str,
+        content: str,
+        source: str = "text",
+        extra: Optional[dict] = None,
+        evt: Optional[dict] = None,
+    ) -> None:
+        """Append a message and mirror it to the persistence backend.
+
+        ``extra`` optionally stamps the Phase-1 coach_messages enrichment columns
+        (turn_id, model, prompt_version, latency/token counts); ``evt`` is the
+        event context used to emit a persistence_failure if the write fails. Both
+        are only passed by the instrumented text chat path — other callers are
+        unchanged.
+        """
         self.messages.append(
             SessionMessage(role=role, content=content, source=source)
         )
         if self._persistence is not None:
-            self._persistence.persist_message(self.id, role, content, source)
+            self._persistence.persist_message(
+                self.id, role, content, source, extra=extra, evt=evt
+            )
 
     def set_board_state(self, fen: str) -> None:
         """Update the current board state (validates FEN)."""

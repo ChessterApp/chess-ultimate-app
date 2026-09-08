@@ -43,8 +43,9 @@ from src.middleware.rate_limiter import (  # noqa: E402
     DEFAULT_TIER,
 )
 from src.middleware.circuit_breaker import stockfish_circuit, supabase_circuit
-from src.model_router import route_model
-from src.prompt_builder import build_system_prompt, build_voice_prompt
+from src.model_router import route_model, explain_route
+from src.prompt_builder import build_system_prompt, build_voice_prompt, get_prompt_version
+from src.event_logger import log_event, new_turn_id
 from src import config
 from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
@@ -531,6 +532,60 @@ def _sse(data: dict) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _safe_int(value) -> Optional[int]:
+    """Coerce *value* to int, returning None for bools / non-numeric / mocks."""
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _selected_tool_names(agent) -> list[str]:
+    """Best-effort list of the tool names available to *agent* (subset-aware)."""
+    try:
+        return [t["function"]["name"] for t in getattr(agent, "tools", []) or []]
+    except Exception:
+        return []
+
+
+def _tool_call_payload(tool_name: str, args, result) -> tuple[bool, Optional[str], dict]:
+    """Build (ok, error_code, payload) for a text-path ``tool_call`` event.
+
+    Parses the tool result to classify success/failure, truncates args + a result
+    summary for the log, and — for ``check_moves`` — folds in the legal/illegal
+    verdict counts (our hallucination metric).
+    """
+    ok = True
+    error_code: Optional[str] = None
+    parsed = None
+    try:
+        parsed = json.loads(result) if isinstance(result, str) else result
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+    if isinstance(parsed, dict) and "error" in parsed:
+        ok = False
+        error_code = str(parsed.get("error"))[:100]
+
+    payload: dict = {
+        "args": str(args)[:500],
+        "result_summary": str(result)[:500],
+    }
+
+    if tool_name == "check_moves" and isinstance(parsed, dict):
+        results = parsed.get("results")
+        if isinstance(results, list):
+            legal = sum(1 for r in results if isinstance(r, dict) and r.get("legal") is True)
+            illegal = len(results) - legal
+            payload["check_moves_verdict"] = {
+                "candidates": len(results),
+                "legal": legal,
+                "illegal": illegal,
+            }
+    return ok, error_code, payload
+
+
 @app.post("/api/coach/chat")
 async def coach_chat(body: CoachChatRequest, request: Request):
     """Coach chat endpoint — streams the agent's reply as SSE token events.
@@ -557,7 +612,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # body.fen is handled separately below and is never normalized.
     body.message = _clean_user_text(body.message)
 
-    session.add_message("user", body.message)
+    # ── Phase-1 turn instrumentation identifiers ──────────────────────────
+    # One turn_id correlates the user/assistant coach_messages rows, the
+    # token_usage row, and every coach_events row for this turn. prompt_version
+    # + the routing decision are captured up front so they can stamp the user
+    # message row and the turn_start event. All fail-open (log_event never raises).
+    turn_id = new_turn_id()
+    prompt_version = get_prompt_version()
+    tiers = _model_config.get("tiers", {})
+    route = explain_route(body.message, tiers, _model_config["default"])
+    model = route["model"]
+
+    msg_extra = {"turn_id": turn_id, "model": model, "prompt_version": prompt_version}
+    evt_ctx = {"user_id": user_id, "turn_id": turn_id, "surface": "text", "model": model}
+    session.add_message("user", body.message, extra=msg_extra, evt=evt_ctx)
 
     if body.fen:
         try:
@@ -572,7 +640,6 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         board_fen=session.board_state,
         locale=body.locale,
     )
-    model = _resolve_model(None, body.message)
     logger.info("Model routed: %s for message: %s", model, body.message[:80])
 
     # Build conversation context from session history (exclude the just-added user message)
@@ -589,6 +656,24 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         user_query=body.message,
     )
 
+    log_event(
+        "turn_start",
+        surface="text",
+        user_id=user_id,
+        session_id=session.id,
+        turn_id=turn_id,
+        model=model,
+        payload={
+            "routing_tier": route["tier"],
+            "routing_reason": route["reason"],
+            "routing_matched": route["matched"],
+            "message_length": len(body.message),
+            "fen": session.board_state if body.fen else None,
+            "prompt_version": prompt_version,
+            "tools_selected": _selected_tool_names(agent),
+        },
+    )
+
     # Capture tool results for board action extraction
     tool_results: list[str] = []
 
@@ -600,6 +685,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         queue: asyncio.Queue = asyncio.Queue()
         sentinel = object()
         streamed_any = False
+        # Per-turn state used by the coach_events instrumentation below.
+        tool_starts: dict = {}
+        partial_parts: list[str] = []
+        streamed_chars = 0
 
         def _on_delta(text):
             if text:
@@ -610,6 +699,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # tool-using exchange. Callbacks run on the executor thread, so hop onto
         # the loop via call_soon_threadsafe (same bridge as _on_delta).
         def _on_tool_start(tool_call_id, tool_name, args):
+            tool_starts[tool_call_id] = time.monotonic()
             loop.call_soon_threadsafe(queue.put_nowait, ("tool_call", tool_name))
 
         def _on_tool_complete(tool_call_id, tool_name, args, result):
@@ -618,13 +708,26 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 tool_name, str(args)[:200], str(result)[:200],
             )
             tool_results.append(result)
-            ok = True
-            try:
-                parsed = json.loads(result) if isinstance(result, str) else result
-                if isinstance(parsed, dict) and "error" in parsed:
-                    ok = False
-            except (json.JSONDecodeError, TypeError):
-                pass
+            started = tool_starts.pop(tool_call_id, None)
+            duration_ms = int((time.monotonic() - started) * 1000) if started else None
+            ok, error_code, payload = _tool_call_payload(tool_name, args, result)
+            # Persist the tool call — this is the key gap (text tool calls were
+            # ephemeral SSE frames only). Runs on the executor thread; log_event
+            # is fail-open and off the async hot path.
+            log_event(
+                "tool_call",
+                severity="info" if ok else "warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                tool_name=tool_name,
+                duration_ms=duration_ms,
+                ok=ok,
+                error_code=error_code,
+                payload=payload,
+            )
             loop.call_soon_threadsafe(
                 queue.put_nowait, ("tool_result", {"tool": tool_name, "ok": ok})
             )
@@ -637,35 +740,108 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 result = agent.chat(augmented_message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
-                loop.call_soon_threadsafe(queue.put_nowait, ("error", str(exc)))
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
+        turn_started = time.monotonic()
         future = loop.run_in_executor(None, _run)
 
         result_text = None
-        error_msg = None
-        while True:
-            item = await queue.get()
-            if item is sentinel:
-                break
-            kind, payload = item
-            if kind == "delta":
-                streamed_any = True
-                yield _sse({"delta": payload})
-            elif kind == "tool_call":
-                yield _sse({"tool_call": payload})
-            elif kind == "tool_result":
-                yield _sse({"tool_result": payload})
-            elif kind == "result":
-                result_text = payload
-            elif kind == "error":
-                error_msg = payload
-        await future  # ensure the executor thread has fully unwound
+        error_exc = None
+        try:
+            while True:
+                item = await queue.get()
+                if item is sentinel:
+                    break
+                kind, payload = item
+                if kind == "delta":
+                    streamed_any = True
+                    partial_parts.append(payload)
+                    streamed_chars += len(payload)
+                    yield _sse({"delta": payload})
+                elif kind == "tool_call":
+                    yield _sse({"tool_call": payload})
+                elif kind == "tool_result":
+                    yield _sse({"tool_result": payload})
+                elif kind == "result":
+                    result_text = payload
+                elif kind == "error":
+                    error_exc = payload
+            await future  # ensure the executor thread has fully unwound
+        except (asyncio.CancelledError, GeneratorExit):
+            # Client disconnected mid-stream: record what we streamed so far and
+            # the partial assistant text, then re-raise so Starlette unwinds.
+            log_event(
+                "stream_disconnect",
+                severity="warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload={
+                    "chars_streamed": streamed_chars,
+                    "partial_text": "".join(partial_parts)[:2000],
+                },
+            )
+            raise
 
-        if error_msg is not None:
-            yield _sse({"error": f"Agent error: {error_msg}"})
+        latency_ms = int((time.monotonic() - turn_started) * 1000)
+
+        if error_exc is not None:
+            # Streaming-path LLM failure — previously left ZERO trace. Emit the
+            # event AND write a diagnostic (the streaming path never did before).
+            log_event(
+                "llm_error",
+                severity="error",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                duration_ms=latency_ms,
+                ok=False,
+                error_code=type(error_exc).__name__,
+                payload={"error_class": type(error_exc).__name__, "message": str(error_exc)[:2000]},
+            )
+            diag.record(
+                "agent_error",
+                request_id=getattr(request.state, "request_id", None),
+                message="agent.chat raised on /api/coach/chat (streaming)",
+                exc=error_exc,
+                model=model,
+            )
+            yield _sse({"error": f"Agent error: {error_exc}"})
             return
+
+        # Iteration cap / empty-response warnings (best-effort attribute reads).
+        iterations = _safe_int(getattr(agent, "_api_call_count", None))
+        max_iter = _safe_int(getattr(agent, "max_iterations", None))
+        hit_max = bool(iterations is not None and max_iter is not None and iterations >= max_iter)
+        if hit_max:
+            log_event(
+                "max_iterations_hit",
+                severity="warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload={"iterations": iterations, "max_iterations": max_iter},
+            )
+
+        if not result_text:
+            log_event(
+                "empty_response",
+                severity="warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload={"path": "/api/coach/chat"},
+            )
 
         response_text = result_text or "I wasn't able to generate a response. Please try again."
 
@@ -678,7 +854,40 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # Record real token usage for this turn (fire-and-forget; never blocks)
         _record_turn_usage(agent, user_id, session.id, model, surface="text")
 
-        session.add_message("assistant", response_text)
+        prompt_tokens = _safe_int(getattr(agent, "session_prompt_tokens", 0)) or 0
+        completion_tokens = _safe_int(getattr(agent, "session_completion_tokens", 0)) or 0
+
+        # Stamp the assistant row with the full turn telemetry (fail-soft on
+        # pre-migration prod: persist_message retries without the new columns).
+        assistant_extra = {
+            "turn_id": turn_id,
+            "model": model,
+            "prompt_version": prompt_version,
+            "latency_ms": latency_ms,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        }
+        session.add_message("assistant", response_text, extra=assistant_extra, evt=evt_ctx)
+
+        finish_reason = "empty" if not result_text else ("max_iterations" if hit_max else "stop")
+        log_event(
+            "turn_end",
+            surface="text",
+            user_id=user_id,
+            session_id=session.id,
+            turn_id=turn_id,
+            model=model,
+            duration_ms=latency_ms,
+            ok=True,
+            payload={
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "latency_ms": latency_ms,
+                "iterations": iterations,
+                "finish_reason": finish_reason,
+            },
+        )
+
         envelope = wrap_response(response_text, tool_results=tool_results)
 
         board_actions = envelope.get("board_actions", [])

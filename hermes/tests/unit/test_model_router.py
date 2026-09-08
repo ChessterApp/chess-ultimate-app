@@ -61,3 +61,41 @@ class TestModelRouter:
     def test_deep_takes_priority_over_board(self):
         result = route_model("deep analysis, show me on the board", TIERS, DEFAULT)
         assert result == TIERS["deep"]
+
+
+@pytest.mark.unit
+class TestExplainRoute:
+    """explain_route exposes the tier + matched keyword for telemetry."""
+
+    def test_fast_tier_reason(self):
+        from src.model_router import explain_route
+        out = explain_route("what is a pin?", TIERS, DEFAULT)
+        assert out["model"] == TIERS["fast"]
+        assert out["tier"] == "fast"
+        assert out["reason"] == "default_fast"
+        assert out["matched"] is None
+
+    def test_analysis_tier_reports_matched_keyword(self):
+        from src.model_router import explain_route
+        out = explain_route("analyze this position", TIERS, DEFAULT)
+        assert out["tier"] == "analysis"
+        assert out["reason"] == "analysis_keyword"
+        assert out["matched"]
+
+    def test_deep_tier_reports_matched_keyword(self):
+        from src.model_router import explain_route
+        out = explain_route("please do a game review", TIERS, DEFAULT)
+        assert out["tier"] == "deep"
+        assert out["reason"] == "deep_keyword"
+        assert out["matched"]
+
+    def test_empty_query_default_reason(self):
+        from src.model_router import explain_route
+        out = explain_route("", TIERS, DEFAULT)
+        assert out["tier"] == "default"
+        assert out["reason"] == "no_query_or_tiers"
+
+    def test_route_model_matches_explain_route_model(self):
+        from src.model_router import explain_route
+        for q in ["hi", "analyze this", "deep analysis", "show me on the board"]:
+            assert route_model(q, TIERS, DEFAULT) == explain_route(q, TIERS, DEFAULT)["model"]

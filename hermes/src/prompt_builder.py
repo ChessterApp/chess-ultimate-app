@@ -8,6 +8,7 @@ Assembles the full system prompt for the AI agent from:
 5. Platform ratings (auto-synced from linked accounts)
 """
 
+import hashlib
 import logging
 import threading
 from collections import OrderedDict
@@ -17,6 +18,53 @@ from typing import Optional
 from src.user_profile import UserProfile
 
 logger = logging.getLogger(__name__)
+
+# ── Prompt versioning ──────────────────────────────────────────────────
+# A stable fingerprint of the coach's system-prompt inputs, stamped onto every
+# logged turn and onto coach_messages so a reply can be traced back to the exact
+# persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
+# in-code prompt scaffolding (tool instructions, structure) changes materially;
+# SOUL.md edits are picked up automatically via its mtime.
+PROMPT_TEMPLATE_VERSION = "1"
+
+_prompt_version_lock = threading.Lock()
+_prompt_version_cache: Optional[str] = None
+_prompt_version_mtime: Optional[float] = None
+
+
+def _compute_prompt_version(soul_content: str) -> str:
+    """First 10 hex chars of sha256(SOUL.md + template version constant)."""
+    digest = hashlib.sha256(
+        (soul_content + PROMPT_TEMPLATE_VERSION).encode("utf-8")
+    ).hexdigest()
+    return digest[:10]
+
+
+def get_prompt_version() -> str:
+    """Return the current prompt version, recomputing only on SOUL.md change.
+
+    Reads SOUL.md via the config loader and caches the hash keyed on the file's
+    mtime, so the sha256 is computed once and only recomputed when the persona
+    file (or the in-code template version) changes. Fully defensive: any failure
+    reading SOUL.md falls back to hashing just the template version constant so a
+    caller always gets a stable, non-empty version string.
+    """
+    global _prompt_version_cache, _prompt_version_mtime
+    try:
+        from src.config import PROFILE_DIR
+
+        soul_path = PROFILE_DIR / "SOUL.md"
+        mtime = soul_path.stat().st_mtime
+        with _prompt_version_lock:
+            if _prompt_version_cache is not None and _prompt_version_mtime == mtime:
+                return _prompt_version_cache
+            version = _compute_prompt_version(soul_path.read_text())
+            _prompt_version_cache = version
+            _prompt_version_mtime = mtime
+            return version
+    except Exception:
+        logger.debug("prompt version computation failed; using template-only hash", exc_info=True)
+        return _compute_prompt_version("")
 
 # Bounded LRU cache for FEN-keyed board analysis. The analysis block is a pure
 # function of the FEN, so an unchanged position can reuse the previous result

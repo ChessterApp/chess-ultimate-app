@@ -33,6 +33,36 @@ _ANALYSIS_KEYWORDS = re.compile(
 )
 
 
+def explain_route(query: str, model_tiers: dict, default_model: str) -> dict:
+    """Resolve the model AND why it was chosen, for logging/telemetry.
+
+    Returns a dict with ``model``, ``tier`` (``deep`` | ``analysis`` | ``fast`` |
+    ``default``), ``reason`` (short slug), and ``matched`` (the keyword text that
+    triggered the tier, or ``None``). :func:`route_model` is a thin wrapper that
+    returns only the model, so existing callers are unchanged.
+    """
+    if not query or not model_tiers:
+        return {"model": default_model, "tier": "default", "reason": "no_query_or_tiers", "matched": None}
+
+    m = _DEEP_KEYWORDS.search(query)
+    if m:
+        return {"model": model_tiers.get("deep", default_model), "tier": "deep",
+                "reason": "deep_keyword", "matched": m.group(0)}
+
+    m = _BOARD_KEYWORDS.search(query)
+    if m:
+        return {"model": model_tiers.get("analysis", default_model), "tier": "analysis",
+                "reason": "board_keyword", "matched": m.group(0)}
+
+    m = _ANALYSIS_KEYWORDS.search(query)
+    if m:
+        return {"model": model_tiers.get("analysis", default_model), "tier": "analysis",
+                "reason": "analysis_keyword", "matched": m.group(0)}
+
+    return {"model": model_tiers.get("fast", default_model), "tier": "fast",
+            "reason": "default_fast", "matched": None}
+
+
 def route_model(query: str, model_tiers: dict, default_model: str) -> str:
     """Select the appropriate model based on query complexity.
 
@@ -45,16 +75,4 @@ def route_model(query: str, model_tiers: dict, default_model: str) -> str:
     Returns:
         Model ID string.
     """
-    if not query or not model_tiers:
-        return default_model
-
-    if _DEEP_KEYWORDS.search(query):
-        return model_tiers.get("deep", default_model)
-
-    if _BOARD_KEYWORDS.search(query):
-        return model_tiers.get("analysis", default_model)
-
-    if _ANALYSIS_KEYWORDS.search(query):
-        return model_tiers.get("analysis", default_model)
-
-    return model_tiers.get("fast", default_model)
+    return explain_route(query, model_tiers, default_model)["model"]

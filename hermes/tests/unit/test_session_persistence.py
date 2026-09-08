@@ -6,6 +6,7 @@ fake backend stand in for Supabase.
 
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from src.session_persistence import SessionPersistence
@@ -33,11 +34,12 @@ class FakePersistence:
         }
         self.messages.setdefault(session_id, [])
 
-    def persist_message(self, session_id, role, content, source):
+    def persist_message(self, session_id, role, content, source, extra=None, evt=None):
         self.calls.append("persist_message")
-        self.messages.setdefault(session_id, []).append(
-            {"role": role, "content": content, "source": source}
-        )
+        row = {"role": role, "content": content, "source": source}
+        if extra:
+            row.update(extra)
+        self.messages.setdefault(session_id, []).append(row)
 
     def update_board_state(self, session_id, fen):
         self.calls.append("update_board_state")
@@ -211,6 +213,62 @@ class TestSessionPersistenceHttp:
                 "content": "hello",
                 "source": "voice",
             }
+
+    def test_persist_message_includes_extra_columns(self):
+        p = self._persistence()
+        with patch("src.session_persistence.httpx") as mock_httpx:
+            p._persist_message(
+                "sid-1", "assistant", "hi", "text",
+                extra={"turn_id": "t1", "model": "gpt", "latency_ms": 42, "prompt_tokens": None},
+            )
+            _, kwargs = mock_httpx.post.call_args
+            body = kwargs["json"]
+            assert body["turn_id"] == "t1"
+            assert body["model"] == "gpt"
+            assert body["latency_ms"] == 42
+            # None-valued extras are dropped (never sent).
+            assert "prompt_tokens" not in body
+
+    def test_persist_message_retries_without_extra_on_missing_column(self):
+        p = self._persistence()
+        # First POST fails with a PostgREST "column not found" (PGRST204);
+        # the write must retry with just the base row.
+        err_resp = MagicMock()
+        err_resp.status_code = 400
+        err_resp.text = '{"code":"PGRST204","message":"Column turn_id not found"}'
+        err = httpx.HTTPStatusError("bad", request=MagicMock(), response=err_resp)
+
+        ok_resp = MagicMock()
+        ok_resp.raise_for_status = MagicMock()
+        fail_resp = MagicMock()
+        fail_resp.raise_for_status = MagicMock(side_effect=err)
+
+        with patch("src.session_persistence.httpx") as mock_httpx:
+            mock_httpx.HTTPStatusError = httpx.HTTPStatusError
+            mock_httpx.post.side_effect = [fail_resp, ok_resp]
+            p._persist_message(
+                "sid-1", "assistant", "hi", "text", extra={"turn_id": "t1"}
+            )
+            assert mock_httpx.post.call_count == 2
+            # Retry payload is the base row with no enrichment columns.
+            retry_body = mock_httpx.post.call_args_list[1].kwargs["json"]
+            assert "turn_id" not in retry_body
+            assert retry_body["role"] == "assistant"
+
+    def test_persist_message_emits_persistence_failure_when_both_fail(self):
+        p = self._persistence()
+        with patch("src.session_persistence.httpx") as mock_httpx, \
+                patch("src.event_logger.log_event") as mock_log:
+            mock_httpx.post.side_effect = RuntimeError("network down")
+            p._persist_message(
+                "sid-1", "assistant", "hi", "text",
+                extra={"turn_id": "t1"},
+                evt={"user_id": "u1", "turn_id": "t1", "surface": "text", "model": "gpt"},
+            )
+            mock_log.assert_called_once()
+            assert mock_log.call_args.args[0] == "persistence_failure"
+            assert mock_log.call_args.kwargs["severity"] == "error"
+            assert mock_log.call_args.kwargs["turn_id"] == "t1"
 
     def test_load_session_parses_first_row(self):
         p = self._persistence()

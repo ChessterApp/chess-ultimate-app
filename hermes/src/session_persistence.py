@@ -23,6 +23,29 @@ logger = logging.getLogger(__name__)
 TIMEOUT = 10
 
 
+def _is_missing_column_error(exc: Exception) -> bool:
+    """True when a PostgREST write failed because a column doesn't exist yet.
+
+    PostgREST surfaces an unknown column as HTTP 400 with schema-cache code
+    ``PGRST204`` (or Postgres ``42703`` / a "column ... does not exist" message).
+    Used to decide whether to retry the insert without the enrichment fields.
+    """
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return False
+    try:
+        if resp.status_code not in (400, 404):
+            return False
+        body = resp.text.lower()
+    except Exception:
+        return False
+    return (
+        "pgrst204" in body
+        or "42703" in body
+        or ("column" in body and ("does not exist" in body or "not found" in body))
+    )
+
+
 class SessionPersistence:
     """Best-effort Supabase persistence for coach sessions.
 
@@ -90,31 +113,96 @@ class SessionPersistence:
             logger.debug("Failed to persist coach session %s", session_id, exc_info=True)
 
     def persist_message(
-        self, session_id: str, role: str, content: str, source: str
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        source: str,
+        extra: dict | None = None,
+        evt: dict | None = None,
     ) -> None:
+        """Write a coach_messages row (background, best-effort).
+
+        ``extra`` carries the Phase-1 enrichment columns (turn_id, model,
+        prompt_version, latency_ms, prompt/completion tokens). They are additive
+        and may not exist yet in prod (pre-migration), so the write fails soft:
+        on a column-missing error it retries WITHOUT the extra fields. ``evt`` is
+        optional event context ({user_id, turn_id, surface, model}); when a write
+        ultimately fails a ``persistence_failure`` event is emitted from it.
+        """
         if not self.enabled:
             return
-        self._run_bg(self._persist_message, session_id, role, content, source)
+        self._run_bg(self._persist_message, session_id, role, content, source, extra, evt)
 
     def _persist_message(
-        self, session_id: str, role: str, content: str, source: str
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        source: str,
+        extra: dict | None = None,
+        evt: dict | None = None,
     ) -> None:
+        base = {
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "source": source,
+        }
+        payload = {**base, **{k: v for k, v in (extra or {}).items() if v is not None}}
         try:
             httpx.post(
                 f"{self.url}/rest/v1/coach_messages",
-                json={
-                    "session_id": session_id,
-                    "role": role,
-                    "content": content,
-                    "source": source,
-                },
+                json=payload,
                 headers=self._headers(),
                 timeout=TIMEOUT,
             ).raise_for_status()
-        except Exception:
-            logger.debug(
-                "Failed to persist coach message for session %s", session_id, exc_info=True
-            )
+            return
+        except Exception as exc:
+            # Fail-soft: the enrichment columns may not exist yet in prod. Retry
+            # once with just the base row so pre-migration writes still land.
+            if extra and _is_missing_column_error(exc):
+                logger.warning(
+                    "coach_messages enrichment columns missing; retrying base insert "
+                    "for session %s", session_id
+                )
+                try:
+                    httpx.post(
+                        f"{self.url}/rest/v1/coach_messages",
+                        json=base,
+                        headers=self._headers(),
+                        timeout=TIMEOUT,
+                    ).raise_for_status()
+                    return
+                except Exception:
+                    logger.debug(
+                        "Failed to persist coach message (base retry) for session %s",
+                        session_id, exc_info=True,
+                    )
+            else:
+                logger.debug(
+                    "Failed to persist coach message for session %s",
+                    session_id, exc_info=True,
+                )
+        # Both attempts failed — surface it as a persistence_failure event.
+        if evt is not None:
+            try:
+                from src.event_logger import log_event
+
+                log_event(
+                    "persistence_failure",
+                    severity="error",
+                    user_id=evt.get("user_id"),
+                    session_id=session_id,
+                    turn_id=evt.get("turn_id"),
+                    surface=evt.get("surface", "text"),
+                    model=evt.get("model"),
+                    ok=False,
+                    error_code="coach_messages_write",
+                    payload={"role": role},
+                )
+            except Exception:
+                pass
 
     def update_board_state(self, session_id: str, fen: str) -> None:
         if not self.enabled:
