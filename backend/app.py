@@ -126,13 +126,6 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import lessons API: {e}")
 
 try:
-    from api.chat import chat_bp
-    app.register_blueprint(chat_bp)
-    logger.info("✅ Chat API registered (server-managed LLM)")
-except ImportError as e:
-    logger.warning(f"⚠️  Could not import chat API: {e}")
-
-try:
     from api.puzzles import puzzles_bp
     app.register_blueprint(puzzles_bp)
     logger.info("✅ Puzzles API registered (multi-puzzle lessons)")

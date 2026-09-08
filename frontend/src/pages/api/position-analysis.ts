@@ -5,8 +5,8 @@ import { PositionPrompter } from "@/server/mastra/tools/protocol/positionPrompte
 /**
  * Position analysis service — exposes Mastra's CCP (PositionPrompter) over HTTP
  * so external callers (e.g. Hermes) can reuse the exact same `<detailed_board_analysis>`
- * fusion that the in-app coach uses. Purely additive; mirrors `handleMastra` in
- * `chat/stream.ts`.
+ * fusion that the in-app coach uses. Purely additive; reuses Mastra's
+ * PositionPrompter directly.
  *
  * POST { fen: string } -> { valid: boolean, board_analysis: string }
  */
