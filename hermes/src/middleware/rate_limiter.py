@@ -81,8 +81,31 @@ class SlidingWindowRateLimiter:
                 self._requests.clear()
 
 
-# Global instance
+# Global instance — text chat: one request per user message.
 rate_limiter = SlidingWindowRateLimiter()
+
+# Voice tool calls fire several times per spoken turn (a single position review
+# can chain board_control + analyze_position + search), so the voice tool path
+# gets its own limiter with higher per-tier ceilings than text chat. Same
+# sliding-window mechanism and free/premium/pro tiers.
+VOICE_TOOL_TIER_LIMITS = {
+    "free": 30,
+    "premium": 120,
+    "pro": 400,
+}
+voice_tool_rate_limiter = SlidingWindowRateLimiter(tier_limits=VOICE_TOOL_TIER_LIMITS)
+
+# Live-token minting: cap how many voice sessions a user can spawn per hour by
+# tier so sessions can't be created unboundedly (each mint opens a billable
+# Gemini Live channel). Longer window, small per-tier counts.
+VOICE_TOKEN_TIER_LIMITS = {
+    "free": 10,
+    "premium": 40,
+    "pro": 120,
+}
+voice_token_rate_limiter = SlidingWindowRateLimiter(
+    tier_limits=VOICE_TOKEN_TIER_LIMITS, window=3600
+)
 
 
 def get_user_tier(request: Request) -> str:
@@ -90,17 +113,22 @@ def get_user_tier(request: Request) -> str:
     return request.headers.get("x-subscription-tier", DEFAULT_TIER)
 
 
-async def enforce_rate_limit(request: Request) -> dict:
+async def enforce_rate_limit(
+    request: Request, limiter: Optional[SlidingWindowRateLimiter] = None
+) -> dict:
     """Check rate limit for the current request. Raises 429 if exceeded.
 
-    Returns rate limit info dict on success.
+    ``limiter`` selects which sliding-window instance to enforce against — the
+    default text-chat ``rate_limiter``, or a path-specific one (voice tool /
+    voice token). Returns the rate limit info dict on success.
     """
+    limiter = limiter or rate_limiter
     user_id = request.headers.get("x-user-id")
     if not user_id:
         return {"limit": 0, "remaining": 0, "tier": "anonymous"}
 
     tier = get_user_tier(request)
-    allowed, info = rate_limiter.check(user_id, tier)
+    allowed, info = limiter.check(user_id, tier)
 
     if not allowed:
         raise HTTPException(

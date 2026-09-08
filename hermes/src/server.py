@@ -38,24 +38,25 @@ from src.middleware.response_envelope import wrap_response  # noqa: E402
 from src.middleware.rate_limiter import (  # noqa: E402
     enforce_rate_limit,
     rate_limiter,
+    voice_token_rate_limiter,
     get_user_tier,
 )
 from src.middleware.circuit_breaker import stockfish_circuit, supabase_circuit
 from src.model_router import route_model
-from src.prompt_builder import build_system_prompt
+from src.prompt_builder import build_system_prompt, build_voice_prompt
 from src import config
 from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
 from src.sessions import session_store
 from src.user_profile import load_user_profile, save_user_profile, UserProfile
-from src.cost_monitor import cost_monitor
+from src.cost_monitor import cost_monitor, record_voice_event
 from src.analytics import analytics_tracker
 from src.billing import (
     create_checkout_session,
     get_subscription_status,
     handle_webhook_event,
 )
-from src.voice_metrics import MAX_BODY_BYTES, record_metric
+from src.voice_metrics import MAX_BODY_BYTES, record_metric, sanitize_metric
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -589,12 +590,6 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # Capture tool results for board action extraction
     tool_results: list[str] = []
 
-    def _on_tool_complete(tool_call_id, tool_name, args, result):
-        logger.info("Tool called: %s args=%s result=%s", tool_name, str(args)[:200], str(result)[:200])
-        tool_results.append(result)
-
-    agent.tool_complete_callback = _on_tool_complete
-
     loop = asyncio.get_event_loop()
 
     async def event_stream():
@@ -607,6 +602,33 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _on_delta(text):
             if text:
                 loop.call_soon_threadsafe(queue.put_nowait, ("delta", text))
+
+        # Tool-activity frames: emit tool_call when a tool starts and tool_result
+        # when it completes so the frontend's ToolIndicator lights up during a
+        # tool-using exchange. Callbacks run on the executor thread, so hop onto
+        # the loop via call_soon_threadsafe (same bridge as _on_delta).
+        def _on_tool_start(tool_call_id, tool_name, args):
+            loop.call_soon_threadsafe(queue.put_nowait, ("tool_call", tool_name))
+
+        def _on_tool_complete(tool_call_id, tool_name, args, result):
+            logger.info(
+                "Tool called: %s args=%s result=%s",
+                tool_name, str(args)[:200], str(result)[:200],
+            )
+            tool_results.append(result)
+            ok = True
+            try:
+                parsed = json.loads(result) if isinstance(result, str) else result
+                if isinstance(parsed, dict) and "error" in parsed:
+                    ok = False
+            except (json.JSONDecodeError, TypeError):
+                pass
+            loop.call_soon_threadsafe(
+                queue.put_nowait, ("tool_result", {"tool": tool_name, "ok": ok})
+            )
+
+        agent.tool_start_callback = _on_tool_start
+        agent.tool_complete_callback = _on_tool_complete
 
         def _run():
             try:
@@ -629,6 +651,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             if kind == "delta":
                 streamed_any = True
                 yield _sse({"delta": payload})
+            elif kind == "tool_call":
+                yield _sse({"tool_call": payload})
+            elif kind == "tool_result":
+                yield _sse({"tool_result": payload})
             elif kind == "result":
                 result_text = payload
             elif kind == "error":
@@ -664,6 +690,69 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         yield _sse({"done": True, "session_id": session.id})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+class VoicePromptRequest(BaseModel):
+    fen: Optional[str] = None
+    locale: Optional[str] = None
+    tools_available: bool = True
+
+
+# Short-lived cache for the voice profile fetch (the one Supabase round-trip in
+# the mint path). Keyed by user, TTL'd so a burst of mints doesn't re-fetch the
+# same profile. The prompt itself is rebuilt every call (cheap, in-memory) and
+# the mint rate limit is enforced BEFORE the cache lookup — so caching never lets
+# an extra session spawn through.
+_VOICE_PROFILE_TTL = 300  # seconds (5 min)
+_voice_profile_cache: dict[str, tuple[float, UserProfile]] = {}
+_voice_profile_lock = threading.Lock()
+
+
+def _get_voice_profile(user_id: str) -> UserProfile:
+    """Return the user's profile, cached for ~5 min to spare a Supabase hit."""
+    now = time.monotonic()
+    with _voice_profile_lock:
+        entry = _voice_profile_cache.get(user_id)
+        if entry and entry[0] > now:
+            return entry[1]
+    profile = load_user_profile(user_id)
+    with _voice_profile_lock:
+        _voice_profile_cache[user_id] = (now + _VOICE_PROFILE_TTL, profile)
+    return profile
+
+
+def clear_voice_profile_cache() -> None:
+    """Empty the voice profile cache (used by tests)."""
+    with _voice_profile_lock:
+        _voice_profile_cache.clear()
+
+
+@app.post("/api/coach/voice/prompt")
+async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
+    """Render the single-source spoken system prompt + profile context for voice.
+
+    The live-token route calls this at mint time so the voice prompt renders from
+    the same SOUL persona + profile the text coach uses (no hand-written drift).
+    Also enforces the voice token-mint rate limit — a 429 here tells the route to
+    refuse to mint. The route fails soft on any *other* error (falls back to its
+    hardcoded prompt), so this endpoint only needs to be correct, not defensive.
+    """
+    user_id = _get_user_id(request)
+
+    # Cap voice-session spawns per user/hour (same mechanism as text, own limiter).
+    # Enforced before the profile cache so a cache hit can never bypass the limit.
+    await enforce_rate_limit(request, limiter=voice_token_rate_limiter)
+
+    profile = _get_voice_profile(user_id)
+    profile_context = profile.to_prompt_context()
+    system_prompt = build_voice_prompt(
+        soul_content=_soul_content,
+        user_profile=profile,
+        board_fen=body.fen,
+        locale=body.locale,
+        tools_available=body.tools_available,
+    )
+    return {"system_prompt": system_prompt, "profile_context": profile_context}
 
 
 @app.get("/api/coach/sessions")
@@ -1154,7 +1243,18 @@ async def coach_metrics(request: Request):
             payload = json.loads(raw)
         except (json.JSONDecodeError, ValueError):
             payload = None
-        record_metric(payload)
+        record_metric(payload)  # JSONL telemetry (unchanged)
+
+        # Session-lifecycle metering: on the `end` beacon, record one voice
+        # session row (with duration) into token_usage. Uses the sanitized
+        # record so the sessionId/session_ms are already validated & clamped.
+        record = sanitize_metric(payload)
+        if record is not None and record.get("event") == "end":
+            record_voice_event(
+                user_id,
+                record.get("sessionId"),
+                duration_ms=record.get("session_ms"),
+            )
 
     return Response(status_code=204)
 

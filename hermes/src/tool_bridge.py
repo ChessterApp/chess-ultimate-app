@@ -23,6 +23,8 @@ from starlette.concurrency import run_in_threadpool
 
 from src import config
 from src.board_protocol import ActionType
+from src.cost_monitor import record_voice_event
+from src.middleware.rate_limiter import enforce_rate_limit, voice_tool_rate_limiter
 from src.sessions import session_store
 from src.tool_selector import select_tool_subset
 
@@ -270,12 +272,21 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
 
     Returns ``{"result": ..., "board_actions": [...]}`` on success, or
     ``{"error": ...}`` (HTTP 200) when the tool fails — the voice model always
-    needs a tool response, even on failure. Unknown tool -> 404.
+    needs a tool response, even on failure. Unknown tool -> 404. Rate limited
+    per user/tier (429 when exceeded); each invocation is metered to
+    ``token_usage`` with ``surface="voice"``.
     """
     user_id = _get_user_id(request)
 
+    # Same sliding-window mechanism/tiers as text chat, on the voice-tool limiter.
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+
     if not _is_chess_tool(name):
         raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
+
+    # Meter the voice tool invocation (fire-and-forget). One row per call so the
+    # per-session tool-call count can be reconstructed for cost estimation.
+    record_voice_event(user_id, body.session_id, tool_name=name)
 
     args = _override_identity_args(name, body.args or {}, user_id)
 

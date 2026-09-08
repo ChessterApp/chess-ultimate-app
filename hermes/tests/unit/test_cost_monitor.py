@@ -136,3 +136,70 @@ class TestCostMonitor:
         assert "google/gemini-2.5-flash" in MODEL_COSTS
         assert "anthropic/claude-sonnet-4-5" in MODEL_COSTS
         assert "anthropic/claude-opus-4" in MODEL_COSTS
+
+
+@pytest.mark.unit
+class TestVoiceMetering:
+    """Task 1: voice rows carry tool_name/duration_ms and surface='voice'."""
+
+    def test_record_usage_with_voice_fields(self):
+        monitor = CostMonitor()
+        with patch.object(monitor, "_persist"):
+            record = monitor.record_usage(
+                user_id="u1",
+                session_id="s1",
+                model="gemini-live-voice",
+                prompt_tokens=0,
+                completion_tokens=0,
+                surface="voice",
+                tool_name="analyze_position",
+                duration_ms=42000,
+            )
+        assert record.surface == "voice"
+        assert record.tool_name == "analyze_position"
+        assert record.duration_ms == 42000
+
+    def test_persist_omits_voice_fields_when_unset(self):
+        monitor = CostMonitor()
+        with patch("src.cost_monitor.httpx.post") as mock_post, patch.dict(
+            "os.environ",
+            {"SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_KEY": "k"},
+        ):
+            monitor.record_usage("u1", "s1", "some-model", 10, 5, surface="text")
+        sent = mock_post.call_args.kwargs["json"]
+        # Text rows never send the voice-only columns (no schema dependency).
+        assert "tool_name" not in sent
+        assert "duration_ms" not in sent
+
+    def test_persist_includes_voice_fields_when_set(self):
+        monitor = CostMonitor()
+        with patch("src.cost_monitor.httpx.post") as mock_post, patch.dict(
+            "os.environ",
+            {"SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_KEY": "k"},
+        ):
+            monitor.record_usage(
+                "u1", "s1", "gemini-live-voice", 0, 0,
+                surface="voice", tool_name="board_control", duration_ms=1234,
+            )
+        sent = mock_post.call_args.kwargs["json"]
+        assert sent["surface"] == "voice"
+        assert sent["tool_name"] == "board_control"
+        assert sent["duration_ms"] == 1234
+
+    def test_record_voice_event_persists_voice_row(self):
+        from src import cost_monitor as cm
+
+        captured = {}
+
+        def _fake_record(**kwargs):
+            captured.update(kwargs)
+
+        with patch.object(cm.cost_monitor, "record_usage", side_effect=_fake_record):
+            t = None
+            cm.record_voice_event("u1", "s1", tool_name="analyze_position")
+            # Helper runs on a daemon thread; give it a moment to complete.
+            import time as _t
+            _t.sleep(0.2)
+        assert captured.get("surface") == "voice"
+        assert captured.get("tool_name") == "analyze_position"
+        assert captured.get("model") == cm.VOICE_MODEL

@@ -12,6 +12,10 @@ from src.middleware.rate_limiter import (
     DEFAULT_TIER,
     enforce_rate_limit,
     rate_limiter,
+    voice_tool_rate_limiter,
+    voice_token_rate_limiter,
+    VOICE_TOOL_TIER_LIMITS,
+    VOICE_TOKEN_TIER_LIMITS,
 )
 
 
@@ -143,3 +147,38 @@ class TestEnforceRateLimit:
             assert "rate_limit_exceeded" in str(exc_info.value.detail)
         finally:
             rl_module.rate_limiter = original
+
+
+@pytest.mark.unit
+class TestVoiceLimiters:
+    """Task 1: dedicated voice limiters reuse the same mechanism/tiers as text."""
+
+    def test_voice_limiters_have_free_premium_pro_tiers(self):
+        for limits in (VOICE_TOOL_TIER_LIMITS, VOICE_TOKEN_TIER_LIMITS):
+            assert set(limits) == {"free", "premium", "pro"}
+            # Higher tiers always get >= the ceiling of lower tiers.
+            assert limits["free"] <= limits["premium"] <= limits["pro"]
+
+    def test_voice_tool_limit_higher_than_text(self):
+        # A spoken turn fires several tool calls, so voice tool limits exceed the
+        # one-per-message text chat limits.
+        assert VOICE_TOOL_TIER_LIMITS["free"] > TIER_LIMITS["free"]
+
+    def test_voice_token_limiter_uses_hour_window(self):
+        assert voice_token_rate_limiter._window == 3600
+
+    @pytest.mark.asyncio
+    async def test_enforce_accepts_custom_limiter(self):
+        limiter = SlidingWindowRateLimiter(tier_limits={"free": 1}, window=60)
+        request = MagicMock()
+        request.headers = {"x-user-id": "voice-user", "x-subscription-tier": "free"}
+
+        # First call against the custom limiter passes; second is 429 — and the
+        # global text limiter is untouched.
+        await enforce_rate_limit(request, limiter=limiter)
+        with pytest.raises(HTTPException) as exc_info:
+            await enforce_rate_limit(request, limiter=limiter)
+        assert exc_info.value.status_code == 429
+        # The default text limiter still has full budget for this user.
+        allowed, _ = rate_limiter.check("voice-user", "free")
+        assert allowed is True

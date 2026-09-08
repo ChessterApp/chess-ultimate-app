@@ -438,7 +438,7 @@ describe('POST /api/coach/live-token', () => {
 
   // ── Parallelized Hermes fetches ─────────────────────────────────────────────
 
-  it('fetches the recap and tools concurrently (not serialized)', async () => {
+  it('fetches the voice prompt, recap and tools concurrently (not serialized)', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
     createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
@@ -459,7 +459,83 @@ describe('POST /api/coach/live-token', () => {
     const { POST } = await import('../live-token/route');
     await POST(makeRequest({ session_id: 'sess_1' }));
 
-    // Both Hermes calls overlapped.
-    expect(maxInFlight).toBe(2);
+    // All three Hermes calls (voice/prompt, recap, tools) overlapped.
+    expect(maxInFlight).toBe(3);
+  });
+
+  // ── Single-source prompt + mint rate limit (Tasks 2/3 & 1) ──────────────────
+
+  it('uses the single-source Hermes prompt when /voice/prompt returns 200', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            system_prompt: 'HERMES SINGLE SOURCE PROMPT for the spoken coach.',
+            profile_context: 'Student rating: 1500',
+          }),
+        };
+      }
+      if (String(url).includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: [] }) };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen' }));
+    expect(response.status).toBe(200);
+    // The Hermes-rendered prompt is locked into the token, not the hardcoded one.
+    expect(systemInstructionFromMint()).toContain('HERMES SINGLE SOURCE PROMPT');
+  });
+
+  it('returns 429 and does NOT mint when Hermes rate-limits the mint', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        return {
+          ok: false,
+          status: 429,
+          json: async () => ({ detail: { retry_after: 120 } }),
+        };
+      }
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(429);
+    const data = await response.json();
+    expect(data.error).toBe('rate_limited');
+    expect(data.retry_after).toBe(120);
+    // The Gemini mint must never have been called.
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the hardcoded prompt when /voice/prompt is unreachable', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        throw new Error('hermes down');
+      }
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(200);
+    // Hardcoded fallback persona is used (voice must never break).
+    expect(systemInstructionFromMint()).toContain("Chesster's chess coach");
   });
 });

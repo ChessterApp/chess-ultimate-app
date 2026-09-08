@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from src import tool_bridge
 from src.server import app
+from src.middleware.rate_limiter import voice_tool_rate_limiter
 from src.sessions import session_store
 from src.tool_bridge import (
     _UNSUPPORTED_SCHEMA_KEYS,
@@ -29,8 +30,10 @@ USER_HEADERS = {"X-User-Id": "test-user-123"}
 @pytest.fixture(autouse=True)
 def _clear_sessions():
     session_store._sessions.clear()
+    voice_tool_rate_limiter.reset()
     yield
     session_store._sessions.clear()
+    voice_tool_rate_limiter.reset()
 
 
 def _walk_keys(node):
@@ -262,3 +265,72 @@ class TestDispatchErrorRecovery:
         body = resp.json()
         assert body["error"]["type"] == "ValueError"
         assert body["error"]["recoverable"] is True
+
+
+@pytest.mark.unit
+class TestToolDispatchRateLimitAndMetering:
+    """Task 1: voice tool path is rate limited (same mechanism/tiers as text)
+    and every invocation is metered to token_usage (surface='voice')."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+        voice_tool_rate_limiter.reset()
+
+    def teardown_method(self):
+        voice_tool_rate_limiter.reset()
+
+    @patch("src.tool_bridge.record_voice_event")
+    def test_dispatch_meters_voice_tool_call(self, mock_record):
+        def _ok(name, args, **kwargs):
+            return json.dumps({"ok": True})
+
+        with patch.object(tool_bridge.registry, "dispatch", side_effect=_ok):
+            resp = self.client.post(
+                "/api/coach/tool/get_user_progress",
+                headers=USER_HEADERS,
+                json={"args": {}, "session_id": "s1"},
+            )
+        assert resp.status_code == 200
+        mock_record.assert_called_once()
+        pos, kwargs = mock_record.call_args
+        assert pos[0] == "test-user-123"
+        assert pos[1] == "s1"
+        assert kwargs.get("tool_name") == "get_user_progress"
+
+    @patch("src.tool_bridge.record_voice_event")
+    def test_dispatch_rate_limited_after_tier_limit(self, mock_record):
+        def _ok(name, args, **kwargs):
+            return json.dumps({"ok": True})
+
+        statuses = []
+        with patch.object(tool_bridge.registry, "dispatch", side_effect=_ok):
+            for _ in range(32):
+                statuses.append(
+                    self.client.post(
+                        "/api/coach/tool/get_user_progress",
+                        headers=USER_HEADERS,
+                        json={"args": {}},
+                    ).status_code
+                )
+        # Free tier: 30 voice tool calls/min, then 429 with a clear payload.
+        assert statuses.count(200) == 30
+        assert 429 in statuses
+
+    @patch("src.tool_bridge.record_voice_event")
+    def test_rate_limit_429_payload(self, mock_record):
+        def _ok(name, args, **kwargs):
+            return json.dumps({"ok": True})
+
+        with patch.object(tool_bridge.registry, "dispatch", side_effect=_ok):
+            last = None
+            for _ in range(31):
+                last = self.client.post(
+                    "/api/coach/tool/get_user_progress",
+                    headers=USER_HEADERS,
+                    json={"args": {}},
+                )
+        assert last.status_code == 429
+        detail = last.json()["detail"]
+        assert detail["error"] == "rate_limit_exceeded"
+        assert detail["tier"] == "free"
+        assert detail["retry_after"] >= 1

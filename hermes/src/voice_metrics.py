@@ -25,11 +25,17 @@ METRICS_DIR = os.path.join(
 # Maximum accepted request body size, in bytes.
 MAX_BODY_BYTES = 4096
 
-_VALID_EVENTS = frozenset({"connect", "turn", "tool", "error"})
+# ``end`` is the session-lifecycle beacon fired on disconnect; it carries
+# ``session_ms`` (the whole session's duration) and is the hook the server uses
+# to meter a voice session row.
+_VALID_EVENTS = frozenset({"connect", "turn", "tool", "error", "end"})
 
 # Non-negative millisecond timings we accept, clamped to a sane ceiling.
 _MS_FIELDS = ("ttfa_ms", "connect_ms", "token_ms", "tool_ms")
 _MS_MAX = 600_000  # 10 minutes — anything larger is noise
+# Whole-session duration; a Live session can run to the 30-min token expiry, so
+# it gets a larger ceiling than the per-turn latency fields above.
+_SESSION_MS_MAX = 3_600_000  # 1 hour
 _STR_MAX = 200  # cap free-form string fields (sessionId, tool_name)
 
 
@@ -80,6 +86,10 @@ def sanitize_metric(payload: Any) -> Optional[dict]:
         ms = _clamp_int(payload.get(field), 0, _MS_MAX)
         if ms is not None:
             record[field] = ms
+
+    session_ms = _clamp_int(payload.get("session_ms"), 0, _SESSION_MS_MAX)
+    if session_ms is not None:
+        record["session_ms"] = session_ms
 
     tool_name = _clamp_str(payload.get("tool_name"))
     if tool_name:

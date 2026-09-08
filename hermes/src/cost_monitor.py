@@ -6,6 +6,7 @@ a GET /api/coach/usage endpoint for spend breakdown.
 
 import logging
 import os
+import threading
 import time
 from typing import Optional
 
@@ -23,6 +24,11 @@ MODEL_COSTS = {
 
 DEFAULT_COST = {"input": 0.001, "output": 0.005}
 
+# Synthetic model label for voice (Gemini Live) rows. Exact audio token counts
+# aren't available server-side, so voice rows carry 0 tokens and record the
+# tool name / session duration instead so spend can be estimated downstream.
+VOICE_MODEL = "gemini-live-voice"
+
 
 class TokenUsageRecord(BaseModel):
     user_id: str
@@ -33,6 +39,11 @@ class TokenUsageRecord(BaseModel):
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
     surface: str = "text"
+    # Voice-only metering fields (nullable; omitted from the text insert):
+    #   tool_name    — the tool a voice tool-call row is for
+    #   duration_ms  — a voice session's length, on the session-end row
+    tool_name: Optional[str] = None
+    duration_ms: Optional[int] = None
     timestamp: float = Field(default_factory=time.time)
 
 
@@ -50,11 +61,16 @@ class CostMonitor:
         prompt_tokens: int,
         completion_tokens: int,
         surface: str = "text",
+        tool_name: Optional[str] = None,
+        duration_ms: Optional[int] = None,
     ) -> TokenUsageRecord:
         """Record a token usage event and persist to Supabase.
 
         ``surface`` is the coach surface the turn came from (``text`` chat,
-        ``analysis``, or game ``review``) so spend can be broken down per feature.
+        ``analysis``, ``review``, or ``voice``) so spend can be broken down per
+        feature. ``tool_name`` / ``duration_ms`` are voice-only metering fields
+        (a voice tool-call row names the tool; a voice session-end row carries
+        the session length) and are omitted from the persisted row when unset.
         """
         total = prompt_tokens + completion_tokens
         cost_rates = MODEL_COSTS.get(model, DEFAULT_COST)
@@ -72,6 +88,8 @@ class CostMonitor:
             total_tokens=total,
             estimated_cost_usd=round(cost, 6),
             surface=surface,
+            tool_name=tool_name,
+            duration_ms=duration_ms,
         )
         self._records.append(record)
         self._persist(record)
@@ -121,19 +139,27 @@ class CostMonitor:
         if not url or not key:
             return
 
+        payload = {
+            "user_id": record.user_id,
+            "session_id": record.session_id,
+            "model": record.model,
+            "prompt_tokens": record.prompt_tokens,
+            "completion_tokens": record.completion_tokens,
+            "total_tokens": record.total_tokens,
+            "estimated_cost_usd": record.estimated_cost_usd,
+            "surface": record.surface,
+        }
+        # Voice-only columns are sent only when set, so the text/analysis insert
+        # is byte-identical to before (and needs no schema change).
+        if record.tool_name is not None:
+            payload["tool_name"] = record.tool_name
+        if record.duration_ms is not None:
+            payload["duration_ms"] = record.duration_ms
+
         try:
             httpx.post(
                 f"{url}/rest/v1/token_usage",
-                json={
-                    "user_id": record.user_id,
-                    "session_id": record.session_id,
-                    "model": record.model,
-                    "prompt_tokens": record.prompt_tokens,
-                    "completion_tokens": record.completion_tokens,
-                    "total_tokens": record.total_tokens,
-                    "estimated_cost_usd": record.estimated_cost_usd,
-                    "surface": record.surface,
-                },
+                json=payload,
                 headers={
                     "apikey": key,
                     "Authorization": f"Bearer {key}",
@@ -147,3 +173,36 @@ class CostMonitor:
 
 # Global instance
 cost_monitor = CostMonitor()
+
+
+def record_voice_event(
+    user_id: str,
+    session_id: Optional[str],
+    *,
+    tool_name: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+) -> None:
+    """Fire-and-forget: record one voice metering row (``surface="voice"``).
+
+    Used for both a voice tool-call row (pass ``tool_name``) and a voice
+    session-end row (pass ``duration_ms``). Runs the persist on a daemon thread
+    so the blocking Supabase write never slows the request path, and swallows
+    any failure — metering must never break the voice session.
+    """
+
+    def _run() -> None:
+        try:
+            cost_monitor.record_usage(
+                user_id=user_id,
+                session_id=session_id or "",
+                model=VOICE_MODEL,
+                prompt_tokens=0,
+                completion_tokens=0,
+                surface="voice",
+                tool_name=tool_name,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            logger.exception("voice usage recording failed")
+
+    threading.Thread(target=_run, daemon=True).start()

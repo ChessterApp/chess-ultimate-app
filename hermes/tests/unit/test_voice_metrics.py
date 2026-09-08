@@ -138,3 +138,38 @@ class TestMetricsEndpoint:
         )
         assert resp.status_code == 204
         assert _read_lines(_tmp_metrics_dir) == []
+
+
+@pytest.mark.unit
+class TestSessionEndEvent:
+    """Task 1: the 'end' lifecycle event + session_ms are accepted and clamped."""
+
+    def test_end_event_accepted_with_session_ms(self):
+        record = sanitize_metric(
+            {"sessionId": "s1", "event": "end", "session_ms": 42000}
+        )
+        assert record is not None
+        assert record["event"] == "end"
+        assert record["session_ms"] == 42000
+
+    def test_session_ms_clamped_to_ceiling(self):
+        record = sanitize_metric(
+            {"sessionId": "s1", "event": "end", "session_ms": 9_999_999_999}
+        )
+        assert record is not None
+        assert record["session_ms"] == 3_600_000  # 1h ceiling
+
+    def test_end_event_written_to_jsonl(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(voice_metrics, "METRICS_DIR", str(tmp_path))
+        assert record_metric(
+            {"sessionId": "s1", "event": "end", "session_ms": 5000}
+        ) is True
+        files = list(tmp_path.glob("voice-latency-*.jsonl"))
+        assert files
+        line = json.loads(files[0].read_text().strip())
+        assert line["event"] == "end"
+        assert line["session_ms"] == 5000
+
+    def test_negative_session_ms_clamped_to_zero(self):
+        record = sanitize_metric({"sessionId": "s1", "event": "end", "session_ms": -5})
+        assert record["session_ms"] == 0

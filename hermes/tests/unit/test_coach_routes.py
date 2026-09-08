@@ -6,9 +6,13 @@ from unittest.mock import patch, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.server import app
+from src.server import app, clear_voice_profile_cache
 from src.sessions import session_store, Session
-from src.middleware.rate_limiter import rate_limiter
+from src.middleware.rate_limiter import (
+    rate_limiter,
+    voice_tool_rate_limiter,
+    voice_token_rate_limiter,
+)
 from src.user_profile import UserProfile
 
 
@@ -17,9 +21,15 @@ def _clear_sessions():
     """Clear session store and rate-limit state between tests."""
     session_store._sessions.clear()
     rate_limiter.reset()
+    voice_tool_rate_limiter.reset()
+    voice_token_rate_limiter.reset()
+    clear_voice_profile_cache()
     yield
     session_store._sessions.clear()
     rate_limiter.reset()
+    voice_tool_rate_limiter.reset()
+    voice_token_rate_limiter.reset()
+    clear_voice_profile_cache()
 
 
 USER_HEADERS = {"X-User-Id": "test-user-123"}
@@ -578,3 +588,153 @@ class TestSaveUserProfile:
             profile, supabase_url="https://fake.supabase.co", supabase_key="key"
         )
         assert result is False
+
+
+@pytest.mark.unit
+class TestCoachChatToolFrames:
+    """SSE tool-activity frames (Task 4): tool_call on start, tool_result on complete."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_emits_tool_call_and_result_frames(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+
+        def _chat(message, stream_callback=None):
+            # Server wires tool_start_callback / tool_complete_callback onto the
+            # agent before .chat runs; a real tool-using turn fires both.
+            agent_instance.tool_start_callback("c1", "analyze_position", {})
+            agent_instance.tool_complete_callback(
+                "c1", "analyze_position", {}, '{"eval": 0.3}'
+            )
+            if stream_callback:
+                stream_callback("Here is the eval.")
+            return "Here is the eval."
+
+        agent_instance.chat.side_effect = _chat
+        mock_agent.return_value = agent_instance
+
+        resp = self.client.post(
+            "/api/coach/chat", headers=USER_HEADERS, json={"message": "analyze"}
+        )
+        events = _parse_sse(resp.text)
+        calls = [e for e in events if "tool_call" in e]
+        results = [e for e in events if "tool_result" in e]
+        assert calls and calls[0]["tool_call"] == "analyze_position"
+        assert results and results[0]["tool_result"]["tool"] == "analyze_position"
+        assert results[0]["tool_result"]["ok"] is True
+
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_tool_result_marks_failure(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+
+        def _chat(message, stream_callback=None):
+            agent_instance.tool_start_callback("c1", "search_master_games", {})
+            agent_instance.tool_complete_callback(
+                "c1", "search_master_games", {}, '{"error": "boom"}'
+            )
+            return "Could not search."
+
+        agent_instance.chat.side_effect = _chat
+        mock_agent.return_value = agent_instance
+
+        resp = self.client.post(
+            "/api/coach/chat", headers=USER_HEADERS, json={"message": "find games"}
+        )
+        events = _parse_sse(resp.text)
+        results = [e for e in events if "tool_result" in e]
+        assert results and results[0]["tool_result"]["ok"] is False
+
+
+@pytest.mark.unit
+class TestVoicePromptEndpoint:
+    """POST /api/coach/voice/prompt (Task 2/3): single-source prompt + profile."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    def test_requires_user_id(self):
+        resp = self.client.post("/api/coach/voice/prompt", json={})
+        assert resp.status_code == 401
+
+    @patch("src.server.load_user_profile")
+    def test_returns_prompt_and_profile_context(self, mock_load):
+        mock_load.return_value = UserProfile(
+            user_id="test-user-123", rating=1650, weaknesses=["endgames"]
+        )
+        resp = self.client.post(
+            "/api/coach/voice/prompt",
+            headers=USER_HEADERS,
+            json={"fen": "8/8/8/8/8/8/8/K6k w - - 0 1", "locale": "en"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "system_prompt" in body and "profile_context" in body
+        # Profile parity: the rendered profile context is present in both.
+        assert "Student rating: 1650" in body["profile_context"]
+        assert "Student rating: 1650" in body["system_prompt"]
+        # Spoken-style + FEN present in the single-source prompt.
+        assert "Speaking Style (voice mode)" in body["system_prompt"]
+        assert "8/8/8/8/8/8/8/K6k w - - 0 1" in body["system_prompt"]
+
+    @patch("src.server.load_user_profile")
+    def test_profile_cached_across_calls(self, mock_load):
+        mock_load.return_value = UserProfile(user_id="test-user-123", rating=1400)
+        for _ in range(3):
+            resp = self.client.post(
+                "/api/coach/voice/prompt", headers=USER_HEADERS, json={}
+            )
+            assert resp.status_code == 200
+        # The Supabase profile fetch is cached — one load for repeated mints.
+        assert mock_load.call_count == 1
+
+    @patch("src.server.load_user_profile")
+    def test_token_mint_rate_limited(self, mock_load):
+        mock_load.return_value = UserProfile(user_id="test-user-123")
+        # Free tier allows 10 mints/hour; the 11th is rejected.
+        statuses = []
+        for _ in range(12):
+            statuses.append(
+                self.client.post(
+                    "/api/coach/voice/prompt", headers=USER_HEADERS, json={}
+                ).status_code
+            )
+        assert statuses.count(200) == 10
+        assert 429 in statuses
+
+
+@pytest.mark.unit
+class TestVoiceSessionMetering:
+    """POST /api/coach/metrics 'end' beacon meters a voice session row (Task 1)."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @patch("src.server.record_voice_event")
+    def test_end_event_records_voice_session(self, mock_record):
+        resp = self.client.post(
+            "/api/coach/metrics",
+            headers=USER_HEADERS,
+            json={"sessionId": "sess-xyz", "event": "end", "session_ms": 42000},
+        )
+        assert resp.status_code == 204
+        mock_record.assert_called_once()
+        _, kwargs = mock_record.call_args
+        assert kwargs.get("duration_ms") == 42000
+        assert mock_record.call_args[0][0] == "test-user-123"
+        assert mock_record.call_args[0][1] == "sess-xyz"
+
+    @patch("src.server.record_voice_event")
+    def test_non_end_event_does_not_meter(self, mock_record):
+        resp = self.client.post(
+            "/api/coach/metrics",
+            headers=USER_HEADERS,
+            json={"sessionId": "sess-xyz", "event": "connect", "connect_ms": 120},
+        )
+        assert resp.status_code == 204
+        mock_record.assert_not_called()

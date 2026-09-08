@@ -177,5 +177,38 @@ describe('Coach API Routes', () => {
         session_id: 'sess-1',
       });
     });
+
+    it('surfaces a clear rate-limit error payload on Hermes 429', async () => {
+      (auth as any).mockResolvedValue({ userId: 'user_123' });
+
+      global.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 429,
+        json: async () => ({
+          detail: {
+            error: 'rate_limit_exceeded',
+            message: 'Rate limit exceeded for free tier. Limit: 30 requests per minute.',
+            retry_after: 12,
+            tier: 'free',
+          },
+        }),
+      })) as any;
+
+      const { POST } = await import('../../coach/tool/route');
+      const { NextRequest } = await import('next/server');
+      const request = new NextRequest('http://localhost:3000/api/coach/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'analyze_position', args: {} }),
+      });
+
+      const response = await POST(request as any);
+      expect(response.status).toBe(429);
+      const data = await response.json();
+      // The voice hook reads data.error back to the model (coach says it's busy).
+      expect(data.error).toContain('Rate limit exceeded');
+      expect(data.rate_limited).toBe(true);
+      expect(data.retry_after).toBe(12);
+    });
   });
 });

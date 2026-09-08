@@ -254,3 +254,96 @@ def build_system_prompt(
         sections.append(f"## Current Board State\n" + "\n".join(board_lines))
 
     return "\n\n".join(sections)
+
+
+# Spoken-style adaptation layer: turns the shared SOUL persona into a live-voice
+# coach. Kept as a constant so the single source of truth for the *persona* stays
+# SOUL.md while the *spoken* delivery rules live here (mirrors the directives the
+# live-token route used to hand-write, so voice behavior is preserved).
+VOICE_STYLE_LAYER = (
+    "## Speaking Style (voice mode)\n"
+    "You are now speaking out loud in a live voice conversation — the same "
+    "coach the player types with. Talk the way a coach sitting beside the board "
+    "would:\n"
+    "- Keep sentences short, natural, and conversational. NO markdown, NO bullet "
+    "points, NO headings, NO long monologues — this is spoken, not written.\n"
+    "- Refer to squares, pieces, threats, and simple plans out loud (e.g. "
+    "\"the knight on d5\", \"the pawn on e4\").\n"
+    "- Ask a short question when you're unsure what the player sees, rather than "
+    "lecturing. Lead them to the idea instead of just handing over the move.\n"
+    "- Never break character or say things like \"as a chess AI\"."
+)
+
+VOICE_TOOL_LAYER = (
+    "## Tools (voice mode)\n"
+    "You have tools. Use board_control to demonstrate ideas directly on the "
+    "board — set positions, draw arrows, highlight squares, step through moves — "
+    "and use the engine and database tools (analyze the position, search master "
+    "games, opening and position stats) instead of guessing or inventing lines.\n"
+    "CRITICAL for a live voice conversation: the moment you decide to call a "
+    "tool, FIRST speak a brief spoken acknowledgment out loud (something like "
+    "\"let me check that\" or \"one sec, looking now\") and THEN make the tool "
+    "call. Never go silent while a tool runs — the player should always hear you "
+    "respond right away."
+)
+
+
+def build_voice_prompt(
+    soul_content: str,
+    user_profile: Optional[UserProfile] = None,
+    board_fen: Optional[str] = None,
+    locale: Optional[str] = None,
+    tools_available: bool = True,
+) -> str:
+    """Build the spoken system prompt for the Gemini Live voice coach.
+
+    Renders from the SAME sources as the text prompt so the two modes can't
+    drift: the SOUL.md persona core, then a spoken-style adaptation layer (short
+    sentences, no markdown, speak-before-tool-call), the student profile, and a
+    compact current-position line. Deliberately omits the heavy tactical board
+    analysis the text path injects — voice minting is latency-sensitive and the
+    spoken coach reads the board out loud rather than from an analysis dump.
+
+    Args:
+        soul_content: The SOUL.md persona text (single source of truth).
+        user_profile: Optional profile for personalization (rating/goals/weaknesses).
+        board_fen: Optional current FEN to anchor the conversation.
+        locale: Optional UI locale code ('ru', 'kz', 'en').
+        tools_available: Include the spoken tool-use directives (default True).
+
+    Returns:
+        Complete spoken system prompt string.
+    """
+    sections = []
+
+    # Same mandatory language directive the text prompt leads with.
+    if locale and locale != "en":
+        language_name = LOCALE_TO_LANGUAGE.get(locale, locale)
+        sections.append(
+            f"CRITICAL LANGUAGE RULE: You MUST respond entirely in {language_name}. "
+            f"All spoken explanations, questions, and chess commentary must be in "
+            f"{language_name}. This is non-negotiable — never switch to English "
+            "unless the player speaks to you in English."
+        )
+
+    # Persona core (shared with text) + spoken delivery overrides.
+    sections.append(soul_content.rstrip())
+    sections.append(VOICE_STYLE_LAYER)
+
+    # Student profile — same context text chat gets (Task 2 parity).
+    if user_profile:
+        context = user_profile.to_prompt_context()
+        if context:
+            sections.append(f"## Student Profile\n{context}")
+
+    # Compact current-position anchor (no tactical-analysis injection).
+    if board_fen:
+        sections.append(
+            "## Current Board State\n"
+            f"The current position (FEN) is: {board_fen}. Refer to it when relevant."
+        )
+
+    if tools_available:
+        sections.append(VOICE_TOOL_LAYER)
+
+    return "\n\n".join(sections)

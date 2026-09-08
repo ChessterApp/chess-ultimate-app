@@ -56,7 +56,9 @@ const TOOL_CALL_TIMEOUT_MS = 10000;
 const HEALTHY_RECONNECT_RESET_MS = 60000;
 
 // Latency telemetry contract shared with Hermes POST /api/coach/metrics.
-type LiveMetricEvent = 'connect' | 'turn' | 'tool' | 'error';
+// 'end' is the session-lifecycle beacon fired on disconnect (carries session_ms);
+// the server meters a voice session row from it.
+type LiveMetricEvent = 'connect' | 'turn' | 'tool' | 'error' | 'end';
 interface LiveMetricRecord {
   sessionId?: string;
   turn: number;
@@ -67,6 +69,8 @@ interface LiveMetricRecord {
   tool_name?: string;
   tool_ms?: number;
   prompt_bytes?: number;
+  /** Whole-session duration in ms, sent on the 'end' beacon. */
+  session_ms?: number;
   /** Actual failure detail (DOMException name+message, or String(err)) for 'error' events. */
   error?: string;
   ts: number;
@@ -182,6 +186,10 @@ export default function useGeminiLive(
   // Fire-and-forget a latency record to Hermes via the metrics proxy. This runs
   // OFF the audio hot path: never awaited, fully wrapped in try/catch, so a slow
   // or failing metrics endpoint can never delay or break voice.
+  // Wall-clock start of the current live session (set on connect), used to
+  // compute session_ms for the 'end' metering beacon.
+  const sessionStartRef = useRef<number | null>(null);
+
   const reportMetric = useCallback(
     (partial: Partial<LiveMetricRecord> & { event: LiveMetricEvent }) => {
       const record: LiveMetricRecord = {
@@ -194,6 +202,7 @@ export default function useGeminiLive(
         tool_name: partial.tool_name,
         tool_ms: partial.tool_ms,
         prompt_bytes: partial.prompt_bytes,
+        session_ms: partial.session_ms,
         error: partial.error,
         ts: Date.now(),
       };
@@ -748,6 +757,12 @@ export default function useGeminiLive(
       });
       const connectMs = Math.round(performance.now() - connectStart);
       sessionRef.current = session;
+      // Anchor session start for the 'end' duration beacon. Only set on the
+      // first successful open so a mid-session reconnect keeps the original
+      // start (session_ms reflects the whole conversation, not the last leg).
+      if (sessionStartRef.current === null) {
+        sessionStartRef.current = performance.now();
+      }
 
       // Record connect-phase latency (token mint + WebSocket setup). Off the
       // hot path — a fresh turn's TTFA is measured separately.
@@ -862,10 +877,19 @@ export default function useGeminiLive(
 
   const disconnect = useCallback(() => {
     userStoppedRef.current = true;
+    // Session-end metering beacon: report the whole session's duration so the
+    // server can record a voice session row. Only when a session actually opened.
+    if (sessionStartRef.current !== null) {
+      reportMetric({
+        event: 'end',
+        session_ms: Math.round(performance.now() - sessionStartRef.current),
+      });
+      sessionStartRef.current = null;
+    }
     cleanup();
     setIsActive(false);
     setStatus('idle');
-  }, [cleanup, setStatus]);
+  }, [cleanup, setStatus, reportMetric]);
 
   // Push the current board position into the open session mid-conversation.
   // turnComplete:false injects context without interrupting the audio turn.

@@ -87,6 +87,58 @@ async function fetchToolDeclarations(): Promise<unknown[]> {
   }
 }
 
+type VoiceContext =
+  | { ok: true; systemPrompt: string }
+  | { ok: false; rateLimited: true; retryAfter?: number };
+
+/**
+ * Fetch the single-source spoken system prompt from Hermes (persona + profile +
+ * spoken style, rendered from SOUL.md). This call ALSO enforces the voice
+ * token-mint rate limit server-side, so a 429 means "refuse to mint". Returns
+ * `null` on any other failure/timeout so the caller falls back to the hardcoded
+ * prompt below — voice must never break because Hermes is down.
+ */
+async function fetchVoiceContext(
+  userId: string,
+  opts: { fen?: string; locale?: string; toolsAvailable: boolean },
+): Promise<VoiceContext | null> {
+  try {
+    const res = await fetch(`${HERMES_URL}/api/coach/voice/prompt`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': userId },
+      body: JSON.stringify({
+        fen: opts.fen,
+        locale: opts.locale,
+        tools_available: opts.toolsAvailable,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.status === 429) {
+      let retryAfter: number | undefined;
+      try {
+        const b = await res.json();
+        const d = b?.detail ?? b;
+        if (typeof d?.retry_after === 'number') retryAfter = d.retry_after;
+      } catch {
+        /* ignore */
+      }
+      return { ok: false, rateLimited: true, retryAfter };
+    }
+    if (!res.ok) {
+      console.warn('[live-token] voice/prompt returned', res.status);
+      return null;
+    }
+    const data = await res.json();
+    if (typeof data?.system_prompt === 'string' && data.system_prompt) {
+      return { ok: true, systemPrompt: data.system_prompt };
+    }
+    return null;
+  } catch (err) {
+    console.warn('[live-token] voice/prompt fetch failed:', err);
+    return null;
+  }
+}
+
 /**
  * Fetch recent session messages from Hermes for the recap block. Returns [] on
  * any failure — a Hermes outage must never break voice.
@@ -207,32 +259,58 @@ export async function POST(request: Request) {
     body = {};
   }
 
-  let systemInstruction = COACH_VOICE_PROMPT;
-  if (body.fen && typeof body.fen === 'string') {
-    systemInstruction += `\nThe current board position (FEN) is: ${body.fen}. Refer to it when relevant.`;
-  }
-
-  // Fetch shared conversation memory (recap) and the tool declarations from
-  // Hermes in parallel — both are independent 5s-timeout calls, so running them
-  // concurrently shaves latency off the token mint. Both degrade gracefully:
-  // a Hermes outage yields no recap / no tools but still mints the session.
+  const fen = body.fen && typeof body.fen === 'string' ? body.fen : undefined;
+  const locale =
+    body.locale && typeof body.locale === 'string' ? body.locale : undefined;
   const sessionId =
     body.session_id && typeof body.session_id === 'string'
       ? body.session_id
       : null;
-  const [recapMessages, rawTools] = await Promise.all([
+
+  // Fetch the single-source spoken prompt (+ enforce the mint rate limit), the
+  // conversation recap, and the tool declarations from Hermes in parallel — all
+  // independent 5s-timeout calls, so running them concurrently keeps mint latency
+  // flat. Each degrades gracefully: a Hermes outage yields the hardcoded prompt /
+  // no recap / no tools but still mints the session.
+  const [voiceContext, recapMessages, rawTools] = await Promise.all([
+    fetchVoiceContext(userId, { fen, locale, toolsAvailable: true }),
     sessionId ? fetchRecapMessages(sessionId, userId) : Promise.resolve([]),
     fetchToolDeclarations(),
   ]);
 
-  // Inject the capped conversation recap so the voice coach continues seamlessly.
-  systemInstruction += buildRecap(recapMessages);
+  // Rate limited by Hermes → refuse to mint so sessions can't spawn unboundedly.
+  if (voiceContext && voiceContext.ok === false) {
+    return jsonResponse(
+      {
+        error: 'rate_limited',
+        message: 'Too many voice sessions started. Please wait a moment and try again.',
+        retry_after: voiceContext.retryAfter,
+      },
+      429,
+    );
+  }
 
   // Curate the toolset down to the voice-relevant allowlist before embedding.
   const functionDeclarations = filterVoiceTools(rawTools);
-  if (functionDeclarations.length > 0) {
-    systemInstruction += COACH_TOOL_GUIDANCE;
+
+  // Prefer Hermes' single-source prompt (persona + spoken style + profile + FEN
+  // + spoken tool directives, all rendered from SOUL.md). Fall back to the
+  // hardcoded constants in this file if Hermes was unreachable.
+  let systemInstruction: string;
+  if (voiceContext && voiceContext.ok) {
+    systemInstruction = voiceContext.systemPrompt;
+  } else {
+    systemInstruction = COACH_VOICE_PROMPT;
+    if (fen) {
+      systemInstruction += `\nThe current board position (FEN) is: ${fen}. Refer to it when relevant.`;
+    }
+    if (functionDeclarations.length > 0) {
+      systemInstruction += COACH_TOOL_GUIDANCE;
+    }
   }
+
+  // Inject the capped conversation recap so the voice coach continues seamlessly.
+  systemInstruction += buildRecap(recapMessages);
 
   const now = Date.now();
   const expireTime = new Date(now + 30 * 60 * 1000).toISOString();

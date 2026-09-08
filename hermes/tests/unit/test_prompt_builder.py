@@ -327,3 +327,52 @@ class TestAnalysisCache:
         prompt = build_system_prompt(soul_content=MOCK_SOUL, board_fen="not-a-fen")
         assert "Chess Coach" in prompt
         assert len(prompt_builder._analysis_cache) == 0
+
+
+@pytest.mark.unit
+class TestBuildVoicePrompt:
+    """Task 2/3: single-source spoken prompt (SOUL persona + spoken layer +
+    profile), so voice and text can't drift."""
+
+    def test_includes_persona_and_spoken_style(self):
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL)
+        assert "You are a chess coach." in prompt  # SOUL persona core
+        assert "Speaking Style (voice mode)" in prompt
+        assert "NO markdown" in prompt
+        # Speak-before-tool-call directive is preserved.
+        assert "acknowledgment" in prompt.lower()
+
+    def test_includes_profile_context(self):
+        profile = UserProfile(
+            user_id="u1", rating=1750, weaknesses=["time pressure"], goals=["reach 1800"]
+        )
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, user_profile=profile)
+        assert "Student rating: 1750" in prompt
+        assert "time pressure" in prompt
+
+    def test_includes_fen_anchor(self):
+        fen = "8/8/8/8/8/8/8/K6k w - - 0 1"
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, board_fen=fen)
+        assert fen in prompt
+
+    def test_language_directive_for_non_english(self):
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, locale="ru")
+        assert "Russian" in prompt
+
+    def test_no_language_directive_for_english(self):
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, locale="en")
+        assert "MUST respond entirely in" not in prompt
+
+    def test_tools_toggle(self):
+        with_tools = prompt_builder.build_voice_prompt(MOCK_SOUL, tools_available=True)
+        without = prompt_builder.build_voice_prompt(MOCK_SOUL, tools_available=False)
+        assert "Tools (voice mode)" in with_tools
+        assert "Tools (voice mode)" not in without
+
+    def test_no_markdown_headings_leak_into_spoken_body(self):
+        # The spoken prompt must not inject the heavy tactical-analysis block the
+        # text path adds (kept lean for low-latency minting).
+        prompt = prompt_builder.build_voice_prompt(
+            MOCK_SOUL, board_fen="8/8/8/8/8/8/8/K6k w - - 0 1"
+        )
+        assert "detailed_board_analysis" not in prompt

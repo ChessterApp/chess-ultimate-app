@@ -46,8 +46,28 @@ export async function POST(request: NextRequest) {
     );
 
     if (!response.ok) {
+      // Surface a clear error field the voice hook can read back to the model
+      // (so the coach says it's busy instead of the session stalling). Hermes'
+      // 429 payload is { detail: { error, message, retry_after, tier } }.
+      let payload: unknown = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+      const detail =
+        (payload as { detail?: Record<string, unknown> })?.detail ?? payload;
+      const d = (detail ?? {}) as Record<string, unknown>;
+      const message =
+        (typeof d.message === 'string' && d.message) ||
+        (typeof d.error === 'string' && d.error) ||
+        `Hermes error: ${response.status}`;
       return NextResponse.json(
-        { error: `Hermes error: ${response.status}` },
+        {
+          error: message,
+          rate_limited: response.status === 429,
+          retry_after: typeof d.retry_after === 'number' ? d.retry_after : undefined,
+        },
         { status: response.status },
       );
     }
