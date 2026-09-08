@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 import uuid
 import asyncio
@@ -293,6 +294,65 @@ def _create_agent(
     return agent
 
 
+def _do_record_usage(
+    user_id: str,
+    session_id: str,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    surface: str,
+) -> None:
+    """Persist one turn's token usage. Swallows and logs any failure.
+
+    Kept synchronous and self-contained so it can be unit-tested directly and
+    run off the request path from :func:`_record_turn_usage`.
+    """
+    try:
+        cost_monitor.record_usage(
+            user_id=user_id,
+            session_id=session_id,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            surface=surface,
+        )
+    except Exception:
+        logger.exception("token usage recording failed")
+
+
+def _record_turn_usage(
+    agent,
+    user_id: str,
+    session_id: str,
+    model: str,
+    surface: str = "text",
+):
+    """Fire-and-forget: record real token usage for a completed agent turn.
+
+    Reads the per-turn token counters the agent accumulated across its
+    iterations (a fresh agent is created per request, so these hold this turn's
+    totals). Recording runs on a daemon thread so a slow/failed Supabase write
+    can never slow or break the coach reply. Returns the thread (or ``None`` when
+    there is nothing to record) so tests can join it; callers ignore it.
+    """
+    try:
+        prompt_tokens = int(getattr(agent, "session_prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(agent, "session_completion_tokens", 0) or 0)
+    except Exception:
+        return None
+
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return None
+
+    thread = threading.Thread(
+        target=_do_record_usage,
+        args=(user_id, session_id, model, prompt_tokens, completion_tokens, surface),
+        daemon=True,
+    )
+    thread.start()
+    return thread
+
+
 # ── Health endpoint (enhanced) ─────────────────────────────────────────
 
 
@@ -406,6 +466,9 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
             path="/v1/chat/completions",
         )
         response_text = "I wasn't able to generate a response. Please try again."
+
+    # Record real token usage for this turn (fire-and-forget; never blocks/raises)
+    _record_turn_usage(agent, user_id, session_id, model, surface="text")
 
     # Record assistant response in session
     session.add_message("assistant", response_text)
@@ -583,6 +646,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # concatenated deltas always reconstruct the full assistant message.
         if not streamed_any:
             yield _sse({"delta": response_text})
+
+        # Record real token usage for this turn (fire-and-forget; never blocks)
+        _record_turn_usage(agent, user_id, session.id, model, surface="text")
 
         session.add_message("assistant", response_text)
         envelope = wrap_response(response_text, tool_results=tool_results)
@@ -900,6 +966,12 @@ async def coach_analysis(request: Request):
         )
         response_text = "I wasn't able to generate a response. Please try again."
 
+    # Record real token usage for this turn (fire-and-forget; never blocks/raises)
+    _record_turn_usage(
+        agent, user_id, session.id, getattr(agent, "model", "unknown"),
+        surface=_context_type,
+    )
+
     session.add_message("assistant", response_text)
     tokens_used = len(response_text) // 4
 
@@ -972,6 +1044,12 @@ async def coach_analysis_stream(request: Request):
         # full text once so concatenated deltas reconstruct the whole message.
         if not streamed_any:
             yield _sse({"delta": response_text})
+
+        # Record real token usage for this turn (fire-and-forget; never blocks)
+        _record_turn_usage(
+            agent, user_id, session.id, getattr(agent, "model", "unknown"),
+            surface=_context_type,
+        )
 
         session.add_message("assistant", response_text)
         tokens_used = len(response_text) // 4

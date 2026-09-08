@@ -33,6 +33,7 @@ class TestTokenUsageRecord:
         assert record.completion_tokens == 0
         assert record.total_tokens == 0
         assert record.estimated_cost_usd == 0.0
+        assert record.surface == "text"
 
 
 @pytest.mark.unit
@@ -114,6 +115,22 @@ class TestCostMonitor:
         mock_post.assert_called_once()
         call_url = mock_post.call_args[0][0]
         assert "token_usage" in call_url
+
+    def test_record_usage_carries_surface(self):
+        monitor = CostMonitor()
+        with patch.object(monitor, "_persist"):
+            record = monitor.record_usage(
+                "user1", "s1", "google/gemini-2.5-flash", 10, 5, surface="analysis"
+            )
+        assert record.surface == "analysis"
+
+    @patch("src.cost_monitor.httpx.post")
+    @patch.dict("os.environ", {"SUPABASE_URL": "https://fake.supabase.co", "SUPABASE_SERVICE_KEY": "key"})
+    def test_persist_payload_includes_surface(self, mock_post):
+        monitor = CostMonitor()
+        monitor.record_usage("user1", "s1", "m", 10, 5, surface="review")
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["surface"] == "review"
 
     def test_model_costs_defined(self):
         assert "google/gemini-2.5-flash" in MODEL_COSTS

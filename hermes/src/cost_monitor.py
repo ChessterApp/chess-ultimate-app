@@ -32,6 +32,7 @@ class TokenUsageRecord(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     estimated_cost_usd: float = 0.0
+    surface: str = "text"
     timestamp: float = Field(default_factory=time.time)
 
 
@@ -48,8 +49,13 @@ class CostMonitor:
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        surface: str = "text",
     ) -> TokenUsageRecord:
-        """Record a token usage event and persist to Supabase."""
+        """Record a token usage event and persist to Supabase.
+
+        ``surface`` is the coach surface the turn came from (``text`` chat,
+        ``analysis``, or game ``review``) so spend can be broken down per feature.
+        """
         total = prompt_tokens + completion_tokens
         cost_rates = MODEL_COSTS.get(model, DEFAULT_COST)
         cost = (
@@ -65,6 +71,7 @@ class CostMonitor:
             completion_tokens=completion_tokens,
             total_tokens=total,
             estimated_cost_usd=round(cost, 6),
+            surface=surface,
         )
         self._records.append(record)
         self._persist(record)
@@ -125,6 +132,7 @@ class CostMonitor:
                     "completion_tokens": record.completion_tokens,
                     "total_tokens": record.total_tokens,
                     "estimated_cost_usd": record.estimated_cost_usd,
+                    "surface": record.surface,
                 },
                 headers={
                     "apikey": key,
