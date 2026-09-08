@@ -141,51 +141,14 @@ def build_system_prompt(
             "This is non-negotiable — never switch to English unless the user explicitly writes in English."
         )
 
+    # ── Static prefix ──────────────────────────────────────────────────
+    # SOUL persona and the tool-usage instructions never change turn-to-turn,
+    # so they lead the prompt to form a stable Anthropic prompt-cache prefix.
+    # All volatile blocks (current date, profile, board state) come AFTER so a
+    # cache hit survives across turns. Order is valid for every provider.
     sections.append(soul_content.rstrip())
 
-    # Current date so the model knows what year it is
-    now = datetime.now(timezone.utc)
-    sections.append(
-        f"## Current Date\nToday is {now.strftime('%B %d, %Y')}. "
-        "Use this when interpreting time references in user queries."
-    )
-
-    # Fire-and-forget rating sync for linked platform accounts
-    if user_profile:
-        maybe_sync_ratings(user_profile.user_id)
-
-    # User context
-    if user_profile:
-        context = user_profile.to_prompt_context()
-        if context:
-            sections.append(f"## Student Profile\n{context}")
-
-    # Board context
-    board_lines = []
-    if board_fen:
-        board_lines.append(f"Current position (FEN): {board_fen}")
-        # Auto-inject structured tactical board analysis so every coach turn
-        # with a FEN gets pins/hanging/semi-protected context without relying
-        # on an optional tool call. Prefer Mastra's CCP service (the canonical
-        # PositionPrompter fusion); fall back to the local Python port on any
-        # failure. Defensive: invalid FEN or both paths failing must not crash.
-        try:
-            analysis = _resolve_board_analysis(board_fen)
-            if analysis:
-                board_lines.append(analysis)
-        except Exception:
-            logger.debug("Board analysis injection failed", exc_info=True)
-    if move_history:
-        moves_str = " ".join(
-            f"{i // 2 + 1}. {move}" if i % 2 == 0 else move
-            for i, move in enumerate(move_history)
-        )
-        board_lines.append(f"Move history: {moves_str}")
-
-    if board_lines:
-        sections.append(f"## Current Board State\n" + "\n".join(board_lines))
-
-    # Tool instructions
+    # Tool instructions (static)
     sections.append(
         "## Tool Usage (MANDATORY)\n"
         "You have access to chess tools. You MUST use them — never answer "
@@ -243,5 +206,51 @@ def build_system_prompt(
         "If a search returns 0 results, try again with fewer/broader filters "
         "before giving up."
     )
+
+    # ── Volatile suffix ────────────────────────────────────────────────
+    # Everything below changes turn-to-turn (or day-to-day) and therefore
+    # trails the static prefix above so it never busts the cached prefix.
+
+    # Current date so the model knows what year it is
+    now = datetime.now(timezone.utc)
+    sections.append(
+        f"## Current Date\nToday is {now.strftime('%B %d, %Y')}. "
+        "Use this when interpreting time references in user queries."
+    )
+
+    # Fire-and-forget rating sync for linked platform accounts
+    if user_profile:
+        maybe_sync_ratings(user_profile.user_id)
+
+    # User context
+    if user_profile:
+        context = user_profile.to_prompt_context()
+        if context:
+            sections.append(f"## Student Profile\n{context}")
+
+    # Board context
+    board_lines = []
+    if board_fen:
+        board_lines.append(f"Current position (FEN): {board_fen}")
+        # Auto-inject structured tactical board analysis so every coach turn
+        # with a FEN gets pins/hanging/semi-protected context without relying
+        # on an optional tool call. Prefer Mastra's CCP service (the canonical
+        # PositionPrompter fusion); fall back to the local Python port on any
+        # failure. Defensive: invalid FEN or both paths failing must not crash.
+        try:
+            analysis = _resolve_board_analysis(board_fen)
+            if analysis:
+                board_lines.append(analysis)
+        except Exception:
+            logger.debug("Board analysis injection failed", exc_info=True)
+    if move_history:
+        moves_str = " ".join(
+            f"{i // 2 + 1}. {move}" if i % 2 == 0 else move
+            for i, move in enumerate(move_history)
+        )
+        board_lines.append(f"Move history: {moves_str}")
+
+    if board_lines:
+        sections.append(f"## Current Board State\n" + "\n".join(board_lines))
 
     return "\n\n".join(sections)

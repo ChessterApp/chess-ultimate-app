@@ -132,6 +132,60 @@ class TestPromptBuilder:
 
 
 @pytest.mark.unit
+class TestCacheAlignedOrdering:
+    """Static blocks (persona + tool usage) must precede volatile ones.
+
+    The current date, student profile, and board/FEN change turn-to-turn, so
+    they trail the static prefix to keep the Anthropic prompt-cache prefix hot.
+    """
+
+    FEN = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+
+    def test_static_tool_block_precedes_current_date(self):
+        profile = UserProfile(user_id="u1", rating=1500)
+        prompt = build_system_prompt(
+            soul_content=MOCK_SOUL, user_profile=profile, board_fen=self.FEN
+        )
+        assert prompt.index("Tool Usage (MANDATORY)") < prompt.index("## Current Date")
+
+    def test_static_prefix_precedes_all_volatile_markers(self):
+        profile = UserProfile(user_id="u1", rating=1500, goals=["Improve tactics"])
+        prompt = build_system_prompt(
+            soul_content=MOCK_SOUL, user_profile=profile, board_fen=self.FEN
+        )
+        # The whole static prefix (persona + tool block) is ahead of every
+        # volatile marker: current date, student profile, and the FEN.
+        static_end = prompt.index("Tool Usage (MANDATORY)")
+        for volatile in ("## Current Date", "## Student Profile", self.FEN):
+            assert static_end < prompt.index(volatile), volatile
+        # Persona still leads the static prefix.
+        assert prompt.index("Chess Coach") < static_end
+
+    def test_all_sections_still_present_after_reorder(self):
+        """Regression: reordering must not drop any section."""
+        profile = UserProfile(user_id="u1", rating=1800, goals=["Endgames"])
+        prompt = build_system_prompt(
+            soul_content=MOCK_SOUL,
+            user_profile=profile,
+            board_fen=self.FEN,
+            move_history=["e4", "e5"],
+            locale="ru",
+        )
+        for marker in (
+            "CRITICAL LANGUAGE RULE",
+            "Chess Coach",
+            "Tool Usage (MANDATORY)",
+            "Board Control",
+            "## Current Date",
+            "## Student Profile",
+            "## Current Board State",
+            self.FEN,
+            "Move history",
+        ):
+            assert marker in prompt, marker
+
+
+@pytest.mark.unit
 class TestCcpAnalysisInjection:
     """Board analysis prefers the Mastra CCP service, falls back to local port."""
 
