@@ -109,12 +109,16 @@ class TestAnalyticsEndpoint:
         assert resp.status_code == 401
 
     def test_analytics_returns_data(self):
+        # Phase 3: the endpoint is now DB-backed. Per-user (non-admin) scope
+        # returns own turn counts, tool usage, and voice minutes. Without
+        # Supabase configured the aggregates are empty but the contract holds.
         resp = self.client.get("/api/coach/analytics", headers=USER_HEADERS)
         assert resp.status_code == 200
         body = resp.json()
-        assert "total_events" in body
-        assert "unique_users" in body
-        assert "tool_invocations" in body
+        assert body["scope"] == "user"
+        assert "turn_counts_by_surface" in body
+        assert "tools" in body
+        assert "voice_minutes_used" in body
 
 
 @pytest.mark.unit

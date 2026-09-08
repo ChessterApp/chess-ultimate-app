@@ -53,6 +53,8 @@ from src.sessions import session_store
 from src.user_profile import load_user_profile, save_user_profile, UserProfile
 from src.cost_monitor import cost_monitor, record_voice_event
 from src.analytics import analytics_tracker
+from src.analytics_db import compute_user_analytics, get_admin_analytics_cached
+from src.retention import retention_loop
 from src.billing import (
     create_checkout_session,
     get_subscription_status,
@@ -168,7 +170,20 @@ async def lifespan(app: FastAPI):
     app.state.config = _config
     app.state.model_config = _model_config
     app.state.soul_content = _soul_content
-    yield
+
+    # Daily retention purge (coach_events/analytics_events + local spool).
+    # Fire-and-forget background task; kill-switch is RETENTION_ENABLED.
+    retention_task = asyncio.create_task(retention_loop())
+    app.state.retention_task = retention_task
+
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 app = FastAPI(title="Hermes Chess Coach", version="1.0.0", lifespan=lifespan)
@@ -1550,12 +1565,18 @@ async def voice_quota(
 
 @app.get("/api/coach/analytics")
 async def coach_analytics(request: Request):
-    """Get usage analytics (admin: all users, user: own data)."""
+    """Get usage analytics (admin: all users, user: own data).
+
+    Aggregated from Supabase (coach_events / token_usage / voice_usage) rather
+    than process memory, so a Hermes restart no longer resets the numbers. The
+    admin result is memoised for 60s to survive dashboard refresh loops. Fetches
+    run off the event loop; a Supabase hiccup yields empty aggregates, never a
+    5xx.
+    """
     user_id = _get_user_id(request)
-    # If admin header present, return global analytics
     if request.headers.get("x-admin") == "true":
-        return analytics_tracker.get_analytics()
-    return analytics_tracker.get_analytics(user_id=user_id)
+        return await asyncio.to_thread(get_admin_analytics_cached)
+    return await asyncio.to_thread(compute_user_analytics, user_id)
 
 
 # ── Billing endpoints ─────────────────────────────────────────────────

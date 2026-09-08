@@ -237,6 +237,71 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
   }
 }
 
+/**
+ * GDPR-style cascade: when Clerk deletes a user, remove that user's coach data
+ * from every Chesster telemetry / conversation table. Best-effort per table —
+ * one table's failure never aborts the rest — with a per-table outcome logged.
+ *
+ * `coach_messages` has no `user_id` column (it FK-references `coach_sessions`),
+ * so it is purged via the user's session ids first; `coach_sessions` is then
+ * deleted directly. The remaining tables all carry a `user_id`.
+ */
+async function cascadeDeleteCoachData(clerkUserId: string): Promise<void> {
+  // 1) coach_messages — resolve the user's session ids, delete their messages.
+  try {
+    const { data: sessions, error: selErr } = await supabaseAdmin
+      .from('coach_sessions')
+      .select('id')
+      .eq('user_id', clerkUserId);
+    if (selErr) throw selErr;
+    const sessionIds = (sessions || []).map((s) => s.id as string);
+    if (sessionIds.length > 0) {
+      const { error } = await supabaseAdmin
+        .from('coach_messages')
+        .delete()
+        .in('session_id', sessionIds);
+      if (error) throw error;
+    }
+    console.info(
+      `[clerk-webhook] cascade coach_messages ok user=${clerkUserId} sessions=${sessionIds.length}`,
+    );
+  } catch (err) {
+    console.error('[clerk-webhook] cascade coach_messages failed:', err);
+  }
+
+  // 2) coach_sessions — delete directly by user_id.
+  try {
+    const { error } = await supabaseAdmin
+      .from('coach_sessions')
+      .delete()
+      .eq('user_id', clerkUserId);
+    if (error) throw error;
+    console.info(`[clerk-webhook] cascade coach_sessions ok user=${clerkUserId}`);
+  } catch (err) {
+    console.error('[clerk-webhook] cascade coach_sessions failed:', err);
+  }
+
+  // 3) user_id-keyed telemetry tables — each best-effort, independent.
+  const userScopedTables = [
+    'coach_events',
+    'token_usage',
+    'voice_usage',
+    'analytics_events',
+  ];
+  for (const table of userScopedTables) {
+    try {
+      const { error } = await supabaseAdmin
+        .from(table)
+        .delete()
+        .eq('user_id', clerkUserId);
+      if (error) throw error;
+      console.info(`[clerk-webhook] cascade ${table} ok user=${clerkUserId}`);
+    } catch (err) {
+      console.error(`[clerk-webhook] cascade ${table} failed:`, err);
+    }
+  }
+}
+
 type ClerkSessionData = {
   user_id?: string;
 };
@@ -359,7 +424,8 @@ export async function POST(req: Request) {
       }
 
       case 'user.deleted': {
-        const { email_addresses } = evt.data as {
+        const { id: deletedUserId, email_addresses } = evt.data as {
+          id?: string;
           email_addresses?: { email_address: string }[];
         };
 
@@ -368,6 +434,13 @@ export async function POST(req: Request) {
           await blocklistSubscriber(email);
         } else {
           console.warn('[clerk-webhook] user.deleted with no email');
+        }
+
+        // Cascade-delete the user's coach data (best-effort, per-table).
+        if (deletedUserId) {
+          await cascadeDeleteCoachData(deletedUserId);
+        } else {
+          console.warn('[clerk-webhook] user.deleted with no user id, skipping cascade');
         }
         break;
       }
