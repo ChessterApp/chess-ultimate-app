@@ -12,6 +12,7 @@ import pytest
 
 from src import config, tool_bridge
 from src.tool_bridge import build_tool_declarations
+from src.tool_selector import CORE_TOOLS
 
 MCP_TOOL_NAME = "mcp-engine.stockfish_multipv"
 MCP_TOOLSET = "mcp-engine"
@@ -88,5 +89,5 @@ class TestMcpDeclarations:
             )
         names = {d["name"] for d in decls}
         assert MCP_TOOL_NAME in names
-        # core (<=2) + topk (5) — far fewer than the full combined toolset.
-        assert len(decls) <= 7
+        # core + topk (5) — far fewer than the full combined toolset.
+        assert len(decls) <= 5 + len(CORE_TOOLS)

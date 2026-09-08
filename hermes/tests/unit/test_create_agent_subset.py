@@ -31,6 +31,7 @@ def _oai(name, description=""):
 FULL_TOOLS = [
     _oai("board_control", "Control the chess board UI, set positions (FEN)."),
     _oai("analyze_position", "Analyze a chess position using Stockfish."),
+    _oai("check_moves", "Verify candidate move legality in a position (engine-free)."),
     _oai("get_opening_stats", "Statistics about a chess opening by ECO code or name."),
     _oai("search_master_games", "Search the master games database by player or event."),
     _oai("get_player_profile", "Get a player's profile ratings from Lichess or Chess.com."),

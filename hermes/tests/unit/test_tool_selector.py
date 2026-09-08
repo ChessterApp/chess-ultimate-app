@@ -33,6 +33,7 @@ def _oai(name, description=""):
 SAMPLE = [
     _decl("board_control", "Control the chess board UI, set positions (FEN)."),
     _decl("analyze_position", "Analyze a chess position using Stockfish."),
+    _decl("check_moves", "Verify candidate move legality in a position (engine-free)."),
     _decl("get_opening_stats", "Statistics about a chess opening by ECO code or name."),
     _decl("search_master_games", "Search the master games database by player or event."),
     _decl("get_player_profile", "Get a player's profile ratings from Lichess or Chess.com."),

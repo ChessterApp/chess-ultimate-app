@@ -200,6 +200,10 @@ def build_system_prompt(
         "Never say you cannot load the game — always follow this 2-step workflow.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation.\n\n"
+        "### check_moves\n"
+        "Verify any specific move you suggest that did not come from "
+        "analyze_position/compare_variations output with check_moves before "
+        "recommending it — never suggest an illegal move.\n\n"
         "CRITICAL: Your training data is outdated. The database has games "
         "through April 2026 including the FIDE Candidates 2026. ALWAYS search "
         "before claiming a tournament hasn't happened or a player has no games. "
@@ -284,7 +288,11 @@ VOICE_TOOL_LAYER = (
     "tool, FIRST speak a brief spoken acknowledgment out loud (something like "
     "\"let me check that\" or \"one sec, looking now\") and THEN make the tool "
     "call. Never go silent while a tool runs — the player should always hear you "
-    "respond right away."
+    "respond right away.\n"
+    "Before you recommend or name a specific move that did NOT come from "
+    "analyze_position or compare_variations output, silently verify it with "
+    "check_moves first; if it comes back illegal, pick a legal move from the "
+    "returned list instead — never speak an illegal move."
 )
 
 

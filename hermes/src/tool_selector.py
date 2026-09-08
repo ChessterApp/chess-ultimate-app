@@ -11,9 +11,10 @@ Kept intentionally simple and deterministic. Enabled only behind the
 
 import re
 
-# Tools the coach needs for board setup + engine analysis on essentially every
-# turn. Never dropped in the default (``full``) mode.
-CORE_TOOLS = frozenset({"board_control", "analyze_position"})
+# Tools the coach needs on essentially every turn: board setup, engine analysis,
+# and engine-free move-legality checks. Never dropped in the default
+# (``full``) mode.
+CORE_TOOLS = frozenset({"board_control", "analyze_position", "check_moves"})
 
 # Board-render / FEN-parse tools that are redundant when the board is already
 # rendered on the student's screen. Suppressed only in ``panel`` mode.

@@ -48,6 +48,7 @@ const VOICE_TOOL_ALLOWLIST = new Set<string>([
   'get_game_pgn',
   'compare_variations',
   'score_position_themes',
+  'check_moves',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or

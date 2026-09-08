@@ -394,6 +394,35 @@ describe('POST /api/coach/live-token', () => {
     expect(kept.length).toBeLessThanOrEqual(8);
   });
 
+  it('keeps check_moves in the voice tool allowlist', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    const decls = [
+      { name: 'check_moves', description: 'verify move legality' },
+      { name: 'board_control' },
+      // Dropped: not on the voice allowlist.
+      { name: 'chesscom_game_import' },
+    ];
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: decls }) };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen' }));
+
+    expect(response.status).toBe(200);
+    const kept = configFromMint().tools[0].functionDeclarations.map(
+      (d: any) => d.name,
+    );
+    expect(kept).toContain('check_moves');
+    expect(kept).not.toContain('chesscom_game_import');
+  });
+
   it('embeds no tools (and no tool guidance) when none survive the allowlist', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';

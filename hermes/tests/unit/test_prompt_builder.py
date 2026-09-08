@@ -130,6 +130,11 @@ class TestPromptBuilder:
         prompt = build_system_prompt(soul_content=MOCK_SOUL)
         assert "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4" in prompt
 
+    def test_prompt_contains_check_moves_directive(self):
+        # Text mode must instruct verifying non-engine move suggestions.
+        prompt = build_system_prompt(soul_content=MOCK_SOUL)
+        assert "check_moves" in prompt
+
 
 @pytest.mark.unit
 class TestCacheAlignedOrdering:
@@ -368,6 +373,14 @@ class TestBuildVoicePrompt:
         without = prompt_builder.build_voice_prompt(MOCK_SOUL, tools_available=False)
         assert "Tools (voice mode)" in with_tools
         assert "Tools (voice mode)" not in without
+
+    def test_includes_check_moves_directive(self):
+        # Voice mode must verify a spoken non-engine move with check_moves.
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, tools_available=True)
+        assert "check_moves" in prompt
+        # And it belongs to the tool layer, not present when tools are off.
+        without = prompt_builder.build_voice_prompt(MOCK_SOUL, tools_available=False)
+        assert "check_moves" not in without
 
     def test_no_markdown_headings_leak_into_spoken_body(self):
         # The spoken prompt must not inject the heavy tactical-analysis block the
