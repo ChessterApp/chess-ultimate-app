@@ -36,7 +36,7 @@ def _fetch_user_games(user_id: str | None, limit: int) -> list[dict]:
 
     params = {
         "select": "*",
-        "order": "played_at.desc",
+        "order": "created_at.desc",  # user_games has no played_at column (only date TEXT / created_at)
         "limit": str(max(1, limit)),
     }
     if user_id:
