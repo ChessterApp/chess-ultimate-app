@@ -82,6 +82,14 @@ class SupabaseReader:
                 headers=self._headers(offset, _PAGE),
                 timeout=_HTTP_TIMEOUT,
             )
+            # A missing/optional table (e.g. analytics_events not provisioned in
+            # this project) should not abort the whole export — treat as empty.
+            if resp.status_code == 404:
+                print(
+                    f"  warn: table '{table}' not found (404) — treating as empty",
+                    file=sys.stderr,
+                )
+                break
             resp.raise_for_status()
             batch = resp.json()
             if not isinstance(batch, list) or not batch:
@@ -122,17 +130,42 @@ def _tool_calls_from_events(events: list[dict]) -> list[dict]:
 def build_records(messages: list[dict], events: list[dict]) -> list[dict]:
     """Join user+assistant messages and events by turn_id → per-turn records.
 
-    Rows lacking a ``turn_id`` (pre-Phase-1) are skipped — they can't be
-    correlated into a turn. Dedupe on ``(session_id, turn)``.
+    Rows carrying a ``turn_id`` are grouped by it directly. Rows lacking one
+    (the historical corpus, before turn correlation was wired) are salvaged by
+    pairing user↔assistant chronologically within each ``session_id`` — a
+    synthetic turn key ``sess:{session_id}:{n}`` is minted per assistant reply.
+    Dedupe on ``(session_id, turn)``.
     """
     msgs_by_turn: dict[str, dict] = defaultdict(dict)
+    without_turn: list[dict] = []
     for m in messages:
         turn = m.get("turn_id")
         if not turn:
+            without_turn.append(m)
             continue
         role = m.get("role")
         if role in ("user", "assistant"):
             msgs_by_turn[turn][role] = m
+
+    # Fallback: reconstruct turns for rows without a turn_id by walking each
+    # session in chronological order and pairing each assistant reply with the
+    # most recent preceding user message in that session.
+    without_turn.sort(key=lambda m: (m.get("session_id") or "", m.get("created_at") or ""))
+    seq_by_session: dict[str, int] = defaultdict(int)
+    pending_user: dict[str, dict] = {}
+    for m in without_turn:
+        sid = m.get("session_id")
+        role = m.get("role")
+        if role == "user":
+            pending_user[sid] = m
+        elif role == "assistant":
+            n = seq_by_session[sid]
+            seq_by_session[sid] = n + 1
+            synth = f"sess:{sid}:{n}"
+            msgs_by_turn[synth]["assistant"] = m
+            user = pending_user.pop(sid, None)
+            if user is not None:
+                msgs_by_turn[synth]["user"] = user
 
     events_by_turn: dict[str, list[dict]] = defaultdict(list)
     for e in events:

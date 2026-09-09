@@ -64,7 +64,9 @@ class TestBuildRecords:
     def test_join_and_dedupe(self):
         recs = exp.build_records(CANNED["coach_messages"], CANNED["coach_events"])
         by_turn = {r["turn"]: r for r in recs}
-        assert set(by_turn) == {"t1", "t2"}  # orphan + no-turn_id dropped
+        # t1/t2 from turn_id; the no-turn_id "legacy" assistant is salvaged into
+        # a synthetic session-turn. The orphan user (turn t3, no assistant) drops.
+        assert set(by_turn) == {"t1", "t2", "sess:s2:0"}
 
         t1 = by_turn["t1"]
         assert t1["assistant_text"] == "Play e4."
@@ -74,6 +76,28 @@ class TestBuildRecords:
         assert t1["tool_calls"][0]["tool_name"] == "analyze_position"
         assert t1["tokens"] == {"prompt": 500, "completion": 40}
         assert t1["latency"] == 800
+
+        # The salvaged legacy turn has no preceding user in its session.
+        legacy = by_turn["sess:s2:0"]
+        assert legacy["assistant_text"] == "legacy"
+        assert legacy["user_text"] is None
+
+    def test_session_pairing_fallback(self):
+        # Two no-turn_id pairs in one session, interleaved chronologically.
+        msgs = [
+            {"session_id": "s9", "turn_id": None, "role": "user", "content": "q1",
+             "created_at": "2026-06-01T09:00:00Z"},
+            {"session_id": "s9", "turn_id": None, "role": "assistant", "content": "a1",
+             "created_at": "2026-06-01T09:00:01Z"},
+            {"session_id": "s9", "turn_id": None, "role": "user", "content": "q2",
+             "created_at": "2026-06-01T09:01:00Z"},
+            {"session_id": "s9", "turn_id": None, "role": "assistant", "content": "a2",
+             "created_at": "2026-06-01T09:01:01Z"},
+        ]
+        recs = {r["turn"]: r for r in exp.build_records(msgs, [])}
+        assert set(recs) == {"sess:s9:0", "sess:s9:1"}
+        assert (recs["sess:s9:0"]["user_text"], recs["sess:s9:0"]["assistant_text"]) == ("q1", "a1")
+        assert (recs["sess:s9:1"]["user_text"], recs["sess:s9:1"]["assistant_text"]) == ("q2", "a2")
 
     def test_no_duplicate_rows_on_repeated_turn(self):
         msgs = CANNED["coach_messages"] + [
@@ -93,8 +117,8 @@ class TestDryRun:
         summary = exp.run_export(reader, out_root, since=None, until=None,
                                  execute=False, version_tag="20260701")
         assert summary["dry_run"] is True
-        assert summary["turn_records"] == 2
-        assert summary["new_records"] == 2
+        assert summary["turn_records"] == 3
+        assert summary["new_records"] == 3
         assert summary["written"] == 0
         # Nothing on disk.
         assert not os.path.exists(out_root)
@@ -114,19 +138,19 @@ class TestExecute:
         out_root = str(tmp_path / "corpus")
         summary = exp.run_export(reader, out_root, since=None, until=None,
                                  execute=True, version_tag="20260701")
-        assert summary["written"] == 2
+        assert summary["written"] == 3
         version_dir = os.path.join(out_root, "v20260701")
         shards = glob.glob(os.path.join(version_dir, "shard-*.jsonl.gz"))
         assert len(shards) == 1
         manifest = json.load(open(os.path.join(version_dir, "manifest.json")))
-        assert manifest["row_count"] == 2
+        assert manifest["row_count"] == 3
         assert manifest["date_range"]["min"] and manifest["date_range"]["max"]
         assert "checksum" in manifest
 
         # Shard content is valid gzip JSONL.
         with gzip.open(shards[0], "rt", encoding="utf-8") as f:
             rows = [json.loads(line) for line in f if line.strip()]
-        assert len(rows) == 2
+        assert len(rows) == 3
 
     def test_rerun_is_idempotent(self, tmp_path):
         reader = FakeReader(CANNED)
@@ -135,13 +159,13 @@ class TestExecute:
                        execute=True, version_tag="20260701")
         second = exp.run_export(reader, out_root, since=None, until=None,
                                 execute=True, version_tag="20260701")
-        assert second["already_exported"] == 2
+        assert second["already_exported"] == 3
         assert second["new_records"] == 0
         assert second["written"] == 0
         # Still exactly one shard, two rows.
         version_dir = os.path.join(out_root, "v20260701")
         manifest = json.load(open(os.path.join(version_dir, "manifest.json")))
-        assert manifest["row_count"] == 2
+        assert manifest["row_count"] == 3
 
 
 @pytest.mark.unit
