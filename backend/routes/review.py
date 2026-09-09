@@ -29,8 +29,15 @@ def create_review():
     if not pgn or not isinstance(pgn, str):
         return jsonify({"error": "Missing 'pgn' in request body"}), 400
 
+    # Optional: when a real user id is supplied the completed review is persisted
+    # as a coach insight for that student (see services/review_insights.py).
+    # Anonymous reviews (no user_id) work exactly as before and persist nothing.
+    user_id = body.get("user_id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        user_id = None
+
     try:
-        review_id, status = game_review.submit_review(pgn)
+        review_id, status = game_review.submit_review(pgn, user_id=user_id)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 

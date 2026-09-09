@@ -112,6 +112,12 @@ COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 # behavior is byte-identical to today; enable with COACH_MEMORY_WRITER=1.
 COACH_MEMORY_WRITER = _env_flag("COACH_MEMORY_WRITER", False)
 
+# Game retrieval digest (CL Phase 1, Slice 2): inject a compact "Recent games"
+# block into the system prompt from the student's own reviewed games
+# (coach_game_insights). Context injection only — never writes anywhere. Default
+# OFF so behavior is byte-identical to today; enable with COACH_GAME_RAG=1.
+COACH_GAME_RAG = _env_flag("COACH_GAME_RAG", False)
+
 # Self-hosted engine MCP: connect to external MCP servers configured in
 # ~/.hermes/config.yaml (mcp_servers) at startup and expose their tools to the
 # coach under `mcp-*` toolsets. Default OFF so the coach runs on native
