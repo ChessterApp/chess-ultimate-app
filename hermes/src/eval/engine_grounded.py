@@ -50,11 +50,23 @@ _EVAL_CAP = 3000
 # ── Move extraction ────────────────────────────────────────────────────
 
 # SAN: optional piece, disambiguation, capture, destination, promotion, check.
-_SAN_RE = re.compile(
-    r"\b(O-O-O|O-O|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?)[+#]?"
+_SAN_CORE = (
+    r"O-O-O|O-O|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]"
+    r"|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?"
 )
+_SAN_RE = re.compile(r"\b(" + _SAN_CORE + r")[+#]?")
 # UCI: e.g. g1f3, e7e8q.
 _UCI_RE = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbnQRBN]?)\b")
+
+# A numbered move (optionally a white+black pair): "3. Nf3", "3... Nf6",
+# "1. e4 e5". Numbered moves are anchored to a *specific ply of the game*, so
+# unless that ply is exactly the one to be played from the current FEN they are
+# history narration (or a variation's continuation) — not claims about the
+# current position, and must not be legality-checked against it.
+_NUMBERED_RE = re.compile(
+    r"(\d+)\.(\s*\.{2,3})?\s*(" + _SAN_CORE + r")[+#]?"
+    r"(?:\s+(" + _SAN_CORE + r")[+#]?)?"
+)
 
 # Words that mark a nearby move token as a *recommendation* (coach telling the
 # player to make that move) rather than an incidental reference.
@@ -68,11 +80,37 @@ _CUE_AFTER = (
     "is correct", "is the move", "wins", "is right",
 )
 
+# A bare square token ("e4") next to these words is a *square* reference
+# ("hitting e4", "the e4 pawn"), not a pawn-move claim — even when a
+# recommendation cue for a different move sits nearby in the sentence.
+_SQUARE_ONLY_RE = re.compile(r"^[a-h][1-8]$")
+_SQ_REF_BEFORE = (
+    "the ", "on ", "at ", "hitting", "attacking", "targeting", "controlling",
+    "covering", "defending", "guarding", "toward", "square",
+)
+_SQ_REF_AFTER = (
+    " pawn", " square", " knight", " bishop", " rook", " queen", " king",
+    "-square", " point",
+)
+
+
+def _is_square_reference(text: str, start: int, end: int, token: str) -> bool:
+    if not _SQUARE_ONLY_RE.match(token):
+        return False
+    before = text[max(0, start - 12):start].lower()
+    after = text[end:end + 8].lower()
+    return (any(w in before for w in _SQ_REF_BEFORE)
+            or any(w in after for w in _SQ_REF_AFTER))
+
 
 def _has_cue(text: str, start: int, end: int) -> bool:
     """True if a recommendation cue sits just before/after a token span."""
     before = text[max(0, start - 45):start].lower()
     after = text[end:end + 25].lower()
+    # Past tense is narration, not a recommendation: "you've played e4" /
+    # "you should have played Nf3" both describe an earlier position, so the
+    # substring "play" inside "played" must not fire the cue.
+    before = before.replace("played", " ")
     if any(c in before for c in _CUE_BEFORE):
         return True
     if any(c in after for c in _CUE_AFTER):
@@ -80,17 +118,50 @@ def _has_cue(text: str, start: int, end: int) -> bool:
     return False
 
 
+def _history_spans(text: str, board: chess.Board) -> list[tuple[int, int]]:
+    """Spans of numbered moves that are NOT the move to be played right now.
+
+    "You've played 1. e4 e5 2. Nf3" from a move-3 FEN, or the tail of a
+    variation ("4. Ng5 d5 5. exd5" — only Ng5 is playable from the current
+    position): these are anchored to other plies and would all be false
+    "illegal move" flags if checked against the current FEN. A numbered move is
+    kept (span not returned) only when its number equals the FEN's fullmove
+    counter and its color marker matches the side to move.
+    """
+    spans: list[tuple[int, int]] = []
+    for m in _NUMBERED_RE.finditer(text):
+        num = int(m.group(1))
+        black_marker = bool(m.group(2))
+        first_color = chess.BLACK if black_marker else chess.WHITE
+        parts = [(3, first_color)]
+        if not black_marker:  # "1. e4 e5" pair — second SAN is Black's reply
+            parts.append((4, chess.BLACK))
+        for group_idx, color in parts:
+            if m.group(group_idx) is None:
+                continue
+            if num == board.fullmove_number and color == board.turn:
+                continue  # this IS the current move — a real claim, keep it
+            spans.append((m.start(group_idx), m.end(group_idx)))
+    return spans
+
+
 def _extract_move_tokens(text: str, board: chess.Board) -> list[dict]:
     """Find move-shaped tokens, dedupe, and tag each as cued or not.
 
     Returns ``[{token, cued}]`` in first-appearance order. Legality is resolved
-    later (in bulk, via check_moves) so this stays pure string work.
+    later (in bulk, via check_moves) so this stays pure string work. Tokens
+    inside numbered history/variation spans are skipped entirely — they are
+    claims about other plies of the game, not the current position.
     """
+    history = _history_spans(text, board)
     seen: dict[str, dict] = {}
     for regex in (_SAN_RE, _UCI_RE):
         for m in regex.finditer(text):
+            if any(s <= m.start(1) and m.end(1) <= e for s, e in history):
+                continue
             token = m.group(1)
-            cued = _has_cue(text, m.start(1), m.end(1))
+            cued = (_has_cue(text, m.start(1), m.end(1))
+                    and not _is_square_reference(text, m.start(1), m.end(1), token))
             if token not in seen:
                 seen[token] = {"token": token, "cued": cued}
             elif cued:  # a later cued mention upgrades an earlier bare one
