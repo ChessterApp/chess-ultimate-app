@@ -11,6 +11,7 @@ import React, {
 import { useTranslations } from 'next-intl';
 import ReactMarkdown from 'react-markdown';
 import ToolIndicator from './ToolIndicator';
+import FeedbackButtons from './FeedbackButtons';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 
@@ -398,6 +399,15 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
             if (data.done) {
               setToolActive(null);
+              // Attach the turn id to the completed answer so its 👍/👎 feedback
+              // can reference this exact turn.
+              if (data.turn_id) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, turnId: data.turn_id } : m
+                  )
+                );
+              }
             }
 
             if (data.error) {
@@ -554,6 +564,15 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
                     </tbody>
                   </table>
                 </div>
+              )}
+              {/* 👍/👎 under a COMPLETED assistant answer (turnId arrives on the
+                  final SSE frame) — never on user messages, never while streaming. */}
+              {msg.role === 'assistant' && msg.turnId && (
+                <FeedbackButtons
+                  turnId={msg.turnId}
+                  sessionId={sessionId}
+                  surface="text"
+                />
               )}
             </div>
           </div>

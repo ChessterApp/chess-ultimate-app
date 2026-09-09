@@ -98,6 +98,11 @@ export interface CoachMessage {
   timestamp: Date;
   boardActions?: BoardAction[];
   gameResults?: GameResult[];
+  /**
+   * Turn correlation id for a COMPLETED assistant answer — arrives on the final
+   * SSE frame. Used to attach 👍/👎 feedback; absent while streaming.
+   */
+  turnId?: string;
 }
 
 // ─── Puzzle State ────────────────────────────────────────────────────────

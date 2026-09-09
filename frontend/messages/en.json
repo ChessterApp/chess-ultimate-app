@@ -1965,7 +1965,9 @@
     "toolSearchWeb": "Searching the web…",
     "toolAnalyzing": "Analyzing position…",
     "toolWorking": "Working…",
-    "fullPageTooltip": "Open full coach page with board control"
+    "fullPageTooltip": "Open full coach page with board control",
+    "feedbackGood": "Good answer",
+    "feedbackBad": "Bad answer"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",
