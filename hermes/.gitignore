@@ -16,3 +16,8 @@ profiles/*/models_dev_cache.json
 # Continuous-learning corpus & eval outputs — raw user data (PII), never commit
 data/corpus/
 metrics/
+
+# Prompt-optimization harness (CL Phase 1 Slice 3): generated replies may echo
+# user_text, and the disk cache / run artifacts are per-run scratch — never commit.
+eval/prompt_opt/cache/
+eval/prompt_opt/runs/
