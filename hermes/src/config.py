@@ -17,6 +17,13 @@ def load_env(env_path: Path = None) -> None:
     load_dotenv(env_path)
 
 
+# Load .env before any module-level os.environ reads below. server.py's own
+# load_env() call happens after `import src.config`, which is too late for the
+# flags evaluated at import time (e.g. COACH_MEMORY_WRITER stayed False even
+# with COACH_MEMORY_WRITER=1 in .env).
+load_env()
+
+
 def load_profile_config(config_path: Path = None) -> dict:
     """Load and return the chess coach profile config.yaml with env var substitution."""
     if config_path is None:
