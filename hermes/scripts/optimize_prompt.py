@@ -38,6 +38,7 @@ from src.optimize.optimize import (  # noqa: E402
     DEFAULT_ROUNDS,
     DEFAULT_VARIANTS_PER_ROUND,
     optimize,
+    rerank,
 )
 
 _DEFAULT_DATASET = os.path.join(_HERMES_DIR, "eval", "datasets", "golden_v1.jsonl")
@@ -90,6 +91,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--depth", type=int, default=DEFAULT_DEPTH)
     p.add_argument("--execute", action="store_true",
                    help="Actually run (paid). Without it, print the plan and exit 0.")
+    p.add_argument("--rerank", metavar="RUN_DIR", default=None,
+                   help="Free: re-judge an existing run's candidates under the current "
+                        "selection metric (no LLM calls) and exit.")
     return p
 
 
@@ -115,6 +119,13 @@ def _print_plan(args, model, critic_model, split_info) -> None:
 
 def main(argv=None) -> int:
     args = _build_parser().parse_args(argv)
+
+    if args.rerank:
+        result = rerank(args.rerank)
+        print(f"Re-ranked {result['reranked_from']} — {result['verdict']}")
+        print(f"  artifacts: {args.rerank}/rerank.md, rerank.json")
+        return 0
+
     model = args.model or _main_model()
     critic_model = args.critic_model or _critic_model()
 

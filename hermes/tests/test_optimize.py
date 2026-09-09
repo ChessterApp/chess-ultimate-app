@@ -262,3 +262,86 @@ class TestOptimizer:
         assert report["partial"] is True
         assert report["budget"]["used"] == 2
         assert (tmp_path / "runs" / "partial" / "report.json").exists()
+
+
+# ── Honest selection metric + free re-rank ─────────────────────────────────
+
+
+def _mk_train_view(correctness, n_scored, illegal=0.0, n_cases=40):
+    return {"mean_score": round((correctness or 0) * n_scored / n_cases, 4),
+            "mean_correctness": correctness, "illegal_move_rate": illegal,
+            "n_cases": n_cases, "n_scored": n_scored, "n_skipped": 0}
+
+
+@pytest.mark.unit
+class TestSelectionMetric:
+    def test_illegal_move_disqualifies_despite_higher_volume(self):
+        # The run-20260909-full failure mode: high claim volume + illegal moves
+        # produced the top mean_score. Selection must disqualify it.
+        sel = opt.selection_view(_mk_train_view(0.78, 15, illegal=0.25), baseline_scored=7)
+        assert not sel["qualified"]
+        assert any("illegal" in r for r in sel["disqualified"])
+
+    def test_coverage_floor_disqualifies_quiet_candidate(self):
+        sel = opt.selection_view(_mk_train_view(1.0, 2), baseline_scored=7)
+        assert not sel["qualified"]
+        assert any("coverage" in r for r in sel["disqualified"])
+
+    def test_selection_score_is_mean_correctness_not_volume(self):
+        quiet_accurate = opt.selection_view(_mk_train_view(0.9, 7), baseline_scored=7)
+        loud_sloppy = opt.selection_view(_mk_train_view(0.76, 12), baseline_scored=7)
+        assert quiet_accurate["qualified"] and loud_sloppy["qualified"]
+        assert quiet_accurate["selection_score"] > loud_sloppy["selection_score"]
+
+    def test_floor_never_exceeds_baseline_own_coverage(self):
+        # Tiny datasets: baseline scoring 1 case must not DQ every candidate.
+        assert opt.coverage_floor(1) == 1
+        assert opt.coverage_floor(7) == 3
+        assert opt.coverage_floor(20) == 10
+        assert opt.coverage_floor(0) == 0
+        assert opt.coverage_floor(None) == 0
+
+    def test_unscored_candidate_scores_zero(self):
+        sel = opt.selection_view(_mk_train_view(None, 0), baseline_scored=0)
+        assert sel["selection_score"] == 0.0
+
+
+@pytest.mark.unit
+class TestRerank:
+    def _write_report(self, tmp_path, candidates, baseline_corr=0.9048, baseline_scored=7):
+        report = {
+            "run_id": "run-x",
+            "baseline": {"train": _mk_train_view(baseline_corr, baseline_scored),
+                         "holdout": _mk_train_view(0.83, 3, n_cases=18)},
+            "candidates": candidates,
+        }
+        (tmp_path / "report.json").write_text(json.dumps(report), encoding="utf-8")
+        return tmp_path
+
+    def _cand(self, n, corr, scored, illegal=0.0, winner=False, holdout=None):
+        return {"n": n, "round": 1, "is_winner": winner,
+                "train": _mk_train_view(corr, scored, illegal=illegal),
+                "holdout": holdout}
+
+    def test_rerank_dethrones_illegal_volume_winner(self, tmp_path):
+        # Mirrors run-20260909-full: old winner is loud+illegal, everyone else
+        # is below baseline correctness ⇒ baseline retained.
+        run = self._write_report(tmp_path, [
+            self._cand(1, 0.8571, 7),
+            self._cand(6, 0.7778, 15, illegal=0.25, winner=True,
+                       holdout=_mk_train_view(0.9286, 7, n_cases=18)),
+        ])
+        result = opt.rerank(str(run))
+        assert result["winner"] is None
+        assert "baseline retained" in result["verdict"]
+        assert (run / "rerank.json").exists() and (run / "rerank.md").exists()
+
+    def test_rerank_crowns_qualified_candidate_that_beats_baseline(self, tmp_path):
+        run = self._write_report(tmp_path, [
+            self._cand(1, 0.95, 8),
+            self._cand(2, 0.99, 15, illegal=0.1),  # better but illegal ⇒ DQ
+        ])
+        result = opt.rerank(str(run))
+        assert result["winner"] == 1
+        assert result["winner_has_holdout"] is False
+        assert "NO holdout" in result["verdict"]

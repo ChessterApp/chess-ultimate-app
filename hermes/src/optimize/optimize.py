@@ -38,6 +38,51 @@ DEFAULT_ROUNDS = 2
 DEFAULT_VARIANTS_PER_ROUND = 3
 WORST_CASES_SHOWN = 8
 
+# ── Selection metric ────────────────────────────────────────────────────
+# ``mean_score`` (mean of per-case rewards over ALL cases, unscored → 0.0)
+# rewards claim VOLUME: a prompt that makes engine-verifiable claims on more
+# cases outranks a more accurate but quieter one. Selection therefore uses
+# ``mean_correctness`` (mean over scored cases only) with two hard
+# disqualifiers: any illegal move on train, and scoring on fewer cases than
+# the coverage floor (so a candidate can't win by only speaking when certain).
+MIN_SCORED_FLOOR = 3
+
+SELECTION_METRIC = (
+    "mean_correctness over scored cases; disqualified if any illegal move on "
+    f"train, or n_scored below max(min({MIN_SCORED_FLOOR}, baseline n_scored), "
+    "half the baseline's n_scored)"
+)
+
+
+def coverage_floor(baseline_scored: Optional[int]) -> int:
+    b = baseline_scored or 0
+    return max(min(MIN_SCORED_FLOOR, b), b // 2)
+
+
+def selection_view(ev: Optional[dict], baseline_scored: Optional[int]) -> Optional[dict]:
+    """Judge one evaluation under the selection metric.
+
+    Returns ``{selection_score, qualified, disqualified: [reasons]}``. The
+    score is ``mean_correctness`` (0.0 when nothing was scored); ``qualified``
+    is False when any train reply contained an illegal move or coverage fell
+    below the floor.
+    """
+    if ev is None:
+        return None
+    m = ev["metrics"] if "metrics" in ev else ev
+    reasons: list[str] = []
+    if m.get("illegal_move_rate") or 0.0:
+        reasons.append(f"illegal moves on train (rate {m['illegal_move_rate']})")
+    floor = coverage_floor(baseline_scored)
+    if (m.get("n_scored") or 0) < floor:
+        reasons.append(f"coverage {m.get('n_scored')} scored cases < floor {floor}")
+    score = m.get("mean_correctness")
+    return {
+        "selection_score": float(score) if score is not None else 0.0,
+        "qualified": not reasons,
+        "disqualified": reasons,
+    }
+
 # The critic is told the current SOUL is DATA to improve, and to return ONLY the
 # full revised markdown between the sentinels so it parses cleanly.
 _CRITIC_SYSTEM = (
@@ -239,6 +284,11 @@ def optimize(
     except BudgetExceeded:
         partial = True
 
+    baseline_scored = baseline_train["metrics"]["n_scored"] if baseline_train else None
+
+    def _sel(ev: Optional[dict]) -> Optional[dict]:
+        return selection_view(ev, baseline_scored)
+
     best_soul = current_soul
     best_train = baseline_train
     next_n = 1
@@ -260,21 +310,30 @@ def optimize(
                     break
                 candidates.append({"n": next_n, "soul": variant, "round": _round + 1, "train": ev})
                 next_n += 1
-                if round_best is None or ev["mean_score"] > round_best[1]["mean_score"]:
+                sel = _sel(ev)
+                if sel["qualified"] and (
+                    round_best is None or sel["selection_score"] > _sel(round_best[1])["selection_score"]
+                ):
                     round_best = (variant, ev)
             if partial:
                 break
-            if round_best and (best_train is None or round_best[1]["mean_score"] > best_train["mean_score"]):
+            if round_best and (
+                best_train is None
+                or _sel(round_best[1])["selection_score"] > _sel(best_train)["selection_score"]
+            ):
                 best_soul, best_train = round_best
 
-    # Determine the winner (best candidate that beats the current prompt on train).
+    # Winner: the best QUALIFIED candidate (no illegal moves, coverage ≥ floor)
+    # that strictly beats the current prompt's mean_correctness on train.
     winner_n: Optional[int] = None
     winner: Optional[dict] = None
     if candidates and baseline_train is not None:
-        top = max(candidates, key=lambda c: c["train"]["mean_score"])
-        if top["train"]["mean_score"] > baseline_train["mean_score"]:
-            winner_n = top["n"]
-            winner = top
+        qualified = [c for c in candidates if _sel(c["train"])["qualified"]]
+        if qualified:
+            top = max(qualified, key=lambda c: _sel(c["train"])["selection_score"])
+            if _sel(top["train"])["selection_score"] > _sel(baseline_train)["selection_score"]:
+                winner_n = top["n"]
+                winner = top
 
     # Holdout scored ONCE — only for the current prompt (baseline) and the winner.
     baseline_holdout: Optional[dict] = None
@@ -299,6 +358,86 @@ def optimize(
     return report
 
 
+# ── Free re-rank of an existing run ─────────────────────────────────────
+
+
+def rerank(run_dir: str) -> dict:
+    """Re-judge an existing run's candidates under the CURRENT selection metric.
+
+    Costs nothing: works from the run's ``report.json`` (whose per-candidate
+    metrics were produced by the engine scorer at run time). Writes
+    ``rerank.json`` / ``rerank.md`` next to the original report and returns the
+    rerank dict. A new winner found here has NO holdout numbers unless the
+    original run happened to score it — the artifact says so explicitly.
+    """
+    run_path = Path(run_dir)
+    report = json.loads((run_path / "report.json").read_text(encoding="utf-8"))
+    baseline_train = report["baseline"]["train"]
+    baseline_scored = baseline_train.get("n_scored") if baseline_train else None
+    baseline_sel = selection_view(baseline_train, baseline_scored)
+
+    judged = []
+    for c in report["candidates"]:
+        sel = selection_view(c["train"], baseline_scored)
+        judged.append({
+            "n": c["n"],
+            "round": c["round"],
+            "original_winner": c["is_winner"],
+            "train": c["train"],
+            "selection": sel,
+            "holdout": c["holdout"],
+        })
+
+    winner = None
+    qualified = [j for j in judged if j["selection"]["qualified"]]
+    if qualified and baseline_sel is not None:
+        top = max(qualified, key=lambda j: j["selection"]["selection_score"])
+        if top["selection"]["selection_score"] > baseline_sel["selection_score"]:
+            winner = top
+
+    result = {
+        "reranked_from": report["run_id"],
+        "selection_metric": SELECTION_METRIC,
+        "baseline": {"train": baseline_train, "selection": baseline_sel,
+                     "holdout": report["baseline"]["holdout"]},
+        "candidates": judged,
+        "winner": winner["n"] if winner else None,
+        "winner_has_holdout": bool(winner and winner["holdout"]),
+        "verdict": (
+            f"candidate_{winner['n']} beats baseline on the honest metric"
+            + ("" if winner["holdout"] else " (NO holdout validation — score it before applying)")
+            if winner else
+            "baseline retained — no qualified candidate beats the current SOUL.md"
+        ),
+    }
+
+    md = [
+        f"# Re-rank of `{report['run_id']}` under the honest selection metric",
+        "",
+        f"- **Metric:** {SELECTION_METRIC}",
+        f"- **Baseline:** train correctness {baseline_train.get('mean_correctness')} "
+        f"on {baseline_train.get('n_scored')}/{baseline_train.get('n_cases')} scored, "
+        f"illegal {baseline_train.get('illegal_move_rate')}",
+        "",
+        "| # | round | train correctness | scored | illegal | qualified | old winner |",
+        "|---|-------|-------------------|--------|---------|-----------|------------|",
+    ]
+    for j in judged:
+        t = j["train"]
+        qual = "✅" if j["selection"]["qualified"] else "❌ " + "; ".join(j["selection"]["disqualified"])
+        md.append(
+            f"| {j['n']} | {j['round']} | {t.get('mean_correctness')} | "
+            f"{t.get('n_scored')}/{t.get('n_cases')} | {t.get('illegal_move_rate')} | "
+            f"{qual} | {'⚠️' if j['original_winner'] else ''} |"
+        )
+    md += ["", f"**Verdict:** {result['verdict']}", ""]
+
+    (run_path / "rerank.json").write_text(
+        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    (run_path / "rerank.md").write_text("\n".join(md), encoding="utf-8")
+    return result
+
+
 # ── Artifacts (O5) ──────────────────────────────────────────────────────
 
 
@@ -313,6 +452,7 @@ def _build_report(
     budget, partial, split_info, baseline_train, baseline_holdout,
     candidates, winner_n, winner_holdout,
 ) -> dict:
+    baseline_scored = baseline_train["metrics"]["n_scored"] if baseline_train else None
     cand_records = []
     for c in candidates:
         is_winner = c["n"] == winner_n
@@ -323,10 +463,12 @@ def _build_report(
             "soul_file": f"candidate_{c['n']}.soul.md",
             "diff_file": f"candidate_{c['n']}.diff",
             "train": _metrics_view(c["train"]),
+            "selection": selection_view(c["train"], baseline_scored),
             "holdout": _metrics_view(winner_holdout) if is_winner else None,
         })
     return {
         "run_id": run_id,
+        "selection_metric": SELECTION_METRIC,
         "path_taken": "critic-loop fallback (single-system-prompt shape; DSPy not used)",
         "seed": seed,
         "model": model,
@@ -373,6 +515,7 @@ def _render_report_md(report: dict) -> str:
         + ("  ⚠️ **PARTIAL run (budget exhausted)**" if report["partial"] else ""),
         f"- **Split:** {report['split']['n_train']} train / "
         f"{report['split']['n_holdout']} holdout",
+        f"- **Selection metric:** {report.get('selection_metric', 'mean_score (legacy)')}",
         "",
         "## Baseline (current SOUL.md)",
         f"- train: {report['baseline']['train']}",
@@ -381,16 +524,18 @@ def _render_report_md(report: dict) -> str:
         "## Candidates",
     ]
     if report["candidates"]:
-        lines.append("| # | round | train mean_score | train correctness | train illegal | winner | holdout |")
-        lines.append("|---|-------|------------------|-------------------|---------------|--------|---------|")
+        lines.append("| # | round | train correctness | scored | train illegal | qualified | winner | holdout correctness |")
+        lines.append("|---|-------|-------------------|--------|---------------|-----------|--------|---------------------|")
         for c in report["candidates"]:
             t = c["train"] or {}
             ho = c["holdout"]
+            sel = c.get("selection") or {}
+            qual = "✅" if sel.get("qualified") else "❌ " + "; ".join(sel.get("disqualified", []))
             lines.append(
-                f"| {c['n']} | {c['round']} | {t.get('mean_score')} | "
-                f"{t.get('mean_correctness')} | {t.get('illegal_move_rate')} | "
-                f"{'✅' if c['is_winner'] else ''} | "
-                f"{ho.get('mean_score') if ho else '—'} |"
+                f"| {c['n']} | {c['round']} | {t.get('mean_correctness')} | "
+                f"{t.get('n_scored')}/{t.get('n_cases')} | {t.get('illegal_move_rate')} | "
+                f"{qual} | {'✅' if c['is_winner'] else ''} | "
+                f"{ho.get('mean_correctness') if ho else '—'} |"
             )
     else:
         lines.append("_No candidates were produced._")
