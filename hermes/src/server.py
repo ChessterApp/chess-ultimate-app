@@ -925,6 +925,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             },
         )
 
+        # Per-student memory (CL Phase 1): reflect on the completed turn and write
+        # failure memory, off the request path. Flag-gated (default OFF → nothing
+        # new runs) and fully fail-open — never blocks or slows the reply.
+        if config.COACH_MEMORY_WRITER:
+            try:
+                from src.memory_writer import schedule_memory_writer
+
+                schedule_memory_writer(
+                    user_id=user_id,
+                    turn_id=turn_id,
+                    user_message=body.message,
+                    coach_reply=response_text,
+                    board_fen=session.board_state,
+                    tool_results=list(tool_results),
+                    model=model,
+                )
+            except Exception:
+                logger.debug("memory writer scheduling failed", exc_info=True)
+
         envelope = wrap_response(response_text, tool_results=tool_results)
 
         board_actions = envelope.get("board_actions", [])

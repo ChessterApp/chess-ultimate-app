@@ -280,6 +280,27 @@ def build_system_prompt(
         if context:
             sections.append(f"## Student Profile\n{context}")
 
+    # Failure memory (CL Phase 1): inject the student's most recent verified
+    # mistakes so the coach avoids repeating them. Flag-gated (default OFF → this
+    # block is a no-op and the prompt is byte-identical) and fully fail-open.
+    if user_profile:
+        try:
+            from src.config import COACH_MEMORY_WRITER
+
+            if COACH_MEMORY_WRITER:
+                from src.memory_writer import (
+                    load_active_corrections,
+                    render_corrections_block,
+                )
+
+                block = render_corrections_block(
+                    load_active_corrections(user_profile.user_id, limit=3)
+                )
+                if block:
+                    sections.append(block)
+        except Exception:
+            logger.debug("corrections injection failed", exc_info=True)
+
     # Board context
     board_lines = []
     if board_fen:
