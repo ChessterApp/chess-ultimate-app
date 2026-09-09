@@ -12,3 +12,7 @@ profiles/*/auth.json
 profiles/*/auth.lock
 profiles/*/*.cache*
 profiles/*/models_dev_cache.json
+
+# Continuous-learning corpus & eval outputs — raw user data (PII), never commit
+data/corpus/
+metrics/

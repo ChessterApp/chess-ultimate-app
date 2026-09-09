@@ -46,6 +46,7 @@ from src.middleware.circuit_breaker import stockfish_circuit, supabase_circuit
 from src.model_router import route_model, explain_route
 from src.prompt_builder import build_system_prompt, build_voice_prompt, get_prompt_version
 from src.event_logger import log_event, new_turn_id
+from src.coach_feedback import upsert_feedback, delete_feedback
 from src import config
 from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
@@ -539,6 +540,17 @@ class CoachMessageRequest(BaseModel):
     turn_id: Optional[str] = None
 
 
+class CoachFeedbackRequest(BaseModel):
+    # turn_id / rating are validated in the handler (returning 400, not 422) so a
+    # malformed body is a clean client error per the feedback contract.
+    turn_id: Optional[str] = None
+    rating: Optional[int] = None
+    session_id: Optional[str] = None
+    comment: Optional[str] = None
+    surface: Optional[str] = None
+    client_ts: Optional[str] = None
+
+
 class CheckoutRequest(BaseModel):
     tier: str
     redirect_url: Optional[str] = None
@@ -923,7 +935,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if game_results:
             yield _sse({"game_results": game_results})
 
-        yield _sse({"done": True, "session_id": session.id})
+        # turn_id rides the final frame so the client can attach 👍/👎 feedback
+        # to this completed answer (additive field — existing consumers ignore it).
+        yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1094,6 +1108,80 @@ async def coach_append_message(
         "session_id": session.id,
         "message_count": len(session.messages),
     }
+
+
+@app.post("/api/coach/feedback")
+async def coach_feedback(body: CoachFeedbackRequest, request: Request):
+    """Record an explicit 👍/👎 on a coach answer — **LOG-ONLY** signal.
+
+    Stored for later analysis; never read in the serving path and never alters
+    prompts, routing, memory, or rewards. Fail-open: a Supabase outage still
+    returns 200 ``{persisted: false}`` after spooling the feedback event, and
+    the endpoint never 500s on a sink failure (it must not block or slow a turn).
+
+    ``rating 1|-1`` UPSERTs the verdict on ``(user_id, turn_id)``; ``rating 0``
+    is a retraction that DELETEs the row.
+    """
+    user_id = _get_user_id(request)
+
+    # Light abuse guard: cap the overall body (comment is the only growable field).
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > 8192:
+                raise HTTPException(status_code=400, detail="body too large")
+        except ValueError:
+            pass
+
+    turn_id = (body.turn_id or "").strip()
+    if not turn_id or len(turn_id) > 64:
+        raise HTTPException(status_code=400, detail="turn_id required (<=64 chars)")
+    if body.rating not in (-1, 0, 1):
+        raise HTTPException(status_code=400, detail="rating must be 1, -1, or 0")
+
+    surface = body.surface or "text"
+    if surface not in ("text", "voice", "review"):
+        raise HTTPException(status_code=400, detail="invalid surface")
+
+    comment = body.comment
+    if comment is not None:
+        # Abuse guard: reject absurdly long comments pre-truncation, then cap the
+        # rest to the persisted length (see coach_feedback.COMMENT_MAX).
+        if len(comment) > 2000:
+            raise HTTPException(status_code=400, detail="comment too long")
+        comment = comment[:500]
+
+    # rating 0 = retraction (DELETE); 1|-1 = UPSERT the verdict. Both best-effort.
+    if body.rating == 0:
+        persisted = delete_feedback(user_id, turn_id)
+    else:
+        persisted = upsert_feedback(
+            user_id,
+            turn_id,
+            body.rating,
+            session_id=body.session_id,
+            comment=comment,
+            surface=surface,
+            client_ts=body.client_ts,
+        )
+
+    # Dual-sink event (spool + coach_events). No comment text in the payload —
+    # only whether one was present (sycophancy guard: thumbs are a signal, never
+    # a training reward, and free-text must not leak into the event stream).
+    log_event(
+        "feedback",
+        surface=surface,
+        user_id=user_id,
+        session_id=body.session_id,
+        turn_id=turn_id,
+        payload={
+            "rating": body.rating,
+            "surface": surface,
+            "has_comment": bool(comment),
+        },
+    )
+
+    return {"ok": True, "persisted": persisted}
 
 
 # ── /api/coach/analysis* routes ────────────────────────────────────────

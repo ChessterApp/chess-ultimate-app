@@ -1,0 +1,49 @@
+name: hermes-eval
+
+# Engine-grounded regression gate (Phase 0, Task E). Only fires when the coach's
+# prompt source changes — a prompt edit must be accompanied by a deliberate
+# re-baseline of the frozen golden set, or the engine-correctness gate fails.
+on:
+  push:
+    paths:
+      - hermes/profiles/chess-coach/SOUL.md
+      - hermes/profiles/chess-coach/config.yaml
+      - hermes/src/prompt_builder.py
+  pull_request:
+    paths:
+      - hermes/profiles/chess-coach/SOUL.md
+      - hermes/profiles/chess-coach/config.yaml
+      - hermes/src/prompt_builder.py
+
+jobs:
+  engine-correctness-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hermes
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Stockfish
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+          # apt installs the engine at /usr/games/stockfish (the path the tools use).
+          test -x /usr/games/stockfish
+
+      - name: Install Python deps
+        run: pip install "chess>=1.10"
+
+      - name: Run engine-correctness regression gate
+        run: python scripts/ci_eval_gate.py --dataset eval/datasets/golden_v1.jsonl --baseline eval/baselines/golden_v1.baseline.json
+
+      - name: Upload eval report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-report
+          path: hermes/eval_report.json
