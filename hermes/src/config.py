@@ -98,6 +98,13 @@ COACH_NORMALIZE_INPUT = _env_flag("COACH_NORMALIZE_INPUT", False)
 COACH_TOOL_SUBSET = _env_flag("COACH_TOOL_SUBSET", True)
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
+# Per-student memory writer (CL Phase 1): after each completed text-chat turn,
+# a cheap off-request-path LLM call reflects on the turn and accumulates durable
+# student facts (weaknesses/goals/style) into user_profiles, plus a Reflexion-
+# lite failure-memory row when the engine refutes a coach move. Default OFF so
+# behavior is byte-identical to today; enable with COACH_MEMORY_WRITER=1.
+COACH_MEMORY_WRITER = _env_flag("COACH_MEMORY_WRITER", False)
+
 # Self-hosted engine MCP: connect to external MCP servers configured in
 # ~/.hermes/config.yaml (mcp_servers) at startup and expose their tools to the
 # coach under `mcp-*` toolsets. Default OFF so the coach runs on native
