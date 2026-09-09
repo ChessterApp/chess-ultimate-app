@@ -301,6 +301,27 @@ def build_system_prompt(
         except Exception:
             logger.debug("corrections injection failed", exc_info=True)
 
+    # Game retrieval digest (CL Phase 1, Slice 2): inject a compact summary of the
+    # student's own recently reviewed games. Flag-gated (COACH_GAME_RAG, default
+    # OFF → no-op, prompt byte-identical) and fully fail-open.
+    if user_profile:
+        try:
+            from src.config import COACH_GAME_RAG
+
+            if COACH_GAME_RAG:
+                from src.tools.game_insights import (
+                    load_recent_insights,
+                    render_games_block,
+                )
+
+                block = render_games_block(
+                    load_recent_insights(user_profile.user_id, limit=3)
+                )
+                if block:
+                    sections.append(block)
+        except Exception:
+            logger.debug("game insights injection failed", exc_info=True)
+
     # Board context
     board_lines = []
     if board_fen:

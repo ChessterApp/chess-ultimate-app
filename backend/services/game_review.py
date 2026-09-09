@@ -402,10 +402,10 @@ def _delete_status(review_id: str) -> None:
         pass
 
 
-# In-memory job state: review_id -> {status, progress, result, error}.
+# In-memory job state: review_id -> {status, progress, result, error, user_id}.
 _JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
-_QUEUE: "queue.Queue[tuple[str, str, int]]" = queue.Queue()
+_QUEUE: "queue.Queue[tuple[str, str, int, str | None]]" = queue.Queue()
 
 
 def _set_job(review_id: str, **fields) -> None:
@@ -416,9 +416,21 @@ def _set_job(review_id: str, **fields) -> None:
         job.update(fields)
 
 
+def _persist_insight(review_id: str, user_id: str | None, result: dict) -> None:
+    """Fire-and-forget: distill the finished review into a coach insight row.
+    Fully fail-open and off the response path — a failure here never touches the
+    review result. Anonymous jobs (no user_id) are skipped by the callee."""
+    try:
+        from services.review_insights import persist_review_insight
+
+        persist_review_insight(user_id, review_id, result)
+    except Exception:
+        logger.debug("persist_review_insight hook failed for %s", review_id, exc_info=True)
+
+
 def _worker_loop() -> None:
     while True:
-        review_id, pgn, depth = _QUEUE.get()
+        review_id, pgn, depth, user_id = _QUEUE.get()
         try:
             _set_job(review_id, status="running", progress=0.0)
             _write_status(review_id, "running", 0.0)
@@ -440,6 +452,7 @@ def _worker_loop() -> None:
             _write_cache(review_id, result)
             _set_job(review_id, status="done", progress=1.0, result=result)
             _delete_status(review_id)  # full cache is now the source of truth
+            _persist_insight(review_id, user_id, result)  # fail-open, off-path
         except Exception as exc:  # noqa: BLE001 — surface any analysis failure
             logger.exception("Game review %s failed", review_id)
             _set_job(review_id, status="error", error=str(exc))
@@ -452,9 +465,12 @@ _WORKER = threading.Thread(target=_worker_loop, name="game-review-worker", daemo
 _WORKER.start()
 
 
-def submit_review(pgn: str, depth: int = DEPTH) -> tuple[str, str]:
+def submit_review(pgn: str, depth: int = DEPTH, user_id: str | None = None) -> tuple[str, str]:
     """
     Validate + dedupe a PGN and enqueue analysis.
+
+    ``user_id`` (optional) is carried on the job so the completed review can be
+    persisted as a coach insight for that student; anonymous submits skip it.
 
     Returns ``(review_id, status)`` where status is ``"done"`` on a cache hit or
     ``"queued"`` otherwise. Raises ``ValueError`` for an invalid PGN.
@@ -465,6 +481,7 @@ def submit_review(pgn: str, depth: int = DEPTH) -> tuple[str, str]:
     cached = _read_cache(review_id)
     if cached is not None:
         _set_job(review_id, status="done", progress=1.0, result=cached)
+        _persist_insight(review_id, user_id, cached)  # fail-open, off-path
         return review_id, "done"
 
     with _JOBS_LOCK:
@@ -485,7 +502,7 @@ def submit_review(pgn: str, depth: int = DEPTH) -> tuple[str, str]:
         }
 
     _write_status(review_id, "queued", 0.0)
-    _QUEUE.put((review_id, pgn, depth))
+    _QUEUE.put((review_id, pgn, depth, user_id))
     return review_id, "queued"
 
 
