@@ -136,6 +136,23 @@ COACH_PLAYBOOK = _env_flag("COACH_PLAYBOOK", False)
 # identical to today; enable with COACH_CURRICULUM=1.
 COACH_CURRICULUM = _env_flag("COACH_CURRICULUM", False)
 
+# Best-of-N with engine selection (CL Phase 2, Slice 3): for a position-anchored
+# coach turn, generate several candidate explanations, let the ENGINE rank the
+# correctness channel (via engine_grounded), then a cheap-tier LLM judge picks
+# the clearest among the engine-PASSING candidates only. The engine gatekeeps
+# correctness; the judge can never promote an engine-failing candidate. Applies
+# only to analysis turns with a known FEN; the winner is streamed through the
+# existing SSE machinery so the client contract is unchanged. Default OFF so
+# behavior is byte-identical to today (same single agent.chat call, same
+# streaming, zero extra model/engine calls); enable with COACH_BESTOFN=1.
+#   COACH_BESTOFN_N         — candidates to generate (default 2, hard max 4).
+#   COACH_BESTOFN_BUDGET_MS — wall-clock budget for the whole pipeline; on
+#                             overrun the best-scored-so-far (or candidate 1) is
+#                             returned so the user always gets a reply.
+COACH_BESTOFN = _env_flag("COACH_BESTOFN", False)
+COACH_BESTOFN_N = int(os.environ.get("COACH_BESTOFN_N", "2"))
+COACH_BESTOFN_BUDGET_MS = int(os.environ.get("COACH_BESTOFN_BUDGET_MS", "20000"))
+
 # Self-hosted engine MCP: connect to external MCP servers configured in
 # ~/.hermes/config.yaml (mcp_servers) at startup and expose their tools to the
 # coach under `mcp-*` toolsets. Default OFF so the coach runs on native

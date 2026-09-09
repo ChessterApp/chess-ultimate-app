@@ -378,6 +378,83 @@ def _record_turn_usage(
     return thread
 
 
+def _chunk_text(text: str, size: int = 80):
+    """Yield *text* in fixed-size chunks so a buffered reply can be streamed out
+    as SSE ``delta`` frames — the same frame type the live-token path emits."""
+    for i in range(0, len(text), size):
+        yield text[i:i + size]
+
+
+def _run_bestofn_pipeline(
+    *,
+    base_agent,
+    model: str,
+    system_prompt: str,
+    session_id: str,
+    session_real_id: str,
+    user_query: str,
+    augmented_message: str,
+    user_id: str,
+    fen: str,
+):
+    """Best-of-N (CL Phase 2, Slice 3): generate N buffered candidates, let the
+    engine rank the correctness channel, then let the cheap-tier judge pick the
+    clearest survivor. Blocking (creates agents + runs a thread pool) — call in
+    an executor. Returns ``(BestOfNResult, winner_agent, winner_tool_results)``.
+
+    Candidate 0 reuses the already-created ``base_agent`` (so the turn_start
+    telemetry stays accurate and one agent is spared); candidates 1..N-1 are
+    fresh agents. Each candidate's real token usage is recorded through the
+    existing accounting, and the judge's usage is recorded too.
+    """
+    import functools
+
+    from src import bestofn
+
+    agents: dict = {}
+    tool_results_by_idx: dict = {}
+
+    def _generate(i: int) -> str:
+        agent = base_agent if i == 0 else _create_agent(
+            model=model, system_prompt=system_prompt, session_id=session_id,
+            user_query=user_query,
+        )
+        # Buffer this candidate's tool outputs so the winner's board actions can
+        # be extracted afterwards (candidates are non-streamed — no live frames).
+        results: list = []
+        agent.tool_complete_callback = (
+            lambda _cid, _tn, _args, res: results.append(res)
+        )
+        text = agent.chat(augmented_message)
+        _record_turn_usage(agent, user_id, session_real_id, model, surface="text")
+        agents[i] = agent
+        tool_results_by_idx[i] = results
+        return text
+
+    def _judge_usage(prompt_tokens: int, completion_tokens: int, judge_model: str) -> None:
+        _do_record_usage(
+            user_id, session_real_id, judge_model,
+            prompt_tokens, completion_tokens, "text",
+        )
+
+    judge_fn = functools.partial(
+        bestofn.run_judge, user_text=user_query,
+        model=bestofn.cheap_model(), on_usage=_judge_usage,
+    )
+
+    result = bestofn.run_bestofn(
+        fen=fen,
+        user_text=user_query,
+        generate=_generate,
+        judge_fn=judge_fn,
+        n=config.COACH_BESTOFN_N,
+        budget_ms=config.COACH_BESTOFN_BUDGET_MS,
+    )
+    winner_agent = agents.get(result.selected_idx) or base_agent
+    winner_results = tool_results_by_idx.get(result.selected_idx, [])
+    return result, winner_agent, winner_results
+
+
 # ── Health endpoint (enhanced) ─────────────────────────────────────────
 
 
@@ -623,6 +700,153 @@ def _tool_call_payload(tool_name: str, args, result) -> tuple[bool, Optional[str
     return ok, error_code, payload
 
 
+async def _bestofn_event_stream(
+    *,
+    base_agent,
+    model: str,
+    system_prompt: str,
+    session_id: str,
+    session,
+    body,
+    augmented_message: str,
+    user_id: str,
+    turn_id: str,
+    prompt_version,
+    evt_ctx: dict,
+    request: Request,
+    loop,
+):
+    """SSE generator for a best-of-N coach turn (CL Phase 2, Slice 3).
+
+    Runs the buffered generate→engine-rank→judge pipeline off the event loop,
+    then emits the winning candidate through the SAME frames as the live path:
+    chunked ``delta`` frames, then ``board_actions`` / ``game_results`` (from the
+    winner's tool outputs), then the terminal ``done``. Fully fail-open — a
+    pipeline exception yields a single ``error`` frame exactly like the normal
+    path's LLM failure. The audit row and memory writer run fire-and-forget and
+    never block the reply.
+    """
+    fen = session.board_state
+    turn_started = time.monotonic()
+    try:
+        result, winner_agent, tool_results = await loop.run_in_executor(
+            None,
+            lambda: _run_bestofn_pipeline(
+                base_agent=base_agent, model=model, system_prompt=system_prompt,
+                session_id=session_id, session_real_id=session.id,
+                user_query=body.message, augmented_message=augmented_message,
+                user_id=user_id, fen=fen,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
+        latency_ms = int((time.monotonic() - turn_started) * 1000)
+        log_event(
+            "llm_error",
+            severity="error",
+            surface="text",
+            user_id=user_id,
+            session_id=session.id,
+            turn_id=turn_id,
+            model=model,
+            duration_ms=latency_ms,
+            ok=False,
+            error_code=type(exc).__name__,
+            payload={"error_class": type(exc).__name__, "message": str(exc)[:2000],
+                     "path": "bestofn"},
+        )
+        diag.record(
+            "agent_error",
+            request_id=getattr(request.state, "request_id", None),
+            message="best-of-N pipeline raised on /api/coach/chat (streaming)",
+            exc=exc,
+            model=model,
+        )
+        yield _sse({"error": f"Agent error: {exc}"})
+        return
+
+    latency_ms = int((time.monotonic() - turn_started) * 1000)
+    response_text = result.text or "I wasn't able to generate a response. Please try again."
+
+    # Stream the buffered winner as chunked deltas (client contract unchanged).
+    for chunk in _chunk_text(response_text):
+        yield _sse({"delta": chunk})
+
+    # Candidate + judge token usage was recorded inside the pipeline; stamp the
+    # assistant row telemetry from the winning candidate's agent.
+    prompt_tokens = _safe_int(getattr(winner_agent, "session_prompt_tokens", 0)) or 0
+    completion_tokens = _safe_int(getattr(winner_agent, "session_completion_tokens", 0)) or 0
+
+    assistant_extra = {
+        "turn_id": turn_id,
+        "model": model,
+        "prompt_version": prompt_version,
+        "latency_ms": latency_ms,
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+    }
+    session.add_message("assistant", response_text, extra=assistant_extra, evt=evt_ctx)
+
+    log_event(
+        "turn_end",
+        surface="text",
+        user_id=user_id,
+        session_id=session.id,
+        turn_id=turn_id,
+        model=model,
+        duration_ms=latency_ms,
+        ok=True,
+        payload={
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "latency_ms": latency_ms,
+            "finish_reason": "bestofn",
+            "bestofn": {
+                "n": result.n,
+                "selected_idx": result.selected_idx,
+                "fallback_reason": result.fallback_reason,
+            },
+        },
+    )
+
+    # Append the audit row fire-and-forget (failure to audit never blocks reply).
+    try:
+        from src import bestofn
+
+        bestofn.write_audit(result, user_id, session.id, fen)
+    except Exception:
+        logger.debug("bestofn audit scheduling failed", exc_info=True)
+
+    # Per-student memory (CL Phase 1): same off-request-path treatment as the
+    # normal turn path — flag-gated (default OFF) and fully fail-open.
+    if config.COACH_MEMORY_WRITER:
+        try:
+            from src.memory_writer import schedule_memory_writer
+
+            schedule_memory_writer(
+                user_id=user_id,
+                turn_id=turn_id,
+                user_message=body.message,
+                coach_reply=response_text,
+                board_fen=session.board_state,
+                tool_results=list(tool_results),
+                model=model,
+            )
+        except Exception:
+            logger.debug("memory writer scheduling failed", exc_info=True)
+
+    envelope = wrap_response(response_text, tool_results=tool_results)
+
+    board_actions = envelope.get("board_actions", [])
+    if board_actions:
+        yield _sse({"board_actions": board_actions})
+
+    game_results = envelope.get("game_results", [])
+    if game_results:
+        yield _sse({"game_results": game_results})
+
+    yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
+
+
 @app.post("/api/coach/chat")
 async def coach_chat(body: CoachChatRequest, request: Request):
     """Coach chat endpoint — streams the agent's reply as SSE token events.
@@ -717,6 +941,27 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     loop = asyncio.get_event_loop()
 
     async def event_stream():
+        # Best-of-N (CL Phase 2, Slice 3): flag-gated AND only on a FEN-anchored
+        # turn. Candidates are generated buffered (non-streamed); the engine
+        # ranks the correctness channel and the cheap-tier judge picks the
+        # clearest survivor; the winner is then emitted through this same SSE
+        # machinery (chunked deltas + the same terminal frames) so the client
+        # contract is unchanged. Flag OFF or no FEN → the original single-streamed
+        # path below runs, byte-identical. The FEN-anchored signal is an
+        # explicit body.fen on this turn (the position the student is asking
+        # about) — a chit-chat turn carries no fen and always takes the normal
+        # path, even though the session always holds a default board position.
+        if config.COACH_BESTOFN and body.fen and session.board_state:
+            async for frame in _bestofn_event_stream(
+                base_agent=agent, model=model, system_prompt=system_prompt,
+                session_id=session_id, session=session, body=body,
+                augmented_message=augmented_message, user_id=user_id,
+                turn_id=turn_id, prompt_version=prompt_version, evt_ctx=evt_ctx,
+                request=request, loop=loop,
+            ):
+                yield frame
+            return
+
         # Bridge the agent's synchronous, executor-thread token callback onto the
         # event loop via a thread-safe queue so tokens stream out as they arrive.
         queue: asyncio.Queue = asyncio.Queue()
