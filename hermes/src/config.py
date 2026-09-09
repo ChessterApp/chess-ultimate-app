@@ -118,6 +118,14 @@ COACH_MEMORY_WRITER = _env_flag("COACH_MEMORY_WRITER", False)
 # OFF so behavior is byte-identical to today; enable with COACH_GAME_RAG=1.
 COACH_GAME_RAG = _env_flag("COACH_GAME_RAG", False)
 
+# Coaching playbook (CL Phase 2, Slice 1): inject a compact "Coaching playbook
+# (engine-verified)" block into the system prompt from an evolving store of
+# distilled, engine-verified coaching patterns (coach_playbook). Context
+# injection only on the turn path — the Generator/Reflector/Curator curation
+# loop runs OFFLINE via scripts/build_playbook.py, never inline in a chat turn.
+# Default OFF so behavior is byte-identical to today; enable with COACH_PLAYBOOK=1.
+COACH_PLAYBOOK = _env_flag("COACH_PLAYBOOK", False)
+
 # Self-hosted engine MCP: connect to external MCP servers configured in
 # ~/.hermes/config.yaml (mcp_servers) at startup and expose their tools to the
 # coach under `mcp-*` toolsets. Default OFF so the coach runs on native

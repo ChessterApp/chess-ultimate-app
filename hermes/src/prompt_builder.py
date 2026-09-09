@@ -322,6 +322,28 @@ def build_system_prompt(
         except Exception:
             logger.debug("game insights injection failed", exc_info=True)
 
+    # Coaching playbook (CL Phase 2, Slice 1): inject up to 3 relevant, engine-
+    # verified coaching patterns distilled from real transcripts. Flag-gated
+    # (COACH_PLAYBOOK, default OFF → no-op, prompt byte-identical), fully
+    # fail-open, and served from an in-process TTL cache so it adds no per-turn
+    # DB latency spike. Curation is offline; this only reads.
+    try:
+        from src.config import COACH_PLAYBOOK
+
+        if COACH_PLAYBOOK:
+            from src.playbook import build_turn_context, load_playbook_block
+
+            context = build_turn_context(
+                board_fen=board_fen,
+                move_history=move_history,
+                user_profile=user_profile,
+            )
+            block = load_playbook_block(context)
+            if block:
+                sections.append(block)
+    except Exception:
+        logger.debug("playbook injection failed", exc_info=True)
+
     # Board context
     board_lines = []
     if board_fen:
