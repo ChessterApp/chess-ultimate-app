@@ -344,6 +344,25 @@ def build_system_prompt(
     except Exception:
         logger.debug("playbook injection failed", exc_info=True)
 
+    # Automatic curriculum (CL Phase 2, Slice 2): inject the student's current
+    # "Training focus (engine-measured)" — ≤3 themes keyed on engine-measured
+    # learnability (high blunder rate near their ~50% solve frontier). Flag-gated
+    # (COACH_CURRICULUM, default OFF → no-op, prompt byte-identical), fully fail-
+    # open, and served from an in-process per-user TTL cache so it adds no per-
+    # turn DB latency spike. The curriculum is computed OFFLINE; this only reads.
+    if user_profile:
+        try:
+            from src.config import COACH_CURRICULUM
+
+            if COACH_CURRICULUM:
+                from src.curriculum import load_curriculum_block
+
+                block = load_curriculum_block(user_profile.user_id)
+                if block:
+                    sections.append(block)
+        except Exception:
+            logger.debug("curriculum injection failed", exc_info=True)
+
     # Board context
     board_lines = []
     if board_fen:

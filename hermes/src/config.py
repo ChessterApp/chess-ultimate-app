@@ -126,6 +126,16 @@ COACH_GAME_RAG = _env_flag("COACH_GAME_RAG", False)
 # Default OFF so behavior is byte-identical to today; enable with COACH_PLAYBOOK=1.
 COACH_PLAYBOOK = _env_flag("COACH_PLAYBOOK", False)
 
+# Automatic curriculum (CL Phase 2, Slice 2): inject a compact "Training focus
+# (engine-measured)" block into the system prompt from a per-student curriculum
+# (coach_curriculum) keyed on engine-measured learnability — the themes where the
+# engine says the student blunders most, at a difficulty near their ~50% solve-
+# rate frontier. Context injection only on the turn path — the curriculum is
+# computed OFFLINE via scripts/build_curriculum.py (deterministic aggregation, no
+# LLM calls), never inline in a chat turn. Default OFF so behavior is byte-
+# identical to today; enable with COACH_CURRICULUM=1.
+COACH_CURRICULUM = _env_flag("COACH_CURRICULUM", False)
+
 # Self-hosted engine MCP: connect to external MCP servers configured in
 # ~/.hermes/config.yaml (mcp_servers) at startup and expose their tools to the
 # coach under `mcp-*` toolsets. Default OFF so the coach runs on native
