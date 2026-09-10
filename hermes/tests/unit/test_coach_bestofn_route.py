@@ -11,6 +11,7 @@ mocked. Proves the two invariants that matter at the route level:
 """
 
 import json
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -179,3 +180,46 @@ class TestFlagOnBestOfN:
         assert agent_instance.chat.call_count == 1
         mock_eval.assert_not_called()
         mock_judge.assert_not_called()
+
+    @patch("src.server.log_event")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_bestofn_import_failure_falls_back_to_normal_stream(
+        self, mock_profile, mock_agent, _log, monkeypatch
+    ):
+        """Task 2 fail-open: if importing the best-of-N pipeline raises (prod
+        incident: missing src.eval/src.optimize), the turn degrades to the normal
+        streaming path — one streamed agent.chat call, no SSE error frame."""
+        mock_profile.return_value = UserProfile(user_id="bon-user")
+        agent_instance = _agent("safe fallback reply")
+
+        def _chat(message, stream_callback=None):
+            if stream_callback:
+                stream_callback("safe fallback reply")
+            return "safe fallback reply"
+
+        agent_instance.chat.side_effect = _chat
+        mock_agent.return_value = agent_instance
+
+        # Make `from src import bestofn` raise ImportError inside the route.
+        # Both the cached submodule AND the parent-package attribute must be
+        # cleared, else the from-import resolves the stale cached attribute.
+        import src as src_pkg
+
+        monkeypatch.delattr(src_pkg, "bestofn", raising=False)
+        monkeypatch.setitem(sys.modules, "src.bestofn", None)
+
+        with patch.object(config, "COACH_BESTOFN", True), \
+             patch.object(config, "COACH_BESTOFN_N", 2):
+            resp = self.client.post(
+                "/api/coach/chat", headers=USER_HEADERS,
+                json={"message": "explain this", "fen": FEN},
+            )
+
+        assert resp.status_code == 200
+        text, done = _deltas(resp)
+        assert text == "safe fallback reply" and done
+        # Degraded to the normal single streamed call — no error frame.
+        assert agent_instance.chat.call_count == 1
+        assert "stream_callback" in agent_instance.chat.call_args.kwargs
+        assert "error" not in resp.text

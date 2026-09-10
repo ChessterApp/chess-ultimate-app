@@ -952,15 +952,31 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # about) — a chit-chat turn carries no fen and always takes the normal
         # path, even though the session always holds a default board position.
         if config.COACH_BESTOFN and body.fen and session.board_state:
-            async for frame in _bestofn_event_stream(
-                base_agent=agent, model=model, system_prompt=system_prompt,
-                session_id=session_id, session=session, body=body,
-                augmented_message=augmented_message, user_id=user_id,
-                turn_id=turn_id, prompt_version=prompt_version, evt_ctx=evt_ctx,
-                request=request, loop=loop,
-            ):
-                yield frame
-            return
+            # Fail-open on pipeline import/setup errors (before any candidate is
+            # generated): if the best-of-N module can't be imported/prepared,
+            # degrade to the NORMAL streaming path instead of emitting an SSE
+            # error frame. Prod incident 2026-09-09: src.eval/src.optimize were
+            # missing, so this import raised and the error escaped to the client.
+            bestofn_ready = True
+            try:
+                from src import bestofn  # noqa: F401 — pre-flight import check
+            except Exception:
+                logger.warning(
+                    "best-of-N unavailable (pipeline import/setup failed); "
+                    "falling back to normal streaming path", exc_info=True,
+                )
+                bestofn_ready = False
+
+            if bestofn_ready:
+                async for frame in _bestofn_event_stream(
+                    base_agent=agent, model=model, system_prompt=system_prompt,
+                    session_id=session_id, session=session, body=body,
+                    augmented_message=augmented_message, user_id=user_id,
+                    turn_id=turn_id, prompt_version=prompt_version, evt_ctx=evt_ctx,
+                    request=request, loop=loop,
+                ):
+                    yield frame
+                return
 
         # Bridge the agent's synchronous, executor-thread token callback onto the
         # event loop via a thread-safe queue so tokens stream out as they arrive.

@@ -8,6 +8,8 @@ row shape, and the flag-off byte-identical no-op.
 """
 
 import json
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -64,13 +66,33 @@ class TestRankCandidates:
 
     def test_pure_given_injected_fn(self):
         calls = []
+        lock = threading.Lock()
 
         def _ev(fen, text, user, depth):
-            calls.append((fen, text, user, depth))
+            with lock:
+                calls.append((fen, text, user, depth))
             return _verdict()
 
         bon.rank_candidates("F", "U", ["a", "b"], depth=7, evaluate_fn=_ev)
-        assert calls == [("F", "a", "U", 7), ("F", "b", "U", 7)]
+        # Evaluation runs on a thread pool now — the call ORDER is unspecified,
+        # but every candidate is evaluated exactly once with the same args.
+        assert sorted(calls) == [("F", "a", "U", 7), ("F", "b", "U", 7)]
+
+    def test_parallel_rank_preserves_order_and_verdicts(self):
+        # Even though evaluation is concurrent, the returned list is in INPUT
+        # order and each candidate carries its own verdict.
+        mapping = {
+            "a": _verdict(correctness=0.1),
+            "b": _verdict(correctness=0.9),
+            "c": _verdict(status="skipped", correctness=None),
+        }
+        ranked = bon.rank_candidates(
+            "fen", "q", ["a", "b", "c"], evaluate_fn=_fake_evaluate(mapping)
+        )
+        assert [rc.idx for rc in ranked] == [0, 1, 2]
+        assert [rc.text for rc in ranked] == ["a", "b", "c"]
+        assert ranked[0].score == 0.1 and ranked[1].score == 0.9
+        assert ranked[2].status == "skipped" and ranked[2].passed is False
 
 
 # ── select_best: gate + judge + tie-breaking ─────────────────────────────
@@ -266,12 +288,14 @@ class TestRunBestOfN:
         assert res.fallback_reason == "all_failed"
         assert res.text in ("x", "y")
 
-    def test_budget_exceeded_returns_best_so_far(self):
+    def test_budget_exceeded_skips_judge_returns_best_survivor(self):
+        # Slice 4: all candidates are generated concurrently, so both are present
+        # by the time the deadline check runs. The clock is already past the
+        # deadline → the judge is skipped and the best-scored SURVIVOR wins.
         texts = ["lo", "hi"]
         mapping = {"lo": _verdict(correctness=0.4), "hi": _verdict(correctness=0.9)}
-        # Clock jumps far past the deadline right after candidate 0 is generated,
-        # so generation of extras is skipped and the judge is bypassed.
-        ticks = iter([0.0, 100.0, 100.0, 100.0, 100.0, 100.0])
+        # start, deadline check, latency — generation makes no clock() calls.
+        ticks = iter([0.0, 100.0, 100.0, 100.0])
         judge = MagicMock()
         res = bon.run_bestofn(
             fen="fen", user_text="q", generate=self._gen(texts), judge_fn=judge,
@@ -280,7 +304,7 @@ class TestRunBestOfN:
         )
         judge.assert_not_called()
         assert res.fallback_reason == "budget_exceeded"
-        assert res.selected_idx == 0 and res.text == "lo"
+        assert res.selected_idx == 1 and res.text == "hi"
 
     def test_exception_anywhere_serves_candidate_one(self):
         def bad_eval(*a, **k):
@@ -303,6 +327,79 @@ class TestRunBestOfN:
             bon.run_bestofn(
                 fen="fen", user_text="q", generate=gen, judge_fn=MagicMock(), n=2,
             )
+
+    # ── Slice 4: concurrent generation + fail-open guarantees ──────────────
+
+    def test_all_candidates_generated_concurrently(self):
+        # Wall time for n candidates each sleeping S must be ~S, not n*S.
+        S = 0.3
+        n = 3
+
+        def gen(i):
+            time.sleep(S)
+            return f"cand{i}"
+
+        started = time.monotonic()
+        out, err = bon._generate_all(gen, n)
+        elapsed = time.monotonic() - started
+        assert err is None
+        assert set(out) == {0, 1, 2}
+        # Serial would be n*S = 0.9s; concurrent stays well under 2*S.
+        assert elapsed < (n - 1) * S
+
+    def test_candidate_zero_fails_but_one_succeeds_serves_answer(self):
+        # Fail-open: candidate 0 raises, candidate 1 succeeds → user still gets
+        # candidate 1's answer, no exception.
+        def gen(i):
+            if i == 0:
+                raise RuntimeError("cand 0 blew up")
+            return "B"
+
+        mapping = {"B": _verdict(correctness=0.8)}
+        res = bon.run_bestofn(
+            fen="fen", user_text="q", generate=gen, judge_fn=MagicMock(),
+            n=2, evaluate_fn=_fake_evaluate(mapping),
+        )
+        assert res.selected_idx == 1 and res.text == "B"
+        assert res.fallback_reason is None
+
+    def test_all_candidates_fail_propagates(self):
+        errors = []
+
+        def gen(i):
+            e = RuntimeError(f"boom {i}")
+            errors.append(e)
+            raise e
+
+        with pytest.raises(RuntimeError, match="boom"):
+            bon.run_bestofn(
+                fen="fen", user_text="q", generate=gen, judge_fn=MagicMock(), n=3,
+                evaluate_fn=_fake_evaluate({}),
+            )
+
+    def test_pipeline_within_budget_with_slow_candidates_and_judge(self):
+        # "Done means" timing proof: n=2 with 2s candidates + 0.5s judge fits the
+        # 4500ms budget because generation is parallel (serial would be ~4.5s of
+        # generation alone). The judge therefore runs and picks the winner.
+        def gen(i):
+            time.sleep(2.0)
+            return f"cand{i}"
+
+        def judge(survivors):
+            time.sleep(0.5)
+            return {"choice": 1, "reason": "clearer"}
+
+        mapping = {f"cand{i}": _verdict(correctness=0.5 + 0.1 * i) for i in range(2)}
+        started = time.monotonic()
+        res = bon.run_bestofn(
+            fen="fen", user_text="q", generate=gen, judge_fn=judge,
+            n=2, budget_ms=4500, evaluate_fn=_fake_evaluate(mapping),
+        )
+        elapsed = time.monotonic() - started
+        assert elapsed < 4.5           # parallelism is real (serial would exceed)
+        assert res.latency_ms < 4500
+        assert res.fallback_reason is None   # judge ran within budget
+        assert res.selected_idx == 1 and res.text == "cand1"
 
 
 # ── Audit row shape ──────────────────────────────────────────────────────

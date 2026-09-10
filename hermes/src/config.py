@@ -146,12 +146,14 @@ COACH_CURRICULUM = _env_flag("COACH_CURRICULUM", False)
 # behavior is byte-identical to today (same single agent.chat call, same
 # streaming, zero extra model/engine calls); enable with COACH_BESTOFN=1.
 #   COACH_BESTOFN_N         — candidates to generate (default 2, hard max 4).
-#   COACH_BESTOFN_BUDGET_MS — wall-clock budget for the whole pipeline; on
-#                             overrun the best-scored-so-far (or candidate 1) is
-#                             returned so the user always gets a reply.
+#   COACH_BESTOFN_BUDGET_MS — wall-clock budget for the whole pipeline (default
+#                             4500ms; candidates generate concurrently so this
+#                             fits under 5s); on overrun the best-scored-so-far
+#                             (or first candidate) is returned so the user always
+#                             gets a reply.
 COACH_BESTOFN = _env_flag("COACH_BESTOFN", False)
 COACH_BESTOFN_N = int(os.environ.get("COACH_BESTOFN_N", "2"))
-COACH_BESTOFN_BUDGET_MS = int(os.environ.get("COACH_BESTOFN_BUDGET_MS", "20000"))
+COACH_BESTOFN_BUDGET_MS = int(os.environ.get("COACH_BESTOFN_BUDGET_MS", "4500"))
 
 # Self-hosted engine MCP: connect to external MCP servers configured in
 # ~/.hermes/config.yaml (mcp_servers) at startup and expose their tools to the

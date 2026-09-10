@@ -48,7 +48,10 @@ logger = logging.getLogger(__name__)
 # ── Caps (Design rule 4) ─────────────────────────────────────────────────
 DEFAULT_N = 2
 MAX_N = 4
-DEFAULT_BUDGET_MS = 20000
+# Whole-pipeline wall-clock budget. With parallel generation + a cheap judge the
+# default n=2 path fits comfortably under 5s (Slice 4 target). Overridable via
+# COACH_BESTOFN_BUDGET_MS.
+DEFAULT_BUDGET_MS = 4500
 
 # Stored candidate text is DATA, truncated (Design rule 6).
 AUDIT_TEXT_CAP = 2000
@@ -151,22 +154,29 @@ def rank_candidates(
     depth: int = DEFAULT_DEPTH,
     evaluate_fn: Callable = evaluate_turn,
 ) -> list:
-    """Score each candidate against the engine. Pure given ``evaluate_fn``.
+    """Score each candidate against the engine, concurrently. Pure given
+    ``evaluate_fn``.
 
     ``evaluate_fn`` is called ``(fen, assistant_text, user_text, depth)`` exactly
     like :func:`evaluate_turn`; injecting a fake makes ranking deterministic and
-    offline in tests. Returns a list of :class:`RankedCandidate` in input order.
+    offline in tests. Per-candidate engine evaluation runs on a thread pool
+    (Slice 4) but the returned list is always in INPUT order — selection stays
+    deterministic. The call ORDER of ``evaluate_fn`` is unspecified.
     """
-    ranked: list = []
-    for i, text in enumerate(candidates):
+    if not candidates:
+        return []
+
+    def _eval_one(item) -> RankedCandidate:
+        i, text = item
         verdict = evaluate_fn(fen, text or "", user_text or "", depth)
         vd = verdict.to_dict() if hasattr(verdict, "to_dict") else dict(verdict or {})
         score, status, passed = _classify(vd)
-        ranked.append(
-            RankedCandidate(idx=i, text=text or "", score=score, status=status,
-                            passed=passed, verdict=vd)
-        )
-    return ranked
+        return RankedCandidate(idx=i, text=text or "", score=score, status=status,
+                               passed=passed, verdict=vd)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(candidates)) as ex:
+        # ex.map preserves input order regardless of completion order.
+        return list(ex.map(_eval_one, enumerate(candidates)))
 
 
 def _score_pick(pool: list) -> int:
@@ -356,34 +366,32 @@ def cheap_model() -> str:
 # ── Orchestration: generate → rank → select (fail-open, budgeted) ────────
 
 
-def _generate_extra(
-    generate: Callable, n: int, deadline: float, clock: Callable
-) -> dict:
-    """Generate candidates 1..n-1 concurrently, respecting the wall-clock budget.
+def _generate_all(generate: Callable, n: int) -> tuple[dict, Optional[BaseException]]:
+    """Generate ALL candidates 0..n-1 concurrently on a thread pool (Slice 4).
 
-    ``generate(i) -> str`` produces one buffered candidate. Runs on a small
-    thread pool (mirrors the server's ``run_in_executor`` concurrency). Returns
-    ``{idx: text}`` for candidates that finished within budget; a failed or
-    empty generation is simply omitted (candidate 0 is generated separately and
-    is the guaranteed fallback).
+    ``generate(i) -> str`` produces one buffered candidate. Returns
+    ``({idx: text}, first_error)``: a candidate that raises or returns empty
+    text is omitted, and the first exception seen is captured so the caller can
+    re-raise it when EVERY candidate failed (a genuine total-generation failure
+    that must surface exactly like a normal single-turn agent error). As long as
+    at least one candidate returns text, the user gets an answer.
     """
     out: dict = {}
-    if n <= 1:
-        return out
-    with concurrent.futures.ThreadPoolExecutor(max_workers=n - 1) as ex:
-        futures = {ex.submit(generate, i): i for i in range(1, n)}
+    first_error: Optional[BaseException] = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, n)) as ex:
+        futures = {ex.submit(generate, i): i for i in range(n)}
         for fut in concurrent.futures.as_completed(futures):
             idx = futures[fut]
             try:
                 text = fut.result()
-            except Exception:
+            except Exception as exc:
                 logger.debug("candidate %d generation failed", idx, exc_info=True)
+                if first_error is None:
+                    first_error = exc
                 continue
             if isinstance(text, str) and text:
                 out[idx] = text
-            if clock() >= deadline:
-                break
-    return out
+    return out, first_error
 
 
 def run_bestofn(
@@ -400,10 +408,13 @@ def run_bestofn(
 ) -> BestOfNResult:
     """Run the full best-of-N pipeline and return the winning candidate.
 
-    ``generate(i) -> str`` produces candidate ``i`` (buffered, non-streamed).
-    Candidate 0 is generated first and is the guaranteed fallback reply — the
-    user always gets an answer. Any exception after that (generation, ranking,
-    judging) collapses to candidate 1 with ``fallback_reason="exception"``.
+    ``generate(i) -> str`` produces candidate ``i`` (buffered, non-streamed). All
+    candidates 0..n-1 are generated CONCURRENTLY (Slice 4). The user always gets
+    an answer as long as at least one candidate returns text — the best available
+    is served. Only a genuine TOTAL generation failure (every candidate raised)
+    propagates, exactly like a normal single-turn agent failure. Any exception
+    after generation (ranking, judging) collapses to the first available
+    candidate with ``fallback_reason="exception"``.
 
     Fully fail-open. Deterministic given (candidate texts, verdicts, judge
     output): the only nondeterminism is the model sampling inside ``generate``.
@@ -415,15 +426,16 @@ def run_bestofn(
     start = clock()
     deadline = start + max(0.0, budget_ms / 1000.0)
 
-    # Candidate 0 is the guaranteed fallback. If generating it raises, that is a
-    # genuine total failure — let it propagate so the caller handles it exactly
-    # as a normal single-turn agent failure (an SSE error frame today).
-    candidates: dict = {0: generate(0)}
+    # Generate every candidate concurrently. If ALL fail, that is a genuine total
+    # failure — re-raise so the caller handles it exactly as a normal single-turn
+    # agent failure (an SSE error frame today).
+    candidates, gen_error = _generate_all(generate, n)
+    if not candidates:
+        raise gen_error if gen_error is not None else RuntimeError(
+            "best-of-N: no candidate produced text"
+        )
 
     try:
-        if n > 1 and clock() < deadline:
-            candidates.update(_generate_extra(generate, n, deadline, clock))
-
         idxs = sorted(candidates)
         texts = [candidates[i] for i in idxs]
         ranked = rank_candidates(fen, user_text, texts, depth, evaluate_fn=evaluate_fn)
@@ -439,13 +451,13 @@ def run_bestofn(
         else:
             sel = select_best(ranked, judge_fn)
     except Exception:
-        logger.debug("best-of-N pipeline failed; serving candidate 1", exc_info=True)
+        logger.debug("best-of-N pipeline failed; serving first candidate", exc_info=True)
         ranked = _bare_ranked(candidates)
-        sel = Selection(0, "exception", None)
+        sel = Selection(min(candidates), "exception", None)
 
     by_idx = {rc.idx: rc for rc in ranked}
     winner = by_idx.get(sel.selected_idx) or (ranked[0] if ranked else None)
-    text = winner.text if winner is not None else candidates.get(0, "")
+    text = winner.text if winner is not None else candidates.get(min(candidates), "")
     latency_ms = int((clock() - start) * 1000)
 
     return BestOfNResult(
