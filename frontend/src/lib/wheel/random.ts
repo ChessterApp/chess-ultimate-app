@@ -32,3 +32,11 @@ export function pickIndex(count: number, rng: RandomUint32 = cryptoUint32): numb
   }
   return x % count;
 }
+
+/**
+ * A uniform random float in [0, 1). Crypto-backed by default; used for the
+ * small within-slice landing jitter so the wheel doesn't always stop dead-center.
+ */
+export function randomUnit(rng: RandomUint32 = cryptoUint32): number {
+  return (rng() >>> 0) / 0x100000000;
+}

@@ -15,15 +15,13 @@
   width: 100%;
 }
 
-/* The rotating disc. Duration/easing come from inline style so the JS can vary
- * spin length; the transition itself lives here. */
+/* The rotating disc. Its rotation is driven frame-by-frame by the physics
+ * engine (useWheelPhysics writes `style.transform` directly) — there is
+ * deliberately NO CSS transition here, so the JS simulation is the single
+ * source of truth for the disc angle. */
 .wheel-disc {
   transform-origin: 50% 50%;
   will-change: transform;
-}
-.wheel-disc.is-spinning {
-  transition-property: transform;
-  transition-timing-function: cubic-bezier(0.12, 0.75, 0.12, 1);
 }
 
 /* Bulbs around the rim. Each bulb reads its index via --i for the chase delay. */
@@ -50,16 +48,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Decorative bulb chase may stop under reduced motion... */
+  /* Decorative bulb chase stops under reduced motion. The disc rotation itself
+   * is the core game mechanic and is handled in JS (useWheelPhysics runs a
+   * "gentle mode": low peak speed, short decel) — there is no CSS transition on
+   * the disc to override here. */
   .wheel-stage.is-spinning .wheel-bulb {
     animation: none;
-  }
-  /* ...but the disc rotation IS the core game mechanic, so exempt it from the
-   * global `* { transition-duration: 0.01ms !important }` kill switch. The
-   * scoped selector + !important outrank the `*` rule, restoring the full spin
-   * duration (mirrored from the component via --spin-ms). */
-  .wheel-disc.is-spinning {
-    transition-duration: var(--spin-ms) !important;
   }
 }
 

@@ -22,11 +22,10 @@ const BULB_COUNT = 24;
 
 interface WheelProps {
   segments: WheelSegment[];
-  /** Current wheel rotation in degrees (clockwise). */
-  rotation: number;
+  /** Ref to the rotating disc; the physics driver writes `style.transform` here. */
+  discRef?: React.Ref<HTMLDivElement>;
+  /** Whether a spin is in progress — drives the decorative bulb chase only. */
   spinning: boolean;
-  /** Spin duration in ms — drives the CSS transition. */
-  spinDurationMs: number;
   spinLabel: string;
   disabled: boolean;
   onSpin: () => void;
@@ -47,9 +46,8 @@ function labelPlacement(angle: number): { x: number; y: number; transform: strin
 
 export default function Wheel({
   segments,
-  rotation,
+  discRef,
   spinning,
-  spinDurationMs,
   spinLabel,
   disabled,
   onSpin,
@@ -69,18 +67,12 @@ export default function Wheel({
       style={stageStyle}
       data-testid="wheel-stage"
     >
-      {/* Rotating disc: wedges + labels */}
+      {/* Rotating disc: wedges + labels. Rotation is written straight to
+          `style.transform` by the physics driver via `discRef` — no CSS
+          transition, no per-frame React render. */}
       <div
+        ref={discRef}
         className={`wheel-disc absolute inset-0${spinning ? ' is-spinning' : ''}`}
-        style={{
-          transform: `rotate(${rotation}deg)`,
-          transitionDuration: spinning ? `${spinDurationMs}ms` : '0ms',
-          // Mirror the duration into a custom property so the reduced-motion
-          // override in wheel.css can restore the full spin duration (the global
-          // `* { transition-duration: 0.01ms !important }` kill switch would
-          // otherwise flatten this inline value to an instant snap).
-          ['--spin-ms' as string]: `${spinDurationMs}ms`,
-        }}
         data-testid="wheel-disc"
       >
         <svg viewBox={`0 0 ${VIEW} ${VIEW}`} width="100%" height="100%" role="img" aria-label="prize wheel">

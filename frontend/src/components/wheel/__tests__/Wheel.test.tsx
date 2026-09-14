@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { createRef } from 'react';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect, afterEach, vi } from 'vitest';
@@ -6,7 +7,6 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import Wheel from '../Wheel';
 import type { WheelSegment } from '@/lib/wheel/types';
 
-// The CSS import in Wheel.tsx is harmless under jsdom, but stub matchMedia gaps.
 afterEach(cleanup);
 
 function makeSegments(n: number): WheelSegment[] {
@@ -23,9 +23,7 @@ function renderWheel(n: number, overrides: Partial<React.ComponentProps<typeof W
   const utils = render(
     <Wheel
       segments={makeSegments(n)}
-      rotation={0}
       spinning={false}
-      spinDurationMs={5000}
       spinLabel="SPIN"
       disabled={false}
       onSpin={onSpin}
@@ -51,10 +49,30 @@ describe('Wheel', () => {
     expect(screen.getByText('Prize 2')).toBeTruthy();
   });
 
-  it('applies the rotation transform to the disc', () => {
-    renderWheel(6, { rotation: 123 });
+  it('forwards discRef to the rotating disc so the physics driver can drive it', () => {
+    const ref = createRef<HTMLDivElement>();
+    renderWheel(6, { discRef: ref });
+    expect(ref.current).toBe(screen.getByTestId('wheel-disc'));
+    // The disc carries no inline transform: the driver writes it at runtime.
+    expect(ref.current!.style.transform).toBe('');
+  });
+
+  it('does not put a CSS transition on the disc (JS drives every frame)', () => {
+    renderWheel(6, { spinning: true });
     const disc = screen.getByTestId('wheel-disc');
-    expect(disc.style.transform).toBe('rotate(123deg)');
+    // No inline transition and no --spin-ms escape-hatch custom property.
+    expect(disc.style.transition).toBe('');
+    expect(disc.style.transitionDuration).toBe('');
+    expect(disc.style.getPropertyValue('--spin-ms')).toBe('');
+  });
+
+  it('marks the stage as spinning to drive the decorative bulb chase', () => {
+    const { rerender } = renderWheel(6, { spinning: false });
+    expect(screen.getByTestId('wheel-stage').className).not.toContain('is-spinning');
+    rerender(
+      <Wheel segments={makeSegments(6)} spinning spinLabel="SPIN" disabled onSpin={() => {}} />,
+    );
+    expect(screen.getByTestId('wheel-stage').className).toContain('is-spinning');
   });
 
   it('fires onSpin when the center button is clicked', () => {
@@ -69,31 +87,34 @@ describe('Wheel', () => {
     expect((btn as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('mirrors the spin duration into the --spin-ms custom property while spinning', () => {
-    renderWheel(6, { spinning: true, spinDurationMs: 4200 });
-    const disc = screen.getByTestId('wheel-disc');
-    expect(disc.style.getPropertyValue('--spin-ms')).toBe('4200ms');
-    expect(disc.style.transitionDuration).toBe('4200ms');
-  });
-
-  it('exempts the spinning disc from the reduced-motion kill switch in wheel.css', () => {
+  it('has no disc CSS transition to fight the JS-driven rotation', () => {
     const cssPath = path.resolve(process.cwd(), 'src/components/wheel/wheel.css');
     const css = readFileSync(cssPath, 'utf8');
-    // The reduced-motion media block must restore the disc rotation duration so
-    // the spin still animates when prefers-reduced-motion: reduce is set.
+    // The old model transitioned `transform` on .wheel-disc; the physics engine
+    // now owns the disc angle, so there must be no transition on the disc.
+    expect(css).not.toMatch(/\.wheel-disc[^{]*\{[^}]*transition-property:\s*transform/);
+    expect(css).not.toContain('--spin-ms');
+  });
+
+  it('reduced-motion block no longer overrides a disc transition', () => {
+    const cssPath = path.resolve(process.cwd(), 'src/components/wheel/wheel.css');
+    const css = readFileSync(cssPath, 'utf8');
     const reducedBlock = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
-    expect(reducedBlock).toContain('.wheel-disc.is-spinning');
-    expect(reducedBlock).toMatch(/\.wheel-disc\.is-spinning\s*\{[^}]*transition-duration:\s*var\(--spin-ms\)\s*!important/);
+    // Gentle mode is handled in JS (useWheelPhysics), not by a CSS transition
+    // override. The old `.wheel-disc.is-spinning { transition-duration: ... }`
+    // escape hatch must be gone; only the decorative bulb chase is disabled.
+    expect(reducedBlock).not.toContain('.wheel-disc.is-spinning');
+    expect(reducedBlock).toContain('.wheel-bulb');
   });
 
   it('uses a smaller label font for more segments', () => {
     const { container: few } = render(
-      <Wheel segments={makeSegments(6)} rotation={0} spinning={false} spinDurationMs={5000} spinLabel="S" disabled={false} onSpin={() => {}} />,
+      <Wheel segments={makeSegments(6)} spinning={false} spinLabel="S" disabled={false} onSpin={() => {}} />,
     );
     const fewSize = few.querySelector('text')?.getAttribute('font-size');
     cleanup();
     const { container: many } = render(
-      <Wheel segments={makeSegments(30)} rotation={0} spinning={false} spinDurationMs={5000} spinLabel="S" disabled={false} onSpin={() => {}} />,
+      <Wheel segments={makeSegments(30)} spinning={false} spinLabel="S" disabled={false} onSpin={() => {}} />,
     );
     const manySize = many.querySelector('text')?.getAttribute('font-size');
     expect(Number(fewSize)).toBeGreaterThan(Number(manySize));
