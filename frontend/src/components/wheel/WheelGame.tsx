@@ -91,7 +91,7 @@ export default function WheelGame() {
   }, [spin]);
 
   return (
-    <div className="min-h-screen supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
+    <div className="min-h-screen overflow-x-hidden supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
       <header className="flex items-center justify-between px-4 py-3">
         <Link href="/dashboard" className="text-sm text-white/60 hover:text-white">
           ← {t('backToDashboard')}

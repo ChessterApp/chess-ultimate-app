@@ -21,6 +21,23 @@ describe('defaultPreset', () => {
     const ids = defaultPreset().segments.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+  it('has exactly 20 tiles', () => {
+    expect(defaultPreset().segments).toHaveLength(20);
+  });
+  it('uses short labels that will not overflow the disc', () => {
+    // The mobile-overflow fix replaced long Russian labels with short tokens;
+    // keep them short so rotating text stays inside the wheel.
+    for (const s of defaultPreset().segments) {
+      expect(s.label.length).toBeLessThanOrEqual(3);
+    }
+  });
+  it('renders multipliers as plain text with no emoji', () => {
+    const multipliers = defaultPreset().segments.filter((s) => /^\d+X$/.test(s.label));
+    expect(multipliers.length).toBeGreaterThan(0);
+    for (const s of multipliers) {
+      expect(s.emoji).toBe('');
+    }
+  });
 });
 
 describe('nextColor', () => {
@@ -48,7 +65,10 @@ describe('serialize / deserialize round-trip', () => {
   it('preserves segment data', () => {
     const original = defaultPreset().segments;
     const round = deserializeSegments(serializeSegments(original));
-    expect(round).toEqual(original);
+    // Empty-string emoji is falsy, so it is dropped on serialize and comes back
+    // as undefined — equivalent to "no emoji". Normalize before comparing.
+    const normalized = original.map((s) => ({ ...s, emoji: s.emoji || undefined }));
+    expect(round).toEqual(normalized);
   });
   it('drops empty emoji on serialize', () => {
     const [s] = serializeSegments([{ id: 'a', label: 'L', color: '#fff' }]);
