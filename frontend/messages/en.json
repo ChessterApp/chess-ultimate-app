@@ -2456,6 +2456,7 @@
     "rosterLabel": "Roster",
     "rosterEmpty": "No students found",
     "capacityLabel": "Registered",
+    "razryadOnly": "Razryad holders only",
     "countdown": {
       "label": "Registration closes in",
       "days": "DAYS",
@@ -2478,6 +2479,7 @@
       "closed": "Registration has closed for this tournament.",
       "duplicate": "You're already registered for this tournament.",
       "ineligible": "You are not eligible for this tournament.",
+      "no_razryad": "Registration is only available to students with a razryad (chess rating category).",
       "not_found": "Tournament not found.",
       "invalid_input": "Invalid registration request.",
       "unauthorized": "Sign in to register.",

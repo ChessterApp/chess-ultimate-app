@@ -105,6 +105,7 @@ describe('POST /api/chess-empire/tournaments/[id]/register', () => {
     ['closed', 409],
     ['duplicate', 409],
     ['ineligible', 409],
+    ['no_razryad', 409],
     ['not_found', 404],
   ])('maps CE reason %s → HTTP %i with a message', async (reason, status) => {
     registerMock.mockRejectedValue(
@@ -115,6 +116,19 @@ describe('POST /api/chess-empire/tournaments/[id]/register', () => {
     const body = (await res.json()) as { error: string; message: string };
     expect(body.error).toBe(reason);
     expect(typeof body.message).toBe('string');
+  });
+
+  it('maps CE reason no_razryad → 409 with the canonical razryad copy', async () => {
+    registerMock.mockRejectedValue(
+      new ChessEmpireAPIError(409, { ok: false, reason: 'no_razryad' }),
+    );
+    const res = await POST(postReq(), ctx());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('no_razryad');
+    expect(body.message).toBe(
+      'Registration is only available to students with a razryad (chess rating category).',
+    );
   });
 
   it('500 when the membership lookup throws', async () => {

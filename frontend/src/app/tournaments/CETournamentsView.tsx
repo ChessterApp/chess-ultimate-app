@@ -96,6 +96,15 @@ function isClosed(card: CETournamentCard, now: number): boolean {
   return card.status !== 'open' || full || deadlinePassed(card, now);
 }
 
+/**
+ * A Titled ("Разрядники") tournament: CE league `'R'`. The schedule payload
+ * doesn't carry the league letter client-side, so this is detected from the
+ * localized tournament name — no new API field is introduced for it.
+ */
+function isRazryadOnly(card: CETournamentCard): boolean {
+  return /Турнир\s+Разрядник/i.test(card.name);
+}
+
 function pad2(n: number): string {
   return String(Math.max(0, n)).padStart(2, '0');
 }
@@ -221,6 +230,9 @@ function TournamentPanel({
       <div className="tournament-summary">
         <div>
           <div className="tournament-title">{card.name}</div>
+          {isRazryadOnly(card) && (
+            <span className="razryad-badge">{t('razryadOnly')}</span>
+          )}
           <div className="tournament-meta" style={{ marginTop: 4 }}>
             <span>{formatDate(card.tournament_date, tag)}</span>
             <span>·</span>
@@ -912,6 +924,18 @@ export default function CETournamentsView({
           font-weight: 600;
           color: #1e293b;
           font-size: 0.97rem;
+        }
+        .cet-root .razryad-badge {
+          display: inline-block;
+          margin-top: 4px;
+          background: #f3e8ff;
+          color: #7c3aed;
+          font-size: 0.68rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          padding: 2px 8px;
+          border-radius: 999px;
         }
         .cet-root .tournament-meta {
           display: flex;

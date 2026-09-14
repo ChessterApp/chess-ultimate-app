@@ -216,6 +216,57 @@ describe('CETournamentsView — one-click registration', () => {
     expect(screen.queryByText('Nurlan Sat')).toBeNull();
   });
 
+  it('shows the localized no_razryad message when the server rejects with that reason', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'no_razryad', message: 'server copy' }),
+    });
+    renderView({ state: 'verified', studentName: 'Nurlan Sat' }, [makeCard()]);
+    expandBranch();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: en.ceTournaments.register }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(en.ceTournaments.errors.no_razryad),
+      ).toBeTruthy();
+    });
+    // Reverted to the register state; the localized copy (not the raw server
+    // message) is shown.
+    expect(screen.queryByText('server copy')).toBeNull();
+    expect(
+      screen.getByRole('button', { name: en.ceTournaments.register }),
+    ).toBeTruthy();
+  });
+
+  it('shows the Russian no_razryad message under the ru locale', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'no_razryad', message: 'server copy' }),
+    });
+    renderView({ state: 'verified', studentName: 'Nurlan Sat' }, [makeCard()], {
+      locale: 'ru',
+    });
+    // Under ru the branch header renders its localized name.
+    fireEvent.click(
+      screen.getByText(ru.ceTournaments.branchNames['Almaty Arena']),
+    );
+
+    fireEvent.click(
+      screen.getByRole('button', { name: ru.ceTournaments.register }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(ru.ceTournaments.errors.no_razryad),
+      ).toBeTruthy();
+    });
+  });
+
   it('prompts sign-in for a logged-out visitor instead of registering', () => {
     renderView({ state: 'logged_out' }, [makeCard()]);
     expandBranch();
@@ -231,6 +282,24 @@ describe('CETournamentsView — one-click registration', () => {
     });
     expect(links.length).toBeGreaterThan(0);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('CETournamentsView — razryad eligibility note', () => {
+  it('shows the "razryad holders only" badge for a Турнир Разрядников card', () => {
+    renderView({ state: 'verified', studentName: 'Aidos' }, [
+      makeCard({ name: 'Турнир Разрядников — Almaty' }),
+    ]);
+    expandBranch();
+    expect(screen.getByText(en.ceTournaments.razryadOnly)).toBeTruthy();
+  });
+
+  it('omits the badge for a regular tournament', () => {
+    renderView({ state: 'verified', studentName: 'Aidos' }, [
+      makeCard({ name: 'Spring Open' }),
+    ]);
+    expandBranch();
+    expect(screen.queryByText(en.ceTournaments.razryadOnly)).toBeNull();
   });
 });
 

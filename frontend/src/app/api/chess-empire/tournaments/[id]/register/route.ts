@@ -59,6 +59,13 @@ function mapRegisterError(reason: string): {
         message: 'You are not eligible for this tournament.',
         status: 409,
       };
+    case 'no_razryad':
+      return {
+        code: 'no_razryad',
+        message:
+          'Registration is only available to students with a razryad (chess rating category).',
+        status: 409,
+      };
     case 'not_found':
       return { code: 'not_found', message: 'Tournament not found.', status: 404 };
     case 'invalid_input':
