@@ -7,23 +7,12 @@
 // and one on entering the Stopped phase (winner reveal + confetti).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  WheelPhysics,
-  DEFAULT_SPIN_TIME,
-  TWO_PI,
-} from '@/lib/wheel/physics';
+import { WheelPhysics, DEFAULT_SPIN_TIME } from '@/lib/wheel/physics';
 
 const RAD_TO_DEG = 180 / Math.PI;
 const FIXED_DT_MS = 1000 / 60; // one logical tick
 const MAX_TICKS_PER_FRAME = 6; // spiral-of-death guard
 const MAX_FRAME_DELTA_MS = 250; // clamp huge gaps (backgrounded tab)
-
-// Full turns baked into the absolute target so the discarded accel angle stays
-// behind the decel start (the reset jump is then always forward). Normal spins
-// travel ~9 revolutions total, so 16 is a comfortable margin; gentle spins
-// travel under one, so a small value keeps the (visible) jump tiny.
-const NORMAL_BASE_TURNS = 16;
-const GENTLE_BASE_TURNS = 3;
 
 export interface StartSpinParams {
   /** Final angle mod 2π (radians) that lands the pre-chosen winner. */
@@ -137,10 +126,12 @@ export function useWheelPhysics({ onCrossing, onStopped }: UseWheelPhysicsOption
   const spin = useCallback(
     ({ targetMod, segments, gentle = false, spinTime = DEFAULT_SPIN_TIME }: StartSpinParams) => {
       const current = physicsRef.current?.angle ?? 0;
-      const startMod = ((current % TWO_PI) + TWO_PI) % TWO_PI;
-      const forward = (((targetMod - startMod) % TWO_PI) + TWO_PI) % TWO_PI;
-      const baseTurns = gentle ? GENTLE_BASE_TURNS : NORMAL_BASE_TURNS;
-      const targetFinalAngle = current + forward + baseTurns * TWO_PI;
+      const targetFinalAngle = WheelPhysics.resolveTarget({
+        startAngle: current,
+        targetMod,
+        gentle,
+        spinTime,
+      });
 
       physicsRef.current = WheelPhysics.spin({
         spinTime,

@@ -25,8 +25,13 @@ export const TICKS_PER_SECOND = 60;
 /** Peak angular speed of a normal spin: ~5.9 rev/sec == ~0.618 rad/tick. */
 export const PEAK_SPEED = 0.618;
 
-/** Peak angular speed under reduced motion: ~0.5 rev/sec (no motion blur). */
-export const GENTLE_PEAK_SPEED = (TWO_PI * 0.5) / TICKS_PER_SECOND;
+/**
+ * Peak angular speed under reduced motion: ~4 rev/sec (no motion blur). Reduced
+ * motion trims the *decorative* extras (idle drift, motion blur) but keeps a
+ * real spin — the wheel's whole purpose is the spin, so gutting it to half a
+ * turn (the old 0.5 rev/s) defeats the feature and reads as "barely rotates".
+ */
+export const GENTLE_PEAK_SPEED = (TWO_PI * 4) / TICKS_PER_SECOND;
 
 /** Speed (rad/tick) the decay targets at the final decel tick, before snapping. */
 export const END_SPEED = 0.00015;
@@ -37,8 +42,8 @@ export const IDLE_SPEED = 0.02;
 /** Default total spin wall-clock duration, in seconds. */
 export const DEFAULT_SPIN_TIME = 10;
 
-/** Deceleration duration under reduced motion, in seconds. */
-export const GENTLE_DECEL_SECONDS = 3;
+/** Deceleration duration under reduced motion, in seconds (~5.5 rev over 8s). */
+export const GENTLE_DECEL_SECONDS = 7;
 
 /** The accelerate phase is capped at 1s (or spinTime/3 for very short spins). */
 export const MAX_ACCEL_SECONDS = 1;
@@ -177,6 +182,33 @@ export class WheelPhysics {
   /** Idle drift used before the first spin (and after a reset). */
   static idle(segments: number, startAngle = 0): WheelPhysics {
     return new WheelPhysics('idle', { segments, startAngle, targetFinalAngle: 0 });
+  }
+
+  /**
+   * Absolute final angle that lands `targetMod` (mod 2π) under the pointer while
+   * keeping the accel->decel reset jump minimal (< one turn). The decel phase
+   * begins essentially where the accel phase ended, so the spin reads as one
+   * continuous arc instead of the multi-turn teleport a fixed turn-count caused.
+   */
+  static resolveTarget(opts: {
+    startAngle: number;
+    targetMod: number;
+    gentle?: boolean;
+    spinTime?: number;
+  }): number {
+    const gentle = !!opts.gentle;
+    const spinTime = opts.spinTime ?? DEFAULT_SPIN_TIME;
+    const peak = gentle ? GENTLE_PEAK_SPEED : PEAK_SPEED;
+    const accelTicks = Math.max(1, Math.round(accelDurationSeconds(spinTime) * TICKS_PER_SECOND));
+    const decelTicks = Math.max(1, Math.round(decelDurationSeconds(spinTime, gentle) * TICKS_PER_SECOND));
+    const decay = decayFactor(peak, decelTicks);
+    const D = decelRotation(peak, decay, decelTicks);
+    // Angle the wheel would reach with a zero-length reset jump.
+    const base = opts.startAngle + accelRotation(peak, accelTicks) + D;
+    const baseMod = ((base % TWO_PI) + TWO_PI) % TWO_PI;
+    const targetMod = ((opts.targetMod % TWO_PI) + TWO_PI) % TWO_PI;
+    const forwardAdjust = (((targetMod - baseMod) % TWO_PI) + TWO_PI) % TWO_PI;
+    return base + forwardAdjust; // decelStart == accelEnd + forwardAdjust (< 2π)
   }
 
   get phase(): WheelPhase {

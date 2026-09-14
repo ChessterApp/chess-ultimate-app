@@ -44,8 +44,8 @@ describe('duration helpers', () => {
   it('gives the remaining time to decel in normal mode', () => {
     expect(decelDurationSeconds(10, false)).toBe(9);
   });
-  it('uses a fixed 3s decel in gentle mode', () => {
-    expect(decelDurationSeconds(10, true)).toBe(3);
+  it('uses a fixed 7s decel in gentle mode', () => {
+    expect(decelDurationSeconds(10, true)).toBe(7);
   });
 });
 
@@ -181,25 +181,77 @@ describe('WheelPhysics boundary crossings', () => {
 });
 
 describe('WheelPhysics gentle (reduced-motion) mode', () => {
-  it('uses a low peak and short decel but still lands exactly on the winner', () => {
+  it('is still a real spin (calmer peak, no blur) that lands exactly on the winner', () => {
     const count = 10;
     const index = 4;
     const targetMod = winnerAngleRad(index, count, 0.1);
-    const targetFinalAngle = targetMod + 2 * TWO_PI;
+    const targetFinalAngle = targetMod + 6 * TWO_PI;
     const phys = WheelPhysics.spin({ targetFinalAngle, segments: count, gentle: true });
 
     expect(phys.peakSpeed).toBeCloseTo(GENTLE_PEAK_SPEED, 9);
-    expect(phys.decelTickCount).toBe(3 * TICKS_PER_SECOND);
+    expect(phys.decelTickCount).toBe(7 * TICKS_PER_SECOND);
 
     const { results, stoppedAt } = runToStop(phys);
     const final = results[results.length - 1];
     expect(final.angle).toBeCloseTo(targetFinalAngle, 6);
     expect(pointerSegmentIndex(final.angle * RAD_TO_DEG, count)).toBe(index);
-    // Peak speed stays well below the normal (blur) peak.
+    // Calmer than the normal (motion-blur) peak, but still a substantial spin.
     const maxSpeed = Math.max(...results.map((r) => r.speed));
-    expect(maxSpeed).toBeLessThan(PEAK_SPEED / 2);
-    // accel(60) + decel(180) = 240 ticks.
-    expect(stoppedAt).toBe(4 * TICKS_PER_SECOND);
+    expect(maxSpeed).toBeLessThan(PEAK_SPEED);
+    expect(maxSpeed).toBeGreaterThan(PEAK_SPEED / 2);
+    // accel(60) + decel(420) = 480 ticks == 8s.
+    expect(stoppedAt).toBe(8 * TICKS_PER_SECOND);
+    // The whole point of the fix: reduced motion still rotates a real amount
+    // (visible accel + decel), not the old ~0.5 revolution.
+    const realRotation =
+      accelRotation(phys.peakSpeed, phys.accelTickCount) + phys.decelRotationConstant;
+    expect(realRotation / TWO_PI).toBeGreaterThan(5);
+  });
+});
+
+describe('WheelPhysics.resolveTarget (minimal reset jump)', () => {
+  it('lands the winner while keeping the accel->decel jump under one turn', () => {
+    for (const gentle of [false, true]) {
+      for (const count of [2, 6, 8, 17]) {
+        for (const index of [0, 1, count - 1]) {
+          const startAngle = 3.3; // arbitrary non-zero idle position
+          const targetMod = winnerAngleRad(index, count, 0.2);
+          const targetFinalAngle = WheelPhysics.resolveTarget({
+            startAngle,
+            targetMod,
+            gentle,
+          });
+          const phys = WheelPhysics.spin({
+            targetFinalAngle,
+            segments: count,
+            gentle,
+            startAngle,
+          });
+
+          // Jump = decelStart - accelEnd must be a forward move of < 1 turn.
+          const accelEnd = startAngle + accelRotation(phys.peakSpeed, phys.accelTickCount);
+          const decelStart = targetFinalAngle - phys.decelRotationConstant;
+          const jump = decelStart - accelEnd;
+          expect(jump).toBeGreaterThanOrEqual(-1e-9);
+          expect(jump).toBeLessThan(TWO_PI + 1e-9);
+
+          // And it still lands on the pre-chosen winner.
+          const { results } = runToStop(phys);
+          const finalDeg = results[results.length - 1].angle * RAD_TO_DEG;
+          expect(pointerSegmentIndex(finalDeg, count)).toBe(index);
+        }
+      }
+    }
+  });
+});
+
+describe('WheelPhysics normal spin revolutions', () => {
+  it('travels ~9.3 real revolutions over 10s (wheelofnames feel)', () => {
+    const phys = WheelPhysics.spin({ targetFinalAngle: 100, segments: 8 });
+    const realRotation =
+      accelRotation(phys.peakSpeed, phys.accelTickCount) + phys.decelRotationConstant;
+    expect(realRotation / TWO_PI).toBeGreaterThan(9);
+    expect(realRotation / TWO_PI).toBeLessThan(9.7);
   });
 });
 
