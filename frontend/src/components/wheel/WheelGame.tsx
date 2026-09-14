@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTranslations } from 'next-intl';
+import { ArrowLeft, Settings } from 'lucide-react';
 import { pickIndex, randomUnit } from '@/lib/wheel/random';
 import { winnerAngleRad } from '@/lib/wheel/physics';
 import { prefersReducedMotion } from '@/lib/chess/animations';
@@ -92,25 +93,28 @@ export default function WheelGame() {
 
   return (
     <div className="min-h-screen overflow-x-hidden supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
-      <header className="flex items-center justify-between px-4 py-3">
-        <Link href="/dashboard" className="text-sm text-white/60 hover:text-white">
-          ← {t('backToDashboard')}
+      <header className="relative flex items-center justify-between px-4 py-3">
+        <Link
+          href="/dashboard"
+          aria-label={t('backToDashboard')}
+          className="text-white/60 hover:text-white"
+        >
+          <ArrowLeft className="h-5 w-5" />
         </Link>
-        <h1 className="text-lg font-bold tracking-wide">{t('title')}</h1>
+        <h1 className="absolute left-1/2 -translate-x-1/2 text-lg font-bold tracking-wide">
+          {t('title')}
+        </h1>
         <button
           type="button"
           onClick={() => setEditing((v) => !v)}
-          className="rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold hover:bg-white/20"
+          aria-label={editing ? t('closeEditor') : t('editWheel')}
+          className="ml-auto rounded-full p-2 text-white/70 hover:bg-white/10 hover:text-white"
         >
-          {editing ? t('closeEditor') : t('editWheel')}
+          <Settings className="h-5 w-5" />
         </button>
       </header>
 
       <main className="flex flex-col items-center gap-6 px-4 pb-10">
-        {current && (
-          <p className="text-sm text-white/60">{current.name}</p>
-        )}
-
         {isSpinnable(current) ? (
           <div className="relative flex w-full items-center justify-center py-4">
             <Wheel
