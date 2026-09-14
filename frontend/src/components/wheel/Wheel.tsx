@@ -57,8 +57,8 @@ export default function Wheel({
   const count = segments.length;
   const seg = count > 0 ? segmentAngle(count) : 360;
   const fontSize = segmentFontSize(count);
-  // Emoji is drawn large so it clearly fills the wedge (icon-first tiles).
-  const emojiFontSize = Math.round(fontSize * 1.9);
+  // Emoji sized to fit inside its wedge (halved from the old icon-first size).
+  const emojiFontSize = Math.round(fontSize * 0.95);
 
   const stageStyle: React.CSSProperties = size
     ? { width: size, height: size }
