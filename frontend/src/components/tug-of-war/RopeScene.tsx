@@ -30,9 +30,9 @@ export default function RopeScene({ rope, winner }: RopeSceneProps) {
   const offset = -rope * K;
   const src = winner
     ? winner === 'A'
-      ? '/tug-of-war/win-red.gif'
-      : '/tug-of-war/win-blue.gif'
-    : '/tug-of-war/pull-loop.gif';
+      ? '/tug-of-war/win-red.webp'
+      : '/tug-of-war/win-blue.webp'
+    : '/tug-of-war/pull-loop.webp';
 
   return (
     <div className="relative w-full overflow-hidden rounded-2xl bg-slate-900/60 border border-white/10">
