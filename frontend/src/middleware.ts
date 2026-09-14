@@ -23,7 +23,7 @@ const isPublicRoute = createRouteMatcher([
   '/preview(.*)',
   '/for-schools',  // Marketing landing (auth-gated wizard lives under /for-schools/start/*)
   '/landing-test',  // Design test page (Linear DNA study) — noindex, not linked anywhere
-  '/tug-of-war(.*)',  // Classroom tug-of-war prototype — public per PRD (zero-friction smartboard use)
+  '/games/tug-of-war(.*)',  // Classroom tug-of-war prototype — public per PRD (zero-friction smartboard use)
   '/api/(.*)',  // Allow all API routes without auth
 ])
 

@@ -1,5 +1,5 @@
 /**
- * /tug-of-war — a public, client-side classroom team-battle chess game.
+ * /games/tug-of-war — a public, client-side classroom team-battle chess game.
  * Milestone 1: playable core (two-board puzzle race + sliding rope scene).
  * Puzzles are prefetched live from /api/puzzle at match start, with the bundled
  * TUG_PUZZLES set as an offline fallback. No auth, no backend of our own.
