@@ -29,23 +29,48 @@ export function nextColor(existingCount: number): string {
   return WHEEL_PALETTE[existingCount % WHEEL_PALETTE.length];
 }
 
-/** The single seeded default preset so first load is never empty. */
+/** Five wheel hues cycled across the default tiles (matches the coach wheel art). */
+const DEFAULT_HUES = [
+  '#e0219a', // magenta
+  '#1565c0', // blue
+  '#7c3aed', // purple
+  '#14a89b', // teal
+  '#f9a825', // orange
+] as const;
+
+/** The single seeded default preset so first load is never empty. 20 tiles. */
 export function defaultPreset(): WheelPreset {
-  const labels: Array<[string, string]> = [
-    ['+1 ⭐', '#c62828'],
-    ['Стикер', '#f5efe0'],
-    ['Медаль', '#2e7d32'],
-    ['Бонус', '#1565c0'],
-    ['Спасибо!', '#f9a825'],
-    ['Джекпот', '#6a1b9a'],
+  // [label, emoji] clockwise from the top pointer.
+  const tiles: Array<[string, string]> = [
+    ['Печать для друга', '📮'],
+    ['1/8 пиццы', '🍕'],
+    ['2X', '✖️'],
+    ['1/4 кружки', '☕'],
+    ['Чупа-чупс', '🍭'],
+    ['Прыгай как лягушка', '🐸'],
+    ['Объясни 1 тему', '📖'],
+    ['1/6 термоса', '🧴'],
+    ['10 приседаний', '🏋️'],
+    ['1/8 пиццы', '🍕'],
+    ['5X', '✖️'],
+    ['Прыгай как лягушка', '🐸'],
+    ['Скажи тренеру, что он лучший', '🌟'],
+    ['1/4 кружки', '☕'],
+    ['2X', '✖️'],
+    ['Расставь все фигуры', '♟️'],
+    ['Чупа-чупс', '🍭'],
+    ['2X', '✖️'],
+    ['Объясни 1 тему', '📖'],
+    ['Объясни 1 тему', '📖'],
   ];
   return {
     id: 'default',
     name: 'Default',
-    segments: labels.map(([label, color]) => ({
+    segments: tiles.map(([label, emoji], i) => ({
       id: makeSegmentId(),
       label,
-      color,
+      color: DEFAULT_HUES[i % DEFAULT_HUES.length],
+      emoji,
     })),
   };
 }

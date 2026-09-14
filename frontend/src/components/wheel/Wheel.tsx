@@ -17,7 +17,8 @@ const DISC_R = 92; // wedge radius within the rotating disc
 const RIM_R = 96; // gold rim radius (fixed frame)
 const BULB_R = 96; // bulb ring radius (fixed frame)
 const HUB_R = 16; // center hub radius
-const LABEL_R = 56; // mid-radius the labels are centered on (along each spoke)
+const LABEL_R = 44; // radius the text label sits on (inner, along each spoke)
+const EMOJI_R = 74; // radius the enlarged emoji sits on (outer, along each spoke)
 const BULB_COUNT = 24;
 
 interface WheelProps {
@@ -37,8 +38,8 @@ interface WheelProps {
  *  reads outward. Labels on the left half (bisector 180°–360°) are flipped 180°
  *  so text stays upright rather than upside-down. Returns the SVG transform and
  *  the anchor point it rotates around. */
-function labelPlacement(angle: number): { x: number; y: number; transform: string } {
-  const { x, y } = polarToCartesian(CENTER, CENTER, LABEL_R, angle);
+function spokePlacement(angle: number, r: number): { x: number; y: number; transform: string } {
+  const { x, y } = polarToCartesian(CENTER, CENTER, r, angle);
   const flip = angle > 180;
   const theta = flip ? angle + 90 : angle - 90;
   return { x, y, transform: `rotate(${theta} ${x} ${y})` };
@@ -56,6 +57,8 @@ export default function Wheel({
   const count = segments.length;
   const seg = count > 0 ? segmentAngle(count) : 360;
   const fontSize = segmentFontSize(count);
+  // Emoji is drawn large so it clearly fills the wedge (icon-first tiles).
+  const emojiFontSize = Math.round(fontSize * 1.9);
 
   const stageStyle: React.CSSProperties = size
     ? { width: size, height: size }
@@ -80,8 +83,8 @@ export default function Wheel({
             const start = i * seg;
             const end = (i + 1) * seg;
             const center = segmentCenterAngle(i, count);
-            const text = s.emoji ? `${s.emoji} ${s.label}` : s.label;
-            const label = labelPlacement(center);
+            const label = spokePlacement(center, s.emoji ? LABEL_R : (LABEL_R + EMOJI_R) / 2);
+            const emoji = spokePlacement(center, EMOJI_R);
             return (
               <g key={s.id} data-testid="wheel-segment">
                 <path
@@ -90,6 +93,19 @@ export default function Wheel({
                   stroke="#3a1f10"
                   strokeWidth={0.6}
                 />
+                {s.emoji && (
+                  <text
+                    x={emoji.x}
+                    y={emoji.y}
+                    transform={emoji.transform}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={emojiFontSize}
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {s.emoji}
+                  </text>
+                )}
                 <text
                   x={label.x}
                   y={label.y}
@@ -101,7 +117,7 @@ export default function Wheel({
                   fill="#231007"
                   style={{ pointerEvents: 'none', userSelect: 'none' }}
                 >
-                  {text}
+                  {s.label}
                 </text>
               </g>
             );

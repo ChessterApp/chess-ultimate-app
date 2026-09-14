@@ -42,9 +42,11 @@ describe('Wheel', () => {
     }
   });
 
-  it('renders each segment label (with emoji when present)', () => {
+  it('renders each segment label (with emoji rendered separately when present)', () => {
     renderWheel(3);
-    expect(screen.getByText('🎁 Prize 0')).toBeTruthy();
+    // Emoji and label are drawn as separate <text> elements (emoji enlarged).
+    expect(screen.getByText('🎁')).toBeTruthy();
+    expect(screen.getByText('Prize 0')).toBeTruthy();
     expect(screen.getByText('Prize 1')).toBeTruthy();
     expect(screen.getByText('Prize 2')).toBeTruthy();
   });

@@ -6,9 +6,22 @@ import { createClerkSupabaseClient } from '@/lib/supabase';
 import type { WheelPreset, WheelSegment } from '@/lib/wheel/types';
 import { defaultPreset, presetFromRow, serializeSegments } from '@/lib/wheel/presets';
 
-const CACHE_KEY = 'wheel-presets-cache';
-const CURRENT_KEY = 'wheel-current-preset-id';
+// Bumped to -v2 to invalidate the pre-20-tile default cached in returning
+// users' localStorage. Old keys (unversioned) are cleared once on mount below.
+const CACHE_KEY = 'wheel-presets-cache-v2';
+const CURRENT_KEY = 'wheel-current-preset-id-v2';
+const LEGACY_KEYS = ['wheel-presets-cache', 'wheel-current-preset-id'];
 const TABLE = 'wheel_presets';
+
+/** One-time removal of pre-v2 cache so the new default is not shadowed by it. */
+function clearLegacyCache(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    for (const k of LEGACY_KEYS) localStorage.removeItem(k);
+  } catch {
+    /* storage disabled — non-fatal */
+  }
+}
 
 function readCache(): WheelPreset[] | null {
   if (typeof window === 'undefined') return null;
@@ -84,6 +97,7 @@ export function usePresets(): UsePresets {
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
+    clearLegacyCache();
     return () => {
       mounted.current = false;
     };
