@@ -38,14 +38,14 @@ export default function RopeScene({ rope, winner }: RopeSceneProps) {
     <div className="relative w-full overflow-hidden rounded-2xl bg-slate-900/60 border border-white/10">
       {/* Fixed center win-threshold line — never moves. */}
       <div className="pointer-events-none absolute left-1/2 top-0 bottom-0 z-10 w-[2px] -translate-x-1/2 bg-white/70" />
-      <div className="flex items-center justify-center py-3">
+      <div className="flex items-center justify-center py-[1vh]">
         <motion.img
           key={src}
           src={src}
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="h-[clamp(120px,22vh,240px)] w-auto max-w-none select-none"
+          className="h-[clamp(110px,26vh,320px)] w-auto max-w-none select-none"
           animate={{ x: `${winner ? 0 : offset}%`, scale: winner ? 1.06 : 1 }}
           transition={
             winner

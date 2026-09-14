@@ -24,6 +24,8 @@ export const TUG_STRINGS = {
   defaultTeamB: 'Rooks',
   yourMove: 'Your move',
   skipped: 'Skipped — next puzzle!',
-  wins: (team: string) => `${team} wins!`,
+  wins: (team: string) => `TEAM ${team} WINS!`,
   rematch: 'Rematch',
+  muteOn: 'Mute sound',
+  muteOff: 'Unmute sound',
 } as const;
