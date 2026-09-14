@@ -35,7 +35,7 @@ export default function RopeScene({ rope, winner }: RopeSceneProps) {
     : '/tug-of-war/pull-loop.webp';
 
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl bg-slate-900/60 border border-white/10">
+    <div className="relative w-full overflow-hidden rounded-2xl bg-[#F1F4EF] border border-white/10">
       {/* Fixed center win-threshold line — never moves. */}
       <div className="pointer-events-none absolute left-1/2 top-0 bottom-0 z-10 w-[2px] -translate-x-1/2 bg-white/70" />
       <div className="flex items-center justify-center py-[1vh]">
