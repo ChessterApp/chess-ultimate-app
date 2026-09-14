@@ -6,7 +6,8 @@
 'use client';
 
 import { useState } from 'react';
-import { TUG_STRINGS as S } from '@/lib/tug-of-war/strings';
+import { useTranslations, useLocale } from 'next-intl';
+import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { TUG_LEVELS, TUG_THEMES, type TugLevel } from '@/lib/tug-of-war/prefetch';
 
 export interface StartConfig {
@@ -29,6 +30,8 @@ export default function SetupScreen({
   onStart,
   loading = false,
 }: SetupScreenProps) {
+  const t = useTranslations('tugOfWar');
+  const locale = useLocale();
   const [teamA, setTeamA] = useState(initialTeamA);
   const [teamB, setTeamB] = useState(initialTeamB);
   const [level, setLevel] = useState<TugLevel>('knight');
@@ -39,11 +42,18 @@ export default function SetupScreen({
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag],
     );
 
+  const howLines = t.raw('how') as string[];
+
   return (
-    <div className="mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 px-6 py-10 text-white">
+    <div className="relative mx-auto flex min-h-screen max-w-3xl flex-col items-center justify-center gap-8 px-6 py-10 text-white">
+      <LanguageSwitcher
+        currentLocale={locale}
+        variant="minimal"
+        className="absolute right-4 top-4 z-50 [&_button]:text-white/80 [&_button]:hover:bg-white/10 [&_button]:hover:text-white"
+      />
       <div className="text-center">
-        <h1 className="text-4xl font-black tracking-tight sm:text-5xl">{S.title}</h1>
-        <p className="mt-2 text-lg text-white/70">{S.subtitle}</p>
+        <h1 className="text-4xl font-black tracking-tight sm:text-5xl">{t('title')}</h1>
+        <p className="mt-2 text-lg text-white/70">{t('subtitle')}</p>
       </div>
 
       <form
@@ -56,7 +66,7 @@ export default function SetupScreen({
       >
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-semibold text-blue-300">{S.teamALabel}</span>
+            <span className="text-sm font-semibold text-blue-300">{t('teamALabel')}</span>
             <input
               value={teamA}
               onChange={(e) => setTeamA(e.target.value)}
@@ -65,7 +75,7 @@ export default function SetupScreen({
             />
           </label>
           <label className="flex flex-col gap-2">
-            <span className="text-sm font-semibold text-orange-300">{S.teamBLabel}</span>
+            <span className="text-sm font-semibold text-orange-300">{t('teamBLabel')}</span>
             <input
               value={teamB}
               onChange={(e) => setTeamB(e.target.value)}
@@ -76,7 +86,7 @@ export default function SetupScreen({
         </div>
 
         <fieldset className="mt-6">
-          <legend className="mb-2 text-sm font-semibold text-white/70">{S.levelLabel}</legend>
+          <legend className="mb-2 text-sm font-semibold text-white/70">{t('levelLabel')}</legend>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {TUG_LEVELS.map((l) => (
               <button
@@ -90,30 +100,30 @@ export default function SetupScreen({
                     : 'border-white/20 bg-slate-900/50 text-white/80 hover:border-white/50'
                 }`}
               >
-                {l.label}
+                {t(`levels.${l.id}`)}
               </button>
             ))}
           </div>
         </fieldset>
 
         <fieldset className="mt-5">
-          <legend className="mb-2 text-sm font-semibold text-white/70">{S.themesLabel}</legend>
+          <legend className="mb-2 text-sm font-semibold text-white/70">{t('themesLabel')}</legend>
           <div className="flex flex-wrap gap-2">
-            {TUG_THEMES.map((t) => {
-              const on = themes.includes(t.tag);
+            {TUG_THEMES.map((theme) => {
+              const on = themes.includes(theme.tag);
               return (
                 <button
-                  key={t.tag}
+                  key={theme.tag}
                   type="button"
                   aria-pressed={on}
-                  onClick={() => toggleTheme(t.tag)}
+                  onClick={() => toggleTheme(theme.tag)}
                   className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
                     on
                       ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
                       : 'border-white/20 bg-slate-900/50 text-white/70 hover:border-white/50'
                   }`}
                 >
-                  {t.label}
+                  {t(`themes.${theme.tag}`)}
                 </button>
               );
             })}
@@ -131,14 +141,14 @@ export default function SetupScreen({
               aria-hidden
             />
           )}
-          {loading ? S.loading : S.start}
+          {loading ? t('loading') : t('start')}
         </button>
       </form>
 
       <div className="w-full rounded-2xl border border-white/10 bg-white/5 p-6 text-white/80">
-        <h2 className="mb-2 text-sm font-bold uppercase tracking-wider text-white/50">{S.howToTitle}</h2>
+        <h2 className="mb-2 text-sm font-bold uppercase tracking-wider text-white/50">{t('howToTitle')}</h2>
         <ul className="list-disc space-y-1 pl-5 text-sm">
-          {S.how.map((line) => (
+          {howLines.map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>

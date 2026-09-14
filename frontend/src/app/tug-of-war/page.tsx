@@ -8,17 +8,18 @@
 'use client';
 
 import { useReducer, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import SetupScreen, { type StartConfig } from '@/components/tug-of-war/SetupScreen';
 import MatchScreen from '@/components/tug-of-war/MatchScreen';
 import { gameReducer, initialState } from '@/lib/tug-of-war/gameReducer';
 import { prefetchPuzzles } from '@/lib/tug-of-war/prefetch';
-import { TUG_STRINGS as S } from '@/lib/tug-of-war/strings';
 
 export default function TugOfWarPage() {
+  const t = useTranslations('tugOfWar');
   const [state, dispatch] = useReducer(
     gameReducer,
     undefined,
-    () => initialState(S.defaultTeamA, S.defaultTeamB),
+    () => initialState(t('defaultTeamA'), t('defaultTeamB')),
   );
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -50,7 +51,7 @@ export default function TugOfWarPage() {
 
       {offline && state.phase === 'match' && (
         <div className="pointer-events-none fixed bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/15 bg-slate-800/90 px-4 py-1.5 text-xs font-semibold text-white/80 shadow-lg">
-          {S.offlineNotice}
+          {t('offlineNotice')}
         </div>
       )}
     </div>

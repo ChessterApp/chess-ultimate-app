@@ -2525,5 +2525,49 @@
     "saving": "Saving…",
     "save": "Save",
     "untitled": "Untitled"
+  },
+  "tugOfWar": {
+    "title": "Chess Tug of War",
+    "subtitle": "Two teams. Two boards. Pull the rope to your side.",
+    "teamALabel": "Team A name",
+    "teamBLabel": "Team B name",
+    "levelLabel": "Difficulty",
+    "themesLabel": "Themes (optional)",
+    "start": "Start match",
+    "loading": "Loading puzzles…",
+    "offlineNotice": "Offline puzzle set",
+    "howToTitle": "How to play",
+    "how": [
+      "Each team solves its own chess puzzles on its board.",
+      "Play the move on the board — tap a piece, then tap its square.",
+      "Every solved puzzle pulls the rope one step toward your side.",
+      "Drag the rope fully to your side to win. Wrong moves cost nothing."
+    ],
+    "defaultTeamA": "Knights",
+    "defaultTeamB": "Rooks",
+    "yourMove": "Your move",
+    "skipped": "Skipped — next puzzle!",
+    "wins": "TEAM {team} WINS!",
+    "rematch": "Rematch",
+    "muteOn": "Mute sound",
+    "muteOff": "Unmute sound",
+    "ropeLabel": "Rope",
+    "wrongAria": "{used} of {max} wrong",
+    "levels": {
+      "pawn": "Pawn",
+      "knight": "Knight",
+      "rook": "Rook",
+      "queen": "Queen"
+    },
+    "themes": {
+      "mateIn1": "Mate in 1",
+      "mateIn2": "Mate in 2",
+      "fork": "Fork",
+      "pin": "Pin",
+      "skewer": "Skewer",
+      "backRankMate": "Back Rank Mate",
+      "discoveredAttack": "Discovered Attack",
+      "hangingPiece": "Hanging Piece"
+    }
   }
 }

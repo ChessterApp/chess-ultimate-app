@@ -13,10 +13,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import TugBoard from './TugBoard';
 import RopeScene from './RopeScene';
-import { TUG_STRINGS as S } from '@/lib/tug-of-war/strings';
 import { currentPuzzle, MAX_WRONG_ATTEMPTS } from '@/lib/tug-of-war/gameReducer';
 import type { GameState, GameAction } from '@/lib/tug-of-war/gameReducer';
 import type { TeamSide } from '@/lib/tug-of-war/types';
@@ -31,8 +31,12 @@ interface MatchScreenProps {
 }
 
 function AttemptDots({ used }: { used: number }) {
+  const t = useTranslations('tugOfWar');
   return (
-    <div className="flex items-center gap-1" aria-label={`${used} of ${MAX_WRONG_ATTEMPTS} wrong`}>
+    <div
+      className="flex items-center gap-1"
+      aria-label={t('wrongAria', { used, max: MAX_WRONG_ATTEMPTS })}
+    >
       {Array.from({ length: MAX_WRONG_ATTEMPTS }).map((_, i) => (
         <span
           key={i}
@@ -44,13 +48,15 @@ function AttemptDots({ used }: { used: number }) {
 }
 
 function MuteButton({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
+  const t = useTranslations('tugOfWar');
+  const label = muted ? t('muteOff') : t('muteOn');
   return (
     <button
       type="button"
       onClick={onToggle}
       aria-pressed={muted}
-      aria-label={muted ? S.muteOff : S.muteOn}
-      title={muted ? S.muteOff : S.muteOn}
+      aria-label={label}
+      title={label}
       className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:bg-white/10 active:scale-95"
     >
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -84,6 +90,7 @@ const flashAnim = {
 };
 
 export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
+  const t = useTranslations('tugOfWar');
   const [feedbackA, setFeedbackA] = useState<Feedback>('idle');
   const [feedbackB, setFeedbackB] = useState<Feedback>('idle');
   const [skipToast, setSkipToast] = useState<{ A: boolean; B: boolean }>({ A: false, B: false });
@@ -177,7 +184,7 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
       <div className="flex shrink-0 items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-5 py-2">
         <TeamHeader name={state.teamAName} score={state.boardA.solved} accent="blue" align="left" />
         <div className="flex flex-col items-center gap-1">
-          <div className="text-[0.7rem] font-bold uppercase tracking-widest text-white/40">Rope</div>
+          <div className="text-[0.7rem] font-bold uppercase tracking-widest text-white/40">{t('ropeLabel')}</div>
           <div className="text-2xl font-black leading-none tabular-nums">
             {state.rope > 0 ? `+${state.rope}` : state.rope}
           </div>
@@ -232,13 +239,13 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
               animate={{ scale: 1, y: 0 }}
               transition={{ type: 'spring', stiffness: 200, damping: 12 }}
             >
-              {S.wins(winnerName)}
+              {t('wins', { team: winnerName })}
             </motion.h2>
             <button
               onClick={() => dispatch({ type: 'REMATCH' })}
               className="pointer-events-auto rounded-xl bg-white px-8 py-4 text-xl font-black text-slate-900 shadow-lg transition hover:brightness-95 active:scale-95"
             >
-              {S.rematch}
+              {t('rematch')}
             </button>
           </motion.div>
         )}
@@ -280,6 +287,7 @@ function BoardPanel({
   accent: 'blue' | 'orange';
   skip: boolean;
 }) {
+  const t = useTranslations('tugOfWar');
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-[0.8vh]">
       <div className="flex min-h-0 w-full flex-1 items-center justify-center">
@@ -304,7 +312,7 @@ function BoardPanel({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
           >
-            {S.skipped}
+            {t('skipped')}
           </motion.div>
         )}
       </AnimatePresence>

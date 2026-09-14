@@ -38,29 +38,34 @@ interface PuzzleApiResponse {
 
 export type TugLevel = 'pawn' | 'knight' | 'rook' | 'queen';
 
-/** Setup-screen difficulty bands → `ratingFrom`/`ratingTo` API params. */
+/**
+ * Setup-screen difficulty bands → `ratingFrom`/`ratingTo` API params. Display
+ * labels live in i18n (`tugOfWar.levels.<id>`), resolved in the SetupScreen.
+ */
 export const TUG_LEVELS: {
   id: TugLevel;
-  label: string;
   ratingFrom: number;
   ratingTo: number;
 }[] = [
-  { id: 'pawn', label: 'Pawn', ratingFrom: 400, ratingTo: 800 },
-  { id: 'knight', label: 'Knight', ratingFrom: 800, ratingTo: 1200 },
-  { id: 'rook', label: 'Rook', ratingFrom: 1200, ratingTo: 1600 },
-  { id: 'queen', label: 'Queen', ratingFrom: 1600, ratingTo: 2400 },
+  { id: 'pawn', ratingFrom: 400, ratingTo: 800 },
+  { id: 'knight', ratingFrom: 800, ratingTo: 1200 },
+  { id: 'rook', ratingFrom: 1200, ratingTo: 1600 },
+  { id: 'queen', ratingFrom: 1600, ratingTo: 2400 },
 ];
 
-/** Curated theme choices offered on the setup screen. */
-export const TUG_THEMES: { tag: string; label: string }[] = [
-  { tag: 'mateIn1', label: 'Mate in 1' },
-  { tag: 'mateIn2', label: 'Mate in 2' },
-  { tag: 'fork', label: 'Fork' },
-  { tag: 'pin', label: 'Pin' },
-  { tag: 'skewer', label: 'Skewer' },
-  { tag: 'backRankMate', label: 'Back Rank Mate' },
-  { tag: 'discoveredAttack', label: 'Discovered Attack' },
-  { tag: 'hangingPiece', label: 'Hanging Piece' },
+/**
+ * Curated theme choices offered on the setup screen. Display labels live in
+ * i18n (`tugOfWar.themes.<tag>`), resolved in the SetupScreen.
+ */
+export const TUG_THEMES: { tag: string }[] = [
+  { tag: 'mateIn1' },
+  { tag: 'mateIn2' },
+  { tag: 'fork' },
+  { tag: 'pin' },
+  { tag: 'skewer' },
+  { tag: 'backRankMate' },
+  { tag: 'discoveredAttack' },
+  { tag: 'hangingPiece' },
 ];
 
 export const DEFAULT_PREFETCH_COUNT = 60;
