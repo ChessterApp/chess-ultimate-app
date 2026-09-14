@@ -92,7 +92,7 @@ export default function WheelGame() {
   }, [spin]);
 
   return (
-    <div className="min-h-screen overflow-x-hidden supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
+    <div className="flex min-h-screen flex-col overflow-x-hidden supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
       <header className="relative flex items-center justify-between px-4 py-3">
         <Link
           href="/dashboard"
@@ -114,7 +114,7 @@ export default function WheelGame() {
         </button>
       </header>
 
-      <main className="flex flex-col items-center gap-6 px-4 pb-10">
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 px-4 pb-10">
         {isSpinnable(current) ? (
           <div className="relative flex w-full items-center justify-center py-4">
             <Wheel
