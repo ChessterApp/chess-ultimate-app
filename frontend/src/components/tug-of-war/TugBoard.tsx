@@ -19,6 +19,7 @@ import type { Api } from 'chessground/api';
 import type { Key } from 'chessground/types';
 import type { TugPuzzle } from '@/lib/tug-of-war/types';
 import { evaluateTeamMove } from '@/lib/tug-of-war/validateMove';
+import { orientationFromFen } from '@/lib/tug-of-war/orientation';
 
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
@@ -68,7 +69,7 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
   onWrongRef.current = onWrong;
   disabledRef.current = !!disabled;
 
-  const orientation: 'white' | 'black' = puzzle.fen.split(' ')[1] === 'b' ? 'black' : 'white';
+  const orientation: 'white' | 'black' = orientationFromFen(puzzle.fen);
 
   /** Push the current chess.js position into chessground for the team to move. */
   const renderTeamTurn = () => {
@@ -79,6 +80,7 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
     const last = history[history.length - 1];
     ground.set({
       fen: chess.fen(),
+      orientation,
       turnColor: orientation,
       lastMove: last ? [last.from as Key, last.to as Key] : undefined,
       check: chess.isCheck(),
