@@ -48,7 +48,7 @@ function computeDests(chess: Chess): Map<Key, Key[]> {
 
 const FRAME: Record<'blue' | 'orange', string> = {
   blue: 'ring-4 ring-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.35)]',
-  orange: 'ring-4 ring-orange-500 shadow-[0_0_0_2px_rgba(249,115,22,0.35)]',
+  orange: 'ring-4 ring-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.35)]',
 };
 
 export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }: TugBoardProps) {
