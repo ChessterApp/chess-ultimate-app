@@ -219,13 +219,13 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
       <AnimatePresence>
         {over && (
           <motion.div
-            className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-slate-950/80 backdrop-blur-sm"
+            className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-6"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
             <motion.h2
-              className={`text-center text-5xl font-black tracking-tight sm:text-6xl ${
+              className={`text-center text-5xl font-black tracking-tight drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)] sm:text-6xl ${
                 state.winner === 'A' ? 'text-red-400' : 'text-blue-400'
               }`}
               initial={{ scale: 0.6, y: 20 }}
@@ -236,7 +236,7 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
             </motion.h2>
             <button
               onClick={() => dispatch({ type: 'REMATCH' })}
-              className="rounded-xl bg-white px-8 py-4 text-xl font-black text-slate-900 shadow-lg transition hover:brightness-95 active:scale-95"
+              className="pointer-events-auto rounded-xl bg-white px-8 py-4 text-xl font-black text-slate-900 shadow-lg transition hover:brightness-95 active:scale-95"
             >
               {S.rematch}
             </button>
