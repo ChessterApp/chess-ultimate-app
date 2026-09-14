@@ -1,0 +1,93 @@
+/* Coach prize wheel — carnival / vintage aesthetic.
+ * Colors are kept local to this feature (self-contained page, not part of the
+ * app-wide token set). Ornate gold rim, chasing bulbs, glowing center button. */
+
+.wheel-stage {
+  --wheel-gold: #e9b949;
+  --wheel-gold-deep: #a9782b;
+  --wheel-gold-light: #fff2c4;
+  --wheel-felt: #2a1414;
+  --wheel-bulb-off: #6b4f1d;
+  --wheel-bulb-on: #fff4c2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+/* The rotating disc. Duration/easing come from inline style so the JS can vary
+ * spin length; the transition itself lives here. */
+.wheel-disc {
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.wheel-disc.is-spinning {
+  transition-property: transform;
+  transition-timing-function: cubic-bezier(0.12, 0.75, 0.12, 1);
+}
+
+/* Bulbs around the rim. Each bulb reads its index via --i for the chase delay. */
+.wheel-bulb {
+  fill: var(--wheel-bulb-off);
+  stroke: var(--wheel-gold-deep);
+  stroke-width: 1;
+}
+.wheel-stage.is-spinning .wheel-bulb {
+  animation: wheel-bulb-chase 0.6s linear infinite;
+  animation-delay: calc(var(--i) * 0.05s);
+}
+
+@keyframes wheel-bulb-chase {
+  0%,
+  100% {
+    fill: var(--wheel-bulb-off);
+    filter: none;
+  }
+  50% {
+    fill: var(--wheel-bulb-on);
+    filter: drop-shadow(0 0 4px var(--wheel-bulb-on));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-stage.is-spinning .wheel-bulb {
+    animation: none;
+  }
+}
+
+/* Center spin button. */
+.wheel-spin-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border: none;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 50% 35%, var(--wheel-gold-light), var(--wheel-gold) 55%, var(--wheel-gold-deep));
+  color: var(--wheel-felt);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  box-shadow:
+    0 0 0 4px var(--wheel-gold-deep),
+    0 0 24px 6px rgba(255, 210, 90, 0.55),
+    inset 0 2px 6px rgba(255, 255, 255, 0.6);
+  transition: transform 0.12s ease, box-shadow 0.2s ease;
+}
+.wheel-spin-btn:hover:not(:disabled) {
+  transform: translate(-50%, -50%) scale(1.04);
+}
+.wheel-spin-btn:active:not(:disabled) {
+  transform: translate(-50%, -50%) scale(0.97);
+}
+.wheel-spin-btn:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+.wheel-spin-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+  box-shadow:
+    0 0 0 4px var(--wheel-gold-deep),
+    inset 0 2px 6px rgba(255, 255, 255, 0.4);
+}
