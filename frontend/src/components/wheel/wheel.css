@@ -50,8 +50,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Decorative bulb chase may stop under reduced motion... */
   .wheel-stage.is-spinning .wheel-bulb {
     animation: none;
+  }
+  /* ...but the disc rotation IS the core game mechanic, so exempt it from the
+   * global `* { transition-duration: 0.01ms !important }` kill switch. The
+   * scoped selector + !important outrank the `*` rule, restoring the full spin
+   * duration (mirrored from the component via --spin-ms). */
+  .wheel-disc.is-spinning {
+    transition-duration: var(--spin-ms) !important;
   }
 }
 

@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import Wheel from '../Wheel';
@@ -65,6 +67,23 @@ describe('Wheel', () => {
     renderWheel(6, { disabled: true, spinning: true });
     const btn = screen.getByRole('button');
     expect((btn as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('mirrors the spin duration into the --spin-ms custom property while spinning', () => {
+    renderWheel(6, { spinning: true, spinDurationMs: 4200 });
+    const disc = screen.getByTestId('wheel-disc');
+    expect(disc.style.getPropertyValue('--spin-ms')).toBe('4200ms');
+    expect(disc.style.transitionDuration).toBe('4200ms');
+  });
+
+  it('exempts the spinning disc from the reduced-motion kill switch in wheel.css', () => {
+    const cssPath = path.resolve(process.cwd(), 'src/components/wheel/wheel.css');
+    const css = readFileSync(cssPath, 'utf8');
+    // The reduced-motion media block must restore the disc rotation duration so
+    // the spin still animates when prefers-reduced-motion: reduce is set.
+    const reducedBlock = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+    expect(reducedBlock).toContain('.wheel-disc.is-spinning');
+    expect(reducedBlock).toMatch(/\.wheel-disc\.is-spinning\s*\{[^}]*transition-duration:\s*var\(--spin-ms\)\s*!important/);
   });
 
   it('uses a smaller label font for more segments', () => {

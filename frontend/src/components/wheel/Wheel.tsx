@@ -75,6 +75,11 @@ export default function Wheel({
         style={{
           transform: `rotate(${rotation}deg)`,
           transitionDuration: spinning ? `${spinDurationMs}ms` : '0ms',
+          // Mirror the duration into a custom property so the reduced-motion
+          // override in wheel.css can restore the full spin duration (the global
+          // `* { transition-duration: 0.01ms !important }` kill switch would
+          // otherwise flatten this inline value to an instant snap).
+          ['--spin-ms' as string]: `${spinDurationMs}ms`,
         }}
         data-testid="wheel-disc"
       >
