@@ -92,7 +92,7 @@ export default function WheelGame() {
   }, [spin]);
 
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
+    <div className="flex min-h-[calc(100vh_-_120px_-_env(safe-area-inset-bottom))] flex-col overflow-x-hidden supports-[height:100dvh]:min-h-[calc(100dvh_-_120px_-_env(safe-area-inset-bottom))] md:min-h-screen md:supports-[height:100dvh]:min-h-[100dvh] bg-gradient-to-b from-[#160c2b] to-[#2a1414] text-white">
       <header className="relative flex items-center justify-between px-4 py-3">
         <Link
           href="/dashboard"
