@@ -17,7 +17,7 @@ const DISC_R = 92; // wedge radius within the rotating disc
 const RIM_R = 96; // gold rim radius (fixed frame)
 const BULB_R = 96; // bulb ring radius (fixed frame)
 const HUB_R = 16; // center hub radius
-const LABEL_R = 44; // radius the text label sits on (inner, along each spoke)
+const LABEL_R = 60; // radius the text label sits on (pushed outward, near the emoji/rim)
 const EMOJI_R = 74; // radius the enlarged emoji sits on (outer, along each spoke)
 const BULB_COUNT = 24;
 
@@ -59,6 +59,8 @@ export default function Wheel({
   const fontSize = segmentFontSize(count);
   // Emoji sized to fit inside its wedge (halved from the old icon-first size).
   const emojiFontSize = Math.round(fontSize * 0.95);
+  // Label text halved so it fits neatly beside its emoji near the wedge edge.
+  const labelFontSize = Math.round(fontSize * 0.5);
 
   const stageStyle: React.CSSProperties = size
     ? { width: size, height: size }
@@ -112,7 +114,7 @@ export default function Wheel({
                   transform={label.transform}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fontSize={fontSize}
+                  fontSize={labelFontSize}
                   fontWeight={700}
                   fill="#231007"
                   style={{ pointerEvents: 'none', userSelect: 'none' }}
