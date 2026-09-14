@@ -18,6 +18,7 @@ import { Chessground } from 'chessground';
 import type { Api } from 'chessground/api';
 import type { Key } from 'chessground/types';
 import type { TugPuzzle } from '@/lib/tug-of-war/types';
+import { evaluateTeamMove } from '@/lib/tug-of-war/validateMove';
 
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
@@ -94,22 +95,24 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
     const chess = chessRef.current;
     const moves = puzzle.moves;
     const idx = moveIndexRef.current;
-    const expected = moves[idx];
-    const played = `${orig}${dest}`;
 
-    // Wrong move: not the scripted solution move. Snap back, report it.
-    if (!expected || played !== expected.slice(0, 4)) {
+    // Outcome-based validation: accept the scripted move, or any legal move that
+    // delivers mate on the finishing step (beginner positions have several).
+    const decision = evaluateTeamMove(chess.fen(), moves, idx, orig, dest);
+
+    // Wrong move: neither the scripted move nor an alternative mate. Snap back.
+    if (!decision.accepted) {
       renderTeamTurn();
       onWrongRef.current();
       return;
     }
 
-    // Correct: apply the team's move (with the solution's promotion if any).
-    const promotion = expected.length > 4 ? expected[4] : undefined;
-    chess.move({ from: orig, to: dest, promotion });
+    // Correct: apply the team's move with the resolved promotion.
+    chess.move({ from: orig, to: dest, promotion: decision.promotion });
     moveIndexRef.current = idx + 1;
 
-    if (moveIndexRef.current >= moves.length) {
+    // Line finished, or the played move already mates → solved.
+    if (decision.solved) {
       renderTeamTurn();
       onSolvedRef.current();
       return;
