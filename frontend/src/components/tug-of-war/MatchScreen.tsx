@@ -226,7 +226,7 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
           >
             <motion.h2
               className={`text-center text-5xl font-black tracking-tight drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)] sm:text-6xl ${
-                state.winner === 'A' ? 'text-red-400' : 'text-blue-400'
+                state.winner === 'A' ? 'text-blue-400' : 'text-red-400'
               }`}
               initial={{ scale: 0.6, y: 20 }}
               animate={{ scale: 1, y: 0 }}

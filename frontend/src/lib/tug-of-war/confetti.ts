@@ -1,8 +1,8 @@
 /**
  * Win confetti for Tug of War.
  *
- * Colours match the celebration GIF sides: Team A = red (win-red.gif, LEFT),
- * Team B = blue (win-blue.gif, RIGHT). Uses the default canvas-confetti canvas,
+ * Colours match the celebration GIF sides: Team A = blue (win-blue.webp, LEFT),
+ * Team B = red (win-red.webp, RIGHT). Uses the default canvas-confetti canvas,
  * which is created on `document.body` on first fire and torn down when the
  * animation ends; `resetConfetti()` clears it immediately on rematch so no
  * stray canvas survives.
@@ -11,8 +11,8 @@
 import type { TeamSide } from './types';
 
 const TEAM_COLORS: Record<TeamSide, string[]> = {
-  A: ['#ef4444', '#f87171', '#fca5a5', '#ffffff'],
-  B: ['#3b82f6', '#60a5fa', '#93c5fd', '#ffffff'],
+  A: ['#3b82f6', '#60a5fa', '#93c5fd', '#ffffff'],
+  B: ['#ef4444', '#f87171', '#fca5a5', '#ffffff'],
 };
 
 // Handles for the sustained shower so it can be cancelled on rematch/unmount.

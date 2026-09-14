@@ -6,8 +6,8 @@
  * a framer-motion spring makes each score change read as a yank. On win the
  * scene is swapped for the winning side's celebration clip with a scale bump.
  *
- * Asset mapping (verify visually, swap if wrong): red = LEFT / Team A, blue =
- * RIGHT / Team B.
+ * Asset mapping (verified visually): blue = LEFT / Team A (Knights), red =
+ * RIGHT / Team B (Rooks).
  */
 
 'use client';
@@ -30,8 +30,8 @@ export default function RopeScene({ rope, winner }: RopeSceneProps) {
   const offset = -rope * K;
   const src = winner
     ? winner === 'A'
-      ? '/tug-of-war/win-red.webp'
-      : '/tug-of-war/win-blue.webp'
+      ? '/tug-of-war/win-blue.webp'
+      : '/tug-of-war/win-red.webp'
     : '/tug-of-war/pull-loop.webp';
 
   return (
