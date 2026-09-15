@@ -145,7 +145,14 @@ export function fallbackPool(level: TugLevel, themes: string[]): TugPuzzle[] {
     const themed = pool.filter((p) => p.themes.some((t) => themes.includes(t)));
     if (themed.length >= MIN_POOL) pool = themed;
   }
-  if (pool.length < MIN_POOL) pool = TUG_PUZZLES;
+  // Never trap players on a single puzzle shape. When no theme was selected (the
+  // default game) but the rating band collapses to one difficulty tier — e.g.
+  // the Knight band (800–1200) only catches the rating-900 mate-in-2s — widen to
+  // the full bundled set so the offline fallback still offers variety. An
+  // explicit theme choice is respected (only widened when it can't be met).
+  const distinctRatings = new Set(pool.map((p) => p.rating)).size;
+  const collapsedToOneTier = themes.length === 0 && distinctRatings < 2;
+  if (pool.length < MIN_POOL || collapsedToOneTier) pool = TUG_PUZZLES;
   return pool;
 }
 

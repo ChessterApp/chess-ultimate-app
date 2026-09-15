@@ -49,7 +49,7 @@ describe('evaluateTeamMove — outcome-based validation', () => {
     }
   });
 
-  it('on a multi-move line, requires the scripted first move (so replies line up)', () => {
+  it('on a multi-move line, a non-mating first move must follow the script', () => {
     const multi = TUG_PUZZLES.filter((p) => p.moves.length >= 3);
     for (const p of multi) {
       for (const m of legalMoves(p.fen)) {
@@ -57,11 +57,36 @@ describe('evaluateTeamMove — outcome-based validation', () => {
         const d = evaluateTeamMove(p.fen, p.moves, 0, m.from, m.to);
         if (played === p.moves[0].slice(0, 4)) {
           expect(d.accepted, `${p.id}: scripted first move rejected`).toBe(true);
+        } else if (m.mates) {
+          // A faster mate is always a win, even on a non-terminal ply.
+          expect(d.accepted, `${p.id}: faster mate ${played} rejected`).toBe(true);
+          expect(d.solved, `${p.id}: faster mate ${played} not solved`).toBe(true);
         } else {
-          // A non-scripted first move must never be accepted (it isn't terminal).
+          // A non-scripted, non-mating first move must not be accepted.
           expect(d.accepted, `${p.id}: non-scripted first move ${played} accepted`).toBe(false);
         }
       }
     }
+  });
+
+  it('accepts a mate-in-1 shortcut on a position mislabeled as mate-in-2', () => {
+    // BK a8, WK c8, WQ h4 — scripted as mate-in-2 (Qb4, Ka7, Qb7#) but Qa4# is an
+    // immediate mate. This is the exact bug users hit ("...Qa4" flagged wrong).
+    const fen = 'k1K5/8/8/8/7Q/8/8/8 w - - 0 1';
+    const scripted = ['h4b4', 'a8a7', 'b4b7'];
+
+    // The mate-in-1 shortcut on the FIRST (non-terminal) ply is accepted + solved.
+    const shortcut = evaluateTeamMove(fen, scripted, 0, 'h4', 'a4');
+    expect(shortcut.accepted, 'Qa4# shortcut rejected').toBe(true);
+    expect(shortcut.solved, 'Qa4# shortcut not marked solved').toBe(true);
+
+    // The scripted quiet first move still works (it does not mate, so not solved).
+    const quiet = evaluateTeamMove(fen, scripted, 0, 'h4', 'b4');
+    expect(quiet.accepted, 'scripted Qb4 rejected').toBe(true);
+    expect(quiet.solved, 'scripted Qb4 wrongly marked solved').toBe(false);
+
+    // A non-scripted, non-mating first move is still rejected.
+    const wrong = evaluateTeamMove(fen, scripted, 0, 'c8', 'c7');
+    expect(wrong.accepted, 'non-mating non-scripted move accepted').toBe(false);
   });
 });

@@ -184,4 +184,17 @@ describe('fallbackPool', () => {
     const pool = fallbackPool('queen', []);
     expect(pool.length).toBe(TUG_PUZZLES.length);
   });
+
+  it('widens to the full set when the default band collapses to one tier', () => {
+    // The Knight band (800–1200) only catches the rating-900 mate-in-2s — a
+    // single difficulty tier. Without a theme filter, that would trap players on
+    // one puzzle shape, so the fallback must widen to the whole bundled set.
+    const knightBandOnly = TUG_PUZZLES.filter((p) => p.rating >= 800 && p.rating <= 1200);
+    expect(new Set(knightBandOnly.map((p) => p.rating)).size).toBe(1); // one tier
+    const pool = fallbackPool('knight', []);
+    expect(pool.length).toBe(TUG_PUZZLES.length);
+    // Variety restored: both mate-in-1 and mate-in-2 shapes are present.
+    expect(pool.some((p) => p.themes.includes('mateIn1'))).toBe(true);
+    expect(pool.some((p) => p.themes.includes('mateIn2'))).toBe(true);
+  });
 });

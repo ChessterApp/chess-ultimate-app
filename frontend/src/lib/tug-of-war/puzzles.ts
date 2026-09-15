@@ -492,11 +492,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-041",
-    "fen": "k7/8/K7/8/8/8/8/4Q3 w - - 0 1",
+    "fen": "k7/8/8/K7/8/8/8/Q7 w - - 0 1",
     "moves": [
-      "e1e7",
+      "a5b6",
       "a8b8",
-      "e7b7"
+      "a1h8"
     ],
     "rating": 900,
     "themes": [
@@ -506,11 +506,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-042",
-    "fen": "7k/8/7K/8/8/8/8/3Q4 w - - 0 1",
+    "fen": "7k/8/8/7K/8/8/8/7Q w - - 0 1",
     "moves": [
-      "d1d7",
+      "h5g6",
       "h8g8",
-      "d7g7"
+      "h1a8"
     ],
     "rating": 900,
     "themes": [
@@ -520,11 +520,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-043",
-    "fen": "4Q3/8/8/8/8/K7/8/k7 w - - 0 1",
+    "fen": "Q7/8/8/8/K7/8/8/k7 w - - 0 1",
     "moves": [
-      "e8e2",
+      "a4b3",
       "a1b1",
-      "e2b2"
+      "a8h1"
     ],
     "rating": 900,
     "themes": [
@@ -534,11 +534,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-044",
-    "fen": "3Q4/8/8/8/8/7K/8/7k w - - 0 1",
+    "fen": "7Q/8/8/8/7K/8/8/7k w - - 0 1",
     "moves": [
-      "d8d2",
+      "h4g3",
       "h1g1",
-      "d2g2"
+      "h8a1"
     ],
     "rating": 900,
     "themes": [
@@ -548,11 +548,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-045",
-    "fen": "8/8/8/Q7/8/8/8/5K1k w - - 0 1",
+    "fen": "8/8/8/8/8/8/8/Q3K2k w - - 0 1",
     "moves": [
-      "a5g5",
+      "e1f2",
       "h1h2",
-      "g5g2"
+      "a1h8"
     ],
     "rating": 900,
     "themes": [
@@ -562,11 +562,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-046",
-    "fen": "k1K5/8/8/8/7Q/8/8/8 w - - 0 1",
+    "fen": "k2K3Q/8/8/8/8/8/8/8 w - - 0 1",
     "moves": [
-      "h4b4",
+      "d8c7",
       "a8a7",
-      "b4b7"
+      "h8a1"
     ],
     "rating": 900,
     "themes": [
@@ -576,11 +576,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-047",
-    "fen": "5K1k/8/8/8/Q7/8/8/8 w - - 0 1",
+    "fen": "Q3K2k/8/8/8/8/8/8/8 w - - 0 1",
     "moves": [
-      "a4g4",
+      "e8f7",
       "h8h7",
-      "g4g7"
+      "a8h1"
     ],
     "rating": 900,
     "themes": [
@@ -590,11 +590,11 @@ export const TUG_PUZZLES: TugPuzzle[] = [
   },
   {
     "id": "tug-m2-048",
-    "fen": "8/8/8/7Q/8/8/8/k1K5 w - - 0 1",
+    "fen": "8/8/8/8/8/8/8/k2K3Q w - - 0 1",
     "moves": [
-      "h5b5",
+      "d1c2",
       "a1a2",
-      "b5b2"
+      "h1a8"
     ],
     "rating": 900,
     "themes": [

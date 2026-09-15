@@ -53,6 +53,20 @@ describe('TUG_PUZZLES data set', () => {
     }
   });
 
+  it('no mateIn2 puzzle has a mate-in-1 shortcut (would be a mislabeled win)', () => {
+    const mateIn2 = TUG_PUZZLES.filter((p) => p.themes.includes('mateIn2'));
+    expect(mateIn2.length, 'expected some mateIn2 puzzles').toBeGreaterThan(0);
+    for (const puzzle of mateIn2) {
+      const chess = new Chess(puzzle.fen);
+      const hasShorterMate = chess.moves({ verbose: true }).some((m) => {
+        const probe = new Chess(puzzle.fen);
+        probe.move({ from: m.from, to: m.to, promotion: m.promotion ?? 'q' });
+        return probe.isCheckmate();
+      });
+      expect(hasShorterMate, `${puzzle.id} is solvable in one move`).toBe(false);
+    }
+  });
+
   it('mateIn1 puzzles are exactly one move, mateIn2 exactly three', () => {
     for (const puzzle of TUG_PUZZLES) {
       if (puzzle.themes.includes('mateIn1')) {

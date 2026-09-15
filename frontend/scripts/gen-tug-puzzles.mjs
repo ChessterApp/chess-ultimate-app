@@ -65,6 +65,17 @@ function verify(pieces, moves) {
   let c;
   try { c = new Chess(fen); } catch { return null; }
   if (c.turn() !== 'w' || c.isCheck()) return null;
+  // Reject any multi-move line whose START position already has a legal
+  // mate-in-1: the faster mate makes the longer scripted line a lie, and the
+  // solver who finds it would otherwise be told they're wrong.
+  if (moves.length > 1) {
+    const hasShorterMate = c.moves({ verbose: true }).some((m) => {
+      const t = new Chess(fen);
+      t.move({ from: m.from, to: m.to, promotion: m.promotion });
+      return t.isCheckmate();
+    });
+    if (hasShorterMate) return null;
+  }
   for (let i = 0; i < moves.length; i++) {
     const uci = moves[i];
     const legal = c.moves({ verbose: true }).find(
@@ -127,12 +138,14 @@ function rookMates() {
   return all;
 }
 
-// --- Forced mate-in-2: king boxed in the corner, a quiet 7th-rank queen move
-// leaves exactly one legal reply, then the queen mates. ---
+// --- Forced mate-in-2 with NO mate-in-1 shortcut: the king walks in with a
+// quiet approach move (not a check) that leaves the boxed-in king exactly one
+// legal reply, then the queen mates along the back rank. Verified to have no
+// faster mate by verify()'s "no shorter mate" guard. ---
 function mate2s() {
   const seen = new Set();
-  // BK a8, WK a6, WQ e1 -> Qe7 (only Kb8) -> Qb7#.
-  return expand({ a8: 'k', a6: 'K', e1: 'Q' }, ['e1e7', 'a8b8', 'e7b7'], seen);
+  // BK a8, WK a5, WQ a1 -> Kb6 (quiet; only reply Kb8) -> Qh8#.
+  return expand({ a8: 'k', a5: 'K', a1: 'Q' }, ['a5b6', 'a8b8', 'a1h8'], seen);
 }
 
 const q = queenMates();
