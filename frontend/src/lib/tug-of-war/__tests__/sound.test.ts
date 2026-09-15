@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { loadMuted, saveMuted, MUTE_STORAGE_KEY } from '../sound';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { loadMuted, saveMuted, MUTE_STORAGE_KEY, TugSound } from '../sound';
 
 /** Minimal in-memory Storage stand-in for the pure mute helpers. */
 function makeStorage(initial: Record<string, string> = {}) {
@@ -54,5 +54,84 @@ describe('mute persistence', () => {
     // No explicit storage + node env (no window) → graceful default.
     expect(loadMuted()).toBe(false);
     expect(() => saveMuted(true)).not.toThrow();
+  });
+});
+
+/**
+ * The correct-move cue plays an <audio> sample. `HTMLAudioElement.play()`
+ * returns a Promise that can reject asynchronously (iOS autoplay
+ * NotAllowedError, AbortError from a currentTime reset). If that rejection is
+ * left unhandled it bubbles to `window.unhandledrejection` and surfaces as a
+ * red "unexpected error" toast — the bug this suite guards against.
+ *
+ * The test env is `node` (no global `Audio`), so we install a fake so
+ * `TugSound` actually builds its audio element and exercises correctMove().
+ */
+describe('TugSound.correctMove — no unhandled play() rejection', () => {
+  let lastAudio: { currentTime: number; preload: string; play: ReturnType<typeof vi.fn> };
+  const originalAudio = (globalThis as { Audio?: unknown }).Audio;
+
+  function installFakeAudio() {
+    class FakeAudio {
+      currentTime = 0;
+      preload = '';
+      play = vi.fn(() => Promise.resolve());
+      constructor(public src: string) {
+        lastAudio = this;
+      }
+    }
+    (globalThis as { Audio?: unknown }).Audio = FakeAudio as unknown;
+  }
+
+  /** Let queued microtasks + the unhandledRejection check run. */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  afterEach(() => {
+    (globalThis as { Audio?: unknown }).Audio = originalAudio;
+    vi.restoreAllMocks();
+  });
+
+  it('swallows an async play() rejection (iOS NotAllowedError)', async () => {
+    installFakeAudio();
+    const sound = new TugSound(false);
+    // play() rejects the way iOS does when autoplay is blocked.
+    lastAudio.play.mockImplementation(() =>
+      Promise.reject(new DOMException('autoplay blocked', 'NotAllowedError')),
+    );
+
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => rejections.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      expect(() => sound.correctMove()).not.toThrow();
+      await flush();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+
+    expect(lastAudio.play).toHaveBeenCalledTimes(1);
+    expect(rejections).toEqual([]);
+  });
+
+  it('plays the sample once (currentTime reset) when play() resolves', async () => {
+    installFakeAudio();
+    const sound = new TugSound(false);
+    lastAudio.currentTime = 5;
+
+    sound.correctMove();
+    await flush();
+
+    expect(lastAudio.play).toHaveBeenCalledTimes(1);
+    expect(lastAudio.currentTime).toBe(0);
+  });
+
+  it('does not play while muted', async () => {
+    installFakeAudio();
+    const sound = new TugSound(true);
+
+    sound.correctMove();
+    await flush();
+
+    expect(lastAudio.play).not.toHaveBeenCalled();
   });
 });

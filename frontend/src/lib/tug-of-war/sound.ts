@@ -106,10 +106,15 @@ export class TugSound {
     if (this.muted || !this.correct) return;
     try {
       this.correct.currentTime = 0;
-      void this.correct.play();
     } catch {
-      /* autoplay blocked — ignore */
+      /* resetting currentTime can throw on some browsers — ignore */
     }
+    // play() returns a Promise that can reject asynchronously (iOS autoplay
+    // NotAllowedError, AbortError from a currentTime reset). A synchronous
+    // try/catch cannot catch that, and `void` would leave it unhandled — which
+    // surfaces as a red error toast via the global unhandledrejection handler.
+    // Swallow it here. `?.` guards old browsers where play() returns undefined.
+    this.correct.play()?.catch(() => {});
   }
 
   /** Wrong move: a short descending buzz/thud. */

@@ -129,17 +129,17 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
   useEffect(() => {
     if (over && !prevOver.current) {
       soundRef.current?.win();
-      if (state.winner) void fireWinConfetti(state.winner);
+      if (state.winner) fireWinConfetti(state.winner).catch(() => {});
     }
     if (!over && prevOver.current) {
-      void resetConfetti();
+      resetConfetti().catch(() => {});
     }
     prevOver.current = over;
   }, [over, state.winner]);
 
   useEffect(() => {
     return () => {
-      void resetConfetti();
+      resetConfetti().catch(() => {});
     };
   }, []);
 
