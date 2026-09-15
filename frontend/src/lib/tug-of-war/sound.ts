@@ -59,6 +59,8 @@ export class TugSound {
   private muted: boolean;
   private ctx: AudioContext | null = null;
   private correct: HTMLAudioElement | null = null;
+  private correctBuffer: AudioBuffer | null = null;
+  private correctBufferPromise: Promise<AudioBuffer | null> | null = null;
 
   constructor(muted = false) {
     this.muted = muted;
@@ -70,6 +72,47 @@ export class TugSound {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
+  }
+
+  /**
+   * Prime audio on the first user gesture. iOS/Safari only unlock playback from
+   * inside a real pointer/touch/key handler, so MatchScreen calls this once on
+   * the first interaction. It resumes the shared AudioContext — which unlocks
+   * every later cue, including ones fired from a timer (the opponent-reply solve
+   * path) — and kicks off decoding the correct-move sample so it is ready by the
+   * first solve. Safe to call repeatedly; the decode only runs once.
+   */
+  unlock(): void {
+    const ctx = this.audioCtx();
+    if (ctx) void this.ensureCorrectBuffer(ctx);
+  }
+
+  /** Fetch + decode the correct-move sample once, cached for reuse. */
+  private ensureCorrectBuffer(ctx: AudioContext): Promise<AudioBuffer | null> {
+    if (this.correctBuffer) return Promise.resolve(this.correctBuffer);
+    if (!this.correctBufferPromise) {
+      this.correctBufferPromise = fetch(CORRECT_SRC)
+        .then((res) => res.arrayBuffer())
+        .then((data) => ctx.decodeAudioData(data))
+        .then((buffer) => {
+          this.correctBuffer = buffer;
+          return buffer;
+        })
+        .catch(() => null);
+    }
+    return this.correctBufferPromise;
+  }
+
+  /** Play a decoded buffer through the shared, already-unlocked context. */
+  private playBuffer(ctx: AudioContext, buffer: AudioBuffer): void {
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(ctx.destination);
+      src.start();
+    } catch {
+      /* buffer source can throw if the context was closed — ignore */
+    }
   }
 
   /** Lazily create / resume the shared AudioContext (needs a user gesture). */
@@ -101,19 +144,36 @@ export class TugSound {
     osc.stop(at + dur + 0.02);
   }
 
-  /** Correct move: reuse the existing puzzle-solved sample. */
+  /**
+   * Correct move: play the puzzle-solved sample through the shared AudioContext
+   * so it survives the autoplay policy the same way the wrong/win cues do. Once
+   * the context is unlocked (unlock(), on the first gesture) buffer playback
+   * works even when the solve resolves from a timer — unlike HTMLAudio.play(),
+   * which iOS blocks outside the gesture window and rejects (the old silent-cue
+   * bug). Falls back to the <audio> element only when Web Audio is unavailable.
+   */
   correctMove(): void {
-    if (this.muted || !this.correct) return;
+    if (this.muted) return;
+    const ctx = this.audioCtx();
+    if (ctx) {
+      if (this.correctBuffer) {
+        this.playBuffer(ctx, this.correctBuffer);
+      } else {
+        void this.ensureCorrectBuffer(ctx).then((buffer) => {
+          if (buffer) this.playBuffer(ctx, buffer);
+        });
+      }
+      return;
+    }
+    // No Web Audio (very old browser) — best-effort HTMLAudio fallback. play()
+    // can reject asynchronously; swallow it so it never becomes an unhandled
+    // rejection (which would surface as a red error toast).
+    if (!this.correct) return;
     try {
       this.correct.currentTime = 0;
     } catch {
       /* resetting currentTime can throw on some browsers — ignore */
     }
-    // play() returns a Promise that can reject asynchronously (iOS autoplay
-    // NotAllowedError, AbortError from a currentTime reset). A synchronous
-    // try/catch cannot catch that, and `void` would leave it unhandled — which
-    // surfaces as a red error toast via the global unhandledrejection handler.
-    // Swallow it here. `?.` guards old browsers where play() returns undefined.
     this.correct.play()?.catch(() => {});
   }
 

@@ -135,3 +135,115 @@ describe('TugSound.correctMove — no unhandled play() rejection', () => {
     expect(lastAudio.play).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * When Web Audio is available (the real browser case), the correct-move cue is
+ * routed through the shared AudioContext — the same unlock domain as the
+ * wrong/win cues — instead of HTMLAudio.play(). This is what makes it audible
+ * on iOS after the opponent-reply timer resolves the solve outside the gesture
+ * window (the "no sound anymore" regression). unlock() resumes the context from
+ * the first gesture; correctMove() then plays a decoded buffer.
+ */
+describe('TugSound.correctMove — Web Audio path', () => {
+  const originalWindow = (globalThis as { window?: unknown }).window;
+  const originalFetch = (globalThis as { fetch?: unknown }).fetch;
+  const originalAudio = (globalThis as { Audio?: unknown }).Audio;
+
+  let resumeCalls: number;
+  let started: number;
+  let ctxState: string;
+
+  function installWebAudio(decode?: () => Promise<AudioBuffer>) {
+    resumeCalls = 0;
+    started = 0;
+    ctxState = 'suspended';
+    class FakeCtx {
+      destination = {};
+      get state() {
+        return ctxState;
+      }
+      resume = vi.fn(() => {
+        ctxState = 'running';
+        resumeCalls += 1;
+        return Promise.resolve();
+      });
+      decodeAudioData = vi.fn(
+        decode ?? (() => Promise.resolve({} as AudioBuffer)),
+      );
+      createBufferSource = vi.fn(() => ({
+        buffer: null as AudioBuffer | null,
+        connect: () => {},
+        start: () => {
+          started += 1;
+        },
+      }));
+    }
+    (globalThis as { window?: unknown }).window = { AudioContext: FakeCtx };
+    (globalThis as { fetch?: unknown }).fetch = vi.fn(() =>
+      Promise.resolve({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)) }),
+    );
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  afterEach(() => {
+    (globalThis as { window?: unknown }).window = originalWindow;
+    (globalThis as { fetch?: unknown }).fetch = originalFetch;
+    (globalThis as { Audio?: unknown }).Audio = originalAudio;
+    vi.restoreAllMocks();
+  });
+
+  it('unlock() resumes the AudioContext (first-gesture unlock)', async () => {
+    installWebAudio();
+    const sound = new TugSound(false);
+    sound.unlock();
+    await flush();
+    expect(resumeCalls).toBeGreaterThan(0);
+    expect(ctxState).toBe('running');
+  });
+
+  it('correctMove plays a decoded buffer through the context', async () => {
+    installWebAudio();
+    const sound = new TugSound(false);
+    sound.unlock(); // decode the buffer up front
+    await flush();
+    sound.correctMove();
+    await flush();
+    expect(started).toBe(1);
+  });
+
+  it('plays even when correctMove runs before unlock (lazy decode)', async () => {
+    installWebAudio();
+    const sound = new TugSound(false);
+    sound.correctMove();
+    await flush();
+    expect(started).toBe(1);
+  });
+
+  it('does not play while muted', async () => {
+    installWebAudio();
+    const sound = new TugSound(true);
+    sound.unlock();
+    await flush();
+    sound.correctMove();
+    await flush();
+    expect(started).toBe(0);
+  });
+
+  it('swallows a decode failure without an unhandled rejection', async () => {
+    installWebAudio(() => Promise.reject(new Error('decode failed')));
+    const sound = new TugSound(false);
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => rejections.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      sound.unlock();
+      sound.correctMove();
+      await flush();
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect(rejections).toEqual([]);
+    expect(started).toBe(0);
+  });
+});

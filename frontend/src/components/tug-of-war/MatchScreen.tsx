@@ -114,6 +114,24 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
     };
   }, []);
 
+  // Unlock audio on the first user gesture. iOS/Safari only unlock playback
+  // (both Web Audio and <audio>) from inside a real pointer/touch/key handler,
+  // so prime the shared context once here — otherwise the correct-move cue that
+  // fires from the opponent-reply timer, and the win fanfare, stay silent.
+  useEffect(() => {
+    const unlock = () => {
+      soundRef.current?.unlock();
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
+
   const toggleMute = () => {
     setMuted((m) => {
       const next = !m;
