@@ -151,11 +151,20 @@ describe('TugSound.correctMove — Web Audio path', () => {
 
   let resumeCalls: number;
   let started: number;
+  let primed: number;
   let ctxState: string;
 
-  function installWebAudio(decode?: () => Promise<AudioBuffer>) {
+  /** A sentinel returned by createBuffer so the priming node is distinguishable. */
+  const PRIMING_BUFFER = { priming: true } as unknown as AudioBuffer;
+
+  function installWebAudio(
+    decode?: () => Promise<AudioBuffer>,
+    opts: { resumesToRunning?: boolean } = {},
+  ) {
+    const resumesToRunning = opts.resumesToRunning ?? true;
     resumeCalls = 0;
     started = 0;
+    primed = 0;
     ctxState = 'suspended';
     class FakeCtx {
       destination = {};
@@ -163,20 +172,40 @@ describe('TugSound.correctMove — Web Audio path', () => {
         return ctxState;
       }
       resume = vi.fn(() => {
-        ctxState = 'running';
+        if (resumesToRunning) ctxState = 'running';
         resumeCalls += 1;
         return Promise.resolve();
       });
       decodeAudioData = vi.fn(
         decode ?? (() => Promise.resolve({} as AudioBuffer)),
       );
-      createBufferSource = vi.fn(() => ({
-        buffer: null as AudioBuffer | null,
-        connect: () => {},
-        start: () => {
-          started += 1;
-        },
+      createBuffer = vi.fn(() => PRIMING_BUFFER);
+      createBufferSource = vi.fn(() => {
+        const node = {
+          buffer: null as AudioBuffer | null,
+          connect: () => {},
+          start: () => {
+            // The priming node plays the createBuffer sentinel; cue nodes play a
+            // decoded buffer. Count them separately so `started` tracks cues only.
+            if (node.buffer === PRIMING_BUFFER) primed += 1;
+            else started += 1;
+          },
+        };
+        return node;
+      });
+      // Minimal oscillator/gain graph so the synth cues (wrong/win) don't throw.
+      createOscillator = vi.fn(() => ({
+        type: 'sine',
+        frequency: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+        connect: (n: unknown) => n,
+        start: () => {},
+        stop: () => {},
       }));
+      createGain = vi.fn(() => ({
+        gain: { setValueAtTime: () => {}, exponentialRampToValueAtTime: () => {} },
+        connect: (n: unknown) => n,
+      }));
+      currentTime = 0;
     }
     (globalThis as { window?: unknown }).window = { AudioContext: FakeCtx };
     (globalThis as { fetch?: unknown }).fetch = vi.fn(() =>
@@ -190,6 +219,7 @@ describe('TugSound.correctMove — Web Audio path', () => {
     (globalThis as { window?: unknown }).window = originalWindow;
     (globalThis as { fetch?: unknown }).fetch = originalFetch;
     (globalThis as { Audio?: unknown }).Audio = originalAudio;
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -245,5 +275,54 @@ describe('TugSound.correctMove — Web Audio path', () => {
     }
     expect(rejections).toEqual([]);
     expect(started).toBe(0);
+  });
+
+  it('plays a priming buffer on unlock() (WebKit output force-unlock)', async () => {
+    installWebAudio();
+    const sound = new TugSound(false);
+    sound.unlock();
+    await flush();
+    expect(primed).toBe(1);
+  });
+
+  it('sets navigator.audioSession.type = "playback" when the API exists', () => {
+    installWebAudio();
+    const audioSession = { type: 'auto' };
+    vi.stubGlobal('navigator', { audioSession });
+    const sound = new TugSound(false);
+    sound.unlock();
+    expect(audioSession.type).toBe('playback');
+  });
+
+  it('does not throw on unlock() when navigator.audioSession is absent', () => {
+    installWebAudio();
+    vi.stubGlobal('navigator', {});
+    const sound = new TugSound(false);
+    expect(() => sound.unlock()).not.toThrow();
+  });
+
+  it('unlock() returns true when the context ends up running', () => {
+    installWebAudio();
+    const sound = new TugSound(false);
+    expect(sound.unlock()).toBe(true);
+    expect(ctxState).toBe('running');
+  });
+
+  it('unlock() returns false when the context stays suspended', () => {
+    installWebAudio(undefined, { resumesToRunning: false });
+    const sound = new TugSound(false);
+    expect(sound.unlock()).toBe(false);
+    expect(ctxState).toBe('suspended');
+  });
+
+  it('cue methods still attempt resume() when the context is suspended', () => {
+    installWebAudio(undefined, { resumesToRunning: false });
+    const sound = new TugSound(false);
+    sound.unlock(); // one resume attempt
+    const afterUnlock = resumeCalls;
+    sound.wrongMove();
+    sound.win();
+    sound.correctMove();
+    expect(resumeCalls).toBeGreaterThan(afterUnlock);
   });
 });

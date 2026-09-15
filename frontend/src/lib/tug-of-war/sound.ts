@@ -76,15 +76,39 @@ export class TugSound {
 
   /**
    * Prime audio on the first user gesture. iOS/Safari only unlock playback from
-   * inside a real pointer/touch/key handler, so MatchScreen calls this once on
-   * the first interaction. It resumes the shared AudioContext — which unlocks
-   * every later cue, including ones fired from a timer (the opponent-reply solve
-   * path) — and kicks off decoding the correct-move sample so it is ready by the
-   * first solve. Safe to call repeatedly; the decode only runs once.
+   * inside a real pointer/touch/key handler, so MatchScreen calls this on each
+   * early interaction until it succeeds. It resumes the shared AudioContext and
+   * plays a 1-frame silent buffer inside the gesture — which is what actually
+   * unlocks WebKit output — then kicks off decoding the correct-move sample so
+   * it is ready by the first solve. Safe to call repeatedly; the decode only
+   * runs once.
+   *
+   * Returns `true` only when the context is `running` afterwards, so the caller
+   * knows whether to keep listening for a later gesture (a failed first tap must
+   * be retried, not abandoned).
    */
-  unlock(): void {
+  unlock(): boolean {
+    // Declare the iOS audio session so Web Audio ignores the silent switch.
+    try {
+      const nav = navigator as Navigator & { audioSession?: { type: string } };
+      if (nav.audioSession) nav.audioSession.type = 'playback';
+    } catch {
+      /* not supported — ignore */
+    }
     const ctx = this.audioCtx();
-    if (ctx) void this.ensureCorrectBuffer(ctx);
+    if (!ctx) return false;
+    // Play a 1-frame silent buffer inside the gesture to force-unlock WebKit.
+    try {
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* createBuffer/start can throw on a closed context — ignore */
+    }
+    void this.ensureCorrectBuffer(ctx);
+    return ctx.state === 'running';
   }
 
   /** Fetch + decode the correct-move sample once, cached for reuse. */
