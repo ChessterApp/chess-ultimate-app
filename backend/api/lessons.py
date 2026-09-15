@@ -289,6 +289,49 @@ def get_courses_progress():
         return jsonify({"error": f"Failed to fetch course progress: {str(e)}"}), 500
 
 
+@lessons_bp.route('/api/gamification/derived-profile', methods=['GET'])
+@verify_clerk_token
+def get_derived_profile():
+    """
+    Raw lesson-completion data for deriving gamification stats client-side.
+
+    Non-linked Chesster users (not connected to a Chess-Empire tournament
+    account) have no tournament-driven economy. Their XP / rank / streak are
+    derived from their own lesson completions instead. This endpoint exposes the
+    raw signal for the authenticated user; the frontend turns it into XP + rank
+    (10 XP/lesson) and a daily streak. Additive — does not alter existing
+    progress endpoints.
+
+    Returns:
+        {
+            "total_completions": N,                    # completed user_progress rows
+            "completion_dates": ["2026-09-15", ...]    # ISO date (UTC) per completion
+        }
+    """
+    try:
+        user_id = get_current_user_id()
+
+        result = retry_supabase_query(
+            lambda: supabase.table('user_progress')
+                .select('status, completed_at')
+                .eq('user_id', user_id)
+                .execute()
+        )
+        rows = result.data or []
+        completed = [r for r in rows if r.get('status') == 'completed']
+        # completed_at is TIMESTAMPTZ; PostgREST serializes it in UTC, so the
+        # leading YYYY-MM-DD is the UTC calendar day of the completion.
+        completion_dates = [r['completed_at'][:10] for r in completed if r.get('completed_at')]
+
+        return jsonify({
+            'total_completions': len(completed),
+            'completion_dates': completion_dates,
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch derived profile: {str(e)}"}), 500
+
+
 # ============================================
 # SLUG-BASED ENDPOINTS (SEO-friendly URLs)
 # ============================================
