@@ -124,6 +124,7 @@ export default function WheelGame() {
               spinLabel={isSpinning ? t('spinning') : t('spin')}
               disabled={!canSpin}
               onSpin={spin}
+              winningId={winner?.id ?? null}
             />
           </div>
         ) : (

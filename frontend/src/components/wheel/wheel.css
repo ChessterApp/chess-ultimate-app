@@ -25,11 +25,13 @@
   will-change: transform;
 }
 
-/* Bulbs around the rim. Each bulb reads its index via --i for the chase delay. */
+/* Bulbs around the rim. Each bulb reads its index via --i for the chase delay.
+ * Bulbs carry a soft resting glow so the rim reads as "lit" even when idle. */
 .wheel-bulb {
-  fill: var(--wheel-bulb-off);
+  fill: var(--wheel-bulb-on);
   stroke: var(--wheel-gold-deep);
   stroke-width: 1;
+  filter: drop-shadow(0 0 3px rgba(255, 244, 194, 0.7));
 }
 .wheel-stage.is-spinning .wheel-bulb {
   animation: wheel-bulb-chase 0.6s linear infinite;
@@ -40,11 +42,28 @@
   0%,
   100% {
     fill: var(--wheel-bulb-off);
-    filter: none;
+    filter: drop-shadow(0 0 2px rgba(255, 244, 194, 0.4));
   }
   50% {
     fill: var(--wheel-bulb-on);
-    filter: drop-shadow(0 0 4px var(--wheel-bulb-on));
+    filter: drop-shadow(0 0 8px var(--wheel-bulb-on)) drop-shadow(0 0 14px var(--wheel-bulb-on));
+  }
+}
+
+/* Winning wedge: brightened gold stroke + pulsing glow once the wheel stops. */
+.wheel-wedge-win {
+  stroke: var(--wheel-gold-light);
+  stroke-width: 2;
+  animation: wheel-wedge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes wheel-wedge-pulse {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px var(--wheel-gold)) drop-shadow(0 0 8px var(--wheel-gold-light));
+  }
+  50% {
+    filter: drop-shadow(0 0 9px var(--wheel-gold)) drop-shadow(0 0 18px var(--wheel-gold-light));
   }
 }
 
@@ -55,6 +74,11 @@
    * the disc to override here. */
   .wheel-stage.is-spinning .wheel-bulb {
     animation: none;
+  }
+  /* Winning wedge keeps a static glow but stops pulsing. */
+  .wheel-wedge-win {
+    animation: none;
+    filter: drop-shadow(0 0 6px var(--wheel-gold)) drop-shadow(0 0 12px var(--wheel-gold-light));
   }
 }
 

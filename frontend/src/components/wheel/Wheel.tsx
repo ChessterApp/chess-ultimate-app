@@ -32,6 +32,9 @@ interface WheelProps {
   onSpin: () => void;
   /** Rendered pixel size of the square stage. Defaults to responsive 100%. */
   size?: number;
+  /** Id of the winning segment once the wheel has stopped; that wedge glows.
+   *  Null while spinning or idle. Cleared automatically on the next spin. */
+  winningId?: string | null;
 }
 
 /** Radial label transform: the label sits on its wedge's spoke at LABEL_R and
@@ -53,6 +56,7 @@ export default function Wheel({
   disabled,
   onSpin,
   size,
+  winningId = null,
 }: WheelProps) {
   const count = segments.length;
   const seg = count > 0 ? segmentAngle(count) : 360;
@@ -90,6 +94,7 @@ export default function Wheel({
             return (
               <g key={s.id} data-testid="wheel-segment">
                 <path
+                  className={s.id === winningId ? 'wheel-wedge-win' : undefined}
                   d={wedgePath(CENTER, CENTER, DISC_R, start, end)}
                   fill={s.color}
                   stroke="#3a1f10"
@@ -151,7 +156,7 @@ export default function Wheel({
               className="wheel-bulb"
               cx={bx}
               cy={by}
-              r={2.6}
+              r={3.9}
               style={{ ['--i' as string]: i }}
             />
           );
