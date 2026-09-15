@@ -11,7 +11,7 @@
 
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Chess, SQUARES } from 'chess.js';
 import type { Square } from 'chess.js';
 import { Chessground } from 'chessground';
@@ -54,7 +54,16 @@ const FRAME: Record<'blue' | 'orange', string> = {
 
 export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }: TugBoardProps) {
   const elRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
   const groundRef = useRef<Api | null>(null);
+  // Explicit, integer, square board size. chessground positions pieces and
+  // highlights by pixel math (bounds.width / 8) but the CSS sizes squares at
+  // 12.5% — if the rendered width is fractional the two disagree and pieces
+  // drift off the square centers (worse toward the h-file / 1st rank as the
+  // error accumulates). Flooring to a multiple of 8 forces both to resolve to
+  // the same whole pixel per square. Mirrors ChessgroundBoard.tsx's explicit
+  // pixel sizing.
+  const [size, setSize] = useState<number>(0);
   const chessRef = useRef<Chess>(new Chess(puzzle.fen));
   /** Index into puzzle.moves of the next expected move. Even = team's turn. */
   const moveIndexRef = useRef<number>(0);
@@ -212,6 +221,30 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
     return () => observer.disconnect();
   }, []);
 
+  // Measure the board's container and derive an integer, square size that is a
+  // clean multiple of 8, so every square is a whole number of pixels and the
+  // piece/highlight positions land exactly on the square centers. Recomputes on
+  // any container resize (desktop panel, iPad split, mobile) — no breakpoints.
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    const el = measureRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.clientWidth;
+      if (w > 0) setSize(Math.floor(w / 8) * 8);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Recompute chessground's cached bounds whenever the integer size changes so
+  // piece positions track the new dimensions exactly.
+  useEffect(() => {
+    if (size > 0) groundRef.current?.redrawAll();
+  }, [size]);
+
   // Reset to a fresh puzzle whenever the puzzle identity changes.
   useEffect(() => {
     if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
@@ -227,9 +260,21 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled]);
 
+  // measureRef is full-width (drives the size calc); the colored frame shrinks
+  // to the exact integer board size so the ring hugs the board with no gap, and
+  // the board element gets explicit width/height in pixels. lineHeight:0 kills
+  // the inline-block descender gap that would otherwise make the box non-square.
   return (
-    <div className={`w-full rounded-xl overflow-hidden bg-white/5 ${FRAME[accent]}`}>
-      <div ref={elRef} className="w-full aspect-square" />
+    <div ref={measureRef} className="w-full flex justify-center">
+      <div
+        className={`rounded-xl overflow-hidden bg-white/5 ${FRAME[accent]}`}
+        style={{ lineHeight: 0 }}
+      >
+        <div
+          ref={elRef}
+          style={{ width: size || undefined, height: size || undefined }}
+        />
+      </div>
     </div>
   );
 }
