@@ -23,7 +23,13 @@ import { orientationFromFen } from '@/lib/tug-of-war/orientation';
 
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
-import 'chessground/assets/chessground.cburnett.css';
+// Shared Chesster board theme: size-relative coordinate positioning (files/ranks
+// centred per 1/8 cell) + the app-wide Fritz piece set. Without it the tug board
+// falls back to base.css's fixed-pixel coord offsets, which on a small board push
+// every file right (h off-board) and every rank up (8 clipped). Requires the
+// `chessground-board` class on the mounted div below. Matches ChessgroundBoard.tsx
+// (the /database board). Supersedes the cburnett sprite import (now removed).
+import '@/styles/chessground-theme.css';
 
 /** Delay before the opponent's scripted reply auto-plays (ms). */
 const OPPONENT_REPLY_DELAY = 300;
@@ -272,6 +278,7 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
       >
         <div
           ref={elRef}
+          className="chessground-board"
           style={{ width: size || undefined, height: size || undefined }}
         />
       </div>
