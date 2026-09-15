@@ -38,6 +38,10 @@ export default function WheelGame() {
   const { ensureCtx, tick } = useTickSound();
 
   const [winner, setWinner] = useState<WheelSegment | null>(null);
+  // The winning wedge glow is driven separately from the modal so the glow is
+  // visible before the (delayed) modal covers the wheel, and stays lit until
+  // the next spin — not cleared when the modal closes.
+  const [winningId, setWinningId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
   const segments = useMemo(() => current?.segments ?? [], [current]);
@@ -46,17 +50,28 @@ export default function WheelGame() {
   // The winner is chosen up-front but only revealed when the physics engine
   // reports it has entered the Stopped phase (no setTimeout).
   const pendingWinner = useRef<WheelSegment | null>(null);
+  // Deferred reveal of the WinnerModal so the wedge glow + confetti show first.
+  const modalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { discRef, spin: startSpin, startIdle, isSpinning } = useWheelPhysics({
     onCrossing: tick,
     onStopped: () => {
       const w = pendingWinner.current;
       if (!w) return;
-      setWinner(w);
+      // Glow the winning wedge immediately.
+      setWinningId(w.id);
       fireConfetti();
       vibrate([60, 40, 120]);
+      // Let the glow + confetti read for a beat before the modal covers it.
+      if (modalTimer.current) clearTimeout(modalTimer.current);
+      modalTimer.current = setTimeout(() => setWinner(w), 900);
     },
   });
+
+  // Clean up the pending modal timer on unmount.
+  useEffect(() => () => {
+    if (modalTimer.current) clearTimeout(modalTimer.current);
+  }, []);
 
   const canSpin = isSpinnable(current) && !isSpinning;
 
@@ -65,7 +80,9 @@ export default function WheelGame() {
 
     ensureCtx();
     vibrate(20);
+    if (modalTimer.current) clearTimeout(modalTimer.current);
     setWinner(null);
+    setWinningId(null);
 
     const index = pickIndex(count);
     pendingWinner.current = segments[index];
@@ -124,7 +141,7 @@ export default function WheelGame() {
               spinLabel={isSpinning ? t('spinning') : t('spin')}
               disabled={!canSpin}
               onSpin={spin}
-              winningId={winner?.id ?? null}
+              winningId={winningId}
             />
           </div>
         ) : (
