@@ -246,7 +246,7 @@ export default async function middleware(request: NextRequest, event: NextFetchE
 export const config = {
   matcher: [
     // Skip Next.js internals and all static files, unless found in search params
-    '/((?!_next|[^?]*\\.(?:html?|css|mjs|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|lottie|json|wasm|onnx)).*)',
+    '/((?!_next|[^?]*\\.(?:html?|css|mjs|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest|lottie|json|wasm|onnx|mp3|wav|ogg|m4a)).*)',
     // Always run for API routes
     '/(api|trpc)(.*)',
   ],
