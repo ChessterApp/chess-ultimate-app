@@ -87,6 +87,7 @@ export function normalizeSegment(raw: unknown, index: number): WheelSegment {
     label: typeof obj.label === 'string' ? obj.label : '',
     color: isNonEmptyString(obj.color) ? obj.color : nextColor(index),
     emoji: isNonEmptyString(obj.emoji) ? obj.emoji : undefined,
+    description: isNonEmptyString(obj.description) ? obj.description : undefined,
   };
 }
 
@@ -101,6 +102,7 @@ export function serializeSegments(segments: WheelSegment[]): Array<Record<string
   return segments.map((s) => {
     const out: Record<string, unknown> = { id: s.id, label: s.label, color: s.color };
     if (s.emoji) out.emoji = s.emoji;
+    if (s.description) out.description = s.description;
     return out;
   });
 }

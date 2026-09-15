@@ -31,7 +31,7 @@ export default function WinnerModal({ segment, onClose, onSpinAgain }: WinnerMod
         </p>
         {segment.emoji && <div className="mt-3 text-6xl leading-none">{segment.emoji}</div>}
         <h2 className="mt-3 break-words text-3xl font-extrabold text-[#231007]">
-          {segment.label || t('emptyLabel')}
+          {segment.description || segment.label || t('emptyLabel')}
         </h2>
         <div className="mt-6 flex flex-col gap-2">
           <button

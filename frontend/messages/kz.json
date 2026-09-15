@@ -2518,6 +2518,8 @@
     "emojiLabel": "Эмодзи",
     "labelLabel": "Жазба",
     "labelPlaceholder": "Жүлде",
+    "descriptionLabel": "Ұтыс туралы хабарлама",
+    "descriptionPlaceholder": "Осы секция ұтқанда көрсетілетін мәтін",
     "moveUp": "Жоғары",
     "moveDown": "Төмен",
     "removeSegment": "Секторды жою",

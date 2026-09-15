@@ -144,7 +144,8 @@ export default function ConfigEditor({ presetsApi, onClose }: ConfigEditorProps)
 
         <div className="max-h-[40vh] space-y-2 overflow-y-auto pr-1">
           {segments.map((s: WheelSegment, i: number) => (
-            <div key={s.id} className="flex items-center gap-2 rounded-lg bg-[#241735] p-2">
+            <div key={s.id} className="space-y-2 rounded-lg bg-[#241735] p-2">
+              <div className="flex items-center gap-2">
               <input
                 type="color"
                 value={s.color}
@@ -201,6 +202,21 @@ export default function ConfigEditor({ presetsApi, onClose }: ConfigEditorProps)
               >
                 ✕
               </button>
+              </div>
+              <input
+                type="text"
+                value={s.description ?? ''}
+                onChange={(e) =>
+                  dispatch({
+                    type: 'update',
+                    id: s.id,
+                    patch: { description: e.target.value || undefined },
+                  })
+                }
+                aria-label={t('descriptionLabel')}
+                placeholder={t('descriptionPlaceholder')}
+                className="w-full rounded bg-[#2a1d45] px-2 py-1.5 text-sm"
+              />
             </div>
           ))}
         </div>

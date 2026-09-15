@@ -10,6 +10,8 @@ export interface WheelSegment {
   color: string;
   /** Optional emoji shown alongside the label. */
   emoji?: string;
+  /** custom text shown in the win popup instead of the wedge label */
+  description?: string;
 }
 
 /** A named, saveable wheel configuration. Mirrors the `wheel_presets` table. */

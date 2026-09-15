@@ -2518,6 +2518,8 @@
     "emojiLabel": "Эмодзи",
     "labelLabel": "Надпись",
     "labelPlaceholder": "Приз",
+    "descriptionLabel": "Сообщение о выигрыше",
+    "descriptionPlaceholder": "Текст в окне выигрыша для этой секции",
     "moveUp": "Вверх",
     "moveDown": "Вниз",
     "removeSegment": "Удалить сектор",

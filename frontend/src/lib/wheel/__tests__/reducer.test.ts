@@ -43,6 +43,16 @@ describe('editorReducer', () => {
     expect(next[1]).toEqual(seg('b'));
   });
 
+  it('update sets the description', () => {
+    const next = editorReducer([seg('a'), seg('b')], {
+      type: 'update',
+      id: 'a',
+      patch: { description: 'You won a coffee!' },
+    });
+    expect(next[0]).toMatchObject({ id: 'a', description: 'You won a coffee!' });
+    expect(next[1]).toEqual(seg('b'));
+  });
+
   it('move up swaps with the previous segment', () => {
     const next = editorReducer([seg('a'), seg('b'), seg('c')], {
       type: 'move',

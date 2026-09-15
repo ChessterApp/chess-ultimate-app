@@ -57,7 +57,13 @@ describe('normalizeSegment', () => {
   });
   it('preserves valid fields', () => {
     const seg = normalizeSegment({ id: 'x', label: 'Приз', color: '#123456', emoji: '🎁' }, 2);
-    expect(seg).toEqual({ id: 'x', label: 'Приз', color: '#123456', emoji: '🎁' });
+    expect(seg).toEqual({ id: 'x', label: 'Приз', color: '#123456', emoji: '🎁', description: undefined });
+  });
+  it('reads a description string, otherwise undefined', () => {
+    expect(normalizeSegment({ description: 'You won a coffee!' }, 0).description).toBe('You won a coffee!');
+    expect(normalizeSegment({ description: '' }, 0).description).toBeUndefined();
+    expect(normalizeSegment({ description: 42 }, 0).description).toBeUndefined();
+    expect(normalizeSegment({}, 0).description).toBeUndefined();
   });
 });
 
@@ -73,6 +79,17 @@ describe('serialize / deserialize round-trip', () => {
   it('drops empty emoji on serialize', () => {
     const [s] = serializeSegments([{ id: 'a', label: 'L', color: '#fff' }]);
     expect('emoji' in s).toBe(false);
+  });
+  it('round-trips a description when set', () => {
+    const original = [{ id: 'a', label: 'L', color: '#fff', description: 'Custom win text' }];
+    const round = deserializeSegments(serializeSegments(original));
+    expect(round[0].description).toBe('Custom win text');
+  });
+  it('drops an empty/undefined description on serialize', () => {
+    const [s] = serializeSegments([{ id: 'a', label: 'L', color: '#fff' }]);
+    expect('description' in s).toBe(false);
+    const round = deserializeSegments(serializeSegments([{ id: 'a', label: 'L', color: '#fff' }]));
+    expect(round[0].description).toBeUndefined();
   });
   it('deserialize tolerates garbage input', () => {
     expect(deserializeSegments(null)).toEqual([]);
