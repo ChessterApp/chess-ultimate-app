@@ -196,6 +196,22 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Chessground memoizes the board's getBoundingClientRect() and only clears it
+  // on window resize. A pure layout shift — content above the board (the rope
+  // WebP, fonts) settling, or Android's dynamic-viewport `vh` reflow from the
+  // URL bar — pushes the board down without firing a resize, leaving the cached
+  // bounds stale. Taps then map one square off, so a correct (mating) tap lands
+  // on an adjacent, non-mating square and is wrongly rejected. Re-measure on any
+  // document-level layout change. Mirrors ChessgroundBoard.tsx.
+  useEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      groundRef.current?.redrawAll();
+    });
+    observer.observe(document.body);
+    return () => observer.disconnect();
+  }, []);
+
   // Reset to a fresh puzzle whenever the puzzle identity changes.
   useEffect(() => {
     if (replyTimerRef.current) clearTimeout(replyTimerRef.current);
