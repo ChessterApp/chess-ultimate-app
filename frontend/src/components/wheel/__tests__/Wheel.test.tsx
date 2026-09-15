@@ -109,6 +109,23 @@ describe('Wheel', () => {
     expect(reducedBlock).toContain('.wheel-bulb');
   });
 
+  it('renders the winning wedge last so its glow is symmetric on both radial edges', () => {
+    // The winning wedge must paint after its neighbors; otherwise the next
+    // wedge covers one radial edge and the glow looks lopsided.
+    renderWheel(6, { winningId: 's2' });
+    const wedges = screen.getAllByTestId('wheel-segment');
+    const winPath = document.querySelector('.wheel-wedge-win');
+    expect(winPath).toBeTruthy();
+    // The glowing path belongs to the last-rendered wedge group.
+    expect(wedges[wedges.length - 1].contains(winPath)).toBe(true);
+  });
+
+  it('leaves wedge order unchanged when there is no winner', () => {
+    renderWheel(6);
+    expect(document.querySelector('.wheel-wedge-win')).toBeNull();
+    expect(screen.getAllByTestId('wheel-segment')).toHaveLength(6);
+  });
+
   it('uses a smaller label font for more segments', () => {
     const { container: few } = render(
       <Wheel segments={makeSegments(6)} spinning={false} spinLabel="S" disabled={false} onSpin={() => {}} />,

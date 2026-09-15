@@ -85,7 +85,15 @@ export default function Wheel({
         data-testid="wheel-disc"
       >
         <svg viewBox={`0 0 ${VIEW} ${VIEW}`} width="100%" height="100%" role="img" aria-label="prize wheel">
-          {segments.map((s, i) => {
+          {segments
+            // Keep each wedge's geometry tied to its real index, but reorder the
+            // draw sequence so the winning wedge paints LAST. Otherwise the next
+            // wedge (index+1) covers the winner's trailing radial edge, hiding the
+            // glow on that side and making it look lopsided. Stable sort keeps all
+            // non-winning wedges in their original order.
+            .map((s, i) => ({ s, i }))
+            .sort((a, b) => Number(a.s.id === winningId) - Number(b.s.id === winningId))
+            .map(({ s, i }) => {
             const start = i * seg;
             const end = (i + 1) * seg;
             const center = segmentCenterAngle(i, count);
