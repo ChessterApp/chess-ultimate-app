@@ -49,6 +49,7 @@ export type GameAction =
     }
   | { type: 'SOLVE'; team: TeamSide }
   | { type: 'WRONG'; team: TeamSide }
+  | { type: 'APPEND_PUZZLES'; queueA: TugPuzzle[]; queueB: TugPuzzle[] }
   | { type: 'REMATCH' };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -135,6 +136,18 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         return { ...state, [key]: nextBoard };
       }
       return { ...state, [key]: { ...board, wrongAttempts: attempts } };
+    }
+
+    case 'APPEND_PUZZLES': {
+      // Background prefetch top-up: extend each team's queue with more live
+      // puzzles as they stream in, so the cycling pool grows and stays varied.
+      if (state.phase !== 'match') return state;
+      if (action.queueA.length === 0 && action.queueB.length === 0) return state;
+      return {
+        ...state,
+        boardA: { ...state.boardA, puzzles: [...state.boardA.puzzles, ...action.queueA] },
+        boardB: { ...state.boardB, puzzles: [...state.boardB.puzzles, ...action.queueB] },
+      };
     }
 
     case 'REMATCH': {

@@ -4,11 +4,13 @@ import {
   mapApiPuzzle,
   buildPuzzleUrl,
   fallbackPool,
+  fallbackPoolWithMeta,
   prefetchPuzzles,
   TUG_LEVELS,
   type PuzzleApiData,
 } from '../prefetch';
 import { TUG_PUZZLES } from '../puzzles';
+import type { TugPuzzle } from '../types';
 
 /** A realistic API payload: `FEN` is the solver-to-move position (after the
  * opponent's `preMove`), `moves` is the solution from that turn. */
@@ -167,6 +169,155 @@ describe('prefetchPuzzles — fallback path', () => {
   });
 });
 
+describe('prefetchPuzzles — early start + background top-up', () => {
+  it('starts the match as soon as minUsable puzzles arrive (not the full count)', async () => {
+    const pool = Array.from({ length: 60 }, (_, i) => apiPuzzle({ lichessId: `e${i}` }));
+    const { queueA, queueB, usedFallback } = await prefetchPuzzles({
+      level: 'knight',
+      themes: [],
+      count: 60,
+      batchSize: 8,
+      minUsable: 8,
+      fetchImpl: mockFetch(pool),
+      rng: () => 0.42,
+    });
+    expect(usedFallback).toBe(false);
+    // Started on the first batch of 8 — not after collecting all 60.
+    expect(queueA.length + queueB.length).toBe(8);
+  });
+
+  it('streams the remaining puzzles to onTopUp after the early start', async () => {
+    const pool = Array.from({ length: 24 }, (_, i) => apiPuzzle({ lichessId: `t${i}` }));
+    const deltas: TugPuzzle[] = [];
+    const { queueA, queueB, usedFallback } = await prefetchPuzzles({
+      level: 'knight',
+      themes: [],
+      count: 24,
+      batchSize: 8,
+      minUsable: 8,
+      fetchImpl: mockFetch(pool),
+      onTopUp: (a, b) => deltas.push(...a, ...b),
+    });
+    // Let the background batches drain.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(usedFallback).toBe(false);
+    const initial = queueA.length + queueB.length;
+    expect(initial).toBe(8);
+    expect(deltas.length).toBe(16); // the other two batches streamed in
+    // Initial queues and top-ups are all distinct puzzles.
+    const allIds = new Set([...queueA, ...queueB, ...deltas].map((p) => p.id));
+    expect(allIds.size).toBe(24);
+  });
+});
+
+describe('prefetchPuzzles — per-request timeout', () => {
+  it('aborts a request that exceeds the per-request timeout', async () => {
+    // Every request hangs until aborted; only the per-request timeout can rescue
+    // us. If it did not fire, this test would hang until the runner times out.
+    const hangingFetch = ((_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise<Response>((_resolve, reject) => {
+        const s = init?.signal;
+        if (s) s.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as unknown as typeof fetch;
+
+    const { usedFallback } = await prefetchPuzzles({
+      level: 'knight',
+      themes: [],
+      count: 8,
+      batchSize: 8,
+      requestTimeoutMs: 20,
+      fetchImpl: hangingFetch,
+    });
+    expect(usedFallback).toBe(true);
+  });
+
+  it('does not abort fast requests under a generous timeout', async () => {
+    const pool = Array.from({ length: 20 }, (_, i) => apiPuzzle({ lichessId: `f${i}` }));
+    const { usedFallback } = await prefetchPuzzles({
+      level: 'knight',
+      themes: [],
+      requestTimeoutMs: 1000,
+      fetchImpl: mockFetch(pool),
+    });
+    expect(usedFallback).toBe(false);
+  });
+});
+
+describe('prefetchPuzzles — fallback only on real failure', () => {
+  it('falls back immediately when the first batch is entirely unusable', async () => {
+    // First 8 requests fail, later ones would succeed — but a dead first batch
+    // means the API is down, so we fall back rather than grind through 60 calls.
+    const pool = Array.from({ length: 24 }, (_, i) => apiPuzzle({ lichessId: `r${i}` }));
+    let call = 0;
+    const failFirstBatch = (async () => {
+      const failing = call < 8;
+      call += 1;
+      const data = failing ? null : pool[call % pool.length];
+      return {
+        ok: data !== null,
+        json: async () => (data ? { success: true, data } : { success: false }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const { usedFallback } = await prefetchPuzzles({
+      level: 'knight',
+      themes: [],
+      count: 24,
+      batchSize: 8,
+      fetchImpl: failFirstBatch,
+    });
+    expect(usedFallback).toBe(true);
+  });
+
+  it('does NOT fall back when the API is slow-but-working (threshold met later)', async () => {
+    // Alternating hits/misses: the first batch yields 4 usable (below the
+    // threshold of 8) but the second batch pushes it over — a working API, so no
+    // fallback even though 20 never arrived.
+    let call = 0;
+    const alternating = (async () => {
+      const hit = call % 2 === 0;
+      const data = hit ? apiPuzzle({ lichessId: `a${call}` }) : null;
+      call += 1;
+      return {
+        ok: data !== null,
+        json: async () => (data ? { success: true, data } : { success: false }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const { usedFallback } = await prefetchPuzzles({
+      level: 'knight',
+      themes: [],
+      count: 24,
+      batchSize: 8,
+      minUsable: 8,
+      fetchImpl: alternating,
+    });
+    expect(usedFallback).toBe(false);
+  });
+
+  it('flags themesUnavailable when the offline fallback cannot honor the theme', async () => {
+    // Queen band + fork: the live API fails and the bundled set has no forks in
+    // that band, so the result honestly flags the theme as unavailable.
+    const { usedFallback, themesUnavailable } = await prefetchPuzzles({
+      level: 'queen',
+      themes: ['fork'],
+      fetchImpl: mockFetch([null]),
+    });
+    expect(usedFallback).toBe(true);
+    expect(themesUnavailable).toBe(true);
+  });
+
+  it('does not flag themesUnavailable when the fallback can honor the theme', async () => {
+    const { usedFallback, themesUnavailable } = await prefetchPuzzles({
+      level: 'pawn',
+      themes: ['fork'],
+      fetchImpl: mockFetch([null]),
+    });
+    expect(usedFallback).toBe(true);
+    expect(themesUnavailable).toBe(false);
+  });
+});
+
 describe('fallbackPool', () => {
   it('filters the bundled set by rating band', () => {
     const pool = fallbackPool('pawn', []);
@@ -185,16 +336,39 @@ describe('fallbackPool', () => {
     expect(pool.length).toBe(TUG_PUZZLES.length);
   });
 
-  it('widens to the full set when the default band collapses to one tier', () => {
-    // The Knight band (800–1200) only catches the rating-900 mate-in-2s — a
-    // single difficulty tier. Without a theme filter, that would trap players on
-    // one puzzle shape, so the fallback must widen to the whole bundled set.
-    const knightBandOnly = TUG_PUZZLES.filter((p) => p.rating >= 800 && p.rating <= 1200);
-    expect(new Set(knightBandOnly.map((p) => p.rating)).size).toBe(1); // one tier
+  it('offers a varied pool for the default (no-theme) Knight band', () => {
+    // The Knight band (800–1200) now catches the rating-900 mate-in-2s AND the
+    // rating-1000 tactics, so it has genuine variety without widening to the
+    // whole set. Players are never trapped on a single puzzle shape.
     const pool = fallbackPool('knight', []);
-    expect(pool.length).toBe(TUG_PUZZLES.length);
-    // Variety restored: both mate-in-1 and mate-in-2 shapes are present.
-    expect(pool.some((p) => p.themes.includes('mateIn1'))).toBe(true);
+    expect(new Set(pool.map((p) => p.rating)).size).toBeGreaterThan(1);
     expect(pool.some((p) => p.themes.includes('mateIn2'))).toBe(true);
+    expect(pool.some((p) => p.themes.includes('fork'))).toBe(true);
+  });
+});
+
+describe('fallbackPoolWithMeta — theme honesty', () => {
+  it('honors a theme filter that the bundled band can satisfy', () => {
+    for (const level of ['pawn', 'knight', 'rook'] as const) {
+      for (const theme of ['fork', 'pin', 'skewer']) {
+        const { pool, themesHonored } = fallbackPoolWithMeta(level, [theme]);
+        expect(themesHonored, `${level}/${theme} should be honored`).toBe(true);
+        expect(pool.length, `${level}/${theme} pool`).toBeGreaterThan(0);
+        // Every returned puzzle actually carries the requested theme.
+        expect(pool.every((p) => p.themes.includes(theme)), `${level}/${theme}`).toBe(true);
+      }
+    }
+  });
+
+  it('signals — rather than silently discards — when a theme cannot be honored', () => {
+    // The Queen band (1600–2400) has no bundled tactics, so a fork filter there
+    // cannot be honored; the pool is still playable but the flag says so.
+    const { pool, themesHonored } = fallbackPoolWithMeta('queen', ['fork']);
+    expect(themesHonored).toBe(false);
+    expect(pool.length).toBeGreaterThan(0);
+  });
+
+  it('reports themes vacuously honored when none were requested', () => {
+    expect(fallbackPoolWithMeta('pawn', []).themesHonored).toBe(true);
   });
 });

@@ -165,6 +165,31 @@ describe('REMATCH', () => {
   });
 });
 
+describe('APPEND_PUZZLES', () => {
+  it('extends each board queue with background top-up puzzles', () => {
+    const s = started(queue('a', 4), queue('b', 4));
+    const next = gameReducer(s, {
+      type: 'APPEND_PUZZLES',
+      queueA: queue('a2-', 3),
+      queueB: queue('b2-', 5),
+    });
+    expect(next.boardA.puzzles).toHaveLength(7);
+    expect(next.boardB.puzzles).toHaveLength(9);
+    // Index and score are untouched — only the pool grows.
+    expect(next.boardA.index).toBe(s.boardA.index);
+    expect(next.boardA.solved).toBe(s.boardA.solved);
+  });
+
+  it('is a no-op outside a live match, or with empty deltas', () => {
+    const setup = initialState();
+    expect(gameReducer(setup, { type: 'APPEND_PUZZLES', queueA: queue('x', 2), queueB: [] })).toBe(
+      setup,
+    );
+    const s = started();
+    expect(gameReducer(s, { type: 'APPEND_PUZZLES', queueA: [], queueB: [] })).toBe(s);
+  });
+});
+
 describe('splitQueues', () => {
   it('produces two disjoint queues covering the whole pool', () => {
     const pool = queue('p', 40);

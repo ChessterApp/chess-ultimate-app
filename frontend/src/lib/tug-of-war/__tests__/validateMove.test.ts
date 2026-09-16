@@ -23,7 +23,9 @@ describe('evaluateTeamMove — outcome-based validation', () => {
   });
 
   it('accepts EVERY legal checkmate on a mate-in-1, not just the scripted one', () => {
-    const mateIn1 = TUG_PUZZLES.filter((p) => p.moves.length === 1);
+    // Classify by theme, not move count: single-move tactics (e.g. pins) are
+    // also length-1 but do not deliver mate.
+    const mateIn1 = TUG_PUZZLES.filter((p) => p.themes.includes('mateIn1'));
     expect(mateIn1.length).toBeGreaterThan(0);
 
     for (const p of mateIn1) {
@@ -40,7 +42,7 @@ describe('evaluateTeamMove — outcome-based validation', () => {
   });
 
   it('rejects legal non-mating moves on a mate-in-1', () => {
-    const mateIn1 = TUG_PUZZLES.filter((p) => p.moves.length === 1);
+    const mateIn1 = TUG_PUZZLES.filter((p) => p.themes.includes('mateIn1'));
     for (const p of mateIn1) {
       for (const m of legalMoves(p.fen).filter((x) => !x.mates)) {
         const d = evaluateTeamMove(p.fen, p.moves, 0, m.from, m.to);

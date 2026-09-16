@@ -70,21 +70,35 @@ export const TUG_THEMES: { tag: string }[] = [
 
 export const DEFAULT_PREFETCH_COUNT = 60;
 export const DEFAULT_BATCH_SIZE = 8;
-export const DEFAULT_TIMEOUT_MS = 8000;
-/** Below this many usable live puzzles we fall back to the bundled set. */
-export const MIN_USABLE = 20;
+/** Per-request timeout. One slow request no longer sinks the whole prefetch. */
+export const DEFAULT_REQUEST_TIMEOUT_MS = 4000;
+/**
+ * Once this many usable live puzzles have arrived we start the match and keep
+ * fetching the rest in the background. Small on purpose: the queues cycle, so
+ * the match can begin thin and top up as it runs.
+ */
+export const DEFAULT_MIN_USABLE = 8;
 
 export interface PrefetchOptions {
   level: TugLevel;
   themes: string[];
   count?: number;
   batchSize?: number;
-  timeoutMs?: number;
+  /** Per-request abort timeout in ms. */
+  requestTimeoutMs?: number;
+  /** Usable puzzles needed before the match starts (and the rest stream in). */
   minUsable?: number;
   /** Injectable for tests; defaults to the global fetch. */
   fetchImpl?: typeof fetch;
   rng?: () => number;
   signal?: AbortSignal;
+  /**
+   * Invoked (live path only) with additional queue puzzles fetched AFTER the
+   * early start, so the caller can top up each team's queue while the match
+   * runs. The two arrays are disjoint from each other and from the initial
+   * queues.
+   */
+  onTopUp?: (deltaA: TugPuzzle[], deltaB: TugPuzzle[]) => void;
 }
 
 export interface PrefetchResult {
@@ -92,6 +106,12 @@ export interface PrefetchResult {
   queueB: TugPuzzle[];
   /** True when the bundled fallback set was used instead of live puzzles. */
   usedFallback: boolean;
+  /**
+   * True when the offline fallback was used AND the selected theme(s) could not
+   * be honored by the bundled set — a signal for an honest "themes unavailable"
+   * notice rather than the generic offline badge.
+   */
+  themesUnavailable: boolean;
 }
 
 /** Look up a level's rating band, defaulting to the widest sensible range. */
@@ -129,103 +149,172 @@ export function mapApiPuzzle(data: PuzzleApiData | undefined | null): TugPuzzle 
   };
 }
 
-/**
- * The bundled fallback pool for a level/theme selection. Filters the hardcoded
- * set by rating band (and theme when that still leaves enough puzzles), but
- * never returns fewer than a playable minimum — an empty pool would stall the
- * game, which must never happen.
- */
-export function fallbackPool(level: TugLevel, themes: string[]): TugPuzzle[] {
-  const band = levelBand(level);
-  const MIN_POOL = 8;
-  let pool = TUG_PUZZLES.filter(
-    (p) => p.rating >= band.ratingFrom && p.rating <= band.ratingTo,
-  );
-  if (themes.length > 0) {
-    const themed = pool.filter((p) => p.themes.some((t) => themes.includes(t)));
-    if (themed.length >= MIN_POOL) pool = themed;
-  }
-  // Never trap players on a single puzzle shape. When no theme was selected (the
-  // default game) but the rating band collapses to one difficulty tier — e.g.
-  // the Knight band (800–1200) only catches the rating-900 mate-in-2s — widen to
-  // the full bundled set so the offline fallback still offers variety. An
-  // explicit theme choice is respected (only widened when it can't be met).
-  const distinctRatings = new Set(pool.map((p) => p.rating)).size;
-  const collapsedToOneTier = themes.length === 0 && distinctRatings < 2;
-  if (pool.length < MIN_POOL || collapsedToOneTier) pool = TUG_PUZZLES;
-  return pool;
+export interface FallbackPoolResult {
+  pool: TugPuzzle[];
+  /**
+   * Whether the returned pool honors the requested theme(s). Vacuously true when
+   * no theme was requested; false when a theme was requested but the bundled set
+   * has none in this band (so we widened and the UI should say so).
+   */
+  themesHonored: boolean;
 }
 
+/**
+ * The bundled fallback pool for a level/theme selection, plus an explicit signal
+ * for whether the theme filter was actually honored (rather than silently
+ * discarded). Filters the hardcoded set by rating band, then by theme; never
+ * returns an empty pool — an empty pool would stall the game, which must never
+ * happen.
+ */
+export function fallbackPoolWithMeta(level: TugLevel, themes: string[]): FallbackPoolResult {
+  const band = levelBand(level);
+  const MIN_POOL = 8;
+  const bandPool = TUG_PUZZLES.filter(
+    (p) => p.rating >= band.ratingFrom && p.rating <= band.ratingTo,
+  );
+
+  if (themes.length > 0) {
+    const themed = bandPool.filter((p) => p.themes.some((t) => themes.includes(t)));
+    if (themed.length > 0) {
+      // Honor the theme even when the themed pool is thin: the queues cycle, so a
+      // few real themed puzzles beat a full pool of the wrong shape.
+      return { pool: themed, themesHonored: true };
+    }
+    // No themed puzzles in this band (e.g. a tactic theme at the Queen band):
+    // widen to a varied playable pool and flag it so the UI can be honest.
+    return { pool: bandPool.length >= MIN_POOL ? bandPool : TUG_PUZZLES, themesHonored: false };
+  }
+
+  // No theme filter: never trap players on a single puzzle shape. If the band
+  // collapses to one difficulty tier or is too small, widen to the full set.
+  let pool = bandPool;
+  const distinctRatings = new Set(pool.map((p) => p.rating)).size;
+  if (pool.length < MIN_POOL || distinctRatings < 2) pool = TUG_PUZZLES;
+  return { pool, themesHonored: true };
+}
+
+/** Convenience wrapper returning only the pool (see {@link fallbackPoolWithMeta}). */
+export function fallbackPool(level: TugLevel, themes: string[]): TugPuzzle[] {
+  return fallbackPoolWithMeta(level, themes).pool;
+}
+
+/**
+ * Fetch a single puzzle with its own abort timeout. A per-request timeout means
+ * one slow request costs at most `timeoutMs` instead of eating the whole
+ * prefetch budget. The outer `signal` (e.g. component unmount) aborts too.
+ */
 async function fetchOne(
   url: string,
   fetchImpl: typeof fetch,
-  signal: AbortSignal,
+  timeoutMs: number,
+  outerSignal?: AbortSignal,
 ): Promise<PuzzleApiData | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  if (outerSignal) {
+    if (outerSignal.aborted) controller.abort();
+    else outerSignal.addEventListener('abort', onAbort);
+  }
   try {
-    const res = await fetchImpl(url, { signal });
+    const res = await fetchImpl(url, { signal: controller.signal });
     if (!res.ok) return null;
     const json = (await res.json()) as PuzzleApiResponse;
     if (!json?.success || !json.data) return null;
     return json.data;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
+    if (outerSignal) outerSignal.removeEventListener('abort', onAbort);
   }
 }
 
 /**
- * Prefetch a batch of live puzzles and split them into two disjoint team
- * queues, falling back to the bundled set on failure/timeout/too-few.
+ * Prefetch live puzzles and split them into two disjoint team queues.
+ *
+ * Robust by design: each request has its own timeout; the match starts as soon
+ * as `minUsable` puzzles arrive (the rest stream in via `onTopUp`); and it only
+ * falls back to the bundled offline set on a genuine failure — the first batch
+ * returning nothing usable, or not even `minUsable` puzzles across the whole
+ * pass — not merely because the full count did not arrive in time.
  */
-export async function prefetchPuzzles(opts: PrefetchOptions): Promise<PrefetchResult> {
+export function prefetchPuzzles(opts: PrefetchOptions): Promise<PrefetchResult> {
   const {
     level,
     themes,
     count = DEFAULT_PREFETCH_COUNT,
     batchSize = DEFAULT_BATCH_SIZE,
-    timeoutMs = DEFAULT_TIMEOUT_MS,
-    minUsable = MIN_USABLE,
+    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    minUsable = DEFAULT_MIN_USABLE,
     fetchImpl = fetch,
     rng = Math.random,
     signal,
+    onTopUp,
   } = opts;
 
   const url = buildPuzzleUrl(level, themes);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
-  if (signal) {
-    if (signal.aborted) controller.abort();
-    else signal.addEventListener('abort', onAbort);
-  }
 
-  const seen = new Set<string>();
-  const usable: TugPuzzle[] = [];
-
-  try {
-    for (let i = 0; i < count && !controller.signal.aborted; i += batchSize) {
-      const size = Math.min(batchSize, count - i);
-      const batch = Array.from({ length: size }, () =>
-        fetchOne(url, fetchImpl, controller.signal),
-      );
-      const results = await Promise.all(batch);
-      for (const data of results) {
-        const mapped = mapApiPuzzle(data);
-        if (!mapped || seen.has(mapped.id)) continue;
-        seen.add(mapped.id);
-        usable.push(mapped);
-      }
-    }
-  } finally {
-    clearTimeout(timer);
-    if (signal) signal.removeEventListener('abort', onAbort);
-  }
-
-  if (usable.length >= minUsable) {
-    return { ...splitQueues(usable, rng), usedFallback: false };
-  }
-
-  return {
-    ...splitQueues(fallbackPool(level, themes), rng),
-    usedFallback: true,
+  const fallbackResult = (): PrefetchResult => {
+    const { pool, themesHonored } = fallbackPoolWithMeta(level, themes);
+    return { ...splitQueues(pool, rng), usedFallback: true, themesUnavailable: !themesHonored };
   };
+
+  return new Promise<PrefetchResult>((resolve) => {
+    const seen = new Set<string>();
+    const usable: TugPuzzle[] = [];
+    let started = false; // early-start already fired
+    let dealt = 0; // puzzles delivered so far (initial queues + top-ups)
+
+    const settleLive = () => {
+      started = true;
+      dealt = usable.length;
+      resolve({ ...splitQueues(usable.slice(), rng), usedFallback: false, themesUnavailable: false });
+    };
+
+    const flushTopUp = () => {
+      if (!onTopUp || usable.length <= dealt) return;
+      const fresh = usable.slice(dealt);
+      dealt = usable.length;
+      const { queueA, queueB } = splitQueues(fresh, rng);
+      onTopUp(queueA, queueB);
+    };
+
+    const run = async () => {
+      for (let i = 0; i < count; i += batchSize) {
+        if (signal?.aborted) break;
+        const size = Math.min(batchSize, count - i);
+        const results = await Promise.all(
+          Array.from({ length: size }, () => fetchOne(url, fetchImpl, requestTimeoutMs, signal)),
+        );
+        for (const data of results) {
+          const mapped = mapApiPuzzle(data);
+          if (!mapped || seen.has(mapped.id)) continue;
+          seen.add(mapped.id);
+          usable.push(mapped);
+        }
+        // Genuine failure: the very first batch produced nothing usable → the
+        // API is down/blocked, so fall back immediately instead of retrying 60×.
+        if (!started && i === 0 && usable.length === 0) {
+          resolve(fallbackResult());
+          return;
+        }
+        if (!started) {
+          if (usable.length >= minUsable) settleLive();
+        } else {
+          flushTopUp();
+        }
+      }
+      // Loop finished without an early start. Either enough trickled in to play
+      // (slow-but-working API), or too few ever arrived → offline.
+      if (!started) {
+        if (usable.length >= minUsable) settleLive();
+        else resolve(fallbackResult());
+      }
+    };
+
+    run().catch(() => {
+      if (!started) resolve(fallbackResult());
+    });
+  });
 }

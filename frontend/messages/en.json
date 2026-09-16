@@ -2554,6 +2554,8 @@
     "start": "Start match",
     "loading": "Loading puzzles…",
     "offlineNotice": "Offline puzzle set",
+    "offlineThemesUnavailable": "Offline puzzles — selected themes unavailable",
+    "offlineRetry": "Retry live puzzles",
     "howToTitle": "How to play",
     "how": [
       "Each team solves its own chess puzzles on its board.",
