@@ -55,9 +55,12 @@ vi.mock('@/hooks/useCourseProgress', () => ({
   useCourseProgress: () => progressReturn,
 }));
 
+// Configurable per test: XP is derived from total_completions, and the Continue
+// Learning card's headline count must match this exact number.
+let totalCompletions = 0;
 vi.mock('@/hooks/useLessonCompletions', () => ({
   useLessonCompletions: () => ({
-    completions: { total_completions: 0, completion_dates: [] },
+    completions: { total_completions: totalCompletions, completion_dates: [] },
   }),
 }));
 
@@ -80,9 +83,11 @@ vi.mock('@/components/mascot/SpeechBubble', () => ({
 }));
 
 import ChessterDashboard from '../ChessterDashboard';
+import { apiFetch } from '@/lib/api';
 
 beforeEach(() => {
   refetch.mockReset();
+  totalCompletions = 0;
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, json: async () => null })));
 });
 
@@ -115,7 +120,8 @@ describe('ChessterDashboard — Continue Learning fetch states', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('renders real progress once loaded successfully', async () => {
+  it('renders overall progress (matching XP) once loaded successfully', async () => {
+    totalCompletions = 5; // XP source: 5 lessons completed
     progressReturn = {
       courseProgress: {
         'course-tactics-1': {
@@ -136,5 +142,35 @@ describe('ChessterDashboard — Continue Learning fetch states', () => {
     expect(card.textContent).toContain('5 / 20');
     expect(queryByTestId('continue-learning-loading')).toBeNull();
     expect(queryByTestId('continue-learning-error')).toBeNull();
+  });
+
+  // Regression for the reported bug: a user who finished whole courses but has not
+  // started the NEXT course must not see that next course's "0 / 37" fraction next
+  // to a large XP total. The card must show OVERALL progress that matches XP.
+  it('shows aggregate progress matching XP, not the next unstarted course fraction', async () => {
+    vi.mocked(apiFetch).mockResolvedValue([
+      { id: 'basics', slug: 'basics', title: 'Chess Basics', level: 'beginner', order_index: 0 },
+      { id: 'tactics', slug: 'tactics', title: 'Chess Tactics', level: 'beginner', order_index: 1 },
+      { id: 'mate3', slug: 'mate3', title: 'Mate in 3 Moves', level: 'intermediate', order_index: 2 },
+    ] as never);
+    totalCompletions = 77; // 40 + 37 completed lessons → XP source
+    progressReturn = {
+      courseProgress: {
+        basics: { courseId: 'basics', completedLessons: 40, totalLessons: 40, progress: 100 },
+        tactics: { courseId: 'tactics', completedLessons: 37, totalLessons: 37, progress: 100 },
+        mate3: { courseId: 'mate3', completedLessons: 0, totalLessons: 37, progress: 0 },
+      },
+      loading: false,
+      error: null,
+      refetch,
+    };
+    const { findByTestId } = render(<ChessterDashboard />);
+
+    const card = await findByTestId('continue-learning');
+    // Aggregate: 77 completed of 114 total → matches XP (77 lessons), 68%.
+    expect(card.textContent).toContain('77 / 114');
+    expect(card.textContent).toContain('68%');
+    // The misleading next-course fraction must NOT appear.
+    expect(card.textContent).not.toContain('0 / 37');
   });
 });

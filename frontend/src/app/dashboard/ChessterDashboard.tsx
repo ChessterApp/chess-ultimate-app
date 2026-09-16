@@ -174,10 +174,34 @@ export default function ChessterDashboard({
       })
   }, [courses, courseProgress])
 
-  // Find current/next course to continue
+  // Find current/next course to continue. Prefer a course the user is actually
+  // mid-way through; only fall back to the next not-started course, then the first.
   const currentCourse = useMemo(() => {
-    return lessonPathCourses.find(c => !c.isLocked && c.progress < 100) || lessonPathCourses[0]
+    const unlocked = lessonPathCourses.filter(c => !c.isLocked)
+    return (
+      unlocked.find(c => c.progress > 0 && c.progress < 100) ||
+      unlocked.find(c => c.progress < 100) ||
+      lessonPathCourses[0]
+    )
   }, [lessonPathCourses])
+
+  // Overall progress across ALL courses. XP is derived from the user's total
+  // lesson completions, so the headline count is taken from that SAME signal
+  // (completions.total_completions) — never a single course's fraction. This is
+  // what makes progress reconcile with XP: a user who finished 109 lessons must
+  // not see "0 / 37" next to 1090 XP. Using the XP source directly guarantees the
+  // two can never disagree (even for the handful of orphaned progress rows whose
+  // lesson was re-seeded, which XP counts but a per-course join would drop).
+  const overallProgress = useMemo(() => {
+    let total = 0
+    for (const c of lessonPathCourses) {
+      const cp = courseProgress[c.id]
+      if (cp) total += cp.totalLessons || 0
+    }
+    const completed = completions.total_completions || 0
+    const pct = total > 0 ? Math.min(Math.round((completed / total) * 100), 100) : 0
+    return { completed, total, pct }
+  }, [lessonPathCourses, courseProgress, completions.total_completions])
 
   const analysisTools = [
     {
@@ -353,17 +377,17 @@ export default function ChessterDashboard({
                   <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-purple-500 to-purple-600 rounded-full transition-all duration-500"
-                      style={{ width: `${currentCourse.progress}%` }}
+                      style={{ width: `${overallProgress.pct}%` }}
                     />
                   </div>
                   <span className="text-sm font-semibold text-gray-600">
-                    {Math.round(currentCourse.progress)}%
+                    {overallProgress.pct}%
                   </span>
                 </div>
 
                 <div className="mt-4 flex items-center justify-between">
                   <span className="text-sm text-gray-500">
-                    {courseProgress[currentCourse.id]?.completedLessons || 0} / {courseProgress[currentCourse.id]?.totalLessons || 0} {t('dashboard.lessonsCompleted')}
+                    {overallProgress.completed} / {overallProgress.total} {t('dashboard.lessonsCompleted')}
                   </span>
                   <span className="text-purple-600 font-semibold flex items-center gap-1">
                     {t('dashboard.continue')} →
