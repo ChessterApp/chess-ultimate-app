@@ -318,7 +318,7 @@ export default function ChessterDashboard({
             list, so never render numbers from a failed/pending fetch: show a
             skeleton while loading and a retry state on error instead of stale 0s. */}
         {currentCourse && (
-          <div className="mb-8 md:col-span-2 lg:col-span-2" data-testid="continue-learning">
+          <div className="mb-8 md:col-span-1 lg:col-span-2" data-testid="continue-learning">
             {progressLoading ? (
               <div
                 className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200"
@@ -398,10 +398,19 @@ export default function ChessterDashboard({
           </div>
         )}
 
-        {/* Quick Actions */}
+        {/* Streak Banner (expandable) — sits to the right of the Continue Learning card */}
         <div className="mb-8 md:col-span-1 lg:col-span-1">
+          <StreakBanner
+            streakDays={streakCount}
+            unit={streakUnit}
+            nextMilestone={nextMilestone}
+          />
+        </div>
+
+        {/* Quick Actions — full-width 2×2 grid below the Continue Learning / streak row */}
+        <div className="mb-8 md:col-span-2 lg:col-span-3">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('dashboard.quickActions')}</h2>
-          <div className="grid grid-cols-2 md:grid-cols-1 gap-3 stagger-children">
+          <div className="grid grid-cols-2 gap-3 stagger-children">
             {analysisTools.map((tool) => (
               <Link
                 key={tool.id}
@@ -415,17 +424,8 @@ export default function ChessterDashboard({
           </div>
         </div>
 
-        {/* Streak Banner (expandable) */}
-        <div className="mb-8 md:col-span-1 lg:col-span-1">
-          <StreakBanner
-            streakDays={streakCount}
-            unit={streakUnit}
-            nextMilestone={nextMilestone}
-          />
-        </div>
-
         {/* Learning Path */}
-        <div className="mb-8 md:col-span-2 lg:col-span-2">
+        <div className="mb-8 md:col-span-2 lg:col-span-3">
           <h2 className="text-lg font-bold text-gray-900 mb-4">{t('dashboard.learningJourney')}</h2>
 
           {error && (
