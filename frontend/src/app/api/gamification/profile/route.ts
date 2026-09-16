@@ -24,7 +24,10 @@ export async function GET() {
 
   const org = await loadOrgFromHeaders();
   if (!org) {
-    return NextResponse.json({ error: 'Organization not resolved' }, { status: 400 });
+    // No org on the host (e.g. plain chesster.io): there is nothing to link to,
+    // so surface the same hidden-profile payload as an unlinked membership (D-8)
+    // rather than a 400 that spams the dashboard console on every load.
+    return NextResponse.json(UNLINKED_PROFILE);
   }
 
   const membership = await getMembershipState({ orgId: org.id, clerkUserId: userId });

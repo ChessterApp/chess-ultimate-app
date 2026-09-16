@@ -22,6 +22,18 @@ describe('GET /api/gamification/profile', () => {
     expect(res.status).toBe(401);
   });
 
+  it('returns hidden/empty profile (200) when no org resolves on the host', async () => {
+    // Plain chesster.io has no tenant org — must NOT 400 (spams the dashboard
+    // console on every load); same hidden-profile semantics as an unlinked student.
+    mock(auth).mockResolvedValue({ userId: 'user_1' });
+    mock(loadOrgFromHeaders).mockResolvedValue(null);
+    const { GET } = await import('../route');
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ linked: false });
+    expect(getMembershipState).not.toHaveBeenCalled();
+  });
+
   it('returns hidden/empty profile for an unlinked student (D-8)', async () => {
     mock(auth).mockResolvedValue({ userId: 'user_1' });
     mock(loadOrgFromHeaders).mockResolvedValue({ id: 'org-1' });

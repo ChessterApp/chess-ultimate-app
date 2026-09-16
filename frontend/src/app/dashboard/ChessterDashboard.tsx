@@ -59,6 +59,15 @@ export default function ChessterDashboard({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Gate time-of-day / date-dependent output so the SSR render and the FIRST
+  // client render are byte-identical (React #418). `new Date()` differs between
+  // the UTC server and the user's local timezone, so anything derived from the
+  // current time must only be computed after mount.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   // Real gamification profile (XP + tournament-week streak), fed like EmpireHomePage.
   const [profile, setProfile] = useState<GamificationProfile | null>(null)
 
@@ -126,9 +135,11 @@ export default function ChessterDashboard({
     () => deriveProfile(completions.total_completions),
     [completions.total_completions],
   )
+  // The daily streak depends on "today", which is timezone-relative — keep it at
+  // 0 until mounted so server and first client render match, then fill it in.
   const derivedStreak = useMemo(
-    () => computeDailyStreak(completions.completion_dates, new Date()),
-    [completions.completion_dates],
+    () => (mounted ? computeDailyStreak(completions.completion_dates, new Date()) : 0),
+    [completions.completion_dates, mounted],
   )
 
   const linked = profile?.linked === true
@@ -215,13 +226,17 @@ export default function ChessterDashboard({
   }
 
   const greeting = useMemo(() => {
-    const hour = new Date().getHours()
     const name = user?.firstName || t('common.chesster')
 
+    // Before mount, render a stable, time-agnostic greeting so SSR and the first
+    // client render are identical; swap to the time-aware word once mounted.
+    if (!mounted) return `${name}!`
+
+    const hour = new Date().getHours()
     if (hour < 12) return `${t('mascot.greeting.morning')}, ${name}!`
     if (hour < 18) return `${t('mascot.greeting.afternoon')}, ${name}!`
     return `${t('mascot.greeting.evening')}, ${name}!`
-  }, [user?.firstName, t])
+  }, [user?.firstName, t, mounted])
 
   const mascotMessage = useMemo(() => {
     if (streakCount >= 7) return t('mascot.messages.onFire')
