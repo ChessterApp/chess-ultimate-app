@@ -30,6 +30,7 @@ vi.mock('next-intl', () => ({
     };
     return map[key] ?? key;
   },
+  useLocale: () => 'en',
 }));
 
 vi.mock('@/lib/api', () => ({

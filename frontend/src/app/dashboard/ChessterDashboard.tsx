@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useAuth, useUser } from '@clerk/nextjs'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import LoadingScreen from '@/components/LoadingScreen'
 import { apiFetch, ApiError } from '@/lib/api'
 import { useToast } from '@/components/ToastProvider'
@@ -53,6 +53,7 @@ export default function ChessterDashboard({
   const { user } = useUser()
   const router = useRouter()
   const t = useTranslations()
+  const locale = useLocale()
   const { showToast } = useToast()
   const backendHealthy = useBackendHealth()
   const [courses, setCourses] = useState<Course[]>([])
@@ -86,7 +87,7 @@ export default function ChessterDashboard({
     async function fetchCourses() {
       try {
         const token = await getToken()
-        const data = await apiFetch<Course[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/courses`, {
+        const data = await apiFetch<Course[]>(`${process.env.NEXT_PUBLIC_API_URL}/api/courses?locale=${locale}`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -109,7 +110,7 @@ export default function ChessterDashboard({
     }
 
     fetchCourses()
-  }, [getToken, showToast])
+  }, [getToken, showToast, locale])
 
   // Real XP + streak from the gamification profile (§9). Unlinked/non-CE users
   // resolve to a hidden profile — we simply show zeros rather than mock values.
@@ -214,8 +215,8 @@ export default function ChessterDashboard({
     },
     {
       id: 'coach',
-      title: 'AI Coach',
-      description: 'Interactive coaching with board control',
+      title: t('dashboard.coach'),
+      description: t('dashboard.coachDesc'),
       icon: '🎓',
       href: '/coach',
       gradient: 'from-indigo-500 to-indigo-600'
@@ -230,8 +231,8 @@ export default function ChessterDashboard({
     },
     {
       id: 'play',
-      title: 'Play vs Maia',
-      description: 'Play against human-like AI',
+      title: t('dashboard.playBots'),
+      description: t('dashboard.playBotsDesc'),
       icon: '🤖',
       href: '/play',
       gradient: 'from-green-500 to-green-600'

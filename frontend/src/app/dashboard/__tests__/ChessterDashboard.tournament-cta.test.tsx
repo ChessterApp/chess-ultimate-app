@@ -22,6 +22,7 @@ vi.mock('next/navigation', () => ({
 // key => key for both the dashboard namespace and the banner's 'empire' one.
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'en',
 }));
 
 vi.mock('@/lib/api', () => ({
