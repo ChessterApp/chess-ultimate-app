@@ -138,6 +138,7 @@ describe('DesktopSidebar main navigation order', () => {
       '/coach',
       '/database',
       '/puzzle',
+      '/games',
       '/editor',
     ]);
   });

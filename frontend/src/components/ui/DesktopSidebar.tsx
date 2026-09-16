@@ -66,6 +66,13 @@ const items: SidebarItem[] = [
     activeIcon: <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M14.25 6.087c0-.355.186-.676.401-.959.221-.29.349-.634.349-1.003 0-1.036-1.007-1.875-2.25-1.875s-2.25.84-2.25 1.875c0 .369.128.713.349 1.003.215.283.401.604.401.959v0a.64.64 0 01-.657.643 48.39 48.39 0 01-4.163-.3c.186 1.613.293 3.25.315 4.907a.656.656 0 01-.658.663v0c-.355 0-.676-.186-.959-.401a1.647 1.647 0 00-1.003-.349c-1.036 0-1.875 1.007-1.875 2.25s.84 2.25 1.875 2.25c.369 0 .713-.128 1.003-.349.283-.215.604-.401.959-.401v0c.31 0 .555.26.532.57a48.039 48.039 0 01-.642 5.056c1.518.19 3.058.309 4.616.354a.64.64 0 00.657-.643v0c0-.355-.186-.676-.401-.959a1.647 1.647 0 01-.349-1.003c0-1.035 1.008-1.875 2.25-1.875 1.243 0 2.25.84 2.25 1.875 0 .369-.128.713-.349 1.003-.215.283-.4.604-.4.959v0c0 .333.277.599.61.58a48.1 48.1 0 005.427-.63 48.05 48.05 0 00.582-4.717.532.532 0 00-.533-.57v0c-.355 0-.676.186-.959.401-.29.221-.634.349-1.003.349-1.035 0-1.875-1.007-1.875-2.25s.84-2.25 1.875-2.25c.37 0 .713.128 1.003.349.283.215.604.401.96.401v0a.656.656 0 00.658-.663 48.422 48.422 0 00-.37-5.36c-1.886.342-3.81.574-5.766.689a.578.578 0 01-.61-.58v0z" /></svg>,
   },
   {
+    href: '/games',
+    labelKey: 'games',
+    shortcut: 'G',
+    icon: <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 11.25h4.5M8.25 9v4.5m6.75-.75h.008v.008H15v-.008zm3-3h.008v.008H18V9.75zm-.964-4.5H6.964a4.5 4.5 0 00-4.474 4.014C2.312 10.9 2 13.918 2 15.375a3.375 3.375 0 003.375 3.375c1.125 0 1.688-.563 2.25-1.125l1.185-1.185a2.25 2.25 0 011.591-.659h3.198a2.25 2.25 0 011.591.659l1.185 1.185c.562.562 1.125 1.125 2.25 1.125A3.375 3.375 0 0022 15.375c0-1.457-.312-4.475-.49-6.111A4.5 4.5 0 0017.036 5.25z" /></svg>,
+    activeIcon: <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M17.036 4.5H6.964a5.25 5.25 0 00-5.22 4.683C1.567 10.82 1.25 13.884 1.25 15.375a4.125 4.125 0 004.125 4.125c1.44 0 2.22-.78 2.78-1.341l1.186-1.185a1.5 1.5 0 011.06-.44h3.198a1.5 1.5 0 011.061.44l1.185 1.185c.56.56 1.34 1.341 2.78 1.341a4.125 4.125 0 004.125-4.125c0-1.491-.317-4.556-.494-6.192A5.25 5.25 0 0017.036 4.5zM7.5 9v1.5H6V12h1.5v1.5H9V12h1.5v-1.5H9V9H7.5zm7.5 4.5a.975.975 0 100-1.95.975.975 0 000 1.95zm3-3a.975.975 0 100-1.95.975.975 0 000 1.95z" clipRule="evenodd" /></svg>,
+  },
+  {
     href: '/editor',
     labelKey: 'editor',
     shortcut: 'E',
@@ -93,11 +100,20 @@ export default function DesktopSidebar() {
   const pathname = usePathname();
   const t = useTranslations('navigation');
   const locale = useLocale();
-  const [collapsed, setCollapsed] = useLocalStorage('sidebar_collapsed', false);
+  const [collapsedStored, setCollapsed] = useLocalStorage('sidebar_collapsed', false);
   const { isSignedIn } = useAuth();
   const branding = useBranding();
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+
+  // Until mounted, use the SSR default (expanded) so the server HTML and the first
+  // client render are byte-identical. `useLocalStorage` returns the default on the
+  // server but the persisted value on the client's first render — for a user who
+  // collapsed the sidebar (`sidebar_collapsed=true`) that means the client would
+  // render a structurally different tree (narrow width, hidden labels) than the
+  // server, triggering a hydration mismatch (React #418). Apply the stored value
+  // only after mount, when a client re-render is safe.
+  const collapsed = mounted ? collapsedStored : false;
 
   const isActive = (href: string) => {
     if (!pathname) return false;

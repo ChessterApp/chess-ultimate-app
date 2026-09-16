@@ -345,7 +345,21 @@
     "settings": "Settings",
     "analysis": "Analysis",
     "dashboard": "Dashboard",
-    "coach": "AI Coach"
+    "coach": "AI Coach",
+    "games": "Games"
+  },
+  "gamesHub": {
+    "title": "Games",
+    "subtitle": "Learn chess the fun way — pick a game and play",
+    "play": "Play",
+    "wheel": {
+      "title": "Wheel of Fortune",
+      "description": "Spin the prize wheel and win rewards from your coach"
+    },
+    "tugOfWar": {
+      "title": "Tug of War",
+      "description": "Two teams, two boards — solve puzzles to pull the rope to your side"
+    }
   },
   "learn": {
     "title": "Learning Path",

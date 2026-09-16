@@ -64,6 +64,7 @@ export function useKeyboardShortcuts() {
           '5': '/database',
           '6': '/puzzle',
           '7': '/editor',
+          '8': '/games',
         };
         if (navMap[key]) {
           e.preventDefault();
