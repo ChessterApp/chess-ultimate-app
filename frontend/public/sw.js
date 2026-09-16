@@ -1,4 +1,4 @@
-const CACHE_VERSION = '15';
+const CACHE_VERSION = '16';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 const STALE_CACHE = 'chesster-stale-v' + CACHE_VERSION;
 
@@ -42,8 +42,12 @@ function networkFirst(event) {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        // Only cache successful responses — never persist 4xx/5xx or empty
+        // bodies, which would otherwise get served as stale content offline.
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
         return response;
       })
       .catch(() =>

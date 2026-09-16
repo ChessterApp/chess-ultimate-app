@@ -161,7 +161,9 @@
     "solvePuzzles": "Solve 3 puzzles",
     "sharpenTactics": "Sharpen your tactics",
     "lessonsCompleted": "lessons completed",
-    "continue": "Continue"
+    "continue": "Continue",
+    "progressLoadError": "Couldn't load your progress. Please try again.",
+    "retry": "Retry"
   },
   "gamification": {
     "xp": "XP",

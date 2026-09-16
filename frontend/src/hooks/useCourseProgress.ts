@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '@clerk/nextjs'
 import { apiFetch } from '@/lib/api'
 
@@ -11,6 +11,8 @@ export interface CourseProgress {
   progress: number
 }
 
+const EMPTY: Record<string, CourseProgress> = {}
+
 /**
  * Fetches real per-authenticated-user course progress from
  * `GET /api/courses/progress`. Progress is derived per Clerk user on every
@@ -20,15 +22,18 @@ export interface CourseProgress {
  */
 export function useCourseProgress() {
   const { getToken, isLoaded, isSignedIn } = useAuth()
-  const [courseProgress, setCourseProgress] = useState<Record<string, CourseProgress>>({})
+  const [courseProgress, setCourseProgress] = useState<Record<string, CourseProgress>>(EMPTY)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  const refetch = useCallback(() => setReloadKey((k) => k + 1), [])
 
   useEffect(() => {
     if (!isLoaded) return
 
     if (!isSignedIn) {
-      setCourseProgress({})
+      setCourseProgress(EMPTY)
       setLoading(false)
       return
     }
@@ -52,7 +57,10 @@ export function useCourseProgress() {
           setError(null)
         }
       } catch (err) {
+        // Reset to empty on any failure so the UI never renders stale numbers
+        // from a previous successful fetch (mirrors useLessonCompletions).
         if (!cancelled) {
+          setCourseProgress(EMPTY)
           setError(err instanceof Error ? err.message : 'Unknown error')
         }
       } finally {
@@ -65,7 +73,7 @@ export function useCourseProgress() {
     return () => {
       cancelled = true
     }
-  }, [getToken, isLoaded, isSignedIn])
+  }, [getToken, isLoaded, isSignedIn, reloadKey])
 
-  return { courseProgress, loading, error }
+  return { courseProgress, loading, error, refetch }
 }

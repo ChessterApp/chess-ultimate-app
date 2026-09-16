@@ -161,7 +161,9 @@
     "solvePuzzles": "Решить 3 задачи",
     "sharpenTactics": "Отточите тактику",
     "lessonsCompleted": "уроков пройдено",
-    "continue": "Продолжить"
+    "continue": "Продолжить",
+    "progressLoadError": "Не удалось загрузить прогресс. Попробуйте ещё раз.",
+    "retry": "Повторить"
   },
   "gamification": {
     "xp": "XP",

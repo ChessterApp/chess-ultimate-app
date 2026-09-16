@@ -63,7 +63,12 @@ export default function ChessterDashboard({
   const [profile, setProfile] = useState<GamificationProfile | null>(null)
 
   // Real per-user course progress (derived from user_progress on the backend).
-  const { courseProgress } = useCourseProgress()
+  const {
+    courseProgress,
+    loading: progressLoading,
+    error: progressError,
+    refetch: refetchProgress,
+  } = useCourseProgress()
 
   // Raw lesson-completion signal → derived XP/rank/streak for non-linked users.
   const { completions } = useLessonCompletions()
@@ -270,50 +275,87 @@ export default function ChessterDashboard({
           </SpeechBubble>
         </div>
 
-        {/* Continue Learning Card */}
+        {/* Continue Learning Card. Progress is fetched separately from the course
+            list, so never render numbers from a failed/pending fetch: show a
+            skeleton while loading and a retry state on error instead of stale 0s. */}
         {currentCourse && (
-          <div className="mb-8 md:col-span-2 lg:col-span-2">
-            <Link
-              href="/learn"
-              className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200 hover:border-purple-400 transition-all hover:shadow-lg"
-            >
-              <div className="flex items-center justify-between mb-3">
+          <div className="mb-8 md:col-span-2 lg:col-span-2" data-testid="continue-learning">
+            {progressLoading ? (
+              <div
+                className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200"
+                data-testid="continue-learning-loading"
+                aria-busy="true"
+              >
+                <div className="animate-pulse">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="h-4 w-32 bg-gray-200 rounded" />
+                    <div className="h-5 w-16 bg-gray-200 rounded-full" />
+                  </div>
+                  <div className="h-6 w-48 bg-gray-200 rounded mb-3" />
+                  <div className="h-3 w-full bg-gray-200 rounded-full" />
+                  <div className="mt-4 h-4 w-40 bg-gray-200 rounded" />
+                </div>
+              </div>
+            ) : progressError ? (
+              <div
+                className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200"
+                data-testid="continue-learning-error"
+              >
                 <span className="text-sm font-medium text-purple-600 uppercase tracking-wide">
                   {t('dashboard.continueLearning')}
                 </span>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  currentCourse.level === 'beginner' ? 'bg-green-100 text-green-700' :
-                  currentCourse.level === 'intermediate' ? 'bg-amber-100 text-amber-700' :
-                  currentCourse.level === 'master' ? 'bg-purple-100 text-purple-700' :
-                  'bg-red-100 text-red-700'
-                }`}>
-                  {getLevelTranslation(currentCourse.level)}
-                </span>
+                <p className="mt-2 text-sm text-gray-600">{t('dashboard.progressLoadError')}</p>
+                <button
+                  type="button"
+                  onClick={refetchProgress}
+                  className="mt-3 px-4 py-2 rounded-lg bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 transition-colors active:scale-95"
+                >
+                  {t('dashboard.retry')}
+                </button>
               </div>
-
-              <h2 className="text-xl font-bold text-gray-900 mb-2">{currentCourse.title}</h2>
-
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-purple-500 to-purple-600 rounded-full transition-all duration-500"
-                    style={{ width: `${currentCourse.progress}%` }}
-                  />
+            ) : (
+              <Link
+                href="/learn"
+                className="block bg-white rounded-2xl shadow-md p-4 border-2 border-purple-200 hover:border-purple-400 transition-all hover:shadow-lg"
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-sm font-medium text-purple-600 uppercase tracking-wide">
+                    {t('dashboard.continueLearning')}
+                  </span>
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                    currentCourse.level === 'beginner' ? 'bg-green-100 text-green-700' :
+                    currentCourse.level === 'intermediate' ? 'bg-amber-100 text-amber-700' :
+                    currentCourse.level === 'master' ? 'bg-purple-100 text-purple-700' :
+                    'bg-red-100 text-red-700'
+                  }`}>
+                    {getLevelTranslation(currentCourse.level)}
+                  </span>
                 </div>
-                <span className="text-sm font-semibold text-gray-600">
-                  {Math.round(currentCourse.progress)}%
-                </span>
-              </div>
 
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-gray-500">
-                  {courseProgress[currentCourse.id]?.completedLessons || 0} / {courseProgress[currentCourse.id]?.totalLessons || 0} {t('dashboard.lessonsCompleted')}
-                </span>
-                <span className="text-purple-600 font-semibold flex items-center gap-1">
-                  {t('dashboard.continue')} →
-                </span>
-              </div>
-            </Link>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">{currentCourse.title}</h2>
+
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-purple-500 to-purple-600 rounded-full transition-all duration-500"
+                      style={{ width: `${currentCourse.progress}%` }}
+                    />
+                  </div>
+                  <span className="text-sm font-semibold text-gray-600">
+                    {Math.round(currentCourse.progress)}%
+                  </span>
+                </div>
+
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-sm text-gray-500">
+                    {courseProgress[currentCourse.id]?.completedLessons || 0} / {courseProgress[currentCourse.id]?.totalLessons || 0} {t('dashboard.lessonsCompleted')}
+                  </span>
+                  <span className="text-purple-600 font-semibold flex items-center gap-1">
+                    {t('dashboard.continue')} →
+                  </span>
+                </div>
+              </Link>
+            )}
           </div>
         )}
 

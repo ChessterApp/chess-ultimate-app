@@ -161,7 +161,9 @@
     "solvePuzzles": "3 жұмбақ шешу",
     "sharpenTactics": "Тактиканы шыңдаңыз",
     "lessonsCompleted": "сабақ аяқталды",
-    "continue": "Жалғастыру"
+    "continue": "Жалғастыру",
+    "progressLoadError": "Прогресті жүктеу мүмкін болмады. Қайталап көріңіз.",
+    "retry": "Қайталау"
   },
   "gamification": {
     "xp": "XP",
