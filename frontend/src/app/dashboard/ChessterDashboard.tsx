@@ -205,11 +205,11 @@ export default function ChessterDashboard({
 
   const analysisTools = [
     {
-      id: 'position',
-      title: t('dashboard.positionAnalysis'),
-      description: t('dashboard.positionAnalysisDesc'),
+      id: 'games',
+      title: t('gamesHub.title'),
+      description: t('gamesHub.subtitle'),
       icon: '♞',
-      href: '/position',
+      href: '/games',
       gradient: 'from-blue-500 to-blue-600'
     },
     {
