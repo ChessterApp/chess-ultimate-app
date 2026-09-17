@@ -35,6 +35,12 @@ export type MembershipState =
   | 'expired';
 export type MemberRole = 'student' | 'coach';
 export type MemberSource = 'chess_empire' | 'online';
+/**
+ * Family link type. 'self' = the account owner is the student; 'child'/'other'
+ * = a guardian-managed family member. Unknown DB values coerce to 'other';
+ * a missing/null value (pre-migration rows) reads as 'self'.
+ */
+export type MemberRelationship = 'self' | 'child' | 'other';
 
 export interface MembershipStateResult {
   state: MembershipState;
@@ -44,6 +50,8 @@ export interface MembershipStateResult {
   role: MemberRole;
   /** Onboarding track — 'online' members have no CE profile to render. */
   source: MemberSource;
+  /** Family link type (see MemberRelationship). */
+  relationship: MemberRelationship;
 }
 
 interface MemberRow {
@@ -54,10 +62,12 @@ interface MemberRow {
   external_source: string | null;
   /** Absolute access expiry; NULL means never expires. */
   access_expires_at: string | null;
+  /** Family link type; absent on pre-migration rows. */
+  relationship: string | null;
 }
 
 const SELECT_COLUMNS =
-  'id, external_student_id, link_status, role, external_source, access_expires_at';
+  'id, external_student_id, link_status, role, external_source, access_expires_at, relationship';
 
 /** Both onboarding tracks funnel through the same member lookup. */
 const MEMBER_SOURCES = ['chess_empire', 'online'] as const;
@@ -75,6 +85,17 @@ function serviceClient() {
   });
 }
 
+/**
+ * Coerce a raw `relationship` column value. Missing/null (pre-migration rows)
+ * → 'self'; a known value passes through; anything else → 'other' so an
+ * unexpected label never masquerades as the account owner.
+ */
+function coerceRelationship(raw: string | null | undefined): MemberRelationship {
+  if (raw === null || raw === undefined) return 'self';
+  if (raw === 'self' || raw === 'child' || raw === 'other') return raw;
+  return 'other';
+}
+
 function rowToState(row: MemberRow | null): MembershipStateResult {
   const noLink: MembershipStateResult = {
     state: 'no_link',
@@ -82,12 +103,14 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
     memberId: null,
     role: 'student',
     source: 'chess_empire',
+    relationship: 'self',
   };
   if (!row || !row.external_student_id) return noLink;
 
   const role: MemberRole = row.role === 'coach' ? 'coach' : 'student';
   const source: MemberSource =
     row.external_source === 'online' ? 'online' : 'chess_empire';
+  const relationship = coerceRelationship(row.relationship);
   if (row.link_status === 'verified') {
     // Time-boxed access (online invites): a verified row whose window has
     // elapsed downgrades to `expired` on every read — no cron, checked live.
@@ -101,6 +124,7 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
       memberId: row.id,
       role,
       source,
+      relationship,
     };
   }
   if (row.link_status === 'pending_confirm') {
@@ -110,9 +134,56 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
       memberId: row.id,
       role,
       source,
+      relationship,
     };
   }
   return noLink;
+}
+
+/**
+ * Deterministically pick the "primary" membership for the legacy single-row
+ * helpers from all of a user's rows (fetch order = id ascending). A verified
+ * row wins over pending_confirm; among verified, relationship='self' wins, then
+ * the earliest. With no verified/pending rows the earliest row's state stands
+ * (e.g. a lone expired row). An empty set → no_link.
+ */
+function pickPrimaryState(
+  states: MembershipStateResult[],
+): MembershipStateResult {
+  if (states.length === 0) return rowToState(null);
+  const verified = states.filter((s) => s.state === 'verified');
+  if (verified.length > 0) {
+    return verified.find((s) => s.relationship === 'self') ?? verified[0];
+  }
+  const pending = states.find((s) => s.state === 'pending_confirm');
+  if (pending) return pending;
+  return states[0];
+}
+
+/**
+ * Fetch ALL member rows for a user (optionally org-scoped), ordered by `id`
+ * ascending for a stable, deterministic result. A family account holds several
+ * rows here — one per linked student. (`organization_members` has no
+ * `created_at`; `id` gives a stable order without risking a query error on a
+ * missing column.)
+ */
+async function fetchMemberRows(
+  clerkUserId: string,
+  orgId?: string,
+): Promise<MemberRow[]> {
+  const supabase = serviceClient();
+  let query = supabase
+    .from('organization_members')
+    .select(SELECT_COLUMNS)
+    .eq('user_id', clerkUserId);
+  if (orgId) query = query.eq('organization_id', orgId);
+  const { data, error } = await query
+    .in('external_source', MEMBER_SOURCES)
+    .order('id', { ascending: true });
+  if (error) {
+    throw new Error(`chess-empire-member: ${error.message}`);
+  }
+  return ((data ?? []) as MemberRow[]) ?? [];
 }
 
 async function fetchMembershipState({
@@ -120,20 +191,8 @@ async function fetchMembershipState({
   clerkUserId,
 }: GetLinkedStudentIdArgs): Promise<MembershipStateResult> {
   if (!orgId || !clerkUserId) return rowToState(null);
-
-  const supabase = serviceClient();
-  const { data, error } = await supabase
-    .from('organization_members')
-    .select(SELECT_COLUMNS)
-    .eq('organization_id', orgId)
-    .eq('user_id', clerkUserId)
-    .in('external_source', MEMBER_SOURCES)
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    throw new Error(`chess-empire-member: ${error.message}`);
-  }
-  return rowToState((data ?? null) as MemberRow | null);
+  const rows = await fetchMemberRows(clerkUserId, orgId);
+  return pickPrimaryState(rows.map(rowToState));
 }
 
 /**
@@ -142,25 +201,33 @@ async function fetchMembershipState({
  * The `/api/chess-empire/link/status` polling endpoint calls this: Chess
  * Empire is a single tenant today, so a user has at most one `chess_empire`
  * member row and org scoping is unnecessary — matching the email-fallback
- * assumption in the webhook.
+ * assumption in the webhook. For a family account with several links this
+ * returns the deterministic PRIMARY row (see `pickPrimaryState`); use
+ * `getVerifiedMembersForUser` to act on any individual family member.
  */
 async function fetchMembershipStateForUser(
   clerkUserId: string,
 ): Promise<MembershipStateResult> {
   if (!clerkUserId) return rowToState(null);
+  const rows = await fetchMemberRows(clerkUserId);
+  return pickPrimaryState(rows.map(rowToState));
+}
 
-  const supabase = serviceClient();
-  const { data, error } = await supabase
-    .from('organization_members')
-    .select(SELECT_COLUMNS)
-    .eq('user_id', clerkUserId)
-    .in('external_source', MEMBER_SOURCES)
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    throw new Error(`chess-empire-member: ${error.message}`);
-  }
-  return rowToState((data ?? null) as MemberRow | null);
+/**
+ * Every VERIFIED member the caller owns — the family allowlist. Returns one
+ * entry per verified link (expiry checked per row, same rule as the single-row
+ * helpers), in stable `id` order. Non-verified rows (pending/expired/frozen)
+ * are omitted. Empty array when the user has no verified links.
+ *
+ * This is the ONLY safe source of student ids the register/cancel route may
+ * act on: a `student_id` from a request is honoured only if it appears here.
+ */
+async function fetchVerifiedMembersForUser(
+  clerkUserId: string,
+): Promise<MembershipStateResult[]> {
+  if (!clerkUserId) return [];
+  const rows = await fetchMemberRows(clerkUserId);
+  return rows.map(rowToState).filter((s) => s.state === 'verified');
 }
 
 async function fetchLinkedStudentId(
@@ -172,4 +239,5 @@ async function fetchLinkedStudentId(
 
 export const getMembershipState = cache(fetchMembershipState);
 export const getMembershipStateForUser = cache(fetchMembershipStateForUser);
+export const getVerifiedMembersForUser = cache(fetchVerifiedMembersForUser);
 export const getLinkedStudentId = cache(fetchLinkedStudentId);

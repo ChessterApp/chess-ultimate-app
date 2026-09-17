@@ -1,17 +1,23 @@
 /**
- * POST /api/chess-empire/tournaments/[id]/register  — self-register
- * DELETE /api/chess-empire/tournaments/[id]/register — self-cancel
+ * POST /api/chess-empire/tournaments/[id]/register  — register a family member
+ * DELETE /api/chess-empire/tournaments/[id]/register — cancel a family member
  *
- * Both require a Clerk session AND a verified Chess Empire membership. The
- * student id is ALWAYS resolved from the verified member — a `student_id` in the
- * request body is never read, so a caller cannot register anyone but themself.
+ * Both require a Clerk session AND at least one VERIFIED Chess Empire link. A
+ * Chesster account may hold several verified student links ("family members");
+ * the caller may act on ANY of their OWN verified students and NEVER anyone
+ * else's. The `student_id` in the request is honoured only if it appears in the
+ * caller's verified allowlist (`getVerifiedMembersForUser`) — an unrecognised id
+ * is rejected 403 `forbidden_student` and never forwarded to Chess Empire. When
+ * no `student_id` is given: a single-link account uses its one student; a
+ * multi-link account must specify which (400 `student_required`).
+ *
  * The service key stays server-side; CE errors are mapped to clean JSON
  * `{ error, message }`.
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getMembershipStateForUser } from '@/lib/chess-empire-member';
+import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
 import {
   registerForTournament,
   cancelTournamentRegistration,
@@ -83,10 +89,38 @@ function mapRegisterError(reason: string): {
   }
 }
 
-/** Resolve the caller's verified member, or a NextResponse to short-circuit. */
-async function requireVerifiedMember(): Promise<
-  { studentId: string } | NextResponse
-> {
+/**
+ * Read an optional `student_id` from the request: JSON body (POST + DELETE) or
+ * `?student_id=` query param (DELETE). Tolerates an empty/absent/malformed body
+ * — the current frontend sends none. Returns a trimmed id or null.
+ */
+async function readRequestedStudentId(req: Request): Promise<string | null> {
+  const fromQuery = new URL(req.url).searchParams.get('student_id');
+  if (fromQuery && fromQuery.trim()) return fromQuery.trim();
+  let raw = '';
+  try {
+    raw = await req.text();
+  } catch {
+    return null;
+  }
+  if (!raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw) as { student_id?: unknown };
+    const sid = parsed?.student_id;
+    return typeof sid === 'string' && sid.trim() ? sid.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve the target student from the caller's verified allowlist, or a
+ * NextResponse to short-circuit. Enforces the family invariant: the returned id
+ * is ALWAYS one of the caller's own verified students.
+ */
+async function resolveTargetStudent(
+  req: Request,
+): Promise<{ studentId: string } | NextResponse> {
   const { userId } = await auth();
   if (!userId) {
     return NextResponse.json(
@@ -94,14 +128,17 @@ async function requireVerifiedMember(): Promise<
       { status: 401 },
     );
   }
-  let member;
+  let members;
   try {
-    member = await getMembershipStateForUser(userId);
+    members = await getVerifiedMembersForUser(userId);
   } catch (err) {
     console.error('[chess-empire/tournaments/register] member lookup failed', err);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });
   }
-  if (member.state !== 'verified' || !member.studentId) {
+  const allowed = members
+    .map((m) => m.studentId)
+    .filter((id): id is string => !!id);
+  if (allowed.length === 0) {
     return NextResponse.json(
       {
         error: 'forbidden',
@@ -110,12 +147,28 @@ async function requireVerifiedMember(): Promise<
       { status: 403 },
     );
   }
-  return { studentId: member.studentId };
+
+  const requested = await readRequestedStudentId(req);
+  if (requested) {
+    // NEVER forward an id the caller doesn't own to Chess Empire.
+    if (!allowed.includes(requested)) {
+      return NextResponse.json({ error: 'forbidden_student' }, { status: 403 });
+    }
+    return { studentId: requested };
+  }
+  if (allowed.length === 1) return { studentId: allowed[0] };
+  return NextResponse.json(
+    {
+      error: 'student_required',
+      message: 'Specify which family member to register.',
+    },
+    { status: 400 },
+  );
 }
 
-export async function POST(_req: Request, ctx: RouteContext) {
+export async function POST(req: Request, ctx: RouteContext) {
   const { id } = await ctx.params;
-  const resolved = await requireVerifiedMember();
+  const resolved = await resolveTargetStudent(req);
   if (resolved instanceof NextResponse) return resolved;
 
   try {
@@ -137,9 +190,9 @@ export async function POST(_req: Request, ctx: RouteContext) {
   }
 }
 
-export async function DELETE(_req: Request, ctx: RouteContext) {
+export async function DELETE(req: Request, ctx: RouteContext) {
   const { id } = await ctx.params;
-  const resolved = await requireVerifiedMember();
+  const resolved = await resolveTargetStudent(req);
   if (resolved instanceof NextResponse) return resolved;
 
   try {
