@@ -291,7 +291,12 @@ describe('CoachChat shared conversation memory', () => {
     const [, opts] = call!;
     expect(opts.method).toBe('POST');
     const sent = JSON.parse(opts.body);
-    expect(sent).toEqual({ role: 'user', content: 'attack the king', source: 'voice' });
+    expect(sent).toEqual({
+      role: 'user',
+      content: 'attack the king',
+      source: 'voice',
+      client_ts: expect.any(String),
+    });
   });
 
   it('persists a finalized coach transcript as assistant/voice', async () => {
@@ -308,6 +313,7 @@ describe('CoachChat shared conversation memory', () => {
       role: 'assistant',
       content: 'Open lines first.',
       source: 'voice',
+      client_ts: expect.any(String),
     });
   });
 
