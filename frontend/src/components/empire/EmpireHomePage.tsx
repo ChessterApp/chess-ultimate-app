@@ -27,6 +27,7 @@ import type { LegionStanding, StudentProximity } from '@/lib/gamification/standi
 import Achievements from './Achievements';
 import PendingConfirmBanner from './PendingConfirmBanner';
 import TournamentCtaBanner from './TournamentCtaBanner';
+import GamesCtaBanner from './GamesCtaBanner';
 
 export type EmpireHomeState = 'verified' | 'pending_confirm' | 'no_link';
 
@@ -482,6 +483,8 @@ export default async function EmpireHomePage(props: EmpireHomePageProps) {
         </section>
 
         <TournamentCtaBanner />
+
+        <GamesCtaBanner />
 
         {/* Stat pills */}
         <div className="grid grid-cols-2 gap-3">

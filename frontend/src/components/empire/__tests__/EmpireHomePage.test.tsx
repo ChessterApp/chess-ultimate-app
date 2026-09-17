@@ -170,6 +170,26 @@ describe('EmpireHomePage — verified state', () => {
     ).toBeTruthy();
   });
 
+  it('mounts the games CTA banner directly after the tournament banner', async () => {
+    const ui = await EmpireHomePage({
+      state: 'verified',
+      studentDisplayName: 'Ali',
+      profile: aliProfile,
+      ratings: [],
+      rank: emptyRank,
+    });
+    const { getByTestId } = render(ui);
+    const tournament = getByTestId('empire-tournament-cta');
+    const games = getByTestId('empire-games-cta');
+    expect(games).toBeTruthy();
+    expect(games.getAttribute('href')).toBe('/games');
+    // Sits after the tournament banner in document order.
+    expect(
+      tournament.compareDocumentPosition(games) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it('renders the CE photo_url as the hero avatar when present', async () => {
     const photoUrl =
       'https://papgcizhfkngubwofjuo.supabase.co/storage/v1/object/public/student-photos/students/stu-vasco_1766294728627.jpg';
