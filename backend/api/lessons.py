@@ -698,7 +698,7 @@ def lesson_chat_by_slug(course_slug, lesson_slug):
                 import os
                 from llm.openrouter_llm import OpenRouterLLM
                 openrouter_key = os.getenv("OPENROUTER_API_KEY")
-                llm = OpenRouterLLM(api_key=openrouter_key, model_name="anthropic/claude-3.5-sonnet")
+                llm = OpenRouterLLM(api_key=openrouter_key, model_name="anthropic/claude-sonnet-4.5")
 
                 system_prompt = f"""You are a friendly and knowledgeable chess tutor helping a student with this lesson:
 
@@ -1116,7 +1116,7 @@ def send_lesson_chat(lesson_id):
             import os
             from llm.openrouter_llm import OpenRouterLLM
             openrouter_key = os.getenv("OPENROUTER_API_KEY")
-            llm = OpenRouterLLM(api_key=openrouter_key, model_name="anthropic/claude-3.5-sonnet")
+            llm = OpenRouterLLM(api_key=openrouter_key, model_name="anthropic/claude-sonnet-4.5")
 
             system_prompt = f"""You are a friendly and knowledgeable chess tutor helping a student with this lesson:
 

@@ -56,12 +56,15 @@ class OpenRouterLLM:
             content = response.choices[0].message.content
             if content is None:
                 logger.warning("OpenRouter API returned None content.")
-                return "Error: LLM returned no content."
+                raise RuntimeError("OpenRouter API returned no content")
             return content.strip()
 
         except Exception as e:
+            # Raise instead of returning the error text as content — callers that
+            # persist the reply (e.g. lesson chat) must never store an error
+            # string as if it were the assistant's answer.
             logger.error(f"Error calling OpenRouter API: {e}", exc_info=True)
-            return f"Error: OpenRouter API issue - {e}"
+            raise
 
     def generate_stream(self, prompt: str, system_message: str = None):
         """

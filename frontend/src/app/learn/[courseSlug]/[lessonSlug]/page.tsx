@@ -153,13 +153,18 @@ export default function LessonPage() {
     const userMessage = inputMessage
     setInputMessage('')
 
-    // Optimistically add user message
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }])
+    // Optimistically add the user message and an empty assistant bubble that
+    // fills in as SSE deltas arrive (mirrors the AI Coach chat client).
+    setMessages(prev => [
+      ...prev,
+      { role: 'user', content: userMessage },
+      { role: 'assistant', content: '' },
+    ])
 
     try {
       const token = await getToken()
-      const data = await apiFetch<any>(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/learn/${courseSlug}/${lessonSlug}/chat?locale=${locale}`,
+      const response = await fetch(
+        `/api/learn/${courseSlug}/${lessonSlug}/chat`,
         {
           method: 'POST',
           headers: {
@@ -169,12 +174,55 @@ export default function LessonPage() {
           body: JSON.stringify({ message: userMessage })
         }
       )
-      setMessages(data.messages || [])
+
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullContent = ''
+      let hadError = false
+
+      const applyDelta = (line: string) => {
+        if (!line.startsWith('data: ')) return
+        try {
+          const data = JSON.parse(line.slice(6))
+          if (typeof data.delta === 'string') {
+            fullContent += data.delta
+            setMessages(prev =>
+              prev.map((m, i) =>
+                i === prev.length - 1 ? { ...m, content: fullContent } : m
+              )
+            )
+          }
+          if (data.error) {
+            hadError = true
+          }
+        } catch {
+          // Non-JSON data line, skip
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) applyDelta(line)
+      }
+      if (buffer) applyDelta(buffer)
+
+      if (hadError || !fullContent) {
+        throw new Error('tutor stream failed')
+      }
     } catch (err) {
       console.error('Failed to send message:', err)
       showToast(t('learn.errors.sendMessageFailed'), 'error')
-      // Revert optimistic update on error
-      setMessages(prev => prev.slice(0, -1))
+      // Revert optimistic update (user + assistant bubbles) on error
+      setMessages(prev => prev.slice(0, -2))
     } finally {
       setSendingMessage(false)
     }

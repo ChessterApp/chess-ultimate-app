@@ -1222,6 +1222,137 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+class LessonChatRequest(BaseModel):
+    """Request body for the Learning-section tutor chat.
+
+    Lesson context (title + content) and the prior conversation are supplied by
+    the caller (the Next.js proxy, which owns Supabase persistence) — Hermes
+    holds no lesson state of its own.
+    """
+    message: str
+    lesson_title: str = ""
+    lesson_content: str = ""
+    history: list[dict] = Field(default_factory=list)
+    locale: str = "ru"
+
+
+def _build_lesson_system_prompt(lesson_title: str, lesson_content: str, locale: str) -> str:
+    """Tutor persona for the lesson chat: a friendly, encouraging chess tutor
+    grounded in this specific lesson, answering in the student's language."""
+    return (
+        "You are a friendly, encouraging chess tutor helping a student work "
+        "through this specific lesson. Be warm, patient and clear; use concrete "
+        "examples when they help. Keep the student focused on the lesson below "
+        "and gently steer them back if they drift off-topic.\n\n"
+        f"**Lesson: {lesson_title}**\n\n"
+        f"{lesson_content}\n\n"
+        f"Always reply in the student's language (locale: {locale})."
+    )
+
+
+def _lesson_chat_stream(model: str, system_prompt: str, message: str, history: list[dict]):
+    """Yield reply text chunks for one lesson-tutor turn (plain streaming chat).
+
+    Mirrors the coach's model selection (same OpenRouter client + routed model)
+    but with no tool loop. Raises on any API error so the caller emits an SSE
+    error frame instead of leaking the error text as a normal delta.
+    """
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+        base_url="https://openrouter.ai/api/v1",
+    )
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for m in history or []:
+        role = m.get("role")
+        content = m.get("content", "")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": message})
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=2000,
+        temperature=0.7,
+        stream=True,
+    )
+    for chunk in response:
+        if chunk.choices and chunk.choices[0].delta.content:
+            yield chunk.choices[0].delta.content
+
+
+@app.post("/api/lesson/chat")
+async def lesson_chat(body: LessonChatRequest, request: Request):
+    """Lesson tutor chat — streams the tutor's reply as SSE token events.
+
+    Emits one `{"delta": ...}` frame per streamed chunk, then a final
+    `{"done": true}`. On LLM failure a single `{"error": ...}` frame is emitted
+    instead — never the raw error text as a delta.
+    """
+    user_id = _get_user_id(request)
+    await enforce_rate_limit(request)
+    analytics_tracker.track_chat(user_id, "")
+
+    model = _resolve_model(None, body.message)
+    system_prompt = _build_lesson_system_prompt(
+        body.lesson_title, body.lesson_content, body.locale
+    )
+    logger.info("Lesson tutor routed model: %s for message: %s", model, body.message[:80])
+
+    loop = asyncio.get_event_loop()
+
+    async def event_stream():
+        queue: asyncio.Queue = asyncio.Queue()
+        sentinel = object()
+
+        def _run():
+            try:
+                for chunk in _lesson_chat_stream(
+                    model, system_prompt, body.message, body.history
+                ):
+                    if chunk:
+                        loop.call_soon_threadsafe(queue.put_nowait, ("delta", chunk))
+            except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
+                loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+        future = loop.run_in_executor(None, _run)
+
+        error_exc = None
+        try:
+            while True:
+                item = await queue.get()
+                if item is sentinel:
+                    break
+                kind, payload = item
+                if kind == "delta":
+                    yield _sse({"delta": payload})
+                elif kind == "error":
+                    error_exc = payload
+            await future
+        except (asyncio.CancelledError, GeneratorExit):
+            raise
+
+        if error_exc is not None:
+            logger.error("lesson chat LLM error: %s", error_exc, exc_info=True)
+            diag.record(
+                "lesson_chat_error",
+                request_id=getattr(request.state, "request_id", None),
+                message="lesson tutor LLM call failed on /api/lesson/chat",
+                exc=error_exc,
+                model=model,
+            )
+            yield _sse({"error": f"Tutor error: {error_exc}"})
+            return
+
+        yield _sse({"done": True})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
 class VoicePromptRequest(BaseModel):
     fen: Optional[str] = None
     locale: Optional[str] = None
