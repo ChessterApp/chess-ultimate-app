@@ -3,11 +3,26 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth, UserButton } from "@clerk/nextjs"
-import { useLocale, useTranslations } from 'next-intl'
+import { useLocale } from 'next-intl'
 import Image from "next/image"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useOrganization, useBranding } from "@/contexts/OrganizationContext"
-import AddFamilyMember from "@/components/empire/AddFamilyMember"
+import AddFamilyMember from "@/components/AddFamilyMember"
+
+/** Person-plus glyph for the avatar-menu "Добавить члена семьи" sub-view. */
+function AddFamilyIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M15 19a6 6 0 0 0-12 0M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM19 8v6M22 11h-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
 
 export default function NavBar() {
   const { isSignedIn } = useAuth()
@@ -15,12 +30,10 @@ export default function NavBar() {
   const locale = useLocale()
   const branding = useBranding()
   const { org } = useOrganization()
-  const t = useTranslations('ceTournaments')
 
   // The universal "add family member" flow is a Chess Empire feature — gate the
   // dropdown entry to that brand so the plain Chesster avatar menu is untouched.
   const isChessEmpire = org?.slug === 'chess-empire'
-  const [familyOpen, setFamilyOpen] = useState(false)
 
   // Prevent hydration mismatch: useAuth returns different values on server vs client
   const [mounted, setMounted] = useState(false)
@@ -57,27 +70,19 @@ export default function NavBar() {
                 }}
               >
                 {isChessEmpire && (
-                  <UserButton.MenuItems>
-                    <UserButton.Action
-                      label={t('addFamilyMember')}
-                      labelIcon={<span aria-hidden>+</span>}
-                      onClick={() => setFamilyOpen(true)}
-                    />
-                  </UserButton.MenuItems>
+                  <UserButton.UserProfilePage
+                    label="Добавить члена семьи"
+                    url="add-family"
+                    labelIcon={<AddFamilyIcon />}
+                  >
+                    <AddFamilyMember />
+                  </UserButton.UserProfilePage>
                 )}
               </UserButton>
             )}
           </div>
         </div>
       </div>
-
-      {isChessEmpire && (
-        <AddFamilyMember
-          open={familyOpen}
-          onClose={() => setFamilyOpen(false)}
-          asModal
-        />
-      )}
     </nav>
   )
 }
