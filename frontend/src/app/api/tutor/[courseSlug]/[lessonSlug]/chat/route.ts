@@ -11,11 +11,15 @@ interface ChatMessage {
 }
 
 /**
- * POST /api/learn/[courseSlug]/[lessonSlug]/chat — SSE proxy to the Hermes
+ * POST /api/tutor/[courseSlug]/[lessonSlug]/chat — SSE proxy to the Hermes
  * lesson tutor. Mirrors /api/coach/chat: Clerk-authed, forwards X-User-Id,
  * streams SSE deltas back to the browser. After the stream completes it
  * persists the updated conversation to Supabase `lesson_chat_history` so the
  * existing GET history endpoint keeps working.
+ *
+ * Lives under /api/tutor (not /api/learn) because next.config.ts rewrites
+ * /api/learn/:path* to the Flask backend with beforeFiles priority, which
+ * would shadow this file route in production.
  */
 export async function POST(
   request: NextRequest,

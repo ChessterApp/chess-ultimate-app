@@ -206,7 +206,7 @@ export default function LessonPage() {
     try {
       const token = await getToken()
       const response = await fetch(
-        `/api/learn/${courseSlug}/${lessonSlug}/chat`,
+        `/api/tutor/${courseSlug}/${lessonSlug}/chat`,
         {
           method: 'POST',
           headers: {

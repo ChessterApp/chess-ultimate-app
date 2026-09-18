@@ -65,7 +65,7 @@ function makeFetch(hermes: unknown) {
   });
 }
 
-describe('/api/learn/[courseSlug]/[lessonSlug]/chat proxy', () => {
+describe('/api/tutor/[courseSlug]/[lessonSlug]/chat proxy', () => {
   const originalFetch = global.fetch;
 
   beforeEach(() => {
@@ -81,7 +81,7 @@ describe('/api/learn/[courseSlug]/[lessonSlug]/chat proxy', () => {
     (auth as any).mockResolvedValue({ userId: null });
     const { POST } = await import('../route');
     const { NextRequest } = await import('next/server');
-    const req = new NextRequest('http://localhost:3000/api/learn/c/l/chat', {
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'hi' }),
@@ -94,7 +94,7 @@ describe('/api/learn/[courseSlug]/[lessonSlug]/chat proxy', () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     const { POST } = await import('../route');
     const { NextRequest } = await import('next/server');
-    const req = new NextRequest('http://localhost:3000/api/learn/c/l/chat', {
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
@@ -111,7 +111,7 @@ describe('/api/learn/[courseSlug]/[lessonSlug]/chat proxy', () => {
 
     const { POST } = await import('../route');
     const { NextRequest } = await import('next/server');
-    const req = new NextRequest('http://localhost:3000/api/learn/c/l/chat', {
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok' },
       body: JSON.stringify({ message: 'What is a pin?' }),
@@ -160,7 +160,7 @@ describe('/api/learn/[courseSlug]/[lessonSlug]/chat proxy', () => {
 
     const { POST } = await import('../route');
     const { NextRequest } = await import('next/server');
-    const req = new NextRequest('http://localhost:3000/api/learn/c/l/chat', {
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok' },
       body: JSON.stringify({ message: 'What is a pin?' }),
