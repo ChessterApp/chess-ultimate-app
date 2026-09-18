@@ -11,7 +11,9 @@ import Image from 'next/image';
 import { useState, useEffect } from 'react';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useLocale } from 'next-intl';
-import { useBranding } from '@/contexts/OrganizationContext';
+import { useBranding, useOrganization } from '@/contexts/OrganizationContext';
+import AddFamilyMember from '@/components/AddFamilyMember';
+import AddFamilyIcon from '@/components/AddFamilyIcon';
 
 interface SidebarItem {
   href: string;
@@ -103,6 +105,13 @@ export default function DesktopSidebar() {
   const [collapsedStored, setCollapsed] = useLocalStorage('sidebar_collapsed', false);
   const { isSignedIn } = useAuth();
   const branding = useBranding();
+  const { org } = useOrganization();
+  // Same gate as the mobile Navbar: the universal "add family member" flow is a
+  // Chess Empire feature. Both UserButton instances (this sidebar + the mobile
+  // Navbar) are mounted at once — Clerk only reliably honors custom MenuItems that
+  // are DIRECT children of a UserButton, so the family action must be inlined on
+  // BOTH instances (a plain instance would otherwise win and show the default menu).
+  const isChessEmpire = org?.slug === 'chess-empire';
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
 
@@ -211,7 +220,26 @@ export default function DesktopSidebar() {
                 avatarBox: "w-8 h-8"
               }
             }}
-          />
+          >
+            {isChessEmpire && (
+              <>
+                <UserButton.MenuItems>
+                  <UserButton.Action
+                    label="Добавить члена семьи"
+                    labelIcon={<AddFamilyIcon />}
+                    open="add-family"
+                  />
+                </UserButton.MenuItems>
+                <UserButton.UserProfilePage
+                  label="Добавить члена семьи"
+                  url="add-family"
+                  labelIcon={<AddFamilyIcon />}
+                >
+                  <AddFamilyMember />
+                </UserButton.UserProfilePage>
+              </>
+            )}
+          </UserButton>
         )}
       </div>
 
