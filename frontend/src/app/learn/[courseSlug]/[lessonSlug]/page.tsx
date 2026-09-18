@@ -502,23 +502,27 @@ export default function LessonPage() {
                   </p>
                 )}
 
-                {messages.map((msg, idx) => (
-                  <div
-                    key={idx}
-                    className={`p-3 rounded-lg ${
-                      msg.role === 'user'
-                        ? 'bg-blue-100 dark:bg-blue-900 ml-8'
-                        : 'bg-gray-100 dark:bg-gray-700 mr-8'
-                    }`}
-                  >
-                    <div className="font-semibold text-sm mb-1">
-                      {msg.role === 'user' ? t('lesson.you') : t('lesson.aiTutor')}
+                {messages.map((msg, idx) =>
+                  // Hide the empty assistant placeholder used as the SSE
+                  // streaming target — the "Thinking..." bubble covers that gap.
+                  msg.role === 'assistant' && !msg.content ? null : (
+                    <div
+                      key={idx}
+                      className={`p-3 rounded-lg ${
+                        msg.role === 'user'
+                          ? 'bg-blue-100 dark:bg-blue-900 ml-8'
+                          : 'bg-gray-100 dark:bg-gray-700 mr-8'
+                      }`}
+                    >
+                      <div className="font-semibold text-sm mb-1">
+                        {msg.role === 'user' ? t('lesson.you') : t('lesson.aiTutor')}
+                      </div>
+                      <div className="text-sm">{msg.content}</div>
                     </div>
-                    <div className="text-sm">{msg.content}</div>
-                  </div>
-                ))}
+                  )
+                )}
 
-                {sendingMessage && (
+                {sendingMessage && !messages[messages.length - 1]?.content && (
                   <div className="bg-gray-100 dark:bg-gray-700 mr-8 p-3 rounded-lg">
                     <div className="font-semibold text-sm mb-1">{t('lesson.aiTutor')}</div>
                     <div className="text-sm">{t('lesson.thinking')}</div>
