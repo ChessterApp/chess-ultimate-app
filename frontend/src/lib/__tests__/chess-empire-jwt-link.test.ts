@@ -123,6 +123,15 @@ describe('linkMemberViaInviteJwt', () => {
     expect(success).toBeDefined();
   });
 
+  it('threads a relationship=child JWT claim into the member upsert', async () => {
+    scriptHappyPath();
+    const token = signInviteJwt({ ...payload, relationship: 'child' });
+    const res = await linkMemberViaInviteJwt(token, 'clerk-user', 'a@b.com');
+    expect(res).toMatchObject({ ok: true });
+    const memberUpsert = upserted.find((u) => u.table === 'organization_members');
+    expect(memberUpsert?.payload).toMatchObject({ relationship: 'child' });
+  });
+
   it('links a coach JWT with role=coach and skips a null clerk org', async () => {
     scripts['invite_jwts_consumed.select'] = [{ data: [] }];
     scripts['branch_invite_tokens.select'] = [{ data: [{ id: 'bt', revoked_at: null }] }];
@@ -204,6 +213,27 @@ describe('upsertMemberLink', () => {
     const up = upserted.find((u) => u.table === 'organization_members');
     expect(up?.payload).not.toHaveProperty('email');
     expect(up?.payload).not.toHaveProperty('name');
+  });
+
+  it('writes relationship=child when a guardian link is specified', async () => {
+    scripts['organization_members.upsert'] = [{ error: null }];
+    await upsertMemberLink({ ...base, relationship: 'child' });
+
+    const up = upserted.find((u) => u.table === 'organization_members');
+    expect(up?.payload).toMatchObject({ relationship: 'child' });
+  });
+
+  it('omits relationship for self/omitted so the DB default holds', async () => {
+    scripts['organization_members.upsert'] = [{ error: null }];
+    await upsertMemberLink({ ...base, relationship: 'self' });
+    const upSelf = upserted.find((u) => u.table === 'organization_members');
+    expect(upSelf?.payload).not.toHaveProperty('relationship');
+
+    upserted.length = 0;
+    scripts['organization_members.upsert'] = [{ error: null }];
+    await upsertMemberLink(base);
+    const upOmit = upserted.find((u) => u.table === 'organization_members');
+    expect(upOmit?.payload).not.toHaveProperty('relationship');
   });
 });
 

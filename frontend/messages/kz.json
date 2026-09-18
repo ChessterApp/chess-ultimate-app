@@ -2480,6 +2480,26 @@
     "rosterEmpty": "Оқушы табылмады",
     "capacityLabel": "Тіркелген",
     "razryadOnly": "Тек разряды бар оқушыларға",
+    "familyTitle": "Сіздің ойыншыларыңыз",
+    "relationship": {
+      "self": "Сіз",
+      "child": "Бала",
+      "other": "Отбасы"
+    },
+    "pickMember": "Кім ойнайды?",
+    "addFamilyMember": "Отбасы мүшесін қосу",
+    "addMemberTitle": "Отбасы мүшесін қосу",
+    "addMemberSearchPlaceholder": "Аты бойынша іздеу",
+    "addMemberSearching": "Іздену…",
+    "addMemberNoResults": "Сәйкес оқушылар табылмады.",
+    "addMemberHint": "Кемінде 2 әріп теріңіз.",
+    "addMemberUnavailable": "Осы құрылғыда филиал шақыруы табылмады. Тағы бір бала қосу үшін филиалдың шақыру сілтемесін ашыңыз.",
+    "addMemberSubmit": "Қосу",
+    "addMemberSubmitting": "Қосылуда…",
+    "addMemberBack": "Артқа",
+    "addMemberCancel": "Болдырмау",
+    "addMemberSuccess": "{name} отбасыңызға қосылды.",
+    "addMemberError": "Қосу мүмкін болмады. Қайталап көріңіз.",
     "countdown": {
       "label": "Тіркеу жабылғанға дейін",
       "days": "КҮН",
@@ -2510,7 +2530,9 @@
       "server_error": "Тіркелу сәтсіз аяқталды. Қайталап көріңіз.",
       "network": "Желі қатесі. Қайталап көріңіз.",
       "registerFailed": "Тіркелу сәтсіз аяқталды. Қайталап көріңіз.",
-      "cancelFailed": "Болдырмау сәтсіз аяқталды. Қайталап көріңіз."
+      "cancelFailed": "Болдырмау сәтсіз аяқталды. Қайталап көріңіз.",
+      "student_required": "Отбасының кайсысын тіркейтініңізді таңдаңыз.",
+      "forbidden_student": "Сіз тек өз отбасы мүшелеріңізді тіркей аласыз."
     }
   },
   "wheel": {

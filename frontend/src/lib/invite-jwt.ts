@@ -35,6 +35,13 @@ export const INVITE_JWT_CLAIM_GRACE_SECONDS = 7 * 24 * 60 * 60;
 
 export type MemberType = 'student' | 'coach';
 export type ExternalSource = 'chess_empire' | 'online';
+/**
+ * Family link type written to `organization_members.relationship`. Mirrors
+ * `MemberRelationship` in `chess-empire-member.ts` (kept as a local union to
+ * avoid a server-module import cycle). 'self' = the account owner is the
+ * student; 'child'/'other' = a guardian-managed family member.
+ */
+export type LinkRelationship = 'self' | 'child' | 'other';
 
 export interface InviteJwtPayload {
   /** Chess Empire student (or coach) UUID; a synthetic UUID for online tokens. */
@@ -69,6 +76,13 @@ export interface InviteJwtPayload {
    * first-choice source for the member's display name, ahead of the Clerk field.
    */
   first_name?: string;
+  /**
+   * Family link type for the resulting member row. Optional and absent on the
+   * default onboarding path (a student claiming themselves) — verify normalizes
+   * a missing claim to `'self'` so legacy tokens stay byte-identical. Set to
+   * `'child'`/`'other'` by the authenticated "add family member" flow.
+   */
+  relationship?: LinkRelationship;
 }
 
 interface InviteJwtClaims extends InviteJwtPayload {
@@ -76,6 +90,8 @@ interface InviteJwtClaims extends InviteJwtPayload {
   member_type: MemberType;
   /** Always populated after verify — normalized to `'chess_empire'` when absent. */
   external_source: ExternalSource;
+  /** Always populated after verify — normalized to `'self'` when absent. */
+  relationship: LinkRelationship;
   iat: number;
   exp: number;
 }
@@ -165,6 +181,12 @@ export function verifyInviteJwt(
   claims.member_type = claims.member_type === 'coach' ? 'coach' : 'student';
   // Back-compat: legacy tokens carry no external_source — treat as chess_empire.
   claims.external_source = claims.external_source === 'online' ? 'online' : 'chess_empire';
+  // Back-compat: legacy tokens carry no relationship — treat as 'self'. An
+  // unknown value coerces to 'self' so a bad claim never forges a guardian link.
+  claims.relationship =
+    claims.relationship === 'child' || claims.relationship === 'other'
+      ? claims.relationship
+      : 'self';
   return claims;
 }
 

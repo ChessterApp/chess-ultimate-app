@@ -10,6 +10,12 @@
  */
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import React from 'react';
+
+// The family bar (2+ members) renders AddFamilyMember, which uses the app
+// router. Stub it so the component tree mounts without a router provider.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
+}));
 import {
   render,
   screen,
@@ -75,6 +81,7 @@ function makeCard(over: Partial<CETournamentCard> = {}): CETournamentCard {
     roster: ['Aida Bekova', 'Timur Ali'],
     registration_id: null,
     is_registered: false,
+    registrations: [],
     ...over,
   };
 }
@@ -326,6 +333,172 @@ describe('CETournamentsView — deep link', () => {
     const highlighted = winter.closest('.tournament-row');
     expect(highlighted?.className).toContain('highlighted');
     expect(screen.queryByText('Spring Open')).toBeNull();
+  });
+});
+
+describe('CETournamentsView — family (multi-member) registration', () => {
+  const CHILD = { studentId: 'stu-child', name: 'Alikhan', relationship: 'child' as const };
+  const SELF = { studentId: 'stu-self', name: 'Parent P', relationship: 'self' as const };
+
+  function familyViewer(members = [CHILD, SELF]): CEViewer {
+    return { state: 'verified', studentName: 'Parent P', members };
+  }
+
+  /** The expanded tournament panel element, for scoped queries. */
+  function panel(id = 't-1'): HTMLElement {
+    return document.querySelector(
+      `[data-tournament-id="${id}"]`,
+    ) as HTMLElement;
+  }
+
+  it('shows no picker for a single verified member (regression bar)', () => {
+    renderView(familyViewer([SELF]), [makeCard()]);
+    expandBranch();
+    // Single member → the legacy one-click Register button, no picker group.
+    expect(
+      within(panel()).getByRole('button', { name: en.ceTournaments.register }),
+    ).toBeTruthy();
+    expect(
+      within(panel()).queryByRole('group', {
+        name: en.ceTournaments.pickMember,
+      }),
+    ).toBeNull();
+    // No family bar chrome for a single member.
+    expect(screen.queryByText(en.ceTournaments.familyTitle)).toBeNull();
+  });
+
+  it('single-member register sends no request body (byte-compatible)', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ registration_id: 'reg-9', registered_count: 6 }),
+    });
+    renderView(familyViewer([SELF]), [makeCard()]);
+    expandBranch();
+    fireEvent.click(
+      within(panel()).getByRole('button', { name: en.ceTournaments.register }),
+    );
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/chess-empire/tournaments/t-1/register',
+        { method: 'POST' },
+      );
+    });
+  });
+
+  it('opens a picker for 2+ members and POSTs the picked student_id', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ registration_id: 'reg-child', registered_count: 6 }),
+    });
+    renderView(familyViewer(), [makeCard()]);
+    expandBranch();
+
+    // Register opens the picker rather than registering directly.
+    fireEvent.click(
+      within(panel()).getByRole('button', { name: en.ceTournaments.register }),
+    );
+    const picker = within(panel()).getByRole('group', {
+      name: en.ceTournaments.pickMember,
+    });
+    // Both members are offered (neither is registered yet).
+    fireEvent.click(within(picker).getByRole('button', { name: /Alikhan/ }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/chess-empire/tournaments/t-1/register',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ student_id: 'stu-child' }),
+        },
+      );
+    });
+  });
+
+  it('renders a per-member chip for each registered child', () => {
+    renderView(familyViewer(), [
+      makeCard({
+        registrations: [{ studentId: 'stu-child', registrationId: 'reg-child' }],
+      }),
+    ]);
+    expandBranch();
+    // A "✓ Alikhan" chip appears in the card.
+    expect(within(panel()).getByText(/✓\s*Alikhan/)).toBeTruthy();
+    // The still-unregistered parent is offered in the picker after opening it.
+    fireEvent.click(
+      within(panel()).getByRole('button', { name: en.ceTournaments.register }),
+    );
+    const picker = within(panel()).getByRole('group', {
+      name: en.ceTournaments.pickMember,
+    });
+    expect(within(picker).getByRole('button', { name: /Parent P/ })).toBeTruthy();
+    expect(within(picker).queryByRole('button', { name: /Alikhan/ })).toBeNull();
+  });
+
+  it('cancel targets the picked member with a DELETE + student_id body', async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    renderView(familyViewer(), [
+      makeCard({
+        roster: ['Alikhan', 'Parent P'],
+        registrations: [
+          { studentId: 'stu-child', registrationId: 'reg-child' },
+          { studentId: 'stu-self', registrationId: 'reg-self' },
+        ],
+      }),
+    ]);
+    expandBranch();
+
+    // Cancel the child's chip specifically.
+    const cancelChild = within(panel()).getByRole('button', {
+      name: new RegExp(`${en.ceTournaments.cancelRegistration}.*Alikhan`),
+    });
+    fireEvent.click(cancelChild);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        '/api/chess-empire/tournaments/t-1/register',
+        {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ student_id: 'stu-child' }),
+        },
+      );
+    });
+  });
+
+  it('surfaces a localized message on a forbidden_student response', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'forbidden_student' }),
+    });
+    renderView(familyViewer(), [makeCard()]);
+    expandBranch();
+    fireEvent.click(
+      within(panel()).getByRole('button', { name: en.ceTournaments.register }),
+    );
+    const picker = within(panel()).getByRole('group', {
+      name: en.ceTournaments.pickMember,
+    });
+    fireEvent.click(within(picker).getByRole('button', { name: /Alikhan/ }));
+
+    await waitFor(() => {
+      expect(
+        within(panel()).getByText(en.ceTournaments.errors.forbidden_student),
+      ).toBeTruthy();
+    });
+  });
+
+  it('renders the family bar with each member and its relationship tag', () => {
+    renderView(familyViewer(), [makeCard()]);
+    expect(screen.getByText(en.ceTournaments.familyTitle)).toBeTruthy();
+    // Both members are listed in the bar with their relationship tags.
+    expect(screen.getAllByText(/Alikhan/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole('button', {
+        name: new RegExp(en.ceTournaments.addFamilyMember),
+      }),
+    ).toBeTruthy();
   });
 });
 

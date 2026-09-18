@@ -15,12 +15,12 @@ export default async function ChessEmpireTournaments({
 }: {
   deepLinkTournamentId?: string | null;
 }) {
-  const { membership, studentName, branches, tournaments } =
+  const { membership, studentName, members, branches, tournaments } =
     await loadCETournamentSnapshot();
 
   const viewer: CEViewer =
     membership === 'verified'
-      ? { state: 'verified', studentName }
+      ? { state: 'verified', studentName, members }
       : membership === 'unverified'
         ? { state: 'unverified' }
         : { state: 'logged_out' };

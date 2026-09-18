@@ -30,12 +30,17 @@ export type { CETournamentCard, CEBranchRef } from '@/lib/ce-tournaments-data';
 import type {
   CETournamentCard,
   CEBranchRef,
+  CETournamentMember,
 } from '@/lib/ce-tournaments-data';
+import AddFamilyMember from './AddFamilyMember';
+
+/** A verified family member the viewer may register/cancel. */
+export type CEMember = CETournamentMember;
 
 export type CEViewer =
   | { state: 'logged_out' }
   | { state: 'unverified' }
-  | { state: 'verified'; studentName: string | null };
+  | { state: 'verified'; studentName: string | null; members?: CEMember[] };
 
 const SIGN_IN_HREF = '/sign-in?redirect_url=/tournaments';
 const VERIFY_HREF = '/dashboard';
@@ -47,6 +52,9 @@ const LOCALE_TAG: Record<string, string> = {
   ru: 'ru-RU',
   kz: 'kk-KZ',
 };
+
+/** A member the viewer picked to register/cancel — sends `student_id`. */
+type RegisterTarget = { studentId: string; name: string | null };
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -178,6 +186,7 @@ interface PanelFeedback {
 function TournamentPanel({
   card,
   viewer,
+  members,
   feedback,
   highlighted,
   panelRef,
@@ -186,15 +195,17 @@ function TournamentPanel({
 }: {
   card: CETournamentCard;
   viewer: CEViewer;
+  members: CEMember[];
   feedback: PanelFeedback;
   highlighted: boolean;
   panelRef: (el: HTMLDivElement | null) => void;
-  onRegister: (card: CETournamentCard) => void;
-  onCancel: (card: CETournamentCard) => void;
+  onRegister: (card: CETournamentCard, target?: RegisterTarget) => void;
+  onCancel: (card: CETournamentCard, target?: RegisterTarget) => void;
 }) {
   const t = useTranslations('ceTournaments');
   const locale = useLocale();
   const tag = LOCALE_TAG[locale] ?? 'en-US';
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // Only tournaments with a deadline need a live clock (to flip to the closed
   // state when it passes). Without one, `now` stays fixed from first paint.
@@ -209,6 +220,17 @@ function TournamentPanel({
   const closed = isClosed(card, now);
   const registered = card.registration_id !== null;
   const busy = feedback.busy ?? false;
+
+  // A family account (2+ verified members) gets a per-member picker; a single
+  // member keeps the identical one-click UI (the regression bar).
+  const isMulti = members.length >= 2;
+  const registeredIds = new Set(
+    (card.registrations ?? []).map((r) => r.studentId),
+  );
+  const registeredMembers = members.filter((m) => registeredIds.has(m.studentId));
+  const unregisteredMembers = members.filter(
+    (m) => !registeredIds.has(m.studentId),
+  );
 
   const fillPct = Math.min(
     100,
@@ -301,7 +323,80 @@ function TournamentPanel({
             <Countdown deadline={card.registration_deadline} />
           )}
 
-          {registered ? (
+          {isMulti ? (
+            <div className="family-reg">
+              {registeredMembers.length > 0 && (
+                <div className="family-chips">
+                  {registeredMembers.map((m) => (
+                    <span className="family-chip" key={m.studentId}>
+                      <span className="chip-name">
+                        ✓ {m.name || t('yourself')}
+                      </span>
+                      <button
+                        type="button"
+                        className="chip-cancel"
+                        aria-label={`${t('cancelRegistration')} — ${m.name || t('yourself')}`}
+                        onClick={() =>
+                          onCancel(card, { studentId: m.studentId, name: m.name })
+                        }
+                        disabled={busy}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {unregisteredMembers.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    className="register-btn"
+                    onClick={() => setPickerOpen((o) => !o)}
+                    disabled={busy || closed}
+                    aria-expanded={pickerOpen}
+                  >
+                    {busy
+                      ? t('registering')
+                      : closed
+                        ? full
+                          ? t('tournamentFull')
+                          : t('registrationClosed')
+                        : t('register')}
+                  </button>
+                  {pickerOpen && !closed && (
+                    <div
+                      className="family-picker"
+                      role="group"
+                      aria-label={t('pickMember')}
+                    >
+                      <div className="picker-label">{t('pickMember')}</div>
+                      {unregisteredMembers.map((m) => (
+                        <button
+                          key={m.studentId}
+                          type="button"
+                          className="picker-option"
+                          onClick={() => {
+                            setPickerOpen(false);
+                            onRegister(card, {
+                              studentId: m.studentId,
+                              name: m.name,
+                            });
+                          }}
+                          disabled={busy}
+                        >
+                          <span>{m.name || t('yourself')}</span>
+                          <span className="rel-tag">
+                            {t(`relationship.${m.relationship}`)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ) : registered ? (
             <div className="registered-row">
               <span className="registered-label">{t('registered')}</span>
               <button
@@ -371,6 +466,7 @@ function BranchCard({
   expanded,
   onToggle,
   viewer,
+  members,
   feedbackById,
   highlightId,
   registerPanelRef,
@@ -382,11 +478,12 @@ function BranchCard({
   expanded: boolean;
   onToggle: () => void;
   viewer: CEViewer;
+  members: CEMember[];
   feedbackById: Record<string, PanelFeedback>;
   highlightId: string | null;
   registerPanelRef: (id: string, el: HTMLDivElement | null) => void;
-  onRegister: (card: CETournamentCard) => void;
-  onCancel: (card: CETournamentCard) => void;
+  onRegister: (card: CETournamentCard, target?: RegisterTarget) => void;
+  onCancel: (card: CETournamentCard, target?: RegisterTarget) => void;
 }) {
   const t = useTranslations('ceTournaments');
   const branchName = t.has(`branchNames.${branch.name}`)
@@ -439,6 +536,7 @@ function BranchCard({
                   key={card.id}
                   card={card}
                   viewer={viewer}
+                  members={members}
                   feedback={feedbackById[card.id] ?? {}}
                   highlighted={highlightId === card.id}
                   panelRef={(el) => registerPanelRef(card.id, el)}
@@ -469,6 +567,9 @@ export default function CETournamentsView({
   deepLinkTournamentId?: string | null;
 }) {
   const t = useTranslations('ceTournaments');
+
+  const members: CEMember[] =
+    viewer.state === 'verified' ? viewer.members ?? [] : [];
 
   const [items, setItems] = useState<CETournamentCard[]>(tournaments);
   const itemsRef = useRef(items);
@@ -586,7 +687,7 @@ export default function CETournamentsView({
       : '';
 
   const handleRegister = useCallback(
-    async (card: CETournamentCard) => {
+    async (card: CETournamentCard, target?: RegisterTarget) => {
       setFeedback(card.id, { error: null, notice: null });
 
       if (viewer.state === 'logged_out') {
@@ -601,9 +702,13 @@ export default function CETournamentsView({
       const original = itemsRef.current.find((it) => it.id === card.id);
       if (!original) return;
 
+      // The optimistic roster name: the picked member (family) or the viewer.
+      const rosterName = target?.name || viewerName;
+
       pendingRef.current.add(card.id);
       setFeedback(card.id, { busy: true });
       // Optimistic: flip to registered + drop the member's name into the roster.
+      // For a family pick, also append the member to the per-card registrations.
       setItems((prev) =>
         prev.map((it) =>
           it.id === card.id
@@ -612,7 +717,13 @@ export default function CETournamentsView({
                 registration_id: it.registration_id ?? 'optimistic',
                 is_registered: true,
                 registered_count: it.registered_count + 1,
-                roster: [...it.roster, viewerName],
+                roster: [...it.roster, rosterName],
+                registrations: target
+                  ? [
+                      ...(it.registrations ?? []),
+                      { studentId: target.studentId, registrationId: 'optimistic' },
+                    ]
+                  : it.registrations,
               }
             : it,
         ),
@@ -621,7 +732,15 @@ export default function CETournamentsView({
       try {
         const res = await fetch(
           `/api/chess-empire/tournaments/${card.id}/register`,
-          { method: 'POST' },
+          // A single-link account sends no body (server resolves its one
+          // student); a family pick names the student.
+          target
+            ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id: target.studentId }),
+              }
+            : { method: 'POST' },
         );
         const data = (await res.json().catch(() => ({}))) as {
           registration_id?: string;
@@ -646,6 +765,18 @@ export default function CETournamentsView({
                   registration_id:
                     data.registration_id ?? it.registration_id ?? 'registered',
                   registered_count: data.registered_count ?? it.registered_count,
+                  registrations: target
+                    ? (it.registrations ?? []).map((r) =>
+                        r.studentId === target.studentId &&
+                        r.registrationId === 'optimistic'
+                          ? {
+                              ...r,
+                              registrationId:
+                                data.registration_id ?? r.registrationId,
+                            }
+                          : r,
+                      )
+                    : it.registrations,
                 }
               : it,
           ),
@@ -664,9 +795,11 @@ export default function CETournamentsView({
   );
 
   const handleCancel = useCallback(
-    async (card: CETournamentCard) => {
+    async (card: CETournamentCard, target?: RegisterTarget) => {
       const original = itemsRef.current.find((it) => it.id === card.id);
       if (!original) return;
+
+      const rosterName = target?.name || viewerName;
 
       pendingRef.current.add(card.id);
       setFeedback(card.id, { busy: true, error: null, notice: null });
@@ -674,17 +807,26 @@ export default function CETournamentsView({
       setItems((prev) =>
         prev.map((it) => {
           if (it.id !== card.id) return it;
-          const idx = it.roster.lastIndexOf(viewerName);
+          const idx = it.roster.lastIndexOf(rosterName);
           const roster =
             idx >= 0
               ? [...it.roster.slice(0, idx), ...it.roster.slice(idx + 1)]
               : it.roster;
+          const registrations = target
+            ? (it.registrations ?? []).filter(
+                (r) => r.studentId !== target.studentId,
+              )
+            : it.registrations;
           return {
             ...it,
-            registration_id: null,
-            is_registered: false,
+            // Single-link keeps clearing its one registration; a family cancel
+            // drives its UI off `registrations`, so the legacy field is left
+            // untouched (it is invisible in the multi-member view).
+            registration_id: target ? it.registration_id : null,
+            is_registered: target ? it.is_registered : false,
             registered_count: Math.max(0, it.registered_count - 1),
             roster,
+            registrations,
           };
         }),
       );
@@ -692,7 +834,13 @@ export default function CETournamentsView({
       try {
         const res = await fetch(
           `/api/chess-empire/tournaments/${card.id}/register`,
-          { method: 'DELETE' },
+          target
+            ? {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id: target.studentId }),
+              }
+            : { method: 'DELETE' },
         );
         const data = (await res.json().catch(() => ({}))) as {
           error?: string;
@@ -746,6 +894,23 @@ export default function CETournamentsView({
           </div>
         )}
 
+        {viewer.state === 'verified' && members.length >= 2 && (
+          <div className="cet-family">
+            <div className="cet-family-list">
+              <span className="cet-family-title">{t('familyTitle')}</span>
+              {members.map((m) => (
+                <span className="cet-family-member" key={m.studentId}>
+                  {m.name || t('yourself')}
+                  <span className="rel-tag">
+                    {t(`relationship.${m.relationship}`)}
+                  </span>
+                </span>
+              ))}
+            </div>
+            <AddFamilyMember />
+          </div>
+        )}
+
         {grouped.length === 0 ? (
           <div className="cet-empty">
             <p>{t('empty')}</p>
@@ -764,6 +929,7 @@ export default function CETournamentsView({
                   )
                 }
                 viewer={viewer}
+                members={members}
                 feedbackById={feedbackById}
                 highlightId={deepLinkTournamentId}
                 registerPanelRef={registerPanelRef}
@@ -821,6 +987,132 @@ export default function CETournamentsView({
           padding: 40px 20px;
           text-align: center;
           color: #94a3b8;
+        }
+
+        /* Family bar (verified accounts) — roster of linked members + add flow. */
+        .cet-family {
+          background: #fff;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 12px 16px;
+          margin-bottom: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .cet-family-list {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .cet-family-title {
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #94a3b8;
+          font-weight: 700;
+        }
+        .cet-family-member {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #f1f5f9;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 0.85rem;
+          font-weight: 600;
+          color: #334155;
+        }
+        .cet-root .rel-tag {
+          font-size: 0.62rem;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: #64748b;
+          background: #e2e8f0;
+          border-radius: 999px;
+          padding: 1px 6px;
+          font-weight: 700;
+        }
+
+        /* Per-tournament family registration (picker + chips). */
+        .cet-root .family-reg {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+        .cet-root .family-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .cet-root .family-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          background: #ecfdf5;
+          border: 1px solid #a7f3d0;
+          color: #047857;
+          border-radius: 999px;
+          padding: 4px 6px 4px 12px;
+          font-size: 0.85rem;
+          font-weight: 600;
+        }
+        .cet-root .family-chip .chip-cancel {
+          border: none;
+          background: #d1fae5;
+          color: #047857;
+          width: 20px;
+          height: 20px;
+          border-radius: 50%;
+          line-height: 1;
+          cursor: pointer;
+          font-size: 0.9rem;
+        }
+        .cet-root .family-chip .chip-cancel:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .cet-root .family-picker {
+          border: 1px solid #e2e8f0;
+          border-radius: 10px;
+          padding: 8px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          background: #f8fafc;
+        }
+        .cet-root .family-picker .picker-label {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #94a3b8;
+          font-weight: 700;
+          padding: 2px 4px;
+        }
+        .cet-root .family-picker .picker-option {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          padding: 10px 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          background: #fff;
+          cursor: pointer;
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #1e293b;
+          transition: border-color 0.15s;
+        }
+        .cet-root .family-picker .picker-option:hover:not(:disabled) {
+          border-color: #3b82f6;
+        }
+        .cet-root .family-picker .picker-option:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
         }
 
         .cet-root .branches {

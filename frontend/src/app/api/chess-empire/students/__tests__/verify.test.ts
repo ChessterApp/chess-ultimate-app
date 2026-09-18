@@ -275,4 +275,60 @@ describe('POST /api/chess-empire/students/verify', () => {
     // Duplicate is caught before we ever hit the CE API.
     expect(ceCoachProfile).not.toHaveBeenCalled();
   });
+
+  it('carries relationship=child into the JWT when the add-family flow sends it', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    scripts['organization_members.maybeSingle'] = [{ data: null, error: null }];
+    ceProfile.mockResolvedValue({
+      id: 'stu-2',
+      first_name: 'C',
+      last_name: 'D',
+      branch_id: 'br-1',
+      status: 'active',
+      date_of_birth: '2015-01-01',
+    });
+    const res = await POST(
+      makeReq({ branchToken: 't', studentId: 'stu-2', relationship: 'child' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const claims = verifyInviteJwt(body.inviteJwt);
+    expect(claims.relationship).toBe('child');
+  });
+
+  it('defaults relationship to self when absent (legacy self-claim, back-compat)', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    scripts['organization_members.maybeSingle'] = [{ data: null, error: null }];
+    ceProfile.mockResolvedValue({
+      id: 'stu-1',
+      first_name: 'A',
+      last_name: 'B',
+      branch_id: 'br-1',
+      status: 'active',
+      date_of_birth: '2014-06-15',
+    });
+    const res = await POST(makeReq({ branchToken: 't', studentId: 'stu-1' }));
+    const body = await res.json();
+    const claims = verifyInviteJwt(body.inviteJwt);
+    expect(claims.relationship).toBe('self');
+  });
+
+  it('coerces an unexpected relationship value back to self (never forges a guardian link)', async () => {
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    scripts['organization_members.maybeSingle'] = [{ data: null, error: null }];
+    ceProfile.mockResolvedValue({
+      id: 'stu-1',
+      first_name: 'A',
+      last_name: 'B',
+      branch_id: 'br-1',
+      status: 'active',
+      date_of_birth: '2014-06-15',
+    });
+    const res = await POST(
+      makeReq({ branchToken: 't', studentId: 'stu-1', relationship: 'boss' }),
+    );
+    const body = await res.json();
+    const claims = verifyInviteJwt(body.inviteJwt);
+    expect(claims.relationship).toBe('self');
+  });
 });

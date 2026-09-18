@@ -2480,6 +2480,26 @@
     "rosterEmpty": "Ученики не найдены",
     "capacityLabel": "Зарегистрировано",
     "razryadOnly": "Только для учеников с разрядом",
+    "familyTitle": "Ваши игроки",
+    "relationship": {
+      "self": "Вы",
+      "child": "Ребёнок",
+      "other": "Родственник"
+    },
+    "pickMember": "Кто играет?",
+    "addFamilyMember": "Добавить члена семьи",
+    "addMemberTitle": "Добавить члена семьи",
+    "addMemberSearchPlaceholder": "Поиск по имени",
+    "addMemberSearching": "Поиск…",
+    "addMemberNoResults": "Подходящие ученики не найдены.",
+    "addMemberHint": "Введите не менее 2 букв.",
+    "addMemberUnavailable": "Не удалось найти приглашение вашего филиала на этом устройстве. Откройте ссылку-приглашение филиала, чтобы добавить ещё одного ребёнка.",
+    "addMemberSubmit": "Добавить",
+    "addMemberSubmitting": "Добавление…",
+    "addMemberBack": "Назад",
+    "addMemberCancel": "Отмена",
+    "addMemberSuccess": "{name} добавлен(а) в вашу семью.",
+    "addMemberError": "Не удалось добавить. Попробуйте ещё раз.",
     "countdown": {
       "label": "До закрытия регистрации",
       "days": "ДНЕЙ",
@@ -2510,7 +2530,9 @@
       "server_error": "Не удалось зарегистрироваться. Попробуйте ещё раз.",
       "network": "Ошибка сети. Попробуйте ещё раз.",
       "registerFailed": "Не удалось зарегистрироваться. Попробуйте ещё раз.",
-      "cancelFailed": "Не удалось отменить. Попробуйте ещё раз."
+      "cancelFailed": "Не удалось отменить. Попробуйте ещё раз.",
+      "student_required": "Выберите, кого из семьи зарегистрировать.",
+      "forbidden_student": "Вы можете регистрировать только своих членов семьи."
     }
   },
   "wheel": {

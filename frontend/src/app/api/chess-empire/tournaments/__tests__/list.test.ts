@@ -13,11 +13,17 @@ vi.mock('@clerk/nextjs/server', () => ({
   auth: async () => ({ userId: authStore.userId }),
 }));
 
-const memberStore: { result: { state: string; studentId: string | null } } = {
-  result: { state: 'verified', studentId: 'stu-1' },
+interface FakeMember {
+  state: string;
+  studentId: string | null;
+  relationship: 'self' | 'child' | 'other';
+}
+const memberStore: { members: FakeMember[] } = {
+  members: [{ state: 'verified', studentId: 'stu-1', relationship: 'self' }],
 };
 vi.mock('@/lib/chess-empire-member', () => ({
-  getMembershipStateForUser: vi.fn(async () => memberStore.result),
+  // The snapshot now resolves the full verified allowlist (family multi-link).
+  getVerifiedMembersForUser: vi.fn(async () => memberStore.members),
 }));
 
 const listMock = vi.fn();
@@ -37,7 +43,9 @@ import { GET } from '../route';
 
 beforeEach(() => {
   authStore.userId = null;
-  memberStore.result = { state: 'verified', studentId: 'stu-1' };
+  memberStore.members = [
+    { state: 'verified', studentId: 'stu-1', relationship: 'self' },
+  ];
   listMock.mockReset();
   regsMock.mockReset();
   rosterMock.mockReset().mockResolvedValue([]);

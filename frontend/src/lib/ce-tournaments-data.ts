@@ -14,7 +14,10 @@
  */
 import 'server-only';
 import { auth } from '@clerk/nextjs/server';
-import { getMembershipStateForUser } from '@/lib/chess-empire-member';
+import {
+  getVerifiedMembersForUser,
+  type MemberRelationship,
+} from '@/lib/chess-empire-member';
 import {
   listTournaments,
   listBranches,
@@ -45,9 +48,31 @@ export interface CETournamentCard {
   registration_deadline: string | null;
   /** Registered players' full names, in registration order. */
   roster: string[];
-  /** Non-null when the viewing member is already registered. */
+  /**
+   * Non-null when the PRIMARY member is already registered. Kept for byte
+   * compatibility with single-link callers and the poll route; multi-member UI
+   * reads `registrations` instead.
+   */
   registration_id: string | null;
   is_registered: boolean;
+  /**
+   * Every family member registered for this tournament (studentId →
+   * registrationId). Empty for a logged-out/unverified viewer. A single-link
+   * account has at most one entry — mirroring `registration_id`.
+   */
+  registrations: CETournamentRegistration[];
+}
+
+export interface CETournamentRegistration {
+  studentId: string;
+  registrationId: string;
+}
+
+/** A verified family member the viewer may register/cancel. */
+export interface CETournamentMember {
+  studentId: string;
+  name: string | null;
+  relationship: MemberRelationship;
 }
 
 export interface CEBranchRef {
@@ -59,7 +84,10 @@ export type CEMembership = 'logged_out' | 'unverified' | 'verified';
 
 export interface CETournamentSnapshot {
   membership: CEMembership;
+  /** Display name of the PRIMARY member (byte-compatible single-link field). */
   studentName: string | null;
+  /** Every verified family member; empty unless `membership === 'verified'`. */
+  members: CETournamentMember[];
   branches: CEBranchRef[];
   tournaments: CETournamentCard[];
 }
@@ -80,22 +108,62 @@ export async function loadCETournamentSnapshot(): Promise<CETournamentSnapshot> 
   const rosterById = new Map<string, string[]>();
   rawTournaments.forEach((t, i) => rosterById.set(t.id, rosterLists[i] ?? []));
 
-  // Viewer membership + their own registrations + display name (best-effort).
+  // Viewer membership + every family member's registrations + display names.
+  // A family account holds several verified links; each member's name and
+  // registration set is fetched in parallel and best-effort (a failure degrades
+  // that member to a null name / no registrations without sinking the snapshot).
   let membership: CEMembership = 'logged_out';
   let studentName: string | null = null;
-  const registrationByTournament = new Map<string, string>();
+  let members: CETournamentMember[] = [];
+  // Per-tournament: all members registered (drives the multi-member UI).
+  const registrationsByTournament = new Map<string, CETournamentRegistration[]>();
+  // Per-tournament: the PRIMARY member's registration id (legacy single-link
+  // fields — kept byte-compatible with the poll route + other consumers).
+  const primaryRegistrationByTournament = new Map<string, string>();
   try {
     const { userId } = await auth();
     if (userId) {
-      const member = await getMembershipStateForUser(userId);
-      if (member.state === 'verified' && member.studentId) {
+      const verified = (await getVerifiedMembersForUser(userId)).filter(
+        (m): m is typeof m & { studentId: string } => !!m.studentId,
+      );
+      if (verified.length > 0) {
         membership = 'verified';
-        const [regs, name] = await Promise.all([
-          getStudentTournamentRegistrations(member.studentId),
-          getStudentDisplayName(member.studentId),
+        // Deterministic primary — 'self' wins, else the first verified row
+        // (already id-ordered), matching `pickPrimaryState` in the member lib.
+        const primary =
+          verified.find((m) => m.relationship === 'self') ?? verified[0];
+
+        const [names, regLists] = await Promise.all([
+          Promise.all(
+            verified.map((m) =>
+              getStudentDisplayName(m.studentId).catch(() => null),
+            ),
+          ),
+          Promise.all(
+            verified.map((m) =>
+              getStudentTournamentRegistrations(m.studentId).catch(() => []),
+            ),
+          ),
         ]);
-        for (const r of regs) registrationByTournament.set(r.tournament_id, r.id);
-        studentName = name;
+
+        members = verified.map((m, i) => ({
+          studentId: m.studentId,
+          name: names[i],
+          relationship: m.relationship,
+        }));
+        studentName =
+          members.find((m) => m.studentId === primary.studentId)?.name ?? null;
+
+        verified.forEach((m, i) => {
+          for (const r of regLists[i]) {
+            const list = registrationsByTournament.get(r.tournament_id) ?? [];
+            list.push({ studentId: m.studentId, registrationId: r.id });
+            registrationsByTournament.set(r.tournament_id, list);
+            if (m.studentId === primary.studentId) {
+              primaryRegistrationByTournament.set(r.tournament_id, r.id);
+            }
+          }
+        });
       } else {
         membership = 'unverified';
       }
@@ -155,10 +223,11 @@ export async function loadCETournamentSnapshot(): Promise<CETournamentSnapshot> 
           (t as { registration_deadline?: string | null }).registration_deadline ??
           null,
         roster,
-        registration_id: registrationByTournament.get(t.id) ?? null,
-        is_registered: registrationByTournament.has(t.id),
+        registration_id: primaryRegistrationByTournament.get(t.id) ?? null,
+        is_registered: primaryRegistrationByTournament.has(t.id),
+        registrations: registrationsByTournament.get(t.id) ?? [],
       };
     });
 
-  return { membership, studentName, branches, tournaments };
+  return { membership, studentName, members, branches, tournaments };
 }

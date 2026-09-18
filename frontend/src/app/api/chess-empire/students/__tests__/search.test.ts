@@ -244,6 +244,33 @@ describe('GET /api/chess-empire/students/search', () => {
     ]);
   });
 
+  it('add-family-member: excludes a child already linked, keeps the new one', async () => {
+    // A parent searching to add a second child: their first child (stu-linked)
+    // is already in organization_members and must be filtered out; the new
+    // sibling (stu-new) is offered.
+    scripts['branch_invite_tokens.maybeSingle'] = [{ data: VALID_TOKEN, error: null }];
+    ceSearch.mockResolvedValue([
+      { id: 'stu-linked', first_name: 'Alikhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
+      { id: 'stu-new', first_name: 'Aruzhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
+    ]);
+    scripts['organization_members.select'] = [
+      { data: [{ external_student_id: 'stu-linked' }], error: null },
+    ];
+    const res = await GET(makeReq('http://x/api/?branchToken=t&q=a'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results).toEqual([
+      {
+        studentId: 'stu-new',
+        firstName: 'Aruzhan',
+        lastName: 'A',
+        branchName: 'Debut',
+        coachName: null,
+        type: 'student',
+      },
+    ]);
+  });
+
   it('429 when rate-limited', async () => {
     rl.mockReturnValueOnce({ allowed: false, remaining: 0, retryAfterSeconds: 42 });
     const res = await GET(makeReq('http://x/api/?branchToken=t&q=ai'));

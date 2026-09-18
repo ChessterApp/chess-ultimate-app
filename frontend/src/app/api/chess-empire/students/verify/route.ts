@@ -19,7 +19,11 @@ import {
   getCoachProfile,
   ChessEmpireAPIError,
 } from '@/lib/chess-empire-client';
-import { signInviteJwt, type MemberType } from '@/lib/invite-jwt';
+import {
+  signInviteJwt,
+  type MemberType,
+  type LinkRelationship,
+} from '@/lib/invite-jwt';
 import {
   insertPendingRegistration,
   CE_PENDING_COOKIE,
@@ -40,6 +44,13 @@ interface VerifyBody {
   studentId?: string;
   /** Optional; `'coach'` claims a CE coach instead of a student. */
   type?: string;
+  /**
+   * Optional family link type for the resulting member row. Only `'child'` /
+   * `'other'` are honoured (the "add family member" flow); anything else —
+   * including `'self'` or absent — leaves the JWT legacy-shaped so the resulting
+   * row keeps the DB default of `'self'`.
+   */
+  relationship?: string;
 }
 
 function clientIp(req: NextRequest): string {
@@ -94,6 +105,12 @@ export async function POST(req: NextRequest) {
   const branchToken = body.branchToken?.trim() ?? '';
   const studentId = body.studentId?.trim() ?? '';
   const memberType: MemberType = body.type === 'coach' ? 'coach' : 'student';
+  // Guardian links only ever come from the authenticated add-family-member flow;
+  // a second 'self' is meaningless here so only 'child'/'other' are accepted.
+  const relationship: LinkRelationship | undefined =
+    body.relationship === 'child' || body.relationship === 'other'
+      ? body.relationship
+      : undefined;
   if (!branchToken || !studentId) {
     return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
   }
@@ -193,6 +210,8 @@ export async function POST(req: NextRequest) {
     org_id: token.organization_id,
     // Omit for students so legacy-shaped tokens stay identical (back-compat).
     ...(memberType === 'coach' ? { member_type: 'coach' as const } : {}),
+    // Omit for self-claims so legacy-shaped tokens stay identical (back-compat).
+    ...(relationship ? { relationship } : {}),
   });
 
   // Durable pending link: persist the row + drop an httpOnly cookie carrying

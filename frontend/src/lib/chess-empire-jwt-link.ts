@@ -25,6 +25,7 @@ import {
   jwtJtiHash,
   InviteJwtError,
   type MemberType,
+  type LinkRelationship,
 } from '@/lib/invite-jwt';
 
 export type AttemptSource =
@@ -123,6 +124,12 @@ export interface UpsertLinkArgs {
   linkSource: AttemptSource;
   /** Member role written to the row. Defaults to 'student'. */
   memberType?: 'student' | 'coach';
+  /**
+   * Family link type. Omitted → the column keeps its DB default ('self') on
+   * insert and its existing value on conflict, so the legacy self-claim path is
+   * untouched. The "add family member" flow passes 'child'/'other'.
+   */
+  relationship?: LinkRelationship;
   /** Onboarding track written to `external_source`. Defaults to 'chess_empire'. */
   externalSource?: 'chess_empire' | 'online';
   /**
@@ -150,6 +157,7 @@ export async function upsertMemberLink({
   memberType = 'student',
   externalSource = 'chess_empire',
   accessTtlHours = null,
+  relationship,
   email,
   name,
 }: UpsertLinkArgs): Promise<void> {
@@ -165,6 +173,12 @@ export async function upsertMemberLink({
     link_status: linkStatus,
     link_source: linkSource,
   };
+  // Only stamp the relationship when the caller specifies a guardian link. A
+  // 'self'/omitted value is left off so the DB default holds on insert and an
+  // existing relationship is never clobbered on conflict.
+  if (relationship === 'child' || relationship === 'other') {
+    payload.relationship = relationship;
+  }
   // Only stamp email/name when the caller actually has them — an omitted field
   // must not clobber a value backfilled by another path.
   if (email != null) payload.email = email;
@@ -300,6 +314,9 @@ export async function linkMemberViaInviteJwt(
       // tokens omit both, so this defaults back to the legacy chess_empire path.
       externalSource: claims.external_source,
       accessTtlHours: claims.access_ttl_hours ?? null,
+      // 'self' (the default) is passed as-is → upsert leaves it off so the DB
+      // default holds; the add-family-member flow signs 'child'/'other'.
+      relationship: claims.relationship,
       email,
       name: opts.name ?? claims.first_name ?? null,
     });

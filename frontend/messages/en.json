@@ -2480,6 +2480,26 @@
     "rosterEmpty": "No students found",
     "capacityLabel": "Registered",
     "razryadOnly": "Razryad holders only",
+    "familyTitle": "Your players",
+    "relationship": {
+      "self": "You",
+      "child": "Child",
+      "other": "Family"
+    },
+    "pickMember": "Who's playing?",
+    "addFamilyMember": "Add family member",
+    "addMemberTitle": "Add a family member",
+    "addMemberSearchPlaceholder": "Search by name",
+    "addMemberSearching": "Searching…",
+    "addMemberNoResults": "No matching students found.",
+    "addMemberHint": "Type at least 2 letters.",
+    "addMemberUnavailable": "We couldn't find your branch invite on this device. Open your branch's invite link to add another child.",
+    "addMemberSubmit": "Add",
+    "addMemberSubmitting": "Adding…",
+    "addMemberBack": "Back",
+    "addMemberCancel": "Cancel",
+    "addMemberSuccess": "{name} added to your family.",
+    "addMemberError": "Couldn't add this member. Please try again.",
     "countdown": {
       "label": "Registration closes in",
       "days": "DAYS",
@@ -2510,7 +2530,9 @@
       "server_error": "Registration failed. Please try again.",
       "network": "Network error. Please try again.",
       "registerFailed": "Registration failed. Please try again.",
-      "cancelFailed": "Could not cancel. Please try again."
+      "cancelFailed": "Could not cancel. Please try again.",
+      "student_required": "Choose which family member to register.",
+      "forbidden_student": "You can only register your own family members."
     }
   },
   "wheel": {
