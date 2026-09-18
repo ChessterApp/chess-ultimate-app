@@ -9,6 +9,7 @@ import { CelebrationController } from '@/components/gamification/CelebrationCont
 import { StreakBanner } from '@/components/gamification/StreakBanner'
 import { XPDisplay } from '@/components/gamification/XPDisplay'
 import LoadingScreen from '@/components/LoadingScreen'
+import FamilySection from './FamilySection'
 import type { CEAchievement } from '@/lib/chess-empire-client'
 import type { GamificationProfile } from '@/lib/gamification/profile'
 import type { ItemRow } from '@/lib/gamification/items'
@@ -327,6 +328,10 @@ export default function ProfilePage() {
             <p className="text-sm text-gray-500">{t('gamification.notLinkedBody')}</p>
           </div>
         )}
+
+        {/* Family — verified Chess Empire members on this account (self-hides
+            when there are none). */}
+        <FamilySection />
 
         {/* Account Actions */}
         <div className="bg-white rounded-2xl shadow-md p-6">

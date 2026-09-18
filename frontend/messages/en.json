@@ -2533,7 +2533,8 @@
       "cancelFailed": "Could not cancel. Please try again.",
       "student_required": "Choose which family member to register.",
       "forbidden_student": "You can only register your own family members."
-    }
+    },
+    "addMemberResolving": "Finding your branch…"
   },
   "wheel": {
     "title": "Prize Wheel",
@@ -2618,5 +2619,19 @@
       "discoveredAttack": "Discovered Attack",
       "hangingPiece": "Hanging Piece"
     }
+  },
+  "family": {
+    "title": "Family",
+    "subtitle": "Players linked to this account",
+    "statusVerified": "Verified",
+    "unknownMember": "Chess Empire member",
+    "removeMember": "Remove",
+    "removeMemberAria": "Remove {name}",
+    "removeConfirmTitle": "Remove {name}?",
+    "removeConfirmBody": "They will disappear from tournament registration on this account. Existing tournament registrations at the school are NOT cancelled.",
+    "removeConfirmButton": "Remove",
+    "removeCancelButton": "Cancel",
+    "removing": "Removing…",
+    "removeError": "Couldn't remove this member. Please try again."
   }
 }

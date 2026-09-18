@@ -2533,7 +2533,8 @@
       "cancelFailed": "Не удалось отменить. Попробуйте ещё раз.",
       "student_required": "Выберите, кого из семьи зарегистрировать.",
       "forbidden_student": "Вы можете регистрировать только своих членов семьи."
-    }
+    },
+    "addMemberResolving": "Определяем ваш филиал…"
   },
   "wheel": {
     "title": "Колесо призов",
@@ -2618,5 +2619,19 @@
       "discoveredAttack": "Вскрытое нападение",
       "hangingPiece": "Висящая фигура"
     }
+  },
+  "family": {
+    "title": "Семья",
+    "subtitle": "Игроки, привязанные к этому аккаунту",
+    "statusVerified": "Подтверждён",
+    "unknownMember": "Участник Chess Empire",
+    "removeMember": "Удалить",
+    "removeMemberAria": "Удалить {name}",
+    "removeConfirmTitle": "Удалить {name}?",
+    "removeConfirmBody": "Он исчезнет из регистрации на турниры в этом аккаунте. Существующие регистрации на турниры в школе НЕ отменяются.",
+    "removeConfirmButton": "Удалить",
+    "removeCancelButton": "Отмена",
+    "removing": "Удаление…",
+    "removeError": "Не удалось удалить участника. Попробуйте ещё раз."
   }
 }

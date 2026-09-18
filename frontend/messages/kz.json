@@ -2533,7 +2533,8 @@
       "cancelFailed": "Болдырмау сәтсіз аяқталды. Қайталап көріңіз.",
       "student_required": "Отбасының кайсысын тіркейтініңізді таңдаңыз.",
       "forbidden_student": "Сіз тек өз отбасы мүшелеріңізді тіркей аласыз."
-    }
+    },
+    "addMemberResolving": "Филиалыңызды анықтап жатырмыз…"
   },
   "wheel": {
     "title": "Жүлде дөңгелегі",
@@ -2618,5 +2619,19 @@
       "discoveredAttack": "Ашылған шабуыл",
       "hangingPiece": "Ілулі фигура"
     }
+  },
+  "family": {
+    "title": "Отбасы",
+    "subtitle": "Осы аккаунтқа байланған ойыншылар",
+    "statusVerified": "Расталған",
+    "unknownMember": "Chess Empire қатысушысы",
+    "removeMember": "Жою",
+    "removeMemberAria": "{name} жою",
+    "removeConfirmTitle": "{name} жойылсын ба?",
+    "removeConfirmBody": "Ол осы аккаунттағы турнирге тіркеуден жоғалады. Мектептегі бұрынғы турнир тіркеулері ЖОЙЫЛМАЙДЫ.",
+    "removeConfirmButton": "Жою",
+    "removeCancelButton": "Болдырмау",
+    "removing": "Жойылуда…",
+    "removeError": "Қатысушыны жою мүмкін болмады. Қайталап көріңіз."
   }
 }

@@ -32,7 +32,7 @@ import type {
   CEBranchRef,
   CETournamentMember,
 } from '@/lib/ce-tournaments-data';
-import AddFamilyMember from './AddFamilyMember';
+import AddFamilyMember from '@/components/empire/AddFamilyMember';
 
 /** A verified family member the viewer may register/cancel. */
 export type CEMember = CETournamentMember;

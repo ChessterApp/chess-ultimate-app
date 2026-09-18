@@ -6,9 +6,13 @@
  * A verified parent links an additional child from here, reusing the same
  * public onboarding endpoints as the welcome page — search → verify → claim —
  * but writing `relationship='child'` (or 'other') instead of the default
- * 'self'. The branch context is recovered from the durable branch-welcome URL
- * the parent's own onboarding stashed (`readBranchWelcomeUrl`); without it we
- * can't scope the search, so the panel explains how to proceed instead.
+ * 'self'. The branch context is resolved two ways: the fast path reads the
+ * durable branch-welcome URL the parent's own onboarding stashed
+ * (`readBranchWelcomeUrl`); when that device storage is empty (e.g. a second
+ * device), it falls back to server-side resolution via
+ * `GET /api/chess-empire/link/members`, which derives the branch from the
+ * caller's existing verified member. Only when neither yields a token does the
+ * panel explain how to proceed.
  *
  * On a successful claim the parent is already signed in, so the member row is
  * written server-side immediately; a `router.refresh()` reloads the page's
@@ -45,6 +49,7 @@ export default function AddFamilyMember() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [branchToken, setBranchToken] = useState<string | null>(null);
+  const [branchResolved, setBranchResolved] = useState(false);
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [results, setResults] = useState<SearchResult[] | null>(null);
@@ -55,11 +60,36 @@ export default function AddFamilyMember() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  // Resolve the stored branch token when the panel first opens (localStorage is
-  // unavailable during SSR, so this must run client-side).
+  // Resolve the branch token when the panel first opens (localStorage is
+  // unavailable during SSR, so this must run client-side). Fast path: the
+  // stashed branch-welcome URL. Fallback: server-side resolution from the
+  // caller's verified member, so the panel works on a device that never did
+  // the original onboarding.
   useEffect(() => {
     if (!open) return;
-    setBranchToken(branchTokenFromUrl(readBranchWelcomeUrl()));
+    const fast = branchTokenFromUrl(readBranchWelcomeUrl());
+    if (fast) {
+      setBranchToken(fast);
+      setBranchResolved(true);
+      return;
+    }
+    let cancelled = false;
+    setBranchResolved(false);
+    fetch('/api/chess-empire/link/members')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { branchToken?: string | null } | null) => {
+        if (cancelled) return;
+        setBranchToken(body?.branchToken ?? null);
+        setBranchResolved(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setBranchToken(null);
+        setBranchResolved(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -106,6 +136,7 @@ export default function AddFamilyMember() {
     setOpen(false);
     reset();
     setDone(null);
+    setBranchResolved(false);
   }, [reset]);
 
   const submit = useCallback(async () => {
@@ -190,7 +221,9 @@ export default function AddFamilyMember() {
           </button>
         </div>
 
-        {!branchToken ? (
+        {!branchResolved ? (
+          <p className="afm-hint">{t('addMemberResolving')}</p>
+        ) : !branchToken ? (
           <p className="afm-hint">{t('addMemberUnavailable')}</p>
         ) : selected ? (
           <div className="afm-confirm">

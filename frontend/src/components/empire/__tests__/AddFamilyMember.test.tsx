@@ -114,8 +114,68 @@ describe('AddFamilyMember', () => {
     expect(refreshMock).toHaveBeenCalled();
   });
 
-  it('explains when no branch invite is available on this device', async () => {
+  it('falls back to server-side branch resolution when device storage is empty', async () => {
     localStorage.clear();
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/link/members')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ members: [], branchToken: 'tok-server' }),
+        });
+      }
+      if (url.includes('/students/search')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            results: [
+              {
+                studentId: 'stu-new',
+                firstName: 'Aruzhan',
+                lastName: 'A',
+                branchName: 'Debut',
+                type: 'student',
+              },
+            ],
+          }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    renderAdd();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: new RegExp(en.ceTournaments.addFamilyMember),
+      }),
+    );
+
+    // The server-resolved token scopes the search on a device with no stashed
+    // branch-welcome URL.
+    const input = await screen.findByLabelText(
+      en.ceTournaments.addMemberSearchPlaceholder,
+    );
+    fireEvent.change(input, { target: { value: 'aru' } });
+    const result = await screen.findByRole('button', { name: /Aruzhan/ });
+    expect(result).toBeTruthy();
+    expect(
+      fetchMock.mock.calls.some((c) =>
+        String(c[0]).includes('branchToken=tok-server'),
+      ),
+    ).toBe(true);
+  });
+
+  it('explains when neither device storage nor the server yields a branch token', async () => {
+    localStorage.clear();
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes('/link/members')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ members: [], branchToken: null }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
     renderAdd();
     fireEvent.click(
       screen.getByRole('button', {
@@ -123,7 +183,7 @@ describe('AddFamilyMember', () => {
       }),
     );
     expect(
-      screen.getByText(en.ceTournaments.addMemberUnavailable),
+      await screen.findByText(en.ceTournaments.addMemberUnavailable),
     ).toBeTruthy();
   });
 });
