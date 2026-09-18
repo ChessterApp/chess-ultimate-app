@@ -93,7 +93,7 @@ describe('AddFamilyMember', () => {
       }),
     );
 
-    const input = screen.getByLabelText(
+    const input = await screen.findByLabelText(
       en.ceTournaments.addMemberSearchPlaceholder,
     );
     fireEvent.change(input, { target: { value: 'aru' } });
@@ -162,6 +162,68 @@ describe('AddFamilyMember', () => {
         String(c[0]).includes('branchToken=tok-server'),
       ),
     ).toBe(true);
+  });
+
+  it('online account: renders the mint form (no search) and posts to /online/family', async () => {
+    localStorage.clear();
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
+      if (url.includes('/link/members')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            members: [
+              {
+                studentId: 'stu-self',
+                name: 'Online Parent',
+                relationship: 'self',
+                status: 'verified',
+                source: 'online',
+              },
+            ],
+            branchToken: null,
+          }),
+        });
+      }
+      if (url.includes('/online/family')) {
+        expect(opts?.method).toBe('POST');
+        expect(JSON.parse(String(opts?.body))).toEqual({
+          name: 'Sam',
+          relationship: 'child',
+        });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, studentId: 'stu-new' }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    });
+
+    renderAdd();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: new RegExp(en.ceTournaments.addFamilyMember),
+      }),
+    );
+
+    // Online mode shows a name field — and NEVER the roster search box.
+    const nameInput = await screen.findByLabelText(
+      en.ceTournaments.addMemberNamePlaceholder,
+    );
+    expect(
+      screen.queryByLabelText(en.ceTournaments.addMemberSearchPlaceholder),
+    ).toBeNull();
+
+    fireEvent.change(nameInput, { target: { value: 'Sam' } });
+    fireEvent.click(
+      screen.getByRole('button', { name: en.ceTournaments.addMemberSubmit }),
+    );
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/online/family')),
+      ).toBe(true);
+    });
+    expect(refreshMock).toHaveBeenCalled();
   });
 
   it('explains when neither device storage nor the server yields a branch token', async () => {

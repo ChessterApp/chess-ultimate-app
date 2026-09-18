@@ -16,6 +16,7 @@ interface MemberState {
   state: string;
   studentId: string | null;
   relationship: 'self' | 'child' | 'other';
+  source: 'chess_empire' | 'online';
 }
 const memberStore: { members: MemberState[]; throws: boolean } = {
   members: [],
@@ -90,10 +91,10 @@ describe('GET /api/chess-empire/link/members', () => {
     expect(await res.json()).toEqual({ members: [], branchToken: null });
   });
 
-  it('maps verified members with name, relationship and status', async () => {
+  it('maps verified members with name, relationship, status and source', async () => {
     memberStore.members = [
-      { state: 'verified', studentId: 'stu-self', relationship: 'self' },
-      { state: 'verified', studentId: 'stu-kid', relationship: 'child' },
+      { state: 'verified', studentId: 'stu-self', relationship: 'self', source: 'chess_empire' },
+      { state: 'verified', studentId: 'stu-kid', relationship: 'child', source: 'chess_empire' },
     ];
     nameStore['stu-self'] = 'Alex Parent';
     nameStore['stu-kid'] = 'Aruzhan Kid';
@@ -111,16 +112,60 @@ describe('GET /api/chess-empire/link/members', () => {
     const res = await GET();
     const body = await res.json();
     expect(body.members).toEqual([
-      { studentId: 'stu-self', name: 'Alex Parent', relationship: 'self', status: 'verified' },
-      { studentId: 'stu-kid', name: 'Aruzhan Kid', relationship: 'child', status: 'verified' },
+      {
+        studentId: 'stu-self',
+        name: 'Alex Parent',
+        relationship: 'self',
+        status: 'verified',
+        source: 'chess_empire',
+      },
+      {
+        studentId: 'stu-kid',
+        name: 'Aruzhan Kid',
+        relationship: 'child',
+        status: 'verified',
+        source: 'chess_empire',
+      },
     ]);
     // Branch resolved from the primary (self) member.
     expect(body.branchToken).toBe('tok-new');
   });
 
+  it('surfaces source=online and keeps branchToken null for an online account', async () => {
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-online', relationship: 'self', source: 'online' },
+    ];
+    nameStore['stu-online'] = 'Online Parent';
+    branchStore['stu-online'] = 'branch-online';
+    // Only an online token exists for the branch — explicitly excluded from
+    // branch-token resolution, so an online account resolves to null.
+    tokenStore.rows = [
+      {
+        token: 'tok-online',
+        kind: 'online',
+        expires_at: null,
+        revoked_at: null,
+        created_at: '2026-03-01',
+      },
+    ];
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.members).toEqual([
+      {
+        studentId: 'stu-online',
+        name: 'Online Parent',
+        relationship: 'self',
+        status: 'verified',
+        source: 'online',
+      },
+    ]);
+    expect(body.branchToken).toBeNull();
+  });
+
   it('resolves the newest active branch token, ignoring revoked/expired/online', async () => {
     memberStore.members = [
-      { state: 'verified', studentId: 'stu-kid', relationship: 'child' },
+      { state: 'verified', studentId: 'stu-kid', relationship: 'child', source: 'chess_empire' },
     ];
     branchStore['stu-kid'] = 'branch-9';
     tokenStore.rows = [
@@ -139,7 +184,7 @@ describe('GET /api/chess-empire/link/members', () => {
 
   it('returns null branch token when the student has no resolvable branch', async () => {
     memberStore.members = [
-      { state: 'verified', studentId: 'stu-kid', relationship: 'child' },
+      { state: 'verified', studentId: 'stu-kid', relationship: 'child', source: 'chess_empire' },
     ];
     // branchStore has no entry → branch id null → no token.
     const res = await GET();

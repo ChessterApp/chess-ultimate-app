@@ -2500,6 +2500,8 @@
     "addMemberCancel": "Cancel",
     "addMemberSuccess": "{name} added to your family.",
     "addMemberError": "Couldn't add this member. Please try again.",
+    "addMemberNamePlaceholder": "Full name",
+    "addMemberOnlineSubtitle": "Add a family member to register them for tournaments.",
     "countdown": {
       "label": "Registration closes in",
       "days": "DAYS",

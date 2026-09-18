@@ -571,6 +571,17 @@ export default function CETournamentsView({
   const members: CEMember[] =
     viewer.state === 'verified' ? viewer.members ?? [] : [];
 
+  // The add-family-member affordance shows for any family account (2+ members).
+  // Online accounts are self-contained — their family IS the roster they mint —
+  // so the gate drops to 1 member for them (the parent's first add starts from
+  // their own 'self' link). Branch accounts keep the 2+ gate to avoid surfacing
+  // a roster-search box for a solo branch parent.
+  const primaryMember =
+    members.find((m) => m.relationship === 'self') ?? members[0];
+  const isOnlineAccount = primaryMember?.source === 'online';
+  const showFamilyBar =
+    members.length >= 2 || (isOnlineAccount && members.length >= 1);
+
   const [items, setItems] = useState<CETournamentCard[]>(tournaments);
   const itemsRef = useRef(items);
   itemsRef.current = items;
@@ -894,7 +905,7 @@ export default function CETournamentsView({
           </div>
         )}
 
-        {viewer.state === 'verified' && members.length >= 2 && (
+        {viewer.state === 'verified' && showFamilyBar && (
           <div className="cet-family">
             <div className="cet-family-list">
               <span className="cet-family-title">{t('familyTitle')}</span>

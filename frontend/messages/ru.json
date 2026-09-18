@@ -2500,6 +2500,8 @@
     "addMemberCancel": "Отмена",
     "addMemberSuccess": "{name} добавлен(а) в вашу семью.",
     "addMemberError": "Не удалось добавить. Попробуйте ещё раз.",
+    "addMemberNamePlaceholder": "Полное имя",
+    "addMemberOnlineSubtitle": "Добавьте члена семьи, чтобы записывать его на турниры.",
     "countdown": {
       "label": "До закрытия регистрации",
       "days": "ДНЕЙ",

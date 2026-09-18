@@ -3,8 +3,9 @@
  *
  * The caller's family allowlist — every VERIFIED Chess Empire link the signed-in
  * Clerk user owns, with each member's display name, relationship tag
- * (self/child/other) and link status. Backs the Family card on the profile page
- * (a client component that can't call the server-only membership lib directly).
+ * (self/child/other), link status and onboarding source (chess_empire/online).
+ * Backs the Family card on the profile page (a client component that can't call
+ * the server-only membership lib directly).
  *
  * Also returns `branchToken`: a currently-valid branch invite token resolved
  * server-side from the primary verified member (student → CE branch → active
@@ -83,6 +84,9 @@ export async function GET() {
           : null,
         relationship: m.relationship,
         status: m.state,
+        // Onboarding track — the client forks the add-member UI on the primary
+        // member's source ('online' → mint form; 'chess_empire' → roster search).
+        source: m.source,
       })),
     );
 

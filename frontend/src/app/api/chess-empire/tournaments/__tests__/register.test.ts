@@ -19,6 +19,7 @@ interface FakeMember {
   state: string;
   studentId: string | null;
   relationship?: string;
+  source?: string;
 }
 const memberStore: { members: FakeMember[]; throws: boolean } = {
   members: [{ state: 'verified', studentId: 'stu-self', relationship: 'self' }],
@@ -163,6 +164,30 @@ describe('POST /api/chess-empire/tournaments/[id]/register', () => {
     expect(registerMock).toHaveBeenCalledWith('t1', 'stu-self', 'web');
   });
 
+  it('registers a minted online child (a verified online member) by id', async () => {
+    // A Phase-4 online family member is just another verified allowlist member —
+    // the register route is source-agnostic, so it Just Works with no changes.
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self', source: 'online' },
+      { state: 'verified', studentId: 'stu-online-kid', relationship: 'child', source: 'online' },
+    ];
+    registerMock.mockResolvedValue({ ok: true, registration_id: 'reg-online' });
+    const res = await POST(postReq('stu-online-kid'), ctx('t1'));
+    expect(res.status).toBe(200);
+    expect(registerMock).toHaveBeenCalledWith('t1', 'stu-online-kid', 'web');
+  });
+
+  it('403 forbidden_student for an id outside the online caller allowlist', async () => {
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self', source: 'online' },
+      { state: 'verified', studentId: 'stu-online-kid', relationship: 'child', source: 'online' },
+    ];
+    const res = await POST(postReq('someone-elses-kid'), ctx('t1'));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('forbidden_student');
+    expect(registerMock).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['full', 409],
     ['closed', 409],
@@ -254,6 +279,21 @@ describe('DELETE /api/chess-empire/tournaments/[id]/register', () => {
     const res = await DELETE(delReq({ query: 'stu-child' }), ctx('t1'));
     expect(res.status).toBe(200);
     expect(listRegsMock).toHaveBeenCalledWith('stu-child');
+  });
+
+  it('cancels a minted online child registration by explicit student_id', async () => {
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self', source: 'online' },
+      { state: 'verified', studentId: 'stu-online-kid', relationship: 'child', source: 'online' },
+    ];
+    listRegsMock.mockResolvedValue([
+      { id: 'reg-online', tournament_id: 't1', registered_at: 'x' },
+    ]);
+    cancelMock.mockResolvedValue(undefined);
+    const res = await DELETE(delReq({ body: 'stu-online-kid' }), ctx('t1'));
+    expect(res.status).toBe(200);
+    expect(listRegsMock).toHaveBeenCalledWith('stu-online-kid');
+    expect(cancelMock).toHaveBeenCalledWith('reg-online');
   });
 
   it('403 forbidden_student when cancelling a student the caller does not own', async () => {

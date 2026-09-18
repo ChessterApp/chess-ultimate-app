@@ -3,20 +3,24 @@
 /**
  * "Add family member" flow for the Chess Empire tournaments page.
  *
- * A verified parent links an additional child from here, reusing the same
- * public onboarding endpoints as the welcome page — search → verify → claim —
- * but writing `relationship='child'` (or 'other') instead of the default
- * 'self'. The branch context is resolved two ways: the fast path reads the
- * durable branch-welcome URL the parent's own onboarding stashed
- * (`readBranchWelcomeUrl`); when that device storage is empty (e.g. a second
- * device), it falls back to server-side resolution via
- * `GET /api/chess-empire/link/members`, which derives the branch from the
- * caller's existing verified member. Only when neither yields a token does the
- * panel explain how to proceed.
+ * The flow forks on the primary member's onboarding source, read from
+ * `GET /api/chess-empire/link/members` when the panel opens:
  *
- * On a successful claim the parent is already signed in, so the member row is
- * written server-side immediately; a `router.refresh()` reloads the page's
- * snapshot so the new child appears in the family bar + picker.
+ *  - **branch_linked** — reuses the public onboarding endpoints (search → verify
+ *    → claim) but writes `relationship='child'` (or 'other') instead of 'self'.
+ *    The branch context is resolved two ways: the fast path reads the durable
+ *    branch-welcome URL the parent's own onboarding stashed
+ *    (`readBranchWelcomeUrl`); when that device storage is empty (e.g. a second
+ *    device), it falls back to the server-resolved `branchToken` from the same
+ *    members response. Only when neither yields a token does the panel explain
+ *    how to proceed.
+ *  - **online** — an online account has no CE roster to search, so the panel
+ *    skips search entirely and shows a minimal form (name + relationship) that
+ *    POSTs `/api/chess-empire/online/family` to MINT a synthetic online member.
+ *
+ * On success the parent is already signed in, so the member row is written
+ * server-side immediately; a `router.refresh()` reloads the page's snapshot so
+ * the new member appears in the family bar + picker.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -32,6 +36,12 @@ interface SearchResult {
 }
 
 type Relationship = 'child' | 'other';
+type AddMode = 'branch' | 'online';
+
+interface MemberRow {
+  relationship: 'self' | 'child' | 'other';
+  source?: 'chess_empire' | 'online';
+}
 
 const DEBOUNCE_MS = 250;
 const MIN_QUERY_CHARS = 2;
@@ -44,12 +54,24 @@ function branchTokenFromUrl(url: string | null): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+/**
+ * The primary member's onboarding source decides the add-mode: 'self' wins, else
+ * the first member (mirrors `pickPrimaryState`). Defaults to branch mode when
+ * unknown so a failed/empty lookup keeps today's roster-search behaviour.
+ */
+function pickMode(members: MemberRow[]): AddMode {
+  const primary = members.find((m) => m.relationship === 'self') ?? members[0];
+  return primary?.source === 'online' ? 'online' : 'branch';
+}
+
 export default function AddFamilyMember() {
   const t = useTranslations('ceTournaments');
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<AddMode | null>(null);
   const [branchToken, setBranchToken] = useState<string | null>(null);
   const [branchResolved, setBranchResolved] = useState(false);
+  const [onlineName, setOnlineName] = useState('');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [results, setResults] = useState<SearchResult[] | null>(null);
@@ -60,31 +82,39 @@ export default function AddFamilyMember() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  // Resolve the branch token when the panel first opens (localStorage is
-  // unavailable during SSR, so this must run client-side). Fast path: the
-  // stashed branch-welcome URL. Fallback: server-side resolution from the
-  // caller's verified member, so the panel works on a device that never did
-  // the original onboarding.
+  // Resolve the add-mode + branch token when the panel first opens (localStorage
+  // is unavailable during SSR, so this must run client-side). One members fetch
+  // decides the fork: an online primary → mint form (no token needed); otherwise
+  // branch mode, whose token comes from the stashed branch-welcome URL (fast
+  // path) or the server-resolved `branchToken` in the same response (a device
+  // that never did the original onboarding). A failed lookup falls back to branch
+  // mode with the stashed token so today's behaviour is preserved.
   useEffect(() => {
     if (!open) return;
-    const fast = branchTokenFromUrl(readBranchWelcomeUrl());
-    if (fast) {
-      setBranchToken(fast);
-      setBranchResolved(true);
-      return;
-    }
     let cancelled = false;
     setBranchResolved(false);
     fetch('/api/chess-empire/link/members')
       .then((res) => (res.ok ? res.json() : null))
-      .then((body: { branchToken?: string | null } | null) => {
-        if (cancelled) return;
-        setBranchToken(body?.branchToken ?? null);
-        setBranchResolved(true);
-      })
+      .then(
+        (
+          body:
+            | { members?: MemberRow[]; branchToken?: string | null }
+            | null,
+        ) => {
+          if (cancelled) return;
+          const nextMode = pickMode(body?.members ?? []);
+          setMode(nextMode);
+          if (nextMode === 'branch') {
+            const fast = branchTokenFromUrl(readBranchWelcomeUrl());
+            setBranchToken(fast ?? body?.branchToken ?? null);
+          }
+          setBranchResolved(true);
+        },
+      )
       .catch(() => {
         if (cancelled) return;
-        setBranchToken(null);
+        setMode('branch');
+        setBranchToken(branchTokenFromUrl(readBranchWelcomeUrl()));
         setBranchResolved(true);
       });
     return () => {
@@ -129,6 +159,7 @@ export default function AddFamilyMember() {
     setResults(null);
     setSelected(null);
     setRelationship('child');
+    setOnlineName('');
     setError(null);
   }, []);
 
@@ -136,6 +167,7 @@ export default function AddFamilyMember() {
     setOpen(false);
     reset();
     setDone(null);
+    setMode(null);
     setBranchResolved(false);
   }, [reset]);
 
@@ -185,6 +217,34 @@ export default function AddFamilyMember() {
     }
   }, [selected, branchToken, relationship, submitting, reset, router, t]);
 
+  // Online mode: no roster to search — mint a synthetic online family member
+  // straight from the name + relationship the parent enters.
+  const submitOnline = useCallback(async () => {
+    const name = onlineName.trim();
+    if (!name || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/chess-empire/online/family', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, relationship }),
+      });
+      if (!res.ok) {
+        setError(t('addMemberError'));
+        return;
+      }
+      setDone(t('addMemberSuccess', { name }));
+      reset();
+      setOpen(false);
+      router.refresh();
+    } catch {
+      setError(t('addMemberError'));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onlineName, relationship, submitting, reset, router, t]);
+
   if (!open) {
     return (
       <div className="afm-root">
@@ -223,6 +283,47 @@ export default function AddFamilyMember() {
 
         {!branchResolved ? (
           <p className="afm-hint">{t('addMemberResolving')}</p>
+        ) : mode === 'online' ? (
+          <div className="afm-confirm">
+            <p className="afm-hint afm-online-sub">{t('addMemberOnlineSubtitle')}</p>
+            <input
+              type="text"
+              autoComplete="off"
+              value={onlineName}
+              onChange={(e) => setOnlineName(e.target.value)}
+              placeholder={t('addMemberNamePlaceholder')}
+              className="afm-input"
+              aria-label={t('addMemberNamePlaceholder')}
+            />
+            <div
+              className="afm-rel"
+              role="group"
+              aria-label={t('addMemberTitle')}
+            >
+              {(['child', 'other'] as Relationship[]).map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  className={`afm-rel-opt${relationship === r ? ' active' : ''}`}
+                  aria-pressed={relationship === r}
+                  onClick={() => setRelationship(r)}
+                >
+                  {t(`relationship.${r}`)}
+                </button>
+              ))}
+            </div>
+            {error && <p className="afm-error">{error}</p>}
+            <div className="afm-actions">
+              <button
+                type="button"
+                className="afm-submit"
+                onClick={submitOnline}
+                disabled={submitting || !onlineName.trim()}
+              >
+                {submitting ? t('addMemberSubmitting') : t('addMemberSubmit')}
+              </button>
+            </div>
+          </div>
         ) : !branchToken ? (
           <p className="afm-hint">{t('addMemberUnavailable')}</p>
         ) : selected ? (
@@ -385,6 +486,10 @@ const styles = (
       font-size: 0.8rem;
       color: #94a3b8;
       margin-top: 8px;
+    }
+    .afm-online-sub {
+      margin-top: 0;
+      margin-bottom: 10px;
     }
     .afm-error {
       font-size: 0.82rem;

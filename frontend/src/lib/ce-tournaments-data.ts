@@ -17,6 +17,7 @@ import { auth } from '@clerk/nextjs/server';
 import {
   getVerifiedMembersForUser,
   type MemberRelationship,
+  type MemberSource,
 } from '@/lib/chess-empire-member';
 import {
   listTournaments,
@@ -73,6 +74,8 @@ export interface CETournamentMember {
   studentId: string;
   name: string | null;
   relationship: MemberRelationship;
+  /** Onboarding track — the tournaments view lowers the add gate for 'online'. */
+  source: MemberSource;
 }
 
 export interface CEBranchRef {
@@ -150,6 +153,7 @@ export async function loadCETournamentSnapshot(): Promise<CETournamentSnapshot> 
           studentId: m.studentId,
           name: names[i],
           relationship: m.relationship,
+          source: m.source,
         }));
         studentName =
           members.find((m) => m.studentId === primary.studentId)?.name ?? null;
