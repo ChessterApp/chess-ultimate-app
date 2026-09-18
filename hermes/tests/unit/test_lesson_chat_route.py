@@ -98,6 +98,50 @@ class TestLessonChat:
         assert "Pins" in args[1]  # lesson title injected into system prompt
 
     @patch("src.server._lesson_chat_stream")
+    def test_puzzle_context_injected_into_system_prompt(self, mock_stream):
+        mock_stream.return_value = iter(["ok"])
+        self.client.post(
+            "/api/lesson/chat",
+            headers=USER_HEADERS,
+            json={
+                "message": "What should I play here?",
+                "lesson_title": "Back rank",
+                "lesson_content": "content",
+                "puzzle_context": {
+                    "mode": "multi",
+                    "current_index": 1,
+                    "total_count": 2,
+                    "current_puzzle": {
+                        "order_index": 1,
+                        "fen": "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1",
+                        "solution_line": ["e1e8"],
+                        "hint_text": "Back rank!",
+                    },
+                    "current_board_fen": "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1",
+                    "puzzles": [
+                        {"order_index": 1, "fen": "6k1/5ppp/8/8/8/8/5PPP/4R1K1 w - - 0 1"},
+                        {"order_index": 2, "fen": "8/8/8/8/8/8/8/K6k w - - 0 1"},
+                    ],
+                },
+            },
+        )
+        system_prompt = mock_stream.call_args.args[1]
+        assert "PUZZLE SET FOR THIS LESSON" in system_prompt
+        assert "STUDENT'S CURRENT PUZZLE" in system_prompt
+        assert "Back rank!" in system_prompt
+
+    @patch("src.server._lesson_chat_stream")
+    def test_missing_puzzle_context_omits_section(self, mock_stream):
+        mock_stream.return_value = iter(["ok"])
+        self.client.post(
+            "/api/lesson/chat",
+            headers=USER_HEADERS,
+            json={"message": "hi", "lesson_title": "Pins", "lesson_content": "c"},
+        )
+        system_prompt = mock_stream.call_args.args[1]
+        assert "PUZZLE CONTEXT" not in system_prompt
+
+    @patch("src.server._lesson_chat_stream")
     def test_llm_error_emits_error_frame_not_delta(self, mock_stream):
         # LLM raises (e.g. retired-model 404) — must surface as an error frame,
         # never as a normal delta containing the raw error text.

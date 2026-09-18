@@ -10,6 +10,115 @@ interface ChatMessage {
   content: string;
 }
 
+/** Cap the puzzle set we forward so a malicious/oversized client body can't
+ * blow up the Hermes prompt. Matches Hermes' own render cap. */
+const MAX_PUZZLES = 50;
+
+interface PuzzleContextPuzzle {
+  order_index?: number;
+  fen?: string;
+  solution_move?: string;
+  solution_line?: string[];
+  hint_text?: string;
+  source_name?: string;
+  completed?: boolean;
+  attempts?: number;
+}
+
+interface PuzzleContext {
+  mode?: 'multi' | 'single' | 'none';
+  current_index?: number;
+  total_count?: number;
+  current_puzzle?: PuzzleContextPuzzle | null;
+  current_board_fen?: string;
+  puzzles?: PuzzleContextPuzzle[];
+}
+
+/** Whitelist a single puzzle to known fields (strips anything unexpected). */
+function sanitizePuzzle(p: unknown): PuzzleContextPuzzle | null {
+  if (!p || typeof p !== 'object') return null;
+  const src = p as Record<string, unknown>;
+  const out: PuzzleContextPuzzle = {};
+  if (typeof src.order_index === 'number') out.order_index = src.order_index;
+  if (typeof src.fen === 'string') out.fen = src.fen;
+  if (typeof src.solution_move === 'string') out.solution_move = src.solution_move;
+  if (Array.isArray(src.solution_line)) {
+    out.solution_line = src.solution_line.filter((m): m is string => typeof m === 'string');
+  }
+  if (typeof src.hint_text === 'string') out.hint_text = src.hint_text;
+  if (typeof src.source_name === 'string') out.source_name = src.source_name;
+  if (typeof src.completed === 'boolean') out.completed = src.completed;
+  if (typeof src.attempts === 'number') out.attempts = src.attempts;
+  return out;
+}
+
+/** Validate + sanitize a client-supplied puzzle_context into a forwardable
+ * shape, capping the puzzles array and stripping unknown fields. */
+function sanitizePuzzleContext(raw: unknown): PuzzleContext | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const src = raw as Record<string, unknown>;
+  const out: PuzzleContext = {};
+  if (src.mode === 'multi' || src.mode === 'single' || src.mode === 'none') {
+    out.mode = src.mode;
+  }
+  if (typeof src.current_index === 'number') out.current_index = src.current_index;
+  if (typeof src.total_count === 'number') out.total_count = src.total_count;
+  if (typeof src.current_board_fen === 'string') out.current_board_fen = src.current_board_fen;
+  if (src.current_puzzle) {
+    const cur = sanitizePuzzle(src.current_puzzle);
+    if (cur) out.current_puzzle = cur;
+  }
+  if (Array.isArray(src.puzzles)) {
+    out.puzzles = src.puzzles
+      .slice(0, MAX_PUZZLES)
+      .map(sanitizePuzzle)
+      .filter((p): p is PuzzleContextPuzzle => p !== null);
+  }
+  return out;
+}
+
+/** Server-side fallback: build a puzzle_context from Flask when the client did
+ * not send one (older clients). Best-effort — returns null on any failure. */
+async function fetchPuzzleContextFallback(
+  apiUrl: string | undefined,
+  courseSlug: string,
+  lessonSlug: string,
+  locale: string,
+  authHeader: string,
+): Promise<PuzzleContext | null> {
+  if (!apiUrl) return null;
+  try {
+    const res = await fetch(
+      `${apiUrl}/api/learn/${courseSlug}/${lessonSlug}/puzzles?locale=${locale}`,
+      { headers: { Authorization: authHeader } },
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const puzzles = Array.isArray(data?.puzzles) ? data.puzzles : [];
+    if (puzzles.length === 0) return null;
+
+    const currentIndex = typeof data?.current_index === 'number' ? data.current_index : undefined;
+    const sanitized = puzzles
+      .slice(0, MAX_PUZZLES)
+      .map(sanitizePuzzle)
+      .filter((p: PuzzleContextPuzzle | null): p is PuzzleContextPuzzle => p !== null);
+    const current = currentIndex
+      ? sanitized.find((p: PuzzleContextPuzzle) => p.order_index === currentIndex)
+      : undefined;
+
+    return {
+      mode: 'multi',
+      current_index: currentIndex,
+      total_count: typeof data?.total_count === 'number' ? data.total_count : sanitized.length,
+      current_puzzle: current ?? undefined,
+      puzzles: sanitized,
+    };
+  } catch (err) {
+    console.warn('lesson chat: puzzle_context fallback failed', err);
+    return null;
+  }
+}
+
 /**
  * POST /api/tutor/[courseSlug]/[lessonSlug]/chat — SSE proxy to the Hermes
  * lesson tutor. Mirrors /api/coach/chat: Clerk-authed, forwards X-User-Id,
@@ -35,7 +144,7 @@ export async function POST(
 
   const { courseSlug, lessonSlug } = await params;
 
-  let body: { message?: string };
+  let body: { message?: string; puzzle_context?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -52,6 +161,7 @@ export async function POST(
     });
   }
   const userMessage = body.message;
+  const clientPuzzleContext = sanitizePuzzleContext(body.puzzle_context);
 
   const locale = request.cookies.get('NEXT_LOCALE')?.value || 'ru';
   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -91,6 +201,12 @@ export async function POST(
     console.warn('lesson chat: failed to load lesson context', err);
   }
 
+  // Prefer the client-supplied puzzle context (has live board state); fall back
+  // to a server-side fetch for older clients that don't send one.
+  const puzzleContext =
+    clientPuzzleContext ??
+    (await fetchPuzzleContextFallback(apiUrl, courseSlug, lessonSlug, locale, authHeader));
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -115,6 +231,7 @@ export async function POST(
             lesson_content: lessonContent,
             history,
             locale,
+            ...(puzzleContext ? { puzzle_context: puzzleContext } : {}),
           }),
           signal: AbortSignal.timeout(60000),
         });

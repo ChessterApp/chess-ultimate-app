@@ -152,6 +152,126 @@ describe('/api/tutor/[courseSlug]/[lessonSlug]/chat proxy', () => {
     ]);
   });
 
+  it('forwards a sanitized client puzzle_context to Hermes and skips the fallback', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    global.fetch = makeFetch(
+      sseResponse([{ delta: 'ok' }, { done: true }]),
+    ) as any;
+
+    const { POST } = await import('../route');
+    const { NextRequest } = await import('next/server');
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok' },
+      body: JSON.stringify({
+        message: 'What should I play?',
+        puzzle_context: {
+          mode: 'multi',
+          current_index: 1,
+          total_count: 2,
+          current_puzzle: { order_index: 1, fen: 'FEN1', hint_text: 'think', bogus: 'x' },
+          current_board_fen: 'FEN1b',
+          puzzles: [
+            { order_index: 1, fen: 'FEN1', evil: 'drop' },
+            { order_index: 2, fen: 'FEN2' },
+          ],
+        },
+      }),
+    });
+    await POST(req, makeParams('c', 'l'));
+
+    const hermesCall = (global.fetch as any).mock.calls.find((c: any[]) =>
+      c[0].includes('/api/lesson/chat'),
+    );
+    const sent = JSON.parse(hermesCall[1].body);
+    expect(sent.puzzle_context.mode).toBe('multi');
+    expect(sent.puzzle_context.puzzles).toHaveLength(2);
+    // Unknown fields are stripped by the sanitizer.
+    expect(sent.puzzle_context.puzzles[0]).not.toHaveProperty('evil');
+    expect(sent.puzzle_context.current_puzzle).not.toHaveProperty('bogus');
+    expect(sent.puzzle_context.current_board_fen).toBe('FEN1b');
+
+    // The server-side fallback (/puzzles GET) was NOT called.
+    const puzzleFetch = (global.fetch as any).mock.calls.find((c: any[]) =>
+      c[0].includes('/puzzles'),
+    );
+    expect(puzzleFetch).toBeUndefined();
+  });
+
+  it('caps the forwarded puzzles array at 50', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    global.fetch = makeFetch(sseResponse([{ delta: 'ok' }, { done: true }])) as any;
+
+    const puzzles = Array.from({ length: 60 }, (_, i) => ({ order_index: i + 1, fen: `F${i}` }));
+    const { POST } = await import('../route');
+    const { NextRequest } = await import('next/server');
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok' },
+      body: JSON.stringify({ message: 'q', puzzle_context: { mode: 'multi', puzzles } }),
+    });
+    await POST(req, makeParams('c', 'l'));
+
+    const hermesCall = (global.fetch as any).mock.calls.find((c: any[]) =>
+      c[0].includes('/api/lesson/chat'),
+    );
+    const sent = JSON.parse(hermesCall[1].body);
+    expect(sent.puzzle_context.puzzles).toHaveLength(50);
+  });
+
+  it('falls back to fetching the puzzle set when the client omits puzzle_context', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    const prevApiUrl = process.env.NEXT_PUBLIC_API_URL;
+    process.env.NEXT_PUBLIC_API_URL = 'http://flask';
+    const hermes = sseResponse([{ delta: 'ok' }, { done: true }]);
+    global.fetch = vi.fn((url: string) => {
+      if (url.includes('/api/lesson/chat')) return Promise.resolve(hermes as any);
+      if (url.includes('/puzzles')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            puzzles: [
+              { order_index: 1, fen: 'PF1', solution_move: 'e2e4', completed: true },
+              { order_index: 2, fen: 'PF2' },
+            ],
+            total_count: 2,
+            current_index: 2,
+          }),
+        } as any);
+      }
+      if (url.includes('/chat')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ messages: HISTORY }) } as any);
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'lesson-1', title: 'Pins', content: 'lesson body' }),
+      } as any);
+    }) as any;
+
+    const { POST } = await import('../route');
+    const { NextRequest } = await import('next/server');
+    const req = new NextRequest('http://localhost:3000/api/tutor/c/l/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer tok' },
+      body: JSON.stringify({ message: 'help' }),
+    });
+    await POST(req, makeParams('c', 'l'));
+
+    const hermesCall = (global.fetch as any).mock.calls.find((c: any[]) =>
+      c[0].includes('/api/lesson/chat'),
+    );
+    const sent = JSON.parse(hermesCall[1].body);
+    expect(sent.puzzle_context.mode).toBe('multi');
+    expect(sent.puzzle_context.puzzles).toHaveLength(2);
+    expect(sent.puzzle_context.total_count).toBe(2);
+    // current_index=2 → current puzzle is the second one.
+    expect(sent.puzzle_context.current_puzzle.order_index).toBe(2);
+
+    process.env.NEXT_PUBLIC_API_URL = prevApiUrl;
+  });
+
   it('does not persist when the tutor stream errors', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     global.fetch = makeFetch(

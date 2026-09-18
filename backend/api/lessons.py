@@ -667,6 +667,11 @@ def lesson_chat_by_slug(course_slug, lesson_slug):
             return jsonify(result.data[0]), 200
 
         else:  # POST
+            # LEGACY: this Flask tutor branch is bypassed by the UI, which posts
+            # to the Next.js /api/tutor route → Hermes /api/lesson/chat. Unlike
+            # that path it has NO puzzle context (current puzzle / board state /
+            # puzzle set), so it is left as-is intentionally. Do not extend it;
+            # add tutor features on the Hermes path instead.
             user_id = get_current_user_id()
             data = request.get_json()
             user_message = data.get('message')

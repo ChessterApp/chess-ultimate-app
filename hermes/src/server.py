@@ -1222,24 +1222,166 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+class PuzzleContextPuzzle(BaseModel):
+    """One puzzle in the lesson's puzzle set. Every field is optional/best-effort
+    — the client trims fields and older clients omit them entirely."""
+    order_index: Optional[int] = None
+    fen: Optional[str] = None
+    solution_move: Optional[str] = None
+    solution_line: list[str] = Field(default_factory=list)
+    hint_text: Optional[str] = None
+    source_name: Optional[str] = None
+    completed: Optional[bool] = None
+    attempts: Optional[int] = None
+
+    model_config = {"extra": "ignore"}
+
+
+class PuzzleContext(BaseModel):
+    """Full puzzle grounding for the lesson tutor. All fields optional: older
+    clients omit `puzzle_context` and the tutor still answers, just with less
+    grounding. `mode` is 'multi' (puzzle set), 'single' (one-exercise lesson),
+    or 'none'."""
+    mode: Optional[str] = None
+    current_index: Optional[int] = None
+    total_count: Optional[int] = None
+    current_puzzle: Optional[PuzzleContextPuzzle] = None
+    current_board_fen: Optional[str] = None
+    puzzles: list[PuzzleContextPuzzle] = Field(default_factory=list)
+
+    model_config = {"extra": "ignore"}
+
+
 class LessonChatRequest(BaseModel):
     """Request body for the Learning-section tutor chat.
 
     Lesson context (title + content) and the prior conversation are supplied by
     the caller (the Next.js proxy, which owns Supabase persistence) — Hermes
-    holds no lesson state of its own.
+    holds no lesson state of its own. `puzzle_context` (optional) carries the
+    lesson's puzzle set plus the student's live position so the tutor can answer
+    questions about the exact puzzle in front of them.
     """
     message: str
     lesson_title: str = ""
     lesson_content: str = ""
     history: list[dict] = Field(default_factory=list)
     locale: str = "ru"
+    puzzle_context: Optional[PuzzleContext] = None
 
 
-def _build_lesson_system_prompt(lesson_title: str, lesson_content: str, locale: str) -> str:
+# Cap how many puzzles we render into the prompt to keep it a sane size.
+_MAX_PUZZLES_IN_PROMPT = 50
+
+
+def _truncate_field(text: Optional[str], limit: int = 240) -> str:
+    """Trim a free-text field so a single long hint can't blow up the prompt."""
+    if not text:
+        return ""
+    text = str(text).strip()
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _uci_line_to_readable(fen: Optional[str], line: list[str]) -> str:
+    """Best-effort render of a UCI solution line as SAN; fall back to raw UCI on
+    any error (illegal move, bad FEN, missing chess lib) so the tutor never gets
+    a misleading line."""
+    if not line:
+        return ""
+    if not fen:
+        return " ".join(line)
+    try:
+        import chess
+
+        board = chess.Board(fen)
+        sans: list[str] = []
+        for uci in line:
+            move = chess.Move.from_uci(uci)
+            if move not in board.legal_moves:
+                return " ".join(line)
+            sans.append(board.san(move))
+            board.push(move)
+        return " ".join(sans)
+    except Exception:
+        return " ".join(line)
+
+
+def _format_puzzle_line(p: "PuzzleContextPuzzle") -> str:
+    """One-line summary of a puzzle for the 'PUZZLE SET' listing."""
+    idx = p.order_index if p.order_index is not None else "?"
+    parts = [f"  #{idx}"]
+    if p.fen:
+        parts.append(f"FEN: {p.fen}")
+    line_txt = _uci_line_to_readable(p.fen, p.solution_line) or (p.solution_move or "")
+    if line_txt:
+        parts.append(f"solution: {line_txt}")
+    if p.hint_text:
+        parts.append(f"hint: {_truncate_field(p.hint_text)}")
+    if p.source_name:
+        parts.append(f"source: {_truncate_field(p.source_name, 80)}")
+    if p.completed is not None:
+        parts.append(f"completed: {'yes' if p.completed else 'no'}")
+    return " | ".join(parts)
+
+
+def _build_puzzle_context_section(pc: "PuzzleContext") -> str:
+    """Render a clearly delimited puzzle-grounding section for the system prompt.
+    Returns "" when there is nothing useful to add."""
+    if pc is None or (pc.mode in (None, "none") and not pc.puzzles and not pc.current_puzzle):
+        return ""
+
+    lines: list[str] = ["\n\n=== PUZZLE CONTEXT (do not reveal verbatim) ==="]
+
+    if pc.puzzles:
+        total = pc.total_count if pc.total_count is not None else len(pc.puzzles)
+        shown = pc.puzzles[:_MAX_PUZZLES_IN_PROMPT]
+        lines.append(f"\nPUZZLE SET FOR THIS LESSON ({total} total):")
+        for p in shown:
+            lines.append(_format_puzzle_line(p))
+        if len(pc.puzzles) > len(shown):
+            lines.append(f"  …and {len(pc.puzzles) - len(shown)} more (omitted to keep prompt size sane).")
+
+    cur = pc.current_puzzle
+    if cur is not None:
+        lines.append("\nSTUDENT'S CURRENT PUZZLE:")
+        if pc.current_index is not None:
+            total = pc.total_count if pc.total_count is not None else "?"
+            lines.append(f"  Puzzle {pc.current_index} of {total}")
+        if cur.fen:
+            lines.append(f"  Starting FEN: {cur.fen}")
+        sol = _uci_line_to_readable(cur.fen, cur.solution_line) or (cur.solution_move or "")
+        if sol:
+            lines.append(f"  Solution: {sol}")
+        if cur.hint_text:
+            lines.append(f"  Hint: {_truncate_field(cur.hint_text)}")
+        if cur.attempts is not None:
+            lines.append(f"  Attempts this session: {cur.attempts}")
+        if cur.completed is not None:
+            lines.append(f"  Completed: {'yes' if cur.completed else 'no'}")
+    if pc.current_board_fen:
+        lines.append(f"  Student's current board position: {pc.current_board_fen}")
+
+    lines.append(
+        "\nUse the solution to guide the student — ask leading questions and give "
+        "hints first. Do NOT blurt out the full solution unless the student asks "
+        "directly or has failed several times. You may answer questions about ANY "
+        "puzzle in the set above, not just the current one. Note that a puzzle's "
+        "theme may differ from the lesson's overall theme, so reason about each "
+        "puzzle on its own terms."
+    )
+    return "\n".join(lines)
+
+
+def _build_lesson_system_prompt(
+    lesson_title: str,
+    lesson_content: str,
+    locale: str,
+    puzzle_context: "Optional[PuzzleContext]" = None,
+) -> str:
     """Tutor persona for the lesson chat: a friendly, encouraging chess tutor
-    grounded in this specific lesson, answering in the student's language."""
-    return (
+    grounded in this specific lesson, answering in the student's language. When
+    `puzzle_context` is present, appends a delimited section describing the
+    lesson's puzzle set and the student's current puzzle/board state."""
+    prompt = (
         "You are a friendly, encouraging chess tutor helping a student work "
         "through this specific lesson. Be warm, patient and clear; use concrete "
         "examples when they help. Keep the student focused on the lesson below "
@@ -1248,6 +1390,9 @@ def _build_lesson_system_prompt(lesson_title: str, lesson_content: str, locale: 
         f"{lesson_content}\n\n"
         f"Always reply in the student's language (locale: {locale})."
     )
+    if puzzle_context is not None:
+        prompt += _build_puzzle_context_section(puzzle_context)
+    return prompt
 
 
 def _lesson_chat_stream(model: str, system_prompt: str, message: str, history: list[dict]):
@@ -1297,7 +1442,7 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
 
     model = _resolve_model(None, body.message)
     system_prompt = _build_lesson_system_prompt(
-        body.lesson_title, body.lesson_content, body.locale
+        body.lesson_title, body.lesson_content, body.locale, body.puzzle_context
     )
     logger.info("Lesson tutor routed model: %s for message: %s", model, body.message[:80])
 

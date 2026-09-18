@@ -8,6 +8,7 @@ import { useParams, useRouter } from 'next/navigation'
 import ReactMarkdown from 'react-markdown'
 import { useTranslations, useLocale } from 'next-intl'
 import { AnimatedChessBoard, PuzzleSequence } from '@/components/chess'
+import type { TutorPuzzleContext } from '@/components/chess'
 import LoadingScreen from '@/components/LoadingScreen'
 import Link from 'next/link'
 import { ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
@@ -111,6 +112,9 @@ export default function LessonPage() {
   const [error, setError] = useState<string | null>(null)
   const [isChatExpanded, setIsChatExpanded] = useState(true)
   const chatContentRef = useRef<HTMLDivElement>(null)
+  // Latest puzzle context (multi- or single-puzzle) lifted from the board
+  // components, sent to the AI tutor with each chat message.
+  const puzzleContextRef = useRef<TutorPuzzleContext | null>(null)
 
   // Gamification state
   const [showXPGain, setShowXPGain] = useState(false)
@@ -213,7 +217,10 @@ export default function LessonPage() {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({ message: userMessage })
+          body: JSON.stringify({
+            message: userMessage,
+            ...(puzzleContextRef.current ? { puzzle_context: puzzleContextRef.current } : {}),
+          })
         }
       )
 
@@ -292,6 +299,30 @@ export default function LessonPage() {
     } catch (err) {
       console.error('Failed to mark lesson complete:', err)
       showToast(t('learn.errors.saveProgressFailed'), 'error')
+    }
+  }
+
+  // Build tutor puzzle context for a single-puzzle lesson from the lesson
+  // fields + live board state, storing it for the next chat message.
+  const handleSingleBoardStateChange = (bs: { currentFen: string; attempts: number; solved: boolean }) => {
+    if (!lesson) return
+    const solutionMove = lesson.solution_move || undefined
+    const puzzle = {
+      order_index: 1,
+      fen: lesson.exercise_fen || bs.currentFen,
+      solution_move: solutionMove,
+      solution_line: solutionMove ? [solutionMove] : undefined,
+      hint_text: lesson.hint_text || undefined,
+      completed: bs.solved,
+      attempts: bs.attempts,
+    }
+    puzzleContextRef.current = {
+      mode: 'single',
+      current_index: 1,
+      total_count: 1,
+      current_puzzle: puzzle,
+      current_board_fen: bs.currentFen,
+      puzzles: [puzzle],
     }
   }
 
@@ -405,6 +436,7 @@ export default function LessonPage() {
                 lessonSlug={lessonSlug}
                 getToken={getToken}
                 onAllPuzzlesComplete={markLessonComplete}
+                onPuzzleContextChange={(ctx) => { puzzleContextRef.current = ctx }}
               />
             </div>
           )}
@@ -422,6 +454,7 @@ export default function LessonPage() {
                   onIncorrectMove={(move) => {
                     // Move validation handled internally
                   }}
+                  onBoardStateChange={handleSingleBoardStateChange}
                   showHints={true}
                   enableAnimations={true}
                   arrowFromSquare={lesson.exercise_solution?.arrow?.from}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { AnimatedChessBoard } from '@/components/chess'
 import { ChevronLeft, ChevronRight, Check, Trophy, RotateCcw } from 'lucide-react'
 import { useTranslations } from 'next-intl'
@@ -19,11 +19,39 @@ interface Puzzle {
   attempts: number
 }
 
+/** A single puzzle as forwarded to the AI tutor (trimmed fields). */
+export interface TutorPuzzle {
+  order_index: number
+  fen: string
+  solution_move?: string
+  solution_line?: string[]
+  hint_text?: string
+  completed?: boolean
+  attempts?: number
+}
+
+/** Puzzle grounding passed up to the lesson page and on to the tutor. */
+export interface TutorPuzzleContext {
+  mode: 'multi' | 'single' | 'none'
+  current_index?: number
+  total_count?: number
+  current_puzzle?: TutorPuzzle
+  /** Live board position including the student's moves this session. */
+  current_board_fen?: string
+  puzzles: TutorPuzzle[]
+}
+
 interface PuzzleSequenceProps {
   courseSlug: string
   lessonSlug: string
   getToken: () => Promise<string | null>
   onAllPuzzlesComplete?: () => void
+  /**
+   * Optional callback reporting the full puzzle context (all puzzles, current
+   * puzzle, and live board state) whenever it changes, so the lesson page can
+   * give the AI tutor puzzle grounding. Backward compatible.
+   */
+  onPuzzleContextChange?: (ctx: TutorPuzzleContext) => void
 }
 
 /**
@@ -39,7 +67,8 @@ export default function PuzzleSequence({
   courseSlug,
   lessonSlug,
   getToken,
-  onAllPuzzlesComplete
+  onAllPuzzlesComplete,
+  onPuzzleContextChange
 }: PuzzleSequenceProps) {
   const t = useTranslations('puzzles')
   const tErrors = useTranslations('errors')
@@ -53,8 +82,16 @@ export default function PuzzleSequence({
   const [allComplete, setAllComplete] = useState(false)
   const [justSolved, setJustSolved] = useState(false)
   const [resetting, setResetting] = useState(false)
+  // Live board state relayed up from AnimatedChessBoard (student's current
+  // position + attempts on the active puzzle), forwarded to the AI tutor.
+  const [boardState, setBoardState] = useState<{ currentFen: string; attempts: number; solved: boolean } | null>(null)
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL
+
+  // Keep the latest callback in a ref so the reporting effect doesn't re-fire
+  // just because the parent passed a fresh function identity.
+  const onPuzzleContextChangeRef = useRef(onPuzzleContextChange)
+  onPuzzleContextChangeRef.current = onPuzzleContextChange
 
   // Fetch all puzzles for this lesson
   const fetchPuzzles = useCallback(async () => {
@@ -91,6 +128,35 @@ export default function PuzzleSequence({
   useEffect(() => {
     fetchPuzzles()
   }, [fetchPuzzles])
+
+  // Report the full puzzle context up to the lesson page whenever the puzzle
+  // set, the active puzzle, or the live board position changes.
+  useEffect(() => {
+    const report = onPuzzleContextChangeRef.current
+    if (!report || puzzles.length === 0) return
+
+    const current = puzzles.find(p => p.order_index === currentIndex)
+    const trim = (p: Puzzle): TutorPuzzle => ({
+      order_index: p.order_index,
+      fen: p.fen,
+      solution_move: p.solution_move,
+      solution_line: p.solution_line,
+      hint_text: p.hint_text,
+      completed: p.completed,
+      attempts: p.attempts,
+    })
+
+    report({
+      mode: 'multi',
+      current_index: currentIndex,
+      total_count: totalCount,
+      current_puzzle: current
+        ? { ...trim(current), attempts: boardState?.attempts ?? current.attempts }
+        : undefined,
+      current_board_fen: boardState?.currentFen ?? current?.fen,
+      puzzles: puzzles.map(trim),
+    })
+  }, [puzzles, currentIndex, totalCount, boardState])
 
   // Mark current puzzle as complete and show Continue button
   const handlePuzzleComplete = async () => {
@@ -231,6 +297,7 @@ export default function PuzzleSequence({
           onIncorrectMove={(move) => {
             console.log('Incorrect move:', move)
           }}
+          onBoardStateChange={setBoardState}
           showHints={true}
           enableAnimations={true}
           strictValidation={true}

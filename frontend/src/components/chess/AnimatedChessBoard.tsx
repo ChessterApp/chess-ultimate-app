@@ -80,6 +80,13 @@ interface AnimatedChessBoardProps {
    * Default: false (allowing intermediate moves for multi-step exercises)
    */
   strictValidation?: boolean;
+  /**
+   * Optional callback fired whenever the live board position, attempt count, or
+   * solved flag changes. Used to lift board state up to the lesson page so the
+   * AI tutor can see the student's current position. Backward compatible — the
+   * board works unchanged when this is omitted.
+   */
+  onBoardStateChange?: (state: { currentFen: string; attempts: number; solved: boolean }) => void;
 }
 
 interface BoardState {
@@ -101,6 +108,8 @@ interface BoardState {
   capturedStars: Set<string>;
   /** Whether to show Lottie celebration animation */
   showCelebration: boolean;
+  /** Number of incorrect attempts made on the current puzzle this session */
+  attempts: number;
 }
 
 /**
@@ -125,6 +134,7 @@ export default function AnimatedChessBoard({
   showArrowsOverlay = true,
   showStar = true,
   strictValidation = false,
+  onBoardStateChange,
 }: AnimatedChessBoardProps) {
   // Auto-derive orientation from FEN active color if not explicitly provided
   const orientation = orientationProp ?? (fen.split(' ')[1] === 'b' ? 'black' : 'white');
@@ -152,7 +162,13 @@ export default function AnimatedChessBoard({
     pathStep: 0,
     capturedStars: new Set<string>(),
     showCelebration: false,
+    attempts: 0,
   });
+
+  // Keep the latest onBoardStateChange in a ref so the reporting effect can fire
+  // without re-subscribing when the parent passes a fresh callback each render.
+  const onBoardStateChangeRef = useRef(onBoardStateChange);
+  onBoardStateChangeRef.current = onBoardStateChange;
 
   /**
    * Initialize chessground instance
@@ -256,6 +272,7 @@ export default function AnimatedChessBoard({
       pathStep: 0,
       capturedStars: new Set<string>(),
       showCelebration: false,
+      attempts: 0,
     });
 
     // Update chessground with new position
@@ -272,6 +289,19 @@ export default function AnimatedChessBoard({
       });
     }
   }, [fen, orientation]);
+
+  /**
+   * Report live board state (position, attempts, solved) upward whenever it
+   * changes, so the lesson page can pass it to the AI tutor. No-op when the
+   * parent didn't supply a callback.
+   */
+  useEffect(() => {
+    onBoardStateChangeRef.current?.({
+      currentFen: state.currentFen,
+      attempts: state.attempts,
+      solved: state.isSolved,
+    });
+  }, [state.currentFen, state.attempts, state.isSolved]);
 
   /**
    * Calculate chess distance between two squares (Chebyshev distance - max of file/rank difference)
@@ -516,7 +546,7 @@ export default function AnimatedChessBoard({
    * board to the position before the wrong move, preserving the line index.
    */
   const handleLineIncorrect = async (moveUci: string) => {
-    setState((prev) => ({ ...prev, feedback: 'incorrect' }));
+    setState((prev) => ({ ...prev, feedback: 'incorrect', attempts: prev.attempts + 1 }));
 
     if (enableAnimations && boardRef.current) {
       await showErrorFeedback(boardRef.current);
@@ -727,6 +757,7 @@ export default function AnimatedChessBoard({
     setState((prev) => ({
       ...prev,
       feedback: 'incorrect',
+      attempts: prev.attempts + 1,
     }));
 
     // Play error animation if enabled
@@ -878,6 +909,7 @@ export default function AnimatedChessBoard({
       pathStep: 0,
       capturedStars: new Set<string>(),
       showCelebration: false,
+      attempts: 0,
     });
   }, [fen, orientation, handleMove]);
 
