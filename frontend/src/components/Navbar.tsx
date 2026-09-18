@@ -3,16 +3,24 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth, UserButton } from "@clerk/nextjs"
-import { useLocale } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import Image from "next/image"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
-import { useBranding } from "@/contexts/OrganizationContext"
+import { useOrganization, useBranding } from "@/contexts/OrganizationContext"
+import AddFamilyMember from "@/components/empire/AddFamilyMember"
 
 export default function NavBar() {
   const { isSignedIn } = useAuth()
   const router = useRouter()
   const locale = useLocale()
   const branding = useBranding()
+  const { org } = useOrganization()
+  const t = useTranslations('ceTournaments')
+
+  // The universal "add family member" flow is a Chess Empire feature — gate the
+  // dropdown entry to that brand so the plain Chesster avatar menu is untouched.
+  const isChessEmpire = org?.slug === 'chess-empire'
+  const [familyOpen, setFamilyOpen] = useState(false)
 
   // Prevent hydration mismatch: useAuth returns different values on server vs client
   const [mounted, setMounted] = useState(false)
@@ -47,11 +55,29 @@ export default function NavBar() {
                     avatarBox: "w-9 h-9"
                   }
                 }}
-              />
+              >
+                {isChessEmpire && (
+                  <UserButton.MenuItems>
+                    <UserButton.Action
+                      label={t('addFamilyMember')}
+                      labelIcon={<span aria-hidden>+</span>}
+                      onClick={() => setFamilyOpen(true)}
+                    />
+                  </UserButton.MenuItems>
+                )}
+              </UserButton>
             )}
           </div>
         </div>
       </div>
+
+      {isChessEmpire && (
+        <AddFamilyMember
+          open={familyOpen}
+          onClose={() => setFamilyOpen(false)}
+          asModal
+        />
+      )}
     </nav>
   )
 }

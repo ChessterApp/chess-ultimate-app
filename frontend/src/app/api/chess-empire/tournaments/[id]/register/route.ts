@@ -18,6 +18,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
+import { getFamilyLinkedStudentIds } from '@/lib/family-link-invite';
 import {
   registerForTournament,
   cancelTournamentRegistration,
@@ -135,9 +136,18 @@ async function resolveTargetStudent(
     console.error('[chess-empire/tournaments/register] member lookup failed', err);
     return NextResponse.json({ error: 'server_error' }, { status: 500 });
   }
-  const allowed = members
-    .map((m) => m.studentId)
-    .filter((id): id is string => !!id);
+  // Owned links PLUS students reached through accepted cross-branch family
+  // invites — "any family member can register any other". The family-edge lookup
+  // is best-effort (returns [] on failure) so it never blocks an owned student.
+  const familyLinked = await getFamilyLinkedStudentIds(userId);
+  const allowed = Array.from(
+    new Set(
+      [
+        ...members.map((m) => m.studentId),
+        ...familyLinked.map((f) => f.studentId),
+      ].filter((id): id is string => !!id),
+    ),
+  );
   if (allowed.length === 0) {
     return NextResponse.json(
       {

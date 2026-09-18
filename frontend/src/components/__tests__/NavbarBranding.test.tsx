@@ -10,12 +10,22 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next-intl', () => ({
   useLocale: () => 'en',
+  useTranslations: () => (key: string) => key,
 }));
 
-vi.mock('@clerk/nextjs', () => ({
-  useAuth: () => ({ isSignedIn: false }),
-  UserButton: () => <div data-testid="clerk-userbutton" />,
-}));
+vi.mock('@clerk/nextjs', () => {
+  const UserButton = Object.assign(
+    () => <div data-testid="clerk-userbutton" />,
+    {
+      MenuItems: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+      Action: () => null,
+    },
+  );
+  return {
+    useAuth: () => ({ isSignedIn: false }),
+    UserButton,
+  };
+});
 
 vi.mock('next/image', () => ({
   __esModule: true,

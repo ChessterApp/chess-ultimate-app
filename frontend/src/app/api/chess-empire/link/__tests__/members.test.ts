@@ -29,6 +29,18 @@ vi.mock('@/lib/chess-empire-member', () => ({
   }),
 }));
 
+// Family-edge augmentation (accepted cross-branch invites); default none.
+interface FamilyLinked {
+  studentId: string;
+  orgId: string | null;
+  relationship: 'child' | 'other';
+  name: string | null;
+}
+const familyStore: { linked: FamilyLinked[] } = { linked: [] };
+vi.mock('@/lib/family-link-invite', () => ({
+  getFamilyLinkedStudentIds: vi.fn(async () => familyStore.linked),
+}));
+
 const nameStore: Record<string, string | null> = {};
 const branchStore: Record<string, string | null> = {};
 vi.mock('@/lib/chess-empire-client', () => ({
@@ -76,6 +88,7 @@ beforeEach(() => {
   for (const k of Object.keys(branchStore)) delete branchStore[k];
   tokenStore.rows = [];
   tokenStore.error = null;
+  familyStore.linked = [];
 });
 
 describe('GET /api/chess-empire/link/members', () => {
@@ -129,6 +142,27 @@ describe('GET /api/chess-empire/link/members', () => {
     ]);
     // Branch resolved from the primary (self) member.
     expect(body.branchToken).toBe('tok-new');
+  });
+
+  it('appends cross-branch family-linked members from accepted invites', async () => {
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self', source: 'chess_empire' },
+    ];
+    nameStore['stu-self'] = 'Alex Parent';
+    // No CE display name for the cousin → falls back to the invite's stored name.
+    familyStore.linked = [
+      { studentId: 'stu-cousin', orgId: 'org-1', relationship: 'other', name: 'Cousin Bo' },
+    ];
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.members).toContainEqual({
+      studentId: 'stu-cousin',
+      name: 'Cousin Bo',
+      relationship: 'other',
+      status: 'verified',
+      source: 'chess_empire',
+    });
   });
 
   it('surfaces source=online and keeps branchToken null for an online account', async () => {

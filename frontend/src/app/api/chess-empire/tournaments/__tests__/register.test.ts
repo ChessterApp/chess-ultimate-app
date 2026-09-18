@@ -32,6 +32,12 @@ vi.mock('@/lib/chess-empire-member', () => ({
   }),
 }));
 
+// Cross-branch family edges widen the allowlist; default none.
+const familyStore: { linked: Array<{ studentId: string }> } = { linked: [] };
+vi.mock('@/lib/family-link-invite', () => ({
+  getFamilyLinkedStudentIds: vi.fn(async () => familyStore.linked),
+}));
+
 const registerMock = vi.fn();
 const cancelMock = vi.fn();
 const listRegsMock = vi.fn();
@@ -98,6 +104,7 @@ beforeEach(() => {
   authStore.userId = 'user-1';
   memberStore.members = [...SINGLE];
   memberStore.throws = false;
+  familyStore.linked = [];
   registerMock.mockReset();
   cancelMock.mockReset();
   listRegsMock.mockReset();
@@ -128,6 +135,16 @@ describe('POST /api/chess-empire/tournaments/[id]/register', () => {
     const body = (await res.json()) as { ok: boolean; registration_id: string };
     expect(body.ok).toBe(true);
     expect(body.registration_id).toBe('reg-9');
+  });
+
+  it('registers a cross-branch family-linked student (accepted invite edge)', async () => {
+    // One owned self member + a family-linked student reached via an accepted
+    // invite. The linked id is in the allowlist, so it registers.
+    familyStore.linked = [{ studentId: 'stu-cousin' }];
+    registerMock.mockResolvedValue({ ok: true, registration_id: 'reg-x' });
+    const res = await POST(postReq('stu-cousin'), ctx('t1'));
+    expect(res.status).toBe(200);
+    expect(registerMock).toHaveBeenCalledWith('t1', 'stu-cousin', 'web');
   });
 
   it('(b) no body + 2 members → 400 student_required, CE never called', async () => {

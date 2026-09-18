@@ -1,10 +1,11 @@
 /**
  * @vitest-environment jsdom
  *
- * AddFamilyMember — the in-app "add another child" flow on the tournaments
- * page. Reuses the public search → verify → claim endpoints but writes
- * `relationship='child'`. The branch token is recovered from the durable
- * branch-welcome URL the parent's own onboarding stashed.
+ * AddFamilyMember — the universal "add family member" flow.
+ *  - Same-branch: roster search → select → INSTANT link via
+ *    `/api/chess-empire/link/link-existing` (no email, no accept step).
+ *  - Cross-branch / online: an email invite via `/api/chess-empire/link/invite`
+ *    — no placeholder person is minted; the link forms only on accept.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
@@ -50,7 +51,7 @@ afterEach(() => {
 });
 
 describe('AddFamilyMember', () => {
-  it('searches, confirms and links a child with relationship=child', async () => {
+  it('same-branch: searches, confirms and instant-links a child', async () => {
     fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
       if (url.includes('/students/search')) {
         return Promise.resolve({
@@ -68,7 +69,7 @@ describe('AddFamilyMember', () => {
           }),
         });
       }
-      if (url.includes('/students/verify')) {
+      if (url.includes('/link/link-existing')) {
         expect(opts?.method).toBe('POST');
         expect(JSON.parse(String(opts?.body))).toEqual({
           branchToken: 'tok-1',
@@ -77,11 +78,8 @@ describe('AddFamilyMember', () => {
         });
         return Promise.resolve({
           ok: true,
-          json: async () => ({ inviteJwt: 'jwt-xyz' }),
+          json: async () => ({ ok: true, studentId: 'stu-new' }),
         });
-      }
-      if (url.includes('/link/claim')) {
-        return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });
     });
@@ -108,7 +106,9 @@ describe('AddFamilyMember', () => {
 
     await waitFor(() => {
       expect(
-        fetchMock.mock.calls.some((c) => String(c[0]).includes('/link/claim')),
+        fetchMock.mock.calls.some((c) =>
+          String(c[0]).includes('/link/link-existing'),
+        ),
       ).toBe(true);
     });
     expect(refreshMock).toHaveBeenCalled();
@@ -164,7 +164,7 @@ describe('AddFamilyMember', () => {
     ).toBe(true);
   });
 
-  it('online account: renders the mint form (no search) and posts to /online/family', async () => {
+  it('online account: renders the email-invite form (no search) and posts to /link/invite', async () => {
     localStorage.clear();
     fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
       if (url.includes('/link/members')) {
@@ -184,15 +184,15 @@ describe('AddFamilyMember', () => {
           }),
         });
       }
-      if (url.includes('/online/family')) {
+      if (url.includes('/link/invite')) {
         expect(opts?.method).toBe('POST');
         expect(JSON.parse(String(opts?.body))).toEqual({
-          name: 'Sam',
+          email: 'sam@example.com',
           relationship: 'child',
         });
         return Promise.resolve({
           ok: true,
-          json: async () => ({ ok: true, studentId: 'stu-new' }),
+          json: async () => ({ ok: true, emailSent: true }),
         });
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });
@@ -205,34 +205,44 @@ describe('AddFamilyMember', () => {
       }),
     );
 
-    // Online mode shows a name field — and NEVER the roster search box.
-    const nameInput = await screen.findByLabelText(
-      en.ceTournaments.addMemberNamePlaceholder,
+    // Online mode shows name + email fields — and NEVER the roster search box.
+    const emailInput = await screen.findByLabelText(
+      en.ceTournaments.addMemberInviteEmailPlaceholder,
     );
     expect(
       screen.queryByLabelText(en.ceTournaments.addMemberSearchPlaceholder),
     ).toBeNull();
 
-    fireEvent.change(nameInput, { target: { value: 'Sam' } });
+    fireEvent.change(emailInput, { target: { value: 'sam@example.com' } });
     fireEvent.click(
-      screen.getByRole('button', { name: en.ceTournaments.addMemberSubmit }),
+      screen.getByRole('button', {
+        name: en.ceTournaments.addMemberInviteSubmit,
+      }),
     );
 
     await waitFor(() => {
       expect(
-        fetchMock.mock.calls.some((c) => String(c[0]).includes('/online/family')),
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/link/invite')),
       ).toBe(true);
     });
-    expect(refreshMock).toHaveBeenCalled();
   });
 
-  it('explains when neither device storage nor the server yields a branch token', async () => {
-    localStorage.clear();
-    fetchMock.mockImplementation((url: string) => {
+  it('branch account can switch to the email invite for a different branch', async () => {
+    fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
       if (url.includes('/link/members')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ members: [], branchToken: null }),
+          json: async () => ({ members: [], branchToken: 'tok-1' }),
+        });
+      }
+      if (url.includes('/link/invite')) {
+        expect(JSON.parse(String(opts?.body))).toEqual({
+          name: 'Cousin Bo',
+          relationship: 'child',
+        });
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, emailSent: false }),
         });
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });
@@ -244,8 +254,27 @@ describe('AddFamilyMember', () => {
         name: new RegExp(en.ceTournaments.addFamilyMember),
       }),
     );
-    expect(
-      await screen.findByText(en.ceTournaments.addMemberUnavailable),
-    ).toBeTruthy();
+
+    // Switch from roster search to the cross-branch email invite.
+    const toggle = await screen.findByRole('button', {
+      name: en.ceTournaments.addMemberInviteToggle,
+    });
+    fireEvent.click(toggle);
+
+    const nameInput = await screen.findByLabelText(
+      en.ceTournaments.addMemberNamePlaceholder,
+    );
+    fireEvent.change(nameInput, { target: { value: 'Cousin Bo' } });
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: en.ceTournaments.addMemberInviteSubmit,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes('/link/invite')),
+      ).toBe(true);
+    });
   });
 });

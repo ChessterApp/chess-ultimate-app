@@ -2502,6 +2502,13 @@
     "addMemberError": "Не удалось добавить. Попробуйте ещё раз.",
     "addMemberNamePlaceholder": "Полное имя",
     "addMemberOnlineSubtitle": "Добавьте члена семьи, чтобы записывать его на турниры.",
+    "addMemberInviteToggle": "Другой филиал? Пригласите по эл. почте",
+    "addMemberInviteBackToSearch": "Назад к поиску по списку",
+    "addMemberInviteSubtitle": "Укажите имя или эл. почту. Мы отправим им письмо для подтверждения — связь появится только после согласия.",
+    "addMemberInviteEmailPlaceholder": "Электронная почта",
+    "addMemberInviteSubmit": "Отправить приглашение",
+    "addMemberInviteSubmitting": "Отправка…",
+    "addMemberInviteSent": "Приглашение отправлено. Связь появится после подтверждения.",
     "countdown": {
       "label": "До закрытия регистрации",
       "days": "ДНЕЙ",

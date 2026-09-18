@@ -1,26 +1,24 @@
 'use client';
 
 /**
- * "Add family member" flow for the Chess Empire tournaments page.
+ * Universal "Add family member" flow.
  *
- * The flow forks on the primary member's onboarding source, read from
- * `GET /api/chess-empire/link/members` when the panel opens:
+ * Surfaced three ways — inline on the tournaments page and profile (its own
+ * trigger button) and as a modal from the Chess Empire navbar avatar dropdown
+ * (controlled via `open`/`onClose` with `asModal`). One members fetch when the
+ * panel opens decides the fork on the primary member's onboarding source:
  *
- *  - **branch_linked** — reuses the public onboarding endpoints (search → verify
- *    → claim) but writes `relationship='child'` (or 'other') instead of 'self'.
- *    The branch context is resolved two ways: the fast path reads the durable
- *    branch-welcome URL the parent's own onboarding stashed
- *    (`readBranchWelcomeUrl`); when that device storage is empty (e.g. a second
- *    device), it falls back to the server-resolved `branchToken` from the same
- *    members response. Only when neither yields a token does the panel explain
- *    how to proceed.
- *  - **online** — an online account has no CE roster to search, so the panel
- *    skips search entirely and shows a minimal form (name + relationship) that
- *    POSTs `/api/chess-empire/online/family` to MINT a synthetic online member.
+ *  - **branch** — roster search within the parent's own branch (token resolved
+ *    from the stashed branch-welcome URL or the server-resolved `branchToken`).
+ *    Selecting a student links INSTANTLY via `/api/chess-empire/link/link-existing`
+ *    — no email, no accept step. A "different branch?" toggle switches to the
+ *    email-invite form for someone outside the branch.
+ *  - **online** — an online account has no roster, so it goes straight to the
+ *    email-invite form.
  *
- * On success the parent is already signed in, so the member row is written
- * server-side immediately; a `router.refresh()` reloads the page's snapshot so
- * the new member appears in the family bar + picker.
+ * The email-invite path (`/api/chess-empire/link/invite`) never mints a
+ * placeholder person: it emails the target a consent link and the reciprocal
+ * family edge only forms once they accept.
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -41,6 +39,15 @@ type AddMode = 'branch' | 'online';
 interface MemberRow {
   relationship: 'self' | 'child' | 'other';
   source?: 'chess_empire' | 'online';
+}
+
+interface AddFamilyMemberProps {
+  /** When provided, the panel is controlled (used by the navbar modal). */
+  open?: boolean;
+  /** Requested close in controlled mode. */
+  onClose?: () => void;
+  /** Render the open panel as a centered modal overlay instead of inline. */
+  asModal?: boolean;
 }
 
 const DEBOUNCE_MS = 250;
@@ -64,14 +71,23 @@ function pickMode(members: MemberRow[]): AddMode {
   return primary?.source === 'online' ? 'online' : 'branch';
 }
 
-export default function AddFamilyMember() {
+export default function AddFamilyMember({
+  open: controlledOpen,
+  onClose,
+  asModal = false,
+}: AddFamilyMemberProps = {}) {
   const t = useTranslations('ceTournaments');
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const isControlled = controlledOpen !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = isControlled ? controlledOpen : internalOpen;
+
   const [mode, setMode] = useState<AddMode | null>(null);
   const [branchToken, setBranchToken] = useState<string | null>(null);
   const [branchResolved, setBranchResolved] = useState(false);
-  const [onlineName, setOnlineName] = useState('');
+  const [inviteMode, setInviteMode] = useState(false);
+  const [inviteName, setInviteName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [results, setResults] = useState<SearchResult[] | null>(null);
@@ -84,11 +100,10 @@ export default function AddFamilyMember() {
 
   // Resolve the add-mode + branch token when the panel first opens (localStorage
   // is unavailable during SSR, so this must run client-side). One members fetch
-  // decides the fork: an online primary → mint form (no token needed); otherwise
-  // branch mode, whose token comes from the stashed branch-welcome URL (fast
-  // path) or the server-resolved `branchToken` in the same response (a device
-  // that never did the original onboarding). A failed lookup falls back to branch
-  // mode with the stashed token so today's behaviour is preserved.
+  // decides the fork: an online primary → invite form (no token needed);
+  // otherwise branch mode, whose token comes from the stashed branch-welcome URL
+  // (fast path) or the server-resolved `branchToken` (a device that never did the
+  // original onboarding). A failed lookup falls back to branch mode.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -128,7 +143,7 @@ export default function AddFamilyMember() {
   }, [query]);
 
   useEffect(() => {
-    if (!open || !branchToken || selected) return;
+    if (!open || !branchToken || selected || inviteMode) return;
     if (debounced.length < MIN_QUERY_CHARS) {
       setResults(null);
       setSearching(false);
@@ -151,7 +166,7 @@ export default function AddFamilyMember() {
       })
       .finally(() => setSearching(false));
     return () => controller.abort();
-  }, [debounced, branchToken, open, selected]);
+  }, [debounced, branchToken, open, selected, inviteMode]);
 
   const reset = useCallback(() => {
     setQuery('');
@@ -159,24 +174,33 @@ export default function AddFamilyMember() {
     setResults(null);
     setSelected(null);
     setRelationship('child');
-    setOnlineName('');
+    setInviteMode(false);
+    setInviteName('');
+    setInviteEmail('');
     setError(null);
   }, []);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    reset();
+  const openPanel = useCallback(() => {
     setDone(null);
+    if (!isControlled) setInternalOpen(true);
+  }, [isControlled]);
+
+  const close = useCallback(() => {
+    reset();
     setMode(null);
     setBranchResolved(false);
-  }, [reset]);
+    if (isControlled) onClose?.();
+    else setInternalOpen(false);
+  }, [reset, isControlled, onClose]);
 
-  const submit = useCallback(async () => {
+  // Same-branch instant link: the roster pick forms the verified member row in
+  // one server call, no email or accept step.
+  const submitBranch = useCallback(async () => {
     if (!selected || !branchToken || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const verifyRes = await fetch('/api/chess-empire/students/verify', {
+      const res = await fetch('/api/chess-empire/link/link-existing', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -185,78 +209,77 @@ export default function AddFamilyMember() {
           relationship,
         }),
       });
-      if (!verifyRes.ok) {
-        setError(t('addMemberError'));
-        return;
-      }
-      const body = (await verifyRes.json()) as { inviteJwt?: string };
-      if (!body.inviteJwt) {
-        setError(t('addMemberError'));
-        return;
-      }
-      // The parent is signed in, so claim server-side right away (same logic as
-      // the dashboard poller / welcome flow) to write the linked member row.
-      const claimRes = await fetch('/api/chess-empire/link/claim', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inviteJwt: body.inviteJwt }),
-      });
-      if (!claimRes.ok) {
+      if (!res.ok) {
         setError(t('addMemberError'));
         return;
       }
       const name = `${selected.firstName} ${selected.lastName}`.trim();
       setDone(t('addMemberSuccess', { name }));
       reset();
-      setOpen(false);
+      close();
       router.refresh();
     } catch {
       setError(t('addMemberError'));
     } finally {
       setSubmitting(false);
     }
-  }, [selected, branchToken, relationship, submitting, reset, router, t]);
+  }, [selected, branchToken, relationship, submitting, reset, close, router, t]);
 
-  // Online mode: no roster to search — mint a synthetic online family member
-  // straight from the name + relationship the parent enters.
-  const submitOnline = useCallback(async () => {
-    const name = onlineName.trim();
-    if (!name || submitting) return;
+  // Cross-branch / online→branch: no roster to search. Email the target a
+  // consent link — the family edge forms only when they accept.
+  const submitInvite = useCallback(async () => {
+    const name = inviteName.trim();
+    const email = inviteEmail.trim();
+    if ((!name && !email) || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch('/api/chess-empire/online/family', {
+      const res = await fetch('/api/chess-empire/link/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, relationship }),
+        body: JSON.stringify({
+          name: name || undefined,
+          email: email || undefined,
+          relationship,
+        }),
       });
       if (!res.ok) {
         setError(t('addMemberError'));
         return;
       }
-      setDone(t('addMemberSuccess', { name }));
+      setDone(t('addMemberInviteSent'));
       reset();
-      setOpen(false);
-      router.refresh();
+      close();
     } catch {
       setError(t('addMemberError'));
     } finally {
       setSubmitting(false);
     }
-  }, [onlineName, relationship, submitting, reset, router, t]);
+  }, [inviteName, inviteEmail, relationship, submitting, reset, close, t]);
+
+  const relationshipPicker = (
+    <div className="afm-rel" role="group" aria-label={t('addMemberTitle')}>
+      {(['child', 'other'] as Relationship[]).map((r) => (
+        <button
+          key={r}
+          type="button"
+          className={`afm-rel-opt${relationship === r ? ' active' : ''}`}
+          aria-pressed={relationship === r}
+          onClick={() => setRelationship(r)}
+        >
+          {t(`relationship.${r}`)}
+        </button>
+      ))}
+    </div>
+  );
 
   if (!open) {
+    // Modal mode renders nothing while closed — the navbar owns the trigger.
+    if (asModal) return null;
     return (
       <div className="afm-root">
         {done && <span className="afm-done">{done}</span>}
-        <button
-          type="button"
-          className="afm-open"
-          onClick={() => {
-            setDone(null);
-            setOpen(true);
-          }}
-        >
+        <button type="button" className="afm-open" onClick={openPanel}>
           + {t('addFamilyMember')}
         </button>
         {styles}
@@ -265,150 +288,194 @@ export default function AddFamilyMember() {
   }
 
   const visible = (results ?? []).slice(0, MAX_VISIBLE);
+  const showInvite = mode === 'online' || inviteMode;
+
+  const inviteForm = (
+    <div className="afm-confirm">
+      <p className="afm-hint afm-online-sub">{t('addMemberInviteSubtitle')}</p>
+      <input
+        type="text"
+        autoComplete="off"
+        value={inviteName}
+        onChange={(e) => setInviteName(e.target.value)}
+        placeholder={t('addMemberNamePlaceholder')}
+        className="afm-input"
+        aria-label={t('addMemberNamePlaceholder')}
+      />
+      <input
+        type="email"
+        autoComplete="off"
+        value={inviteEmail}
+        onChange={(e) => setInviteEmail(e.target.value)}
+        placeholder={t('addMemberInviteEmailPlaceholder')}
+        className="afm-input afm-input-stacked"
+        aria-label={t('addMemberInviteEmailPlaceholder')}
+      />
+      {relationshipPicker}
+      {error && <p className="afm-error">{error}</p>}
+      <div className="afm-actions">
+        <button
+          type="button"
+          className="afm-submit"
+          onClick={submitInvite}
+          disabled={submitting || (!inviteName.trim() && !inviteEmail.trim())}
+        >
+          {submitting
+            ? t('addMemberInviteSubmitting')
+            : t('addMemberInviteSubmit')}
+        </button>
+        {mode === 'branch' && (
+          <button
+            type="button"
+            className="afm-back"
+            onClick={() => {
+              setInviteMode(false);
+              setError(null);
+            }}
+            disabled={submitting}
+          >
+            {t('addMemberInviteBackToSearch')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const body = !branchResolved ? (
+    <p className="afm-hint">{t('addMemberResolving')}</p>
+  ) : showInvite ? (
+    inviteForm
+  ) : !branchToken ? (
+    <div>
+      <p className="afm-hint">{t('addMemberUnavailable')}</p>
+      <div className="afm-actions">
+        <button
+          type="button"
+          className="afm-back"
+          onClick={() => setInviteMode(true)}
+        >
+          {t('addMemberInviteToggle')}
+        </button>
+      </div>
+    </div>
+  ) : selected ? (
+    <div className="afm-confirm">
+      <p className="afm-confirm-name">
+        {selected.firstName} {selected.lastName}
+      </p>
+      {relationshipPicker}
+      {error && <p className="afm-error">{error}</p>}
+      <div className="afm-actions">
+        <button
+          type="button"
+          className="afm-submit"
+          onClick={submitBranch}
+          disabled={submitting}
+        >
+          {submitting ? t('addMemberSubmitting') : t('addMemberSubmit')}
+        </button>
+        <button
+          type="button"
+          className="afm-back"
+          onClick={() => {
+            setSelected(null);
+            setError(null);
+          }}
+          disabled={submitting}
+        >
+          {t('addMemberBack')}
+        </button>
+      </div>
+    </div>
+  ) : (
+    <div className="afm-search">
+      <input
+        type="text"
+        autoComplete="off"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={t('addMemberSearchPlaceholder')}
+        className="afm-input"
+        aria-label={t('addMemberSearchPlaceholder')}
+      />
+      {query.trim().length > 0 && query.trim().length < MIN_QUERY_CHARS && (
+        <p className="afm-hint">{t('addMemberHint')}</p>
+      )}
+      {searching && <p className="afm-hint">{t('addMemberSearching')}</p>}
+      {!searching &&
+        results !== null &&
+        visible.length === 0 &&
+        debounced.length >= MIN_QUERY_CHARS && (
+          <p className="afm-hint">{t('addMemberNoResults')}</p>
+        )}
+      {!searching && visible.length > 0 && (
+        <ul className="afm-results">
+          {visible.map((r) => (
+            <li key={r.studentId}>
+              <button
+                type="button"
+                className="afm-result"
+                onClick={() => {
+                  setSelected(r);
+                  setError(null);
+                }}
+              >
+                {r.firstName} {r.lastName}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button
+        type="button"
+        className="afm-invite-toggle"
+        onClick={() => {
+          setInviteMode(true);
+          setError(null);
+        }}
+      >
+        {t('addMemberInviteToggle')}
+      </button>
+    </div>
+  );
+
+  const panel = (
+    <div className="afm-panel">
+      <div className="afm-head">
+        <span className="afm-title">{t('addMemberTitle')}</span>
+        <button
+          type="button"
+          className="afm-close"
+          aria-label={t('addMemberCancel')}
+          onClick={close}
+        >
+          ×
+        </button>
+      </div>
+      {body}
+    </div>
+  );
+
+  if (asModal) {
+    return (
+      <div
+        className="afm-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('addMemberTitle')}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) close();
+        }}
+      >
+        <div className="afm-modal">{panel}</div>
+        {styles}
+      </div>
+    );
+  }
 
   return (
     <div className="afm-root afm-open-panel">
-      <div className="afm-panel">
-        <div className="afm-head">
-          <span className="afm-title">{t('addMemberTitle')}</span>
-          <button
-            type="button"
-            className="afm-close"
-            aria-label={t('addMemberCancel')}
-            onClick={close}
-          >
-            ×
-          </button>
-        </div>
-
-        {!branchResolved ? (
-          <p className="afm-hint">{t('addMemberResolving')}</p>
-        ) : mode === 'online' ? (
-          <div className="afm-confirm">
-            <p className="afm-hint afm-online-sub">{t('addMemberOnlineSubtitle')}</p>
-            <input
-              type="text"
-              autoComplete="off"
-              value={onlineName}
-              onChange={(e) => setOnlineName(e.target.value)}
-              placeholder={t('addMemberNamePlaceholder')}
-              className="afm-input"
-              aria-label={t('addMemberNamePlaceholder')}
-            />
-            <div
-              className="afm-rel"
-              role="group"
-              aria-label={t('addMemberTitle')}
-            >
-              {(['child', 'other'] as Relationship[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={`afm-rel-opt${relationship === r ? ' active' : ''}`}
-                  aria-pressed={relationship === r}
-                  onClick={() => setRelationship(r)}
-                >
-                  {t(`relationship.${r}`)}
-                </button>
-              ))}
-            </div>
-            {error && <p className="afm-error">{error}</p>}
-            <div className="afm-actions">
-              <button
-                type="button"
-                className="afm-submit"
-                onClick={submitOnline}
-                disabled={submitting || !onlineName.trim()}
-              >
-                {submitting ? t('addMemberSubmitting') : t('addMemberSubmit')}
-              </button>
-            </div>
-          </div>
-        ) : !branchToken ? (
-          <p className="afm-hint">{t('addMemberUnavailable')}</p>
-        ) : selected ? (
-          <div className="afm-confirm">
-            <p className="afm-confirm-name">
-              {selected.firstName} {selected.lastName}
-            </p>
-            <div className="afm-rel" role="group" aria-label={t('addMemberTitle')}>
-              {(['child', 'other'] as Relationship[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  className={`afm-rel-opt${relationship === r ? ' active' : ''}`}
-                  aria-pressed={relationship === r}
-                  onClick={() => setRelationship(r)}
-                >
-                  {t(`relationship.${r}`)}
-                </button>
-              ))}
-            </div>
-            {error && <p className="afm-error">{error}</p>}
-            <div className="afm-actions">
-              <button
-                type="button"
-                className="afm-submit"
-                onClick={submit}
-                disabled={submitting}
-              >
-                {submitting ? t('addMemberSubmitting') : t('addMemberSubmit')}
-              </button>
-              <button
-                type="button"
-                className="afm-back"
-                onClick={() => {
-                  setSelected(null);
-                  setError(null);
-                }}
-                disabled={submitting}
-              >
-                {t('addMemberBack')}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="afm-search">
-            <input
-              type="text"
-              autoComplete="off"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={t('addMemberSearchPlaceholder')}
-              className="afm-input"
-              aria-label={t('addMemberSearchPlaceholder')}
-            />
-            {query.trim().length > 0 && query.trim().length < MIN_QUERY_CHARS && (
-              <p className="afm-hint">{t('addMemberHint')}</p>
-            )}
-            {searching && <p className="afm-hint">{t('addMemberSearching')}</p>}
-            {!searching &&
-              results !== null &&
-              visible.length === 0 &&
-              debounced.length >= MIN_QUERY_CHARS && (
-                <p className="afm-hint">{t('addMemberNoResults')}</p>
-              )}
-            {!searching && visible.length > 0 && (
-              <ul className="afm-results">
-                {visible.map((r) => (
-                  <li key={r.studentId}>
-                    <button
-                      type="button"
-                      className="afm-result"
-                      onClick={() => {
-                        setSelected(r);
-                        setError(null);
-                      }}
-                    >
-                      {r.firstName} {r.lastName}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
-      </div>
+      {panel}
       {styles}
     </div>
   );
@@ -444,6 +511,20 @@ const styles = (
       border-color: #2563eb;
       background: #eff6ff;
     }
+    .afm-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: rgba(15, 23, 42, 0.45);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 72px 16px 16px;
+    }
+    .afm-modal {
+      width: 100%;
+      max-width: 420px;
+    }
     .afm-panel {
       width: 100%;
       border: 1px solid #e2e8f0;
@@ -476,6 +557,10 @@ const styles = (
       border-radius: 8px;
       padding: 10px 12px;
       font-size: 0.9rem;
+    }
+    .afm-input-stacked {
+      margin-top: 8px;
+      margin-bottom: 10px;
     }
     .afm-input:focus {
       outline: none;
@@ -519,6 +604,20 @@ const styles = (
     .afm-result:hover {
       border-color: #3b82f6;
       background: #eff6ff;
+    }
+    .afm-invite-toggle {
+      margin-top: 10px;
+      border: none;
+      background: transparent;
+      color: #2563eb;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 0;
+      text-align: left;
+    }
+    .afm-invite-toggle:hover {
+      text-decoration: underline;
     }
     .afm-confirm-name {
       font-size: 1.05rem;

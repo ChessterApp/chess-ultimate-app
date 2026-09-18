@@ -20,6 +20,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
+import { getFamilyLinkedStudentIds } from '@/lib/family-link-invite';
 import {
   getStudentDisplayName,
   getStudentBranches,
@@ -76,7 +77,7 @@ export async function GET() {
 
   try {
     const members = await getVerifiedMembersForUser(userId);
-    const withNames = await Promise.all(
+    const owned = await Promise.all(
       members.map(async (m) => ({
         studentId: m.studentId as string,
         name: m.studentId
@@ -85,10 +86,30 @@ export async function GET() {
         relationship: m.relationship,
         status: m.state,
         // Onboarding track — the client forks the add-member UI on the primary
-        // member's source ('online' → mint form; 'chess_empire' → roster search).
+        // member's source ('online' → invite form; 'chess_empire' → roster search).
         source: m.source,
       })),
     );
+
+    // Students reached via accepted cross-branch family invites — real linked
+    // accounts, shown so the tournament picker can register them too. De-duped
+    // against owned rows. Best-effort: [] on any failure.
+    const ownedIds = new Set(owned.map((m) => m.studentId));
+    const familyLinked = await getFamilyLinkedStudentIds(userId);
+    const linked = await Promise.all(
+      familyLinked
+        .filter((f) => !ownedIds.has(f.studentId))
+        .map(async (f) => ({
+          studentId: f.studentId,
+          name:
+            (await getStudentDisplayName(f.studentId).catch(() => null)) ??
+            f.name,
+          relationship: f.relationship,
+          status: 'verified' as const,
+          source: 'chess_empire' as const,
+        })),
+    );
+    const withNames = [...owned, ...linked];
 
     // Server-side branch resolution for the cross-device add-member flow: derive
     // the branch from the primary verified member ('self' wins, else the first).

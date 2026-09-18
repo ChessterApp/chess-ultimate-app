@@ -2502,6 +2502,13 @@
     "addMemberError": "Couldn't add this member. Please try again.",
     "addMemberNamePlaceholder": "Full name",
     "addMemberOnlineSubtitle": "Add a family member to register them for tournaments.",
+    "addMemberInviteToggle": "Different branch? Invite by email",
+    "addMemberInviteBackToSearch": "Back to roster search",
+    "addMemberInviteSubtitle": "Enter their name or email. We'll email them to confirm — you're linked only once they accept.",
+    "addMemberInviteEmailPlaceholder": "Email address",
+    "addMemberInviteSubmit": "Send invite",
+    "addMemberInviteSubmitting": "Sending…",
+    "addMemberInviteSent": "Invitation sent. You'll be linked once they accept.",
     "countdown": {
       "label": "Registration closes in",
       "days": "DAYS",

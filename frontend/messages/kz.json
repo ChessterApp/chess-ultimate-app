@@ -2502,6 +2502,13 @@
     "addMemberError": "Қосу мүмкін болмады. Қайталап көріңіз.",
     "addMemberNamePlaceholder": "Толық аты-жөні",
     "addMemberOnlineSubtitle": "Турнирлерге тіркеу үшін отбасы мүшесін қосыңыз.",
+    "addMemberInviteToggle": "Басқа филиал ма? Электрондық поштамен шақырыңыз",
+    "addMemberInviteBackToSearch": "Тізім бойынша іздеуге оралу",
+    "addMemberInviteSubtitle": "Атын немесе электрондық поштасын енгізіңіз. Растау үшін хат жібереміз — байланыс тек келіскеннен кейін пайда болады.",
+    "addMemberInviteEmailPlaceholder": "Электрондық пошта",
+    "addMemberInviteSubmit": "Шақыру жіберу",
+    "addMemberInviteSubmitting": "Жіберілуде…",
+    "addMemberInviteSent": "Шақыру жіберілді. Байланыс растағаннан кейін пайда болады.",
     "countdown": {
       "label": "Тіркеу жабылғанға дейін",
       "days": "КҮН",
