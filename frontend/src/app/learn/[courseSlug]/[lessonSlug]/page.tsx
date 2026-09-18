@@ -15,6 +15,48 @@ import Breadcrumbs from '@/components/Breadcrumbs'
 import { XPGain } from '@/components/gamification/XPDisplay'
 import { CelebrationOverlay, QuickCelebration } from '@/components/gamification/CelebrationOverlay'
 import { InlineTip } from '@/components/mascot/SpeechBubble'
+import type { ReactNode } from 'react'
+import type { Components } from 'react-markdown'
+
+// Detect YouTube URLs
+const YOUTUBE_URL_REGEX = /^https?:\/\/(?:www\.)?(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\?.*)?$/
+
+// Defined at module scope so the component identity is stable across renders.
+// An inline `p` renderer creates a new component type on every render, which
+// makes React unmount/remount the subtree — destroying the YouTube iframe and
+// resetting playback each time the page re-renders (e.g. on Clerk's ~50s
+// silent token refresh, chat updates, or XP animations).
+const MarkdownParagraph = ({ children }: { children?: ReactNode }) => {
+  // Check if paragraph contains only a YouTube URL
+  const childArray = Array.isArray(children) ? children : [children]
+  const child = childArray[0]
+  if (typeof child === 'string') {
+    const text = child.trim()
+    const match = text.match(YOUTUBE_URL_REGEX)
+
+    if (match) {
+      const videoId = match[1]
+      return (
+        <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
+          <iframe
+            src={`https://www.youtube.com/embed/${videoId}`}
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+            frameBorder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      )
+    }
+  }
+
+  // Default paragraph rendering
+  return <p>{children}</p>
+}
+
+const markdownComponents: Components = {
+  p: MarkdownParagraph,
+}
 
 interface ArrowData {
   from: string
@@ -346,38 +388,7 @@ export default function LessonPage() {
 
           <div className="prose dark:prose-invert max-w-none mb-6">
             <ReactMarkdown
-              components={{
-                p: ({ children }) => {
-                  // Check if paragraph contains only a YouTube URL
-                  const childArray = Array.isArray(children) ? children : [children]
-                  const child = childArray[0]
-                  if (typeof child === 'string') {
-                    const text = child.trim()
-
-                    // Detect YouTube URLs
-                    const youtubeRegex = /^https?:\/\/(?:www\.)?(?:youtube\.com\/(?:embed\/|watch\?v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})(?:\?.*)?$/
-                    const match = text.match(youtubeRegex)
-
-                    if (match) {
-                      const videoId = match[1]
-                      return (
-                        <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden' }}>
-                          <iframe
-                            src={`https://www.youtube.com/embed/${videoId}`}
-                            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
-                            frameBorder="0"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowFullScreen
-                          />
-                        </div>
-                      )
-                    }
-                  }
-
-                  // Default paragraph rendering
-                  return <p>{children}</p>
-                }
-              }}
+              components={markdownComponents}
             >
               {lesson.content}
             </ReactMarkdown>
