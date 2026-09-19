@@ -225,9 +225,7 @@ export default function AddFamilyMember() {
                 ? '✓ Добавлен'
                 : busy
                   ? 'Добавляем…'
-                  : m.alreadyLinked
-                    ? 'Добавить в семью'
-                    : 'Добавить';
+                  : 'Добавить';
             return (
               <li key={m.studentId} className="afm-row">
                 <span className="afm-person">
