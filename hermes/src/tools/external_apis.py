@@ -9,6 +9,8 @@ import httpx
 
 from tools.registry import registry
 
+from src.identity import resolve_user_id
+
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -213,7 +215,7 @@ def _handle_lichess_game_import(args: dict, **kwargs) -> str:
         username=args.get("username", ""),
         max_games=args.get("max_games", 50),
         time_control=args.get("time_control"),
-        user_id=args.get("user_id"),
+        user_id=resolve_user_id(args, kwargs) or None,
     )
     return json.dumps(result, indent=2)
 
@@ -374,7 +376,7 @@ def _handle_chesscom_game_import(args: dict, **kwargs) -> str:
     result = chesscom_game_import(
         username=args.get("username", ""),
         max_games=args.get("max_games", 50),
-        user_id=args.get("user_id"),
+        user_id=resolve_user_id(args, kwargs) or None,
     )
     return json.dumps(result, indent=2)
 

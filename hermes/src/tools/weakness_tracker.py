@@ -10,6 +10,8 @@ import httpx
 import io
 
 from tools.registry import registry
+
+from src.identity import resolve_user_id
 from src.tools.user_data import get_user_games
 
 logger = logging.getLogger(__name__)
@@ -227,7 +229,7 @@ def weakness_tracker(
 
 def _handle_weakness_tracker(args: dict, **kwargs) -> str:
     result = weakness_tracker(
-        user_id=args.get("user_id", ""),
+        user_id=resolve_user_id(args, kwargs),
         num_games=args.get("num_games", DEFAULT_NUM_GAMES),
     )
     return json.dumps(result, indent=2)

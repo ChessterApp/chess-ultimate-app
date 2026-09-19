@@ -18,6 +18,8 @@ import httpx
 
 from tools.registry import registry
 
+from src.identity import resolve_user_id
+
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -145,7 +147,7 @@ def get_user_repertoire(
 
 def _handle_get_user_repertoire(args: dict, **kwargs) -> str:
     result = get_user_repertoire(
-        user_id=args.get("user_id", ""),
+        user_id=resolve_user_id(args, kwargs),
         color=args.get("color"),
     )
     return json.dumps(result, indent=2, ensure_ascii=False)
@@ -217,14 +219,15 @@ def get_user_games(
 
 
 def _handle_get_user_games(args: dict, **kwargs) -> str:
+    user_id = resolve_user_id(args, kwargs)
     games = _query_user_games(
-        user_id=args.get("user_id", ""),
+        user_id=user_id,
         limit=args.get("limit", DEFAULT_GAMES_LIMIT),
     )
     if games is None:
         result = {"error": "Could not fetch the student's games (Supabase unavailable)."}
     else:
-        result = {"user_id": args.get("user_id", ""), "count": len(games), "games": games}
+        result = {"user_id": user_id, "count": len(games), "games": games}
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

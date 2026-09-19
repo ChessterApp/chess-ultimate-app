@@ -16,6 +16,8 @@ from datetime import date
 
 from tools.registry import registry
 
+from src.identity import resolve_user_id
+
 from src.tools.user_data import _supabase_query
 
 logger = logging.getLogger(__name__)
@@ -134,7 +136,7 @@ def get_user_progress(
 
 
 def _handle_get_user_progress(args: dict, **kwargs) -> str:
-    result = get_user_progress(user_id=args.get("user_id", ""))
+    result = get_user_progress(user_id=resolve_user_id(args, kwargs))
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

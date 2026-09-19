@@ -47,6 +47,7 @@ from src.model_router import route_model, explain_route
 from src.prompt_builder import build_system_prompt, build_voice_prompt, get_prompt_version
 from src.event_logger import log_event, new_turn_id
 from src.coach_feedback import upsert_feedback, delete_feedback
+from src.identity import current_user_id
 from src import config
 from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
@@ -203,6 +204,13 @@ async def add_request_id(request: Request, call_next):
     request_id = request.headers.get("x-request-id", uuid.uuid4().hex[:12])
     request.state.request_id = request_id
 
+    # Student identity for tool handlers (see src/identity.py): the text path
+    # runs tools inside AIAgent, which never sees the request, so expose the
+    # authenticated id via a context var for the duration of the request.
+    identity_token = current_user_id.set(
+        request.headers.get("x-user-id") or request.headers.get("x-clerk-user-id") or ""
+    )
+
     logger.info(
         "request_start method=%s path=%s request_id=%s",
         request.method,
@@ -211,7 +219,10 @@ async def add_request_id(request: Request, call_next):
     )
 
     start = time.monotonic()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    finally:
+        current_user_id.reset(identity_token)
     elapsed = round((time.monotonic() - start) * 1000, 2)
 
     response.headers["X-Request-Id"] = request_id
