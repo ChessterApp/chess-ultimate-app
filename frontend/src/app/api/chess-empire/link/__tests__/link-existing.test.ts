@@ -38,10 +38,16 @@ vi.mock('@/lib/supabase-admin', () => ({
   },
 }));
 
-const profileStore: { branchId: string; status: string; throwStatus: number | null } = {
+const profileStore: {
+  branchId: string;
+  status: string;
+  throwStatus: number | null;
+  branchById: Record<string, string> | null;
+} = {
   branchId: 'branch-1',
   status: 'active',
   throwStatus: null,
+  branchById: null,
 };
 vi.mock('@/lib/chess-empire-client', () => {
   class ChessEmpireAPIError extends Error {
@@ -54,13 +60,21 @@ vi.mock('@/lib/chess-empire-client', () => {
   }
   return {
     ChessEmpireAPIError,
-    getStudentProfile: vi.fn(async () => {
+    getStudentProfile: vi.fn(async (id: string) => {
       if (profileStore.throwStatus) throw new ChessEmpireAPIError(profileStore.throwStatus);
-      return { branch_id: profileStore.branchId, status: profileStore.status };
+      const branch_id = profileStore.branchById?.[id] ?? profileStore.branchId;
+      return { branch_id, status: profileStore.status };
     }),
     getStudentDisplayName: vi.fn(async () => 'Aruzhan A'),
   };
 });
+
+// The token-less path derives the caller's org + branch from their verified
+// membership; the token path never touches this.
+const membersStore: { members: Array<Record<string, unknown>> } = { members: [] };
+vi.mock('@/lib/chess-empire-member', () => ({
+  getVerifiedMembersForUser: vi.fn(async () => membersStore.members),
+}));
 
 const upsertSpy = vi.fn(async () => {});
 vi.mock('@/lib/chess-empire-jwt-link', () => ({
@@ -86,6 +100,16 @@ const goodToken = {
   revoked_at: null,
 };
 
+const SELF_MEMBER = {
+  state: 'verified',
+  studentId: 'stu-self',
+  memberId: 'm-1',
+  role: 'student',
+  source: 'chess_empire',
+  relationship: 'self',
+  orgId: 'org-1',
+};
+
 beforeEach(() => {
   _resetRateLimitForTests();
   authStore.userId = 'parent-1';
@@ -94,6 +118,8 @@ beforeEach(() => {
   profileStore.branchId = 'branch-1';
   profileStore.status = 'active';
   profileStore.throwStatus = null;
+  profileStore.branchById = null;
+  membersStore.members = [{ ...SELF_MEMBER }];
   upsertSpy.mockClear();
 });
 
@@ -116,11 +142,15 @@ describe('POST /api/chess-empire/link/link-existing', () => {
     expect(await res.json()).toEqual({ error: 'missing_fields' });
   });
 
-  it('401 when the branch token is invalid/expired', async () => {
+  it('an unresolvable token falls back to caller membership (rejects when none)', async () => {
+    // A supplied-but-unresolvable token no longer hard-fails: the request falls
+    // through to the token-less path, which requires a verified membership.
     db.tokenRow = null;
+    membersStore.members = [];
     const res = await POST(makeReq({ branchToken: 'tok', studentId: 'stu-1' }) as never);
     expect(res.status).toBe(401);
-    expect(await res.json()).toEqual({ error: 'invalid_token' });
+    expect(await res.json()).toEqual({ error: 'no_membership' });
+    expect(upsertSpy).not.toHaveBeenCalled();
   });
 
   it('409 when the student is already linked', async () => {
@@ -181,5 +211,46 @@ describe('POST /api/chess-empire/link/link-existing', () => {
     expect(upsertSpy).toHaveBeenCalledWith(
       expect.objectContaining({ relationship: 'other' }),
     );
+  });
+
+  describe('token-less path (branch + org derived from caller membership)', () => {
+    it('links a same-branch active student with NO branch token supplied', async () => {
+      // Caller (stu-self) and target (stu-1) both in branch-1 → link succeeds
+      // using the caller's OWN org, no branch token in the request.
+      profileStore.branchById = { 'stu-self': 'branch-1', 'stu-1': 'branch-1' };
+      const res = await POST(makeReq({ studentId: 'stu-1' }) as never);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        ok: true,
+        studentId: 'stu-1',
+        relationship: 'child',
+      });
+      expect(upsertSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orgId: 'org-1',
+          clerkUserId: 'parent-1',
+          studentId: 'stu-1',
+          linkStatus: 'verified',
+          externalSource: 'chess_empire',
+        }),
+      );
+    });
+
+    it('rejects branch_mismatch for a student in a different branch', async () => {
+      // Caller in branch-1, target in branch-2 → cross-branch link refused.
+      profileStore.branchById = { 'stu-self': 'branch-1', 'stu-1': 'branch-2' };
+      const res = await POST(makeReq({ studentId: 'stu-1' }) as never);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'branch_mismatch' });
+      expect(upsertSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects with no_membership when the caller has no verified membership', async () => {
+      membersStore.members = [];
+      const res = await POST(makeReq({ studentId: 'stu-1' }) as never);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: 'no_membership' });
+      expect(upsertSpy).not.toHaveBeenCalled();
+    });
   });
 });

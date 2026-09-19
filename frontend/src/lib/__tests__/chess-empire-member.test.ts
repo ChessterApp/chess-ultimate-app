@@ -80,6 +80,7 @@ function row(overrides: Record<string, unknown> = {}) {
     external_source: 'chess_empire',
     access_expires_at: null,
     relationship: 'self',
+    organization_id: 'org-1',
     ...overrides,
   };
 }
@@ -118,6 +119,9 @@ describe('getLinkedStudentId', () => {
     expect(recorded.order[0][0]).toBe('id');
     // relationship is selected so family links can be labelled.
     expect(recorded.select).toContain('relationship');
+    // organization_id is selected so the in-app link flow can scope by the
+    // caller's OWN org without a public token.
+    expect(recorded.select).toContain('organization_id');
   });
 
   it('returns null when no row matches', async () => {
@@ -187,6 +191,20 @@ describe('getMembershipState', () => {
     expect(result.studentId).toBe('stu-v');
     expect(result.memberId).toBe('mem-v');
     expect(result.relationship).toBe('self');
+    expect(result.orgId).toBe('org-1');
+  });
+
+  it('exposes orgId from the row, and null when there is no row', async () => {
+    nextResponse = {
+      data: [row({ id: 'mem-o', external_student_id: 'stu-o', organization_id: 'org-77' })],
+      error: null,
+    };
+    const linked = await getMembershipState({ orgId: 'org-77', clerkUserId: 'user-o' });
+    expect(linked.orgId).toBe('org-77');
+
+    nextResponse = { data: [], error: null };
+    const none = await getMembershipState({ orgId: 'org-1', clerkUserId: 'nobody' });
+    expect(none.orgId).toBeNull();
   });
 
   it('returns state=pending_confirm with studentId when link_status=pending_confirm', async () => {

@@ -52,6 +52,8 @@ export interface MembershipStateResult {
   source: MemberSource;
   /** Family link type (see MemberRelationship). */
   relationship: MemberRelationship;
+  /** Owning Clerk organization id; null when there is no row. */
+  orgId: string | null;
 }
 
 interface MemberRow {
@@ -64,10 +66,11 @@ interface MemberRow {
   access_expires_at: string | null;
   /** Family link type; absent on pre-migration rows. */
   relationship: string | null;
+  organization_id: string | null;
 }
 
 const SELECT_COLUMNS =
-  'id, external_student_id, link_status, role, external_source, access_expires_at, relationship';
+  'id, external_student_id, link_status, role, external_source, access_expires_at, relationship, organization_id';
 
 /** Both onboarding tracks funnel through the same member lookup. */
 const MEMBER_SOURCES = ['chess_empire', 'online'] as const;
@@ -104,8 +107,11 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
     role: 'student',
     source: 'chess_empire',
     relationship: 'self',
+    orgId: null,
   };
   if (!row || !row.external_student_id) return noLink;
+
+  const orgId = row.organization_id ?? null;
 
   const role: MemberRole = row.role === 'coach' ? 'coach' : 'student';
   const source: MemberSource =
@@ -125,6 +131,7 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
       role,
       source,
       relationship,
+      orgId,
     };
   }
   if (row.link_status === 'pending_confirm') {
@@ -135,6 +142,7 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
       role,
       source,
       relationship,
+      orgId,
     };
   }
   return noLink;

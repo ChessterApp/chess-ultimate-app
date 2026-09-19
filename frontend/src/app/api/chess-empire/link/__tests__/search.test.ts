@@ -141,6 +141,7 @@ const SELF_MEMBER = {
   role: 'student',
   source: 'chess_empire',
   relationship: 'self',
+  orgId: 'org-1',
 };
 
 beforeEach(() => {
@@ -263,16 +264,45 @@ describe('GET /api/chess-empire/link/search', () => {
     ]);
   });
 
-  it('empty results (but keeps branch chip) when the branch has no active token', async () => {
+  it('still returns roster results when the branch has NO active token (token null)', async () => {
+    // The caller is authenticated and their branch+org come from their own
+    // verified membership, so a missing public token must NOT gate the search.
     scripts['branch_invite_tokens.select'] = [
       { data: [{ ...ACTIVE_TOKEN, revoked_at: '2026-02-01T00:00:00Z' }], error: null },
     ];
+    ceSearch.mockResolvedValue([
+      { id: 'stu-1', first_name: 'Aiman', last_name: 'Kassymova', branch_id: 'br-1', status: 'active' },
+    ]);
     const res = await GET(makeReq('http://x/api/?q=ai'));
     const body = await res.json();
     expect(body.branchName).toBe('Debut');
     expect(body.branchToken).toBeNull();
-    expect(body.results).toEqual([]);
-    expect(ceSearch).not.toHaveBeenCalled();
+    expect(body.results).toEqual([
+      { studentId: 'stu-1', firstName: 'Aiman', lastName: 'Kassymova', branchName: 'Debut', type: 'student' },
+    ]);
+    // The search is still issued against the caller's own branch.
+    expect(ceSearch).toHaveBeenCalledWith('br-1', 'ai', 20);
+  });
+
+  it('scopes the already-linked filter to the caller-derived org, not the token', async () => {
+    // No token at all: the org used by fetchLinkedStudentIds must be the
+    // caller's own membership org (org-1), never a token-derived org.
+    scripts['branch_invite_tokens.select'] = [{ data: [], error: null }];
+    ceSearch.mockResolvedValue([
+      { id: 'stu-linked', first_name: 'Alikhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
+      { id: 'stu-new', first_name: 'Aruzhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
+    ]);
+    scripts['organization_members.select'] = [
+      { data: [{ external_student_id: 'stu-linked' }], error: null },
+    ];
+    const res = await GET(makeReq('http://x/api/?q=a'));
+    const body = await res.json();
+    expect(body.branchToken).toBeNull();
+    expect(body.results).toEqual([
+      { studentId: 'stu-new', firstName: 'Aruzhan', lastName: 'A', branchName: 'Debut', type: 'student' },
+    ]);
+    const orgFilter = recorded.find((r) => r.table === 'organization_members');
+    expect(orgFilter?.filters).toContainEqual(['organization_id', 'org-1']);
   });
 
   it('502 when the CE profile lookup errors', async () => {

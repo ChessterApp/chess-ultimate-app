@@ -2,16 +2,21 @@
  * POST /api/chess-empire/link/link-existing
  *
  * Same-branch instant family link. The parent has picked a student from the
- * roster search (scoped to their own branch via `branchToken`); this endpoint
- * validates the pick server-side and writes the verified `organization_members`
- * row in one call — no invite JWT round-trip, no email, no accept step. It is
- * the consolidation of the older search → verify → claim dance for the in-app
- * "add family member" flow.
+ * roster search (scoped to their own branch); this endpoint validates the pick
+ * server-side and writes the verified `organization_members` row in one call —
+ * no invite JWT round-trip, no email, no accept step. It is the consolidation of
+ * the older search → verify → claim dance for the in-app "add family member" flow.
+ *
+ * The parent's own branch + org are resolved from their VERIFIED membership, not
+ * from the public branch invite token (a pre-signup artifact). A `branchToken`
+ * may still be supplied for back-compat: when it resolves to a valid token, its
+ * org+branch are used; when absent OR unresolvable, we fall back to the caller's
+ * verified membership. Either way the net invariant holds — a caller can only
+ * ever link a student that is in the caller's OWN verified branch.
  *
  * Consent is implicit here: the target is a roster student inside the parent's
- * own branch (the branch token proves the parent's branch, and we reject any
- * student whose CE branch doesn't match). Cross-branch / online→branch adds go
- * through the email-consent invite flow instead.
+ * own branch (we reject any student whose CE branch doesn't match). Cross-branch
+ * / online→branch adds go through the email-consent invite flow instead.
  *
  * Rate-limited per IP + per user, consistent with the other invite endpoints.
  */
@@ -21,6 +26,7 @@ import { auth } from '@clerk/nextjs/server';
 import { rateLimit } from '@/lib/in-memory-rate-limit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { upsertMemberLink } from '@/lib/chess-empire-jwt-link';
+import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
 import {
   getStudentProfile,
   getStudentDisplayName,
@@ -97,13 +103,42 @@ export async function POST(req: NextRequest) {
   const studentId = body.studentId?.trim() ?? '';
   // Only guardian links come through here; anything else falls back to 'child'.
   const relationship = body.relationship === 'other' ? 'other' : 'child';
-  if (!branchToken || !studentId) {
+  if (!studentId) {
     return NextResponse.json({ error: 'missing_fields' }, { status: 400 });
   }
 
-  const token = await resolveBranchToken(branchToken);
-  if (!token) {
-    return NextResponse.json({ error: 'invalid_token' }, { status: 401 });
+  // Resolve the caller's org + own branch. A supplied token that resolves wins
+  // (back-compat); otherwise — absent or unresolvable — fall back to the
+  // caller's VERIFIED membership so an in-app link never depends on a public
+  // pre-signup token existing.
+  let organizationId: string;
+  let expectedBranchId: string;
+  const token = branchToken ? await resolveBranchToken(branchToken) : null;
+  if (token) {
+    organizationId = token.organization_id;
+    expectedBranchId = token.external_branch_id;
+  } else {
+    const members = await getVerifiedMembersForUser(userId);
+    const primary =
+      members.find((m) => m.relationship === 'self' && m.studentId) ??
+      members.find((m) => m.studentId) ??
+      null;
+    if (!primary?.studentId || !primary.orgId) {
+      return NextResponse.json({ error: 'no_membership' }, { status: 401 });
+    }
+    organizationId = primary.orgId;
+    try {
+      const callerProfile = await getStudentProfile(primary.studentId);
+      expectedBranchId = callerProfile.branch_id;
+    } catch (err) {
+      if (err instanceof ChessEmpireAPIError) {
+        return NextResponse.json({ error: 'upstream_error' }, { status: 502 });
+      }
+      throw err;
+    }
+    if (!expectedBranchId) {
+      return NextResponse.json({ error: 'branch_mismatch' }, { status: 401 });
+    }
   }
 
   // One Chesster account per external student (per org, source). If the student
@@ -111,7 +146,7 @@ export async function POST(req: NextRequest) {
   const { data: existing } = await supabaseAdmin
     .from('organization_members')
     .select('id')
-    .eq('organization_id', token.organization_id)
+    .eq('organization_id', organizationId)
     .eq('external_source', 'chess_empire')
     .eq('external_student_id', studentId)
     .in('link_status', ['verified', 'frozen'])
@@ -138,7 +173,7 @@ export async function POST(req: NextRequest) {
     throw err;
   }
 
-  if (branchId !== token.external_branch_id) {
+  if (branchId !== expectedBranchId) {
     return NextResponse.json({ error: 'branch_mismatch' }, { status: 401 });
   }
   if (status !== 'active') {
@@ -148,7 +183,7 @@ export async function POST(req: NextRequest) {
   const name = await getStudentDisplayName(studentId).catch(() => null);
   try {
     await upsertMemberLink({
-      orgId: token.organization_id,
+      orgId: organizationId,
       clerkUserId: userId,
       studentId,
       linkStatus: 'verified',

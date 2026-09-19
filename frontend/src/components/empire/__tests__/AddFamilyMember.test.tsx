@@ -53,10 +53,29 @@ afterEach(() => {
 describe('AddFamilyMember', () => {
   it('same-branch: searches, confirms and instant-links a child', async () => {
     fetchMock.mockImplementation((url: string, opts?: RequestInit) => {
-      if (url.includes('/students/search')) {
+      if (url.includes('/link/members')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({
+            members: [
+              {
+                studentId: 'stu-self',
+                relationship: 'self',
+                status: 'verified',
+                source: 'chess_empire',
+              },
+            ],
+            branchToken: 'tok-1',
+          }),
+        });
+      }
+      // Roster search now hits the AUTHENTICATED, session-scoped route.
+      if (url.includes('/link/search')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            branchName: 'Debut',
+            branchToken: 'tok-1',
             results: [
               {
                 studentId: 'stu-new',
@@ -114,19 +133,21 @@ describe('AddFamilyMember', () => {
     expect(refreshMock).toHaveBeenCalled();
   });
 
-  it('falls back to server-side branch resolution when device storage is empty', async () => {
+  it('roster search works with empty device storage (session-scoped, token-less)', async () => {
     localStorage.clear();
     fetchMock.mockImplementation((url: string) => {
       if (url.includes('/link/members')) {
         return Promise.resolve({
           ok: true,
-          json: async () => ({ members: [], branchToken: 'tok-server' }),
+          json: async () => ({ members: [], branchToken: null }),
         });
       }
-      if (url.includes('/students/search')) {
+      if (url.includes('/link/search')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({
+            branchName: 'Debut',
+            branchToken: null,
             results: [
               {
                 studentId: 'stu-new',
@@ -149,19 +170,23 @@ describe('AddFamilyMember', () => {
       }),
     );
 
-    // The server-resolved token scopes the search on a device with no stashed
-    // branch-welcome URL.
+    // No stashed branch-welcome URL and no server token: the search still works
+    // because the branch is resolved from the session server-side.
     const input = await screen.findByLabelText(
       en.ceTournaments.addMemberSearchPlaceholder,
     );
     fireEvent.change(input, { target: { value: 'aru' } });
     const result = await screen.findByRole('button', { name: /Aruzhan/ });
     expect(result).toBeTruthy();
+    // The search is issued against the authenticated route — never the public
+    // token-scoped `students/search` endpoint.
+    const searchCalls = fetchMock.mock.calls.filter((c) =>
+      String(c[0]).includes('/link/search'),
+    );
+    expect(searchCalls.length).toBeGreaterThan(0);
     expect(
-      fetchMock.mock.calls.some((c) =>
-        String(c[0]).includes('branchToken=tok-server'),
-      ),
-    ).toBe(true);
+      fetchMock.mock.calls.some((c) => String(c[0]).includes('/students/search')),
+    ).toBe(false);
   });
 
   it('online account: renders the email-invite form (no search) and posts to /link/invite', async () => {

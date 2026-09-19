@@ -8,11 +8,14 @@
  * (controlled via `open`/`onClose` with `asModal`). One members fetch when the
  * panel opens decides the fork on the primary member's onboarding source:
  *
- *  - **branch** — roster search within the parent's own branch (token resolved
- *    from the stashed branch-welcome URL or the server-resolved `branchToken`).
- *    Selecting a student links INSTANTLY via `/api/chess-empire/link/link-existing`
- *    — no email, no accept step. A "different branch?" toggle switches to the
- *    email-invite form for someone outside the branch.
+ *  - **branch** — roster search within the parent's own branch via the
+ *    AUTHENTICATED `/api/chess-empire/link/search` route (branch resolved from
+ *    the session, not a public token). Selecting a student links INSTANTLY via
+ *    `/api/chess-empire/link/link-existing` — no email, no accept step. A
+ *    "different branch?" toggle switches to the email-invite form for someone
+ *    outside the branch. A `branchToken` (from the stashed branch-welcome URL or
+ *    the server response) is OPTIONAL — passed through for back-compat when
+ *    present, but the link no longer depends on one existing.
  *  - **online** — an online account has no roster, so it goes straight to the
  *    email-invite form.
  *
@@ -85,6 +88,9 @@ export default function AddFamilyMember({
   const [mode, setMode] = useState<AddMode | null>(null);
   const [branchToken, setBranchToken] = useState<string | null>(null);
   const [branchResolved, setBranchResolved] = useState(false);
+  // The members lookup itself failed (not merely "no public token"): the only
+  // case that now falls back to the addMemberUnavailable copy.
+  const [lookupFailed, setLookupFailed] = useState(false);
   const [inviteMode, setInviteMode] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
@@ -98,38 +104,39 @@ export default function AddFamilyMember({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  // Resolve the add-mode + branch token when the panel first opens (localStorage
-  // is unavailable during SSR, so this must run client-side). One members fetch
-  // decides the fork: an online primary → invite form (no token needed);
-  // otherwise branch mode, whose token comes from the stashed branch-welcome URL
-  // (fast path) or the server-resolved `branchToken` (a device that never did the
-  // original onboarding). A failed lookup falls back to branch mode.
+  // Resolve the add-mode when the panel first opens. One members fetch decides
+  // the fork: an online primary → invite form; otherwise branch mode, whose
+  // roster search runs against the authenticated `link/search` route (branch
+  // derived from the session). An OPTIONAL branchToken — the stashed
+  // branch-welcome URL (fast path) or the server-resolved `branchToken` — is
+  // carried through for the back-compat link path when present. Only a failed
+  // lookup (network/HTTP error) falls back to the "unavailable" copy.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setBranchResolved(false);
+    setLookupFailed(false);
     fetch('/api/chess-empire/link/members')
-      .then((res) => (res.ok ? res.json() : null))
-      .then(
-        (
-          body:
-            | { members?: MemberRow[]; branchToken?: string | null }
-            | null,
-        ) => {
-          if (cancelled) return;
-          const nextMode = pickMode(body?.members ?? []);
-          setMode(nextMode);
-          if (nextMode === 'branch') {
-            const fast = branchTokenFromUrl(readBranchWelcomeUrl());
-            setBranchToken(fast ?? body?.branchToken ?? null);
-          }
-          setBranchResolved(true);
-        },
-      )
+      .then((res) => {
+        if (!res.ok) throw new Error(`status_${res.status}`);
+        return res.json() as Promise<{
+          members?: MemberRow[];
+          branchToken?: string | null;
+        }>;
+      })
+      .then((body) => {
+        if (cancelled) return;
+        const nextMode = pickMode(body?.members ?? []);
+        setMode(nextMode);
+        if (nextMode === 'branch') {
+          const fast = branchTokenFromUrl(readBranchWelcomeUrl());
+          setBranchToken(fast ?? body?.branchToken ?? null);
+        }
+        setBranchResolved(true);
+      })
       .catch(() => {
         if (cancelled) return;
-        setMode('branch');
-        setBranchToken(branchTokenFromUrl(readBranchWelcomeUrl()));
+        setLookupFailed(true);
         setBranchResolved(true);
       });
     return () => {
@@ -143,7 +150,7 @@ export default function AddFamilyMember({
   }, [query]);
 
   useEffect(() => {
-    if (!open || !branchToken || selected || inviteMode) return;
+    if (!open || mode !== 'branch' || selected || inviteMode) return;
     if (debounced.length < MIN_QUERY_CHARS) {
       setResults(null);
       setSearching(false);
@@ -151,22 +158,32 @@ export default function AddFamilyMember({
     }
     const controller = new AbortController();
     setSearching(true);
-    const url = `/api/chess-empire/students/search?branchToken=${encodeURIComponent(
-      branchToken,
-    )}&q=${encodeURIComponent(debounced)}`;
+    // Authenticated, branch-scoped search — the branch is resolved from the
+    // session server-side, so no public token is needed to search.
+    const url = `/api/chess-empire/link/search?q=${encodeURIComponent(
+      debounced,
+    )}`;
     fetch(url, { signal: controller.signal })
       .then(async (res) => {
         if (!res.ok) throw new Error(`status_${res.status}`);
-        return (await res.json()) as { results: SearchResult[] };
+        return (await res.json()) as {
+          results: SearchResult[];
+          branchToken?: string | null;
+        };
       })
-      .then((body) => setResults(body.results ?? []))
+      .then((body) => {
+        setResults(body.results ?? []);
+        // Opportunistically capture a server-resolved token for the back-compat
+        // link path; the link works without one either way.
+        if (body.branchToken) setBranchToken(body.branchToken);
+      })
       .catch((err: unknown) => {
         if ((err as { name?: string })?.name === 'AbortError') return;
         setResults([]);
       })
       .finally(() => setSearching(false));
     return () => controller.abort();
-  }, [debounced, branchToken, open, selected, inviteMode]);
+  }, [debounced, mode, open, selected, inviteMode]);
 
   const reset = useCallback(() => {
     setQuery('');
@@ -189,6 +206,7 @@ export default function AddFamilyMember({
     reset();
     setMode(null);
     setBranchResolved(false);
+    setLookupFailed(false);
     if (isControlled) onClose?.();
     else setInternalOpen(false);
   }, [reset, isControlled, onClose]);
@@ -196,7 +214,7 @@ export default function AddFamilyMember({
   // Same-branch instant link: the roster pick forms the verified member row in
   // one server call, no email or accept step.
   const submitBranch = useCallback(async () => {
-    if (!selected || !branchToken || submitting) return;
+    if (!selected || submitting) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -204,7 +222,8 @@ export default function AddFamilyMember({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          branchToken,
+          // Token is optional now — send it only for the back-compat path.
+          ...(branchToken ? { branchToken } : {}),
           studentId: selected.studentId,
           relationship,
         }),
@@ -345,7 +364,7 @@ export default function AddFamilyMember({
     <p className="afm-hint">{t('addMemberResolving')}</p>
   ) : showInvite ? (
     inviteForm
-  ) : !branchToken ? (
+  ) : lookupFailed ? (
     <div>
       <p className="afm-hint">{t('addMemberUnavailable')}</p>
       <div className="afm-actions">

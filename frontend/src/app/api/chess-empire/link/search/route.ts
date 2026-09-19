@@ -14,16 +14,17 @@
  *
  *   1. Require a signed-in Clerk user (401 otherwise).
  *   2. Pick the caller's primary verified member ('self' first) → its CE
- *      student id → branch id + branch name (via the CE profile).
- *   3. Resolve a currently-valid branch invite token for that branch — its
- *      org id scopes the already-linked filter, and the token itself is
- *      returned so the client can hand it to `link/link-existing`.
+ *      student id → branch id + branch name (via the CE profile). Its org id
+ *      (from the member row) scopes the already-linked filter.
+ *   3. Resolve a branch invite token OPPORTUNISTICALLY — it is not required to
+ *      search (the caller is already authenticated and branch-bound), but is
+ *      returned so the client can pass it to `link/link-existing` when present.
  *   4. Return same-branch matches only; a caller in branch A can never see
  *      branch B's members because the branch is bound to their own membership.
  *
  * Response: `{ results, branchName, branchToken }`. `branchToken` is null when
- * the branch has no active invite token — the client then offers only the
- * email-invite fallback.
+ * the branch has no active invite token — search still works (the link is
+ * written token-lessly), and the client keeps the email-invite fallback too.
  */
 import 'server-only';
 
@@ -143,9 +144,11 @@ export async function GET(req: NextRequest) {
     members.find((m) => m.relationship === 'self' && m.studentId) ??
     members.find((m) => m.studentId) ??
     null;
-  if (!primary?.studentId) {
+  if (!primary?.studentId || !primary.orgId) {
     return NextResponse.json({ results: [], branchName: null, branchToken: null });
   }
+  // Org comes from the caller's OWN verified membership — never a public token.
+  const organizationId = primary.orgId;
 
   let branchId: string;
   let branchName: string | null;
@@ -164,12 +167,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ results: [], branchName, branchToken: null });
   }
 
+  // Resolve a branch token opportunistically: it is NOT required to search
+  // (the caller is authenticated and their branch+org are already known), but
+  // it is returned so the client can hand it to `link/link-existing` for the
+  // token-based back-compat path when one exists.
   const tokenRow = await resolveBranchToken(branchId);
   const branchToken = tokenRow?.token ?? null;
 
-  // Empty query never leaks the full roster; a missing token means the branch
-  // can't be linked into, so there is nothing actionable to return either.
-  if (!q || !tokenRow) {
+  // Empty query never leaks the full roster.
+  if (!q) {
     return NextResponse.json({ results: [], branchName, branchToken });
   }
 
@@ -194,7 +200,7 @@ export async function GET(req: NextRequest) {
     ...activeStudents.map((s) => s.id),
     ...coaches.map((c) => c.id),
   ];
-  const linked = await fetchLinkedStudentIds(tokenRow.organization_id, candidateIds);
+  const linked = await fetchLinkedStudentIds(organizationId, candidateIds);
 
   const studentResults = activeStudents
     .filter((s) => !linked.has(s.id))
