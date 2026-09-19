@@ -80,6 +80,34 @@ describe('Coach API Routes', () => {
       expect(response.headers.get('Content-Type')).toBe('text/event-stream');
       expect(response.headers.get('Cache-Control')).toBe('no-cache');
     });
+
+    it('forwards context_note apart from the message (grounding must not drive routing)', async () => {
+      (auth as any).mockResolvedValue({ userId: 'user_123' });
+
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ message: 'ok', board_actions: [], session_id: 's1' }),
+      });
+      global.fetch = fetchMock as any;
+
+      const { POST } = await import('../../coach/chat/route');
+      const { NextRequest } = await import('next/server');
+      const request = new NextRequest('http://localhost:3000/api/coach/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: 'почему это ошибка?',
+          context_note: '[Review context] classified as "blunder" … engine evaluation',
+        }),
+      });
+
+      const response = await POST(request as any);
+      await response.text(); // drain the SSE stream so the Hermes call happens
+      const sent = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(sent.message).toBe('почему это ошибка?');
+      expect(sent.context_note).toContain('[Review context]');
+    });
   });
 
   describe('GET /api/coach/sessions', () => {

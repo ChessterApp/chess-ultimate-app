@@ -637,6 +637,11 @@ class CoachChatRequest(BaseModel):
     fen: Optional[str] = None
     session_id: Optional[str] = None
     locale: Optional[str] = None
+    # Per-turn grounding the UI adds (e.g. the Review drawer's "[Review context]
+    # … classified as blunder …" note). Sent apart from ``message`` so model
+    # routing, tool selection, history and memory see the student's actual
+    # question; the note only reaches the model for this turn.
+    context_note: Optional[str] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -942,12 +947,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
     # Build conversation context from session history (exclude the just-added user message)
     history_messages = session.messages[:-1]
+    current_message = (
+        f"{body.context_note.strip()}\n\n{body.message}" if body.context_note else body.message
+    )
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
-        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{body.message}"
+        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current_message}"
     else:
-        augmented_message = body.message
+        augmented_message = current_message
 
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session_id,

@@ -323,7 +323,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         body: JSON.stringify({
           // The visible bubble shows `trimmed`; the coach receives the grounding
           // preamble (if any) prepended so the answer is scoped to the position.
-          message: contextNote ? `${contextNote}\n\n${trimmed}` : trimmed,
+          message: trimmed,
+          // Grounding travels apart from the question so Hermes routes, selects
+          // tools and stores history on what the student actually asked.
+          context_note: contextNote || undefined,
           fen: currentFen,
           session_id: sessionId,
         }),
