@@ -93,7 +93,8 @@ def test_import_extracts_usernames():
         _make_mock_response(EMPTY_RESPONSE),
     ]
 
-    with patch("src.tools.external_apis._supabase_post") as mock_post:
+    with patch("src.tools.external_apis._supabase_post") as mock_post, \
+         patch("src.tools.external_apis._existing_import_tags", return_value=set()):
         mock_post.return_value = 3
         chesscom_game_import("testuser", user_id="u1", client=client,
                              supabase_url="https://fake.supabase.co", supabase_key="k")
@@ -169,7 +170,8 @@ def test_import_stores_in_supabase():
         _make_mock_response(EMPTY_RESPONSE),
     ]
 
-    with patch("src.tools.external_apis._supabase_post") as mock_post:
+    with patch("src.tools.external_apis._supabase_post") as mock_post, \
+         patch("src.tools.external_apis._existing_import_tags", return_value=set()):
         mock_post.return_value = 3
         result = chesscom_game_import(
             "testuser",

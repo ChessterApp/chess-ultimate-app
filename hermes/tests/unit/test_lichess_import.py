@@ -145,7 +145,8 @@ def test_import_stores_in_supabase():
     client = MagicMock()
     client.get.return_value = _make_mock_response(text=SAMPLE_LICHESS_PGN)
 
-    with patch("src.tools.external_apis._supabase_post") as mock_post:
+    with patch("src.tools.external_apis._supabase_post") as mock_post, \
+         patch("src.tools.external_apis._existing_import_tags", return_value=set()):
         mock_post.return_value = 3
         result = lichess_game_import(
             "testuser",
@@ -156,11 +157,38 @@ def test_import_stores_in_supabase():
         )
 
     assert result["imported"] == 3
+    assert result["saved_to_my_games"] == 3
     mock_post.assert_called_once()
     rows = mock_post.call_args[0][1]
     assert len(rows) == 3
     assert rows[0]["source"] == "lichess"
     assert rows[0]["user_id"] == "user123"
+    # Only real user_games columns; the platform id lives in tags.
+    assert "platform_game_id" not in rows[0]
+    assert rows[0]["tags"] == ["lichess:abc12345"]
+    assert rows[0]["title"] == f"{rows[0]['white']} vs {rows[0]['black']}"
+
+
+@pytest.mark.unit
+def test_reimport_skips_games_already_saved():
+    """A game whose lichess:<id> tag is already in My Games is not inserted twice."""
+    client = MagicMock()
+    client.get.return_value = _make_mock_response(text=SAMPLE_LICHESS_PGN)
+
+    with patch("src.tools.external_apis._supabase_post") as mock_post, \
+         patch("src.tools.external_apis._existing_import_tags", return_value={"lichess:abc12345"}):
+        result = lichess_game_import(
+            "testuser",
+            user_id="user123",
+            supabase_url="https://fake.supabase.co",
+            supabase_key="fake-key",
+            client=client,
+        )
+
+    assert result["imported"] == 3
+    assert result["saved_to_my_games"] == 2
+    rows = mock_post.call_args[0][1]
+    assert [r["tags"][0] for r in rows] == ["lichess:def67890", "lichess:ghi11111"]
 
 
 @pytest.mark.unit

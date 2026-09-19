@@ -1,6 +1,7 @@
 """Tools: lichess_game_import and chesscom_game_import — import games from external platforms."""
 
 import json
+import re
 import logging
 import os
 from datetime import datetime, timezone
@@ -41,6 +42,85 @@ def _supabase_post(table: str, rows: list[dict], url: str = None, key: str = Non
         timeout=TIMEOUT,
     )
     resp.raise_for_status()
+    return len(rows)
+
+
+def _pgn_header(pgn: str, tag: str) -> str:
+    """Value of a PGN tag pair in *pgn* (\"\" when absent)."""
+    m = re.search(r'\[' + re.escape(tag) + r' "([^"]*)"\]', pgn or "")
+    return m.group(1) if m else ""
+
+
+def _elo(value: str):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _existing_import_tags(user_id: str, source: str, url: str, key: str) -> set:
+    """``<source>:<id>`` tags of the games this user already imported from *source*."""
+    resp = httpx.get(
+        f"{url}/rest/v1/user_games",
+        params={
+            "user_id": f"eq.{user_id}",
+            "source": f"eq.{source}",
+            "deleted_at": "is.null",
+            "select": "tags",
+        },
+        headers={"apikey": key, "Authorization": f"Bearer {key}"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    return {
+        t for row in resp.json() for t in (row.get("tags") or []) if t.startswith(f"{source}:")
+    }
+
+
+def _persist_games(
+    user_id: str,
+    games: list[dict],
+    source: str,
+    url: str = None,
+    key: str = None,
+) -> int:
+    """Save imported games to ``user_games`` (My Games) and return how many were new.
+
+    Rows use the table's real columns (backend/migrations/011_create_user_games.sql):
+    there is no platform id column, so the platform game id is kept as a
+    ``<source>:<id>`` tag, which is also how re-imports are deduplicated.
+    """
+    base = url or SUPABASE_URL
+    api_key = key or SUPABASE_KEY
+    if not base or not api_key:
+        return 0
+
+    known = _existing_import_tags(user_id, source, base, api_key)
+
+    rows = []
+    for g in games:
+        tag = f"{source}:{g['platform_game_id']}" if g.get("platform_game_id") else None
+        if tag and tag in known:
+            continue
+        pgn = g["pgn"]
+        rows.append({
+            "user_id": user_id,
+            "title": f"{g['white']} vs {g['black']}",
+            "white": g["white"],
+            "black": g["black"],
+            "white_elo": _elo(_pgn_header(pgn, "WhiteElo")),
+            "black_elo": _elo(_pgn_header(pgn, "BlackElo")),
+            "result": g["result"],
+            "date": g["date"],
+            "event": g["event"],
+            "eco": _pgn_header(pgn, "ECO") or None,
+            "opening_name": _pgn_header(pgn, "Opening") or None,
+            "pgn": pgn,
+            "source": source,
+            "tags": [tag] if tag else [],
+        })
+    if rows:
+        _supabase_post("user_games", rows, url=base, key=api_key)
     return len(rows)
 
 
@@ -171,23 +251,10 @@ def lichess_game_import(
 
     games = _parse_pgn_stream(pgn_text)
 
+    stored = 0
     if user_id:
-        rows = [
-            {
-                "user_id": user_id,
-                "pgn": g["pgn"],
-                "white": g["white"],
-                "black": g["black"],
-                "result": g["result"],
-                "date": g["date"],
-                "event": g["event"],
-                "source": "lichess",
-                "platform_game_id": g["platform_game_id"],
-            }
-            for g in games
-        ]
         try:
-            _supabase_post("user_games", rows, url=supabase_url, key=supabase_key)
+            stored = _persist_games(user_id, games, "lichess", url=supabase_url, key=supabase_key)
         except Exception:
             logger.exception("Failed to store Lichess games in Supabase")
             return {"error": "Failed to store games in database.", "parsed": len(games)}
@@ -199,6 +266,7 @@ def lichess_game_import(
 
     return {
         "imported": len(games),
+        "saved_to_my_games": stored,
         "source": "lichess",
         "username": username,
         "results": results_summary,
@@ -314,23 +382,10 @@ def chesscom_game_import(
     if not all_games:
         return {"imported": 0, "summary": f"No games found for {username}."}
 
+    stored = 0
     if user_id:
-        rows = [
-            {
-                "user_id": user_id,
-                "pgn": g["pgn"],
-                "white": g["white"],
-                "black": g["black"],
-                "result": g["result"],
-                "date": g["date"],
-                "event": g["event"],
-                "source": "chesscom",
-                "platform_game_id": g["platform_game_id"],
-            }
-            for g in all_games
-        ]
         try:
-            _supabase_post("user_games", rows, url=supabase_url, key=supabase_key)
+            stored = _persist_games(user_id, all_games, "chesscom", url=supabase_url, key=supabase_key)
         except Exception:
             logger.exception("Failed to store Chess.com games in Supabase")
             return {"error": "Failed to store games in database.", "parsed": len(all_games)}
@@ -342,6 +397,7 @@ def chesscom_game_import(
 
     return {
         "imported": len(all_games),
+        "saved_to_my_games": stored,
         "source": "chesscom",
         "username": username,
         "results": results_summary,
