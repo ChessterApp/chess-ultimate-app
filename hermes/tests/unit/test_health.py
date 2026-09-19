@@ -120,6 +120,43 @@ class TestAnalyticsEndpoint:
         assert "tools" in body
         assert "voice_minutes_used" in body
 
+    def test_admin_header_alone_is_forbidden(self, monkeypatch):
+        """`x-admin: true` used to unlock all-user analytics for any caller."""
+        monkeypatch.setenv("HERMES_ADMIN_TOKEN", "s3cret")
+        resp = self.client.get(
+            "/api/coach/analytics", headers={**USER_HEADERS, "x-admin": "true"}
+        )
+        assert resp.status_code == 403
+
+    def test_admin_without_any_secret_configured_is_forbidden(self, monkeypatch):
+        monkeypatch.delenv("HERMES_ADMIN_TOKEN", raising=False)
+        monkeypatch.delenv("HERMES_API_KEY", raising=False)
+        resp = self.client.get(
+            "/api/coach/analytics",
+            headers={**USER_HEADERS, "x-admin": "true", "Authorization": "Bearer anything"},
+        )
+        assert resp.status_code == 403
+
+    def test_admin_with_token_gets_admin_scope(self, monkeypatch):
+        monkeypatch.setenv("HERMES_ADMIN_TOKEN", "s3cret")
+        with patch("src.server.get_admin_analytics_cached", return_value={"scope": "admin"}):
+            resp = self.client.get(
+                "/api/coach/analytics",
+                headers={**USER_HEADERS, "x-admin": "true", "Authorization": "Bearer s3cret"},
+            )
+        assert resp.status_code == 200
+        assert resp.json()["scope"] == "admin"
+
+    def test_admin_with_internal_api_key_gets_admin_scope(self, monkeypatch):
+        monkeypatch.delenv("HERMES_ADMIN_TOKEN", raising=False)
+        monkeypatch.setenv("HERMES_API_KEY", "internal-key")
+        with patch("src.server.get_admin_analytics_cached", return_value={"scope": "admin"}):
+            resp = self.client.get(
+                "/api/coach/analytics",
+                headers={**USER_HEADERS, "x-admin": "true", "Authorization": "Bearer internal-key"},
+            )
+        assert resp.status_code == 200
+
 
 @pytest.mark.unit
 class TestSubscriptionEndpoint:

@@ -247,6 +247,31 @@ async def add_request_id(request: Request, call_next):
     return response
 
 
+def _bearer_token(request: Request) -> str:
+    return request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+
+
+def _is_admin_request(request: Request) -> bool:
+    """True when the caller asks for admin scope AND proves it with a secret.
+
+    Admin scope (analytics across all users) is granted only to a bearer token
+    matching HERMES_ADMIN_TOKEN or, failing that, the internal HERMES_API_KEY.
+    A bare ``x-admin: true`` header — which any client can send — is never
+    enough. With neither secret configured admin scope is unavailable.
+    """
+    import secrets
+
+    if request.headers.get("x-admin") != "true":
+        return False
+    token = _bearer_token(request)
+    if not token:
+        return False
+    for expected in (os.environ.get("HERMES_ADMIN_TOKEN", ""), get_api_key()):
+        if expected and secrets.compare_digest(token, expected):
+            return True
+    return False
+
+
 def _verify_api_key(request: Request) -> None:
     """Check the Authorization header against HERMES_API_KEY."""
     expected = get_api_key()
@@ -2230,6 +2255,8 @@ async def coach_analytics(request: Request):
     """
     user_id = _get_user_id(request)
     if request.headers.get("x-admin") == "true":
+        if not _is_admin_request(request):
+            raise HTTPException(status_code=403, detail="Admin scope requires a valid admin token")
         return await asyncio.to_thread(get_admin_analytics_cached)
     return await asyncio.to_thread(compute_user_analytics, user_id)
 
