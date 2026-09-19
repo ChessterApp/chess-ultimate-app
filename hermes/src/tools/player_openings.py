@@ -61,13 +61,13 @@ def get_player_openings(
 
     # Build query based on color filter
     if color == "white":
-        where = "white LIKE ?"
+        where = "white_name LIKE ?"
         params = [pattern]
     elif color == "black":
-        where = "black LIKE ?"
+        where = "black_name LIKE ?"
         params = [pattern]
     else:
-        where = "(white LIKE ? OR black LIKE ?)"
+        where = "(white_name LIKE ? OR black_name LIKE ?)"
         params = [pattern, pattern]
 
     query = f"""

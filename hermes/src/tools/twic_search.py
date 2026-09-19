@@ -197,11 +197,12 @@ def get_game_pgn(
 
     row_dict = dict(row)
 
-    # Read PGN from file by offset
-    pgn_offset = row_dict.get("pgn_offset", 0)
-    pgn_length = row_dict.get("pgn_length", 0)
-    pgn_text = ""
-    if pgn_length > 0:
+    # Production stores movetext by offset into the master PGN file; a row that
+    # carries an inline ``pgn`` column (test databases) is used as-is.
+    pgn_offset = row_dict.get("pgn_offset") or 0
+    pgn_length = row_dict.get("pgn_length") or 0
+    pgn_text = row_dict.get("pgn") or ""
+    if not pgn_text and pgn_length > 0:
         try:
             with open(PGN_FILE_PATH, "r") as f:
                 f.seek(pgn_offset)
@@ -221,7 +222,12 @@ def get_game_pgn(
         "BlackElo": str(row_dict.get("black_elo", "")),
     }
 
-    return {"pgn": pgn_text.strip(), "headers": headers}
+    pgn_text = pgn_text.strip()
+    if pgn_text and not pgn_text.startswith("["):
+        tag_block = "".join(f'[{k} "{v}"]\n' for k, v in headers.items() if v)
+        pgn_text = f"{tag_block}\n{pgn_text}"
+
+    return {"pgn": pgn_text, "headers": headers}
 
 
 def _handle_get_game_pgn(args: dict, **kwargs) -> str:

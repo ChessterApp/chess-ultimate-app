@@ -90,18 +90,26 @@ def fake_twic_db():
     cur.execute('''
         CREATE TABLE games (
             id INTEGER PRIMARY KEY,
-            white TEXT,
-            black TEXT,
+            white_name TEXT,
+            black_name TEXT,
             result TEXT,
             date TEXT,
             eco TEXT,
             opening TEXT,
             event TEXT,
-            pgn TEXT
+            pgn TEXT,
+            white_elo INTEGER,
+            black_elo INTEGER,
+            pgn_offset INTEGER DEFAULT 0,
+            pgn_length INTEGER DEFAULT 0
         )
     ''')
+    # Column names mirror the production TWIC index (white_name / black_name,
+    # see docs/history/TWIC_INDEXER_STATUS.md). A fixture with the wrong names
+    # once let get_player_openings pass its tests while failing in production.
     cur.executemany(
-        'INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO games (id, white_name, black_name, result, date, eco, opening, event, pgn) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         FIXTURE_GAMES,
     )
     cur.execute('''
