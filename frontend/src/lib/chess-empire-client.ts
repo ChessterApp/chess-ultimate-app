@@ -520,6 +520,48 @@ export async function getStudentProfile(studentId: string): Promise<CEStudentPro
   };
 }
 
+export interface CEStudentBranch {
+  branch_id: string;
+  branch_name: string | null;
+}
+
+/**
+ * Lightweight branch lookup for a single student — just `branch_id` + branch
+ * name, via ONE PostgREST call with a `branches(name)` FK embed (~0.35s).
+ *
+ * This is the fast path for branch-scoped search. It replaces the heavy
+ * `getStudentProfile` (analytics Edge Function + a parallel `student_current_
+ * ratings` fetch, ~0.85s, pulling ratings/leagues/survival/bot-battles) when the
+ * caller only needs the branch — cutting per-request resolution to a single REST
+ * round-trip. Throws `ChessEmpireAPIError` on a non-2xx response.
+ */
+export async function getStudentBranch(
+  studentId: string,
+): Promise<CEStudentBranch> {
+  const key = getServiceKey();
+  const params = new URLSearchParams({
+    id: `eq.${studentId}`,
+    select: 'branch_id,branches(name)',
+    limit: '1',
+  });
+  const url = `${ceRestBase()}/students?${params.toString()}`;
+  const resp = await ceFetch(url, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: 'application/json',
+    },
+  });
+  const rows = await expectJson<
+    Array<{ branch_id?: string | null; branches?: { name?: string | null } | null }>
+  >(resp);
+  const row = rows[0];
+  return {
+    branch_id: row?.branch_id ?? '',
+    branch_name: row?.branches?.name ?? null,
+  };
+}
+
 /**
  * Fetch the student's current rating/league row from
  * `student_current_ratings`. Best-effort: returns null on any failure so

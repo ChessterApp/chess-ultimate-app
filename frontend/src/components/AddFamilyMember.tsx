@@ -10,7 +10,7 @@
  *  1. Branch chip — «📍 Филиал: <branchName>» — the caller's own branch, pulled
  *     from the authenticated, branch-scoped search endpoint (never a public
  *     token). Shown prominently because the branch is the whole scope.
- *  2. Search — «Поиск по имени», 300 ms debounced, queries only the caller's
+ *  2. Search — «Поиск по имени», 180 ms debounced, queries only the caller's
  *     own branch via `GET /api/chess-empire/link/search`.
  *  3. Results — same-branch members, each an «Добавить» that links instantly via
  *     `POST /api/chess-empire/link/link-existing`. Empty → «Никого не найдено».
@@ -40,7 +40,7 @@ interface SearchResponse {
   branchToken: string | null;
 }
 
-const DEBOUNCE_MS = 300;
+const DEBOUNCE_MS = 180;
 const MIN_QUERY_CHARS = 2;
 const SEARCH_URL = '/api/chess-empire/link/search';
 

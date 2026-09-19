@@ -86,7 +86,7 @@ vi.mock('@/lib/chess-empire-member', () => ({
 }));
 
 vi.mock('@/lib/chess-empire-client', () => ({
-  getStudentProfile: vi.fn(),
+  getStudentBranch: vi.fn(),
   searchStudentsByBranch: vi.fn(),
   searchCoachesByBranch: vi.fn(),
   ChessEmpireAPIError: class extends Error {
@@ -104,10 +104,10 @@ vi.mock('@/lib/in-memory-rate-limit', () => ({
   rateLimit: vi.fn().mockReturnValue({ allowed: true, remaining: 99, retryAfterSeconds: 0 }),
 }));
 
-import { GET } from '../search/route';
+import { GET, _resetResolutionCache } from '../search/route';
 import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
 import {
-  getStudentProfile,
+  getStudentBranch,
   searchStudentsByBranch,
   searchCoachesByBranch,
 } from '@/lib/chess-empire-client';
@@ -115,7 +115,7 @@ import { rateLimit } from '@/lib/in-memory-rate-limit';
 import { NextRequest } from 'next/server';
 
 const members = getVerifiedMembersForUser as unknown as ReturnType<typeof vi.fn>;
-const profile = getStudentProfile as unknown as ReturnType<typeof vi.fn>;
+const profile = getStudentBranch as unknown as ReturnType<typeof vi.fn>;
 const ceSearch = searchStudentsByBranch as unknown as ReturnType<typeof vi.fn>;
 const ceCoachSearch = searchCoachesByBranch as unknown as ReturnType<typeof vi.fn>;
 const rl = rateLimit as unknown as ReturnType<typeof vi.fn>;
@@ -147,6 +147,9 @@ const SELF_MEMBER = {
 beforeEach(() => {
   for (const k of Object.keys(scripts)) delete scripts[k];
   recorded.length = 0;
+  // The route caches branch resolution per user for 60s — clear it so each
+  // test's fresh mocks (different branch/profile/members) are actually used.
+  _resetResolutionCache();
   authStore.userId = 'user-1';
   members.mockReset();
   profile.mockReset();
@@ -155,7 +158,7 @@ beforeEach(() => {
   ceSearch.mockResolvedValue([]);
   ceCoachSearch.mockResolvedValue([]);
   members.mockResolvedValue([SELF_MEMBER]);
-  profile.mockResolvedValue({ branch_id: 'br-1', branch_name: 'Debut', status: 'active' });
+  profile.mockResolvedValue({ branch_id: 'br-1', branch_name: 'Debut' });
   rl.mockReturnValue({ allowed: true, remaining: 99, retryAfterSeconds: 0 });
 });
 
@@ -219,7 +222,7 @@ describe('GET /api/chess-empire/link/search', () => {
 
   it('binds the branch to the caller — a member in br-9 searches br-9, not a param', async () => {
     members.mockResolvedValue([{ ...SELF_MEMBER, studentId: 'stu-other' }]);
-    profile.mockResolvedValue({ branch_id: 'br-9', branch_name: 'Endgame', status: 'active' });
+    profile.mockResolvedValue({ branch_id: 'br-9', branch_name: 'Endgame' });
     scripts['branch_invite_tokens.select'] = [
       { data: [{ ...ACTIVE_TOKEN, external_branch_id: 'br-9', organization_id: 'org-9' }], error: null },
     ];
@@ -349,7 +352,7 @@ describe('GET /api/chess-empire/link/search', () => {
     expect(orgFilter?.filters).toContainEqual(['organization_id', 'org-1']);
   });
 
-  it('502 when the CE profile lookup errors', async () => {
+  it('502 when the CE branch lookup errors', async () => {
     const { ChessEmpireAPIError } = await import('@/lib/chess-empire-client');
     profile.mockRejectedValue(new ChessEmpireAPIError(500, 'boom'));
     const res = await GET(makeReq('http://x/api/?q=ai'));

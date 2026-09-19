@@ -34,7 +34,7 @@ import { rateLimit } from '@/lib/in-memory-rate-limit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
 import {
-  getStudentProfile,
+  getStudentBranch,
   searchStudentsByBranch,
   searchCoachesByBranch,
   ChessEmpireAPIError,
@@ -46,6 +46,32 @@ const PER_IP_LIMIT = 60;
 const PER_USER_LIMIT = 40;
 const RATE_WINDOW_MS = 60_000;
 const MAX_RESULTS = 20;
+const RESOLUTION_TTL_MS = 60_000;
+
+/**
+ * Session-invariant branch resolution, cached per user. Steps 1–3 of a search —
+ * the caller's verified membership, their branch id/name, and the branch invite
+ * token — do not change while the parent types, yet the old code re-ran all
+ * three on EVERY debounced keystroke, including the ~0.85s analytics profile
+ * call (now replaced by a ~0.35s branch-only lookup). Caching the whole
+ * resolution per user (60s TTL, per-instance, same in-memory pattern as the
+ * rate limiter above) turns every keystroke after the first into just the live
+ * CE search + already-linked lookup. Staleness ceiling: a branch/token change
+ * takes up to 60s to surface — acceptable for this flow.
+ */
+interface ResolvedBranch {
+  organizationId: string;
+  branchId: string;
+  branchName: string | null;
+  branchToken: string | null;
+}
+
+const resolutionCache = new Map<string, { value: ResolvedBranch; expiresAt: number }>();
+
+/** Test-only: drop cached resolutions so per-test mocks don't leak across cases. */
+export function _resetResolutionCache(): void {
+  resolutionCache.clear();
+}
 
 interface BranchTokenRow {
   token: string;
@@ -134,6 +160,53 @@ async function fetchLinkedInfo(
   return map;
 }
 
+/**
+ * Resolve — and cache — the caller's own branch, org and invite token from their
+ * verified membership. Returns null when the caller has no verified membership
+ * (nothing to search). Throws `ChessEmpireAPIError` if the CE branch lookup
+ * fails, so the route can surface a 502. On success the result is cached under
+ * the user id for `RESOLUTION_TTL_MS`, so subsequent keystrokes skip the whole
+ * membership → branch → token chain.
+ */
+async function resolveForUser(userId: string): Promise<ResolvedBranch | null> {
+  const now = Date.now();
+  const cached = resolutionCache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.value;
+
+  // Branch is bound to the caller's own verified membership — 'self' wins, else
+  // the first verified member. No membership → nothing to search.
+  const members = await getVerifiedMembersForUser(userId);
+  const primary =
+    members.find((m) => m.relationship === 'self' && m.studentId) ??
+    members.find((m) => m.studentId) ??
+    null;
+  if (!primary?.studentId || !primary.orgId) return null;
+
+  // One lightweight REST call for branch id + name (no analytics profile).
+  const { branch_id: branchId, branch_name: branchName } = await getStudentBranch(
+    primary.studentId,
+  );
+
+  // Resolve a branch token opportunistically: it is NOT required to search (the
+  // caller is authenticated and their branch+org are already known), but it is
+  // returned so the client can hand it to `link/link-existing` for the
+  // token-based back-compat path when one exists. Skipped when there is no
+  // branch to resolve against.
+  const branchToken = branchId
+    ? (await resolveBranchToken(branchId))?.token ?? null
+    : null;
+
+  const value: ResolvedBranch = {
+    // Org comes from the caller's OWN verified membership — never a public token.
+    organizationId: primary.orgId,
+    branchId,
+    branchName,
+    branchToken,
+  };
+  resolutionCache.set(userId, { value, expiresAt: now + RESOLUTION_TTL_MS });
+  return value;
+}
+
 export async function GET(req: NextRequest) {
   const { userId } = await auth();
   if (!userId) {
@@ -158,42 +231,26 @@ export async function GET(req: NextRequest) {
 
   const q = new URL(req.url).searchParams.get('q')?.trim() ?? '';
 
-  // Branch is bound to the caller's own verified membership — 'self' wins, else
-  // the first verified member. No membership → nothing to search.
-  const members = await getVerifiedMembersForUser(userId);
-  const primary =
-    members.find((m) => m.relationship === 'self' && m.studentId) ??
-    members.find((m) => m.studentId) ??
-    null;
-  if (!primary?.studentId || !primary.orgId) {
-    return NextResponse.json({ results: [], branchName: null, branchToken: null });
-  }
-  // Org comes from the caller's OWN verified membership — never a public token.
-  const organizationId = primary.orgId;
-
-  let branchId: string;
-  let branchName: string | null;
+  // Membership → branch → token, cached per user (see resolveForUser). Only the
+  // live search + already-linked lookup below run on every keystroke.
+  let resolved: ResolvedBranch | null;
   try {
-    const profile = await getStudentProfile(primary.studentId);
-    branchId = profile.branch_id;
-    branchName = profile.branch_name ?? null;
+    resolved = await resolveForUser(userId);
   } catch (err) {
     if (err instanceof ChessEmpireAPIError) {
-      console.error('[ce-link-search] CE profile error:', err.statusCode, err.body);
+      console.error('[ce-link-search] CE branch error:', err.statusCode, err.body);
       return NextResponse.json({ error: 'upstream_error' }, { status: 502 });
     }
     throw err;
   }
+  if (!resolved) {
+    return NextResponse.json({ results: [], branchName: null, branchToken: null });
+  }
+
+  const { organizationId, branchId, branchName, branchToken } = resolved;
   if (!branchId) {
     return NextResponse.json({ results: [], branchName, branchToken: null });
   }
-
-  // Resolve a branch token opportunistically: it is NOT required to search
-  // (the caller is authenticated and their branch+org are already known), but
-  // it is returned so the client can hand it to `link/link-existing` for the
-  // token-based back-compat path when one exists.
-  const tokenRow = await resolveBranchToken(branchId);
-  const branchToken = tokenRow?.token ?? null;
 
   // Empty query never leaks the full roster.
   if (!q) {
