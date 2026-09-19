@@ -222,22 +222,22 @@ export default function DesktopSidebar() {
             }}
           >
             {isChessEmpire && (
-              <>
-                <UserButton.MenuItems>
-                  <UserButton.Action
-                    label="Добавить члена семьи"
-                    labelIcon={<AddFamilyIcon />}
-                    open="add-family"
-                  />
-                </UserButton.MenuItems>
-                <UserButton.UserProfilePage
+              <UserButton.MenuItems>
+                <UserButton.Action
                   label="Добавить члена семьи"
-                  url="add-family"
                   labelIcon={<AddFamilyIcon />}
-                >
-                  <AddFamilyMember />
-                </UserButton.UserProfilePage>
-              </>
+                  open="add-family"
+                />
+              </UserButton.MenuItems>
+            )}
+            {isChessEmpire && (
+              <UserButton.UserProfilePage
+                label="Добавить члена семьи"
+                url="add-family"
+                labelIcon={<AddFamilyIcon />}
+              >
+                <AddFamilyMember />
+              </UserButton.UserProfilePage>
             )}
           </UserButton>
         )}
