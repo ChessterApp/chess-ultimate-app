@@ -568,6 +568,90 @@ describe('POST /api/coach/live-token', () => {
     expect(systemInstructionFromMint()).toContain("Chesster's chess coach");
   });
 
+  // ── Locale (ТЗ §3: answer in the student's language) ───────────────────────
+
+  const withCookie = (body: unknown, cookie: string) =>
+    new Request('http://localhost:3000/api/coach/live-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie },
+      body: JSON.stringify(body),
+    });
+
+  it('forwards the NEXT_LOCALE cookie as locale to the Hermes voice prompt', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        return { ok: true, status: 200, json: async () => ({ system_prompt: 'P', profile_context: '' }) };
+      }
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    });
+    global.fetch = fetchMock as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(withCookie({ fen: 'somefen' }, 'NEXT_LOCALE=kk; other=1'));
+    expect(response.status).toBe(200);
+
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
+    expect(JSON.parse((promptCall[1] as RequestInit).body as string).locale).toBe('kk');
+  });
+
+  it('an explicit body locale wins over the cookie', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        return { ok: true, status: 200, json: async () => ({ system_prompt: 'P', profile_context: '' }) };
+      }
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    });
+    global.fetch = fetchMock as any;
+
+    const { POST } = await import('../live-token/route');
+    await POST(withCookie({ locale: 'en' }, 'NEXT_LOCALE=ru'));
+
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
+    expect(JSON.parse((promptCall[1] as RequestInit).body as string).locale).toBe('en');
+  });
+
+  it('the hardcoded fallback prompt carries the language rule for the locale', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) throw new Error('hermes down');
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(withCookie({}, 'NEXT_LOCALE=ru'));
+    expect(response.status).toBe(200);
+    const prompt = systemInstructionFromMint();
+    expect(prompt.startsWith('CRITICAL LANGUAGE RULE')).toBe(true);
+    expect(prompt).toContain('entirely in Russian');
+    expect(prompt).toContain("Chesster's chess coach");
+  });
+
+  it('defaults to Russian (the site default) when no locale is known', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) throw new Error('hermes down');
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    await POST(makeRequest({}));
+    expect(systemInstructionFromMint()).toContain('entirely in Russian');
+  });
+
   // ── Voice minutes quota enforcement (Task 3) ────────────────────────────────
 
   const mockFetchWithQuota = (quota: Record<string, unknown> | { throw: true }) => {

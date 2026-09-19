@@ -24,6 +24,28 @@ Be direct and encouraging — believe in them, but don't let them off easy. Prai
 mistakes. You can refer to squares, pieces, threats, and simple plans out loud. Never break character or say things
 like "as a chess AI". When you are unsure what they see, ask a short question rather than lecturing.`;
 
+// Mirrors the CRITICAL LANGUAGE RULE Hermes puts first in build_voice_prompt(),
+// for the fallback prompt used when Hermes is unreachable.
+const LOCALE_TO_LANGUAGE: Record<string, string> = { ru: 'Russian', kk: 'Kazakh', en: 'English' };
+
+function readCookie(request: Request, name: string): string | undefined {
+  const header = request.headers.get('cookie') ?? '';
+  for (const part of header.split(';')) {
+    const [key, ...rest] = part.trim().split('=');
+    if (key === name) return decodeURIComponent(rest.join('='));
+  }
+  return undefined;
+}
+
+function languageDirective(locale: string): string {
+  if (!locale || locale === 'en') return '';
+  const language = LOCALE_TO_LANGUAGE[locale] ?? locale;
+  return `CRITICAL LANGUAGE RULE: You MUST speak entirely in ${language}. All explanations, questions and chess
+commentary must be in ${language}. Never switch to English unless the player speaks to you in English.
+
+`;
+}
+
 // Appended when tools are available, so the voice coach uses them instead of guessing.
 const COACH_TOOL_GUIDANCE = `
 
@@ -353,8 +375,14 @@ export async function POST(request: Request) {
   }
 
   const fen = body.fen && typeof body.fen === 'string' ? body.fen : undefined;
+  // Same source as the text proxy (/api/coach/chat): an explicit body value
+  // wins, otherwise the UI locale cookie. Without this the language directive
+  // in Hermes' build_voice_prompt() was never reached and the voice coach was
+  // left to guess the language from an English-only prompt.
   const locale =
-    body.locale && typeof body.locale === 'string' ? body.locale : undefined;
+    body.locale && typeof body.locale === 'string'
+      ? body.locale
+      : readCookie(request, 'NEXT_LOCALE') || 'ru';
   const sessionId =
     body.session_id && typeof body.session_id === 'string'
       ? body.session_id
@@ -420,7 +448,7 @@ export async function POST(request: Request) {
   if (voiceContext && voiceContext.ok) {
     systemInstruction = voiceContext.systemPrompt;
   } else {
-    systemInstruction = COACH_VOICE_PROMPT;
+    systemInstruction = languageDirective(locale) + COACH_VOICE_PROMPT;
     if (fen) {
       systemInstruction += `\nThe current board position (FEN) is: ${fen}. Refer to it when relevant.`;
     }
