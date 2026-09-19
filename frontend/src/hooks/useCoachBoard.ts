@@ -9,6 +9,43 @@ import type {
 
 const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
+/**
+ * Resolve one puzzle-solution move against a position. Hermes writes
+ * solutions in SAN (board_control.py: "Solution moves in SAN"); the board
+ * reports the played move as squares. Resolving both through chess.js lets
+ * `Qxh7+`, `Qh7` and `d1h7` all match the same move.
+ */
+export function resolveSolutionMove(
+  fen: string,
+  notation: string,
+): { from: string; to: string; san: string } | null {
+  const text = (notation ?? '').trim();
+  if (!text) return null;
+
+  try {
+    const move = new Chess(fen).move(text);
+    return { from: move.from, to: move.to, san: move.san };
+  } catch {
+    // Not SAN for this position — try UCI.
+  }
+
+  const uci = text.toLowerCase();
+  if (/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) {
+    try {
+      const move = new Chess(fen).move({
+        from: uci.slice(0, 2),
+        to: uci.slice(2, 4),
+        ...(uci[4] ? { promotion: uci[4] } : {}),
+      });
+      return { from: move.from, to: move.to, san: move.san };
+    } catch {
+      // Illegal in this position.
+    }
+  }
+
+  return null;
+}
+
 interface UseCoachBoardReturn extends CoachBoardState {
   applyBoardAction: (action: BoardAction) => void;
   applyBoardActions: (actions: BoardAction[]) => void;
@@ -49,14 +86,25 @@ export function useCoachBoard(): UseCoachBoardReturn {
     moveIndexRef.current = moveIndex;
   }, [fen, pgnFens, moveIndex]);
 
+  // Set position + history through the refs first: the coach's actions arrive
+  // as one batch per turn (e.g. load_pgn followed by navigate), and the later
+  // actions must see the history the earlier ones just built, not the closure.
+  const commitHistory = useCallback((fens: string[], index: number) => {
+    const safeIndex = Math.max(0, Math.min(index, fens.length - 1));
+    fenRef.current = fens[safeIndex];
+    pgnFensRef.current = fens;
+    moveIndexRef.current = safeIndex;
+    setPgnFens(fens);
+    setMoveIndex(safeIndex);
+    setFen(fens[safeIndex]);
+  }, []);
+
   const applyBoardAction = useCallback((action: BoardAction) => {
     switch (action.type) {
       case 'set_fen': {
-        setFen(action.fen);
+        commitHistory([action.fen], 0);
         setArrows([]);
         setHighlights([]);
-        setPgnFens([action.fen]);
-        setMoveIndex(0);
         setPuzzleMode(false);
         setPuzzleState(null);
         break;
@@ -77,9 +125,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
           }
 
           setPgn(action.pgn);
-          setPgnFens(fenList);
-          setMoveIndex(fenList.length - 1);
-          setFen(fenList[fenList.length - 1]);
+          commitHistory(fenList, fenList.length - 1);
           setArrows([]);
           setHighlights([]);
           setPuzzleMode(false);
@@ -91,7 +137,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
       }
 
       case 'set_puzzle': {
-        setFen(action.fen);
+        commitHistory([action.fen], 0);
         setPuzzleMode(true);
         setPuzzleState({
           fen: action.fen,
@@ -101,8 +147,6 @@ export function useCoachBoard(): UseCoachBoardReturn {
         });
         setArrows([]);
         setHighlights([]);
-        setPgnFens([action.fen]);
-        setMoveIndex(0);
         break;
       }
 
@@ -123,24 +167,25 @@ export function useCoachBoard(): UseCoachBoardReturn {
       }
 
       case 'navigate': {
-        if (pgnFens.length === 0) break;
-        let newIndex = moveIndex;
+        const fens = pgnFensRef.current;
+        const index = moveIndexRef.current;
+        if (fens.length === 0) break;
+        let newIndex = index;
         switch (action.direction) {
           case 'first':
             newIndex = 0;
             break;
           case 'prev':
-            newIndex = Math.max(0, moveIndex - 1);
+            newIndex = Math.max(0, index - 1);
             break;
           case 'next':
-            newIndex = Math.min(pgnFens.length - 1, moveIndex + 1);
+            newIndex = Math.min(fens.length - 1, index + 1);
             break;
           case 'last':
-            newIndex = pgnFens.length - 1;
+            newIndex = fens.length - 1;
             break;
         }
-        setMoveIndex(newIndex);
-        setFen(pgnFens[newIndex]);
+        commitHistory(fens, newIndex);
         break;
       }
 
@@ -150,10 +195,8 @@ export function useCoachBoard(): UseCoachBoardReturn {
       }
 
       case 'clear_board': {
-        setFen(DEFAULT_FEN);
+        commitHistory([DEFAULT_FEN], 0);
         setPgn('');
-        setPgnFens([DEFAULT_FEN]);
-        setMoveIndex(0);
         setArrows([]);
         setHighlights([]);
         setPuzzleMode(false);
@@ -161,7 +204,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
         break;
       }
     }
-  }, [pgnFens, moveIndex]);
+  }, [commitHistory]);
 
   const applyBoardActions = useCallback(
     (actions: BoardAction[]) => {
@@ -207,47 +250,45 @@ export function useCoachBoard(): UseCoachBoardReturn {
     (from: string, to: string): 'correct' | 'wrong' | 'solved' => {
       if (!puzzleState || puzzleState.solved) return 'wrong';
 
-      const expectedMove = puzzleState.solution[puzzleState.currentMoveIndex];
-      const uciMove = `${from}${to}`;
+      const expected = resolveSolutionMove(
+        fen,
+        puzzleState.solution[puzzleState.currentMoveIndex],
+      );
+      if (!expected || expected.from !== from || expected.to !== to) return 'wrong';
 
-      if (uciMove === expectedMove) {
-        const nextIndex = puzzleState.currentMoveIndex + 1;
-        const isSolved = nextIndex >= puzzleState.solution.length;
+      const nextIndex = puzzleState.currentMoveIndex + 1;
+      const isSolved = nextIndex >= puzzleState.solution.length;
 
-        // Apply the move to the board
-        try {
-          const chess = new Chess(fen);
-          chess.move({ from: from as any, to: to as any });
-          setFen(chess.fen());
-        } catch {
-          // Move failed, but it was the right UCI move
-        }
-
-        setPuzzleState({
-          ...puzzleState,
-          currentMoveIndex: nextIndex,
-          solved: isSolved,
-        });
-
-        return isSolved ? 'solved' : 'correct';
+      // Apply the resolved move (SAN carries the promotion piece, if any).
+      try {
+        const chess = new Chess(fen);
+        chess.move(expected.san);
+        commitHistory([...pgnFensRef.current.slice(0, moveIndexRef.current + 1), chess.fen()],
+          moveIndexRef.current + 1);
+      } catch {
+        // Unreachable: the move was just resolved against this position.
       }
 
-      return 'wrong';
+      setPuzzleState({
+        ...puzzleState,
+        currentMoveIndex: nextIndex,
+        solved: isSolved,
+      });
+
+      return isSolved ? 'solved' : 'correct';
     },
-    [puzzleState, fen]
+    [puzzleState, fen, commitHistory]
   );
 
   const resetBoard = useCallback(() => {
-    setFen(DEFAULT_FEN);
+    commitHistory([DEFAULT_FEN], 0);
     setPgn('');
-    setPgnFens([DEFAULT_FEN]);
-    setMoveIndex(0);
     setArrows([]);
     setHighlights([]);
     setPuzzleMode(false);
     setPuzzleState(null);
     setOrientation('white');
-  }, []);
+  }, [commitHistory]);
 
   const setFenFromMove = useCallback((from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
     const baseFen = fenRef.current;
