@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { checkVisionRateLimit, CONVERT_IMAGE_LIMITS } from '@/lib/vision-rate-limit';
 
 interface ConvertImageResponse {
   fen?: string;
@@ -23,6 +24,13 @@ export default async function handler(
     return res.status(405).json({
       error: 'Method not allowed'
     });
+  }
+
+  // Paid vision call: budget per signed-in user, tighter budget per anonymous IP.
+  const limit = checkVisionRateLimit(req, 'convert-image', CONVERT_IMAGE_LIMITS);
+  if (!limit.allowed) {
+    res.setHeader('Retry-After', String(limit.retryAfterSeconds));
+    return res.status(429).json({ error: 'rate_limited' });
   }
 
   try {
