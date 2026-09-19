@@ -1,24 +1,31 @@
-"""Tool: get_user_progress — Fetch user course completions and puzzle stats."""
+"""Tool: get_user_progress — Fetch user lesson completions and puzzle stats.
+
+Reads the tables the site actually writes (see backend/schema.sql and
+backend/migrations/005_add_lesson_puzzles.sql):
+
+- ``user_progress``: one row per (user, lesson) with ``status`` in
+  not_started / in_progress / completed, ``score``, ``attempts``,
+  ``completed_at``; ``lesson_id`` → ``lessons`` (title, title_ru, module_id).
+- ``user_puzzle_progress``: one row per (user, lesson puzzle) with
+  ``completed_at`` (NULL until solved) and ``attempts``.
+"""
 
 import json
 import logging
-import os
-
-import httpx
+from datetime import date
 
 from tools.registry import registry
 
-logger = logging.getLogger(__name__)
+from src.tools.user_data import _supabase_query
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
-TIMEOUT = 10
+logger = logging.getLogger(__name__)
 
 PROGRESS_SCHEMA = {
     "name": "get_user_progress",
     "description": (
-        "Fetch a user's learning progress: course completions, lesson progress, "
-        "puzzle stats, accuracy, and current streak."
+        "Fetch the student's learning progress: lessons completed / in progress "
+        "(with titles and scores), lesson puzzles solved, solve rate, and the "
+        "current daily puzzle streak."
     ),
     "parameters": {
         "type": "object",
@@ -32,33 +39,26 @@ PROGRESS_SCHEMA = {
     },
 }
 
+RECENT_LESSONS = 10
 
-def _supabase_get(table: str, params: dict, url: str = None, key: str = None) -> list[dict]:
-    """Make a GET request to Supabase PostgREST API."""
-    base = url or SUPABASE_URL
-    api_key = key or SUPABASE_KEY
 
-    if not base or not api_key:
-        logger.warning("Supabase not configured")
-        return []
-
-    headers = {
-        "apikey": api_key,
-        "Authorization": f"Bearer {api_key}",
-    }
-
-    try:
-        resp = httpx.get(
-            f"{base}/rest/v1/{table}",
-            params=params,
-            headers=headers,
-            timeout=TIMEOUT,
-        )
-        resp.raise_for_status()
-        return resp.json()
-    except Exception:
-        logger.exception("Supabase query failed for table: %s", table)
-        return []
+def _streak(days: list) -> int:
+    """Consecutive days (ending today or yesterday) with at least one solve."""
+    if not days:
+        return 0
+    uniq = sorted({d for d in days}, reverse=True)
+    prev = date.fromisoformat(uniq[0])
+    if (date.today() - prev).days > 1:
+        return 0
+    streak = 1
+    for d_str in uniq[1:]:
+        d = date.fromisoformat(d_str)
+        if (prev - d).days == 1:
+            streak += 1
+            prev = d
+        else:
+            break
+    return streak
 
 
 def get_user_progress(
@@ -66,77 +66,76 @@ def get_user_progress(
     supabase_url: str = None,
     supabase_key: str = None,
 ) -> dict:
-    """Fetch user course completions and puzzle stats from Supabase."""
-    url = supabase_url if supabase_url is not None else SUPABASE_URL
-    key = supabase_key if supabase_key is not None else SUPABASE_KEY
-
-    if not url or not key:
-        return {"error": "Supabase not configured."}
-
-    # Fetch lesson progress
-    lessons = _supabase_get(
-        "lesson_progress",
-        {"user_id": f"eq.{user_id}", "select": "*"},
-        url=url, key=key,
+    """Fetch lesson and puzzle progress for *user_id* from Supabase."""
+    lessons = _supabase_query(
+        "user_progress",
+        {
+            "user_id": f"eq.{user_id}",
+            "select": (
+                "lesson_id,status,score,attempts,time_spent_seconds,completed_at,"
+                "updated_at,lessons(title,title_ru,lesson_type,module_id)"
+            ),
+            "order": "updated_at.desc",
+        },
+        url=supabase_url,
+        key=supabase_key,
     )
+    if lessons is None:
+        return {"error": "Could not fetch the student's progress (Supabase unavailable)."}
 
-    # Fetch puzzle attempts
-    puzzles = _supabase_get(
-        "puzzle_attempts",
-        {"user_id": f"eq.{user_id}", "select": "*"},
-        url=url, key=key,
+    puzzles = _supabase_query(
+        "user_puzzle_progress",
+        {
+            "user_id": f"eq.{user_id}",
+            "select": "puzzle_id,completed_at,attempts",
+        },
+        url=supabase_url,
+        key=supabase_key,
     )
+    if puzzles is None:
+        return {"error": "Could not fetch the student's puzzle stats (Supabase unavailable)."}
 
-    # Compute stats
-    courses_completed = len({
-        lp["course_id"] for lp in lessons
-        if lp.get("completed") and lp.get("course_id")
-    })
-    lessons_completed = sum(1 for lp in lessons if lp.get("completed"))
+    completed = [lp for lp in lessons if lp.get("status") == "completed"]
+    in_progress = [lp for lp in lessons if lp.get("status") == "in_progress"]
 
-    puzzles_attempted = len(puzzles)
-    puzzles_solved = sum(1 for p in puzzles if p.get("solved"))
-    accuracy_pct = round(
-        (puzzles_solved / puzzles_attempted * 100) if puzzles_attempted else 0, 1
-    )
+    def _lesson_summary(lp: dict) -> dict:
+        info = lp.get("lessons") or {}
+        return {
+            "lesson_id": lp.get("lesson_id"),
+            "title": info.get("title_ru") or info.get("title"),
+            "type": info.get("lesson_type"),
+            "status": lp.get("status"),
+            "score": lp.get("score"),
+            "attempts": lp.get("attempts"),
+            "completed_at": lp.get("completed_at"),
+        }
 
-    # Calculate streak (consecutive days with solved puzzles)
-    solved_dates = sorted({
-        p["solved_at"][:10] for p in puzzles
-        if p.get("solved") and p.get("solved_at")
-    }, reverse=True)
+    solved = [p for p in puzzles if p.get("completed_at")]
+    solved_days = [p["completed_at"][:10] for p in solved]
+    total_attempts = sum(int(p.get("attempts") or 0) for p in puzzles)
+    solve_rate_pct = round(len(solved) / total_attempts * 100, 1) if total_attempts else 0.0
 
-    current_streak = 0
-    if solved_dates:
-        from datetime import date, timedelta
-        prev = date.fromisoformat(solved_dates[0])
-        today = date.today()
-        if (today - prev).days <= 1:
-            current_streak = 1
-            for d_str in solved_dates[1:]:
-                d = date.fromisoformat(d_str)
-                if (prev - d).days == 1:
-                    current_streak += 1
-                    prev = d
-                elif (prev - d).days == 0:
-                    continue
-                else:
-                    break
+    scores = [lp["score"] for lp in completed if isinstance(lp.get("score"), (int, float))]
 
     return {
         "user_id": user_id,
-        "courses_completed": courses_completed,
-        "lessons_completed": lessons_completed,
-        "puzzles_attempted": puzzles_attempted,
-        "puzzles_solved": puzzles_solved,
-        "accuracy_pct": accuracy_pct,
-        "current_streak": current_streak,
+        "lessons_started": len(lessons),
+        "lessons_completed": len(completed),
+        "lessons_in_progress": len(in_progress),
+        "avg_lesson_score": round(sum(scores) / len(scores), 1) if scores else None,
+        "recent_lessons": [_lesson_summary(lp) for lp in lessons[:RECENT_LESSONS]],
+        "puzzles_attempted": len(puzzles),
+        "puzzles_solved": len(solved),
+        "puzzle_attempts_total": total_attempts,
+        "solve_rate_pct": solve_rate_pct,
+        "current_streak": _streak(solved_days),
+        "last_puzzle_solved_at": max((p["completed_at"] for p in solved), default=None),
     }
 
 
 def _handle_get_user_progress(args: dict, **kwargs) -> str:
     result = get_user_progress(user_id=args.get("user_id", ""))
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, ensure_ascii=False)
 
 
 registry.register(
