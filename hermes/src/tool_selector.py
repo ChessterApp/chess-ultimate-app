@@ -20,7 +20,7 @@ CORE_TOOLS = frozenset({"board_control", "analyze_position", "check_moves"})
 # rendered on the student's screen. Suppressed only in ``panel`` mode.
 PANEL_SUPPRESSED_TOOLS = frozenset({"board_control"})
 
-# High-frequency English words that carry no tool-selection signal.
+# High-frequency words that carry no tool-selection signal (EN / RU / KK).
 _STOPWORDS = frozenset(
     {
         "the", "a", "an", "is", "are", "of", "to", "in", "for", "on", "my", "me",
@@ -28,21 +28,117 @@ _STOPWORDS = frozenset(
         "would", "this", "that", "with", "and", "or", "get", "show", "please",
         "you", "your", "it", "at", "be", "was", "were", "here", "there", "about",
         "best", "good", "vs", "against", "play", "playing", "move", "moves",
+        # Russian
+        "и", "в", "во", "на", "не", "что", "как", "я", "мне", "мой", "моя", "мои",
+        "моё", "у", "с", "со", "по", "за", "к", "ко", "это", "этот", "эта", "эти",
+        "ты", "вы", "он", "она", "они", "мы", "а", "но", "или", "ли", "же", "бы",
+        "для", "от", "до", "из", "о", "об", "про", "есть", "был", "была", "было",
+        "быть", "можно", "нужно", "надо", "хочу", "давай", "пожалуйста", "скажи",
+        "какой", "какая", "какие", "какое", "где", "когда", "почему", "зачем",
+        "лучше", "лучший", "хорошо", "плохо", "ход", "ходы", "ходить",
+        # Kazakh
+        "және", "мен", "менің", "сен", "сіз", "ол", "бұл", "осы", "не", "қалай",
+        "үшін", "туралы", "бар", "жоқ", "керек", "болады", "маған", "қандай",
+        "қайда", "қашан", "неге", "жүріс", "жүрістер",
     }
 )
 
+# Query-language bridge for tools whose schemas are written in English. Each
+# entry lists lowercase RU / KK word stems; a query token matches a stem when it
+# *starts with* it, so one stem covers the whole inflection paradigm
+# ("парти" -> партия / партии / партию / партий). Only non-core tools need
+# entries (core tools are always sent), but the map is harmless for any tool.
+# Keep stems specific: a stem shared by many tools carries no ranking signal.
+TOOL_KEYWORDS = {
+    "search_master_games": (
+        "мастер", "гроссмейстер", "база", "партии мастеров", "турнир", "найди парти",
+        "поищи парти", "сыгран", "шедевр", "классическ", "ойындар", "шебер",
+    ),
+    "get_game_pgn": ("pgn", "полн", "текст парти", "запись парти", "толық"),
+    "get_opening_stats": (
+        "дебют", "статистик", "eco", "сицилиан", "испанск", "итальянск", "французск",
+        "каро", "славянск", "ферзев", "королевск", "гамбит", "защит", "начало",
+        "ашылу",
+    ),
+    "get_position_stats": (
+        "позици", "статистик", "как часто", "процент", "популярн", "играют", "выигрыш",
+        "победа", "ничь", "жиілік",
+    ),
+    "get_player_openings": ("репертуар", "какие дебюты", "чем играет", "мастер", "шебер"),
+    "get_player_profile": (
+        "профил", "рейтинг", "аккаунт", "ник", "lichess", "личес", "chess.com", "чесском",
+    ),
+    "opponent_prep": (
+        "соперник", "противник", "подготов", "оппонент", "против", "готовиться",
+        "қарсылас", "дайынд",
+    ),
+    "lichess_game_import": ("lichess", "личес", "импорт", "загрузи", "скачай", "подтяни"),
+    "chesscom_game_import": ("chess.com", "чесском", "chesscom", "импорт", "загрузи", "скачай"),
+    "get_user_games": (
+        "мои парти", "моих парти", "мою парти", "последн", "недавн", "сыграл", "сохранён",
+        "сохранен", "истори", "ойындарым", "соңғы",
+    ),
+    "get_user_repertoire": ("мой репертуар", "моего репертуар", "репертуар", "мои дебюты", "чем я играю"),
+    "get_user_progress": (
+        "прогресс", "успех", "статистик", "решён", "решен", "задач", "урок", "курс",
+        "пройден", "достижен", "прогрес", "сабақ", "есеп",
+    ),
+    "get_game_insights": ("разбор", "разобран", "вывод", "итог", "тенденц", "закономерн", "инсайт"),
+    "weakness_tracker": (
+        "слаб", "ошибк", "зевк", "зевн", "промах", "проблем", "недостат", "типичн",
+        "повторя", "әлсіз", "қате",
+    ),
+    "training_recommender": (
+        "тренир", "тренировк", "упражн", "занят", "план", "программ", "что учить",
+        "что изучать", "рекоменд", "совет", "жаттығу", "кеңес",
+    ),
+    "find_critical_moments": (
+        "критич", "переломн", "ключев", "решающ", "где ошиб", "поворотн", "момент",
+        "шешуші", "сәт",
+    ),
+    "compare_variations": ("сравн", "вариант", "лини", "альтернатив", "разниц", "салыстыр"),
+    "score_position_themes": (
+        "оцен", "материал", "простран", "активн", "безопасн", "корол", "мобильн",
+        "план", "стратег", "тем", "бағала", "қауіпсіз",
+    ),
+    "search_web": ("интернет", "новост", "найди в", "погугли", "сайт", "статья", "видео", "жаңалық"),
+    "analyze_position": ("анализ", "проанализ", "оцен", "движ", "stockfish", "стокфиш", "талда"),
+    "board_control": ("доск", "покажи", "поставь", "стрелк", "подсвет", "тақта", "көрсет"),
+    "check_moves": ("легал", "можно ли", "разрешён", "разрешен", "правил", "заңды"),
+}
+
+_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+
 
 def _tokenize(text: str) -> set:
-    """Lowercase alphanumeric tokens of *text* as a set."""
-    return set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+    """Lowercase word tokens of *text* (letters/digits in any script) as a set."""
+    return set(_TOKEN_RE.findall((text or "").lower()))
 
 
-def _score(query_tokens: set, declaration: dict) -> int:
-    """Overlap between the query tokens and a tool's name + description tokens."""
+def _stem_hits(query: str, query_tokens: set, stems: tuple) -> int:
+    """Count keyword stems matched by the query.
+
+    Single-word stems match any query token by prefix; multi-word stems are
+    matched as substrings of the whole lowercased query.
+    """
+    text = (query or "").lower()
+    hits = 0
+    for stem in stems:
+        if " " in stem or "." in stem:
+            if stem in text:
+                hits += 1
+        elif any(tok.startswith(stem) for tok in query_tokens):
+            hits += 1
+    return hits
+
+
+def _score(query_tokens: set, declaration: dict, query: str = "") -> int:
+    """Overlap between the query and a tool's name, description, and keyword stems."""
     haystack = _tokenize(declaration.get("name", "")) | _tokenize(
         declaration.get("description", "")
     )
-    return len(query_tokens & haystack)
+    stems = TOOL_KEYWORDS.get(declaration.get("name", ""), ())
+    return len(query_tokens & haystack) + _stem_hits(query, query_tokens, stems)
 
 
 def _select_flat(
@@ -71,7 +167,9 @@ def _select_flat(
     others = [d for d in declarations if d.get("name") not in core]
 
     # Stable sort keeps original relative order for equal scores -> deterministic.
-    ranked = sorted(others, key=lambda d: _score(query_tokens, d), reverse=True)
+    ranked = sorted(
+        others, key=lambda d: _score(query_tokens, d, query), reverse=True
+    )
 
     return core_decls + ranked[: max(topk, 0)]
 
