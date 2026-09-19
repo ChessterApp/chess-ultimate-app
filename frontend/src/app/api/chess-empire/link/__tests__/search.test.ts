@@ -236,19 +236,54 @@ describe('GET /api/chess-empire/link/search', () => {
     ]);
   });
 
-  it('excludes already-linked members (a second child add)', async () => {
+  it('surfaces already-linked (foreign-owned) members with flags, not stripped', async () => {
     scripts['branch_invite_tokens.select'] = [{ data: [ACTIVE_TOKEN], error: null }];
     ceSearch.mockResolvedValue([
       { id: 'stu-linked', first_name: 'Alikhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
       { id: 'stu-new', first_name: 'Aruzhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
     ]);
+    // Row owned by a DIFFERENT account → alreadyLinked but not ownedBySelf, so
+    // the UI can still offer "Add to my family" (auto-accept edge).
     scripts['organization_members.select'] = [
-      { data: [{ external_student_id: 'stu-linked' }], error: null },
+      { data: [{ external_student_id: 'stu-linked', user_id: 'someone-else' }], error: null },
     ];
     const res = await GET(makeReq('http://x/api/?q=a'));
     const body = await res.json();
     expect(body.results).toEqual([
+      {
+        studentId: 'stu-linked',
+        firstName: 'Alikhan',
+        lastName: 'A',
+        branchName: 'Debut',
+        type: 'student',
+        alreadyLinked: true,
+        ownedBySelf: false,
+      },
       { studentId: 'stu-new', firstName: 'Aruzhan', lastName: 'A', branchName: 'Debut', type: 'student' },
+    ]);
+  });
+
+  it('flags a student the caller already owns as ownedBySelf', async () => {
+    scripts['branch_invite_tokens.select'] = [{ data: [ACTIVE_TOKEN], error: null }];
+    ceSearch.mockResolvedValue([
+      { id: 'stu-mine', first_name: 'Aруз', last_name: 'A', branch_id: 'br-1', status: 'active' },
+    ]);
+    // Row owned by the caller (user-1) → ownedBySelf true (disabled add in UI).
+    scripts['organization_members.select'] = [
+      { data: [{ external_student_id: 'stu-mine', user_id: 'user-1' }], error: null },
+    ];
+    const res = await GET(makeReq('http://x/api/?q=a'));
+    const body = await res.json();
+    expect(body.results).toEqual([
+      {
+        studentId: 'stu-mine',
+        firstName: 'Aруз',
+        lastName: 'A',
+        branchName: 'Debut',
+        type: 'student',
+        alreadyLinked: true,
+        ownedBySelf: true,
+      },
     ]);
   });
 
@@ -293,12 +328,21 @@ describe('GET /api/chess-empire/link/search', () => {
       { id: 'stu-new', first_name: 'Aruzhan', last_name: 'A', branch_id: 'br-1', status: 'active' },
     ]);
     scripts['organization_members.select'] = [
-      { data: [{ external_student_id: 'stu-linked' }], error: null },
+      { data: [{ external_student_id: 'stu-linked', user_id: 'someone-else' }], error: null },
     ];
     const res = await GET(makeReq('http://x/api/?q=a'));
     const body = await res.json();
     expect(body.branchToken).toBeNull();
     expect(body.results).toEqual([
+      {
+        studentId: 'stu-linked',
+        firstName: 'Alikhan',
+        lastName: 'A',
+        branchName: 'Debut',
+        type: 'student',
+        alreadyLinked: true,
+        ownedBySelf: false,
+      },
       { studentId: 'stu-new', firstName: 'Aruzhan', lastName: 'A', branchName: 'Debut', type: 'student' },
     ]);
     const orgFilter = recorded.find((r) => r.table === 'organization_members');

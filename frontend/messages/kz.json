@@ -2499,6 +2499,8 @@
     "addMemberBack": "Артқа",
     "addMemberCancel": "Болдырмау",
     "addMemberSuccess": "{name} отбасыңызға қосылды.",
+    "addMemberAddToFamily": "Отбасыға қосу",
+    "addMemberAlreadyYours": "Қосылған",
     "addMemberError": "Қосу мүмкін болмады. Қайталап көріңіз.",
     "addMemberNamePlaceholder": "Толық аты-жөні",
     "addMemberOnlineSubtitle": "Турнирлерге тіркеу үшін отбасы мүшесін қосыңыз.",

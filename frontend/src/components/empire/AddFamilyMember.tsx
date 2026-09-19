@@ -34,6 +34,10 @@ interface SearchResult {
   lastName: string;
   branchName: string;
   type?: 'student' | 'coach';
+  /** Already has a member row in this org (self-registered or linked elsewhere). */
+  alreadyLinked?: boolean;
+  /** The existing member row belongs to the caller themselves. */
+  ownedBySelf?: boolean;
 }
 
 type Relationship = 'child' | 'other';
@@ -434,12 +438,26 @@ export default function AddFamilyMember({
               <button
                 type="button"
                 className="afm-result"
+                // A student the caller already owns can't be re-added; anyone
+                // else — including a foreign-owned, already-linked student
+                // (linked via an auto-accept edge) — is selectable.
+                disabled={r.ownedBySelf}
                 onClick={() => {
+                  if (r.ownedBySelf) return;
                   setSelected(r);
                   setError(null);
                 }}
               >
-                {r.firstName} {r.lastName}
+                <span>
+                  {r.firstName} {r.lastName}
+                </span>
+                {r.ownedBySelf ? (
+                  <span className="afm-result-tag">{t('addMemberAlreadyYours')}</span>
+                ) : r.alreadyLinked ? (
+                  <span className="afm-result-tag afm-result-tag-add">
+                    {t('addMemberAddToFamily')}
+                  </span>
+                ) : null}
               </button>
             </li>
           ))}
@@ -610,6 +628,10 @@ const styles = (
     }
     .afm-result {
       width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
       text-align: left;
       border: 1px solid #e2e8f0;
       background: #fff;
@@ -620,9 +642,22 @@ const styles = (
       color: #1e293b;
       cursor: pointer;
     }
-    .afm-result:hover {
+    .afm-result:hover:not(:disabled) {
       border-color: #3b82f6;
       background: #eff6ff;
+    }
+    .afm-result:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+    .afm-result-tag {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #94a3b8;
+      white-space: nowrap;
+    }
+    .afm-result-tag-add {
+      color: #2563eb;
     }
     .afm-invite-toggle {
       margin-top: 10px;

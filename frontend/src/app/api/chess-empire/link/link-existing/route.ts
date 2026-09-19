@@ -27,6 +27,7 @@ import { rateLimit } from '@/lib/in-memory-rate-limit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { upsertMemberLink } from '@/lib/chess-empire-jwt-link';
 import { getVerifiedMembersForUser } from '@/lib/chess-empire-member';
+import { createAutoAcceptedFamilyEdge } from '@/lib/family-link-invite';
 import {
   getStudentProfile,
   getStudentDisplayName,
@@ -113,10 +114,17 @@ export async function POST(req: NextRequest) {
   // pre-signup token existing.
   let organizationId: string;
   let expectedBranchId: string;
+  // The caller's OWN CE student id, when they have one — stamped onto an
+  // auto-accept edge so the family link is bidirectional. Best-effort.
+  let callerStudentId: string | null = null;
   const token = branchToken ? await resolveBranchToken(branchToken) : null;
   if (token) {
     organizationId = token.organization_id;
     expectedBranchId = token.external_branch_id;
+    const members = await getVerifiedMembersForUser(userId).catch(() => []);
+    callerStudentId =
+      (members.find((m) => m.relationship === 'self' && m.studentId) ??
+        members.find((m) => m.studentId))?.studentId ?? null;
   } else {
     const members = await getVerifiedMembersForUser(userId);
     const primary =
@@ -127,6 +135,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'no_membership' }, { status: 401 });
     }
     organizationId = primary.orgId;
+    callerStudentId = primary.studentId;
     try {
       const callerProfile = await getStudentProfile(primary.studentId);
       expectedBranchId = callerProfile.branch_id;
@@ -141,21 +150,47 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // One Chesster account per external student (per org, source). If the student
-  // is already linked, report it rather than clobbering the existing owner.
+  // Look up any existing member row for this external student (per org, source).
+  // The one unique member row per student is NEVER stolen — how we proceed
+  // depends on who owns it.
   const { data: existing } = await supabaseAdmin
     .from('organization_members')
-    .select('id')
+    .select('id, user_id, link_status')
     .eq('organization_id', organizationId)
     .eq('external_source', 'chess_empire')
     .eq('external_student_id', studentId)
     .in('link_status', ['verified', 'frozen'])
     .maybeSingle();
-  if (existing) {
-    return NextResponse.json({ error: 'ALREADY_REGISTERED' }, { status: 409 });
+  const existingRow = existing as
+    | { id: string; user_id: string | null; link_status: string | null }
+    | null;
+
+  // The caller ALREADY owns this student's row → idempotent success. A frozen
+  // row is reactivated to verified; a verified row is a no-op.
+  if (existingRow && existingRow.user_id === userId) {
+    if (existingRow.link_status === 'frozen') {
+      const name = await getStudentDisplayName(studentId).catch(() => null);
+      try {
+        await upsertMemberLink({
+          orgId: organizationId,
+          clerkUserId: userId,
+          studentId,
+          linkStatus: 'verified',
+          linkSource: 'claim',
+          relationship,
+          externalSource: 'chess_empire',
+          name,
+        });
+      } catch (err) {
+        console.error('[chess-empire/link/link-existing] reactivate failed', err);
+        return NextResponse.json({ error: 'server_error' }, { status: 500 });
+      }
+    }
+    return NextResponse.json({ ok: true, studentId, relationship, via: 'existing' });
   }
 
-  // Confirm the student is real, active, and in the parent's own branch.
+  // Confirm the student is real, active, and in the parent's own branch — the
+  // same-branch precondition gates BOTH the row mint and the auto-accept edge.
   let branchId: string;
   let status: string | null;
   try {
@@ -181,6 +216,32 @@ export async function POST(req: NextRequest) {
   }
 
   const name = await getStudentDisplayName(studentId).catch(() => null);
+
+  // The student is owned by a DIFFERENT account (self-registered). We do NOT
+  // steal or duplicate their row — instead we mint an auto-accepted family edge
+  // (same branch = trusted), granting the caller register rights with no second
+  // member row. The student keeps their own account.
+  if (existingRow) {
+    try {
+      await createAutoAcceptedFamilyEdge({
+        inviterUserId: userId,
+        inviterOrgId: organizationId,
+        inviterStudentId: callerStudentId,
+        accepterUserId: existingRow.user_id,
+        targetStudentId: studentId,
+        targetOrgId: organizationId,
+        targetName: name,
+        relationship,
+      });
+    } catch (err) {
+      console.error('[chess-empire/link/link-existing] edge create failed', err);
+      return NextResponse.json({ error: 'server_error' }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, studentId, relationship, via: 'edge' });
+  }
+
+  // Unlinked student in the caller's own branch → mint a member row (now
+  // multi-row safe once the (org,user_id) unique constraint is dropped).
   try {
     await upsertMemberLink({
       orgId: organizationId,

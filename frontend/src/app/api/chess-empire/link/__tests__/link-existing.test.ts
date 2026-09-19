@@ -81,6 +81,11 @@ vi.mock('@/lib/chess-empire-jwt-link', () => ({
   upsertMemberLink: (...args: unknown[]) => upsertSpy(...args),
 }));
 
+const edgeSpy = vi.fn(async (..._args: unknown[]) => ({ id: 'edge-1', reused: false }));
+vi.mock('@/lib/family-link-invite', () => ({
+  createAutoAcceptedFamilyEdge: (...args: unknown[]) => edgeSpy(...args),
+}));
+
 import { POST } from '../link-existing/route';
 import { _resetRateLimitForTests } from '@/lib/in-memory-rate-limit';
 
@@ -121,6 +126,7 @@ beforeEach(() => {
   profileStore.branchById = null;
   membersStore.members = [{ ...SELF_MEMBER }];
   upsertSpy.mockClear();
+  edgeSpy.mockClear();
 });
 
 describe('POST /api/chess-empire/link/link-existing', () => {
@@ -153,11 +159,71 @@ describe('POST /api/chess-empire/link/link-existing', () => {
     expect(upsertSpy).not.toHaveBeenCalled();
   });
 
-  it('409 when the student is already linked', async () => {
-    db.existingMember = { id: 'm-1' };
+  it('idempotent success when the caller already owns a verified row (no write)', async () => {
+    db.existingMember = { id: 'm-1', user_id: 'parent-1', link_status: 'verified' };
     const res = await POST(makeReq({ branchToken: 'tok', studentId: 'stu-1' }) as never);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: 'ALREADY_REGISTERED' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      studentId: 'stu-1',
+      relationship: 'child',
+      via: 'existing',
+    });
+    // Already verified & owned → no upsert, no edge.
+    expect(upsertSpy).not.toHaveBeenCalled();
+    expect(edgeSpy).not.toHaveBeenCalled();
+  });
+
+  it('reactivates a frozen row the caller owns (upsert to verified)', async () => {
+    db.existingMember = { id: 'm-1', user_id: 'parent-1', link_status: 'frozen' };
+    const res = await POST(makeReq({ branchToken: 'tok', studentId: 'stu-1' }) as never);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      studentId: 'stu-1',
+      relationship: 'child',
+      via: 'existing',
+    });
+    expect(upsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        studentId: 'stu-1',
+        linkStatus: 'verified',
+        clerkUserId: 'parent-1',
+      }),
+    );
+    expect(edgeSpy).not.toHaveBeenCalled();
+  });
+
+  it('creates an auto-accept edge (no row) when the student is owned by another account', async () => {
+    db.existingMember = { id: 'm-1', user_id: 'other-parent', link_status: 'verified' };
+    const res = await POST(makeReq({ branchToken: 'tok', studentId: 'stu-1' }) as never);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      studentId: 'stu-1',
+      relationship: 'child',
+      via: 'edge',
+    });
+    // Ownership is never stolen: an edge is minted, no member row upsert.
+    expect(upsertSpy).not.toHaveBeenCalled();
+    expect(edgeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inviterUserId: 'parent-1',
+        accepterUserId: 'other-parent',
+        targetStudentId: 'stu-1',
+        inviterStudentId: 'stu-self',
+        relationship: 'child',
+      }),
+    );
+  });
+
+  it('rejects a foreign-owned student in a DIFFERENT branch before any edge', async () => {
+    db.existingMember = { id: 'm-1', user_id: 'other-parent', link_status: 'verified' };
+    profileStore.branchId = 'branch-OTHER';
+    const res = await POST(makeReq({ branchToken: 'tok', studentId: 'stu-1' }) as never);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: 'branch_mismatch' });
+    expect(edgeSpy).not.toHaveBeenCalled();
     expect(upsertSpy).not.toHaveBeenCalled();
   });
 
@@ -211,6 +277,28 @@ describe('POST /api/chess-empire/link/link-existing', () => {
     expect(upsertSpy).toHaveBeenCalledWith(
       expect.objectContaining({ relationship: 'other' }),
     );
+  });
+
+  it('mints a SECOND family member row (multi-kid, now unique-safe)', async () => {
+    // Caller already owns a self row + one child; adding another unlinked
+    // same-branch student mints a fresh row (the (org,user_id) unique cap is
+    // dropped in Phase 0, so multiple owned rows are allowed).
+    membersStore.members = [
+      { ...SELF_MEMBER },
+      { ...SELF_MEMBER, studentId: 'stu-kid1', memberId: 'm-2', relationship: 'child' },
+    ];
+    db.existingMember = null; // target stu-kid2 is unlinked
+    const res = await POST(makeReq({ branchToken: 'tok', studentId: 'stu-kid2' }) as never);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      studentId: 'stu-kid2',
+      relationship: 'child',
+    });
+    expect(upsertSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ studentId: 'stu-kid2', linkStatus: 'verified' }),
+    );
+    expect(edgeSpy).not.toHaveBeenCalled();
   });
 
   describe('token-less path (branch + org derived from caller membership)', () => {

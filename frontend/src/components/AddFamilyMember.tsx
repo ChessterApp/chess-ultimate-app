@@ -28,6 +28,10 @@ interface SearchResult {
   lastName: string;
   branchName: string;
   type?: 'student' | 'coach';
+  /** Already has a member row in this org (self-registered or linked elsewhere). */
+  alreadyLinked?: boolean;
+  /** The existing member row belongs to the caller themselves. */
+  ownedBySelf?: boolean;
 }
 
 interface SearchResponse {
@@ -211,6 +215,19 @@ export default function AddFamilyMember() {
           {visible.map((m) => {
             const added = addedIds.has(m.studentId);
             const busy = addingId === m.studentId;
+            // A student the caller already owns is shown as "already yours"
+            // (disabled). Anyone else — including a foreign-owned, already-linked
+            // student (added via an auto-accept edge) — stays addable.
+            const ownedBySelf = m.ownedBySelf === true;
+            const label = ownedBySelf
+              ? '✓ Уже добавлен'
+              : added
+                ? '✓ Добавлен'
+                : busy
+                  ? 'Добавляем…'
+                  : m.alreadyLinked
+                    ? 'Добавить в семью'
+                    : 'Добавить';
             return (
               <li key={m.studentId} className="afm-row">
                 <span className="afm-person">
@@ -223,10 +240,12 @@ export default function AddFamilyMember() {
                   type="button"
                   className="afm-add"
                   onClick={() => addMember(m)}
-                  disabled={added || busy || !branchToken}
-                  data-state={added ? 'done' : busy ? 'loading' : 'idle'}
+                  disabled={added || busy || ownedBySelf || !branchToken}
+                  data-state={
+                    added || ownedBySelf ? 'done' : busy ? 'loading' : 'idle'
+                  }
                 >
-                  {added ? '✓ Добавлен' : busy ? 'Добавляем…' : 'Добавить'}
+                  {label}
                 </button>
               </li>
             );

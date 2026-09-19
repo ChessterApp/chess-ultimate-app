@@ -19,6 +19,7 @@ import {
   type MemberRelationship,
   type MemberSource,
 } from '@/lib/chess-empire-member';
+import { getFamilyLinkedStudentIds } from '@/lib/family-link-invite';
 import {
   listTournaments,
   listBranches,
@@ -129,36 +130,68 @@ export async function loadCETournamentSnapshot(): Promise<CETournamentSnapshot> 
       const verified = (await getVerifiedMembersForUser(userId)).filter(
         (m): m is typeof m & { studentId: string } => !!m.studentId,
       );
-      if (verified.length > 0) {
+      // Students reached ONLY through an accepted family edge (self-registered /
+      // cross-branch kids). Deduped against owned rows — a member row always wins
+      // over an edge — so an edge never double-lists a student already owned. This
+      // union is the whole point of the feature: without it edge-linked kids are
+      // registerable by the API but invisible in the picker. Best-effort ([] on
+      // failure) so it never blocks the owned members.
+      const ownedIds = new Set(verified.map((m) => m.studentId));
+      const familyEdges = (await getFamilyLinkedStudentIds(userId)).filter(
+        (f) => f.studentId && !ownedIds.has(f.studentId),
+      );
+
+      // One unified, resolvable member list: owned rows first (so 'self' /
+      // ordering wins for the primary), then edge-only students.
+      const resolvable: CETournamentMember[] = [
+        ...verified.map((m) => ({
+          studentId: m.studentId,
+          name: null as string | null,
+          relationship: m.relationship,
+          source: m.source,
+        })),
+        ...familyEdges.map((f) => ({
+          studentId: f.studentId,
+          name: f.name,
+          relationship: f.relationship as MemberRelationship,
+          // Edge students are real branch players registered via the CE API.
+          source: 'chess_empire' as MemberSource,
+        })),
+      ];
+
+      if (resolvable.length > 0) {
         membership = 'verified';
-        // Deterministic primary — 'self' wins, else the first verified row
-        // (already id-ordered), matching `pickPrimaryState` in the member lib.
+        // Deterministic primary — 'self' wins, else the first entry (owned rows
+        // lead), matching `pickPrimaryState` in the member lib. Edge-only
+        // students never take the primary slot unless nothing is owned.
         const primary =
-          verified.find((m) => m.relationship === 'self') ?? verified[0];
+          resolvable.find((m) => m.relationship === 'self') ?? resolvable[0];
 
         const [names, regLists] = await Promise.all([
           Promise.all(
-            verified.map((m) =>
+            resolvable.map((m) =>
               getStudentDisplayName(m.studentId).catch(() => null),
             ),
           ),
           Promise.all(
-            verified.map((m) =>
+            resolvable.map((m) =>
               getStudentTournamentRegistrations(m.studentId).catch(() => []),
             ),
           ),
         ]);
 
-        members = verified.map((m, i) => ({
+        members = resolvable.map((m, i) => ({
           studentId: m.studentId,
-          name: names[i],
+          // Prefer a freshly-resolved display name; fall back to the edge's
+          // stored name when the live lookup returns nothing.
+          name: names[i] ?? m.name,
           relationship: m.relationship,
           source: m.source,
         }));
         studentName =
           members.find((m) => m.studentId === primary.studentId)?.name ?? null;
 
-        verified.forEach((m, i) => {
+        resolvable.forEach((m, i) => {
           for (const r of regLists[i]) {
             const list = registrationsByTournament.get(r.tournament_id) ?? [];
             list.push({ studentId: m.studentId, registrationId: r.id });

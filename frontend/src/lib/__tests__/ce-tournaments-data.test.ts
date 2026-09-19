@@ -23,6 +23,17 @@ vi.mock('@/lib/chess-empire-member', () => ({
   getVerifiedMembersForUser: vi.fn(async () => memberStore.members),
 }));
 
+interface FakeEdge {
+  studentId: string;
+  orgId: string | null;
+  relationship: 'child' | 'other';
+  name: string | null;
+}
+const edgeStore: { edges: FakeEdge[] } = { edges: [] };
+vi.mock('@/lib/family-link-invite', () => ({
+  getFamilyLinkedStudentIds: vi.fn(async () => edgeStore.edges),
+}));
+
 // CE client: a fixed one-tournament schedule; names + registrations are
 // scripted per student id so each member resolves independently.
 const nameById: Record<string, string | null> = {};
@@ -67,6 +78,7 @@ import { loadCETournamentSnapshot } from '../ce-tournaments-data';
 beforeEach(() => {
   authStore.userId = 'user-1';
   memberStore.members = [];
+  edgeStore.edges = [];
   for (const k of Object.keys(nameById)) delete nameById[k];
   for (const k of Object.keys(regsById)) delete regsById[k];
 });
@@ -154,6 +166,87 @@ describe('loadCETournamentSnapshot — family snapshot', () => {
       ]),
     );
     expect(card.registrations).toHaveLength(2);
+  });
+
+  it('unions a family-edge student into members + registrations (linchpin)', async () => {
+    // Caller owns only their self row; the child is reachable ONLY through an
+    // accepted family edge. Phase 3 must surface it in the picker AND resolve its
+    // name + existing registrations, exactly like a row member.
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self' },
+    ];
+    edgeStore.edges = [
+      { studentId: 'stu-edge', orgId: 'org-1', relationship: 'child', name: 'Edge Name' },
+    ];
+    nameById['stu-self'] = 'Parent P';
+    nameById['stu-edge'] = 'Bek Live'; // live name wins over the edge's stored name
+    regsById['stu-self'] = [];
+    regsById['stu-edge'] = [{ id: 'reg-edge', tournament_id: 't-1' }];
+
+    const snap = await loadCETournamentSnapshot();
+    expect(snap.membership).toBe('verified');
+    expect(snap.members).toEqual([
+      { studentId: 'stu-self', name: 'Parent P', relationship: 'self' },
+      {
+        studentId: 'stu-edge',
+        name: 'Bek Live',
+        relationship: 'child',
+        source: 'chess_empire',
+      },
+    ]);
+    const card = snap.tournaments[0];
+    expect(card.registrations).toEqual([
+      { studentId: 'stu-edge', registrationId: 'reg-edge' },
+    ]);
+    // The edge student is not the primary → legacy fields stay from the self row.
+    expect(card.registration_id).toBeNull();
+  });
+
+  it('dedups an edge that duplicates an owned member row (member wins)', async () => {
+    // The same student is both owned AND present as an edge → it must appear ONCE.
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self' },
+      { state: 'verified', studentId: 'stu-dup', relationship: 'child' },
+    ];
+    edgeStore.edges = [
+      { studentId: 'stu-dup', orgId: 'org-1', relationship: 'other', name: 'Edge Dup' },
+    ];
+    nameById['stu-self'] = 'Parent P';
+    nameById['stu-dup'] = 'Owned Dup';
+    regsById['stu-self'] = [];
+    regsById['stu-dup'] = [{ id: 'reg-dup', tournament_id: 't-1' }];
+
+    const snap = await loadCETournamentSnapshot();
+    // Exactly one entry for stu-dup, with the OWNED row's relationship ('child').
+    expect(snap.members.filter((m) => m.studentId === 'stu-dup')).toEqual([
+      { studentId: 'stu-dup', name: 'Owned Dup', relationship: 'child' },
+    ]);
+    const card = snap.tournaments[0];
+    expect(
+      card.registrations.filter((r) => r.studentId === 'stu-dup'),
+    ).toHaveLength(1);
+  });
+
+  it('falls back to the edge stored name when the live lookup returns null', async () => {
+    memberStore.members = [
+      { state: 'verified', studentId: 'stu-self', relationship: 'self' },
+    ];
+    edgeStore.edges = [
+      { studentId: 'stu-edge', orgId: 'org-1', relationship: 'child', name: 'Stored Edge' },
+    ];
+    nameById['stu-self'] = 'Parent P';
+    nameById['stu-edge'] = null; // live name unavailable → use the edge's name
+
+    const snap = await loadCETournamentSnapshot();
+    expect(snap.members).toEqual([
+      { studentId: 'stu-self', name: 'Parent P', relationship: 'self' },
+      {
+        studentId: 'stu-edge',
+        name: 'Stored Edge',
+        relationship: 'child',
+        source: 'chess_empire',
+      },
+    ]);
   });
 
   it('a per-member fetch failure degrades that member gracefully', async () => {

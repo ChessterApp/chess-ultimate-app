@@ -2499,6 +2499,8 @@
     "addMemberBack": "Back",
     "addMemberCancel": "Cancel",
     "addMemberSuccess": "{name} added to your family.",
+    "addMemberAddToFamily": "Add to my family",
+    "addMemberAlreadyYours": "Already yours",
     "addMemberError": "Couldn't add this member. Please try again.",
     "addMemberNamePlaceholder": "Full name",
     "addMemberOnlineSubtitle": "Add a family member to register them for tournaments.",

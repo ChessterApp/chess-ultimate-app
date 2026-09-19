@@ -89,6 +89,78 @@ export async function createFamilyLinkInvite(
   return { id: (data as { id: string }).id, token: (data as { token: string }).token };
 }
 
+export interface AutoAcceptEdgeArgs {
+  /** The parent gaining register rights (caller). */
+  inviterUserId: string;
+  inviterOrgId: string | null;
+  /** The caller's own CE student id, when they have one (bidirectional edge). */
+  inviterStudentId: string | null;
+  /** Owner of the target student, stamped as the accepter (may be null). */
+  accepterUserId: string | null;
+  /** The already-owned student the caller is being granted rights over. */
+  targetStudentId: string;
+  targetOrgId: string | null;
+  targetName: string | null;
+  relationship: Relationship;
+}
+
+/**
+ * Directly create an ALREADY-ACCEPTED family edge — the same-branch "trusted"
+ * shortcut for a student who already owns their own account. No email round-trip
+ * and no consent step: the caller and the target are provably in the same
+ * branch, so the parent gains register rights immediately with NO second member
+ * row (the student keeps their own account). Writes one accepted
+ * `family_link_invites` row, the same edge `getFamilyLinkedStudentIds` reads.
+ * Idempotent: an accepted edge for the same (inviter, target) is reused.
+ */
+export async function createAutoAcceptedFamilyEdge(
+  args: AutoAcceptEdgeArgs,
+): Promise<{ id: string; reused: boolean }> {
+  // Reuse an existing accepted edge so repeated adds don't pile up rows.
+  const { data: existing } = await supabaseAdmin
+    .from('family_link_invites')
+    .select('id')
+    .eq('inviter_user_id', args.inviterUserId)
+    .eq('accepted_student_id', args.targetStudentId)
+    .eq('status', 'accepted')
+    .maybeSingle();
+  if (existing) {
+    return { id: (existing as { id: string }).id, reused: true };
+  }
+
+  const token = `${randomUUID()}${randomUUID()}`.replace(/-/g, '');
+  const nowIso = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from('family_link_invites')
+    .insert({
+      token,
+      inviter_user_id: args.inviterUserId,
+      inviter_org_id: args.inviterOrgId,
+      inviter_student_id: args.inviterStudentId,
+      target_name: args.targetName,
+      target_email: null,
+      relationship: args.relationship,
+      status: 'accepted',
+      accepted_by_user_id: args.accepterUserId,
+      accepted_student_id: args.targetStudentId,
+      accepted_org_id: args.targetOrgId,
+      accepted_at: nowIso,
+      // Already accepted, but the column is NOT NULL on some schemas — stamp a
+      // far-future window so the row is well-formed.
+      expires_at: new Date(
+        Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000,
+      ).toISOString(),
+    })
+    .select('id')
+    .single();
+  if (error || !data) {
+    throw new Error(
+      `family-link-invite.autoAccept: ${error?.message ?? 'no row returned'}`,
+    );
+  }
+  return { id: (data as { id: string }).id, reused: false };
+}
+
 interface InviteRow {
   id: string;
   inviter_user_id: string;

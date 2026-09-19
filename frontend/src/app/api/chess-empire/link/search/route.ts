@@ -59,6 +59,13 @@ interface BranchTokenRow {
 
 interface LinkedMemberRow {
   external_student_id: string | null;
+  user_id: string | null;
+}
+
+/** Linkage of an already-linked roster candidate, keyed by external student id. */
+interface LinkedInfo {
+  /** True when the existing member row is owned by the caller themselves. */
+  ownedBySelf: boolean;
 }
 
 function clientIp(req: NextRequest): string {
@@ -93,24 +100,38 @@ async function resolveBranchToken(
   return active[0] ?? null;
 }
 
-async function fetchLinkedStudentIds(
+/**
+ * Which of the candidate students already own a member row in this org, and
+ * whether that row belongs to the caller. Already-linked students are no longer
+ * stripped — they are surfaced with `alreadyLinked`/`ownedBySelf` flags so the
+ * UI can offer "Add to my family" (foreign-owned → auto-accept edge) or show
+ * "already yours" (owned by caller).
+ */
+async function fetchLinkedInfo(
   organizationId: string,
+  callerUserId: string,
   studentIds: string[],
-): Promise<Set<string>> {
-  if (studentIds.length === 0) return new Set();
+): Promise<Map<string, LinkedInfo>> {
+  if (studentIds.length === 0) return new Map();
   const { data, error } = await supabaseAdmin
     .from('organization_members')
-    .select('external_student_id')
+    .select('external_student_id, user_id')
     .eq('organization_id', organizationId)
     .eq('external_source', 'chess_empire')
     .in('link_status', ['verified', 'frozen'])
     .in('external_student_id', studentIds);
-  if (error || !data) return new Set();
-  return new Set(
-    (data as LinkedMemberRow[])
-      .map((r) => r.external_student_id)
-      .filter((id): id is string => !!id),
-  );
+  if (error || !data) return new Map();
+  const map = new Map<string, LinkedInfo>();
+  for (const r of data as LinkedMemberRow[]) {
+    if (!r.external_student_id) continue;
+    const ownedBySelf = r.user_id === callerUserId;
+    // A student owned by the caller wins over a foreign owner for the flag.
+    const prev = map.get(r.external_student_id);
+    map.set(r.external_student_id, {
+      ownedBySelf: ownedBySelf || (prev?.ownedBySelf ?? false),
+    });
+  }
+  return map;
 }
 
 export async function GET(req: NextRequest) {
@@ -200,27 +221,35 @@ export async function GET(req: NextRequest) {
     ...activeStudents.map((s) => s.id),
     ...coaches.map((c) => c.id),
   ];
-  const linked = await fetchLinkedStudentIds(organizationId, candidateIds);
+  const linked = await fetchLinkedInfo(organizationId, userId, candidateIds);
 
-  const studentResults = activeStudents
-    .filter((s) => !linked.has(s.id))
-    .map((s) => ({
+  // Attach linkage flags instead of stripping already-linked candidates: a
+  // foreign-owned student can be added via an auto-accept edge, and a student the
+  // caller already owns is shown as "already yours".
+  const withLinkFlags = <T extends { studentId: string }>(base: T) => {
+    const info = linked.get(base.studentId);
+    return info ? { ...base, alreadyLinked: true as const, ownedBySelf: info.ownedBySelf } : base;
+  };
+
+  const studentResults = activeStudents.map((s) =>
+    withLinkFlags({
       studentId: s.id,
       firstName: s.first_name,
       lastName: s.last_name || '',
       branchName: branchName ?? '',
       type: 'student' as const,
-    }));
+    }),
+  );
 
-  const coachResults = coaches
-    .filter((c) => !linked.has(c.id))
-    .map((c) => ({
+  const coachResults = coaches.map((c) =>
+    withLinkFlags({
       studentId: c.id,
       firstName: c.first_name,
       lastName: c.last_name || '',
       branchName: branchName ?? '',
       type: 'coach' as const,
-    }));
+    }),
+  );
 
   const results = [...studentResults, ...coachResults].slice(0, MAX_RESULTS);
 
