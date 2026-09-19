@@ -61,6 +61,7 @@ from src.billing import (
     create_checkout_session,
     get_subscription_status,
     handle_webhook_event,
+    verify_whop_signature,
 )
 from src.voice_metrics import (
     MAX_BODY_BYTES,
@@ -2290,8 +2291,18 @@ async def coach_subscription_status(request: Request):
 
 @app.post("/api/coach/whop-webhook")
 async def whop_webhook(request: Request):
-    """Handle Whop webhook events."""
+    """Handle Whop webhook events (signature-verified, like the Next.js webhook)."""
     payload = await request.body()
+    verdict = verify_whop_signature(
+        payload,
+        request.headers.get("x-whop-signature"),
+        os.environ.get("WHOP_WEBHOOK_SECRET", ""),
+    )
+    if verdict == "no_secret":
+        logger.error("whop webhook rejected: WHOP_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=500, detail="Webhook secret not configured")
+    if verdict != "ok":
+        raise HTTPException(status_code=401, detail=f"Invalid webhook signature ({verdict})")
     result = handle_webhook_event(payload)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
