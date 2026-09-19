@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.model_router import route_model
+from src.model_router import explain_route, route_model
 
 TIERS = {
     "fast": "google/gemini-2.5-flash",
@@ -99,3 +99,48 @@ class TestExplainRoute:
         from src.model_router import explain_route
         for q in ["hi", "analyze this", "deep analysis", "show me on the board"]:
             assert route_model(q, TIERS, DEFAULT) == explain_route(q, TIERS, DEFAULT)["model"]
+
+
+@pytest.mark.unit
+class TestRussianKazakhRouting:
+    """RU/KK questions must reach the same tiers as their English equivalents."""
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "сделай глубокий анализ моей партии",
+            "разбери мою партию",
+            "какой стратегический план в этой позиции",
+            "нужна подготовка к турниру",
+            "терең талдау жаса",
+            "осы ойынды талдап бер",
+        ],
+    )
+    def test_ru_kk_deep(self, query):
+        assert explain_route(query, TIERS, DEFAULT)["tier"] == "deep"
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "проанализируй эту позицию",
+            "оцени мой последний ход",
+            "посчитай вариант с жертвой на f7",
+            "сравни эти два хода",
+            "осы позицияны талда",
+            "менің жүрісімді бағала",
+        ],
+    )
+    def test_ru_kk_analysis(self, query):
+        assert explain_route(query, TIERS, DEFAULT)["tier"] == "analysis"
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "что такое сицилианская защита?",
+            "кто такой Каспаров",
+            "привет, как дела",
+            "сәлем, қалайсың",
+        ],
+    )
+    def test_ru_kk_simple_stays_fast(self, query):
+        assert explain_route(query, TIERS, DEFAULT)["tier"] == "fast"
