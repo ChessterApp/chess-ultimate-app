@@ -547,7 +547,7 @@ describe('CoachChat — persisted sessions and boards', () => {
   });
 
   it('sends board_id with every chat turn', async () => {
-    const fetchMock = vi.fn(async (url: string) => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
       if (String(url) === '/api/coach/chat') {
         return {
           ok: true,
@@ -576,9 +576,37 @@ describe('CoachChat — persisted sessions and boards', () => {
     await vi.waitFor(() => {
       const call = fetchMock.mock.calls.find(([u]) => String(u) === '/api/coach/chat');
       expect(call).toBeTruthy();
-      expect(JSON.parse((call![1] as RequestInit).body as string).board_id).toBe('b-9');
+      expect(JSON.parse(String(call![1]?.body)).board_id).toBe('b-9');
     });
     await vi.waitFor(() => expect(onActive).toHaveBeenCalledWith('b-9'));
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('CoachChat — pasted games go straight to the board', () => {
+  it('classifies PGN, FEN and plain questions', async () => {
+    const { classifyPastedText } = await import('../CoachChat');
+    expect(classifyPastedText('1. e4 e5 2. Nf3 Nc6 3. Bb5 a6')).toBe('pgn');
+    expect(classifyPastedText('[Event "x"]\n\n1. d4 d5 2. c4 e6 1-0')).toBe('pgn');
+    expect(classifyPastedText('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1')).toBe('fen');
+    expect(classifyPastedText('что играть после 1. e4?')).toBeNull();
+    expect(classifyPastedText('')).toBeNull();
+  });
+
+  it('loads a pasted PGN onto the board without a model call', () => {
+    const onBoardActions = vi.fn();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder);
+    fireEvent.paste(input, { clipboardData: { getData: () => '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' } });
+    expect(onBoardActions).toHaveBeenCalledWith([{ type: 'load_pgn', pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' }]);
+    expect(screen.getByText(coach.loadedPgn)).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });

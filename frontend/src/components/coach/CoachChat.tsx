@@ -42,6 +42,18 @@ export interface CoachChatHandle {
   send: (text: string) => void;
 }
 
+/** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
+const PGN_RE = /(?:^|\s)1\.\s*[a-hNBRQKO0]/;
+const FEN_RE = /^\s*([rnbqkpRNBQKP1-8]+\/){7}[rnbqkpRNBQKP1-8]+\s+[wb]\s+(-|[KQkq]{1,4})\s+(-|[a-h][36])(\s+\d+\s+\d+)?\s*$/;
+
+export function classifyPastedText(text: string): 'pgn' | 'fen' | null {
+  const t = (text || '').trim();
+  if (!t) return null;
+  if (FEN_RE.test(t)) return 'fen';
+  if (t.length > 20 && PGN_RE.test(t) && (t.match(/\d+\./g) ?? []).length >= 2) return 'pgn';
+  return null;
+}
+
 const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat(
   {
     currentFen,
@@ -329,6 +341,34 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // A pasted PGN or FEN (or a .pgn file) goes to the board directly and the
+  // coach is told about it in one short line — the student should not have to
+  // ask the model to "load this" and wait for a tool round-trip.
+  const loadPastedGame = useCallback(
+    (text: string) => {
+      const kind = classifyPastedText(text);
+      const trimmed = text.trim();
+      if (kind === 'pgn') {
+        onBoardActions([{ type: 'load_pgn', pgn: trimmed }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'user', content: t('loadedPgn'), timestamp: new Date() },
+        ]);
+      } else if (kind === 'fen') {
+        onBoardActions([{ type: 'set_fen', fen: trimmed }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'user', content: t('loadedFen'), timestamp: new Date() },
+        ]);
+      } else {
+        setInput((prev) => prev + trimmed);
+      }
+    },
+    [onBoardActions, t],
+  );
 
   const sendMessage = useCallback(async (overrideText?: string) => {
     const source = typeof overrideText === 'string' ? overrideText : input;
@@ -690,10 +730,42 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           </div>
         )}
         <div className="flex gap-2">
+          {/* Load a .pgn file straight onto the board — no model call needed. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pgn,text/plain"
+            className="hidden"
+            data-testid="pgn-file-input"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              const text = await file.text();
+              loadPastedGame(text);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming}
+            className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-30"
+            title={t('loadPgnFile')}
+            aria-label={t('loadPgnFile')}
+          >
+            📎
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData('text');
+              if (classifyPastedText(text)) {
+                e.preventDefault();
+                loadPastedGame(text);
+              }
+            }}
             placeholder={t('inputPlaceholder')}
             rows={1}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"

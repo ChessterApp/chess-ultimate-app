@@ -1999,7 +1999,10 @@
     "renameSession": "Атын өзгерту",
     "renamePrompt": "Сессия атауы",
     "closeTab": "Қойындыны жабу",
-    "messagesCount": "{count} хабар"
+    "messagesCount": "{count} хабар",
+    "loadPgnFile": ".pgn файлынан партия жүктеу",
+    "loadedPgn": "Партияны тақтаға жүктедім.",
+    "loadedFen": "Позицияны тақтаға қойдым."
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

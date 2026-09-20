@@ -1999,7 +1999,10 @@
     "renameSession": "Rename",
     "renamePrompt": "Session title",
     "closeTab": "Close tab",
-    "messagesCount": "{count} msgs"
+    "messagesCount": "{count} msgs",
+    "loadPgnFile": "Load a game from a .pgn file",
+    "loadedPgn": "Loaded the game onto the board.",
+    "loadedFen": "Set the position on the board."
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

@@ -1999,7 +1999,10 @@
     "renameSession": "Переименовать",
     "renamePrompt": "Название сессии",
     "closeTab": "Закрыть вкладку",
-    "messagesCount": "{count} сообщ."
+    "messagesCount": "{count} сообщ.",
+    "loadPgnFile": "Загрузить партию из файла .pgn",
+    "loadedPgn": "Загрузил партию на доску.",
+    "loadedFen": "Поставил позицию на доску."
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",
