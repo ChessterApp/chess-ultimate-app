@@ -494,11 +494,16 @@ describe('CETournamentsView — family (multi-member) registration', () => {
     expect(screen.getByText(en.ceTournaments.familyTitle)).toBeTruthy();
     // Both members are listed in the bar with their relationship tags.
     expect(screen.getAllByText(/Alikhan/).length).toBeGreaterThan(0);
+  });
+
+  it('does not render the add-family-member button (profile menu only)', () => {
+    renderView(familyViewer(), [makeCard()]);
+    expect(screen.getByText(en.ceTournaments.familyTitle)).toBeTruthy();
     expect(
-      screen.getByRole('button', {
+      screen.queryByRole('button', {
         name: new RegExp(en.ceTournaments.addFamilyMember),
       }),
-    ).toBeTruthy();
+    ).toBeNull();
   });
 });
 
