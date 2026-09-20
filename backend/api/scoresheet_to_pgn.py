@@ -31,7 +31,7 @@ scoresheet_bp = Blueprint('scoresheet', __name__, url_prefix='/api/scoresheet')
 # Model configuration (OpenRouter ids). gemini-2.5-pro, the previous fallback
 # and correction model, is retired by Google on 2026-10-16.
 PRIMARY_MODEL = os.getenv("SCORESHEET_MODEL", "google/gemini-3.1-pro-preview")  # vision
-FALLBACK_MODEL = os.getenv("SCORESHEET_FALLBACK_MODEL", "google/gemini-pro-latest")
+FALLBACK_MODEL = os.getenv("SCORESHEET_FALLBACK_MODEL", "google/gemini-3.8-flash")  # verified slug; gemini-pro-latest is not resolvable via the API
 # Move corrections are text-only: a Flash-class model is plenty.
 CORRECTION_MODEL = os.getenv("SCORESHEET_CORRECTION_MODEL", "google/gemini-3.8-flash")
 
