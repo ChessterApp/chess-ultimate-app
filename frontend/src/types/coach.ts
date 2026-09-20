@@ -20,6 +20,8 @@ export interface SetPuzzleAction {
   type: 'set_puzzle';
   fen: string;
   solution: string[];
+  /** Lichess puzzle id when the puzzle came from the puzzle database. */
+  puzzle_id?: string;
 }
 
 export interface DrawArrowsAction {

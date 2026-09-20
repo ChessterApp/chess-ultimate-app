@@ -47,10 +47,20 @@ BOARD_CONTROL_SCHEMA = {
                 "type": "string",
                 "description": "PGN string (for load_pgn).",
             },
+            "puzzle_id": {
+                "type": "string",
+                "description": (
+                    "Lichess puzzle id from get_puzzle (for set_puzzle). Preferred: the "
+                    "position and solution are then taken from the puzzle database."
+                ),
+            },
             "solution": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Solution moves in SAN (for set_puzzle).",
+                "description": (
+                    "Solution moves in SAN (for set_puzzle without puzzle_id). Only for a "
+                    "position from the current game with a solution verified by analyze_position."
+                ),
             },
             "arrows": {
                 "type": "array",
@@ -84,14 +94,26 @@ BOARD_CONTROL_SCHEMA = {
     },
 }
 
+def _build_set_puzzle(args: dict) -> SetPuzzle:
+    """set_puzzle from a puzzle-database id (preferred) or an explicit FEN + SAN solution."""
+    puzzle_id = args.get("puzzle_id")
+    if puzzle_id:
+        from src.puzzle_db import load_puzzle
+
+        puzzle = load_puzzle(str(puzzle_id))
+        if puzzle is None:
+            raise ValueError(f"Unknown puzzle_id {puzzle_id!r} (use get_puzzle first)")
+        return SetPuzzle(fen=puzzle["fen"], solution=puzzle["solution"], puzzle_id=puzzle["puzzle_id"])
+    if not args.get("solution"):
+        raise ValueError("set_puzzle needs puzzle_id (from get_puzzle) or fen + solution")
+    return SetPuzzle(fen=args["fen"], solution=args.get("solution", []))
+
+
 # Map action types to their model constructors
 _ACTION_BUILDERS = {
     ActionType.SET_FEN: lambda args: SetFen(fen=args["fen"]),
     ActionType.LOAD_PGN: lambda args: LoadPgn(pgn=args["pgn"]),
-    ActionType.SET_PUZZLE: lambda args: SetPuzzle(
-        fen=args["fen"],
-        solution=args.get("solution", []),
-    ),
+    ActionType.SET_PUZZLE: lambda args: _build_set_puzzle(args),
     ActionType.DRAW_ARROWS: lambda args: DrawArrows(arrows=args["arrows"]),
     ActionType.HIGHLIGHT_SQUARES: lambda args: HighlightSquares(
         squares=args["squares"],

@@ -71,6 +71,7 @@ const VOICE_TOOL_ALLOWLIST = new Set<string>([
   'compare_variations',
   'score_position_themes',
   'check_moves',
+  'get_puzzle',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or
