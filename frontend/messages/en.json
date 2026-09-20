@@ -1990,7 +1990,16 @@
     "toolWorking": "Working…",
     "fullPageTooltip": "Open full coach page with board control",
     "feedbackGood": "Good answer",
-    "feedbackBad": "Bad answer"
+    "feedbackBad": "Bad answer",
+    "sessions": "Sessions",
+    "sessionsTitle": "Your sessions",
+    "noSessions": "No saved sessions yet",
+    "untitledSession": "Untitled",
+    "deleteSession": "Delete session",
+    "renameSession": "Rename",
+    "renamePrompt": "Session title",
+    "closeTab": "Close tab",
+    "messagesCount": "{count} msgs"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

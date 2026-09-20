@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useCallback, useState, useMemo } from 'react';
+import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { useTranslations } from 'next-intl';
@@ -15,6 +15,36 @@ import type { BoardAction, GameResult } from '@/types/coach';
 import GameViewerPanel from '@/components/openings/GameViewerPanel';
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
+import CoachSessions from '@/components/coach/CoachSessions';
+import { coachApi, type BoardRecord } from '@/lib/coach/boards-api';
+
+/** Rebuild an OpenedGame tab from a persisted master_game board. */
+function openedGameFromBoard(b: BoardRecord): OpenedGame | null {
+  if (b.kind !== 'master_game' || !b.pgn) return null;
+  const src = (b.source ?? {}) as Record<string, unknown>;
+  let parsed: ReturnType<typeof parseGamePgn>;
+  try {
+    parsed = parseGamePgn(b.pgn);
+  } catch {
+    return null;
+  }
+  return {
+    id: b.id,
+    white: String(src.white ?? b.title.split(' vs ')[0] ?? ''),
+    black: String(src.black ?? b.title.split(' vs ')[1] ?? ''),
+    whiteElo: typeof src.white_elo === 'number' ? src.white_elo : undefined,
+    blackElo: typeof src.black_elo === 'number' ? src.black_elo : undefined,
+    result: String(src.result ?? ''),
+    eco: typeof src.eco === 'string' ? src.eco : undefined,
+    date: typeof src.date === 'string' ? src.date : undefined,
+    event: typeof src.event === 'string' ? src.event : undefined,
+    pgn: b.pgn,
+    moves: parsed.moves,
+    fens: parsed.fens,
+    startingFen: parsed.startingFen,
+    source: 'twic',
+  };
+}
 
 export default function CoachPage() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
@@ -22,10 +52,15 @@ export default function CoachPage() {
   const router = useRouter();
   const t = useTranslations('coach');
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  // Server-side board (tab) ids: the study board the hook renders, and the
+  // master-game tabs keyed by their board id. Restored from Hermes on load.
+  const [studyBoardId, setStudyBoardId] = useState<string | null>(null);
+  const restoredSessionRef = useRef<string | null>(null);
 
   const board = useCoachBoard();
 
-  // Game tabs state
+  // Game tabs state (ids are server board ids)
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
@@ -56,12 +91,49 @@ export default function CoachPage() {
     }
   }, [isLoaded, isSignedIn, router]);
 
-  // Handle board actions from chat
+  // Handle board actions from chat. Actions addressed to a master-game tab
+  // (board_id) only navigate that tab; everything else goes to the study
+  // board, which the server keeps in step (see Session.apply_board_actions).
   const handleBoardActions = useCallback(
     (actions: BoardAction[]) => {
-      board.applyBoardActions(actions);
+      const forStudy: BoardAction[] = [];
+      for (const action of actions) {
+        const target = action.board_id;
+        const tab = target ? openedGames.find((g) => g.id === target) : undefined;
+        if (tab && action.type === 'navigate') {
+          setGameMoveIndices((prev) => {
+            const cur = prev[tab.id] ?? -1;
+            const last = tab.moves.length - 1;
+            const next =
+              action.direction === 'first' ? -1
+              : action.direction === 'last' ? last
+              : action.direction === 'prev' ? Math.max(-1, cur - 1)
+              : Math.min(last, cur + 1);
+            return { ...prev, [tab.id]: next };
+          });
+          setActiveGameId(tab.id);
+        } else if (tab) {
+          // A position change on a game tab: show it on the study board.
+          setActiveGameId(null);
+          forStudy.push(action);
+        } else {
+          forStudy.push(action);
+        }
+      }
+      if (forStudy.length) {
+        board.applyBoardActions(forStudy);
+        setActiveGameId(null);
+      }
     },
-    [board.applyBoardActions]
+    [board.applyBoardActions, openedGames]
+  );
+
+  // The coach's actions may switch the active board server-side.
+  const handleActiveBoardChanged = useCallback(
+    (id: string) => {
+      setActiveGameId(openedGames.some((g) => g.id === id) ? id : null);
+    },
+    [openedGames]
   );
 
   // Keyboard shortcuts
@@ -118,19 +190,128 @@ export default function CoachPage() {
     localStorage.setItem('coach-session-id', id);
   }, []);
 
+  // Restore the session's boards from the server: the study board's position,
+  // history and orientation, and every master-game tab. Runs once per session
+  // id; a session that no longer exists is forgotten.
+  useEffect(() => {
+    if (!sessionId || restoredSessionRef.current === sessionId) return;
+    restoredSessionRef.current = sessionId;
+    let cancelled = false;
+    void (async () => {
+      const data = await coachApi.listBoards(sessionId);
+      if (cancelled) return;
+      if (!data) {
+        // 404 (deleted / unknown session) or Hermes down: start clean.
+        localStorage.removeItem('coach-session-id');
+        setSessionId(null);
+        restoredSessionRef.current = null;
+        return;
+      }
+      const study = data.boards.find((b) => b.kind === 'study' || b.kind === 'puzzle') ?? data.boards[0];
+      const games: OpenedGame[] = [];
+      const indices: Record<string, number> = {};
+      for (const b of data.boards) {
+        if (b.id === study?.id) continue;
+        const g = openedGameFromBoard(b);
+        if (g) {
+          games.push(g);
+          indices[g.id] = b.ply - 1; // viewer index: -1 = start position
+        }
+      }
+      setOpenedGames(games);
+      setGameMoveIndices(indices);
+
+      if (study) {
+        setStudyBoardId(study.id);
+        board.resetBoard();
+        if (study.puzzle?.solution && study.puzzle.fen) {
+          board.applyBoardAction({ type: 'set_puzzle', fen: study.puzzle.fen, solution: study.puzzle.solution });
+        } else if (study.pgn) {
+          board.applyBoardAction({ type: 'load_pgn', pgn: study.pgn });
+          board.goToMove(study.ply);
+        } else if (study.fen) {
+          board.applyBoardAction({ type: 'set_fen', fen: study.fen });
+        }
+        board.setOrientation(study.orientation);
+        if (study.annotations?.arrows?.length) {
+          board.applyBoardAction({ type: 'draw_arrows', arrows: study.annotations.arrows });
+        }
+        if (study.annotations?.highlights?.length) {
+          board.applyBoardAction({
+            type: 'highlight_squares',
+            squares: study.annotations.highlights,
+            color: study.annotations.highlight_color ?? 'yellow',
+          });
+        }
+      }
+      setActiveGameId(
+        data.active_board_id && games.some((g) => g.id === data.active_board_id) ? data.active_board_id : null,
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // board callbacks are stable (useCallback) — only the session id drives this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId]);
+
+  // Keep the study board's position on the server (debounced) so a reload
+  // shows what the student was looking at even without a chat turn.
+  const lastSyncedFenRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionId || !studyBoardId) return;
+    if (lastSyncedFenRef.current === null) {
+      lastSyncedFenRef.current = board.fen; // first render after restore: nothing to sync
+      return;
+    }
+    if (lastSyncedFenRef.current === board.fen) return;
+    const fen = board.fen;
+    const timer = setTimeout(() => {
+      lastSyncedFenRef.current = fen;
+      void coachApi.updateBoard(sessionId, studyBoardId, { position: fen });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [board.fen, sessionId, studyBoardId]);
+
+  // Switch to another saved session (from the sessions panel).
+  const handleSelectSession = useCallback(
+    (id: string) => {
+      if (id === sessionId) return;
+      board.resetBoard();
+      setOpenedGames([]);
+      setGameMoveIndices({});
+      setActiveGameId(null);
+      setStudyBoardId(null);
+      lastSyncedFenRef.current = null;
+      handleSessionCreated(id);
+    },
+    [sessionId, board, handleSessionCreated]
+  );
+
+  const handleNewSession = useCallback(() => {
+    board.resetBoard();
+    setOpenedGames([]);
+    setGameMoveIndices({});
+    setActiveGameId(null);
+    setStudyBoardId(null);
+    lastSyncedFenRef.current = null;
+    restoredSessionRef.current = null;
+    setSessionId(null);
+    localStorage.removeItem('coach-session-id');
+  }, [board]);
+
   // Active game derived from state
   const activeGame = useMemo(
     () => openedGames.find((g) => g.id === activeGameId) ?? null,
     [openedGames, activeGameId]
   );
 
-  // Open a game from chat results as a tab
+  // Open a game from chat results as a tab (persisted as a master_game board)
   const handleOpenGame = useCallback(async (game: GameResult) => {
-    const gameIdStr = String(game.id);
-
     // If already open, just switch to that tab
-    if (openedGames.some((g) => g.id === gameIdStr)) {
-      setActiveGameId(gameIdStr);
+    const existing = openedGames.find((g) => g.source === 'twic' && g.white === game.white_name && g.black === game.black_name && g.date === game.date);
+    if (existing) {
+      setActiveGameId(existing.id);
       return;
     }
 
@@ -145,6 +326,30 @@ export default function CoachPage() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const { moves, fens, startingFen } = parseGamePgn(data.pgn);
+
+      let boardId = `local-${game.id}`;
+      if (sessionId) {
+        const created = await coachApi.createBoard(sessionId, {
+          kind: 'master_game',
+          title: `${game.white_name} vs ${game.black_name}`,
+          pgn: data.pgn,
+          ply: 0,
+          source: {
+            twic_game_id: game.id,
+            white: game.white_name,
+            black: game.black_name,
+            white_elo: game.white_elo,
+            black_elo: game.black_elo,
+            result: game.result,
+            eco: game.eco,
+            date: game.date,
+            event: game.event,
+          },
+          activate: true,
+        });
+        if (created) boardId = created.id;
+      }
+      const gameIdStr = boardId;
 
       const opened: OpenedGame = {
         id: gameIdStr,
@@ -168,7 +373,7 @@ export default function CoachPage() {
     } catch (err) {
       console.error('Failed to load game PGN:', err);
     }
-  }, [openedGames, getToken]);
+  }, [openedGames, getToken, sessionId]);
 
   // Close a game tab
   const handleCloseGame = useCallback((gameId: string) => {
@@ -179,7 +384,33 @@ export default function CoachPage() {
       return next;
     });
     if (activeGameId === gameId) setActiveGameId(null);
-  }, [activeGameId]);
+    if (sessionId && !gameId.startsWith('local-')) void coachApi.deleteBoard(sessionId, gameId);
+  }, [activeGameId, sessionId]);
+
+  // Tell the server which tab is active; the coach's next turn targets it.
+  const selectTab = useCallback(
+    (gameId: string | null) => {
+      setActiveGameId(gameId);
+      const boardId = gameId ?? studyBoardId;
+      if (sessionId && boardId && !boardId.startsWith('local-')) {
+        void coachApi.updateSession(sessionId, { active_board_id: boardId });
+      }
+    },
+    [sessionId, studyBoardId]
+  );
+
+  // Persist a game tab's ply (debounced) so reopening lands on the same move.
+  useEffect(() => {
+    if (!sessionId || !activeGameId || activeGameId.startsWith('local-')) return;
+    const idx = gameMoveIndices[activeGameId];
+    if (idx === undefined) return;
+    const timer = setTimeout(() => {
+      void coachApi.updateBoard(sessionId, activeGameId, { ply: idx + 1 });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [gameMoveIndices, activeGameId, sessionId]);
+
+  const activeBoardId = activeGameId ?? studyBoardId;
 
   if (!isLoaded || subscription.loading) {
     return <LoadingScreen isVisible={true} />;
@@ -217,16 +448,29 @@ export default function CoachPage() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => {
-            board.resetBoard();
-            setSessionId(null);
-            localStorage.removeItem('coach-session-id');
-          }}
-          className="text-sm text-gray-400 hover:text-white transition-colors"
-        >
-          {t('newSession')}
-        </button>
+        <div className="relative flex items-center gap-3">
+          <button
+            onClick={() => setSessionsOpen((v) => !v)}
+            className="text-sm text-gray-400 hover:text-white transition-colors"
+            aria-expanded={sessionsOpen}
+          >
+            {t('sessions')}
+          </button>
+          <button
+            onClick={handleNewSession}
+            className="text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            {t('newSession')}
+          </button>
+          {sessionsOpen && (
+            <CoachSessions
+              currentSessionId={sessionId}
+              onSelect={handleSelectSession}
+              onNew={handleNewSession}
+              onClose={() => setSessionsOpen(false)}
+            />
+          )}
+        </div>
       </header>
 
       {/* Main content: Board + Chat split */}
@@ -236,7 +480,7 @@ export default function CoachPage() {
           {openedGames.length > 0 && (
             <div className="flex items-center gap-1 px-2 py-1 border-b border-white/10 overflow-x-auto">
               <button
-                onClick={() => setActiveGameId(null)}
+                onClick={() => selectTab(null)}
                 className={`px-3 py-1 text-xs rounded-t ${!activeGameId ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
               >
                 {t('coachBoard')}
@@ -244,7 +488,7 @@ export default function CoachPage() {
               {openedGames.map((game) => (
                 <div key={game.id} className="flex items-center">
                   <button
-                    onClick={() => setActiveGameId(game.id)}
+                    onClick={() => selectTab(game.id)}
                     className={`px-3 py-1 text-xs rounded-t truncate max-w-[200px] ${
                       activeGameId === game.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
                     }`}
@@ -254,6 +498,7 @@ export default function CoachPage() {
                   <button
                     onClick={() => handleCloseGame(game.id)}
                     className="text-gray-500 hover:text-white ml-1 text-xs"
+                    title={t('closeTab')}
                   >
                     ×
                   </button>
@@ -337,10 +582,19 @@ export default function CoachPage() {
         {/* Chat panel */}
         <div className="flex-1 lg:flex-none lg:w-[45%] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col min-h-0">
           <CoachChat
-            currentFen={board.fen}
+            currentFen={
+              activeGameId && activeGame
+                ? ((gameMoveIndices[activeGameId] ?? -1) === -1
+                    ? activeGame.startingFen
+                    : activeGame.fens[gameMoveIndices[activeGameId]])
+                : board.fen
+            }
             sessionId={sessionId}
+            boardId={activeBoardId && !activeBoardId.startsWith('local-') ? activeBoardId : null}
+            restoreHistory
             onBoardActions={handleBoardActions}
             onSessionCreated={handleSessionCreated}
+            onActiveBoardChanged={handleActiveBoardChanged}
             onOpenGame={handleOpenGame}
           />
         </div>

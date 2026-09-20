@@ -89,6 +89,22 @@ class Board(BaseModel):
             self.puzzle = None
         self.touch()
 
+    def set_position(self, fen: str) -> None:
+        """Show *fen*: a navigation when it is a position of the loaded game,
+        otherwise a fresh study position that replaces the history."""
+        chess.Board(fen)  # validates
+        if self.pgn:
+            try:
+                keys = [position_key(f) for f in _fens_from_pgn(self.pgn)]
+            except ValueError:
+                keys = []
+            if position_key(fen) in keys:
+                self.ply = keys.index(position_key(fen))
+                self.fen = fen
+                self.touch()
+                return
+        self.set_fen(fen)
+
     def navigate(self, direction: str) -> None:
         if not self.pgn:
             return

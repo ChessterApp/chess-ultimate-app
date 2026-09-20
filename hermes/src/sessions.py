@@ -166,20 +166,7 @@ class Session(BaseModel):
         if board.fen != fen:
             # A position that continues the loaded game is a navigation, not a
             # new study position; anything else replaces the board's history.
-            if board.pgn:
-                try:
-                    from src.boards import _fens_from_pgn, position_key
-
-                    keys = [position_key(f) for f in _fens_from_pgn(board.pgn)]
-                    if position_key(fen) in keys:
-                        board.ply = keys.index(position_key(fen))
-                        board.fen = fen
-                    else:
-                        board.set_fen(fen)
-                except ValueError:
-                    board.set_fen(fen)
-            else:
-                board.set_fen(fen)
+            board.set_position(fen)
             self.save_board(board)
         self.board_state = fen
         if self._persistence is not None:

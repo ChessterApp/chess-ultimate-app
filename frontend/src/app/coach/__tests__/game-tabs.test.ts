@@ -93,7 +93,34 @@ describe('CoachPage - Game Tabs', () => {
   });
 
   it('switches to existing tab if game already open', () => {
-    expect(coachPageContent).toContain('openedGames.some((g) => g.id === gameIdStr)');
+    // Tabs are keyed by server board id now, so an already-open game is
+    // recognised by its TWIC metadata rather than the TWIC id.
+    expect(coachPageContent).toContain("openedGames.find((g) => g.source === 'twic' && g.white === game.white_name");
+    expect(coachPageContent).toContain('setActiveGameId(existing.id)');
+  });
+
+  it('persists tabs as session boards and restores them', () => {
+    expect(coachPageContent).toContain("kind: 'master_game'");
+    expect(coachPageContent).toContain('coachApi.createBoard(sessionId');
+    expect(coachPageContent).toContain('coachApi.deleteBoard(sessionId, gameId)');
+    expect(coachPageContent).toContain('coachApi.listBoards(sessionId)');
+    expect(coachPageContent).toContain('openedGameFromBoard(b)');
+  });
+
+  it('tells the coach which board is active', () => {
+    expect(coachPageContent).toContain('boardId={activeBoardId');
+    expect(coachPageContent).toContain("coachApi.updateSession(sessionId, { active_board_id: boardId })");
+    expect(coachPageContent).toContain('onActiveBoardChanged={handleActiveBoardChanged}');
+    expect(coachPageContent).toContain('restoreHistory');
+  });
+
+  it('routes navigate actions addressed to a game tab to that tab', () => {
+    expect(coachPageContent).toContain("tab && action.type === 'navigate'");
+  });
+
+  it('offers the sessions panel', () => {
+    expect(coachPageContent).toContain('<CoachSessions');
+    expect(coachPageContent).toContain('onSelect={handleSelectSession}');
   });
 
   it('has a close button for each game tab', () => {

@@ -517,3 +517,68 @@ describe('CoachChat board sync', () => {
     expect(sendBoardUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('CoachChat — persisted sessions and boards', () => {
+  it('restores the session history from the server when restoreHistory is set', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/sessions/s-42/messages')) {
+        return {
+          ok: true,
+          json: async () => ({
+            messages: [
+              { role: 'user', content: 'что тут играть?', timestamp: 1700000000, source: 'text' },
+              { role: 'assistant', content: 'Начни с центра.', timestamp: 1700000010, source: 'text' },
+            ],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId="s-42" restoreHistory onBoardActions={() => {}} />
+      </NextIntlClientProvider>,
+    );
+    expect(await screen.findByText('что тут играть?')).toBeTruthy();
+    expect(await screen.findByText('Начни с центра.')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends board_id with every chat turn', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url) === '/api/coach/chat') {
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('data: {"done": true, "session_id": "s-1", "active_board_id": "b-9"}\n\n'));
+              controller.close();
+            },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onActive = vi.fn();
+
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId="s-1" boardId="b-9" onBoardActions={() => {}} onActiveBoardChanged={onActive} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement | HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'покажи' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(([u]) => String(u) === '/api/coach/chat');
+      expect(call).toBeTruthy();
+      expect(JSON.parse((call![1] as RequestInit).body as string).board_id).toBe('b-9');
+    });
+    await vi.waitFor(() => expect(onActive).toHaveBeenCalledWith('b-9'));
+    vi.unstubAllGlobals();
+  });
+});

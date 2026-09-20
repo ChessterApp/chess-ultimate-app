@@ -56,6 +56,9 @@ interface UseCoachBoardReturn extends CoachBoardState {
   validatePuzzleMove: (from: string, to: string) => 'correct' | 'wrong' | 'solved';
   resetBoard: () => void;
   setFenFromMove: (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => void;
+  /** Jump to a ply of the loaded history (0 = start position). */
+  goToMove: (index: number) => void;
+  setOrientation: (orientation: 'white' | 'black') => void;
 }
 
 /**
@@ -215,6 +218,12 @@ export function useCoachBoard(): UseCoachBoardReturn {
     [applyBoardAction]
   );
 
+  const goToMove = useCallback((index: number) => {
+    const fens = pgnFensRef.current;
+    if (fens.length === 0) return;
+    commitHistory(fens, index);
+  }, [commitHistory]);
+
   const nextMove = useCallback(() => {
     if (pgnFens.length > 0 && moveIndex < pgnFens.length - 1) {
       const newIndex = moveIndex + 1;
@@ -344,5 +353,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
     validatePuzzleMove,
     resetBoard,
     setFenFromMove,
+    goToMove,
+    setOrientation,
   };
 }

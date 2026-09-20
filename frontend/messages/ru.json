@@ -1990,7 +1990,16 @@
     "toolWorking": "Работаю…",
     "fullPageTooltip": "Открыть полную страницу тренера с управлением доской",
     "feedbackGood": "Хороший ответ",
-    "feedbackBad": "Плохой ответ"
+    "feedbackBad": "Плохой ответ",
+    "sessions": "Сессии",
+    "sessionsTitle": "Ваши сессии",
+    "noSessions": "Пока нет сохранённых сессий",
+    "untitledSession": "Без названия",
+    "deleteSession": "Удалить сессию",
+    "renameSession": "Переименовать",
+    "renamePrompt": "Название сессии",
+    "closeTab": "Закрыть вкладку",
+    "messagesCount": "{count} сообщ."
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

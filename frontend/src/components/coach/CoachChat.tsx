@@ -14,12 +14,19 @@ import ToolIndicator from './ToolIndicator';
 import FeedbackButtons from './FeedbackButtons';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
+import { coachApi } from '@/lib/coach/boards-api';
 
 interface CoachChatProps {
   currentFen: string;
   sessionId: string | null;
+  /** The board (tab) the student is looking at; sent as board_id on every turn. */
+  boardId?: string | null;
+  /** Restore the session's message history from the server on mount / session switch. */
+  restoreHistory?: boolean;
   onBoardActions: (actions: BoardAction[]) => void;
   onSessionCreated?: (id: string) => void;
+  /** The server's active board after a turn (the coach may have opened one). */
+  onActiveBoardChanged?: (boardId: string) => void;
   onOpenGame?: (game: GameResult) => void;
   /**
    * Optional grounding preamble prepended to the OUTGOING message sent to the
@@ -39,8 +46,11 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   {
     currentFen,
     sessionId,
+    boardId,
+    restoreHistory = false,
     onBoardActions,
     onSessionCreated,
+    onActiveBoardChanged,
     onOpenGame,
     contextNote,
   },
@@ -48,6 +58,37 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 ) {
   const t = useTranslations('coach');
   const [messages, setMessages] = useState<CoachMessage[]>([]);
+
+  // Restore the conversation when the page opens on a saved session or the
+  // student switches sessions. Text and voice messages are both persisted
+  // server-side; before this the history vanished on every reload.
+  const restoredForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!restoreHistory) return;
+    if (!sessionId) {
+      restoredForRef.current = null;
+      setMessages([]);
+      return;
+    }
+    if (restoredForRef.current === sessionId) return;
+    restoredForRef.current = sessionId;
+    let cancelled = false;
+    void (async () => {
+      const data = await coachApi.loadMessages(sessionId);
+      if (cancelled || !data) return;
+      setMessages(
+        data.messages.map((m, i) => ({
+          id: `restored-${sessionId}-${i}`,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date((m.timestamp || 0) * 1000),
+        })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreHistory, sessionId]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolActive, setToolActive] = useState<string | null>(null);
@@ -329,6 +370,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           context_note: contextNote || undefined,
           fen: currentFen,
           session_id: sessionId,
+          board_id: boardId || undefined,
         }),
         signal: controller.signal,
       });
@@ -402,6 +444,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
             if (data.done) {
               setToolActive(null);
+              if (data.active_board_id && onActiveBoardChanged) {
+                onActiveBoardChanged(data.active_board_id);
+              }
               // Attach the turn id to the completed answer so its 👍/👎 feedback
               // can reference this exact turn.
               if (data.turn_id) {
@@ -444,7 +489,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       setToolActive(null);
       abortRef.current = null;
     }
-  }, [input, isStreaming, currentFen, sessionId, onBoardActions, onSessionCreated, t, contextNote]);
+  }, [input, isStreaming, currentFen, sessionId, boardId, onBoardActions, onSessionCreated, onActiveBoardChanged, t, contextNote]);
 
   // Let a host drive a send (Review Coach Drawer starter chips).
   useImperativeHandle(

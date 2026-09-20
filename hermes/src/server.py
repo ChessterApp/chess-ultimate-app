@@ -699,7 +699,10 @@ class CoachBoardCreateRequest(BaseModel):
 class CoachBoardUpdateRequest(BaseModel):
     title: Optional[str] = None
     pgn: Optional[str] = None
+    # fen: a new study position (drops the loaded game). position: the FEN the
+    # student is looking at — a navigation when it belongs to the loaded game.
     fen: Optional[str] = None
+    position: Optional[str] = None
     ply: Optional[int] = None
     orientation: Optional[str] = None
     annotations: Optional[dict] = None
@@ -1811,6 +1814,8 @@ async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpd
             board.load_pgn(body.pgn, ply=body.ply)
         elif body.fen is not None:
             board.set_fen(body.fen)
+        elif body.position is not None:
+            board.set_position(body.position)
         elif body.ply is not None:
             fens_ply = body.ply
             board.navigate("first")
