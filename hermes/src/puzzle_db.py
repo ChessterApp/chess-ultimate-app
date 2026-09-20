@@ -219,10 +219,17 @@ def find_puzzles(
     window = 200 if opening else 25
     conn = connect(db_path)
     try:
-        # Lichess ratings span roughly 400–3300; a request without a rating
-        # samples the whole range.
-        bands = [spread, spread * 2, spread * 4, 4_000] if rating else [4_000]
-        centre = rating or 2_000
+        if rating:
+            bands = [spread, spread * 2, spread * 4, 4_000]
+            centre = rating
+        else:
+            # No rating requested: sample uniformly over the ratings that exist
+            # (a fixed 0–6000 window would wrap to the floor half the time and
+            # hand out 500-rated puzzles).
+            row = conn.execute("SELECT MIN(rating), MAX(rating) FROM puzzles").fetchone()
+            r_min, r_max = (row[0] or 0), (row[1] or 0)
+            centre = (r_min + r_max) // 2
+            bands = [max(1, (r_max - r_min) // 2)]
 
         def _walk(start: int, hi: int) -> list:
             if theme:
