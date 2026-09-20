@@ -58,15 +58,48 @@ def get_port(config: dict = None) -> int:
     return int(config.get("port", 8642))
 
 
+# Last-resort model when the profile has none. gemini-2.5-flash, the previous
+# fallback, is retired by Google on 2026-10-16.
+DEFAULT_MODEL = "google/gemini-3.8-flash"
+
+# Routing tiers a profile may define. ``utility`` is for the coach's own
+# housekeeping calls (best-of-N judge, memory writer, playbook distiller) —
+# never for a student-facing answer.
+MODEL_TIERS = ("fast", "analysis", "deep", "utility")
+
+
 def get_model_config(config: dict = None) -> dict:
-    """Get model routing configuration."""
+    """Get model routing configuration.
+
+    Environment overrides let production switch or roll back a model without
+    a deploy: ``COACH_MODEL_DEFAULT`` and ``COACH_MODEL_<TIER>`` (e.g.
+    ``COACH_MODEL_FAST=openai/gpt-5.6-luna``).
+    """
     if config is None:
         config = load_profile_config()
+    tiers = dict(config.get("model_tiers", {}) or {})
+    for tier in MODEL_TIERS:
+        override = os.environ.get(f"COACH_MODEL_{tier.upper()}")
+        if override:
+            tiers[tier] = override
+    default = (
+        os.environ.get("COACH_MODEL_DEFAULT")
+        or config.get("model", {}).get("default")
+        or tiers.get("fast")
+        or DEFAULT_MODEL
+    )
     return {
-        "default": config.get("model", {}).get("default", "google/gemini-2.5-flash"),
+        "default": default,
         "provider": config.get("model", {}).get("provider", "openrouter"),
-        "tiers": config.get("model_tiers", {}),
+        "tiers": tiers,
     }
+
+
+def utility_model(config: dict = None) -> str:
+    """Model for the coach's housekeeping LLM calls (judge, memory, playbook)."""
+    mc = get_model_config(config)
+    tiers = mc.get("tiers", {}) or {}
+    return tiers.get("utility") or tiers.get("fast") or mc.get("default") or DEFAULT_MODEL
 
 
 def get_api_key() -> str:

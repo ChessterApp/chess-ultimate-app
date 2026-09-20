@@ -105,13 +105,38 @@ def test_model_routing_config():
     """Model routing config has expected tiers and defaults."""
     config = load_profile_config()
     model_config = get_model_config(config)
-    assert model_config["default"] == "google/gemini-2.5-flash"
+    assert model_config["default"] == "google/gemini-3.8-flash"
     assert model_config["provider"] == "openrouter"
     assert "tiers" in model_config
     tiers = model_config["tiers"]
     assert "fast" in tiers
     assert "analysis" in tiers
     assert "deep" in tiers
+    assert "utility" in tiers
+    # No configured model may be one Google retires on 2026-10-16.
+    assert "gemini-2.5" not in " ".join([model_config["default"], *tiers.values()])
+
+
+def test_model_env_overrides(monkeypatch):
+    """Production can switch or roll back a tier without a deploy."""
+    from src.config import utility_model
+
+    config = load_profile_config()
+    monkeypatch.setenv("COACH_MODEL_FAST", "openai/gpt-5.6-luna")
+    monkeypatch.setenv("COACH_MODEL_DEFAULT", "openai/gpt-5.6-luna")
+    monkeypatch.setenv("COACH_MODEL_UTILITY", "google/gemini-3.1-flash-lite")
+    mc = get_model_config(config)
+    assert mc["default"] == "openai/gpt-5.6-luna"
+    assert mc["tiers"]["fast"] == "openai/gpt-5.6-luna"
+    assert mc["tiers"]["deep"] == config["model_tiers"]["deep"]  # untouched
+    assert utility_model(config) == "google/gemini-3.1-flash-lite"
+
+
+def test_utility_model_falls_back_to_fast_then_default():
+    from src.config import utility_model
+
+    assert utility_model({"model": {"default": "d"}, "model_tiers": {"fast": "f"}}) == "f"
+    assert utility_model({"model": {"default": "d"}, "model_tiers": {}}) == "d"
 
 
 @pytest.mark.unit

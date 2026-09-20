@@ -285,14 +285,15 @@ def build_reflection_prompt(candidates: list[dict]) -> str:
 
 
 def _cheap_model() -> str:
-    """Resolve the configured cheap tier (NOT the main coach model)."""
+    """Resolve the configured utility tier (NOT the main coach model)."""
     try:
-        from src.config import get_model_config
+        from src.config import utility_model
 
-        tiers = get_model_config().get("tiers", {}) or {}
-        return tiers.get("fast") or tiers.get("default") or "google/gemini-2.5-flash"
+        return utility_model()
     except Exception:
-        return "google/gemini-2.5-flash"
+        from src.config import DEFAULT_MODEL
+
+        return DEFAULT_MODEL
 
 
 def call_reflector_llm(prompt: str, model: str) -> Optional[str]:

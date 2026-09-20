@@ -49,23 +49,26 @@ _DEFAULT_CACHE_DIR = os.path.join(_HERMES_DIR, "eval", "prompt_opt", "cache")
 
 def _main_model() -> str:
     """The coach's configured main-tier model (already an OpenRouter id)."""
+    from src.config import DEFAULT_MODEL
+
     try:
         from src.config import get_model_config
 
-        return get_model_config().get("default") or "google/gemini-2.5-flash"
+        return get_model_config().get("default") or DEFAULT_MODEL
     except Exception:
-        return "google/gemini-2.5-flash"
+        return DEFAULT_MODEL
 
 
 def _critic_model() -> str:
-    """The cheap tier used for proposing edits (same choice as memory_writer)."""
-    try:
-        from src.config import get_model_config
+    """The utility tier used for proposing edits (same choice as memory_writer)."""
+    from src.config import DEFAULT_MODEL
 
-        tiers = get_model_config().get("tiers", {}) or {}
-        return tiers.get("fast") or tiers.get("default") or "google/gemini-2.5-flash"
+    try:
+        from src.config import utility_model
+
+        return utility_model()
     except Exception:
-        return "google/gemini-2.5-flash"
+        return DEFAULT_MODEL
 
 
 def _default_run_id() -> str:
