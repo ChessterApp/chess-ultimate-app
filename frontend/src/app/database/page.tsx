@@ -827,14 +827,29 @@ export default function DebutPage() {
             return true;
           });
           setMasterGames(unique);
-          setMasterGamesTotal(data.total);
 
-          // If count is approximate, fetch exact count in background.
-          // fetchPositionCount requires auth, so only call it when a node is selected.
-          if (!data.count_exact && data.games.length > 0 && selectedNode) {
-            fetchPositionCount(fen)
-              .then((count) => { if (!cancelled) setMasterGamesTotal(count); })
-              .catch(() => {});
+          // fetchPositionCount counts ALL games at this position, ignoring the
+          // active player/result/elo filter — so it must only stand in for the
+          // total when NO such filter is active. With a filter on, the total is
+          // the filtered result set itself, not the unfiltered position count.
+          const hasResultFilter =
+            !!masterGamesFilters.playerName.trim() ||
+            !!masterGamesFilters.result ||
+            masterGamesFilters.whiteEloMin !== 0 || masterGamesFilters.whiteEloMax !== 3500 ||
+            masterGamesFilters.blackEloMin !== 0 || masterGamesFilters.blackEloMax !== 3500;
+
+          if (hasResultFilter) {
+            setMasterGamesTotal(unique.length);
+          } else {
+            setMasterGamesTotal(data.total);
+
+            // If count is approximate, fetch exact count in background.
+            // fetchPositionCount requires auth, so only call it when a node is selected.
+            if (!data.count_exact && data.games.length > 0 && selectedNode) {
+              fetchPositionCount(fen)
+                .then((count) => { if (!cancelled) setMasterGamesTotal(count); })
+                .catch(() => {});
+            }
           }
         }
       })

@@ -61,10 +61,20 @@ export default function NodeDetailsPanel({
   // position in browse mode (no repertoire loaded).
   const fen = node?.fen ?? fallbackFen ?? '';
 
-  // Reset page when position changes
+  // Reset page when the position OR the active master-games filter set changes.
+  // Otherwise paging to e.g. page 3 then typing a player name leaves gamesPage
+  // stale, so the slice falls off the end of the (shorter) filtered list and
+  // GameTable renders a blank cut-off list.
   useEffect(() => {
     setGamesPage(0);
-  }, [fen]);
+  }, [fen, masterGamesFilters]);
+
+  // Clamp the page so it can never exceed the last valid page for the current
+  // result length (guards against the list shrinking under the current page).
+  useEffect(() => {
+    const lastPage = Math.max(0, Math.ceil(masterGames.length / GAMES_PER_PAGE) - 1);
+    setGamesPage(p => Math.min(p, lastPage));
+  }, [masterGames.length]);
 
   // Master DB global game count — mirrors the MasterDatabaseHero fetch in
   // /database so the panel shows "reach this position" vs the full DB total.
