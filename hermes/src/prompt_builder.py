@@ -159,13 +159,17 @@ LOCALE_TO_LANGUAGE = {
 }
 
 
+TURN_CONTEXT_HEADER = "[Turn context — supplied by the system, not written by the student]"
+
+
 def build_system_prompt(
     soul_content: str,
     user_profile: Optional[UserProfile] = None,
     board_fen: Optional[str] = None,
     move_history: Optional[list[str]] = None,
     locale: Optional[str] = None,
-) -> str:
+    return_parts: bool = False,
+):
     """Build the full system prompt for the chess coaching agent.
 
     Args:
@@ -174,9 +178,15 @@ def build_system_prompt(
         board_fen: Optional current board FEN position.
         move_history: Optional list of SAN moves played so far.
         locale: Optional UI locale code (e.g. 'ru', 'kz', 'en').
+        return_parts: When True, return ``(static_prompt, turn_context)``
+            instead of one string. The static part (language rule, persona,
+            tool guidance) is identical from turn to turn and can be served
+            from the provider's prompt cache; the turn context (date, profile,
+            memory, board state) changes every turn and belongs in the user
+            message, where it cannot bust the cached prefix.
 
     Returns:
-        Complete system prompt string.
+        Complete system prompt string, or a ``(static, turn_context)`` tuple.
     """
     sections = []
 
@@ -262,6 +272,7 @@ def build_system_prompt(
     # ── Volatile suffix ────────────────────────────────────────────────
     # Everything below changes turn-to-turn (or day-to-day) and therefore
     # trails the static prefix above so it never busts the cached prefix.
+    static_end = len(sections)
 
     # Current date so the model knows what year it is
     now = datetime.now(timezone.utc)
@@ -388,7 +399,16 @@ def build_system_prompt(
     if board_lines:
         sections.append(f"## Current Board State\n" + "\n".join(board_lines))
 
+    if return_parts:
+        return "\n\n".join(sections[:static_end]), "\n\n".join(sections[static_end:])
     return "\n\n".join(sections)
+
+
+def attach_turn_context(message: str, turn_context: str) -> str:
+    """Append the volatile turn context to the user message, clearly labelled."""
+    if not turn_context:
+        return message
+    return f"{message}\n\n{TURN_CONTEXT_HEADER}\n{turn_context}"
 
 
 # Spoken-style adaptation layer: turns the shared SOUL persona into a live-voice

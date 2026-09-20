@@ -44,7 +44,12 @@ from src.middleware.rate_limiter import (  # noqa: E402
 )
 from src.middleware.circuit_breaker import stockfish_circuit, supabase_circuit
 from src.model_router import route_model, explain_route
-from src.prompt_builder import build_system_prompt, build_voice_prompt, get_prompt_version
+from src.prompt_builder import (
+    attach_turn_context,
+    build_system_prompt,
+    build_voice_prompt,
+    get_prompt_version,
+)
 from src.event_logger import log_event, new_turn_id
 from src.coach_feedback import upsert_feedback, delete_feedback
 from src.identity import current_user_id
@@ -308,6 +313,11 @@ def _resolve_model(requested_model: Optional[str], user_message: str = "") -> st
     return requested_model
 
 
+def _model_gets_prompt_cache(model: str) -> bool:
+    """True for models the framework applies explicit cache_control to (Claude)."""
+    return "claude" in (model or "").lower()
+
+
 def _create_agent(
     model: str,
     system_prompt: str,
@@ -341,7 +351,12 @@ def _create_agent(
         enabled_toolsets=["safe", "chess"],
     )
 
-    if config.COACH_TOOL_SUBSET and user_query and getattr(agent, "tools", None):
+    # Claude via OpenRouter gets cache_control breakpoints from the framework;
+    # the tool block is part of the cached prefix, so a per-turn tool subset
+    # would bust the cache on every turn and cost more than it saves. Keep the
+    # full, stable tool set for those models and subset only the others.
+    subset_ok = not _model_gets_prompt_cache(model)
+    if config.COACH_TOOL_SUBSET and subset_ok and user_query and getattr(agent, "tools", None):
         from src.tool_selector import select_openai_tool_subset
 
         agent.tools = select_openai_tool_subset(
@@ -363,6 +378,8 @@ def _do_record_usage(
     prompt_tokens: int,
     completion_tokens: int,
     surface: str,
+    turn_id: Optional[str] = None,
+    cached_tokens: int = 0,
 ) -> None:
     """Persist one turn's token usage. Swallows and logs any failure.
 
@@ -377,6 +394,8 @@ def _do_record_usage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             surface=surface,
+            turn_id=turn_id,
+            cached_tokens=cached_tokens,
         )
     except Exception:
         logger.exception("token usage recording failed")
@@ -388,6 +407,7 @@ def _record_turn_usage(
     session_id: str,
     model: str,
     surface: str = "text",
+    turn_id: Optional[str] = None,
 ):
     """Fire-and-forget: record real token usage for a completed agent turn.
 
@@ -400,6 +420,9 @@ def _record_turn_usage(
     try:
         prompt_tokens = int(getattr(agent, "session_prompt_tokens", 0) or 0)
         completion_tokens = int(getattr(agent, "session_completion_tokens", 0) or 0)
+        # Prompt tokens served from the provider cache (Anthropic cache reads);
+        # the only evidence that prompt caching actually works.
+        cached_tokens = int(getattr(agent, "session_cache_read_tokens", 0) or 0)
     except Exception:
         return None
 
@@ -408,7 +431,8 @@ def _record_turn_usage(
 
     thread = threading.Thread(
         target=_do_record_usage,
-        args=(user_id, session_id, model, prompt_tokens, completion_tokens, surface),
+        args=(user_id, session_id, model, prompt_tokens, completion_tokens, surface,
+              turn_id, cached_tokens),
         daemon=True,
     )
     thread.start()
@@ -937,11 +961,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             pass  # ignore invalid FEN, use existing board state
 
     profile = load_user_profile(user_id)
-    system_prompt = build_system_prompt(
+    # Static persona/tool guidance stays in the system prompt (cacheable);
+    # date, profile, memory and board state travel in the user message.
+    system_prompt, turn_context = build_system_prompt(
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
         locale=body.locale,
+        return_parts=True,
     )
     logger.info("Model routed: %s for message: %s", model, body.message[:80])
 
@@ -950,6 +977,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = (
         f"{body.context_note.strip()}\n\n{body.message}" if body.context_note else body.message
     )
+    current_message = attach_turn_context(current_message, turn_context)
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
@@ -1195,7 +1223,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             yield _sse({"delta": response_text})
 
         # Record real token usage for this turn (fire-and-forget; never blocks)
-        _record_turn_usage(agent, user_id, session.id, model, surface="text")
+        _record_turn_usage(agent, user_id, session.id, model, surface="text", turn_id=turn_id)
 
         prompt_tokens = _safe_int(getattr(agent, "session_prompt_tokens", 0)) or 0
         completion_tokens = _safe_int(getattr(agent, "session_completion_tokens", 0)) or 0

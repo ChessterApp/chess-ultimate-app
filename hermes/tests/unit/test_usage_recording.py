@@ -36,6 +36,8 @@ class TestDoRecordUsage:
             prompt_tokens=120,
             completion_tokens=34,
             surface="text",
+            turn_id=None,
+            cached_tokens=0,
         )
 
     def test_recording_failure_does_not_propagate(self):
@@ -63,6 +65,8 @@ class TestRecordTurnUsage:
             prompt_tokens=200,
             completion_tokens=50,
             surface="text",
+            turn_id=None,
+            cached_tokens=0,
         )
 
     def test_skips_when_no_tokens(self):

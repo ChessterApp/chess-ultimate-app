@@ -89,3 +89,46 @@ class TestCreateAgentSubset:
         )
         assert len(agent.tools) == len(FULL_TOOLS)
         assert agent.valid_tool_names == {t["function"]["name"] for t in FULL_TOOLS}
+
+
+@pytest.mark.unit
+class TestCachedModelsKeepFullToolSet:
+    """The tool block is part of the cached prompt prefix for Claude via
+    OpenRouter; a per-turn subset would bust the cache every turn."""
+
+    def test_claude_keeps_every_tool(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", True)
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET_TOPK", 3)
+        agent = server._create_agent(
+            model="anthropic/claude-sonnet-5", system_prompt="s",
+            user_query="what opening vs the Sicilian",
+        )
+        assert len(agent.tools) == len(FULL_TOOLS)
+
+    def test_other_models_still_subset(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", True)
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET_TOPK", 3)
+        agent = server._create_agent(
+            model="google/gemini-3.8-flash", system_prompt="s",
+            user_query="what opening vs the Sicilian",
+        )
+        assert len(agent.tools) < len(FULL_TOOLS)
+
+
+@pytest.mark.unit
+class TestUsageRecordsCacheReads:
+    def test_cache_read_tokens_and_turn_id_are_recorded(self):
+        class _Agent:
+            session_prompt_tokens = 9000
+            session_completion_tokens = 300
+            session_cache_read_tokens = 7500
+
+        with patch("src.server.cost_monitor") as monitor:
+            thread = server._record_turn_usage(
+                _Agent(), "u1", "s1", "anthropic/claude-sonnet-5", surface="text", turn_id="t-9"
+            )
+            thread.join(timeout=2)
+        kwargs = monitor.record_usage.call_args.kwargs
+        assert kwargs["cached_tokens"] == 7500
+        assert kwargs["turn_id"] == "t-9"
+        assert kwargs["prompt_tokens"] == 9000
