@@ -226,8 +226,10 @@ def find_puzzles(
             # No rating requested: sample uniformly over the ratings that exist
             # (a fixed 0–6000 window would wrap to the floor half the time and
             # hand out 500-rated puzzles).
-            row = conn.execute("SELECT MIN(rating), MAX(rating) FROM puzzles").fetchone()
-            r_min, r_max = (row[0] or 0), (row[1] or 0)
+            # Two queries: SQLite serves a lone MIN or MAX straight from the
+            # index, but not both in one statement (that is a full scan).
+            r_min = conn.execute("SELECT MIN(rating) FROM puzzles").fetchone()[0] or 0
+            r_max = conn.execute("SELECT MAX(rating) FROM puzzles").fetchone()[0] or 0
             centre = (r_min + r_max) // 2
             bands = [max(1, (r_max - r_min) // 2)]
 
