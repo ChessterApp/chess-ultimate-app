@@ -218,9 +218,12 @@ def _cheap_model() -> str:
         return DEFAULT_MODEL
 
 
-def _call_reflector_llm(prompt: str, model: str) -> Optional[str]:
+def _call_reflector_llm(
+    prompt: str, model: str, *, user_id: str = "", turn_id: Optional[str] = None
+) -> Optional[str]:
     """One cheap OpenRouter chat call. Returns the raw message content, or None
-    on any failure (missing key, HTTP error, malformed body). Never raises."""
+    on any failure (missing key, HTTP error, malformed body). Never raises.
+    The call's token usage is recorded under surface ``memory``."""
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     if not api_key:
         return None
@@ -244,7 +247,13 @@ def _call_reflector_llm(prompt: str, model: str) -> Optional[str]:
             timeout=_REFLECTOR_TIMEOUT,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        body = resp.json()
+        from src.cost_monitor import record_openrouter_usage
+
+        record_openrouter_usage(
+            body, model=model, user_id=user_id, surface="memory", turn_id=turn_id
+        )
+        return body["choices"][0]["message"]["content"]
     except Exception:
         logger.debug("reflector LLM call failed", exc_info=True)
         return None
@@ -328,7 +337,7 @@ def reflect_and_write(
     reflect_model = model or _cheap_model()
     prompt = build_reflection_prompt(user_message, coach_reply, board_fen, engine_notes)
 
-    raw = _call_reflector_llm(prompt, reflect_model)
+    raw = _call_reflector_llm(prompt, reflect_model, user_id=user_id, turn_id=turn_id)
     gated = apply_gates(parse_reflection(raw))
     if gated is None:
         _log_memory_write(user_id, turn_id, reflect_model, accepted=False, reason="rejected")

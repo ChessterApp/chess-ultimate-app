@@ -22,6 +22,8 @@ import chess.pgn
 from io import StringIO
 from flask import Blueprint, request, jsonify
 
+from services.usage_ledger import record_openrouter_usage
+
 logger = logging.getLogger(__name__)
 
 scoresheet_bp = Blueprint('scoresheet', __name__, url_prefix='/api/scoresheet')
@@ -366,6 +368,7 @@ Return ONLY the numbered moves. NO explanations, NO notes, NO markdown blocks.""
 
             if response_data.get('usage'):
                 logger.info(f"Scoresheet OCR (model={current_model}) token usage: {response_data['usage']}")
+                record_openrouter_usage(response_data, model=current_model, surface="vision")
 
             if response.ok and response_data.get('choices'):
                 raw_text = response_data['choices'][0]['message']['content'].strip()

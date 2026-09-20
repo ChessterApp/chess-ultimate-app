@@ -322,7 +322,11 @@ def call_reflector_llm(prompt: str, model: str) -> Optional[str]:
             timeout=_REFLECTOR_TIMEOUT,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        body = resp.json()
+        from src.cost_monitor import record_openrouter_usage
+
+        record_openrouter_usage(body, model=model, user_id="system", surface="playbook")
+        return body["choices"][0]["message"]["content"]
     except Exception:
         logger.debug("playbook reflector LLM call failed", exc_info=True)
         return None

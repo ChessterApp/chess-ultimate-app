@@ -58,7 +58,12 @@ from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
 from src.sessions import session_store
 from src.user_profile import load_user_profile, save_user_profile, UserProfile
-from src.cost_monitor import cost_monitor, record_voice_event
+from src.cost_monitor import (
+    cost_monitor,
+    record_openrouter_usage,
+    record_voice_event,
+    record_voice_usage,
+)
 from src.analytics import analytics_tracker
 from src.analytics_db import compute_user_analytics, get_admin_analytics_cached
 from src.retention import retention_loop
@@ -1468,12 +1473,19 @@ def _build_lesson_system_prompt(
     return prompt
 
 
-def _lesson_chat_stream(model: str, system_prompt: str, message: str, history: list[dict]):
+def _lesson_chat_stream(
+    model: str,
+    system_prompt: str,
+    message: str,
+    history: list[dict],
+    usage_out: Optional[dict] = None,
+):
     """Yield reply text chunks for one lesson-tutor turn (plain streaming chat).
 
     Mirrors the coach's model selection (same OpenRouter client + routed model)
     but with no tool loop. Raises on any API error so the caller emits an SSE
-    error frame instead of leaking the error text as a normal delta.
+    error frame instead of leaking the error text as a normal delta. When
+    ``usage_out`` is given, the stream's final usage block is copied into it.
     """
     from openai import OpenAI
 
@@ -1495,10 +1507,20 @@ def _lesson_chat_stream(model: str, system_prompt: str, message: str, history: l
         max_tokens=2000,
         temperature=0.7,
         stream=True,
+        stream_options={"include_usage": True},
     )
     for chunk in response:
         if chunk.choices and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
+        usage = getattr(chunk, "usage", None)
+        if usage is not None and usage_out is not None:
+            try:
+                usage_out["usage"] = usage.model_dump()
+            except Exception:
+                usage_out["usage"] = {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage, "completion_tokens", 0),
+                }
 
 
 @app.post("/api/lesson/chat")
@@ -1526,15 +1548,17 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
         sentinel = object()
 
         def _run():
+            usage_out: dict = {}
             try:
                 for chunk in _lesson_chat_stream(
-                    model, system_prompt, body.message, body.history
+                    model, system_prompt, body.message, body.history, usage_out
                 ):
                     if chunk:
                         loop.call_soon_threadsafe(queue.put_nowait, ("delta", chunk))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
+                record_openrouter_usage(usage_out, model=model, user_id=user_id, surface="lesson")
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
         future = loop.run_in_executor(None, _run)
@@ -2219,6 +2243,16 @@ async def coach_metrics(request: Request):
                 user_id,
                 record.get("sessionId"),
                 duration_ms=record.get("session_ms"),
+            )
+        elif record is not None and record.get("event") == "usage":
+            record_voice_usage(
+                user_id,
+                record.get("sessionId"),
+                prompt_tokens=int(record.get("prompt_tokens") or 0),
+                completion_tokens=int(record.get("completion_tokens") or 0),
+                cached_tokens=int(record.get("cached_tokens") or 0),
+                model=record.get("model"),
+                turn_id=record.get("turn_id"),
             )
 
         # Phase 2: also persist the beacon to coach_events (same taxonomy as the

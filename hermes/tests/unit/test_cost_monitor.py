@@ -237,3 +237,40 @@ class TestVoiceMetering:
         assert captured.get("surface") == "voice"
         assert captured.get("tool_name") == "analyze_position"
         assert captured.get("model") == cm.VOICE_MODEL
+
+
+@pytest.mark.unit
+class TestRecordOpenRouterUsage:
+    """Housekeeping calls (memory writer, playbook, lesson tutor) used to
+    discard their usage block; now every OpenRouter response is metered."""
+
+    def _wait(self):
+        import threading
+        for t in threading.enumerate():
+            if t is not threading.main_thread() and t.daemon:
+                t.join(timeout=2)
+
+    def test_records_tokens_and_cached_tokens(self):
+        from src.cost_monitor import record_openrouter_usage
+
+        body = {"usage": {"prompt_tokens": 1200, "completion_tokens": 80,
+                          "prompt_tokens_details": {"cached_tokens": 1000}}}
+        with patch("src.cost_monitor.cost_monitor.record_usage") as rec:
+            record_openrouter_usage(body, model="google/gemini-3.5-flash-lite",
+                                    user_id="u1", surface="memory", turn_id="t1")
+            self._wait()
+        kwargs = rec.call_args.kwargs
+        assert kwargs["prompt_tokens"] == 1200
+        assert kwargs["completion_tokens"] == 80
+        assert kwargs["cached_tokens"] == 1000
+        assert kwargs["surface"] == "memory"
+        assert kwargs["turn_id"] == "t1"
+
+    def test_missing_usage_records_nothing(self):
+        from src.cost_monitor import record_openrouter_usage
+
+        with patch("src.cost_monitor.cost_monitor.record_usage") as rec:
+            record_openrouter_usage({}, model="m", user_id="u1", surface="lesson")
+            record_openrouter_usage({"usage": None}, model="m", user_id="u1", surface="lesson")
+            self._wait()
+        assert not rec.called

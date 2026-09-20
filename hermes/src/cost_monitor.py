@@ -217,3 +217,87 @@ def record_voice_event(
             logger.exception("voice usage recording failed")
 
     threading.Thread(target=_run, daemon=True).start()
+
+
+def record_openrouter_usage(
+    body: dict,
+    *,
+    model: str,
+    user_id: str,
+    surface: str,
+    session_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+) -> None:
+    """Fire-and-forget: record the ``usage`` block of an OpenRouter chat
+    completion (memory writer, playbook distiller, lesson tutor …).
+
+    Reads ``prompt_tokens`` / ``completion_tokens`` and OpenRouter's
+    ``prompt_tokens_details.cached_tokens``. Missing or malformed usage is
+    ignored — accounting must never break the call it accounts for.
+    """
+    try:
+        usage = (body or {}).get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        details = usage.get("prompt_tokens_details") or {}
+        cached = int(details.get("cached_tokens") or 0)
+    except Exception:
+        return
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return
+
+    def _run() -> None:
+        try:
+            cost_monitor.record_usage(
+                user_id=user_id or "system",
+                session_id=session_id or "",
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                surface=surface,
+                turn_id=turn_id,
+                cached_tokens=cached,
+            )
+        except Exception:
+            logger.exception("%s usage recording failed", surface)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def record_voice_usage(
+    user_id: str,
+    session_id: Optional[str],
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_tokens: int = 0,
+    model: Optional[str] = None,
+    turn_id: Optional[str] = None,
+) -> None:
+    """Fire-and-forget: record one Gemini Live model turn's token usage.
+
+    The browser relays the session's ``usageMetadata`` (prompt / response /
+    cached token counts for that turn); before this, every voice row carried
+    0 tokens and $0. Audio tokens are priced with the estimate in
+    ``src/model_prices.py`` until Google publishes list prices for the
+    preview model.
+    """
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return
+
+    def _run() -> None:
+        try:
+            cost_monitor.record_usage(
+                user_id=user_id,
+                session_id=session_id or "",
+                model=model or VOICE_MODEL,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                surface="voice",
+                turn_id=turn_id,
+                cached_tokens=cached_tokens,
+            )
+        except Exception:
+            logger.exception("voice token usage recording failed")
+
+    threading.Thread(target=_run, daemon=True).start()
