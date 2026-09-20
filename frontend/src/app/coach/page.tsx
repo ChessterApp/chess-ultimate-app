@@ -123,9 +123,19 @@ export default function CoachPage() {
       if (forStudy.length) {
         board.applyBoardActions(forStudy);
         setActiveGameId(null);
+        // Actions the coach produced arrive stamped with board_id and are
+        // already applied to the server board; a pasted PGN / FEN (no id)
+        // must be persisted from here or a reload would lose the game.
+        if (sessionId && studyBoardId) {
+          for (const a of forStudy) {
+            if (a.board_id) continue;
+            if (a.type === 'load_pgn') void coachApi.updateBoard(sessionId, studyBoardId, { pgn: a.pgn });
+            else if (a.type === 'set_fen') void coachApi.updateBoard(sessionId, studyBoardId, { fen: a.fen });
+          }
+        }
       }
     },
-    [board.applyBoardActions, openedGames]
+    [board.applyBoardActions, openedGames, sessionId, studyBoardId]
   );
 
   // The coach's actions may switch the active board server-side.
