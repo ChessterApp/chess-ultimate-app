@@ -26,10 +26,20 @@ logger = logging.getLogger(__name__)
 
 scoresheet_bp = Blueprint('scoresheet', __name__, url_prefix='/api/scoresheet')
 
-# Model configuration
-PRIMARY_MODEL = "google/gemini-3.1-pro-preview"  # Latest and best for vision
-FALLBACK_MODEL = "google/gemini-2.5-pro"
-CORRECTION_MODEL = "google/gemini-2.5-pro"  # For move corrections without image
+# Model configuration (OpenRouter ids). gemini-2.5-pro, the previous fallback
+# and correction model, is retired by Google on 2026-10-16.
+PRIMARY_MODEL = os.getenv("SCORESHEET_MODEL", "google/gemini-3.1-pro-preview")  # vision
+FALLBACK_MODEL = os.getenv("SCORESHEET_FALLBACK_MODEL", "google/gemini-pro-latest")
+# Move corrections are text-only: a Flash-class model is plenty.
+CORRECTION_MODEL = os.getenv("SCORESHEET_CORRECTION_MODEL", "google/gemini-3.8-flash")
+
+# Extraction passes. The first pass is checked for legality with python-chess;
+# only when it has an illegal or missing move do passes 2 and 3 run and the
+# majority vote kicks in. A clean scoresheet therefore costs one Pro call, not
+# three. SCORESHEET_PASSES=3 forces the old always-three behaviour.
+MAX_EXTRACTION_PASSES = max(1, int(os.getenv("SCORESHEET_PASSES", "3")))
+ADAPTIVE_PASSES = os.getenv("SCORESHEET_ADAPTIVE", "1").strip().lower() not in ("0", "false", "no")
+PASS_TEMPERATURES = [0.1, 0.3, 0.5]
 
 # Common OCR substitution pairs for chess notation
 OCR_SUBSTITUTIONS = [
@@ -380,26 +390,71 @@ Return ONLY the numbered moves. NO explanations, NO notes, NO markdown blocks.""
     raise Exception("Scoresheet analysis failed with all available models. Please try again.")
 
 
+def extraction_is_clean(parsed: List[Tuple[int, str, str]]) -> bool:
+    """True when *parsed* replays as a fully legal game with no gaps.
+
+    Used to decide whether the extra voting passes are worth paying for: a
+    scoresheet whose first pass is already legal move-for-move gains nothing
+    from two more Pro calls. Strict on purpose — the fuzzy corrector is not
+    consulted here, an ambiguous move is a reason to vote.
+    """
+    if not parsed:
+        return False
+    board = chess.Board()
+    expected_num = parsed[0][0]
+    last_index = len(parsed) - 1
+    for index, (num, white, black) in enumerate(parsed):
+        if num != expected_num:
+            return False
+        expected_num += 1
+        for color, san in (("white", white), ("black", black)):
+            san = (san or "").strip().replace("0-0-0", "O-O-O").replace("0-0", "O-O")
+            san = re.sub(r"[.!?]+$", "", san)
+            if not san or san in ("...", "--"):
+                # Only Black's move of the final pair may be missing.
+                if color == "black" and index == last_index:
+                    continue
+                return False
+            try:
+                board.push_san(san)
+            except ValueError:
+                return False
+    return True
+
+
 def multi_pass_extract(
     images: List[str],
     openrouter_key: str,
-    model: str = PRIMARY_MODEL
+    model: str = PRIMARY_MODEL,
+    max_passes: int = None,
+    adaptive: bool = None,
 ) -> List[List[Tuple[int, str, str]]]:
     """
-    Run 3 independent extractions with varied temperatures for voting.
+    Run up to ``max_passes`` independent extractions with varied temperatures.
+
+    With ``adaptive`` (default), stop after the first pass when it replays as a
+    fully legal game — the voting stage then simply validates that one
+    extraction. Otherwise all passes run and majority voting resolves them.
 
     Returns:
-        List of 3 parsed move lists, each containing [(move_num, white, black), ...]
+        List of parsed move lists, each containing [(move_num, white, black), ...]
     """
-    temperatures = [0.1, 0.3, 0.5]
+    if max_passes is None:
+        max_passes = MAX_EXTRACTION_PASSES
+    if adaptive is None:
+        adaptive = ADAPTIVE_PASSES
+    max_passes = max(1, min(max_passes, len(PASS_TEMPERATURES)))
     results = []
 
-    for i, temp in enumerate(temperatures):
-        logger.info(f"Pass {i+1}/3: Extracting with temperature={temp}")
+    for i, temp in enumerate(PASS_TEMPERATURES[:max_passes]):
+        logger.info(f"Pass {i+1}/{max_passes}: Extracting with temperature={temp}")
         raw_text = extract_moves_from_images(images, openrouter_key, model, temperature=temp)
         parsed = parse_moves_from_structured(raw_text)
         results.append(parsed)
         logger.info(f"Pass {i+1} extracted {len(parsed)} move pairs")
+        if adaptive and i == 0 and extraction_is_clean(parsed):
+            logger.info("Pass 1 replays as a fully legal game; skipping voting passes")
+            break
 
     return results
 
