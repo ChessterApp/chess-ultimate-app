@@ -1,55 +1,20 @@
-"""Tool 2: get_opening_stats — ECO code lookup with TWIC statistics."""
+"""Tools: get_opening_stats and identify_opening — ECO book + TWIC statistics.
 
+Opening names and lines come from the 3,800-line ECO book in
+``backend/data/openings/*.tsv`` (see src/openings_book.py), not from a
+hand-typed table; statistics come from the TWIC games index.
+"""
+
+import json
 import logging
 import os
 import sqlite3
 
 from tools.registry import registry
 
+from src.openings_book import get_book
+
 logger = logging.getLogger(__name__)
-
-# ECO reference data: common openings with names and main lines
-ECO_DATA = {
-    "A00": {"name": "Uncommon Opening", "main_line": "1. ..."},
-    "A04": {"name": "Reti Opening", "main_line": "1. Nf3"},
-    "A10": {"name": "English Opening", "main_line": "1. c4"},
-    "A13": {"name": "English Opening", "main_line": "1. c4 e6"},
-    "A15": {"name": "English Opening", "main_line": "1. c4 Nf6"},
-    "A20": {"name": "English Opening", "main_line": "1. c4 e5"},
-    "A40": {"name": "Queen's Pawn Game", "main_line": "1. d4"},
-    "A45": {"name": "Queen's Pawn Game", "main_line": "1. d4 Nf6"},
-    "B00": {"name": "King's Pawn Opening", "main_line": "1. e4"},
-    "B01": {"name": "Scandinavian Defense", "main_line": "1. e4 d5"},
-    "B06": {"name": "Modern Defense", "main_line": "1. e4 g6"},
-    "B07": {"name": "Pirc Defense", "main_line": "1. e4 d6 2. d4 Nf6 3. Nc3"},
-    "B10": {"name": "Caro-Kann Defense", "main_line": "1. e4 c6"},
-    "B12": {"name": "Caro-Kann Defense", "main_line": "1. e4 c6 2. d4 d5 3. e5"},
-    "B20": {"name": "Sicilian Defense", "main_line": "1. e4 c5"},
-    "B90": {"name": "Sicilian Najdorf", "main_line": "1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6"},
-    "C00": {"name": "French Defense", "main_line": "1. e4 e6"},
-    "C20": {"name": "King's Pawn Game", "main_line": "1. e4 e5"},
-    "C42": {"name": "Petrov Defense", "main_line": "1. e4 e5 2. Nf3 Nf6"},
-    "C44": {"name": "King's Pawn Game", "main_line": "1. e4 e5 2. Nf3 Nc6"},
-    "C50": {"name": "Italian Game", "main_line": "1. e4 e5 2. Nf3 Nc6 3. Bc4"},
-    "C60": {"name": "Ruy Lopez", "main_line": "1. e4 e5 2. Nf3 Nc6 3. Bb5"},
-    "C65": {"name": "Ruy Lopez Berlin", "main_line": "1. e4 e5 2. Nf3 Nc6 3. Bb5 Nf6"},
-    "C67": {"name": "Ruy Lopez Berlin", "main_line": "1. e4 e5 2. Nf3 Nc6 3. Bb5 Nf6 4. O-O Nxe4"},
-    "C70": {"name": "Ruy Lopez", "main_line": "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6"},
-    "D00": {"name": "Queen's Pawn Game", "main_line": "1. d4 d5"},
-    "D30": {"name": "Queen's Gambit Declined", "main_line": "1. d4 d5 2. c4 e6"},
-    "D37": {"name": "Queen's Gambit Declined", "main_line": "1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. Nc3 Be7"},
-    "D80": {"name": "Grunfeld Defense", "main_line": "1. d4 Nf6 2. c4 g6 3. Nc3 d5"},
-    "D85": {"name": "Grunfeld Defense", "main_line": "1. d4 Nf6 2. c4 g6 3. Nc3 d5 4. cxd5 Nxd5"},
-    "E00": {"name": "Queen's Pawn Game", "main_line": "1. d4 Nf6 2. c4 e6"},
-    "E20": {"name": "Nimzo-Indian Defense", "main_line": "1. d4 Nf6 2. c4 e6 3. Nc3 Bb4"},
-    "E60": {"name": "King's Indian Defense", "main_line": "1. d4 Nf6 2. c4 g6"},
-}
-
-# Reverse lookup: name -> eco list
-_NAME_TO_ECO: dict[str, list[str]] = {}
-for _eco, _info in ECO_DATA.items():
-    _key = _info["name"].lower()
-    _NAME_TO_ECO.setdefault(_key, []).append(_eco)
 
 TWIC_DB_PATH = os.environ.get(
     "TWIC_DB_PATH",
@@ -58,7 +23,11 @@ TWIC_DB_PATH = os.environ.get(
 
 OPENING_STATS_SCHEMA = {
     "name": "get_opening_stats",
-    "description": "Get statistics and information about a chess opening by ECO code or name.",
+    "description": (
+        "Look up a chess opening by ECO code or name: main line, named variations "
+        "from the ECO book (3,800 lines), and master-game statistics from the TWIC "
+        "database. Russian names work too («Сицилианская», «Найдорф», «Испанская»)."
+    ),
     "parameters": {
         "type": "object",
         "properties": {
@@ -68,24 +37,48 @@ OPENING_STATS_SCHEMA = {
             },
             "opening_name": {
                 "type": "string",
-                "description": "Opening name (e.g. 'Sicilian Najdorf', 'Ruy Lopez').",
+                "description": "Opening name in English or Russian (e.g. 'Sicilian Najdorf', 'Ruy Lopez', 'Каро-Канн').",
+            },
+        },
+    },
+}
+
+IDENTIFY_OPENING_SCHEMA = {
+    "name": "identify_opening",
+    "description": (
+        "Name the opening of a move sequence: the longest ECO-book line matching "
+        "the moves, and the ply where the game left the book. Pass SAN moves or a PGN."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "moves": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Moves in SAN from the start position, e.g. ['e4','c5','Nf3'].",
+            },
+            "pgn": {
+                "type": "string",
+                "description": "Alternatively, the PGN movetext (with move numbers).",
             },
         },
     },
 }
 
 
-def _get_stats_from_db(eco: str, db_path: str = None) -> dict:
-    """Query TWIC database for win/draw/loss stats for an ECO code."""
+def _get_stats_from_db(eco, db_path: str = None) -> dict:
+    """Query TWIC database for win/draw/loss stats for one ECO code or a list of them."""
     path = db_path or TWIC_DB_PATH
     if not os.path.exists(path):
         return {"games_count": 0, "white_win_pct": 0, "draw_pct": 0, "black_win_pct": 0}
 
+    codes = [eco] if isinstance(eco, str) else sorted(set(eco))
     conn = sqlite3.connect(path)
     try:
+        marks = ",".join("?" * len(codes))
         cur = conn.execute(
-            "SELECT result, COUNT(*) FROM games WHERE eco = ? GROUP BY result",
-            (eco,),
+            f"SELECT result, COUNT(*) FROM games WHERE eco IN ({marks}) GROUP BY result",
+            codes,
         )
         rows = cur.fetchall()
     finally:
@@ -112,43 +105,63 @@ def get_opening_stats(
     opening_name: str = None,
     db_path: str = None,
 ) -> dict:
-    """Look up opening info by ECO code or name."""
-    resolved_eco = None
-    info = None
-
+    """Look up opening info by ECO code or name (English or Russian)."""
+    book = get_book()
     if eco:
-        resolved_eco = eco.upper().strip()
-        info = ECO_DATA.get(resolved_eco)
+        lines = book.by_eco(eco)
+        query = eco.upper().strip()
     elif opening_name:
-        key = opening_name.lower().strip()
-        # Try exact match first
-        if key in _NAME_TO_ECO:
-            resolved_eco = _NAME_TO_ECO[key][0]
-            info = ECO_DATA.get(resolved_eco)
-        else:
-            # Substring match
-            for name, eco_list in _NAME_TO_ECO.items():
-                if key in name or name in key:
-                    resolved_eco = eco_list[0]
-                    info = ECO_DATA.get(resolved_eco)
-                    break
+        lines = book.by_name(opening_name)
+        query = opening_name
+    else:
+        return {"error": "Give an ECO code or an opening name."}
 
-    if resolved_eco is None or info is None:
-        return {"error": f"Unknown opening: {eco or opening_name}"}
+    if not lines:
+        return {"error": f"Unknown opening: {query}"}
 
-    stats = _get_stats_from_db(resolved_eco, db_path)
+    main = lines[0]
+    eco_codes = sorted({line[0] for line in lines})
+    stats = _get_stats_from_db(eco_codes if opening_name else main[0], db_path)
     return {
-        "eco": resolved_eco,
-        "name": info["name"],
-        "main_line": info["main_line"],
+        "eco": main[0],
+        "eco_codes": eco_codes,
+        "name": main[1],
+        "main_line": main[2],
+        "variations": [
+            {"eco": e, "name": n, "line": line} for e, n, line in lines[1:15]
+        ],
+        "lines_in_book": len(lines),
         **stats,
     }
 
 
+def identify_opening(moves=None, pgn: str = None) -> dict:
+    """Longest ECO-book line matching the moves (or PGN)."""
+    book = get_book()
+    found = book.identify(moves if moves else (pgn or ""))
+    if not found:
+        return {"error": "No book line matches these moves.", "moves": moves or pgn}
+    return found
+
+
 def _handle_get_opening_stats(args: dict, **kwargs) -> str:
-    import json
     result = get_opening_stats(eco=args.get("eco"), opening_name=args.get("opening_name"))
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+def _handle_identify_opening(args: dict, **kwargs) -> str:
+    result = identify_opening(moves=args.get("moves"), pgn=args.get("pgn"))
+    return json.dumps(result, indent=2, ensure_ascii=False)
+
+
+registry.register(
+    name="identify_opening",
+    toolset="chess",
+    schema=IDENTIFY_OPENING_SCHEMA,
+    handler=_handle_identify_opening,
+    description="Name the opening of a move sequence from the ECO book.",
+    emoji="📚",
+)
 
 
 registry.register(

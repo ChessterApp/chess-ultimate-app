@@ -219,30 +219,36 @@ def find_puzzles(
     window = 200 if opening else 25
     conn = connect(db_path)
     try:
-        bands = [spread, spread * 2, spread * 4, 10_000] if rating else [10_000]
-        centre = rating or 1500
+        # Lichess ratings span roughly 400–3300; a request without a rating
+        # samples the whole range.
+        bands = [spread, spread * 2, spread * 4, 4_000] if rating else [4_000]
+        centre = rating or 2_000
+
+        def _walk(start: int, hi: int) -> list:
+            if theme:
+                cur = conn.execute(
+                    "SELECT puzzle_id FROM puzzle_themes "
+                    "WHERE theme = ? AND rating BETWEEN ? AND ? "
+                    "ORDER BY rating, puzzle_id LIMIT ?",
+                    (theme, start, hi, window),
+                )
+                return [r["puzzle_id"] for r in cur]
+            cur = conn.execute(
+                "SELECT id FROM puzzles WHERE rating BETWEEN ? AND ? ORDER BY rating LIMIT ?",
+                (start, hi, window),
+            )
+            return [r["id"] for r in cur]
+
         for band in bands:
             lo, hi = max(0, centre - band), centre + band
             picked: dict = {}
             for _ in range(6):
                 start_rating = rng.randint(lo, hi)
-                if theme:
-                    ids = [
-                        r["puzzle_id"] for r in conn.execute(
-                            "SELECT puzzle_id FROM puzzle_themes "
-                            "WHERE theme = ? AND rating BETWEEN ? AND ? "
-                            "ORDER BY rating, puzzle_id LIMIT ?",
-                            (theme, start_rating, hi, window),
-                        )
-                    ]
-                else:
-                    ids = [
-                        r["id"] for r in conn.execute(
-                            "SELECT id FROM puzzles WHERE rating BETWEEN ? AND ? "
-                            "ORDER BY rating LIMIT ?",
-                            (start_rating, hi, window),
-                        )
-                    ]
+                ids = _walk(start_rating, hi)
+                if not ids and start_rating > lo:
+                    # Nothing above the random start inside the band: wrap to the
+                    # band's floor so a sparse theme is still found.
+                    ids = _walk(lo, hi)
                 ids = [i for i in ids if i not in exclude and i not in picked]
                 if not ids:
                     continue
