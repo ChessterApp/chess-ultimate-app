@@ -12,28 +12,28 @@ from src.tools.board_control import build_board_action, _handle_board_control
 class TestBuildBoardAction:
     def test_set_fen(self):
         result = build_board_action("set_fen", {"fen": chess.STARTING_FEN})
-        assert result["action"] == "set_fen"
+        assert result["type"] == "set_fen"
         assert result["fen"] == chess.STARTING_FEN
 
     def test_draw_arrows(self):
         result = build_board_action("draw_arrows", {
             "arrows": [{"from": "e2", "to": "e4"}],
         })
-        assert result["action"] == "draw_arrows"
+        assert result["type"] == "draw_arrows"
         assert len(result["arrows"]) == 1
 
     def test_navigate(self):
         result = build_board_action("navigate", {"direction": "next"})
-        assert result["action"] == "navigate"
+        assert result["type"] == "navigate"
         assert result["direction"] == "next"
 
     def test_clear_board(self):
         result = build_board_action("clear_board", {})
-        assert result["action"] == "clear_board"
+        assert result["type"] == "clear_board"
 
     def test_flip_board(self):
         result = build_board_action("flip_board", {})
-        assert result["action"] == "flip_board"
+        assert result["type"] == "flip_board"
 
     def test_unknown_action_type(self):
         result = build_board_action("unknown_action", {})
@@ -48,7 +48,7 @@ class TestBuildBoardAction:
             "squares": ["e4", "d5"],
             "color": "red",
         })
-        assert result["action"] == "highlight_squares"
+        assert result["type"] == "highlight_squares"
         assert result["squares"] == ["e4", "d5"]
         assert result["color"] == "red"
 
@@ -58,7 +58,7 @@ class TestBoardControlHandler:
     def test_handler_returns_json(self):
         result = _handle_board_control({"action_type": "flip_board"})
         parsed = json.loads(result)
-        assert parsed["action"] == "flip_board"
+        assert parsed["type"] == "flip_board"
 
     def test_handler_set_fen(self):
         result = _handle_board_control({
@@ -66,7 +66,7 @@ class TestBoardControlHandler:
             "fen": chess.STARTING_FEN,
         })
         parsed = json.loads(result)
-        assert parsed["action"] == "set_fen"
+        assert parsed["type"] == "set_fen"
 
     def test_handler_error_returns_json(self):
         result = _handle_board_control({"action_type": "bad_type"})

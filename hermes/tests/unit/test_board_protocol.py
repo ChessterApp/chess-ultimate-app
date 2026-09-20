@@ -89,7 +89,7 @@ class TestArrowValidation:
         arrow = Arrow(**{"from": "e2", "to": "e4"})
         assert arrow.from_sq == "e2"
         assert arrow.to_sq == "e4"
-        assert arrow.color == "green"
+        assert arrow.brush == "green"
 
     def test_invalid_square_rejected(self):
         with pytest.raises(Exception, match="Invalid square"):
@@ -153,4 +153,4 @@ class TestResponseEnvelope:
         d = env.model_dump()
         assert d["message"] == "Here's the position."
         assert len(d["board_actions"]) == 1
-        assert d["board_actions"][0]["action"] == "set_fen"
+        assert d["board_actions"][0]["type"] == "set_fen"
