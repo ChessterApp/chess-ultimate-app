@@ -671,10 +671,40 @@ class CoachChatRequest(BaseModel):
     # routing, tool selection, history and memory see the student's actual
     # question; the note only reaches the model for this turn.
     context_note: Optional[str] = None
+    # The board (tab) the student is looking at; becomes the session's active
+    # board and the target of the coach's board actions this turn.
+    board_id: Optional[str] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
     title: Optional[str] = None
+
+
+class CoachSessionUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    active_board_id: Optional[str] = None
+
+
+class CoachBoardCreateRequest(BaseModel):
+    kind: str = "study"
+    title: Optional[str] = None
+    pgn: Optional[str] = None
+    fen: Optional[str] = None
+    ply: Optional[int] = None
+    orientation: str = "white"
+    source: Optional[dict] = None
+    activate: bool = True
+
+
+class CoachBoardUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    pgn: Optional[str] = None
+    fen: Optional[str] = None
+    ply: Optional[int] = None
+    orientation: Optional[str] = None
+    annotations: Optional[dict] = None
+    game_state: Optional[dict] = None
+    active: Optional[bool] = None
 
 
 class CoachMessageRequest(BaseModel):
@@ -959,11 +989,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     evt_ctx = {"user_id": user_id, "turn_id": turn_id, "surface": "text", "model": model}
     session.add_message("user", body.message, extra=msg_extra, evt=evt_ctx)
 
+    if body.board_id and session.get_board(body.board_id):
+        session.set_active_board(body.board_id)
     if body.fen:
         try:
-            session.set_board_state(body.fen)
+            session.set_board_state(body.fen, board_id=body.board_id)
         except ValueError:
             pass  # ignore invalid FEN, use existing board state
+    active_board = session.ensure_board()
 
     profile = load_user_profile(user_id)
     # Static persona/tool guidance stays in the system prompt (cacheable);
@@ -1287,6 +1320,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         board_actions = envelope.get("board_actions", [])
         if board_actions:
+            # Apply to the session's board record so the position survives a
+            # reload, and tell the client which board (tab) each action hit.
+            try:
+                for action in board_actions:
+                    if isinstance(action, dict):
+                        action.setdefault("board_id", active_board.id)
+                session.apply_board_actions(board_actions, board_id=active_board.id)
+            except Exception:
+                logger.debug("applying board actions to the session board failed", exc_info=True)
             yield _sse({"board_actions": board_actions})
 
         game_results = envelope.get("game_results", [])
@@ -1295,7 +1337,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         # turn_id rides the final frame so the client can attach 👍/👎 feedback
         # to this completed answer (additive field — existing consumers ignore it).
-        yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
+        yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id,
+                    "active_board_id": session.active_board_id})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1664,33 +1707,143 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
     return {"system_prompt": system_prompt, "profile_context": profile_context}
 
 
+def _session_summary(s) -> dict:
+    last = s.messages[-1] if s.messages else None
+    return {
+        "id": s.id,
+        "title": s.title,
+        "created_at": s.created_at,
+        "updated_at": last.timestamp if last else s.created_at,
+        "message_count": len(s.messages),
+        "board_state": s.board_state,
+        "active_board_id": s.active_board_id,
+        "board_count": len(s.boards),
+        "preview": (last.content[:120] if last else ""),
+    }
+
+
 @app.get("/api/coach/sessions")
 async def coach_list_sessions(request: Request):
-    """List all coaching sessions for a user."""
+    """List all coaching sessions for a user, newest activity first."""
     user_id = _get_user_id(request)
     sessions = session_store.list(user_id)
-    return [
-        {
-            "id": s.id,
-            "created_at": s.created_at,
-            "message_count": len(s.messages),
-            "board_state": s.board_state,
-        }
-        for s in sessions
-    ]
+    summaries = [_session_summary(s) for s in sessions]
+    summaries.sort(key=lambda x: x["updated_at"], reverse=True)
+    return summaries
 
 
 @app.post("/api/coach/sessions")
 async def coach_create_session(request: Request, body: CoachSessionCreateRequest = None):
-    """Create a new coaching session."""
+    """Create a new coaching session (with its default study board)."""
     user_id = _get_user_id(request)
     session = session_store.create(user_id=user_id)
-    return {
-        "id": session.id,
-        "created_at": session.created_at,
-        "message_count": 0,
-        "board_state": session.board_state,
-    }
+    if body and body.title:
+        session.set_title(body.title)
+    session.ensure_board()
+    return _session_summary(session)
+
+
+@app.patch("/api/coach/sessions/{session_id}")
+async def coach_update_session(session_id: str, body: CoachSessionUpdateRequest, request: Request):
+    """Rename a session or switch its active board."""
+    user_id = _get_user_id(request)
+    session = session_store.get(session_id, user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if body.title is not None:
+        session.set_title(body.title)
+    if body.active_board_id is not None:
+        try:
+            session.set_active_board(body.active_board_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Board not found")
+    return _session_summary(session)
+
+
+@app.delete("/api/coach/sessions/{session_id}")
+async def coach_delete_session(session_id: str, request: Request):
+    user_id = _get_user_id(request)
+    if not session_store.delete(session_id, user_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"deleted": session_id}
+
+
+# ── Boards (tabs) of a session ────────────────────────────────────────
+
+
+def _get_session_or_404(session_id: str, request: Request):
+    user_id = _get_user_id(request)
+    session = session_store.get(session_id, user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@app.get("/api/coach/sessions/{session_id}/boards")
+async def coach_list_boards(session_id: str, request: Request):
+    session = _get_session_or_404(session_id, request)
+    session.ensure_board()
+    return {"active_board_id": session.active_board_id,
+            "boards": [b.to_public() for b in session.boards]}
+
+
+@app.post("/api/coach/sessions/{session_id}/boards")
+async def coach_create_board(session_id: str, body: CoachBoardCreateRequest, request: Request):
+    session = _get_session_or_404(session_id, request)
+    try:
+        board = session.add_board(
+            activate=body.activate, kind=body.kind, title=body.title or "", pgn=body.pgn or "",
+            fen=body.fen, orientation=body.orientation, source=body.source, ply=body.ply,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return board.to_public()
+
+
+@app.patch("/api/coach/sessions/{session_id}/boards/{board_id}")
+async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpdateRequest, request: Request):
+    session = _get_session_or_404(session_id, request)
+    board = session.get_board(board_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="Board not found")
+    try:
+        if body.pgn is not None:
+            board.load_pgn(body.pgn, ply=body.ply)
+        elif body.fen is not None:
+            board.set_fen(body.fen)
+        elif body.ply is not None:
+            fens_ply = body.ply
+            board.navigate("first")
+            board.ply = 0
+            for _ in range(max(0, fens_ply)):
+                before = board.ply
+                board.navigate("next")
+                if board.ply == before:
+                    break
+        if body.title is not None:
+            board.title = body.title.strip()[:120]
+        if body.orientation is not None:
+            if body.orientation not in ("white", "black"):
+                raise ValueError("orientation must be 'white' or 'black'")
+            board.orientation = body.orientation
+        if body.annotations is not None:
+            board.annotations = body.annotations
+        if body.game_state is not None:
+            board.game_state = body.game_state
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.save_board(board)
+    if body.active:
+        session.set_active_board(board.id)
+    return board.to_public()
+
+
+@app.delete("/api/coach/sessions/{session_id}/boards/{board_id}")
+async def coach_delete_board(session_id: str, board_id: str, request: Request):
+    session = _get_session_or_404(session_id, request)
+    if not session.remove_board(board_id):
+        raise HTTPException(status_code=404, detail="Board not found")
+    return {"deleted": board_id, "active_board_id": session.active_board_id}
 
 
 @app.get("/api/coach/sessions/{session_id}/messages")

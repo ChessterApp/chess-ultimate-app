@@ -89,6 +89,12 @@ BOARD_CONTROL_SCHEMA = {
                 "enum": ["first", "prev", "next", "last"],
                 "description": "Navigation direction (for navigate).",
             },
+            "board_id": {
+                "type": "string",
+                "description": (
+                    "Which of the student's boards (tabs) to act on. Omit for the active board."
+                ),
+            },
         },
         "required": ["action_type"],
     },
@@ -135,7 +141,10 @@ def build_board_action(action_type: str, params: dict) -> dict:
     builder = _ACTION_BUILDERS[atype]
     try:
         action = builder(params)
-        return action.model_dump(by_alias=True)
+        result = action.model_dump(by_alias=True)
+        if params.get("board_id"):
+            result["board_id"] = str(params["board_id"])
+        return result
     except (ValidationError, KeyError, ValueError) as exc:
         return {"error": str(exc)}
 

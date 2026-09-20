@@ -52,6 +52,24 @@ class FakePersistence:
         self.sessions.pop(session_id, None)
         self.messages.pop(session_id, None)
 
+    # ── boards (same in-memory table shape as coach_boards) ──
+    def persist_board(self, board):
+        self.calls.append("persist_board")
+        self.boards = getattr(self, "boards", {})
+        self.boards[board["id"]] = dict(board)
+
+    def delete_board(self, board_id):
+        self.calls.append("delete_board")
+        getattr(self, "boards", {}).pop(board_id, None)
+
+    def update_session_fields(self, session_id, **fields):
+        self.calls.append("update_session_fields")
+        if session_id in self.sessions:
+            self.sessions[session_id].update(fields)
+
+    def load_boards(self, session_id):
+        return [b for b in getattr(self, "boards", {}).values() if b["session_id"] == session_id]
+
     def load_session(self, session_id):
         return self.sessions.get(session_id)
 
