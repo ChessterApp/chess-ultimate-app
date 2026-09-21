@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 
 /**
  * ClientShell - Suspense Boundary Tests
@@ -59,12 +61,34 @@ describe('ClientShell Suspense Integration', () => {
   it('should define main content area with proper classes', () => {
     const mainClasses = {
       base: 'flex-1 min-w-0',
-      conditionalPadding: 'pb-16 md:pb-0'
+      conditionalPadding: 'pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0'
     }
     expect(mainClasses.base).toContain('flex-1')
     expect(mainClasses.base).toContain('min-w-0')
-    expect(mainClasses.conditionalPadding).toContain('pb-16')
     expect(mainClasses.conditionalPadding).toContain('md:pb-0')
+  })
+})
+
+describe('ClientShell mobile bottom-nav clearance (regression)', () => {
+  const source = readFileSync(
+    join(__dirname, '..', 'ClientShell.tsx'),
+    'utf-8'
+  )
+
+  // The bottom nav is h-16 (4rem) PLUS pb-safe (env(safe-area-inset-bottom)).
+  // Padding the mobile content by a flat pb-16 buries the last ~34px of page
+  // content on notched phones behind the nav. The clearance must include the
+  // safe-area inset so the final results row is scrollable into view.
+  it('pads mobile content by the full nav height including the safe-area inset', () => {
+    expect(source).toContain('pb-[calc(4rem+env(safe-area-inset-bottom))]')
+  })
+
+  it('no longer uses a flat pb-16 on the mobile content area', () => {
+    expect(source).not.toContain("'pb-16 md:pb-0'")
+  })
+
+  it('keeps desktop padding unchanged (md:pb-0)', () => {
+    expect(source).toContain('md:pb-0')
   })
 })
 

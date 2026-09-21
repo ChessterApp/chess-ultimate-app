@@ -91,7 +91,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
             )}
 
             {/* Main content area */}
-            <main className={`flex-1 min-w-0 ${mobileNavHidden ? '' : 'pb-16 md:pb-0'}`}>
+            <main className={`flex-1 min-w-0 ${mobileNavHidden ? '' : 'pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0'}`}>
               <Suspense fallback={<PageSkeleton />}>
                 {/* Static marketing test page — no user data, skip the sync gate */}
                 {pathname?.startsWith('/landing-test') ? children : (
