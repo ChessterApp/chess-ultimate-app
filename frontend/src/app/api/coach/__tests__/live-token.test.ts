@@ -595,7 +595,7 @@ describe('POST /api/coach/live-token', () => {
     expect(response.status).toBe(200);
 
     const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
-    expect(JSON.parse((promptCall[1] as RequestInit).body as string).locale).toBe('kk');
+    expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).locale).toBe('kk');
   });
 
   it('an explicit body locale wins over the cookie', async () => {
@@ -615,7 +615,7 @@ describe('POST /api/coach/live-token', () => {
     await POST(withCookie({ locale: 'en' }, 'NEXT_LOCALE=ru'));
 
     const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
-    expect(JSON.parse((promptCall[1] as RequestInit).body as string).locale).toBe('en');
+    expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).locale).toBe('en');
   });
 
   it('the hardcoded fallback prompt carries the language rule for the locale', async () => {
