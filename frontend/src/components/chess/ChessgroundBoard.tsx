@@ -381,15 +381,18 @@ export default function ChessgroundBoard({
     );
   }, [hintMove]);
 
-  // Update square highlights
+  // Update square highlights. An empty list must clear them too — otherwise a
+  // highlight set by the coach survives set_fen / clear_board.
   useEffect(() => {
-    if (!cgRef.current || highlightSquares.length === 0) return;
+    if (!cgRef.current) return;
 
     cgRef.current.set({
       highlight: {
         lastMove: true,
         check: true,
-        custom: new Map(highlightSquares.map(sq => [sq, 'highlight'])),
+        custom: highlightSquares.length > 0
+          ? new Map(highlightSquares.map(sq => [sq, 'highlight']))
+          : new Map(),
       },
     });
   }, [highlightSquares]);

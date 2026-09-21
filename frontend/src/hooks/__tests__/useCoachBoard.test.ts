@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useCoachBoard } from '../useCoachBoard';
+import { useCoachBoard, resolveSolutionMove } from '../useCoachBoard';
 
 const DEFAULT_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -299,6 +299,81 @@ describe('useCoachBoard', () => {
     expect(result.current.puzzleState?.solved).toBe(true);
   });
 
+  it('validates puzzle moves written in SAN (how Hermes sends them)', () => {
+    const { result } = renderHook(() => useCoachBoard());
+    // Scholar's mate: white to play Qxf7#
+    const puzzleFen = 'r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4';
+
+    act(() => {
+      result.current.applyBoardAction({
+        type: 'set_puzzle',
+        fen: puzzleFen,
+        solution: ['Qxf7#'],
+      });
+    });
+
+    let moveResult: string;
+    act(() => {
+      moveResult = result.current.validatePuzzleMove('h5', 'h7');
+    });
+    expect(moveResult!).toBe('wrong');
+    expect(result.current.fen).toBe(puzzleFen);
+
+    act(() => {
+      moveResult = result.current.validatePuzzleMove('h5', 'f7');
+    });
+    expect(moveResult!).toBe('solved');
+    expect(result.current.fen).toContain('r1bqkb1r/pppp1Qpp');
+  });
+
+  it('walks a multi-move SAN solution', () => {
+    const { result } = renderHook(() => useCoachBoard());
+    const puzzleFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+    act(() => {
+      result.current.applyBoardAction({ type: 'set_puzzle', fen: puzzleFen, solution: ['e4', 'e5'] });
+    });
+
+    let r: string;
+    act(() => { r = result.current.validatePuzzleMove('e2', 'e4'); });
+    expect(r!).toBe('correct');
+    act(() => { r = result.current.validatePuzzleMove('e7', 'e5'); });
+    expect(r!).toBe('solved');
+  });
+
+  it('applies load_pgn followed by navigate in the same batch', () => {
+    const { result } = renderHook(() => useCoachBoard());
+
+    // Hermes sends every board action of a turn in one frame; the navigate
+    // must act on the PGN loaded a moment earlier, not on the stale closure.
+    act(() => {
+      result.current.applyBoardActions([
+        { type: 'load_pgn', pgn: '1. e4 e5 2. Nf3 Nc6' },
+        { type: 'navigate', direction: 'first' },
+        { type: 'navigate', direction: 'next' },
+      ]);
+    });
+
+    expect(result.current.moveIndex).toBe(1);
+    expect(result.current.fen).toMatch(/^rnbqkbnr\/pppppppp\/8\/8\/4P3\/8\/PPPP1PPP\/RNBQKBNR b KQkq/);
+  });
+
+  it('set_fen after load_pgn replaces the history', () => {
+    const { result } = renderHook(() => useCoachBoard());
+    const fen = '8/8/8/4k3/8/8/8/4K2R w - - 0 1';
+
+    act(() => {
+      result.current.applyBoardActions([
+        { type: 'load_pgn', pgn: '1. e4 e5 2. Nf3 Nc6' },
+        { type: 'set_fen', fen },
+        { type: 'navigate', direction: 'prev' },
+      ]);
+    });
+
+    expect(result.current.fen).toBe(fen);
+    expect(result.current.moveIndex).toBe(0);
+  });
+
   it('resets board to defaults', () => {
     const { result } = renderHook(() => useCoachBoard());
 
@@ -321,5 +396,25 @@ describe('useCoachBoard', () => {
     expect(result.current.orientation).toBe('white');
     expect(result.current.pgn).toBe('');
     expect(result.current.puzzleMode).toBe(false);
+  });
+});
+
+describe('resolveSolutionMove', () => {
+  const fen = 'r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4';
+
+  it('accepts SAN with or without suffixes', () => {
+    expect(resolveSolutionMove(fen, 'Qxf7#')).toMatchObject({ from: 'h5', to: 'f7' });
+    expect(resolveSolutionMove(fen, 'Qxf7')).toMatchObject({ from: 'h5', to: 'f7' });
+    expect(resolveSolutionMove(fen, 'Qf7')).toMatchObject({ from: 'h5', to: 'f7' });
+  });
+
+  it('accepts UCI', () => {
+    expect(resolveSolutionMove(fen, 'h5f7')).toMatchObject({ from: 'h5', to: 'f7', san: 'Qxf7#' });
+  });
+
+  it('rejects illegal or empty moves', () => {
+    expect(resolveSolutionMove(fen, 'Qh8')).toBeNull();
+    expect(resolveSolutionMove(fen, 'a1a8')).toBeNull();
+    expect(resolveSolutionMove(fen, '')).toBeNull();
   });
 });

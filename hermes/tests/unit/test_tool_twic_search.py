@@ -11,7 +11,7 @@ def test_by_player(fake_twic_db):
     results = search_master_games(player="Carlsen", conn=fake_twic_db)
     assert len(results) >= 1
     for game in results:
-        assert "Carlsen" in game["white"] or "Carlsen" in game["black"]
+        assert "Carlsen" in game["white_name"] or "Carlsen" in game["black_name"]
 
 
 @pytest.mark.unit
@@ -47,7 +47,7 @@ def test_combined_filters(fake_twic_db):
     results = search_master_games(player="Carlsen", result="1-0", conn=fake_twic_db)
     assert len(results) >= 1
     for game in results:
-        assert ("Carlsen" in game["white"] or "Carlsen" in game["black"])
+        assert ("Carlsen" in game["white_name"] or "Carlsen" in game["black_name"])
         assert game["result"] == "1-0"
 
 

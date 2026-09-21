@@ -91,7 +91,8 @@ type LiveMetricEvent =
   | 'error'
   | 'drop'
   | 'end'
-  | 'session_end';
+  | 'session_end'
+  | 'usage';
 /** Why a voice session ended, carried on the 'session_end' beacon. */
 type SessionEndReason = 'user_stop' | 'quota_exhausted' | 'error' | 'drop';
 interface LiveMetricRecord {
@@ -115,6 +116,11 @@ interface LiveMetricRecord {
   error_code?: string;
   /** End reason on the 'session_end' beacon. */
   end_reason?: SessionEndReason;
+  /** Gemini usageMetadata for one model turn, on the 'usage' beacon. */
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cached_tokens?: number;
+  model?: string;
   ts: number;
 }
 
@@ -232,6 +238,8 @@ export default function useGeminiLive(
   // when a turn begins (user speech / a tool call) and cleared at turn end, so a
   // fresh turn gets a fresh id. Stamped on every beacon + the transcript rows.
   const turnIdRef = useRef<string | null>(null);
+  /** Model name the token was minted for; stamped on the 'usage' beacon. */
+  const modelRef = useRef<string | null>(null);
   // performance.now() of the user's most recent spoken (above-threshold) mic
   // frame — approximates VAD end, the start of the time-to-first-audio window.
   const lastUserSpeechAtRef = useRef<number | null>(null);
@@ -291,6 +299,10 @@ export default function useGeminiLive(
         ok: partial.ok,
         error_code: partial.error_code,
         end_reason: partial.end_reason,
+        prompt_tokens: partial.prompt_tokens,
+        completion_tokens: partial.completion_tokens,
+        cached_tokens: partial.cached_tokens,
+        model: partial.model,
         ts: Date.now(),
       };
       try {
@@ -740,6 +752,20 @@ export default function useGeminiLive(
         handleToolCancellation(msg.toolCallCancellation);
       }
 
+      // Token usage for the model turn just produced. Relayed to Hermes so the
+      // voice surface is metered in real tokens (it used to be recorded as $0).
+      const usage = msg.usageMetadata;
+      if (usage && ((usage.promptTokenCount ?? 0) > 0 || (usage.responseTokenCount ?? 0) > 0)) {
+        reportMetric({
+          event: 'usage',
+          turn_id: turnIdRef.current ?? undefined,
+          prompt_tokens: usage.promptTokenCount ?? 0,
+          completion_tokens: usage.responseTokenCount ?? 0,
+          cached_tokens: usage.cachedContentTokenCount ?? 0,
+          model: modelRef.current ?? undefined,
+        });
+      }
+
       const sc = msg.serverContent;
       if (!sc) return;
 
@@ -950,6 +976,7 @@ export default function useGeminiLive(
       if (!token || !model) {
         throw new Error('Invalid live-token response');
       }
+      modelRef.current = model;
 
       // Seed the local minutes countdown from the mint response (first open only;
       // a reconnect keeps the original countdown anchored to the session start).

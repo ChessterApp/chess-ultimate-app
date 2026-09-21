@@ -21,3 +21,4 @@ metrics/
 # user_text, and the disk cache / run artifacts are per-run scratch — never commit.
 eval/prompt_opt/cache/
 eval/prompt_opt/runs/
+profiles/*/state.db

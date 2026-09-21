@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  let body: { message: string; fen?: string; session_id?: string };
+  let body: { message: string; fen?: string; session_id?: string; context_note?: string };
   try {
     body = await request.json();
   } catch {
@@ -59,6 +59,10 @@ export async function POST(request: NextRequest) {
             fen: body.fen,
             session_id: body.session_id,
             locale,
+            context_note:
+              typeof body.context_note === 'string' && body.context_note.trim()
+                ? body.context_note
+                : undefined,
           }),
           signal: AbortSignal.timeout(60000),
         });

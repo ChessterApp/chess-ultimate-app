@@ -107,6 +107,8 @@ class SetPuzzle(BaseModel):
     action: ActionType = Field(ActionType.SET_PUZZLE, alias="type")
     fen: str
     solution: list[str] = Field(default_factory=list)
+    # Lichess puzzle id when the puzzle came from the puzzle database.
+    puzzle_id: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 

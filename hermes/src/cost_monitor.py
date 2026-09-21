@@ -15,14 +15,11 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
-# Approximate cost per 1K tokens (USD) by model tier
-MODEL_COSTS = {
-    "google/gemini-2.5-flash": {"input": 0.00015, "output": 0.0006},
-    "anthropic/claude-sonnet-4-5": {"input": 0.003, "output": 0.015},
-    "anthropic/claude-opus-4": {"input": 0.015, "output": 0.075},
-}
+from src.model_prices import DEFAULT_PRICE, estimate_cost_usd, price_for
 
-DEFAULT_COST = {"input": 0.001, "output": 0.005}
+# Kept for callers/tests that import the old names: $ per 1K tokens, derived
+# from the per-1M table in src/model_prices.py (the single place to edit).
+DEFAULT_COST = {"input": DEFAULT_PRICE["input"] / 1000, "output": DEFAULT_PRICE["output"] / 1000}
 
 # Synthetic model label for voice (Gemini Live) rows. Exact audio token counts
 # aren't available server-side, so voice rows carry 0 tokens and record the
@@ -44,6 +41,10 @@ class TokenUsageRecord(BaseModel):
     #   duration_ms  — a voice session's length, on the session-end row
     tool_name: Optional[str] = None
     duration_ms: Optional[int] = None
+    # Joins the row to coach_messages / coach_events for the same turn.
+    turn_id: Optional[str] = None
+    # Part of prompt_tokens served from the provider's prompt cache.
+    cached_tokens: int = 0
     timestamp: float = Field(default_factory=time.time)
 
 
@@ -63,6 +64,8 @@ class CostMonitor:
         surface: str = "text",
         tool_name: Optional[str] = None,
         duration_ms: Optional[int] = None,
+        turn_id: Optional[str] = None,
+        cached_tokens: int = 0,
     ) -> TokenUsageRecord:
         """Record a token usage event and persist to Supabase.
 
@@ -73,11 +76,7 @@ class CostMonitor:
         the session length) and are omitted from the persisted row when unset.
         """
         total = prompt_tokens + completion_tokens
-        cost_rates = MODEL_COSTS.get(model, DEFAULT_COST)
-        cost = (
-            (prompt_tokens / 1000) * cost_rates["input"]
-            + (completion_tokens / 1000) * cost_rates["output"]
-        )
+        cost = estimate_cost_usd(model, prompt_tokens, completion_tokens, cached_tokens)
 
         record = TokenUsageRecord(
             user_id=user_id,
@@ -90,6 +89,8 @@ class CostMonitor:
             surface=surface,
             tool_name=tool_name,
             duration_ms=duration_ms,
+            turn_id=turn_id,
+            cached_tokens=cached_tokens,
         )
         self._records.append(record)
         self._persist(record)
@@ -155,9 +156,13 @@ class CostMonitor:
             payload["tool_name"] = record.tool_name
         if record.duration_ms is not None:
             payload["duration_ms"] = record.duration_ms
+        if record.turn_id:
+            payload["turn_id"] = record.turn_id
+        if record.cached_tokens:
+            payload["cached_tokens"] = record.cached_tokens
 
         try:
-            httpx.post(
+            resp = httpx.post(
                 f"{url}/rest/v1/token_usage",
                 json=payload,
                 headers={
@@ -167,6 +172,12 @@ class CostMonitor:
                 },
                 timeout=5,
             )
+            if resp.status_code >= 400:
+                # A rejected row (e.g. a column the migration hasn't added yet)
+                # used to vanish without a trace; the dashboard then under-reports.
+                logger.error(
+                    "token_usage insert rejected: %s %s", resp.status_code, resp.text[:300]
+                )
         except Exception:
             logger.exception("Failed to persist token usage")
 
@@ -204,5 +215,89 @@ def record_voice_event(
             )
         except Exception:
             logger.exception("voice usage recording failed")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def record_openrouter_usage(
+    body: dict,
+    *,
+    model: str,
+    user_id: str,
+    surface: str,
+    session_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+) -> None:
+    """Fire-and-forget: record the ``usage`` block of an OpenRouter chat
+    completion (memory writer, playbook distiller, lesson tutor …).
+
+    Reads ``prompt_tokens`` / ``completion_tokens`` and OpenRouter's
+    ``prompt_tokens_details.cached_tokens``. Missing or malformed usage is
+    ignored — accounting must never break the call it accounts for.
+    """
+    try:
+        usage = (body or {}).get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+        completion_tokens = int(usage.get("completion_tokens") or 0)
+        details = usage.get("prompt_tokens_details") or {}
+        cached = int(details.get("cached_tokens") or 0)
+    except Exception:
+        return
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return
+
+    def _run() -> None:
+        try:
+            cost_monitor.record_usage(
+                user_id=user_id or "system",
+                session_id=session_id or "",
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                surface=surface,
+                turn_id=turn_id,
+                cached_tokens=cached,
+            )
+        except Exception:
+            logger.exception("%s usage recording failed", surface)
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def record_voice_usage(
+    user_id: str,
+    session_id: Optional[str],
+    *,
+    prompt_tokens: int,
+    completion_tokens: int,
+    cached_tokens: int = 0,
+    model: Optional[str] = None,
+    turn_id: Optional[str] = None,
+) -> None:
+    """Fire-and-forget: record one Gemini Live model turn's token usage.
+
+    The browser relays the session's ``usageMetadata`` (prompt / response /
+    cached token counts for that turn); before this, every voice row carried
+    0 tokens and $0. Audio tokens are priced with the estimate in
+    ``src/model_prices.py`` until Google publishes list prices for the
+    preview model.
+    """
+    if prompt_tokens <= 0 and completion_tokens <= 0:
+        return
+
+    def _run() -> None:
+        try:
+            cost_monitor.record_usage(
+                user_id=user_id,
+                session_id=session_id or "",
+                model=model or VOICE_MODEL,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                surface="voice",
+                turn_id=turn_id,
+                cached_tokens=cached_tokens,
+            )
+        except Exception:
+            logger.exception("voice token usage recording failed")
 
     threading.Thread(target=_run, daemon=True).start()

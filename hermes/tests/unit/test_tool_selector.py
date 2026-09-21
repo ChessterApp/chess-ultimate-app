@@ -165,6 +165,14 @@ class TestSelectOpenAIToolSubset:
 class TestBuildDeclarationsFlagGate:
     """build_tool_declarations must be byte-identical to today when flag off."""
 
+    @pytest.fixture(autouse=True)
+    def _registry(self):
+        # The registry is only populated by server startup; load it here so the
+        # class passes in isolation, not just after tests that import src.server.
+        from src.tools import discover_and_register
+
+        discover_and_register()
+
     def test_flag_off_returns_full_set(self, monkeypatch):
         monkeypatch.setattr(config, "COACH_TOOL_SUBSET", False)
         full = tool_bridge.build_tool_declarations()
@@ -186,3 +194,60 @@ class TestBuildDeclarationsFlagGate:
         for core in CORE_TOOLS:
             assert core in names
         assert "get_opening_stats" in names
+
+
+@pytest.mark.unit
+class TestNonLatinQueries:
+    """RU / KK questions must rank the right tools (the audience is RU/KZ).
+
+    Before the Unicode tokenizer + keyword bridge, a Cyrillic query produced
+    zero tokens, every tool scored 0, and the subset was just registry order.
+    Checked against the REAL registry so a renamed tool or description cannot
+    silently break selection for Russian speakers.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _registry(self, monkeypatch):
+        from src.tools import discover_and_register
+
+        discover_and_register()  # idempotent: registry.register overwrites by name
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", True)
+
+    def _real(self, query, topk=7):
+        names = [d["name"] for d in tool_bridge.build_tool_declarations(query=query, topk=topk)]
+        assert names, "chess tools not registered"
+        return names
+
+    def test_cyrillic_tokenized(self):
+        from src.tool_selector import _tokenize
+
+        assert _tokenize("Покажи мои партии, e4!") == {"покажи", "мои", "партии", "e4"}
+
+    @pytest.mark.parametrize(
+        "query, expected",
+        [
+            ("покажи мои последние партии", "get_user_games"),
+            ("какие у меня слабости и типичные ошибки", "weakness_tracker"),
+            ("загрузи мои партии с lichess", "lichess_game_import"),
+            ("что мне потренировать, посоветуй план занятий", "training_recommender"),
+            ("найди партии мастеров в сицилианской защите", "search_master_games"),
+            ("какой у меня прогресс по урокам и задачам", "get_user_progress"),
+            ("помоги подготовиться к сопернику", "opponent_prep"),
+            ("где был переломный момент в этой партии", "find_critical_moments"),
+            ("мой дебютный репертуар", "get_user_repertoire"),
+            ("какой рейтинг у профиля Magnus на lichess", "get_player_profile"),
+            # Kazakh
+            ("менің соңғы ойындарымды көрсет", "get_user_games"),
+            ("менің әлсіз жақтарым қандай", "weakness_tracker"),
+            ("қарсыласқа дайындалуға көмектес", "opponent_prep"),
+        ],
+    )
+    def test_ru_kk_query_surfaces_tool(self, monkeypatch, query, expected):
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", True)
+        assert expected in self._real(query)
+
+    def test_ru_query_ranks_target_first_among_non_core(self, monkeypatch):
+        """The matched tool should lead the ranked (non-core) tail, not just squeak in."""
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", True)
+        names = self._real("какие у меня слабости и типичные ошибки", topk=1)
+        assert [n for n in names if n not in CORE_TOOLS] == ["weakness_tracker"]

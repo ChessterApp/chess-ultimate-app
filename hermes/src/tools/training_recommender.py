@@ -8,6 +8,8 @@ import httpx
 
 from tools.registry import registry
 
+from src.identity import resolve_user_id
+
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -206,7 +208,7 @@ def training_recommender(
 
 
 def _handle_training_recommender(args: dict, **kwargs) -> str:
-    result = training_recommender(user_id=args.get("user_id", ""))
+    result = training_recommender(user_id=resolve_user_id(args, kwargs))
     return json.dumps(result, indent=2)
 
 

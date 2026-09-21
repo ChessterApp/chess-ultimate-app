@@ -285,14 +285,15 @@ def build_reflection_prompt(candidates: list[dict]) -> str:
 
 
 def _cheap_model() -> str:
-    """Resolve the configured cheap tier (NOT the main coach model)."""
+    """Resolve the configured utility tier (NOT the main coach model)."""
     try:
-        from src.config import get_model_config
+        from src.config import utility_model
 
-        tiers = get_model_config().get("tiers", {}) or {}
-        return tiers.get("fast") or tiers.get("default") or "google/gemini-2.5-flash"
+        return utility_model()
     except Exception:
-        return "google/gemini-2.5-flash"
+        from src.config import DEFAULT_MODEL
+
+        return DEFAULT_MODEL
 
 
 def call_reflector_llm(prompt: str, model: str) -> Optional[str]:
@@ -321,7 +322,11 @@ def call_reflector_llm(prompt: str, model: str) -> Optional[str]:
             timeout=_REFLECTOR_TIMEOUT,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        body = resp.json()
+        from src.cost_monitor import record_openrouter_usage
+
+        record_openrouter_usage(body, model=model, user_id="system", surface="playbook")
+        return body["choices"][0]["message"]["content"]
     except Exception:
         logger.debug("playbook reflector LLM call failed", exc_info=True)
         return None

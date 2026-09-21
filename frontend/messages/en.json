@@ -1990,7 +1990,19 @@
     "toolWorking": "Working…",
     "fullPageTooltip": "Open full coach page with board control",
     "feedbackGood": "Good answer",
-    "feedbackBad": "Bad answer"
+    "feedbackBad": "Bad answer",
+    "sessions": "Sessions",
+    "sessionsTitle": "Your sessions",
+    "noSessions": "No saved sessions yet",
+    "untitledSession": "Untitled",
+    "deleteSession": "Delete session",
+    "renameSession": "Rename",
+    "renamePrompt": "Session title",
+    "closeTab": "Close tab",
+    "messagesCount": "{count} msgs",
+    "loadPgnFile": "Load a game from a .pgn file",
+    "loadedPgn": "Loaded the game onto the board.",
+    "loadedFen": "Set the position on the board."
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

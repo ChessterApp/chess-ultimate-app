@@ -44,15 +44,26 @@ from src.middleware.rate_limiter import (  # noqa: E402
 )
 from src.middleware.circuit_breaker import stockfish_circuit, supabase_circuit
 from src.model_router import route_model, explain_route
-from src.prompt_builder import build_system_prompt, build_voice_prompt, get_prompt_version
+from src.prompt_builder import (
+    attach_turn_context,
+    build_system_prompt,
+    build_voice_prompt,
+    get_prompt_version,
+)
 from src.event_logger import log_event, new_turn_id
 from src.coach_feedback import upsert_feedback, delete_feedback
+from src.identity import current_user_id
 from src import config
 from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
 from src.sessions import session_store
 from src.user_profile import load_user_profile, save_user_profile, UserProfile
-from src.cost_monitor import cost_monitor, record_voice_event
+from src.cost_monitor import (
+    cost_monitor,
+    record_openrouter_usage,
+    record_voice_event,
+    record_voice_usage,
+)
 from src.analytics import analytics_tracker
 from src.analytics_db import compute_user_analytics, get_admin_analytics_cached
 from src.retention import retention_loop
@@ -60,6 +71,7 @@ from src.billing import (
     create_checkout_session,
     get_subscription_status,
     handle_webhook_event,
+    verify_whop_signature,
 )
 from src.voice_metrics import (
     MAX_BODY_BYTES,
@@ -203,6 +215,13 @@ async def add_request_id(request: Request, call_next):
     request_id = request.headers.get("x-request-id", uuid.uuid4().hex[:12])
     request.state.request_id = request_id
 
+    # Student identity for tool handlers (see src/identity.py): the text path
+    # runs tools inside AIAgent, which never sees the request, so expose the
+    # authenticated id via a context var for the duration of the request.
+    identity_token = current_user_id.set(
+        request.headers.get("x-user-id") or request.headers.get("x-clerk-user-id") or ""
+    )
+
     logger.info(
         "request_start method=%s path=%s request_id=%s",
         request.method,
@@ -211,7 +230,10 @@ async def add_request_id(request: Request, call_next):
     )
 
     start = time.monotonic()
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    finally:
+        current_user_id.reset(identity_token)
     elapsed = round((time.monotonic() - start) * 1000, 2)
 
     response.headers["X-Request-Id"] = request_id
@@ -234,6 +256,31 @@ async def add_request_id(request: Request, call_next):
             duration_ms=elapsed,
         )
     return response
+
+
+def _bearer_token(request: Request) -> str:
+    return request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+
+
+def _is_admin_request(request: Request) -> bool:
+    """True when the caller asks for admin scope AND proves it with a secret.
+
+    Admin scope (analytics across all users) is granted only to a bearer token
+    matching HERMES_ADMIN_TOKEN or, failing that, the internal HERMES_API_KEY.
+    A bare ``x-admin: true`` header — which any client can send — is never
+    enough. With neither secret configured admin scope is unavailable.
+    """
+    import secrets
+
+    if request.headers.get("x-admin") != "true":
+        return False
+    token = _bearer_token(request)
+    if not token:
+        return False
+    for expected in (os.environ.get("HERMES_ADMIN_TOKEN", ""), get_api_key()):
+        if expected and secrets.compare_digest(token, expected):
+            return True
+    return False
 
 
 def _verify_api_key(request: Request) -> None:
@@ -271,6 +318,11 @@ def _resolve_model(requested_model: Optional[str], user_message: str = "") -> st
     return requested_model
 
 
+def _model_gets_prompt_cache(model: str) -> bool:
+    """True for models the framework applies explicit cache_control to (Claude)."""
+    return "claude" in (model or "").lower()
+
+
 def _create_agent(
     model: str,
     system_prompt: str,
@@ -304,7 +356,12 @@ def _create_agent(
         enabled_toolsets=["safe", "chess"],
     )
 
-    if config.COACH_TOOL_SUBSET and user_query and getattr(agent, "tools", None):
+    # Claude via OpenRouter gets cache_control breakpoints from the framework;
+    # the tool block is part of the cached prefix, so a per-turn tool subset
+    # would bust the cache on every turn and cost more than it saves. Keep the
+    # full, stable tool set for those models and subset only the others.
+    subset_ok = not _model_gets_prompt_cache(model)
+    if config.COACH_TOOL_SUBSET and subset_ok and user_query and getattr(agent, "tools", None):
         from src.tool_selector import select_openai_tool_subset
 
         agent.tools = select_openai_tool_subset(
@@ -326,6 +383,8 @@ def _do_record_usage(
     prompt_tokens: int,
     completion_tokens: int,
     surface: str,
+    turn_id: Optional[str] = None,
+    cached_tokens: int = 0,
 ) -> None:
     """Persist one turn's token usage. Swallows and logs any failure.
 
@@ -340,6 +399,8 @@ def _do_record_usage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             surface=surface,
+            turn_id=turn_id,
+            cached_tokens=cached_tokens,
         )
     except Exception:
         logger.exception("token usage recording failed")
@@ -351,6 +412,7 @@ def _record_turn_usage(
     session_id: str,
     model: str,
     surface: str = "text",
+    turn_id: Optional[str] = None,
 ):
     """Fire-and-forget: record real token usage for a completed agent turn.
 
@@ -363,6 +425,9 @@ def _record_turn_usage(
     try:
         prompt_tokens = int(getattr(agent, "session_prompt_tokens", 0) or 0)
         completion_tokens = int(getattr(agent, "session_completion_tokens", 0) or 0)
+        # Prompt tokens served from the provider cache (Anthropic cache reads);
+        # the only evidence that prompt caching actually works.
+        cached_tokens = int(getattr(agent, "session_cache_read_tokens", 0) or 0)
     except Exception:
         return None
 
@@ -371,7 +436,8 @@ def _record_turn_usage(
 
     thread = threading.Thread(
         target=_do_record_usage,
-        args=(user_id, session_id, model, prompt_tokens, completion_tokens, surface),
+        args=(user_id, session_id, model, prompt_tokens, completion_tokens, surface,
+              turn_id, cached_tokens),
         daemon=True,
     )
     thread.start()
@@ -600,10 +666,48 @@ class CoachChatRequest(BaseModel):
     fen: Optional[str] = None
     session_id: Optional[str] = None
     locale: Optional[str] = None
+    # Per-turn grounding the UI adds (e.g. the Review drawer's "[Review context]
+    # … classified as blunder …" note). Sent apart from ``message`` so model
+    # routing, tool selection, history and memory see the student's actual
+    # question; the note only reaches the model for this turn.
+    context_note: Optional[str] = None
+    # The board (tab) the student is looking at; becomes the session's active
+    # board and the target of the coach's board actions this turn.
+    board_id: Optional[str] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
     title: Optional[str] = None
+
+
+class CoachSessionUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    active_board_id: Optional[str] = None
+
+
+class CoachBoardCreateRequest(BaseModel):
+    kind: str = "study"
+    title: Optional[str] = None
+    pgn: Optional[str] = None
+    fen: Optional[str] = None
+    ply: Optional[int] = None
+    orientation: str = "white"
+    source: Optional[dict] = None
+    activate: bool = True
+
+
+class CoachBoardUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    pgn: Optional[str] = None
+    # fen: a new study position (drops the loaded game). position: the FEN the
+    # student is looking at — a navigation when it belongs to the loaded game.
+    fen: Optional[str] = None
+    position: Optional[str] = None
+    ply: Optional[int] = None
+    orientation: Optional[str] = None
+    annotations: Optional[dict] = None
+    game_state: Optional[dict] = None
+    active: Optional[bool] = None
 
 
 class CoachMessageRequest(BaseModel):
@@ -888,29 +992,39 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     evt_ctx = {"user_id": user_id, "turn_id": turn_id, "surface": "text", "model": model}
     session.add_message("user", body.message, extra=msg_extra, evt=evt_ctx)
 
+    if body.board_id and session.get_board(body.board_id):
+        session.set_active_board(body.board_id)
     if body.fen:
         try:
-            session.set_board_state(body.fen)
+            session.set_board_state(body.fen, board_id=body.board_id)
         except ValueError:
             pass  # ignore invalid FEN, use existing board state
+    active_board = session.ensure_board()
 
     profile = load_user_profile(user_id)
-    system_prompt = build_system_prompt(
+    # Static persona/tool guidance stays in the system prompt (cacheable);
+    # date, profile, memory and board state travel in the user message.
+    system_prompt, turn_context = build_system_prompt(
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
         locale=body.locale,
+        return_parts=True,
     )
     logger.info("Model routed: %s for message: %s", model, body.message[:80])
 
     # Build conversation context from session history (exclude the just-added user message)
     history_messages = session.messages[:-1]
+    current_message = (
+        f"{body.context_note.strip()}\n\n{body.message}" if body.context_note else body.message
+    )
+    current_message = attach_turn_context(current_message, turn_context)
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
-        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{body.message}"
+        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current_message}"
     else:
-        augmented_message = body.message
+        augmented_message = current_message
 
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session_id,
@@ -1150,7 +1264,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             yield _sse({"delta": response_text})
 
         # Record real token usage for this turn (fire-and-forget; never blocks)
-        _record_turn_usage(agent, user_id, session.id, model, surface="text")
+        _record_turn_usage(agent, user_id, session.id, model, surface="text", turn_id=turn_id)
 
         prompt_tokens = _safe_int(getattr(agent, "session_prompt_tokens", 0)) or 0
         completion_tokens = _safe_int(getattr(agent, "session_completion_tokens", 0)) or 0
@@ -1209,6 +1323,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         board_actions = envelope.get("board_actions", [])
         if board_actions:
+            # Apply to the session's board record so the position survives a
+            # reload, and tell the client which board (tab) each action hit.
+            try:
+                for action in board_actions:
+                    if isinstance(action, dict):
+                        action.setdefault("board_id", active_board.id)
+                session.apply_board_actions(board_actions, board_id=active_board.id)
+            except Exception:
+                logger.debug("applying board actions to the session board failed", exc_info=True)
             yield _sse({"board_actions": board_actions})
 
         game_results = envelope.get("game_results", [])
@@ -1217,7 +1340,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         # turn_id rides the final frame so the client can attach 👍/👎 feedback
         # to this completed answer (additive field — existing consumers ignore it).
-        yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
+        yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id,
+                    "active_board_id": session.active_board_id})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -1395,12 +1519,19 @@ def _build_lesson_system_prompt(
     return prompt
 
 
-def _lesson_chat_stream(model: str, system_prompt: str, message: str, history: list[dict]):
+def _lesson_chat_stream(
+    model: str,
+    system_prompt: str,
+    message: str,
+    history: list[dict],
+    usage_out: Optional[dict] = None,
+):
     """Yield reply text chunks for one lesson-tutor turn (plain streaming chat).
 
     Mirrors the coach's model selection (same OpenRouter client + routed model)
     but with no tool loop. Raises on any API error so the caller emits an SSE
-    error frame instead of leaking the error text as a normal delta.
+    error frame instead of leaking the error text as a normal delta. When
+    ``usage_out`` is given, the stream's final usage block is copied into it.
     """
     from openai import OpenAI
 
@@ -1422,10 +1553,20 @@ def _lesson_chat_stream(model: str, system_prompt: str, message: str, history: l
         max_tokens=2000,
         temperature=0.7,
         stream=True,
+        stream_options={"include_usage": True},
     )
     for chunk in response:
         if chunk.choices and chunk.choices[0].delta.content:
             yield chunk.choices[0].delta.content
+        usage = getattr(chunk, "usage", None)
+        if usage is not None and usage_out is not None:
+            try:
+                usage_out["usage"] = usage.model_dump()
+            except Exception:
+                usage_out["usage"] = {
+                    "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage, "completion_tokens", 0),
+                }
 
 
 @app.post("/api/lesson/chat")
@@ -1453,15 +1594,17 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
         sentinel = object()
 
         def _run():
+            usage_out: dict = {}
             try:
                 for chunk in _lesson_chat_stream(
-                    model, system_prompt, body.message, body.history
+                    model, system_prompt, body.message, body.history, usage_out
                 ):
                     if chunk:
                         loop.call_soon_threadsafe(queue.put_nowait, ("delta", chunk))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
+                record_openrouter_usage(usage_out, model=model, user_id=user_id, surface="lesson")
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
         future = loop.run_in_executor(None, _run)
@@ -1567,33 +1710,145 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
     return {"system_prompt": system_prompt, "profile_context": profile_context}
 
 
+def _session_summary(s) -> dict:
+    last = s.messages[-1] if s.messages else None
+    return {
+        "id": s.id,
+        "title": s.title,
+        "created_at": s.created_at,
+        "updated_at": last.timestamp if last else s.created_at,
+        "message_count": len(s.messages),
+        "board_state": s.board_state,
+        "active_board_id": s.active_board_id,
+        "board_count": len(s.boards),
+        "preview": (last.content[:120] if last else ""),
+    }
+
+
 @app.get("/api/coach/sessions")
 async def coach_list_sessions(request: Request):
-    """List all coaching sessions for a user."""
+    """List all coaching sessions for a user, newest activity first."""
     user_id = _get_user_id(request)
     sessions = session_store.list(user_id)
-    return [
-        {
-            "id": s.id,
-            "created_at": s.created_at,
-            "message_count": len(s.messages),
-            "board_state": s.board_state,
-        }
-        for s in sessions
-    ]
+    summaries = [_session_summary(s) for s in sessions]
+    summaries.sort(key=lambda x: x["updated_at"], reverse=True)
+    return summaries
 
 
 @app.post("/api/coach/sessions")
 async def coach_create_session(request: Request, body: CoachSessionCreateRequest = None):
-    """Create a new coaching session."""
+    """Create a new coaching session (with its default study board)."""
     user_id = _get_user_id(request)
     session = session_store.create(user_id=user_id)
-    return {
-        "id": session.id,
-        "created_at": session.created_at,
-        "message_count": 0,
-        "board_state": session.board_state,
-    }
+    if body and body.title:
+        session.set_title(body.title)
+    session.ensure_board()
+    return _session_summary(session)
+
+
+@app.patch("/api/coach/sessions/{session_id}")
+async def coach_update_session(session_id: str, body: CoachSessionUpdateRequest, request: Request):
+    """Rename a session or switch its active board."""
+    user_id = _get_user_id(request)
+    session = session_store.get(session_id, user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if body.title is not None:
+        session.set_title(body.title)
+    if body.active_board_id is not None:
+        try:
+            session.set_active_board(body.active_board_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Board not found")
+    return _session_summary(session)
+
+
+@app.delete("/api/coach/sessions/{session_id}")
+async def coach_delete_session(session_id: str, request: Request):
+    user_id = _get_user_id(request)
+    if not session_store.delete(session_id, user_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"deleted": session_id}
+
+
+# ── Boards (tabs) of a session ────────────────────────────────────────
+
+
+def _get_session_or_404(session_id: str, request: Request):
+    user_id = _get_user_id(request)
+    session = session_store.get(session_id, user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
+
+
+@app.get("/api/coach/sessions/{session_id}/boards")
+async def coach_list_boards(session_id: str, request: Request):
+    session = _get_session_or_404(session_id, request)
+    session.ensure_board()
+    return {"active_board_id": session.active_board_id,
+            "boards": [b.to_public() for b in session.boards]}
+
+
+@app.post("/api/coach/sessions/{session_id}/boards")
+async def coach_create_board(session_id: str, body: CoachBoardCreateRequest, request: Request):
+    session = _get_session_or_404(session_id, request)
+    try:
+        board = session.add_board(
+            activate=body.activate, kind=body.kind, title=body.title or "", pgn=body.pgn or "",
+            fen=body.fen, orientation=body.orientation, source=body.source, ply=body.ply,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return board.to_public()
+
+
+@app.patch("/api/coach/sessions/{session_id}/boards/{board_id}")
+async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpdateRequest, request: Request):
+    session = _get_session_or_404(session_id, request)
+    board = session.get_board(board_id)
+    if board is None:
+        raise HTTPException(status_code=404, detail="Board not found")
+    try:
+        if body.pgn is not None:
+            board.load_pgn(body.pgn, ply=body.ply)
+        elif body.fen is not None:
+            board.set_fen(body.fen)
+        elif body.position is not None:
+            board.set_position(body.position)
+        elif body.ply is not None:
+            fens_ply = body.ply
+            board.navigate("first")
+            board.ply = 0
+            for _ in range(max(0, fens_ply)):
+                before = board.ply
+                board.navigate("next")
+                if board.ply == before:
+                    break
+        if body.title is not None:
+            board.title = body.title.strip()[:120]
+        if body.orientation is not None:
+            if body.orientation not in ("white", "black"):
+                raise ValueError("orientation must be 'white' or 'black'")
+            board.orientation = body.orientation
+        if body.annotations is not None:
+            board.annotations = body.annotations
+        if body.game_state is not None:
+            board.game_state = body.game_state
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.save_board(board)
+    if body.active:
+        session.set_active_board(board.id)
+    return board.to_public()
+
+
+@app.delete("/api/coach/sessions/{session_id}/boards/{board_id}")
+async def coach_delete_board(session_id: str, board_id: str, request: Request):
+    session = _get_session_or_404(session_id, request)
+    if not session.remove_board(board_id):
+        raise HTTPException(status_code=404, detail="Board not found")
+    return {"deleted": board_id, "active_board_id": session.active_board_id}
 
 
 @app.get("/api/coach/sessions/{session_id}/messages")
@@ -2147,6 +2402,16 @@ async def coach_metrics(request: Request):
                 record.get("sessionId"),
                 duration_ms=record.get("session_ms"),
             )
+        elif record is not None and record.get("event") == "usage":
+            record_voice_usage(
+                user_id,
+                record.get("sessionId"),
+                prompt_tokens=int(record.get("prompt_tokens") or 0),
+                completion_tokens=int(record.get("completion_tokens") or 0),
+                cached_tokens=int(record.get("cached_tokens") or 0),
+                model=record.get("model"),
+                turn_id=record.get("turn_id"),
+            )
 
         # Phase 2: also persist the beacon to coach_events (same taxonomy as the
         # text loop). Fail-open — an event-log error must never 500 the endpoint,
@@ -2219,6 +2484,8 @@ async def coach_analytics(request: Request):
     """
     user_id = _get_user_id(request)
     if request.headers.get("x-admin") == "true":
+        if not _is_admin_request(request):
+            raise HTTPException(status_code=403, detail="Admin scope requires a valid admin token")
         return await asyncio.to_thread(get_admin_analytics_cached)
     return await asyncio.to_thread(compute_user_analytics, user_id)
 
@@ -2252,8 +2519,18 @@ async def coach_subscription_status(request: Request):
 
 @app.post("/api/coach/whop-webhook")
 async def whop_webhook(request: Request):
-    """Handle Whop webhook events."""
+    """Handle Whop webhook events (signature-verified, like the Next.js webhook)."""
     payload = await request.body()
+    verdict = verify_whop_signature(
+        payload,
+        request.headers.get("x-whop-signature"),
+        os.environ.get("WHOP_WEBHOOK_SECRET", ""),
+    )
+    if verdict == "no_secret":
+        logger.error("whop webhook rejected: WHOP_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=500, detail="Webhook secret not configured")
+    if verdict != "ok":
+        raise HTTPException(status_code=401, detail=f"Invalid webhook signature ({verdict})")
     result = handle_webhook_event(payload)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])

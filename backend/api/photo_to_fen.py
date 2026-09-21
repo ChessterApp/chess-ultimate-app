@@ -9,9 +9,14 @@ import os
 import re
 import logging
 import requests
+from services.usage_ledger import record_openrouter_usage
 from flask import Blueprint, request, jsonify
 
 logger = logging.getLogger(__name__)
+
+# Vision model (OpenRouter id). gemini-3-flash-preview was a preview; the
+# released 3.8 Flash accepts images at the same price class.
+PHOTO_FEN_MODEL = os.getenv("PHOTO_FEN_MODEL", "google/gemini-3.8-flash")
 
 photo_fen_bp = Blueprint('photo_fen', __name__, url_prefix='/api')
 
@@ -70,7 +75,7 @@ def convert_image_to_fen():
                 "X-Title": "Chess Empire - Photo to FEN"
             },
             json={
-                "model": "google/gemini-3-flash-preview",  # Vision-capable model
+                "model": PHOTO_FEN_MODEL,
                 "messages": prompt
             },
             timeout=30
@@ -78,9 +83,15 @@ def convert_image_to_fen():
 
         response_data = response.json()
 
-        # Log usage for monitoring
+        # Log usage for monitoring and record it in the token_usage ledger
         if response_data.get('usage'):
             logger.info(f"Photo-to-FEN token usage: {response_data['usage']}")
+            record_openrouter_usage(
+                response_data,
+                model=PHOTO_FEN_MODEL,
+                surface="vision",
+                user_id=request.headers.get("X-User-Id"),
+            )
 
         if response.ok and response_data.get('choices'):
             fen_response = response_data['choices'][0]['message']['content'].strip()

@@ -4,7 +4,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from src.cost_monitor import CostMonitor, TokenUsageRecord, MODEL_COSTS, DEFAULT_COST
+from src.cost_monitor import CostMonitor, TokenUsageRecord, DEFAULT_COST
+from src.model_prices import MODEL_PRICES, estimate_cost_usd, normalize_model, price_for
 
 
 @pytest.mark.unit
@@ -51,9 +52,9 @@ class TestCostMonitor:
                 completion_tokens=500,
             )
         assert record.total_tokens == 1500
-        # Cost = (1000/1000 * 0.00015) + (500/1000 * 0.0006)
-        expected = 0.00015 + 0.0003
-        assert abs(record.estimated_cost_usd - expected) < 0.0001
+        # OpenRouter list price: $0.30 / $2.50 per 1M
+        expected = 1000 * 0.30 / 1e6 + 500 * 2.50 / 1e6
+        assert abs(record.estimated_cost_usd - expected) < 1e-9
 
     def test_record_usage_unknown_model(self):
         monitor = CostMonitor()
@@ -132,10 +133,43 @@ class TestCostMonitor:
         payload = mock_post.call_args.kwargs["json"]
         assert payload["surface"] == "review"
 
-    def test_model_costs_defined(self):
-        assert "google/gemini-2.5-flash" in MODEL_COSTS
-        assert "anthropic/claude-sonnet-4-5" in MODEL_COSTS
-        assert "anthropic/claude-opus-4" in MODEL_COSTS
+    def test_configured_models_are_priced(self):
+        """Every model the profile can route to must have a real price row."""
+        from src.config import get_model_config
+
+        cfg = get_model_config()
+        for model in [cfg["default"], *cfg["tiers"].values()]:
+            assert normalize_model(model) in MODEL_PRICES, model
+
+    def test_price_lookup_tolerates_variants_and_dotted_twins(self):
+        assert price_for("anthropic/claude-opus-5:nitro") is MODEL_PRICES["anthropic/claude-opus-5"]
+        assert price_for("anthropic/claude-sonnet-4-5") == MODEL_PRICES["anthropic/claude-sonnet-4.5"]
+        assert price_for("nobody/unknown-model")["input"] == 1.00
+
+    def test_cached_tokens_are_billed_at_cache_rate(self):
+        full = estimate_cost_usd("anthropic/claude-sonnet-5", 10_000, 0)
+        cached = estimate_cost_usd("anthropic/claude-sonnet-5", 10_000, 0, cached_tokens=8_000)
+        assert cached < full
+        assert abs(cached - (2_000 * 2.0 + 8_000 * 0.20) / 1e6) < 1e-9
+
+    @patch("src.cost_monitor.httpx.post")
+    @patch.dict("os.environ", {"SUPABASE_URL": "https://fake.supabase.co", "SUPABASE_SERVICE_KEY": "key"})
+    def test_persist_payload_includes_turn_id_and_cached(self, mock_post):
+        mock_post.return_value.status_code = 201
+        monitor = CostMonitor()
+        monitor.record_usage("user1", "s1", "m", 10, 5, turn_id="t-1", cached_tokens=4)
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["turn_id"] == "t-1"
+        assert payload["cached_tokens"] == 4
+
+    @patch("src.cost_monitor.logger")
+    @patch("src.cost_monitor.httpx.post")
+    @patch.dict("os.environ", {"SUPABASE_URL": "https://fake.supabase.co", "SUPABASE_SERVICE_KEY": "key"})
+    def test_rejected_insert_is_logged(self, mock_post, mock_logger):
+        mock_post.return_value.status_code = 400
+        mock_post.return_value.text = "column does not exist"
+        CostMonitor().record_usage("user1", "s1", "m", 10, 5)
+        assert mock_logger.error.called
 
 
 @pytest.mark.unit
@@ -203,3 +237,40 @@ class TestVoiceMetering:
         assert captured.get("surface") == "voice"
         assert captured.get("tool_name") == "analyze_position"
         assert captured.get("model") == cm.VOICE_MODEL
+
+
+@pytest.mark.unit
+class TestRecordOpenRouterUsage:
+    """Housekeeping calls (memory writer, playbook, lesson tutor) used to
+    discard their usage block; now every OpenRouter response is metered."""
+
+    def _wait(self):
+        import threading
+        for t in threading.enumerate():
+            if t is not threading.main_thread() and t.daemon:
+                t.join(timeout=2)
+
+    def test_records_tokens_and_cached_tokens(self):
+        from src.cost_monitor import record_openrouter_usage
+
+        body = {"usage": {"prompt_tokens": 1200, "completion_tokens": 80,
+                          "prompt_tokens_details": {"cached_tokens": 1000}}}
+        with patch("src.cost_monitor.cost_monitor.record_usage") as rec:
+            record_openrouter_usage(body, model="google/gemini-3.5-flash-lite",
+                                    user_id="u1", surface="memory", turn_id="t1")
+            self._wait()
+        kwargs = rec.call_args.kwargs
+        assert kwargs["prompt_tokens"] == 1200
+        assert kwargs["completion_tokens"] == 80
+        assert kwargs["cached_tokens"] == 1000
+        assert kwargs["surface"] == "memory"
+        assert kwargs["turn_id"] == "t1"
+
+    def test_missing_usage_records_nothing(self):
+        from src.cost_monitor import record_openrouter_usage
+
+        with patch("src.cost_monitor.cost_monitor.record_usage") as rec:
+            record_openrouter_usage({}, model="m", user_id="u1", surface="lesson")
+            record_openrouter_usage({"usage": None}, model="m", user_id="u1", surface="lesson")
+            self._wait()
+        assert not rec.called

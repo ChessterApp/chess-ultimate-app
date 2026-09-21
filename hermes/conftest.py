@@ -90,18 +90,26 @@ def fake_twic_db():
     cur.execute('''
         CREATE TABLE games (
             id INTEGER PRIMARY KEY,
-            white TEXT,
-            black TEXT,
+            white_name TEXT,
+            black_name TEXT,
             result TEXT,
             date TEXT,
             eco TEXT,
             opening TEXT,
             event TEXT,
-            pgn TEXT
+            pgn TEXT,
+            white_elo INTEGER,
+            black_elo INTEGER,
+            pgn_offset INTEGER DEFAULT 0,
+            pgn_length INTEGER DEFAULT 0
         )
     ''')
+    # Column names mirror the production TWIC index (white_name / black_name,
+    # see docs/history/TWIC_INDEXER_STATUS.md). A fixture with the wrong names
+    # once let get_player_openings pass its tests while failing in production.
     cur.executemany(
-        'INSERT INTO games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO games (id, white_name, black_name, result, date, eco, opening, event, pgn) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         FIXTURE_GAMES,
     )
     cur.execute('''
@@ -143,36 +151,6 @@ def mock_stockfish():
 
     with patch('subprocess.Popen', side_effect=make_mock_popen) as mock_popen:
         yield mock_popen
-
-
-@pytest.fixture
-def fake_supabase():
-    """Mock Supabase HTTP responses for user data tests.
-
-    Returns a dict with canned repertoire and user_games data, plus
-    a mock httpx.get function that returns them based on URL path.
-    """
-    repertoire_data = [
-        {"id": 1, "user_id": "user123", "color": "white", "eco": "C50",
-         "opening": "Italian Game", "moves": "1. e4 e5 2. Nf3 Nc6 3. Bc4"},
-        {"id": 2, "user_id": "user123", "color": "black", "eco": "B90",
-         "opening": "Sicilian Najdorf", "moves": "1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6"},
-        {"id": 3, "user_id": "user123", "color": "white", "eco": "D37",
-         "opening": "QGD", "moves": "1. d4 d5 2. c4 e6 3. Nf3 Nf6 4. Nc3 Be7"},
-    ]
-    user_games_data = [
-        {"id": 1, "user_id": "user123", "white": "user123", "black": "opponent1",
-         "result": "1-0", "played_at": "2024-05-01", "eco": "C50", "pgn": "1. e4 e5 1-0"},
-        {"id": 2, "user_id": "user123", "white": "opponent2", "black": "user123",
-         "result": "0-1", "played_at": "2024-04-28", "eco": "B90", "pgn": "1. e4 c5 0-1"},
-        {"id": 3, "user_id": "user123", "white": "user123", "black": "opponent3",
-         "result": "1/2-1/2", "played_at": "2024-04-25", "eco": "D37", "pgn": "1. d4 d5 1/2-1/2"},
-    ]
-
-    return {
-        "repertoire": repertoire_data,
-        "user_games": user_games_data,
-    }
 
 
 @pytest.fixture

@@ -903,6 +903,34 @@ describe('useGeminiLive', () => {
 
   const flushMicro = () => new Promise((r) => setTimeout(r, 0));
 
+  it('usage beacon relays Gemini usageMetadata with the minted model name', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics));
+
+    const { result } = renderHook(() => useGeminiLive({ getSessionId: () => 's1' }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    await act(async () => {
+      g.connectArgs.value.callbacks.onmessage({
+        usageMetadata: { promptTokenCount: 4200, responseTokenCount: 310, cachedContentTokenCount: 4000 },
+      });
+      // Zero-token metadata (setup / keepalive frames) must not produce a row.
+      g.connectArgs.value.callbacks.onmessage({ usageMetadata: { promptTokenCount: 0 } });
+      await flushMicro();
+    });
+
+    const usage = metrics.filter((m) => m.event === 'usage');
+    expect(usage).toHaveLength(1);
+    expect(usage[0]).toMatchObject({
+      prompt_tokens: 4200,
+      completion_tokens: 310,
+      cached_tokens: 4000,
+      model: 'gemini-3.1-flash-live-preview',
+      sessionId: 's1',
+    });
+  });
+
   it('tool beacon carries ok=true + a turn_id on a successful call', async () => {
     const metrics: any[] = [];
     vi.stubGlobal('fetch', metricsCapturingFetch(metrics));

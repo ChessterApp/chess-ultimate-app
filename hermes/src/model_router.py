@@ -9,11 +9,23 @@ Extends config.yaml model_tiers with keyword-based heuristic routing:
 import re
 
 
-# Keywords that indicate higher complexity tiers
+# Keywords that indicate higher complexity tiers. Each set covers EN, RU and KK:
+# the audience is Russian/Kazakh-speaking, and with English-only patterns every
+# non-English question silently fell through to the fast tier. Python's ``\b``
+# and ``\w`` are Unicode-aware, so word boundaries work for Cyrillic too.
 _DEEP_KEYWORDS = re.compile(
     r"\b(deep\s+analysis|game\s+review|strategic\s+plan|preparation|repertoire\s+review"
     r"|long[- ]term|middlegame\s+plan|pawn\s+structure\s+analysis|positional\s+understanding"
-    r"|comprehensive)\b",
+    r"|comprehensive"
+    # Russian
+    r"|глубок\w*\s+анализ|разбор\w*\s+(?:моей\s+|этой\s+|всей\s+)?парти\w*"
+    r"|разбери\w*\s+(?:мою\s+|эту\s+|всю\s+)?парти\w*|стратегическ\w*\s+план\w*"
+    r"|план\s+на\s+(?:парти\w*|миттельшпил\w*)|долгосрочн\w*|подробн\w*\s+разбор\w*"
+    r"|полн\w*\s+разбор\w*|анализ\w*\s+пешечн\w*\s+структур\w*|позиционн\w*\s+понимани\w*"
+    r"|разбор\w*\s+(?:моего\s+)?репертуар\w*|подготовк\w*\s+к\s+(?:турнир\w*|соперник\w*|противник\w*)"
+    # Kazakh
+    r"|терең\s+талдау|ойын\w*\s+талда\w*|стратегиялық\s+жоспар\w*|ұзақ\s*мерзімді"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -28,7 +40,15 @@ _BOARD_KEYWORDS = re.compile(
 
 _ANALYSIS_KEYWORDS = re.compile(
     r"\b(analy[sz]e|evaluat\w*|critical|tactic\w*|calculat\w*|variation|candidate\s+move"
-    r"|sacrifice|combin\w*|attack|defend|endgame\s+technique|compare|assess)",
+    r"|sacrifice|combin\w*|attack|defend|endgame\s+technique|compare|assess"
+    # Russian. "защища" (the verb) rather than "защит": opening names such as
+    # «сицилианская защита» must not promote a definition question.
+    r"|анализ|проанализ|оцени|оценк|критич|тактик|посчита|рассчита|расч[её]т|вариант"
+    r"|ход\w*[- ]кандидат|кандидат\w*\s+ход|жертв|комбинац|атак|защища|техник\w*\s+эндшпил"
+    r"|сравни|сравнен"
+    # Kazakh
+    r"|талда|бағала|тактика|есепте|құрбан|комбинация|шабуыл|қорған|салыстыр"
+    r")",
     re.IGNORECASE,
 )
 

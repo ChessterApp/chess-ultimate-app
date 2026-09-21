@@ -20,6 +20,8 @@ export interface SetPuzzleAction {
   type: 'set_puzzle';
   fen: string;
   solution: string[];
+  /** Lichess puzzle id when the puzzle came from the puzzle database. */
+  puzzle_id?: string;
 }
 
 export interface DrawArrowsAction {
@@ -46,7 +48,11 @@ export interface ClearBoardAction {
   type: 'clear_board';
 }
 
-export type BoardAction =
+/** Every action may name the board (tab) it targets; absent = the active board. */
+type Addressed = { board_id?: string };
+
+export type BoardAction = Addressed &
+  (
   | SetFenAction
   | LoadPgnAction
   | SetPuzzleAction
@@ -54,7 +60,8 @@ export type BoardAction =
   | HighlightSquaresAction
   | NavigateAction
   | FlipBoardAction
-  | ClearBoardAction;
+  | ClearBoardAction
+  );
 
 // ─── Game Results (from TWIC search) ─────────────────────────────────────
 

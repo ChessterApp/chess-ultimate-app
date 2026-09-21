@@ -14,12 +14,19 @@ import ToolIndicator from './ToolIndicator';
 import FeedbackButtons from './FeedbackButtons';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
+import { coachApi } from '@/lib/coach/boards-api';
 
 interface CoachChatProps {
   currentFen: string;
   sessionId: string | null;
+  /** The board (tab) the student is looking at; sent as board_id on every turn. */
+  boardId?: string | null;
+  /** Restore the session's message history from the server on mount / session switch. */
+  restoreHistory?: boolean;
   onBoardActions: (actions: BoardAction[]) => void;
   onSessionCreated?: (id: string) => void;
+  /** The server's active board after a turn (the coach may have opened one). */
+  onActiveBoardChanged?: (boardId: string) => void;
   onOpenGame?: (game: GameResult) => void;
   /**
    * Optional grounding preamble prepended to the OUTGOING message sent to the
@@ -35,12 +42,27 @@ export interface CoachChatHandle {
   send: (text: string) => void;
 }
 
+/** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
+const PGN_RE = /(?:^|\s)1\.\s*[a-hNBRQKO0]/;
+const FEN_RE = /^\s*([rnbqkpRNBQKP1-8]+\/){7}[rnbqkpRNBQKP1-8]+\s+[wb]\s+(-|[KQkq]{1,4})\s+(-|[a-h][36])(\s+\d+\s+\d+)?\s*$/;
+
+export function classifyPastedText(text: string): 'pgn' | 'fen' | null {
+  const t = (text || '').trim();
+  if (!t) return null;
+  if (FEN_RE.test(t)) return 'fen';
+  if (t.length > 20 && PGN_RE.test(t) && (t.match(/\d+\./g) ?? []).length >= 2) return 'pgn';
+  return null;
+}
+
 const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat(
   {
     currentFen,
     sessionId,
+    boardId,
+    restoreHistory = false,
     onBoardActions,
     onSessionCreated,
+    onActiveBoardChanged,
     onOpenGame,
     contextNote,
   },
@@ -48,6 +70,37 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 ) {
   const t = useTranslations('coach');
   const [messages, setMessages] = useState<CoachMessage[]>([]);
+
+  // Restore the conversation when the page opens on a saved session or the
+  // student switches sessions. Text and voice messages are both persisted
+  // server-side; before this the history vanished on every reload.
+  const restoredForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!restoreHistory) return;
+    if (!sessionId) {
+      restoredForRef.current = null;
+      setMessages([]);
+      return;
+    }
+    if (restoredForRef.current === sessionId) return;
+    restoredForRef.current = sessionId;
+    let cancelled = false;
+    void (async () => {
+      const data = await coachApi.loadMessages(sessionId);
+      if (cancelled || !data) return;
+      setMessages(
+        data.messages.map((m, i) => ({
+          id: `restored-${sessionId}-${i}`,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date((m.timestamp || 0) * 1000),
+        })),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreHistory, sessionId]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [toolActive, setToolActive] = useState<string | null>(null);
@@ -289,6 +342,34 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // A pasted PGN or FEN (or a .pgn file) goes to the board directly and the
+  // coach is told about it in one short line — the student should not have to
+  // ask the model to "load this" and wait for a tool round-trip.
+  const loadPastedGame = useCallback(
+    (text: string) => {
+      const kind = classifyPastedText(text);
+      const trimmed = text.trim();
+      if (kind === 'pgn') {
+        onBoardActions([{ type: 'load_pgn', pgn: trimmed }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'user', content: t('loadedPgn'), timestamp: new Date() },
+        ]);
+      } else if (kind === 'fen') {
+        onBoardActions([{ type: 'set_fen', fen: trimmed }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'user', content: t('loadedFen'), timestamp: new Date() },
+        ]);
+      } else {
+        setInput((prev) => prev + trimmed);
+      }
+    },
+    [onBoardActions, t],
+  );
+
   const sendMessage = useCallback(async (overrideText?: string) => {
     const source = typeof overrideText === 'string' ? overrideText : input;
     const trimmed = source.trim();
@@ -323,9 +404,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         body: JSON.stringify({
           // The visible bubble shows `trimmed`; the coach receives the grounding
           // preamble (if any) prepended so the answer is scoped to the position.
-          message: contextNote ? `${contextNote}\n\n${trimmed}` : trimmed,
+          message: trimmed,
+          // Grounding travels apart from the question so Hermes routes, selects
+          // tools and stores history on what the student actually asked.
+          context_note: contextNote || undefined,
           fen: currentFen,
           session_id: sessionId,
+          board_id: boardId || undefined,
         }),
         signal: controller.signal,
       });
@@ -399,6 +484,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
             if (data.done) {
               setToolActive(null);
+              if (data.active_board_id && onActiveBoardChanged) {
+                onActiveBoardChanged(data.active_board_id);
+              }
               // Attach the turn id to the completed answer so its 👍/👎 feedback
               // can reference this exact turn.
               if (data.turn_id) {
@@ -441,7 +529,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       setToolActive(null);
       abortRef.current = null;
     }
-  }, [input, isStreaming, currentFen, sessionId, onBoardActions, onSessionCreated, t, contextNote]);
+  }, [input, isStreaming, currentFen, sessionId, boardId, onBoardActions, onSessionCreated, onActiveBoardChanged, t, contextNote]);
 
   // Let a host drive a send (Review Coach Drawer starter chips).
   useImperativeHandle(
@@ -642,10 +730,42 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           </div>
         )}
         <div className="flex gap-2">
+          {/* Load a .pgn file straight onto the board — no model call needed. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pgn,text/plain"
+            className="hidden"
+            data-testid="pgn-file-input"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              const text = await file.text();
+              loadPastedGame(text);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming}
+            className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-30"
+            title={t('loadPgnFile')}
+            aria-label={t('loadPgnFile')}
+          >
+            📎
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData('text');
+              if (classifyPastedText(text)) {
+                e.preventDefault();
+                loadPastedGame(text);
+              }
+            }}
             placeholder={t('inputPlaceholder')}
             rows={1}
             className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"

@@ -386,3 +386,56 @@ class TestSaveSubscription:
         mock_post.side_effect = Exception("network error")
         info = SubscriptionInfo(user_id="u1", tier="monthly")
         assert _save_subscription(info) is False
+
+
+@pytest.mark.unit
+class TestWhopSignature:
+    """verify_whop_signature mirrors frontend/src/app/api/whop/verify.ts."""
+
+    SECRET = "whsec_test"
+    BODY = b'{"action":"membership.went_valid","data":{"id":"mem_1"}}'
+
+    def _sig(self, body=None, secret=None):
+        import hashlib
+        import hmac
+
+        return hmac.new((secret or self.SECRET).encode(), body or self.BODY, hashlib.sha256).hexdigest()
+
+    def test_valid_signature(self):
+        from src.billing import verify_whop_signature
+
+        assert verify_whop_signature(self.BODY, self._sig(), self.SECRET) == "ok"
+        assert verify_whop_signature(self.BODY, "sha256=" + self._sig().upper(), self.SECRET) == "ok"
+
+    def test_missing_pieces(self):
+        from src.billing import verify_whop_signature
+
+        assert verify_whop_signature(self.BODY, self._sig(), "") == "no_secret"
+        assert verify_whop_signature(self.BODY, None, self.SECRET) == "no_signature"
+
+    def test_bad_signature(self):
+        from src.billing import verify_whop_signature
+
+        assert verify_whop_signature(self.BODY, self._sig(secret="other"), self.SECRET) == "bad_signature"
+        assert verify_whop_signature(self.BODY, "not-hex", self.SECRET) == "bad_signature"
+        assert verify_whop_signature(self.BODY + b" ", self._sig(), self.SECRET) == "bad_signature"
+
+    def test_endpoint_rejects_unsigned_and_accepts_signed(self, monkeypatch):
+        from fastapi.testclient import TestClient
+        from src.server import app
+
+        client = TestClient(app)
+        monkeypatch.delenv("WHOP_WEBHOOK_SECRET", raising=False)
+        assert client.post("/api/coach/whop-webhook", content=self.BODY).status_code == 500
+
+        monkeypatch.setenv("WHOP_WEBHOOK_SECRET", self.SECRET)
+        assert client.post("/api/coach/whop-webhook", content=self.BODY).status_code == 401
+        bad = client.post("/api/coach/whop-webhook", content=self.BODY,
+                          headers={"x-whop-signature": self._sig(secret="other")})
+        assert bad.status_code == 401
+
+        with patch("src.server.handle_webhook_event", return_value={"handled": True}) as h:
+            ok = client.post("/api/coach/whop-webhook", content=self.BODY,
+                             headers={"x-whop-signature": self._sig()})
+        assert ok.status_code == 200
+        h.assert_called_once_with(self.BODY)

@@ -148,6 +148,33 @@ def _save_subscription(info: SubscriptionInfo, plan_id: str = "", plan_type: str
         return False
 
 
+def verify_whop_signature(raw_body: bytes, signature_header: Optional[str], secret: str) -> str:
+    """Check Whop's ``X-Whop-Signature`` (HMAC-SHA256 hex of the raw body).
+
+    Mirrors frontend/src/app/api/whop/verify.ts. Returns ``"ok"`` or a reason:
+    ``no_secret`` (fail closed — misconfiguration), ``no_signature``,
+    ``bad_signature``.
+    """
+    import hashlib
+    import hmac
+
+    if not secret:
+        return "no_secret"
+    if not signature_header:
+        return "no_signature"
+    provided = signature_header.strip().lower()
+    if provided.startswith("sha256="):
+        provided = provided[7:]
+    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    try:
+        provided_bytes = bytes.fromhex(provided)
+    except ValueError:
+        return "bad_signature"
+    if len(provided_bytes) != len(bytes.fromhex(expected)):
+        return "bad_signature"
+    return "ok" if hmac.compare_digest(provided_bytes, bytes.fromhex(expected)) else "bad_signature"
+
+
 def handle_webhook_event(payload: bytes) -> dict:
     """Process a Whop webhook event.
 

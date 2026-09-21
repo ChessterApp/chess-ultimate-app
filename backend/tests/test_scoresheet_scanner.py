@@ -294,3 +294,73 @@ class TestScoresheetScanner(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAdaptivePasses(unittest.TestCase):
+    """Pass 1 is checked with python-chess; voting passes run only when needed."""
+
+    CLEAN = [(1, "e4", "e5"), (2, "Nf3", "Nc6"), (3, "Bb5", "a6"), (4, "Ba4", "")]
+
+    def test_clean_extraction_detected(self):
+        self.assertTrue(scoresheet_module.extraction_is_clean(self.CLEAN))
+        # Long-castling written with zeros and a trailing check mark still count.
+        self.assertTrue(scoresheet_module.extraction_is_clean(
+            [(1, "e4", "e5"), (2, "Nf3", "Nc6"), (3, "Bc4", "Bc5"), (4, "0-0", "Nf6")]))
+
+    def test_illegal_gap_or_misnumbered_extraction_is_not_clean(self):
+        self.assertFalse(scoresheet_module.extraction_is_clean([]))
+        self.assertFalse(scoresheet_module.extraction_is_clean([(1, "e4", "e5"), (2, "Nf3", "Kf7")]))
+        self.assertFalse(scoresheet_module.extraction_is_clean([(1, "e4", ""), (2, "Nf3", "Nc6")]))
+        self.assertFalse(scoresheet_module.extraction_is_clean([(1, "e4", "e5"), (3, "Nf3", "Nc6")]))
+
+    def test_single_pass_when_first_extraction_is_legal(self):
+        calls = []
+
+        def fake_extract(images, key, model, temperature=0.1):
+            calls.append(temperature)
+            return "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6"
+
+        original = scoresheet_module.extract_moves_from_images
+        scoresheet_module.extract_moves_from_images = fake_extract
+        try:
+            results = scoresheet_module.multi_pass_extract(["img"], "key", max_passes=3, adaptive=True)
+        finally:
+            scoresheet_module.extract_moves_from_images = original
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(results), 1)
+        # Voting over a single clean extraction validates every move.
+        moves, corrections = scoresheet_module.vote_on_moves(results, chess.Board())
+        self.assertEqual(moves, ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6"])
+
+    def test_three_passes_when_first_extraction_has_an_illegal_move(self):
+        calls = []
+
+        def fake_extract(images, key, model, temperature=0.1):
+            calls.append(temperature)
+            return "1. e4 e5 2. Nf3 Kf7" if len(calls) == 1 else "1. e4 e5 2. Nf3 Nc6"
+
+        original = scoresheet_module.extract_moves_from_images
+        scoresheet_module.extract_moves_from_images = fake_extract
+        try:
+            results = scoresheet_module.multi_pass_extract(["img"], "key", max_passes=3, adaptive=True)
+        finally:
+            scoresheet_module.extract_moves_from_images = original
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(results), 3)
+
+    def test_adaptive_off_always_runs_all_passes(self):
+        calls = []
+
+        def fake_extract(images, key, model, temperature=0.1):
+            calls.append(temperature)
+            return "1. e4 e5"
+
+        original = scoresheet_module.extract_moves_from_images
+        scoresheet_module.extract_moves_from_images = fake_extract
+        try:
+            scoresheet_module.multi_pass_extract(["img"], "key", max_passes=3, adaptive=False)
+        finally:
+            scoresheet_module.extract_moves_from_images = original
+        self.assertEqual(calls, [0.1, 0.3, 0.5])

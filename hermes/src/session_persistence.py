@@ -279,6 +279,92 @@ class SessionPersistence:
                 "Failed to update board_state for session %s", session_id, exc_info=True
             )
 
+    # ------------------------------------------------------------ boards
+
+    def persist_board(self, board: dict) -> None:
+        """Upsert one coach_boards row (fire-and-forget)."""
+        if not self.enabled:
+            return
+        self._run_bg(self._persist_board, board)
+
+    def _persist_board(self, board: dict) -> None:
+        try:
+            self._await_session_ready(board["session_id"])
+            headers = self._headers()
+            headers["Prefer"] = "resolution=merge-duplicates"
+            row = {
+                "id": board["id"],
+                "session_id": board["session_id"],
+                "kind": board.get("kind", "study"),
+                "title": board.get("title", ""),
+                "pgn": board.get("pgn", ""),
+                "fen": board.get("fen"),
+                "ply": int(board.get("ply") or 0),
+                "orientation": board.get("orientation", "white"),
+                "annotations": board.get("annotations") or {},
+                "puzzle": board.get("puzzle"),
+                "game_state": board.get("game_state"),
+                "source": board.get("source"),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            httpx.post(
+                f"{self.url}/rest/v1/coach_boards", json=row, headers=headers, timeout=TIMEOUT
+            ).raise_for_status()
+        except Exception:
+            logger.debug("Failed to persist coach board %s", board.get("id"), exc_info=True)
+
+    def delete_board(self, board_id: str) -> None:
+        if not self.enabled:
+            return
+        self._run_bg(self._delete_board, board_id)
+
+    def _delete_board(self, board_id: str) -> None:
+        try:
+            httpx.delete(
+                f"{self.url}/rest/v1/coach_boards",
+                params={"id": f"eq.{board_id}"},
+                headers=self._headers(),
+                timeout=TIMEOUT,
+            ).raise_for_status()
+        except Exception:
+            logger.debug("Failed to delete coach board %s", board_id, exc_info=True)
+
+    def update_session_fields(self, session_id: str, **fields) -> None:
+        """PATCH coach_sessions columns (title, active_board_id …)."""
+        if not self.enabled or not fields:
+            return
+        self._run_bg(self._update_session_fields, session_id, fields)
+
+    def _update_session_fields(self, session_id: str, fields: dict) -> None:
+        try:
+            self._await_session_ready(session_id)
+            httpx.patch(
+                f"{self.url}/rest/v1/coach_sessions",
+                params={"id": f"eq.{session_id}"},
+                json={**fields, "updated_at": datetime.now(timezone.utc).isoformat()},
+                headers=self._headers(),
+                timeout=TIMEOUT,
+            ).raise_for_status()
+        except Exception:
+            logger.debug("Failed to update session %s fields", session_id, exc_info=True)
+
+    def load_boards(self, session_id: str) -> list[dict]:
+        """Fetch coach_boards rows for a session, oldest first. [] on failure."""
+        if not self.enabled:
+            return []
+        try:
+            resp = httpx.get(
+                f"{self.url}/rest/v1/coach_boards",
+                params={"session_id": f"eq.{session_id}", "select": "*", "order": "created_at.asc"},
+                headers=self._headers(),
+                timeout=TIMEOUT,
+            )
+            resp.raise_for_status()
+            return resp.json() or []
+        except Exception:
+            logger.debug("Failed to load coach boards for %s", session_id, exc_info=True)
+            return []
+
     def delete_session(self, session_id: str) -> None:
         if not self.enabled:
             return

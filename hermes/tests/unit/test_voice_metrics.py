@@ -114,6 +114,34 @@ class TestMetricsEndpoint:
         assert len(lines) == 1
         assert lines[0]["ttfa_ms"] == 700
 
+    def test_usage_beacon_records_real_voice_tokens(self, _tmp_metrics_dir):
+        """Voice rows used to carry 0 tokens / $0; the usage beacon fixes that."""
+        with patch("src.server.record_voice_usage") as rec:
+            resp = self.client.post(
+                "/api/coach/metrics",
+                headers=USER_HEADERS,
+                json={"sessionId": "s1", "event": "usage", "turn_id": "t1",
+                      "prompt_tokens": 4200, "completion_tokens": 310,
+                      "cached_tokens": 4000, "model": "gemini-3.1-flash-live-preview"},
+            )
+        assert resp.status_code == 204
+        rec.assert_called_once()
+        args, kwargs = rec.call_args
+        assert args[0] == USER_HEADERS["X-User-Id"]
+        assert args[1] == "s1"
+        assert kwargs == {"prompt_tokens": 4200, "completion_tokens": 310,
+                          "cached_tokens": 4000, "model": "gemini-3.1-flash-live-preview",
+                          "turn_id": "t1"}
+
+    def test_usage_beacon_token_fields_are_clamped(self):
+        record = sanitize_metric({"sessionId": "s1", "event": "usage",
+                                  "prompt_tokens": -5, "completion_tokens": "12",
+                                  "cached_tokens": 10**9, "model": "m" * 500})
+        assert record["prompt_tokens"] == 0          # clamped to the floor
+        assert "completion_tokens" not in record     # strings are not numbers here
+        assert record["cached_tokens"] == 5_000_000  # clamped to the ceiling
+        assert len(record["model"]) <= 200
+
     def test_garbage_body_no_5xx(self, _tmp_metrics_dir):
         resp = self.client.post(
             "/api/coach/metrics",

@@ -377,6 +377,34 @@ class TestCoachChat:
 
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
+    def test_context_note_reaches_model_but_not_routing_or_history(self, mock_profile, mock_agent):
+        """The Review drawer's grounding note used to be glued to the message, so
+        its English words ("evaluation", "engine") drove model routing and tool
+        selection and were stored as the student's words."""
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        agent_instance.chat.return_value = "Because the knight hangs."
+        mock_agent.return_value = agent_instance
+
+        note = '[Review context] classified as "blunder"; grounded in the engine evaluation.'
+        resp = self.client.post(
+            "/api/coach/chat",
+            headers=USER_HEADERS,
+            json={"message": "почему это ошибка?", "context_note": note, "session_id": "ctx-note-s1"},
+        )
+        assert resp.status_code == 200
+
+        # Routing and tool selection saw only the student's question.
+        assert mock_agent.call_args.kwargs["user_query"] == "почему это ошибка?"
+        # The model saw the note with the question.
+        sent = agent_instance.chat.call_args.args[0]
+        assert note in sent and "почему это ошибка?" in sent
+        # History keeps the student's words only.
+        session = session_store.get("ctx-note-s1", "test-user-123")
+        assert [m.content for m in session.messages if m.role == "user"] == ["почему это ошибка?"]
+
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
     def test_chat_streams_real_tokens_via_callback(self, mock_profile, mock_agent):
         """When the agent supports a stream callback, real tokens stream through
         and still concatenate to the final message."""
@@ -519,6 +547,33 @@ class TestCoachChat:
         )
         assert resp.status_code == 401
 
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_volatile_context_leaves_the_system_prompt(self, mock_profile, mock_agent):
+        """Board state and date go to the user message so the system prompt
+        (and with it the provider's prompt cache) is identical turn to turn."""
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        agent_instance.chat.return_value = "ok"
+        mock_agent.return_value = agent_instance
+
+        fen = "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
+        resp = self.client.post(
+            "/api/coach/chat",
+            headers=USER_HEADERS,
+            json={"message": "что тут играть?", "fen": fen},
+        )
+        assert resp.status_code == 200
+        _parse_sse(resp.text)
+
+        system_prompt = mock_agent.call_args.kwargs["system_prompt"]
+        sent = agent_instance.chat.call_args.args[0]
+        assert fen not in system_prompt
+        assert "## Current Date" not in system_prompt
+        assert "Socratic" in system_prompt or "coach" in system_prompt.lower()
+        assert fen in sent and "## Current Date" in sent
+        assert sent.index("что тут играть?") < sent.index("[Turn context")
+
     @patch("src.server.build_system_prompt")
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
@@ -527,7 +582,7 @@ class TestCoachChat:
         agent_instance = MagicMock()
         agent_instance.chat.return_value = "Привет!"
         mock_agent.return_value = agent_instance
-        mock_prompt.return_value = "system prompt"
+        mock_prompt.return_value = ("system prompt", "turn context")
 
         resp = self.client.post(
             "/api/coach/chat",
@@ -549,7 +604,7 @@ class TestCoachChat:
         agent_instance = MagicMock()
         agent_instance.chat.return_value = "Hello!"
         mock_agent.return_value = agent_instance
-        mock_prompt.return_value = "system prompt"
+        mock_prompt.return_value = ("system prompt", "turn context")
 
         resp = self.client.post(
             "/api/coach/chat",

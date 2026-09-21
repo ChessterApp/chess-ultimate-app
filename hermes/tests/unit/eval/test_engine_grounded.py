@@ -30,6 +30,7 @@ requires_sf = pytest.mark.skipif(not _HAVE_SF, reason="Stockfish binary not pres
 
 
 @pytest.mark.unit
+@requires_sf  # claim extraction runs the engine; without a binary every turn reports stockfish_missing
 class TestClaimExtraction:
     def test_cued_legal_move_is_recommended(self):
         v = evaluate_turn(START, "You should play e4 to open the center.", depth=D)

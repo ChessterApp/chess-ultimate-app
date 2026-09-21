@@ -517,3 +517,96 @@ describe('CoachChat board sync', () => {
     expect(sendBoardUpdate).not.toHaveBeenCalled();
   });
 });
+
+describe('CoachChat — persisted sessions and boards', () => {
+  it('restores the session history from the server when restoreHistory is set', async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/sessions/s-42/messages')) {
+        return {
+          ok: true,
+          json: async () => ({
+            messages: [
+              { role: 'user', content: 'что тут играть?', timestamp: 1700000000, source: 'text' },
+              { role: 'assistant', content: 'Начни с центра.', timestamp: 1700000010, source: 'text' },
+            ],
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId="s-42" restoreHistory onBoardActions={() => {}} />
+      </NextIntlClientProvider>,
+    );
+    expect(await screen.findByText('что тут играть?')).toBeTruthy();
+    expect(await screen.findByText('Начни с центра.')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('sends board_id with every chat turn', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url) === '/api/coach/chat') {
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('data: {"done": true, "session_id": "s-1", "active_board_id": "b-9"}\n\n'));
+              controller.close();
+            },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const onActive = vi.fn();
+
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId="s-1" boardId="b-9" onBoardActions={() => {}} onActiveBoardChanged={onActive} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement | HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'покажи' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(([u]) => String(u) === '/api/coach/chat');
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call![1]?.body)).board_id).toBe('b-9');
+    });
+    await vi.waitFor(() => expect(onActive).toHaveBeenCalledWith('b-9'));
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('CoachChat — pasted games go straight to the board', () => {
+  it('classifies PGN, FEN and plain questions', async () => {
+    const { classifyPastedText } = await import('../CoachChat');
+    expect(classifyPastedText('1. e4 e5 2. Nf3 Nc6 3. Bb5 a6')).toBe('pgn');
+    expect(classifyPastedText('[Event "x"]\n\n1. d4 d5 2. c4 e6 1-0')).toBe('pgn');
+    expect(classifyPastedText('rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1')).toBe('fen');
+    expect(classifyPastedText('что играть после 1. e4?')).toBeNull();
+    expect(classifyPastedText('')).toBeNull();
+  });
+
+  it('loads a pasted PGN onto the board without a model call', () => {
+    const onBoardActions = vi.fn();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder);
+    fireEvent.paste(input, { clipboardData: { getData: () => '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' } });
+    expect(onBoardActions).toHaveBeenCalledWith([{ type: 'load_pgn', pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' }]);
+    expect(screen.getByText(coach.loadedPgn)).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});

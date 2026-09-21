@@ -1990,7 +1990,19 @@
     "toolWorking": "Жұмыс істелуде…",
     "fullPageTooltip": "Тақтаны басқаруы бар толық жаттықтырушы бетін ашу",
     "feedbackGood": "Жақсы жауап",
-    "feedbackBad": "Нашар жауап"
+    "feedbackBad": "Нашар жауап",
+    "sessions": "Сессиялар",
+    "sessionsTitle": "Сіздің сессияларыңыз",
+    "noSessions": "Сақталған сессиялар әзірге жоқ",
+    "untitledSession": "Атаусыз",
+    "deleteSession": "Сессияны жою",
+    "renameSession": "Атын өзгерту",
+    "renamePrompt": "Сессия атауы",
+    "closeTab": "Қойындыны жабу",
+    "messagesCount": "{count} хабар",
+    "loadPgnFile": ".pgn файлынан партия жүктеу",
+    "loadedPgn": "Партияны тақтаға жүктедім.",
+    "loadedFen": "Позицияны тақтаға қойдым."
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

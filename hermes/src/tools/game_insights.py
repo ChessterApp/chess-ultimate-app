@@ -9,6 +9,8 @@ import json
 import logging
 
 from tools.registry import registry
+
+from src.identity import resolve_user_id
 from src.tools.user_data import _supabase_get
 
 logger = logging.getLogger(__name__)
@@ -73,7 +75,7 @@ def get_game_insights(
 
 def _handle_get_game_insights(args: dict, **kwargs) -> str:
     result = get_game_insights(
-        user_id=args.get("user_id", ""),
+        user_id=resolve_user_id(args, kwargs),
         opening=args.get("opening"),
         limit=args.get("limit", DEFAULT_LIMIT),
     )

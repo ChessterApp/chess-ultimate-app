@@ -47,8 +47,15 @@ _VALID_EVENTS = frozenset(
         "drop",
         "session_end",
         "mint_rejected",
+        # Gemini Live usageMetadata for one model turn (prompt/response/cached
+        # token counts) — the only way voice tokens reach token_usage.
+        "usage",
     }
 )
+
+# Token counts on the ``usage`` beacon, clamped to a sane per-turn ceiling.
+_TOKEN_FIELDS = ("prompt_tokens", "completion_tokens", "cached_tokens")
+_TOKENS_MAX = 5_000_000
 
 # Non-negative millisecond timings we accept, clamped to a sane ceiling.
 _MS_FIELDS = ("ttfa_ms", "connect_ms", "token_ms", "tool_ms")
@@ -138,6 +145,14 @@ def sanitize_metric(payload: Any) -> Optional[dict]:
     prompt_bytes = _clamp_int(payload.get("prompt_bytes"), 0, 10_000_000)
     if prompt_bytes is not None:
         record["prompt_bytes"] = prompt_bytes
+
+    for field in _TOKEN_FIELDS:
+        n = _clamp_int(payload.get(field), 0, _TOKENS_MAX)
+        if n is not None:
+            record[field] = n
+    model = _clamp_str(payload.get("model"))
+    if model:
+        record["model"] = model
 
     # Phase-2 correlation + outcome fields. Kept strictly typed so the JSONL
     # spool never turns into an arbitrary-payload passthrough.
