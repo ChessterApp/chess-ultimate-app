@@ -2002,7 +2002,20 @@
     "messagesCount": "{count} хабар",
     "loadPgnFile": ".pgn файлынан партия жүктеу",
     "loadedPgn": "Партияны тақтаға жүктедім.",
-    "loadedFen": "Позицияны тақтаға қойдым."
+    "loadedFen": "Позицияны тақтаға қойдым.",
+    "loadedFromUrl": "Сілтеме бойынша партияны жүктедім: {white} — {black}.",
+    "urlFailed": "Сілтеме бойынша партияны жүктеу мүмкін болмады: {reason}",
+    "loadingUrl": "Сілтеме бойынша партияны жүктеп жатырмын…",
+    "attachPhoto": "Тақта немесе бланк фотосы",
+    "photoToPosition": "Тақта фотосы → позиция",
+    "scoresheetToGame": "Бланк → партия",
+    "recognizingPhoto": "Фотоны танып жатырмын…",
+    "loadedFromPhoto": "Фотодан позицияны танып, тақтаға қойдым.",
+    "loadedFromScoresheet": "Бланктан партияны танып, тақтаға жүктедім.",
+    "photoFailed": "Фотоны тану мүмкін болмады: {reason}",
+    "sourceUser": "менің партияларым",
+    "sourceLichess": "Lichess",
+    "sourceChesscom": "Chess.com"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

@@ -2002,7 +2002,20 @@
     "messagesCount": "{count} msgs",
     "loadPgnFile": "Load a game from a .pgn file",
     "loadedPgn": "Loaded the game onto the board.",
-    "loadedFen": "Set the position on the board."
+    "loadedFen": "Set the position on the board.",
+    "loadedFromUrl": "Loaded the game from the link: {white} — {black}.",
+    "urlFailed": "Could not load the game from the link: {reason}",
+    "loadingUrl": "Loading the game from the link…",
+    "attachPhoto": "Photo of a board or a scoresheet",
+    "photoToPosition": "Board photo → position",
+    "scoresheetToGame": "Scoresheet → game",
+    "recognizingPhoto": "Recognizing the photo…",
+    "loadedFromPhoto": "Recognized the position from the photo and set it on the board.",
+    "loadedFromScoresheet": "Recognized the game from the scoresheet and loaded it on the board.",
+    "photoFailed": "Could not recognize the photo: {reason}",
+    "sourceUser": "my games",
+    "sourceLichess": "Lichess",
+    "sourceChesscom": "Chess.com"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

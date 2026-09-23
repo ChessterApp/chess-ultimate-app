@@ -789,6 +789,10 @@ class CoachMessageRequest(BaseModel):
     turn_id: Optional[str] = None
 
 
+class CoachImportUrlRequest(BaseModel):
+    url: str
+
+
 class CoachFeedbackRequest(BaseModel):
     # turn_id / rating are validated in the handler (returning 400, not 422) so a
     # malformed body is a clean client error per the feedback contract.
@@ -2189,6 +2193,28 @@ async def coach_append_message(
         "session_id": session.id,
         "message_count": len(session.messages),
     }
+
+
+@app.post("/api/coach/import-url")
+async def coach_import_url(body: CoachImportUrlRequest, request: Request):
+    """A game by its Lichess / Chess.com link — for the web page's paste path.
+
+    The page loads the returned PGN on the board itself (no model turn), the
+    same way a pasted PGN is handled. 400 for a link that is not a game or a
+    game that cannot be fetched, 502 when the site is unreachable.
+    """
+    _get_user_id(request)
+    from src.tools.game_url import GameUrlError, fetch_game_by_url
+
+    url = (body.url or "").strip()
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, fetch_game_by_url, url)
+    except GameUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 — network / upstream failure
+        logger.info("import-url failed for %s: %s", url[:120], exc)
+        raise HTTPException(status_code=502, detail="Could not reach the site the link points to.")
 
 
 @app.post("/api/coach/feedback")

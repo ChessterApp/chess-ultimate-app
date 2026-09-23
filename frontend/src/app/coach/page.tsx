@@ -42,7 +42,7 @@ function openedGameFromBoard(b: BoardRecord): OpenedGame | null {
     moves: parsed.moves,
     fens: parsed.fens,
     startingFen: parsed.startingFen,
-    source: 'twic',
+    source: typeof src.kind === 'string' ? src.kind : 'twic',
   };
 }
 
@@ -318,8 +318,12 @@ export default function CoachPage() {
 
   // Open a game from chat results as a tab (persisted as a master_game board)
   const handleOpenGame = useCallback(async (game: GameResult) => {
-    // If already open, just switch to that tab
-    const existing = openedGames.find((g) => g.source === 'twic' && g.white === game.white_name && g.black === game.black_name && g.date === game.date);
+    // If already open, just switch to that tab. A TWIC card is recognised by its
+    // players and date; an own / imported card (it carries the PGN) by the PGN.
+    const source = game.source ?? 'twic';
+    const existing = source === 'twic'
+      ? openedGames.find((g) => g.source === 'twic' && g.white === game.white_name && g.black === game.black_name && g.date === game.date)
+      : openedGames.find((g) => g.source === source && g.pgn === game.pgn);
     if (existing) {
       setActiveGameId(existing.id);
       return;
@@ -329,23 +333,30 @@ export default function CoachPage() {
     if (openedGames.length >= 10) return;
 
     try {
-      const token = await getToken();
-      const res = await fetch(`/api/openings/games/${game.id}/pgn`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const { moves, fens, startingFen } = parseGamePgn(data.pgn);
+      let pgn = game.pgn;
+      if (!pgn) {
+        // Master database game: fetch the PGN by TWIC id.
+        const token = await getToken();
+        const res = await fetch(`/api/openings/games/${game.id}/pgn`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        pgn = data.pgn as string;
+      }
+      const { moves, fens, startingFen } = parseGamePgn(pgn);
 
       let boardId = `local-${game.id}`;
       if (sessionId) {
         const created = await coachApi.createBoard(sessionId, {
           kind: 'master_game',
           title: `${game.white_name} vs ${game.black_name}`,
-          pgn: data.pgn,
+          pgn,
           ply: 0,
           source: {
-            twic_game_id: game.id,
+            kind: source,
+            twic_game_id: source === 'twic' ? game.id : undefined,
+            game_id: source === 'twic' ? undefined : game.id,
             white: game.white_name,
             black: game.black_name,
             white_elo: game.white_elo,
@@ -365,17 +376,17 @@ export default function CoachPage() {
         id: gameIdStr,
         white: game.white_name,
         black: game.black_name,
-        whiteElo: game.white_elo,
-        blackElo: game.black_elo,
+        whiteElo: game.white_elo ?? undefined,
+        blackElo: game.black_elo ?? undefined,
         result: game.result,
         eco: game.eco,
         date: game.date,
         event: game.event,
-        pgn: data.pgn,
+        pgn,
         moves,
         fens,
         startingFen,
-        source: 'twic',
+        source,
       };
 
       setOpenedGames((prev) => [...prev, opened]);

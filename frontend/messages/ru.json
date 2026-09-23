@@ -2002,7 +2002,20 @@
     "messagesCount": "{count} сообщ.",
     "loadPgnFile": "Загрузить партию из файла .pgn",
     "loadedPgn": "Загрузил партию на доску.",
-    "loadedFen": "Поставил позицию на доску."
+    "loadedFen": "Поставил позицию на доску.",
+    "loadedFromUrl": "Загрузил партию по ссылке: {white} — {black}.",
+    "urlFailed": "Не удалось загрузить партию по ссылке: {reason}",
+    "loadingUrl": "Загружаю партию по ссылке…",
+    "attachPhoto": "Фото доски или бланка",
+    "photoToPosition": "Фото доски → позиция",
+    "scoresheetToGame": "Бланк партии → партия",
+    "recognizingPhoto": "Распознаю фото…",
+    "loadedFromPhoto": "Распознал позицию с фото и поставил на доску.",
+    "loadedFromScoresheet": "Распознал партию с бланка и загрузил на доску.",
+    "photoFailed": "Не удалось распознать фото: {reason}",
+    "sourceUser": "мои партии",
+    "sourceLichess": "Lichess",
+    "sourceChesscom": "Chess.com"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

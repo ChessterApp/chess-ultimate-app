@@ -74,6 +74,10 @@ TOOL_KEYWORDS = {
     ),
     "lichess_game_import": ("lichess", "личес", "импорт", "загрузи", "скачай", "подтяни"),
     "chesscom_game_import": ("chess.com", "чесском", "chesscom", "импорт", "загрузи", "скачай"),
+    "import_game_from_url": (
+        "ссылк", "по ссылке", "http", "lichess.org/", "chess.com/game", "chess.com/analysis",
+        "link", "url", "сілтеме",
+    ),
     "get_user_games": (
         "мои парти", "моих парти", "мою парти", "последн", "недавн", "сыграл", "сохранён",
         "сохранен", "истори", "ойындарым", "соңғы",

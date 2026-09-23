@@ -66,7 +66,8 @@ export type BoardAction = Addressed &
 // ─── Game Results (from TWIC search) ─────────────────────────────────────
 
 export interface GameResult {
-  id: number;
+  /** TWIC row id (number) or a saved-game uuid / import index (string). */
+  id: number | string;
   white_name: string;
   black_name: string;
   result: string;
@@ -74,8 +75,14 @@ export interface GameResult {
   eco: string;
   opening: string;
   event: string;
-  white_elo: number;
-  black_elo: number;
+  white_elo: number | null;
+  black_elo: number | null;
+  /**
+   * Where the game comes from. Absent or 'twic' → the PGN is fetched from the
+   * master database; 'user' / 'lichess' / 'chesscom' → the card carries `pgn`.
+   */
+  source?: 'twic' | 'user' | 'lichess' | 'chesscom' | string;
+  pgn?: string;
 }
 
 // ─── Coach Response ──────────────────────────────────────────────────────
