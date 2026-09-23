@@ -149,3 +149,26 @@ def test_port_config():
     config = load_profile_config()
     port = get_port(config)
     assert port == 8642
+
+
+@pytest.mark.unit
+def test_fallback_model_never_returns_the_routed_model():
+    from src.config import fallback_model_for, quick_model
+
+    cfg = {"model": {"default": "d"}, "model_tiers": {"fast": "f", "deep": "g", "fallback": "g"}}
+    assert fallback_model_for("f", cfg) == "g"
+    assert fallback_model_for("g", cfg) == "f"  # a review on the fallback model falls back to fast
+    assert fallback_model_for("f", {"model_tiers": {"fast": "f"}}) is None
+    # Reaction model: explicit tier, else fast.
+    assert quick_model(cfg) == "f"
+    assert quick_model({"model_tiers": {"fast": "f", "quick": "q"}}) == "q"
+
+
+def test_fallback_and_quick_env_overrides(monkeypatch):
+    from src.config import fallback_model_for, quick_model
+
+    config = load_profile_config()
+    monkeypatch.setenv("COACH_MODEL_FALLBACK", "openai/gpt-5.6-luna")
+    monkeypatch.setenv("COACH_MODEL_QUICK", "google/gemini-3.5-flash-lite")
+    assert fallback_model_for("deepseek/deepseek-v4.1-flash", config) == "openai/gpt-5.6-luna"
+    assert quick_model(config) == "google/gemini-3.5-flash-lite"

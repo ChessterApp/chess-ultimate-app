@@ -27,6 +27,8 @@ from src.config import (
     get_port,
     get_model_config,
     get_api_key,
+    fallback_model_for,
+    quick_model,
     PROFILE_DIR,
 )
 # load_env() must run before importing src.sessions: the global session store
@@ -323,12 +325,16 @@ def _model_gets_prompt_cache(model: str) -> bool:
     return "claude" in (model or "").lower()
 
 
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
+
 def _create_agent(
     model: str,
     system_prompt: str,
     session_id: Optional[str] = None,
     user_query: Optional[str] = None,
     mode: str = "full",
+    fallback_model: Optional[str] = None,
 ):
     """Create a Hermes AIAgent configured for chess coaching.
 
@@ -336,6 +342,11 @@ def _create_agent(
     agent's tool schemas are reduced to a query-relevant subset (mirroring the
     voice path). With the flag off or ``user_query`` None the agent is left
     untouched, so behavior is byte-identical to today.
+
+    ``fallback_model`` (an OpenRouter id) arms the framework's own failover:
+    on a 429/402 from the primary it switches immediately, on other errors
+    after its retries, and finishes the same turn on the fallback. The agent
+    then reports the model that actually answered in ``agent.model``.
     """
     from run_agent import AIAgent
 
@@ -343,7 +354,7 @@ def _create_agent(
     agent_kwargs = dict(
         model=model,
         api_key=api_key,
-        base_url="https://openrouter.ai/api/v1",
+        base_url=OPENROUTER_BASE_URL,
         provider="openrouter",
         ephemeral_system_prompt=system_prompt,
         session_id=session_id,
@@ -355,6 +366,13 @@ def _create_agent(
         persist_session=False,
         enabled_toolsets=["safe", "chess"],
     )
+    if fallback_model and fallback_model != model:
+        agent_kwargs["fallback_model"] = {
+            "provider": "openrouter",
+            "model": fallback_model,
+            "api_key": api_key,
+            "base_url": OPENROUTER_BASE_URL,
+        }
     if config.COACH_REASONING_EFFORT:
         # The framework only forwards this for reasoning-capable families and
         # drops it elsewhere, so it is safe to pass for every model.
@@ -447,6 +465,51 @@ def _record_turn_usage(
     )
     thread.start()
     return thread
+
+
+def _turn_fallback_model(routed_model: str) -> Optional[str]:
+    """Fallback for this turn, or ``None`` when failover is switched off."""
+    if not config.COACH_MODEL_FALLBACK_ENABLED:
+        return None
+    return fallback_model_for(routed_model)
+
+
+def _served_model(agent, routed_model: str) -> str:
+    """The model that actually produced the turn (differs after a failover)."""
+    served = getattr(agent, "model", None)
+    if isinstance(served, str) and served:
+        return served
+    return routed_model
+
+
+# When the framework exhausts its retries (and any fallback) it RETURNS the
+# failure as the final response text instead of raising — on the bench
+# (2026-09-23) 19 Gemini turns reached the student as "API call failed after 3
+# retries: HTTP 429 …". These prefixes are that text; the turn is treated as an
+# error, never as an answer.
+_PROVIDER_ERROR_PREFIXES = (
+    "API call failed after",
+    "Invalid API response after",
+    "Context length exceeded",
+    "Request payload too large",
+)
+
+
+def _looks_like_provider_error(text: Optional[str]) -> bool:
+    return bool(text) and text.lstrip().startswith(_PROVIDER_ERROR_PREFIXES)
+
+
+_STUDENT_ERROR_TEXT = {
+    "ru": "Тренер сейчас недоступен — попробуйте ещё раз через минуту.",
+    "kz": "Жаттықтырушы қазір қолжетімсіз — бір минуттан кейін қайталап көріңіз.",
+    "kk": "Жаттықтырушы қазір қолжетімсіз — бір минуттан кейін қайталап көріңіз.",
+    "en": "The coach is unavailable right now — please try again in a minute.",
+}
+
+
+def _student_error_text(locale: Optional[str]) -> str:
+    """What the student sees when the turn fails: never the provider's text."""
+    return _STUDENT_ERROR_TEXT.get((locale or "ru").lower(), _STUDENT_ERROR_TEXT["ru"])
 
 
 def _chunk_text(text: str, size: int = 80):
@@ -612,7 +675,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session_id,
-        user_query=raw_user_query,
+        user_query=raw_user_query, fallback_model=_turn_fallback_model(model),
     )
 
     # Run the agent in a thread to avoid blocking the event loop
@@ -1031,9 +1094,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     else:
         augmented_message = current_message
 
+    fallback_model = _turn_fallback_model(model)
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session_id,
-        user_query=body.message,
+        user_query=body.message, fallback_model=fallback_model,
     )
 
     log_event(
@@ -1051,6 +1115,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             "fen": session.board_state if body.fen else None,
             "prompt_version": prompt_version,
             "tools_selected": _selected_tool_names(agent),
+            "fallback_model": fallback_model,
+            "two_stage": bool(config.COACH_TWO_STAGE),
         },
     )
 
@@ -1101,15 +1167,80 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # event loop via a thread-safe queue so tokens stream out as they arrive.
         queue: asyncio.Queue = asyncio.Queue()
         sentinel = object()
-        streamed_any = False
+        streamed_any = False  # the ANSWER stage produced at least one delta
         # Per-turn state used by the coach_events instrumentation below.
         tool_starts: dict = {}
         partial_parts: list[str] = []
         streamed_chars = 0
 
+        # ── Two-stage answer ──────────────────────────────────────────────
+        # A tool-free one-sentence reaction streams first while the agent is
+        # still calling the engine; the answer follows after a blank line in
+        # the same assistant message (concatenated deltas stay one text, so
+        # every existing client renders it unchanged). ``stage`` frames mark
+        # the boundary for clients that want to style the two parts.
+        #
+        # Ordering guarantee: while the reaction is streaming, answer deltas
+        # are held back and flushed right after the separator; if the answer
+        # starts before the reaction has produced a single token, the
+        # reaction is abandoned and the answer streams immediately — the
+        # first stage can only ever make the reply feel faster, never later.
+        from src.quick_reply import wants_reaction
+
+        two_stage = bool(config.COACH_TWO_STAGE) and wants_reaction(body.message, bool(body.fen))
+        quick = {
+            "shown": False,      # at least one reaction delta went to the client
+            "finished": not two_stage,  # reaction done / abandoned / disabled
+            "abort": False,      # polled by the reaction thread between chunks
+            "parts": [],
+            "reply": None,
+        }
+        held_answer: list[str] = []
+        quick_model_id = quick_model() if two_stage else None
+        answer_has_text = False  # a non-blank answer delta has gone out
+
+        def _answer_delta(text: str) -> Optional[str]:
+            """Drop the blank lines some models open with — after the reaction
+            and the separator they would show as a hole in the message."""
+            nonlocal answer_has_text
+            if answer_has_text or not quick["shown"]:
+                answer_has_text = answer_has_text or bool(text.strip())
+                return text
+            text = text.lstrip()
+            if not text:
+                return None
+            answer_has_text = True
+            return text
+
         def _on_delta(text):
             if text:
                 loop.call_soon_threadsafe(queue.put_nowait, ("delta", text))
+
+        def _on_quick_delta(text):
+            if text and not quick["abort"]:
+                loop.call_soon_threadsafe(queue.put_nowait, ("quick", text))
+
+        def _run_quick():
+            reply = None
+            try:
+                from src.quick_reply import stream_quick_reply
+
+                reply = stream_quick_reply(
+                    model=quick_model_id,
+                    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                    message=body.message,
+                    locale=body.locale,
+                    board_fen=session.board_state if body.fen else None,
+                    on_delta=_on_quick_delta,
+                    timeout_s=max(0.5, config.COACH_QUICK_BUDGET_MS / 1000.0),
+                    max_tokens=config.COACH_QUICK_MAX_TOKENS,
+                    should_abort=lambda: quick["abort"],
+                )
+            except Exception:  # noqa: BLE001 — the first stage is best-effort
+                logger.debug("quick reaction crashed", exc_info=True)
+            finally:
+                # Always unblock the stream loop, whatever happened above.
+                loop.call_soon_threadsafe(queue.put_nowait, ("quick_done", reply))
 
         # Tool-activity frames: emit tool_call when a tool starts and tool_result
         # when it completes so the frontend's ToolIndicator lights up during a
@@ -1162,21 +1293,72 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
         turn_started = time.monotonic()
+        quick_future = loop.run_in_executor(None, _run_quick) if two_stage else None
         future = loop.run_in_executor(None, _run)
 
         result_text = None
         error_exc = None
+        main_done = False
+
+        def _finish_quick():
+            """Close the reaction stage: separator + stage marker if it was shown."""
+            frames = []
+            if quick["shown"]:
+                sep = "\n\n"
+                partial_parts.append(sep)
+                frames.append(_sse({"delta": sep}))
+                frames.append(_sse({"stage": "answer"}))
+            for held in held_answer:
+                held = _answer_delta(held)
+                if held:
+                    frames.append(_sse({"delta": held}))
+            held_answer.clear()
+            quick["finished"] = True
+            return frames
+
         try:
-            while True:
+            while not (main_done and quick["finished"]):
                 item = await queue.get()
                 if item is sentinel:
-                    break
+                    main_done = True
+                    if not quick["finished"] and not quick["shown"]:
+                        # Answer complete, reaction never started: drop it.
+                        quick["abort"] = True
+                        for frame in _finish_quick():
+                            yield frame
+                    continue
                 kind, payload = item
-                if kind == "delta":
-                    streamed_any = True
+                if kind == "quick":
+                    if quick["finished"] or quick["abort"]:
+                        continue  # late chunk of an abandoned reaction
+                    if not quick["shown"]:
+                        quick["shown"] = True
+                        yield _sse({"stage": "quick"})
+                    quick["parts"].append(payload)
                     partial_parts.append(payload)
                     streamed_chars += len(payload)
                     yield _sse({"delta": payload})
+                elif kind == "quick_done":
+                    quick["reply"] = payload
+                    if not quick["finished"]:
+                        for frame in _finish_quick():
+                            yield frame
+                elif kind == "delta":
+                    streamed_any = True
+                    partial_parts.append(payload)
+                    streamed_chars += len(payload)
+                    if quick["finished"]:
+                        payload = _answer_delta(payload)
+                        if payload:
+                            yield _sse({"delta": payload})
+                    elif not quick["shown"]:
+                        # The answer got here first — abandon the reaction.
+                        quick["abort"] = True
+                        for frame in _finish_quick():
+                            yield frame
+                        yield _sse({"delta": payload})
+                    else:
+                        held_answer.append(payload)
                 elif kind == "tool_call":
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
@@ -1186,7 +1368,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 elif kind == "error":
                     error_exc = payload
             await future  # ensure the executor thread has fully unwound
+            if quick_future is not None and quick["reply"] is not None:
+                await quick_future
+            # An abandoned reaction is left to time out on its thread: waiting
+            # for it here would delay the terminal frames for nothing.
         except (asyncio.CancelledError, GeneratorExit):
+            quick["abort"] = True
             # Client disconnected mid-stream: record what we streamed so far and
             # the partial assistant text, then re-raise so Starlette unwinds.
             log_event(
@@ -1206,9 +1393,59 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         latency_ms = int((time.monotonic() - turn_started) * 1000)
 
+        # The model that answered: after a failover the agent has switched
+        # itself to the fallback, and cost/telemetry must follow it.
+        served_model = _served_model(agent, model)
+        if served_model != model:
+            log_event(
+                "model_fallback",
+                severity="warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=served_model,
+                payload={"routed_model": model, "served_model": served_model},
+            )
+
+        # First-stage telemetry (whether or not it reached the screen).
+        quick_reply = quick["reply"]
+        quick_text = "".join(quick["parts"]).strip() if quick["shown"] else ""
+        if two_stage:
+            log_event(
+                "quick_reaction",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=quick_model_id,
+                duration_ms=getattr(quick_reply, "latency_ms", None),
+                ok=bool(quick_text),
+                error_code=getattr(quick_reply, "error", None) if quick_reply else "no_reply",
+                payload={
+                    "shown": bool(quick_text),
+                    "first_token_ms": getattr(quick_reply, "first_token_ms", None),
+                    "chars": len(quick_text),
+                    "abandoned": bool(quick["abort"]),
+                },
+            )
+            if quick_reply is not None and (quick_reply.prompt_tokens or quick_reply.completion_tokens):
+                threading.Thread(
+                    target=_do_record_usage,
+                    args=(user_id, session.id, quick_model_id, quick_reply.prompt_tokens,
+                          quick_reply.completion_tokens, "text", turn_id, 0),
+                    daemon=True,
+                ).start()
+
+        # A provider failure returned AS TEXT is an error, not an answer.
+        provider_error_text = result_text if _looks_like_provider_error(result_text) else None
+        if provider_error_text and error_exc is None:
+            error_exc = RuntimeError(provider_error_text)
+
         if error_exc is not None:
             # Streaming-path LLM failure — previously left ZERO trace. Emit the
             # event AND write a diagnostic (the streaming path never did before).
+            error_code = "provider_error" if provider_error_text else type(error_exc).__name__
             log_event(
                 "llm_error",
                 severity="error",
@@ -1216,20 +1453,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 user_id=user_id,
                 session_id=session.id,
                 turn_id=turn_id,
-                model=model,
+                model=served_model,
                 duration_ms=latency_ms,
                 ok=False,
-                error_code=type(error_exc).__name__,
-                payload={"error_class": type(error_exc).__name__, "message": str(error_exc)[:2000]},
+                error_code=error_code,
+                payload={"error_class": type(error_exc).__name__, "message": str(error_exc)[:2000],
+                         "routed_model": model, "fallback_model": fallback_model},
             )
             diag.record(
                 "agent_error",
                 request_id=getattr(request.state, "request_id", None),
-                message="agent.chat raised on /api/coach/chat (streaming)",
+                message="agent.chat raised on /api/coach/chat (streaming)"
+                if not provider_error_text else
+                "agent.chat returned a provider error as text on /api/coach/chat",
                 exc=error_exc,
-                model=model,
+                model=served_model,
             )
-            yield _sse({"error": f"Agent error: {error_exc}"})
+            # The student gets one calm sentence in their language; the
+            # provider's text stays in the logs.
+            yield _sse({"error": _student_error_text(body.locale)})
             return
 
         # Iteration cap / empty-response warnings (best-effort attribute reads).
@@ -1244,7 +1486,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 user_id=user_id,
                 session_id=session.id,
                 turn_id=turn_id,
-                model=model,
+                model=served_model,
                 payload={"iterations": iterations, "max_iterations": max_iter},
             )
 
@@ -1256,20 +1498,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 user_id=user_id,
                 session_id=session.id,
                 turn_id=turn_id,
-                model=model,
+                model=served_model,
                 payload={"path": "/api/coach/chat"},
             )
 
-        response_text = result_text or "I wasn't able to generate a response. Please try again."
+        answer_text = result_text or "I wasn't able to generate a response. Please try again."
+        if quick_text:
+            answer_text = answer_text.lstrip()
 
         # If the agent produced no token stream (no callback support / tool-only
         # turn), fall back to emitting the completed text as a single delta so the
         # concatenated deltas always reconstruct the full assistant message.
         if not streamed_any:
-            yield _sse({"delta": response_text})
+            yield _sse({"delta": answer_text})
+
+        # What the student saw, as one message: reaction, blank line, answer.
+        response_text = f"{quick_text}\n\n{answer_text}" if quick_text else answer_text
 
         # Record real token usage for this turn (fire-and-forget; never blocks)
-        _record_turn_usage(agent, user_id, session.id, model, surface="text", turn_id=turn_id)
+        _record_turn_usage(agent, user_id, session.id, served_model, surface="text", turn_id=turn_id)
 
         prompt_tokens = _safe_int(getattr(agent, "session_prompt_tokens", 0)) or 0
         completion_tokens = _safe_int(getattr(agent, "session_completion_tokens", 0)) or 0
@@ -1278,7 +1525,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # pre-migration prod: persist_message retries without the new columns).
         assistant_extra = {
             "turn_id": turn_id,
-            "model": model,
+            "model": served_model,
             "prompt_version": prompt_version,
             "latency_ms": latency_ms,
             "prompt_tokens": prompt_tokens,
@@ -1291,11 +1538,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # Bench/diagnostics only (COACH_EMIT_USAGE=1): expose the turn's
             # telemetry to the client before the terminal frame.
             yield _sse({"usage": {
-                "model": model, "routing_tier": route["tier"],
+                "model": served_model, "routed_model": model, "routing_tier": route["tier"],
                 "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
                 "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
+                "quick": {
+                    "model": quick_model_id, "shown": bool(quick_text),
+                    "first_token_ms": getattr(quick_reply, "first_token_ms", None),
+                    "latency_ms": getattr(quick_reply, "latency_ms", None),
+                    "error": getattr(quick_reply, "error", None) if quick_reply else None,
+                } if two_stage else None,
             }})
         log_event(
             "turn_end",
@@ -1303,7 +1556,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             user_id=user_id,
             session_id=session.id,
             turn_id=turn_id,
-            model=model,
+            model=served_model,
             duration_ms=latency_ms,
             ok=True,
             payload={
@@ -1312,6 +1565,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "latency_ms": latency_ms,
                 "iterations": iterations,
                 "finish_reason": finish_reason,
+                "routed_model": model,
+                "quick_shown": bool(quick_text),
             },
         )
 
@@ -1326,15 +1581,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     user_id=user_id,
                     turn_id=turn_id,
                     user_message=body.message,
-                    coach_reply=response_text,
+                    coach_reply=answer_text,
                     board_fen=session.board_state,
                     tool_results=list(tool_results),
-                    model=model,
+                    model=served_model,
                 )
             except Exception:
                 logger.debug("memory writer scheduling failed", exc_info=True)
 
-        envelope = wrap_response(response_text, tool_results=tool_results)
+        envelope = wrap_response(answer_text, tool_results=tool_results)
 
         board_actions = envelope.get("board_actions", [])
         if board_actions:
@@ -2127,7 +2382,7 @@ def _prepare_analysis_turn(session, fen: str, query: str):
 
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session.id,
-        user_query=query,
+        user_query=query, fallback_model=_turn_fallback_model(model),
     )
     return agent, augmented
 
