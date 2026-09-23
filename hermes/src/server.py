@@ -340,7 +340,7 @@ def _create_agent(
     from run_agent import AIAgent
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    agent = AIAgent(
+    agent_kwargs = dict(
         model=model,
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
@@ -355,6 +355,11 @@ def _create_agent(
         persist_session=False,
         enabled_toolsets=["safe", "chess"],
     )
+    if config.COACH_REASONING_EFFORT:
+        # The framework only forwards this for reasoning-capable families and
+        # drops it elsewhere, so it is safe to pass for every model.
+        agent_kwargs["reasoning_config"] = {"effort": config.COACH_REASONING_EFFORT}
+    agent = AIAgent(**agent_kwargs)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;
     # the tool block is part of the cached prefix, so a per-turn tool subset

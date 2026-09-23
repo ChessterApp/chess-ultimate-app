@@ -139,6 +139,12 @@ COACH_TOOL_SUBSET = _env_flag("COACH_TOOL_SUBSET", True)
 
 # Emit a {"usage": …} SSE frame per text turn (model bench / diagnostics). Off in prod.
 COACH_EMIT_USAGE = _env_flag("COACH_EMIT_USAGE", False)
+
+# Reasoning effort sent to reasoning-capable models via OpenRouter (DeepSeek, Claude,
+# OpenAI, Gemini 2.x). The framework defaults to "medium"; on DeepSeek that meant
+# 60–105 s of hidden thinking before the first word on some turns (bench 2026-09-23).
+# "low" keeps the tool discipline and cuts the wait. Empty string = framework default.
+COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "low").strip()
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
 # Per-student memory writer (CL Phase 1): after each completed text-chat turn,
