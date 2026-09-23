@@ -57,6 +57,18 @@ MODEL_PRICES: dict[str, dict] = {
     "z-ai/glm-5.3": {"input": 0.91, "output": 2.86, "cache_read": 0.169},
     "z-ai/glm-5.3-flash": {"input": 0.09, "output": 0.30, "cache_read": 0.018},
     "qwen/qwen3.8-flash": {"input": 0.15, "output": 0.47, "cache_read": 0.016},
+    # open-weight, self-host candidates (OpenRouter list prices 2026-09-23)
+    "qwen/qwen3.8-27b": {"input": 0.20, "output": 2.50, "cache_read": 0.05},
+    "google/gemma-4-31b-it": {"input": 0.09, "output": 0.34, "cache_read": None},
+    "google/gemma-4-26b-a4b-it": {"input": 0.09, "output": 0.30, "cache_read": None},
+    "openai/gpt-oss-120b": {"input": 0.15, "output": 0.60, "cache_read": None},
+    "openai/gpt-oss-20b": {"input": 0.03, "output": 0.13, "cache_read": None},
+    "nvidia/nemotron-3-super-120b-a12b": {"input": 0.08, "output": 0.45, "cache_read": None},
+    "mistralai/mistral-small-2603": {"input": 0.15, "output": 0.60, "cache_read": None},
+    "meta-llama/llama-4-maverick": {"input": 0.20, "output": 0.80, "cache_read": None},
+    "qwen/qwen3.8-2.4t-a95b": {"input": 2.00, "output": 6.00, "cache_read": 0.25},
+    "minimax/minimax-m3": {"input": 0.30, "output": 1.20, "cache_read": 0.06},
+    "nvidia/nemotron-3-ultra-550b-a55b": {"input": 0.60, "output": 2.40, "cache_read": None},
     # ── OpenAI ────────────────────────────────────────────────────────
     "openai/gpt-5.6-luna": {"input": 0.20, "output": 1.20, "cache_read": None},
     "openai/gpt-5.6-sol": {"input": 2.00, "output": 10.00, "cache_read": None},
