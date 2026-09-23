@@ -1,0 +1,646 @@
+Supabase not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY); coach sessions are in-memory only and will not survive restarts
+Supabase not configured, returning default profile
+⚠️  API call failed (attempt 1/3): APIError
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: google/gemini-3.8-flash is temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits: https://openrouter.ai/settings/integrations
+⏱️ Rate limited. Waiting 2.8s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.8s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.9s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.0s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.9s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.1s (attempt 2/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.1s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.8s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.7s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.1s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.2s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.3s (attempt 2/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.9s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.2s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.8s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.3s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️ Iteration budget exhausted (5/5) — asking model to summarise
+⚠️  Reached maximum iterations (5). Requesting summary...
+⚠️ Iteration budget exhausted (5/5) — asking model to summarise
+⚠️  Reached maximum iterations (5). Requesting summary...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.6s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.7s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.1s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.6s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.5s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.2s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.9s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.9s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.4s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.6s (attempt 2/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.9s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.1s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.8s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.7s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.1s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.3s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.5s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.3s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.9s (attempt 2/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.3s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 50 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 50 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '50', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.4s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.7s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.7s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.0s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.6s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.7s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.1s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.7s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.3s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.6s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.1s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.4s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.3s (attempt 3/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.0s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.1s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.8s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.3s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.9s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.8s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.2s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 3.0s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.2s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.8s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.1s (attempt 3/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 4.1s (attempt 3/3)...
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 3/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⚠️ Max retries (3) exhausted — trying fallback...
+❌ Rate limited after 3 retries — HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   💀 Final error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.6s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.1s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.3s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.5s (attempt 2/3)...
+⚠️  API call failed (attempt 2/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 5.7s (attempt 3/3)...
+⚠️ Iteration budget exhausted (5/5) — asking model to summarise
+⚠️  Reached maximum iterations (5). Requesting summary...
+⚠️ Iteration budget exhausted (5/5) — asking model to summarise
+⚠️  Reached maximum iterations (5). Requesting summary...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim
+⏱️ Rate limited. Waiting 2.4s (attempt 2/3)...
+⚠️  API call failed (attempt 1/3): RateLimitError [HTTP 429]
+   🔌 Provider: openrouter  Model: google/gemini-3.8-flash
+   🌐 Endpoint: https://openrouter.ai/api/v1
+   📝 Error: HTTP 429: Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.
+   📋 Details: {'message': 'Rate limit exceeded: new-account-rpm/google/gemini-3.8-flash-20260902. Rate limit reached: new accounts are limited to 20 requests per minute for this model. Please retry shortly.', 'code': 429, 'metadata': {'headers': {'X-RateLimit-Limit': '20', 'X-RateLimit-Remaining': '0', 'X-RateLim

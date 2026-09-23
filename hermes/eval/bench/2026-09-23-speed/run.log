@@ -1,0 +1,54 @@
+6 cases × 5 models × 1 rep → eval/bench/2026-09-23-speed
+
+=== google/gemini-3.8-flash
+  ok   ru-move-2      15.7s ttft=12.59 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01524
+  ok   ru-assess-2    20.6s ttft=17.04 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01665
+  ok   ru-legal-2     29.8s ttft=28.03 tools=['check_moves', 'analyze_position', 'board_control'] cost=0.01662
+  ok   kk-1           38.3s ttft=35.75 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01694
+  ok   puzzle-1       20.0s ttft=18.83 tools=['get_puzzle', 'get_puzzle', 'board_control'] cost=0.01511
+  ok   coach-3        28.6s ttft=24.81 tools=['board_control', 'board_control', 'board_control', 'check_moves'] cost=0.02087
+  done in 158s
+
+=== deepseek/deepseek-v4.1-flash
+  ok   ru-move-2      25.3s ttft=7.52 tools=['analyze_position', 'compare_variations', 'analyze_position', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00705
+  ok   ru-assess-2    20.0s ttft=2.47 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control', 'board_control'] cost=0.00314
+  ok   ru-legal-2     27.7s ttft=13.44 tools=['check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00318
+  ok   kk-1           76.5s ttft=69.16 tools=['analyze_position', 'board_control', 'compare_variations', 'check_moves', 'find_games_by_position', 'board_control', 'board_control'] cost=0.01307
+  ok   puzzle-1       17.1s ttft=11.8 tools=['get_puzzle', 'board_control'] cost=0.00249
+  ok   coach-3       117.0s ttft=105.4 tools=['board_control', 'get_puzzle', 'board_control'] cost=0.00582
+  done in 289s
+
+=== deepseek/deepseek-v4-pro-0813
+  ok   ru-move-2      40.5s ttft=26.66 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.02296
+  ok   ru-assess-2    22.3s ttft=14.55 tools=['analyze_position', 'get_position_stats', 'board_control'] cost=0.01432
+  ok   ru-legal-2     19.6s ttft=12.85 tools=['board_control', 'board_control'] cost=0.01527
+  ok   kk-1           41.3s ttft=34.25 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.02343
+  ok   puzzle-1        6.7s ttft=4.69 tools=['get_puzzle', 'board_control'] cost=0.00945
+  ok   coach-3        14.1s ttft=10.54 tools=['board_control', 'board_control'] cost=0.01643
+  done in 152s
+
+=== anthropic/claude-sonnet-5
+  ok   ru-move-2      47.1s ttft=29.49 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.05828
+  ok   ru-assess-2    30.3s ttft=18.39 tools=['board_control', 'analyze_position', 'identify_opening', 'board_control'] cost=0.04259
+  ok   ru-legal-2     19.4s ttft=12.34 tools=['check_moves', 'board_control'] cost=0.03396
+  ok   kk-1           77.9s ttft=37.66 tools=['board_control', 'analyze_position', 'board_control', 'board_control', 'compare_variations', 'board_control'] cost=0.07819
+  ok   puzzle-1       11.0s ttft=9.08 tools=['get_puzzle', 'board_control'] cost=0.02962
+  ok   coach-3        17.8s ttft=7.36 tools=['board_control', 'board_control'] cost=0.01738
+  done in 208s
+
+=== moonshotai/kimi-k3
+  ok   ru-move-2     196.5s ttft=187.32 tools=['analyze_position', 'board_control', 'board_control'] cost=0.1611
+  ok   ru-assess-2    80.1s ttft=13.25 tools=['analyze_position', 'get_position_stats', 'find_games_by_position', 'board_control', 'board_control'] cost=0.06089
+  ok   ru-legal-2    172.0s ttft=156.34 tools=['check_moves', 'analyze_position', 'board_control', 'board_control'] cost=0.05828
+  ok   kk-1           68.0s ttft=58.29 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.04101
+  ok   puzzle-1       15.6s ttft=2.65 tools=['get_puzzle', 'board_control'] cost=0.01406
+  ok   coach-3        55.9s ttft=40.51 tools=['board_control', 'board_control', 'board_control'] cost=0.0645
+  done in 593s
+
+| model | errors | lang_ok | kk_ok | engine_when_needed | expected_tool_hit | ungrounded | tool_failures | illegal/claims | correctness | traps | ttft_p50 | total_p50 | total_p90 | cost_p50 | cost_sum | iters_avg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| google/gemini-3.8-flash | 0/6 | 6/6 | 1/1 | 4/4 | 6/6 | 0 | 1 | 4/18 | 0.62 | 1/1 | 24.81 | 28.6 | 38.28 | 0.0167 | 0.101 | 3.7 |
+| deepseek/deepseek-v4.1-flash | 0/6 | 6/6 | 1/1 | 4/4 | 6/6 | 0 | 2 | 10/32 | 0.22 | 1/1 | 13.44 | 27.69 | 117.02 | 0.0031 | 0.035 | 3.7 |
+| deepseek/deepseek-v4-pro-0813 | 0/6 | 6/6 | 1/1 | 3/4 | 5/6 | 1 | 1 | 9/21 | 0.4 | 1/1 | 14.55 | 22.29 | 41.33 | 0.0143 | 0.102 | 3.0 |
+| anthropic/claude-sonnet-5 | 0/6 | 6/6 | 1/1 | 4/4 | 6/6 | 0 | 0 | 4/15 | 0.32 | 1/1 | 18.39 | 30.3 | 77.91 | 0.0426 | 0.26 | 3.5 |
+| moonshotai/kimi-k3 | 0/6 | 6/6 | 1/1 | 4/4 | 6/6 | 0 | 2 | 5/18 | 0.41 | 1/1 | 58.29 | 80.12 | 196.53 | 0.0609 | 0.4 | 3.3 |
