@@ -1,0 +1,2 @@
+Supabase not configured (SUPABASE_URL / SUPABASE_SERVICE_KEY); coach sessions are in-memory only and will not survive restarts
+Supabase not configured, returning default profile

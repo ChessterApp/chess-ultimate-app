@@ -1,0 +1,228 @@
+36 cases × 2 models × 3 rep → eval/bench/2026-09-23-final
+
+=== google/gemini-3.8-flash
+  ok   ru-move-1      15.7s ttft=13.06 tools=['compare_variations', 'get_opening_stats', 'board_control'] cost=0.00971
+  ok   ru-move-3      23.8s ttft=20.86 tools=['analyze_position', 'get_opening_stats', 'board_control', 'board_control'] cost=0.0088
+  ok   ru-move-2      25.0s ttft=10.77 tools=['compare_variations', 'board_control'] cost=0.01265
+  ok   ru-move-4      10.6s ttft=9.17 tools=['analyze_position', 'board_control'] cost=0.01101
+  ok   ru-move-6      10.4s ttft=7.92 tools=['board_control', 'board_control'] cost=0.01232
+  ok   ru-move-5      12.0s ttft=8.79 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01241
+  ok   ru-assess-1    24.9s ttft=20.69 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01371
+  ok   ru-assess-3    20.8s ttft=16.43 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01665
+  ok   ru-assess-2    35.3s ttft=31.21 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.0132
+  ok   ru-legal-1     14.1s ttft=11.27 tools=['check_moves', 'board_control', 'board_control'] cost=0.01453
+  ok   kk-1           23.9s ttft=21.02 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01385
+  ok   ru-legal-2     29.9s ttft=28.28 tools=['check_moves', 'analyze_position', 'board_control'] cost=0.0167
+  ok   ru-assess-4    53.6s ttft=51.32 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.01186
+  ok   kk-2           15.8s ttft=13.19 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01522
+  ok   kk-4           16.4s ttft=13.75 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01243
+  ok   kk-3           31.6s ttft=28.8 tools=['analyze_position', 'get_position_stats', 'board_control'] cost=0.01382
+  ok   en-1           28.2s ttft=28.25 tools=['analyze_position', 'get_opening_stats', 'board_control'] cost=0.0073
+  ok   en-2           32.6s ttft=29.01 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01336
+  ok   puzzle-1       15.6s ttft=14.35 tools=['get_puzzle', 'board_control'] cost=0.01088
+  ok   en-3           23.8s ttft=21.93 tools=['compare_variations', 'board_control'] cost=0.00861
+  ok   puzzle-3        7.3s ttft=6.35 tools=['get_puzzle', 'board_control'] cost=0.01115
+  ok   puzzle-2       14.3s ttft=13.5 tools=['get_puzzle', 'board_control', 'board_control'] cost=0.01436
+  ok   opening-1      11.6s ttft=6.03 tools=['get_opening_stats', 'board_control', 'board_control'] cost=0.01097
+  ok   opening-3      13.3s ttft=8.51 tools=['get_position_stats', 'board_control', 'board_control', 'compare_variations'] cost=0.01346
+  LANG games-1        23.8s ttft=23.75 tools=['find_games_by_position', 'get_position_stats'] cost=0.00519
+  LANG opening-2      34.0s ttft=33.97 tools=['get_opening_stats'] cost=0.00405
+  LANG games-2        23.8s ttft=23.78 tools=['find_games_by_position'] cost=0.00405
+  ok   coach-1        15.0s ttft=9.43 tools=['board_control', 'board_control'] cost=0.01358
+  ok   coach-2        16.2s ttft=8.16 tools=[] cost=0.01022
+  ok   coach-3        19.1s ttft=15.56 tools=['board_control', 'board_control', 'board_control'] cost=0.01577
+  ok   review-1       63.7s ttft=63.66 tools=['find_critical_moments', 'board_control', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'board_control', 'board_control'] cost=0.02548
+  ok   trap-1         16.0s ttft=13.41 tools=['analyze_position', 'board_control'] cost=0.00872
+  ok   trap-2         17.4s ttft=14.79 tools=['analyze_position', 'board_control'] cost=0.01036
+  ok   review-2       86.0s ttft=86.0 tools=['find_critical_moments', 'analyze_position', 'analyze_position', 'board_control', 'board_control'] cost=0.02433
+  ok   trap-3         15.7s ttft=13.76 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01217
+  ok   import-1       18.9s ttft=15.7 tools=['lichess_game_import', 'get_player_profile', 'lichess_game_import', 'lichess_game_import'] cost=0.01416
+  ok   ru-move-1      16.5s ttft=14.16 tools=['compare_variations', 'board_control'] cost=0.01247
+  ok   ru-move-2      12.5s ttft=8.7 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01549
+  LANG ru-move-4      17.6s ttft=17.6 tools=[] cost=0.0
+  LANG ru-move-5      17.4s ttft=17.44 tools=[] cost=0.0
+  ok   ru-move-3      34.0s ttft=31.69 tools=['compare_variations', 'board_control'] cost=0.01282
+  ok   ru-assess-1    21.9s ttft=18.75 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00868
+  ok   ru-move-6      26.9s ttft=23.85 tools=['board_control', 'board_control'] cost=0.00888
+  ok   ru-assess-2    18.4s ttft=14.61 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01287
+  ok   ru-assess-4    11.7s ttft=9.28 tools=['analyze_position', 'board_control'] cost=0.01079
+  ok   ru-legal-1     12.0s ttft=10.28 tools=['check_moves', 'board_control', 'board_control'] cost=0.01486
+  LANG ru-legal-2     25.7s ttft=25.69 tools=['check_moves', 'board_control'] cost=0.00821
+  LANG ru-assess-3    41.7s ttft=41.7 tools=['analyze_position', 'get_position_stats', 'board_control'] cost=0.00784
+  ok   kk-3           19.4s ttft=14.2 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01403
+  ok   kk-1           56.4s ttft=54.06 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01645
+  ok   kk-4           18.0s ttft=15.35 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01202
+  ok   kk-2           47.4s ttft=43.69 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01594
+  ok   en-2           17.9s ttft=14.13 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01653
+  ok   en-3           20.3s ttft=17.67 tools=['analyze_position', 'get_opening_stats', 'board_control'] cost=0.00932
+  ok   en-1           33.9s ttft=32.22 tools=['compare_variations', 'get_opening_stats', 'board_control', 'board_control'] cost=0.01583
+  ok   puzzle-1       13.7s ttft=12.93 tools=['get_puzzle', 'board_control'] cost=0.01073
+  ok   puzzle-3        7.5s ttft=6.68 tools=['get_puzzle', 'board_control'] cost=0.01095
+  ok   puzzle-2        8.2s ttft=7.38 tools=['get_puzzle', 'board_control'] cost=0.01086
+  ok   opening-1      11.7s ttft=6.01 tools=['get_opening_stats', 'board_control', 'board_control'] cost=0.01099
+  ok   opening-2      17.1s ttft=11.8 tools=['get_opening_stats', 'board_control', 'board_control', 'board_control'] cost=0.0115
+  ok   opening-3      18.9s ttft=12.57 tools=['get_position_stats', 'board_control', 'compare_variations'] cost=0.01448
+  LANG games-1        20.1s ttft=20.08 tools=['find_games_by_position', 'get_position_stats'] cost=0.0041
+  LANG games-2        16.7s ttft=16.71 tools=[] cost=0.0
+  LANG review-1       16.5s ttft=16.5 tools=[] cost=0.0
+  LANG review-2       16.4s ttft=16.44 tools=[] cost=0.0
+  ok   coach-3        21.9s ttft=18.77 tools=['board_control', 'board_control', 'board_control'] cost=0.02021
+  ok   trap-1         18.0s ttft=15.54 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01244
+  ok   coach-1        51.7s ttft=47.67 tools=['analyze_position', 'board_control', 'board_control'] cost=0.02252
+  ok   coach-2        50.3s ttft=41.24 tools=['board_control', 'board_control'] cost=0.02325
+  ok   trap-2          9.3s ttft=6.79 tools=['check_moves', 'board_control'] cost=0.0091
+  ok   import-1       27.7s ttft=24.12 tools=['lichess_game_import', 'get_player_profile', 'lichess_game_import'] cost=0.01353
+  ok   ru-move-1      22.6s ttft=20.26 tools=['compare_variations', 'get_opening_stats', 'board_control', 'board_control'] cost=0.01689
+  ok   trap-3         34.5s ttft=32.69 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01516
+  ok   ru-move-2      14.8s ttft=10.95 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01561
+  ok   ru-move-3      11.6s ttft=8.38 tools=['compare_variations', 'board_control'] cost=0.01232
+  ok   ru-move-4      13.5s ttft=11.1 tools=['analyze_position', 'board_control', 'board_control'] cost=0.0144
+  ok   ru-move-6      11.2s ttft=8.32 tools=['board_control', 'board_control'] cost=0.0085
+  LANG ru-move-5      21.2s ttft=21.24 tools=['analyze_position'] cost=0.00348
+  LANG ru-assess-1    16.8s ttft=16.81 tools=[] cost=0.0
+  LANG ru-assess-2    17.0s ttft=16.99 tools=[] cost=0.0
+  ok   ru-legal-1     13.9s ttft=12.35 tools=['check_moves', 'board_control'] cost=0.01115
+  ok   ru-assess-4    24.2s ttft=21.01 tools=['analyze_position', 'board_control'] cost=0.01104
+  ok   ru-assess-3    33.2s ttft=30.15 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.01265
+  ok   ru-legal-2     23.7s ttft=22.34 tools=['check_moves', 'analyze_position', 'board_control'] cost=0.01545
+  ok   kk-1           26.4s ttft=23.06 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01223
+  LANG kk-4           16.5s ttft=16.51 tools=[] cost=0.0
+  ok   kk-3           35.0s ttft=29.96 tools=['analyze_position', 'board_control', 'board_control'] cost=0.01353
+  ok   en-1           13.4s ttft=11.74 tools=['compare_variations', 'board_control'] cost=0.0111
+  ok   kk-2           57.5s ttft=54.95 tools=['compare_variations', 'board_control', 'board_control'] cost=0.01681
+  ok   en-2           17.5s ttft=13.48 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control'] cost=0.0138
+  ok   puzzle-1        8.8s ttft=7.1 tools=['get_puzzle', 'board_control'] cost=0.01099
+  ok   puzzle-2        7.3s ttft=6.34 tools=['get_puzzle', 'board_control'] cost=0.01077
+  ok   puzzle-3        7.5s ttft=6.36 tools=['get_puzzle', 'board_control'] cost=0.01104
+  ok   en-3           40.8s ttft=40.78 tools=['compare_variations', 'board_control'] cost=0.00916
+  LANG opening-1      18.0s ttft=18.0 tools=[] cost=0.0
+  LANG opening-2      18.4s ttft=17.78 tools=[] cost=0.0
+  ok   opening-3      24.4s ttft=18.32 tools=['get_position_stats', 'board_control'] cost=0.01463
+  ok   games-2        25.3s ttft=19.24 tools=['find_games_by_position', 'search_master_games', 'board_control', 'board_control'] cost=0.0202
+  ok   games-1        29.2s ttft=21.99 tools=['find_games_by_position', 'get_position_stats', 'search_master_games', 'compare_variations', 'board_control'] cost=0.02171
+  ok   coach-1        52.5s ttft=43.41 tools=['board_control', 'board_control', 'analyze_position', 'board_control'] cost=0.01844
+  ok   review-1       66.6s ttft=66.58 tools=['find_critical_moments', 'board_control', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position'] cost=0.02662
+  ok   review-2       74.6s ttft=74.58 tools=['find_critical_moments', 'board_control', 'analyze_position', 'analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.02006
+  ok   coach-2        22.0s ttft=12.51 tools=[] cost=0.01225
+  ok   coach-3        16.6s ttft=13.39 tools=['board_control', 'board_control', 'board_control'] cost=0.01376
+  ok   trap-1         14.5s ttft=11.87 tools=['check_moves', 'analyze_position', 'board_control'] cost=0.0136
+  ok   trap-2         16.1s ttft=11.8 tools=['check_moves', 'board_control', 'board_control'] cost=0.01681
+  ok   trap-3         21.9s ttft=19.91 tools=['analyze_position', 'board_control'] cost=0.01095
+  ok   import-1       42.5s ttft=42.5 tools=['lichess_game_import', 'get_player_profile', 'lichess_game_import', 'lichess_game_import', 'get_player_profile'] cost=0.01814
+  done in 904s
+
+=== deepseek/deepseek-v4.1-flash
+  ok   ru-move-2      17.8s ttft=15.0 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'check_moves'] cost=0.00773
+  ok   ru-move-3      27.9s ttft=16.97 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.00208
+  ok   ru-move-1      41.2s ttft=33.76 tools=['board_control', 'find_games_by_position', 'get_opening_stats', 'analyze_position', 'board_control', 'board_control'] cost=0.00416
+  ok   ru-move-4      31.9s ttft=16.61 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'check_moves'] cost=0.0033
+  ok   ru-move-5      27.2s ttft=2.23 tools=['analyze_position', 'board_control', 'check_moves', 'board_control'] cost=0.00397
+  ok   ru-move-6      19.8s ttft=14.44 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00307
+  ok   ru-assess-1    17.2s ttft=9.69 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00269
+  ok   ru-assess-2    30.1s ttft=21.54 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00329
+  ok   ru-assess-4    21.8s ttft=12.18 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00381
+  ok   ru-assess-3    39.0s ttft=25.08 tools=['analyze_position', 'score_position_themes', 'board_control', 'board_control'] cost=0.00314
+  ok   ru-legal-2     18.1s ttft=11.29 tools=['check_moves', 'board_control', 'board_control'] cost=0.0062
+  ok   ru-legal-1     27.5s ttft=22.05 tools=['check_moves', 'board_control', 'analyze_position', 'board_control', 'board_control'] cost=0.00235
+  ok   kk-2           25.4s ttft=19.48 tools=['analyze_position', 'compare_variations', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00657
+  ok   kk-3           47.2s ttft=19.3 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00611
+  ok   en-1           68.3s ttft=58.98 tools=['analyze_position', 'compare_variations', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00742
+  ok   en-2           27.2s ttft=18.89 tools=['board_control', 'analyze_position'] cost=0.00277
+  ok   kk-1          173.4s ttft=158.69 tools=['analyze_position', 'check_moves', 'compare_variations', 'find_games_by_position', 'analyze_position', 'analyze_position', 'board_control', 'board_control'] cost=0.01523
+  ok   en-3           19.8s ttft=13.59 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00339
+  ok   puzzle-2       25.3s ttft=6.55 tools=['get_puzzle', 'board_control'] cost=0.00075
+  ok   puzzle-1       31.4s ttft=11.55 tools=['get_puzzle', 'board_control'] cost=0.00217
+  ok   puzzle-3       30.8s ttft=12.83 tools=['get_puzzle', 'board_control', 'analyze_position', 'board_control'] cost=0.00581
+  ok   opening-1      41.1s ttft=11.8 tools=['board_control', 'get_opening_stats', 'board_control', 'board_control'] cost=0.00462
+  ok   opening-2      15.8s ttft=11.36 tools=['get_opening_stats', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.00443
+  ok   games-1        22.7s ttft=17.78 tools=['find_games_by_position', 'board_control', 'search_master_games', 'get_position_stats', 'analyze_position', 'check_moves', 'board_control', 'board_control'] cost=0.00536
+  ok   opening-3      35.5s ttft=19.73 tools=['board_control', 'get_position_stats', 'find_games_by_position', 'analyze_position', 'board_control', 'board_control'] cost=0.00578
+  ok   games-2        74.9s ttft=7.78 tools=['find_games_by_position', 'search_master_games', 'search_master_games', 'find_games_by_position', 'board_control', 'analyze_position', 'board_control', 'board_control'] cost=0.00423
+  ok   kk-4          344.7s ttft=308.25 tools=['board_control', 'analyze_position', 'get_position_stats', 'find_games_by_position', 'compare_variations', 'check_moves', 'analyze_position', 'analyze_position', 'board_control', 'board_control'] cost=0.01487
+  ok   coach-1        12.6s ttft=8.44 tools=['board_control', 'check_moves', 'board_control', 'board_control'] cost=0.00346
+  ok   coach-2        10.1s ttft=6.75 tools=['board_control', 'check_moves', 'board_control', 'board_control'] cost=0.00302
+  ok   coach-3         7.8s ttft=3.48 tools=['board_control', 'board_control', 'board_control'] cost=0.00276
+  ok   trap-1         59.1s ttft=20.32 tools=['analyze_position', 'check_moves', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.00479
+  ok   trap-2         67.2s ttft=59.57 tools=['analyze_position', 'compare_variations', 'board_control', 'find_games_by_position', 'board_control', 'board_control'] cost=0.00563
+  ok   review-2      207.2s ttft=1.88 tools=['board_control', 'find_critical_moments', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'check_moves', 'check_moves', 'analyze_position', 'analyze_position', 'analyze_position', 'find_games_by_position', 'analyze_position', 'check_moves', 'analyze_position'] cost=0.02546
+  ok   import-1       21.2s ttft=1.8 tools=['lichess_game_import', 'get_player_profile', 'lichess_game_import'] cost=0.0046
+  ok   trap-3         51.6s ttft=34.09 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00514
+  ok   ru-move-1      26.8s ttft=18.92 tools=['board_control', 'get_opening_stats', 'get_opening_stats', 'board_control', 'analyze_position'] cost=0.00265
+  ok   ru-move-3      12.8s ttft=9.59 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.00223
+  ok   ru-move-2      38.7s ttft=29.31 tools=['analyze_position', 'board_control', 'board_control', 'board_control', 'analyze_position', 'check_moves', 'analyze_position'] cost=0.00743
+  ok   ru-move-4      27.7s ttft=18.63 tools=['analyze_position', 'check_moves', 'board_control', 'board_control'] cost=0.00249
+  ok   review-1      362.7s ttft=2.06 tools=['find_critical_moments', 'analyze_position', 'compare_variations', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'find_games_by_position'] cost=0.01806
+  ok   ru-move-5      25.0s ttft=22.93 tools=['analyze_position', 'board_control', 'check_moves', 'compare_variations', 'board_control', 'board_control'] cost=0.00539
+  ok   ru-move-6      11.2s ttft=9.57 tools=['analyze_position', 'board_control', 'board_control'] cost=0.0026
+  ok   ru-assess-1    18.4s ttft=16.34 tools=['board_control', 'analyze_position', 'board_control', 'board_control'] cost=0.00454
+  ok   ru-assess-3    21.0s ttft=18.98 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00369
+  ok   ru-assess-2    32.6s ttft=30.27 tools=['analyze_position', 'get_position_stats', 'find_games_by_position', 'board_control', 'board_control'] cost=0.00512
+  ok   ru-legal-1      7.8s ttft=4.03 tools=['check_moves', 'board_control', 'board_control'] cost=0.00241
+  ok   ru-assess-4    56.5s ttft=34.27 tools=['board_control', 'analyze_position', 'board_control', 'board_control'] cost=0.00526
+  ok   ru-legal-2     70.1s ttft=53.36 tools=['check_moves', 'board_control', 'analyze_position', 'board_control'] cost=0.00466
+  ok   kk-2           70.1s ttft=41.23 tools=['analyze_position', 'compare_variations', 'board_control', 'board_control'] cost=0.00437
+  ok   kk-3           45.2s ttft=5.69 tools=['analyze_position', 'board_control', 'get_position_stats', 'board_control', 'board_control'] cost=0.00517
+  ok   en-1           21.0s ttft=19.08 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.0056
+  ok   en-2           10.3s ttft=9.21 tools=['analyze_position', 'score_position_themes', 'board_control', 'board_control'] cost=0.00488
+  ok   en-3           12.2s ttft=10.54 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00279
+  ok   puzzle-1        4.7s ttft=1.51 tools=['get_puzzle', 'board_control'] cost=0.00356
+  ok   kk-1          169.4s ttft=169.44 tools=['analyze_position', 'check_moves', 'compare_variations', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position'] cost=0.00832
+  ok   puzzle-2        7.3s ttft=5.07 tools=['get_puzzle', 'board_control'] cost=0.00231
+  ok   puzzle-3       10.3s ttft=7.34 tools=['get_puzzle', 'board_control', 'board_control'] cost=0.00291
+  ok   opening-1      12.7s ttft=8.09 tools=['board_control', 'get_opening_stats', 'find_games_by_position', 'board_control', 'board_control'] cost=0.00421
+  ok   opening-2      10.3s ttft=6.03 tools=['get_opening_stats', 'board_control', 'board_control', 'board_control'] cost=0.00324
+  ok   kk-4           90.7s ttft=84.92 tools=['analyze_position', 'get_position_stats', 'compare_variations', 'check_moves', 'analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00932
+  ok   opening-3      17.4s ttft=4.91 tools=['board_control', 'analyze_position', 'board_control', 'board_control'] cost=0.00482
+  ok   games-1        19.4s ttft=11.0 tools=['find_games_by_position', 'get_position_stats', 'search_master_games', 'search_master_games', 'analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00354
+  ok   games-2        55.4s ttft=55.38 tools=['find_games_by_position', 'analyze_position', 'search_master_games', 'search_master_games', 'search_master_games', 'search_master_games', 'board_control', 'board_control', 'board_control'] cost=0.01024
+  ok   coach-1        35.9s ttft=10.12 tools=['analyze_position', 'analyze_position', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.00734
+  ok   coach-2        46.6s ttft=26.06 tools=['board_control', 'board_control'] cost=0.00526
+  ok   coach-3        43.1s ttft=8.78 tools=['board_control', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control', 'board_control'] cost=0.00473
+  ok   trap-1         17.3s ttft=12.63 tools=['analyze_position', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00353
+  ok   trap-2         48.9s ttft=45.79 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00686
+  ok   trap-3        114.5s ttft=65.69 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.0127
+  ok   import-1       17.9s ttft=2.08 tools=['lichess_game_import', 'get_player_profile', 'get_player_profile', 'lichess_game_import'] cost=0.00334
+  ok   review-2      370.4s ttft=23.68 tools=['find_critical_moments', 'board_control', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position'] cost=0.04412
+  ok   ru-move-1      15.1s ttft=12.68 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00342
+  ok   ru-move-2      26.3s ttft=12.14 tools=['board_control', 'analyze_position', 'board_control', 'board_control'] cost=0.00477
+  ok   ru-move-3      28.2s ttft=16.54 tools=['analyze_position', 'board_control', 'board_control'] cost=0.00192
+  ok   ru-move-4      25.8s ttft=21.1 tools=['analyze_position', 'compare_variations', 'board_control', 'check_moves', 'board_control', 'board_control'] cost=0.00524
+  ok   ru-move-5      13.1s ttft=8.44 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00337
+  ok   ru-move-6      12.8s ttft=10.2 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00304
+  ok   ru-assess-1    25.3s ttft=7.22 tools=['board_control', 'analyze_position', 'score_position_themes', 'get_position_stats', 'find_games_by_position', 'board_control', 'board_control'] cost=0.00482
+  ok   review-1      467.1s ttft=18.41 tools=['find_critical_moments', 'board_control', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'compare_variations', 'check_moves', 'analyze_position', 'get_opening_stats', 'find_games_by_position'] cost=0.02714
+  ok   ru-assess-2    35.8s ttft=25.18 tools=['analyze_position', 'get_position_stats', 'find_games_by_position', 'board_control', 'board_control', 'board_control'] cost=0.00292
+  ok   ru-assess-4    30.9s ttft=13.79 tools=['board_control', 'score_position_themes', 'analyze_position', 'board_control', 'board_control'] cost=0.00225
+  ok   ru-legal-1     19.4s ttft=7.36 tools=['check_moves', 'board_control', 'board_control'] cost=0.00402
+  ok   ru-assess-3    40.7s ttft=24.09 tools=['analyze_position', 'score_position_themes', 'board_control', 'board_control', 'board_control'] cost=0.00367
+  ok   ru-legal-2     11.0s ttft=9.06 tools=['check_moves', 'board_control', 'board_control'] cost=0.0032
+  ok   kk-3           38.4s ttft=20.48 tools=['analyze_position', 'get_position_stats', 'board_control', 'board_control', 'board_control'] cost=0.00279
+  ok   kk-2           57.5s ttft=36.61 tools=['analyze_position', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00486
+  ok   kk-1           85.6s ttft=60.48 tools=['analyze_position', 'board_control', 'check_moves', 'board_control', 'board_control'] cost=0.00526
+  ok   en-1           32.2s ttft=29.11 tools=['analyze_position', 'check_moves', 'get_opening_stats', 'board_control', 'board_control', 'board_control'] cost=0.00593
+  ok   en-2           13.8s ttft=8.75 tools=['board_control', 'analyze_position', 'board_control'] cost=0.00246
+  ok   en-3           13.3s ttft=11.5 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00487
+  ok   puzzle-2        7.2s ttft=4.62 tools=['get_puzzle', 'board_control'] cost=0.00076
+  ok   puzzle-1       16.8s ttft=12.97 tools=['get_puzzle', 'board_control'] cost=0.00272
+  ok   opening-1      63.5s ttft=46.94 tools=['board_control', 'get_opening_stats', 'analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00582
+  ok   opening-2      23.8s ttft=1.49 tools=['get_opening_stats', 'get_opening_stats', 'get_opening_stats', 'board_control', 'find_games_by_position', 'board_control', 'board_control'] cost=0.01095
+  ok   opening-3      20.3s ttft=15.47 tools=['board_control', 'get_position_stats', 'find_games_by_position', 'board_control', 'analyze_position'] cost=0.00485
+  ok   games-1        21.3s ttft=3.05 tools=['find_games_by_position', 'search_master_games', 'get_position_stats', 'search_master_games', 'find_games_by_position', 'analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00611
+  ok   puzzle-3      190.1s ttft=185.57 tools=['get_puzzle', 'board_control', 'analyze_position', 'analyze_position'] cost=0.0139
+  ok   kk-4          262.4s ttft=262.39 tools=['analyze_position', 'board_control', 'compare_variations', 'check_moves', 'find_games_by_position', 'analyze_position', 'get_position_stats', 'analyze_position', 'board_control', 'board_control'] cost=0.01405
+  LANG games-2        66.8s ttft=None tools=['find_games_by_position', 'analyze_position', 'search_master_games', 'search_master_games', 'search_master_games', 'find_games_by_position', 'board_control'] cost=0.00563
+  ok   coach-1        95.5s ttft=95.48 tools=['board_control', 'analyze_position', 'analyze_position', 'board_control', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position'] cost=0.00589
+  ok   coach-2        28.8s ttft=14.01 tools=['training_recommender', 'analyze_position', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.00798
+  ok   coach-3        46.3s ttft=13.17 tools=['board_control', 'board_control', 'board_control', 'check_moves', 'board_control', 'board_control', 'board_control'] cost=0.0075
+  ok   trap-1         33.6s ttft=27.45 tools=['analyze_position', 'check_moves', 'analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00509
+  ok   trap-2         42.9s ttft=38.35 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.00763
+  ok   trap-3         54.7s ttft=42.58 tools=['analyze_position', 'board_control', 'board_control', 'board_control'] cost=0.01207
+  ok   import-1       25.8s ttft=1.81 tools=['lichess_game_import', 'get_player_profile', 'get_player_profile', 'lichess_game_import', 'lichess_game_import'] cost=0.00332
+  ok   review-1      439.0s ttft=146.08 tools=['find_critical_moments', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'check_moves', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position'] cost=0.03559
+  ok   review-2      483.4s ttft=12.08 tools=['board_control', 'find_critical_moments', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position', 'check_moves', 'analyze_position', 'analyze_position', 'analyze_position', 'analyze_position'] cost=0.02195
+  done in 2298s
+
+| model | errors | lang_ok | kk_ok | engine_when_needed | expected_tool_hit | ungrounded | tool_failures | illegal/claims | correctness | traps | ttft_p50 | total_p50 | total_p90 | cost_p50 | cost_sum | iters_avg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| google/gemini-3.8-flash | 0/108 | 91/108 | 11/12 | 64/75 | 92/108 | 7 | 34 | 41/239 | 0.55 | 8/9 | 16.71 | 18.88 | 47.38 | 0.0109 | 1.288 | 2.9 |
+| deepseek/deepseek-v4.1-flash | 0/108 | 107/108 | 12/12 | 75/75 | 106/108 | 2 | 79 | 93/417 | 0.44 | 6/9 | 15.0 | 28.16 | 169.44 | 0.0029 | 0.688 | 3.7 |

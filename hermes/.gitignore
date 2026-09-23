@@ -22,3 +22,6 @@ metrics/
 eval/prompt_opt/cache/
 eval/prompt_opt/runs/
 profiles/*/state.db
+
+# Puzzle DB built from the Lichess dump (scripts/import_puzzles.py) — 2 GB, never commit
+data/puzzles.db

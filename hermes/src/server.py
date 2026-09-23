@@ -340,7 +340,7 @@ def _create_agent(
     from run_agent import AIAgent
 
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
-    agent = AIAgent(
+    agent_kwargs = dict(
         model=model,
         api_key=api_key,
         base_url="https://openrouter.ai/api/v1",
@@ -355,6 +355,11 @@ def _create_agent(
         persist_session=False,
         enabled_toolsets=["safe", "chess"],
     )
+    if config.COACH_REASONING_EFFORT:
+        # The framework only forwards this for reasoning-capable families and
+        # drops it elsewhere, so it is safe to pass for every model.
+        agent_kwargs["reasoning_config"] = {"effort": config.COACH_REASONING_EFFORT}
+    agent = AIAgent(**agent_kwargs)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;
     # the tool block is part of the cached prefix, so a per-turn tool subset
@@ -533,7 +538,7 @@ async def health():
     mem = process.memory_info()
 
     stockfish_available = shutil.which("stockfish") is not None or os.path.exists(
-        "/usr/games/stockfish"
+        os.environ.get("STOCKFISH_PATH") or "/usr/games/stockfish"
     )
 
     return {
@@ -1282,6 +1287,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         session.add_message("assistant", response_text, extra=assistant_extra, evt=evt_ctx)
 
         finish_reason = "empty" if not result_text else ("max_iterations" if hit_max else "stop")
+        if config.COACH_EMIT_USAGE:
+            # Bench/diagnostics only (COACH_EMIT_USAGE=1): expose the turn's
+            # telemetry to the client before the terminal frame.
+            yield _sse({"usage": {
+                "model": model, "routing_tier": route["tier"],
+                "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
+                "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
+                "tools_selected": _selected_tool_names(agent),
+            }})
         log_event(
             "turn_end",
             surface="text",

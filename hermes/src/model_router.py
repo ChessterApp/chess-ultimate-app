@@ -53,6 +53,16 @@ _ANALYSIS_KEYWORDS = re.compile(
 )
 
 
+# A pasted game: at least six numbered moves ("1. e4 e5 2. Nf3 …" or "1.e4 e5 2.Nf3").
+# This is the one deterministic signal that a turn is a game review — it goes to the
+# deep tier regardless of how the question is phrased (decision 2026-09-23).
+_PGN_RE = re.compile(r"(?:\b\d{1,3}\.\s*[a-hNBRQKO][^\s]*\s+(?:[a-hNBRQKO][^\s]*|\d)[^\n]*?){6,}")
+
+
+def looks_like_pgn(query: str) -> bool:
+    return bool(query) and _PGN_RE.search(query) is not None
+
+
 def explain_route(query: str, model_tiers: dict, default_model: str) -> dict:
     """Resolve the model AND why it was chosen, for logging/telemetry.
 
@@ -63,6 +73,9 @@ def explain_route(query: str, model_tiers: dict, default_model: str) -> dict:
     """
     if not query or not model_tiers:
         return {"model": default_model, "tier": "default", "reason": "no_query_or_tiers", "matched": None}
+    if looks_like_pgn(query):
+        return {"model": model_tiers.get("deep", default_model), "tier": "deep",
+                "reason": "pgn_in_message", "matched": "pgn"}
 
     m = _DEEP_KEYWORDS.search(query)
     if m:

@@ -1,6 +1,7 @@
 """Tool: compare_variations — Stockfish multipv analysis comparing top lines."""
 
 import json
+import os
 import logging
 
 import chess
@@ -37,7 +38,10 @@ COMPARE_SCHEMA = {
 }
 
 DEFAULT_NUM_LINES = 3
-DEFAULT_DEPTH = 20
+# Depth 20 costs ~6 s per position on the coach host and the model calls the engine
+# 2-5 times per turn (bench 2026-09-23); depth 16 is ~2 s with the same top move in
+# coaching positions. STOCKFISH_DEPTH overrides without a deploy.
+DEFAULT_DEPTH = int(os.environ.get("STOCKFISH_DEPTH", "16"))
 
 
 def compare_variations(

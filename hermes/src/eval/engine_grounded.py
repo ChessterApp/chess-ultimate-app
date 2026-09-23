@@ -74,10 +74,16 @@ _CUE_BEFORE = (
     "play", "best", "recommend", "suggest", "should", "consider", "try",
     "go for", "go with", "strongest", "the move is", "i'd", "i would",
     "you want", "look at", "prefer", "correct move", "right move",
+    # Russian / Kazakh coach phrasing (the students' UI locales)
+    "сыграй", "сыграть", "играй", "играть", "лучший ход", "лучше всего", "рекомендую", "советую",
+    "стоит", "нужно", "надо", "правильный ход", "сильнейший", "предлагаю", "ходи", "ход —", "ход -",
+    "ойна", "жүріс", "ең жақсы", "ұсынамын", "дұрыс жүріс", "ең күшті",
 )
 _CUE_AFTER = (
     "is best", "is the best", "is strong", "is strongest", "is winning",
     "is correct", "is the move", "wins", "is right",
+    "— лучший", "- лучший", "лучший ход", "сильнейший", "выигрывает", "— правильн", "— самый сильный",
+    "— ең жақсы", "ең күшті", "дұрыс",
 )
 
 # A bare square token ("e4") next to these words is a *square* reference
@@ -110,7 +116,7 @@ def _has_cue(text: str, start: int, end: int) -> bool:
     # Past tense is narration, not a recommendation: "you've played e4" /
     # "you should have played Nf3" both describe an earlier position, so the
     # substring "play" inside "played" must not fire the cue.
-    before = before.replace("played", " ")
+    before = before.replace("played", " ").replace("сыграл", " ").replace("играл", " ")
     if any(c in before for c in _CUE_BEFORE):
         return True
     if any(c in after for c in _CUE_AFTER):

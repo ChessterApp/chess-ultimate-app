@@ -1,0 +1,39 @@
+3 cases × 5 models × 1 rep → eval/bench/2026-09-23-puzzles
+
+=== google/gemini-3.8-flash
+  ok   puzzle-2       11.7s ttft=10.65 tools=['get_puzzle', 'board_control'] cost=0.01094
+  ok   puzzle-3       15.2s ttft=13.36 tools=['get_puzzle', 'board_control', 'board_control'] cost=0.01069
+  ok   puzzle-1       26.5s ttft=25.47 tools=['get_puzzle', 'get_puzzle', 'board_control', 'board_control'] cost=0.01908
+  done in 27s
+
+=== deepseek/deepseek-v4.1-flash
+  ok   puzzle-1        6.2s ttft=5.34 tools=['get_puzzle', 'board_control'] cost=0.00227
+  ok   puzzle-2        6.5s ttft=5.74 tools=['get_puzzle', 'board_control'] cost=0.0023
+  ok   puzzle-3       23.9s ttft=3.64 tools=['get_puzzle', 'board_control'] cost=0.00264
+  done in 25s
+
+=== deepseek/deepseek-v4-pro-0813
+  ok   puzzle-2        8.5s ttft=7.43 tools=['get_puzzle', 'board_control'] cost=0.00886
+  ok   puzzle-1        9.6s ttft=7.45 tools=['get_puzzle', 'board_control'] cost=0.00893
+  ok   puzzle-3       24.6s ttft=21.58 tools=['get_puzzle', 'board_control', 'analyze_position'] cost=0.01312
+  done in 25s
+
+=== anthropic/claude-sonnet-5
+  ok   puzzle-1       13.3s ttft=10.58 tools=['get_puzzle', 'board_control'] cost=0.02937
+  ok   puzzle-2       13.9s ttft=9.85 tools=['get_puzzle', 'board_control'] cost=0.03048
+  ok   puzzle-3       19.7s ttft=15.39 tools=['get_puzzle', 'board_control'] cost=0.03158
+  done in 20s
+
+=== moonshotai/kimi-k3
+  ok   puzzle-2       23.7s ttft=8.03 tools=['get_puzzle', 'board_control'] cost=0.02919
+  ok   puzzle-1       38.2s ttft=18.84 tools=['get_puzzle', 'board_control'] cost=0.02106
+  ok   puzzle-3       77.4s ttft=7.67 tools=['get_puzzle', 'board_control'] cost=0.02338
+  done in 78s
+
+| model | errors | lang_ok | kk_ok | engine_when_needed | expected_tool_hit | ungrounded | tool_failures | illegal/claims | correctness | traps | ttft_p50 | total_p50 | total_p90 | cost_p50 | cost_sum | iters_avg |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| google/gemini-3.8-flash | 0/3 | 3/3 | 0/0 | 0/0 | 3/3 | 0 | 0 | 0/0 | None | 0/0 | 13.36 | 15.24 | 26.52 | 0.0109 | 0.041 | 4.0 |
+| deepseek/deepseek-v4.1-flash | 0/3 | 3/3 | 0/0 | 0/0 | 3/3 | 0 | 0 | 0/0 | None | 0/0 | 5.34 | 6.45 | 23.85 | 0.0023 | 0.007 | 3.0 |
+| deepseek/deepseek-v4-pro-0813 | 0/3 | 3/3 | 0/0 | 0/0 | 3/3 | 0 | 0 | 0/0 | None | 0/0 | 7.45 | 9.55 | 24.62 | 0.0089 | 0.031 | 3.3 |
+| anthropic/claude-sonnet-5 | 0/3 | 3/3 | 0/0 | 0/0 | 3/3 | 0 | 0 | 0/0 | None | 0/0 | 10.58 | 13.95 | 19.67 | 0.0305 | 0.091 | 3.0 |
+| moonshotai/kimi-k3 | 0/3 | 3/3 | 0/0 | 0/0 | 3/3 | 0 | 0 | 0/0 | None | 0/0 | 8.03 | 38.21 | 77.42 | 0.0292 | 0.074 | 3.0 |

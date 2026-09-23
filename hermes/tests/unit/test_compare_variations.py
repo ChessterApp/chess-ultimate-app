@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import chess
 import pytest
 
-from src.tools.compare_variations import compare_variations
+from src.tools.compare_variations import DEFAULT_DEPTH, compare_variations
 
 MULTI_PV_OUTPUT = (
     "info depth 20 seldepth 30 multipv 1 score cp 35 nodes 1234567 nps 2000000 "
@@ -40,7 +40,7 @@ def test_compare_three_lines():
 
     assert "error" not in result
     assert len(result["variations"]) == 3
-    assert result["depth"] == 20
+    assert result["depth"] == DEFAULT_DEPTH
 
 
 @pytest.mark.unit

@@ -1,6 +1,8 @@
 """Tool 5: analyze_position — Stockfish engine analysis."""
 
 import json
+import os
+import shutil
 import logging
 import re
 import subprocess
@@ -11,8 +13,12 @@ from tools.registry import registry
 
 logger = logging.getLogger(__name__)
 
-STOCKFISH_PATH = "/usr/games/stockfish"
-DEFAULT_DEPTH = 20
+# STOCKFISH_PATH env overrides the Debian default (macOS/brew installs it elsewhere).
+STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "/usr/games/stockfish"
+# Depth 20 costs ~6 s per position on the coach host and the model calls the engine
+# 2-5 times per turn (bench 2026-09-23); depth 16 is ~2 s with the same top move in
+# coaching positions. STOCKFISH_DEPTH overrides without a deploy.
+DEFAULT_DEPTH = int(os.environ.get("STOCKFISH_DEPTH", "16"))
 DEFAULT_MULTIPV = 3
 TIMEOUT_SECONDS = 30
 

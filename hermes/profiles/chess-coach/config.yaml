@@ -4,26 +4,30 @@
 # step. Any tier can be overridden without a deploy via COACH_MODEL_DEFAULT /
 # COACH_MODEL_FAST / COACH_MODEL_ANALYSIS / COACH_MODEL_DEEP / COACH_MODEL_UTILITY.
 #
-# 2026-09-20: gemini-2.5-flash (previous fast/default) is retired by Google on
-# 2026-10-16; claude-opus-4 ($15/$75) and claude-sonnet-4-5 ($3/$15) replaced by
-# their current generations ($5/$25, $2/$10). Run `python -m src.eval.runner`
-# against eval/golden before changing these again.
+# 2026-09-23 — decided on the live bench (AI_COACH_MODEL_BENCH_2026-09-23.md,
+# eval/bench/2026-09-23*): DeepSeek V4.1 Flash for ordinary turns (engine called
+# 75/75, ru/kk 107/107, ~$0.005/turn), Gemini 3.8 Flash for game reviews (71 s vs
+# 405 s), vision and as the fallback when the primary provider fails. The tier is
+# picked by request type (a PGN in the message → deep), not by keyword guessing.
+# Run `python scripts/model_bench.py` before changing these again.
 model:
-  default: "google/gemini-3.8-flash"
+  default: "deepseek/deepseek-v4.1-flash"
   provider: "openrouter"
   context_length: 131072
 
 # Model routing tiers (see src/model_router.py for what routes where)
-# - fast:     general questions, explanations — most turns
-# - analysis: position analysis, variations, tactics
-# - deep:     game reviews, strategic plans, preparation
+# - fast:     everything the student asks — positions, puzzles, openings, advice
+# - analysis: same model as fast (kept as a tier so env overrides still work)
+# - deep:     game reviews (PGN pasted / loaded) and preparation
 # - utility:  the coach's own housekeeping (best-of-N judge, memory writer,
 #             playbook distiller) — never a student-facing answer
+# - fallback: used for a turn when the routed model's provider fails (429/5xx)
 model_tiers:
-  fast: "google/gemini-3.8-flash"
-  analysis: "anthropic/claude-sonnet-5"
-  deep: "anthropic/claude-opus-5"
-  utility: "google/gemini-3.5-flash-lite"
+  fast: "deepseek/deepseek-v4.1-flash"
+  analysis: "deepseek/deepseek-v4.1-flash"
+  deep: "google/gemini-3.8-flash"
+  utility: "deepseek/deepseek-v4.1-flash"
+  fallback: "google/gemini-3.8-flash"
 
 terminal:
   backend: "local"

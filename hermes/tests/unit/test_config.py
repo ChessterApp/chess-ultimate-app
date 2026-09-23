@@ -105,7 +105,9 @@ def test_model_routing_config():
     """Model routing config has expected tiers and defaults."""
     config = load_profile_config()
     model_config = get_model_config(config)
-    assert model_config["default"] == "google/gemini-3.8-flash"
+    # Decision 2026-09-23 (live bench): DeepSeek Flash is the default coach model,
+    # Gemini Flash takes reviews / vision / fallback.
+    assert model_config["default"] == "deepseek/deepseek-v4.1-flash"
     assert model_config["provider"] == "openrouter"
     assert "tiers" in model_config
     tiers = model_config["tiers"]
@@ -113,6 +115,8 @@ def test_model_routing_config():
     assert "analysis" in tiers
     assert "deep" in tiers
     assert "utility" in tiers
+    assert tiers.get("fallback") == "google/gemini-3.8-flash"
+    assert tiers["deep"] == "google/gemini-3.8-flash"
     # No configured model may be one Google retires on 2026-10-16.
     assert "gemini-2.5" not in " ".join([model_config["default"], *tiers.values()])
 
