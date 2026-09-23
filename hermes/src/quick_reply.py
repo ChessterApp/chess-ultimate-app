@@ -121,6 +121,28 @@ def stream_quick_reply(
     ``should_abort`` is polled between chunks so the caller can stop the
     reaction the moment the full answer starts arriving.
     """
+    return stream_completion(
+        model=model, api_key=api_key,
+        messages=build_quick_messages(message, locale, board_fen),
+        on_delta=on_delta, timeout_s=timeout_s, max_tokens=max_tokens,
+        should_abort=should_abort, url=url, temperature=0.6,
+    )
+
+
+def stream_completion(
+    *,
+    model: str,
+    api_key: str,
+    messages: list[dict],
+    on_delta: Optional[Callable[[str], None]] = None,
+    timeout_s: float = 4.0,
+    max_tokens: int = 60,
+    should_abort: Optional[Callable[[], bool]] = None,
+    url: str = OPENROUTER_CHAT_URL,
+    temperature: float = 0.6,
+) -> QuickReply:
+    """One tool-free, no-reasoning streamed completion (the reaction, a game
+    comment): plain httpx against OpenRouter, never raises — see QuickReply.error."""
     reply = QuickReply(model=model)
     started = time.monotonic()
     if not api_key:
@@ -129,11 +151,11 @@ def stream_quick_reply(
 
     payload = {
         "model": model,
-        "messages": build_quick_messages(message, locale, board_fen),
+        "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": 0.6,
+        "temperature": temperature,
         "stream": True,
-        # The reaction must not think first — thinking is what it hides.
+        # These calls must not think first — the wait is what they exist to avoid.
         "reasoning": {"enabled": False},
         "usage": {"include": True},
     }

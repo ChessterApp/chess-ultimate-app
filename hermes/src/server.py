@@ -793,6 +793,21 @@ class CoachImportUrlRequest(BaseModel):
     url: str
 
 
+class CoachGameStartRequest(BaseModel):
+    color: str = "white"          # white | black | random
+    elo: int = 1500
+    comment_mode: str = "mistakes"  # quiet | mistakes | every
+
+
+class CoachGameMoveRequest(BaseModel):
+    move: str                     # SAN or UCI
+
+
+class CoachGameCommentRequest(BaseModel):
+    locale: Optional[str] = None
+    event: str = "move"           # move | end
+
+
 class CoachFeedbackRequest(BaseModel):
     # turn_id / rating are validated in the handler (returning 400, not 422) so a
     # malformed body is a clean client error per the feedback contract.
@@ -1090,6 +1105,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     current_message = (
         f"{body.context_note.strip()}\n\n{body.message}" if body.context_note else body.message
     )
+    # A live game on the active board: the coach must know it is playing, what
+    # has been played, and that hints are hints (see game_mode.game_context).
+    if active_board.kind == "game" and active_board.game_state:
+        try:
+            from src.game_mode import game_context
+
+            game_note = game_context(active_board)
+            if game_note:
+                turn_context = f"{turn_context}\n\n{game_note}" if turn_context else game_note
+        except Exception:  # noqa: BLE001 — never block a turn on the game note
+            logger.debug("game context failed", exc_info=True)
     current_message = attach_turn_context(current_message, turn_context)
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
@@ -2193,6 +2219,137 @@ async def coach_append_message(
         "session_id": session.id,
         "message_count": len(session.messages),
     }
+
+
+# ── Game mode: the student plays against the coach ────────────────────────
+
+
+def _get_game_board_or_404(session, board_id: str):
+    board = session.get_board(board_id)
+    if board is None or board.kind != "game" or not board.game_state:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return board
+
+
+@app.post("/api/coach/sessions/{session_id}/game")
+async def coach_game_start(session_id: str, body: CoachGameStartRequest, request: Request):
+    """Start a game against the coach on a new, active board of kind ``game``."""
+    from src import game_mode
+
+    session = _get_session_or_404(session_id, request)
+    loop = asyncio.get_event_loop()
+    try:
+        _, payload = await loop.run_in_executor(
+            None, lambda: game_mode.start_game(session, body.color, body.elo, body.comment_mode))
+    except game_mode.GameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001 — engine failure
+        logger.exception("game start failed")
+        raise HTTPException(status_code=503, detail=f"The engine is unavailable: {exc}")
+    return payload
+
+
+@app.post("/api/coach/sessions/{session_id}/game/{board_id}/move")
+async def coach_game_move(session_id: str, board_id: str, body: CoachGameMoveRequest, request: Request):
+    """The student's move: verdict + the engine's reply, or the game's end."""
+    from src import game_mode
+
+    session = _get_session_or_404(session_id, request)
+    board = _get_game_board_or_404(session, board_id)
+    loop = asyncio.get_event_loop()
+    try:
+        return await loop.run_in_executor(None, lambda: game_mode.play_move(session, board, body.move))
+    except game_mode.GameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("game move failed")
+        raise HTTPException(status_code=503, detail=f"The engine is unavailable: {exc}")
+
+
+@app.post("/api/coach/sessions/{session_id}/game/{board_id}/resign")
+async def coach_game_resign(session_id: str, board_id: str, request: Request):
+    from src import game_mode
+
+    session = _get_session_or_404(session_id, request)
+    board = _get_game_board_or_404(session, board_id)
+    try:
+        return game_mode.resign(session, board)
+    except game_mode.GameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/coach/sessions/{session_id}/game/{board_id}/takeback")
+async def coach_game_takeback(session_id: str, board_id: str, request: Request):
+    from src import game_mode
+
+    session = _get_session_or_404(session_id, request)
+    board = _get_game_board_or_404(session, board_id)
+    try:
+        return game_mode.takeback(session, board)
+    except game_mode.GameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/coach/sessions/{session_id}/game/{board_id}/comment")
+async def coach_game_comment(session_id: str, board_id: str, body: CoachGameCommentRequest, request: Request):
+    """The coach's short remark after a move or at the end — streamed like a
+    chat answer (``delta`` frames, then ``done``), tool-free and fast, stored
+    in the session as an assistant message so the conversation keeps it."""
+    from src import game_mode
+    from src.quick_reply import stream_completion
+
+    user_id = _get_user_id(request)
+    session = _get_session_or_404(session_id, request)
+    board = _get_game_board_or_404(session, board_id)
+    messages = game_mode.comment_prompt(board, body.locale, body.event)
+    model = quick_model()
+    loop = asyncio.get_event_loop()
+
+    async def event_stream():
+        queue: asyncio.Queue = asyncio.Queue()
+        sentinel = object()
+
+        def _on_delta(text):
+            if text:
+                loop.call_soon_threadsafe(queue.put_nowait, text)
+
+        def _run():
+            try:
+                return stream_completion(
+                    model=model, api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                    messages=messages, on_delta=_on_delta, timeout_s=12.0, max_tokens=160,
+                    temperature=0.5,
+                )
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+        future = loop.run_in_executor(None, _run)
+        parts: list[str] = []
+        while True:
+            item = await queue.get()
+            if item is sentinel:
+                break
+            parts.append(item)
+            yield _sse({"delta": item})
+        reply = await future
+        text = "".join(parts).strip()
+        if reply is not None and reply.error and not text:
+            log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
+                      model=model, ok=False, error_code=str(reply.error)[:80],
+                      payload={"path": "game/comment"})
+            yield _sse({"error": _student_error_text(body.locale)})
+            return
+        if reply is not None and (reply.prompt_tokens or reply.completion_tokens):
+            threading.Thread(
+                target=_do_record_usage,
+                args=(user_id, session.id, model, reply.prompt_tokens, reply.completion_tokens, "game", None, 0),
+                daemon=True,
+            ).start()
+        if text:
+            session.add_message("assistant", text, source="game")
+        yield _sse({"done": True, "session_id": session.id, "board_id": board.id})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @app.post("/api/coach/import-url")

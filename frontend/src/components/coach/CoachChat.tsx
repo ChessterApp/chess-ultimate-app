@@ -40,6 +40,11 @@ interface CoachChatProps {
  * message programmatically — used by the drawer's one-tap starter chips. */
 export interface CoachChatHandle {
   send: (text: string) => void;
+  /**
+   * Show an assistant message streamed from elsewhere (a game comment): POSTs
+   * `url` with `body`, reads `delta` SSE frames into one assistant bubble.
+   */
+  streamAssistant: (url: string, body: Record<string, unknown>) => Promise<void>;
 }
 
 /** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
@@ -640,15 +645,69 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     }
   }, [input, isStreaming, currentFen, sessionId, boardId, onBoardActions, onSessionCreated, onActiveBoardChanged, t, contextNote]);
 
-  // Let a host drive a send (Review Coach Drawer starter chips).
+  // A streamed assistant message that did not come from the student's question
+  // (the coach's remark during a game). Same SSE frames as the chat: `delta`s
+  // into one bubble, `error` as the answer text.
+  const streamAssistant = useCallback(
+    async (url: string, body: Record<string, unknown>) => {
+      const assistantId = crypto.randomUUID();
+      setMessages((prev) => [...prev, { id: assistantId, role: 'assistant', content: '', timestamp: new Date() }]);
+      let content = '';
+      const patch = (text: string) =>
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m)));
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const reader = response.body?.getReader();
+        if (!response.ok || !reader) throw new Error(`HTTP ${response.status}`);
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.delta) {
+                content += data.delta;
+                patch(content);
+              }
+              if (data.error) {
+                content += `${content ? '\n\n' : ''}*${t('errorLabel')}: ${data.error}*`;
+                patch(content);
+              }
+            } catch {
+              // skip non-JSON
+            }
+          }
+        }
+        if (!content) setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : t('unknownError');
+        patch(`*${t('connectionErrorLabel')}: ${message}*`);
+      }
+    },
+    [t],
+  );
+
+  // Let a host drive a send (Review Coach Drawer starter chips) or show a
+  // streamed remark (game mode).
   useImperativeHandle(
     ref,
     () => ({
       send: (text: string) => {
         void sendMessage(text);
       },
+      streamAssistant,
     }),
-    [sendMessage],
+    [sendMessage, streamAssistant],
   );
 
   const handleKeyDown = useCallback(
