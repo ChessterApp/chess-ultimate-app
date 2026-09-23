@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { headers } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { auth } from '@clerk/nextjs/server'
@@ -16,6 +17,7 @@ import { CTAButton } from '@/components/landing/CTAButton'
 import { HeroAnimatedBackground } from '@/components/landing/HeroAnimatedBackground'
 import { SocialButtons } from '@/components/landing/SocialButtons'
 import { PrefetchLinks } from '@/components/landing/PrefetchLinks'
+import { AccountDeletedBanner } from '@/components/landing/AccountDeletedBanner'
 
 // Apex ISR — tenant rendering forces dynamic via headers() below.
 export const revalidate = 3600
@@ -85,6 +87,11 @@ function ApexHomePage() {
 
   return (
     <>
+      {/* One-time confirmation after a successful account deletion (?account_deleted=1) */}
+      <Suspense fallback={null}>
+        <AccountDeletedBanner />
+      </Suspense>
+
       {/* Client island: handles redirect to dashboard if user is signed in */}
       <LandingPageRedirect />
 

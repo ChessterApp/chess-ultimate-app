@@ -186,6 +186,42 @@ describe('POST /api/webhooks/clerk — user.deleted cascade', () => {
     }
   });
 
+  it('cascades the personal user_id-keyed tables added for account deletion', async () => {
+    resetState({ sessions: [] });
+
+    const res = await POST(makeRequest(deletedEvent('user_del_p')));
+    expect(res.status).toBe(200);
+
+    for (const table of [
+      'live_game_logs',
+      'lesson_chat_history',
+      'player_ratings',
+      'player_fide_ratings',
+      'rating_history',
+      'tournament_registrations',
+      'tournament_standings',
+      'organization_members',
+      'link_attempts',
+    ]) {
+      const dels = deletesFor(table);
+      expect(dels, `expected a delete on ${table}`).toHaveLength(1);
+      expect(dels[0].filters).toContainEqual(['user_id', 'user_del_p']);
+    }
+  });
+
+  it('cascades the clerk_user_id-keyed tables (subscriptions, pending_onboarding)', async () => {
+    resetState({ sessions: [] });
+
+    const res = await POST(makeRequest(deletedEvent('user_del_c')));
+    expect(res.status).toBe(200);
+
+    for (const table of ['subscriptions', 'pending_onboarding']) {
+      const dels = deletesFor(table);
+      expect(dels, `expected a delete on ${table}`).toHaveLength(1);
+      expect(dels[0].filters).toContainEqual(['clerk_user_id', 'user_del_c']);
+    }
+  });
+
   it('skips coach_messages delete when the user has no sessions', async () => {
     resetState({ sessions: [] });
 
