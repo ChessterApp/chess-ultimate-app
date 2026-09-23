@@ -136,6 +136,9 @@ COACH_NORMALIZE_INPUT = _env_flag("COACH_NORMALIZE_INPUT", False)
 # board/engine tools available every turn. Disable without a deploy with
 # COACH_TOOL_SUBSET=false. The topK (excluding the core set) is configurable.
 COACH_TOOL_SUBSET = _env_flag("COACH_TOOL_SUBSET", True)
+
+# Emit a {"usage": …} SSE frame per text turn (model bench / diagnostics). Off in prod.
+COACH_EMIT_USAGE = _env_flag("COACH_EMIT_USAGE", False)
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
 # Per-student memory writer (CL Phase 1): after each completed text-chat turn,

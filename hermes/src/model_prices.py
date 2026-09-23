@@ -28,7 +28,7 @@ MODEL_PRICES: dict[str, dict] = {
     "google/gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50, "cache_read": None},
     "google/gemini-3.6-flash": {"input": 0.75, "output": 3.75, "cache_read": None},
     "google/gemini-3.7-flash": {"input": 0.75, "output": 3.75, "cache_read": None},
-    "google/gemini-3.8-flash": {"input": 0.75, "output": 3.75, "cache_read": None},
+    "google/gemini-3.8-flash": {"input": 0.75, "output": 3.75, "cache_read": 0.075},
     "google/gemini-pro-latest": {"input": 2.00, "output": 12.00, "cache_read": None},
     "google/gemini-embedding-2": {"input": 0.20, "output": 0.0, "cache_read": None},
     # ── Anthropic ─────────────────────────────────────────────────────
@@ -49,6 +49,14 @@ MODEL_PRICES: dict[str, dict] = {
     "anthropic/claude-haiku-4.5": {"input": 1.00, "output": 5.00, "cache_read": 0.10},
     "anthropic/claude-fable-5": {"input": 10.00, "output": 50.00, "cache_read": 1.00},
     "anthropic/claude-fable-5.1": {"input": 10.00, "output": 50.00, "cache_read": 0.25},
+    # ── DeepSeek / Moonshot / Zhipu (open-weight; OpenRouter list prices 2026-09-23) ──
+    "deepseek/deepseek-v4.1-flash": {"input": 0.30, "output": 1.20, "cache_read": 0.006},
+    "deepseek/deepseek-v4-flash-0731": {"input": 0.04, "output": 0.16, "cache_read": 0.016},
+    "deepseek/deepseek-v4-pro-0813": {"input": 1.32, "output": 3.96, "cache_read": 0.044},
+    "moonshotai/kimi-k3": {"input": 1.70, "output": 8.50, "cache_read": 0.17},
+    "z-ai/glm-5.3": {"input": 0.91, "output": 2.86, "cache_read": 0.169},
+    "z-ai/glm-5.3-flash": {"input": 0.09, "output": 0.30, "cache_read": 0.018},
+    "qwen/qwen3.8-flash": {"input": 0.15, "output": 0.47, "cache_read": 0.016},
     # ── OpenAI ────────────────────────────────────────────────────────
     "openai/gpt-5.6-luna": {"input": 0.20, "output": 1.20, "cache_read": None},
     "openai/gpt-5.6-sol": {"input": 2.00, "output": 10.00, "cache_read": None},

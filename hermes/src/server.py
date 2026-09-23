@@ -533,7 +533,7 @@ async def health():
     mem = process.memory_info()
 
     stockfish_available = shutil.which("stockfish") is not None or os.path.exists(
-        "/usr/games/stockfish"
+        os.environ.get("STOCKFISH_PATH") or "/usr/games/stockfish"
     )
 
     return {
@@ -1282,6 +1282,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         session.add_message("assistant", response_text, extra=assistant_extra, evt=evt_ctx)
 
         finish_reason = "empty" if not result_text else ("max_iterations" if hit_max else "stop")
+        if config.COACH_EMIT_USAGE:
+            # Bench/diagnostics only (COACH_EMIT_USAGE=1): expose the turn's
+            # telemetry to the client before the terminal frame.
+            yield _sse({"usage": {
+                "model": model, "routing_tier": route["tier"],
+                "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
+                "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
+                "tools_selected": _selected_tool_names(agent),
+            }})
         log_event(
             "turn_end",
             surface="text",

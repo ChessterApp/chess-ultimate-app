@@ -1,6 +1,8 @@
 """Tool: find_critical_moments — Analyze a game for turning points."""
 
 import json
+import os
+import shutil
 import logging
 import subprocess
 import time
@@ -13,7 +15,8 @@ from tools.registry import registry
 
 logger = logging.getLogger(__name__)
 
-STOCKFISH_PATH = "/usr/games/stockfish"
+# STOCKFISH_PATH env overrides the Debian default (macOS/brew installs it elsewhere).
+STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "/usr/games/stockfish"
 DEFAULT_THRESHOLD = 1.5
 ANALYSIS_DEPTH = 15
 TIMEOUT_PER_MOVE = 10

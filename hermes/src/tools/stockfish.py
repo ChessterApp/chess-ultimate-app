@@ -1,6 +1,8 @@
 """Tool 5: analyze_position — Stockfish engine analysis."""
 
 import json
+import os
+import shutil
 import logging
 import re
 import subprocess
@@ -11,7 +13,8 @@ from tools.registry import registry
 
 logger = logging.getLogger(__name__)
 
-STOCKFISH_PATH = "/usr/games/stockfish"
+# STOCKFISH_PATH env overrides the Debian default (macOS/brew installs it elsewhere).
+STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") or "/usr/games/stockfish"
 DEFAULT_DEPTH = 20
 DEFAULT_MULTIPV = 3
 TIMEOUT_SECONDS = 30
