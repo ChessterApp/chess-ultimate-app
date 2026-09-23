@@ -235,10 +235,22 @@ _QUERY_STOPWORDS = frozenset({
 
 
 def _stem_match(a: str, b: str) -> bool:
+    """Inflection-tolerant match on the shared prefix: Russian endings differ by
+    one or two letters ("пешки/пешка", "изолированной/изолированная"), so two
+    words match when their common prefix covers all but the last one (short
+    words) or two (long words) letters — and is at least four/five letters, so
+    "король" does not match "короткий"."""
     if a == b:
         return True
-    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
-    return len(short) >= 4 and long_.startswith(short[: max(4, len(short) - 1)])
+    n = min(len(a), len(b))
+    if n < 4:
+        return False
+    p = 0
+    while p < n and a[p] == b[p]:
+        p += 1
+    if n <= 5:
+        return p >= max(4, n - 1)
+    return p >= max(5, n - 2)
 
 
 def find_topics(query: str, topics: Optional[dict] = None, limit: int = 5) -> list[dict]:
@@ -256,21 +268,27 @@ def find_topics(query: str, topics: Optional[dict] = None, limit: int = 5) -> li
     contains, scored = [], []
     q_tokens = [t for t in _norm(q).split() if t not in _QUERY_STOPWORDS]
     for t in topics.values():
-        titles = [t["title_ru"].lower(), t["title_en"].lower(), t["title_kk"].lower(), *t.get("aliases", [])]
-        if any(q in x for x in titles if x):
+        titles = [t["title_ru"].lower(), t["title_en"].lower(), t["title_kk"].lower()]
+        aliases = t.get("aliases", [])
+        if any(q in x for x in titles + aliases if x):
             contains.append(t)
             continue
         if not q_tokens:
             continue
         hay = set(_norm(" ".join(titles)).split())
-        hay_wide = hay | set(_norm(t["summary_ru"] + " " + t["summary_en"]).split())
+        hay_alias = set(_norm(" ".join(aliases)).split()) - hay
+        hay_wide = hay | hay_alias | set(_norm(t["summary_ru"] + " " + t["summary_en"]).split())
         hay_wide |= {s for s in t["lesson_stems"]} | {th.lower() for th in t["lichess_themes"]}
         title_hits = sum(1 for tok in q_tokens if any(_stem_match(tok, h) for h in hay))
+        alias_hits = sum(1 for tok in q_tokens
+                         if not any(_stem_match(tok, h) for h in hay)
+                         and any(_stem_match(tok, h) for h in hay_alias))
         wide_hits = sum(1 for tok in q_tokens if any(_stem_match(tok, h) for h in hay_wide))
-        score = title_hits * 3 + wide_hits
-        # A title word counts three, a summary/theme word one; a topic needs the
-        # equivalent of ~two-thirds of the query in its title to be a candidate,
-        # so one shared word in a three-word question is not a match.
+        # Title word 3, alias word 2, summary/theme word 1.
+        score = title_hits * 3 + alias_hits * 2 + wide_hits
+        # A topic needs the equivalent of ~two-thirds of the query in its title
+        # to be a candidate, so one shared word in a three-word question is not
+        # a match.
         if score >= 2 * len(q_tokens):
             scored.append((score, t))
     if contains:
