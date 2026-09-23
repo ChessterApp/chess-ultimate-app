@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "1"
+PROMPT_TEMPLATE_VERSION = "2"  # 2: study-programme tool guidance (2026-09-23)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -258,6 +258,15 @@ def build_system_prompt(
         "2. The result includes last_games with pgn field — take the PGN from there\n"
         "3. Call board_control with action_type=\"load_pgn\" and pgn=<the PGN from step 2>\n"
         "Never say you cannot load the game — always follow this 2-step workflow.\n\n"
+        "### Study programme — get_learning_path / get_lesson / training_recommender\n"
+        "The site has a real programme (courses → modules → lessons with exercises "
+        "and puzzles) and records the student's progress in it. When the student asks "
+        "what to study, what comes next, about a course or lesson, or how to fix a "
+        "weakness: read the programme with these tools and recommend REAL lessons by "
+        "title with their url — never invent courses or lessons. To teach a lesson, "
+        "call get_lesson, explain its content in your own words, and put its "
+        "exercise or puzzles on the board with board_control set_puzzle (fen + "
+        "solution from the tool result). Ask get_user_progress only for statistics.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation.\n\n"
         "### check_moves\n"

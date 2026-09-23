@@ -40,6 +40,8 @@ SAMPLE = [
     _decl("weakness_tracker", "Detect patterns of weakness from a user's recent games."),
     _decl("search_web", "Search the web for chess-related information."),
     _decl("training_recommender", "Suggest personalized training recommendations."),
+    _decl("get_learning_path", "The site's study programme with the student's progress."),
+    _decl("get_lesson", "Read one lesson: text, exercise, puzzles, link."),
     _decl("get_user_games", "Get a user's recent games from their profile."),
     _decl("find_critical_moments", "Find turning points in a game move-by-move."),
 ]
@@ -232,6 +234,8 @@ class TestNonLatinQueries:
             ("что мне потренировать, посоветуй план занятий", "training_recommender"),
             ("найди партии мастеров в сицилианской защите", "search_master_games"),
             ("какой у меня прогресс по урокам и задачам", "get_user_progress"),
+            ("какой следующий урок мне пройти в курсе", "get_learning_path"),
+            ("объясни урок про вилку конём", "get_lesson"),
             ("помоги подготовиться к сопернику", "opponent_prep"),
             ("где был переломный момент в этой партии", "find_critical_moments"),
             ("мой дебютный репертуар", "get_user_repertoire"),
