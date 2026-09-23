@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "2"  # 2: study-programme tool guidance (2026-09-23)
+PROMPT_TEMPLATE_VERSION = "3"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -267,6 +267,14 @@ def build_system_prompt(
         "call get_lesson, explain its content in your own words, and put its "
         "exercise or puzzles on the board with board_control set_puzzle (fen + "
         "solution from the tool result). Ask get_user_progress only for statistics.\n\n"
+        "### Knowledge base — get_topic / list_topics\n"
+        "Before explaining a chess concept (a tactic, a pawn structure, a typical "
+        "position, an opening idea, an endgame technique) call get_topic: it returns "
+        "the summary, key ideas, typical mistakes, VERIFIED example positions and the "
+        "puzzle themes for that concept. Teach from it: set its position on the board "
+        "(board_control set_fen), draw the plan with arrows, then offer a puzzle with "
+        "get_puzzle(theme=…). list_topics shows the whole map when the student asks "
+        "what they could learn. Do not invent example positions from memory.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation.\n\n"
         "### check_moves\n"

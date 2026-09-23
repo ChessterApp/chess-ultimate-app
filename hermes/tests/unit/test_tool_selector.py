@@ -42,6 +42,8 @@ SAMPLE = [
     _decl("training_recommender", "Suggest personalized training recommendations."),
     _decl("get_learning_path", "The site's study programme with the student's progress."),
     _decl("get_lesson", "Read one lesson: text, exercise, puzzles, link."),
+    _decl("get_topic", "One knowledge-base topic: ideas, positions, puzzles, lessons."),
+    _decl("list_topics", "Map of the thematic knowledge base."),
     _decl("get_user_games", "Get a user's recent games from their profile."),
     _decl("find_critical_moments", "Find turning points in a game move-by-move."),
 ]
@@ -236,6 +238,8 @@ class TestNonLatinQueries:
             ("какой у меня прогресс по урокам и задачам", "get_user_progress"),
             ("какой следующий урок мне пройти в курсе", "get_learning_path"),
             ("объясни урок про вилку конём", "get_lesson"),
+            ("что такое изолированная пешка и как против неё играть", "get_topic"),
+            ("какие темы я могу изучить с тобой", "list_topics"),
             ("помоги подготовиться к сопернику", "opponent_prep"),
             ("где был переломный момент в этой партии", "find_critical_moments"),
             ("мой дебютный репертуар", "get_user_repertoire"),

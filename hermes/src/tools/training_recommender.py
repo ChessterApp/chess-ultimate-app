@@ -218,6 +218,21 @@ def match_lessons(programme: dict, stems: tuple, progress: dict, limit: int = LE
     return [(c, m, l) for _, _, c, m, l in hits[:limit]]
 
 
+def _topic_slugs(themes: list[str]) -> list[str]:
+    """Knowledge-base topics that list any of the puzzle themes (fail-open)."""
+    try:
+        from src.knowledge_base import topics_for_theme
+
+        out: list[str] = []
+        for th in themes:
+            for t in topics_for_theme(th):
+                if t["slug"] not in out:
+                    out.append(t["slug"])
+        return out[:3]
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _lesson_rec(c: dict, m: dict, l: dict, progress: dict, locale: Optional[str], *,
                 reason: str, weakness: str, priority: str, puzzle_themes: list[str]) -> dict:
     status = (progress.get(l["id"]) or {}).get("status") or "not_started"
@@ -234,6 +249,7 @@ def _lesson_rec(c: dict, m: dict, l: dict, progress: dict, locale: Optional[str]
         "priority": priority,
         "weakness_addressed": weakness,
         "puzzle_themes": puzzle_themes,
+        "topics": _topic_slugs(puzzle_themes),
     }
 
 
@@ -285,7 +301,8 @@ def training_recommender(
                              priority="high", puzzle_themes=[theme]))
         if not matched:
             _add({"type": "puzzle", "title": f"Puzzles: {theme}", "description": reason,
-                  "priority": "high", "weakness_addressed": theme, "puzzle_themes": [theme]})
+                  "priority": "high", "weakness_addressed": theme, "puzzle_themes": [theme],
+                  "topics": _topic_slugs([theme])})
 
     # 2. Profile weaknesses.
     for w in sorted(weaknesses, key=lambda w: w.get("frequency", 0), reverse=True):
@@ -324,7 +341,7 @@ def training_recommender(
             "weaknesses": [w.get("category") for w in weaknesses if w.get("category")],
         },
         "hint": "Name the lesson and give its url; call get_lesson to teach it on the board; "
-                "use puzzle_themes with get_puzzle.",
+                "use puzzle_themes with get_puzzle; get_topic(<topics>) explains the concept.",
     }
 
 
