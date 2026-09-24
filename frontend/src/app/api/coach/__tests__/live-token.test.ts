@@ -411,12 +411,9 @@ describe('POST /api/coach/live-token', () => {
     expect(config.tools).toBeUndefined();
   });
 
-  it('asks Live for quick end-of-speech detection', async () => {
+  it("leaves end-of-speech detection to Google's default", async () => {
     const config = await mintWithTools([]);
-    expect(config.realtimeInputConfig.automaticActivityDetection).toEqual({
-      endOfSpeechSensitivity: 'END_SENSITIVITY_HIGH',
-      silenceDurationMs: 500,
-    });
+    expect(config.realtimeInputConfig).toBeUndefined();
   });
 
   it('adds the acknowledge-before-tool guidance when voice tools are present', async () => {

@@ -13,10 +13,12 @@ export const preferredRegion = 'iad1';
 // COACH_LIVE_MODEL switches back without a deploy.
 const LIVE_MODEL = process.env.COACH_LIVE_MODEL || 'gemini-3.8-live';
 
-// End-of-speech detection. Google's default waits ~800 ms of silence before the
-// model may answer; high sensitivity with a shorter window cuts that wait out of
-// every turn. Too short a window cuts people off mid-thought, so keep it ≥ 400.
-const LIVE_SILENCE_MS = Number(process.env.COACH_LIVE_SILENCE_MS) || 500;
+// End-of-speech detection is left to Google by default: on gemini-3.8-live a
+// 500 ms window measured no faster than the default and 300 ms saved ~0.2 s
+// (voice bench 2026-09-24) — too little to risk cutting off a student who
+// pauses mid-thought. COACH_LIVE_SILENCE_MS=<ms> turns on high end-of-speech
+// sensitivity with that window, to try on live users.
+const LIVE_SILENCE_MS = Number(process.env.COACH_LIVE_SILENCE_MS) || 0;
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -488,13 +490,15 @@ export async function POST(request: Request) {
       // Ask the server to issue resumption handles so the client can survive a
       // dropped connection (network blip / session time limit) and reconnect.
       sessionResumption: {},
-      realtimeInputConfig: {
+    };
+    if (LIVE_SILENCE_MS > 0) {
+      liveConfig.realtimeInputConfig = {
         automaticActivityDetection: {
           endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
           silenceDurationMs: LIVE_SILENCE_MS,
         },
-      },
-    };
+      };
+    }
     if (functionDeclarations.length > 0) {
       liveConfig.tools = [{ functionDeclarations }];
     }
