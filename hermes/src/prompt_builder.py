@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "3"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23)
+PROMPT_TEMPLATE_VERSION = "4"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: question-language rule (2026-09-24)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -159,7 +159,124 @@ LOCALE_TO_LANGUAGE = {
 }
 
 
+def language_rule(locale: str) -> str:
+    """The language directive both prompts lead with (text and voice).
+
+    The language of the student's own words wins (TZ 3g); the interface locale
+    only decides when a message carries no language of its own. The old rule
+    ("respond entirely in <locale>") told the model to use the interface
+    language even when the student wrote or spoke in another one.
+    """
+    interface = LOCALE_TO_LANGUAGE.get(locale, locale)
+    return (
+        "CRITICAL LANGUAGE RULE: Answer in the language of the student's latest "
+        "message — Russian, Kazakh or English — even when it differs from the "
+        f"interface language. The interface language is {interface}: use it when "
+        'a message shows no language of its own (just a move, a FEN, "ok") and '
+        "for the first thing you say. Never mix languages in one reply and never "
+        "switch to a language the student did not use."
+    )
+
+
 TURN_CONTEXT_HEADER = "[Turn context — supplied by the system, not written by the student]"
+
+
+def _student_context_blocks(
+    user_profile: Optional[UserProfile],
+    board_fen: Optional[str] = None,
+    move_history: Optional[list[str]] = None,
+) -> list[str]:
+    """Per-student memory blocks shared by the text and the voice prompt.
+
+    Failure memory, the student's recently reviewed games, the coaching
+    playbook and the engine-measured training focus. Each block is flag-gated
+    and fail-open, so with every flag off this returns [].
+    """
+    sections: list[str] = []
+    # Failure memory (CL Phase 1): inject the student's most recent verified
+    # mistakes so the coach avoids repeating them. Flag-gated (default OFF → this
+    # block is a no-op and the prompt is byte-identical) and fully fail-open.
+    if user_profile:
+        try:
+            from src.config import COACH_MEMORY_WRITER
+
+            if COACH_MEMORY_WRITER:
+                from src.memory_writer import (
+                    load_active_corrections,
+                    render_corrections_block,
+                )
+
+                block = render_corrections_block(
+                    load_active_corrections(user_profile.user_id, limit=3)
+                )
+                if block:
+                    sections.append(block)
+        except Exception:
+            logger.debug("corrections injection failed", exc_info=True)
+
+    # Game retrieval digest (CL Phase 1, Slice 2): inject a compact summary of the
+    # student's own recently reviewed games. Flag-gated (COACH_GAME_RAG, default
+    # OFF → no-op, prompt byte-identical) and fully fail-open.
+    if user_profile:
+        try:
+            from src.config import COACH_GAME_RAG
+
+            if COACH_GAME_RAG:
+                from src.tools.game_insights import (
+                    load_recent_insights,
+                    render_games_block,
+                )
+
+                block = render_games_block(
+                    load_recent_insights(user_profile.user_id, limit=3)
+                )
+                if block:
+                    sections.append(block)
+        except Exception:
+            logger.debug("game insights injection failed", exc_info=True)
+
+    # Coaching playbook (CL Phase 2, Slice 1): inject up to 3 relevant, engine-
+    # verified coaching patterns distilled from real transcripts. Flag-gated
+    # (COACH_PLAYBOOK, default OFF → no-op, prompt byte-identical), fully
+    # fail-open, and served from an in-process TTL cache so it adds no per-turn
+    # DB latency spike. Curation is offline; this only reads.
+    try:
+        from src.config import COACH_PLAYBOOK
+
+        if COACH_PLAYBOOK:
+            from src.playbook import build_turn_context, load_playbook_block
+
+            context = build_turn_context(
+                board_fen=board_fen,
+                move_history=move_history,
+                user_profile=user_profile,
+            )
+            block = load_playbook_block(context)
+            if block:
+                sections.append(block)
+    except Exception:
+        logger.debug("playbook injection failed", exc_info=True)
+
+    # Automatic curriculum (CL Phase 2, Slice 2): inject the student's current
+    # "Training focus (engine-measured)" — ≤3 themes keyed on engine-measured
+    # learnability (high blunder rate near their ~50% solve frontier). Flag-gated
+    # (COACH_CURRICULUM, default OFF → no-op, prompt byte-identical), fully fail-
+    # open, and served from an in-process per-user TTL cache so it adds no per-
+    # turn DB latency spike. The curriculum is computed OFFLINE; this only reads.
+    if user_profile:
+        try:
+            from src.config import COACH_CURRICULUM
+
+            if COACH_CURRICULUM:
+                from src.curriculum import load_curriculum_block
+
+                block = load_curriculum_block(user_profile.user_id)
+                if block:
+                    sections.append(block)
+        except Exception:
+            logger.debug("curriculum injection failed", exc_info=True)
+
+    return sections
 
 
 def build_system_prompt(
@@ -191,13 +308,8 @@ def build_system_prompt(
     sections = []
 
     # Inject mandatory language directive before everything else
-    if locale and locale != "en":
-        language_name = LOCALE_TO_LANGUAGE.get(locale, locale)
-        sections.append(
-            f"CRITICAL LANGUAGE RULE: You MUST respond entirely in {language_name}. "
-            f"All explanations, questions, and chess commentary must be in {language_name}. "
-            "This is non-negotiable — never switch to English unless the user explicitly writes in English."
-        )
+    if locale:
+        sections.append(language_rule(locale))
 
     # ── Static prefix ──────────────────────────────────────────────────
     # SOUL persona and the tool-usage instructions never change turn-to-turn,
@@ -312,88 +424,7 @@ def build_system_prompt(
         if context:
             sections.append(f"## Student Profile\n{context}")
 
-    # Failure memory (CL Phase 1): inject the student's most recent verified
-    # mistakes so the coach avoids repeating them. Flag-gated (default OFF → this
-    # block is a no-op and the prompt is byte-identical) and fully fail-open.
-    if user_profile:
-        try:
-            from src.config import COACH_MEMORY_WRITER
-
-            if COACH_MEMORY_WRITER:
-                from src.memory_writer import (
-                    load_active_corrections,
-                    render_corrections_block,
-                )
-
-                block = render_corrections_block(
-                    load_active_corrections(user_profile.user_id, limit=3)
-                )
-                if block:
-                    sections.append(block)
-        except Exception:
-            logger.debug("corrections injection failed", exc_info=True)
-
-    # Game retrieval digest (CL Phase 1, Slice 2): inject a compact summary of the
-    # student's own recently reviewed games. Flag-gated (COACH_GAME_RAG, default
-    # OFF → no-op, prompt byte-identical) and fully fail-open.
-    if user_profile:
-        try:
-            from src.config import COACH_GAME_RAG
-
-            if COACH_GAME_RAG:
-                from src.tools.game_insights import (
-                    load_recent_insights,
-                    render_games_block,
-                )
-
-                block = render_games_block(
-                    load_recent_insights(user_profile.user_id, limit=3)
-                )
-                if block:
-                    sections.append(block)
-        except Exception:
-            logger.debug("game insights injection failed", exc_info=True)
-
-    # Coaching playbook (CL Phase 2, Slice 1): inject up to 3 relevant, engine-
-    # verified coaching patterns distilled from real transcripts. Flag-gated
-    # (COACH_PLAYBOOK, default OFF → no-op, prompt byte-identical), fully
-    # fail-open, and served from an in-process TTL cache so it adds no per-turn
-    # DB latency spike. Curation is offline; this only reads.
-    try:
-        from src.config import COACH_PLAYBOOK
-
-        if COACH_PLAYBOOK:
-            from src.playbook import build_turn_context, load_playbook_block
-
-            context = build_turn_context(
-                board_fen=board_fen,
-                move_history=move_history,
-                user_profile=user_profile,
-            )
-            block = load_playbook_block(context)
-            if block:
-                sections.append(block)
-    except Exception:
-        logger.debug("playbook injection failed", exc_info=True)
-
-    # Automatic curriculum (CL Phase 2, Slice 2): inject the student's current
-    # "Training focus (engine-measured)" — ≤3 themes keyed on engine-measured
-    # learnability (high blunder rate near their ~50% solve frontier). Flag-gated
-    # (COACH_CURRICULUM, default OFF → no-op, prompt byte-identical), fully fail-
-    # open, and served from an in-process per-user TTL cache so it adds no per-
-    # turn DB latency spike. The curriculum is computed OFFLINE; this only reads.
-    if user_profile:
-        try:
-            from src.config import COACH_CURRICULUM
-
-            if COACH_CURRICULUM:
-                from src.curriculum import load_curriculum_block
-
-                block = load_curriculum_block(user_profile.user_id)
-                if block:
-                    sections.append(block)
-        except Exception:
-            logger.debug("curriculum injection failed", exc_info=True)
+    sections.extend(_student_context_blocks(user_profile, board_fen, move_history))
 
     # Board context
     board_lines = []
@@ -452,19 +483,36 @@ VOICE_STYLE_LAYER = (
 
 VOICE_TOOL_LAYER = (
     "## Tools (voice mode)\n"
-    "You have tools. Use board_control to demonstrate ideas directly on the "
-    "board — set positions, draw arrows, highlight squares, step through moves — "
-    "and use the engine and database tools (analyze the position, search master "
-    "games, opening and position stats) instead of guessing or inventing lines.\n"
+    "You have the same tools as the text coach. Use them instead of guessing or "
+    "inventing lines:\n"
+    "- The current position: after the board changes the system may add a line "
+    "starting with \"[Engine]\" — Stockfish's verified top moves for that FEN. "
+    "When it matches the current position, answer from it straight away, no tool "
+    "call. Otherwise, or for any other position, call analyze_position.\n"
+    "- Any move you name that did not come from the engine: verify it with "
+    "check_moves first; if it is illegal, pick a legal move from the returned "
+    "list — never speak an illegal move.\n"
+    "- A concept (a tactic, a pawn structure, an endgame technique, an opening "
+    "idea): get_topic, then show its example position with board_control.\n"
+    "- Puzzles: get_puzzle (theme + the student's rating), then board_control "
+    "set_puzzle with its puzzle_id — never invent a puzzle.\n"
+    "- Openings: identify_opening for the name, get_opening_stats for what is "
+    "played. Master games: search_master_games (surname only) or "
+    "find_games_by_position.\n"
+    "- The student's own games: get_user_games; a game link → "
+    "import_game_from_url; a Lichess/Chess.com username → lichess_game_import / "
+    "chesscom_game_import; then board_control load_pgn.\n"
+    "- What to study next: get_learning_path, get_lesson, training_recommender — "
+    "name real lessons, never invented ones.\n"
+    "- Show, don't only tell: board_control sets positions, draws arrows, "
+    "highlights squares, steps through a game.\n"
     "CRITICAL for a live voice conversation: the moment you decide to call a "
     "tool, FIRST speak a brief spoken acknowledgment out loud (something like "
     "\"let me check that\" or \"one sec, looking now\") and THEN make the tool "
     "call. Never go silent while a tool runs — the player should always hear you "
     "respond right away.\n"
-    "Before you recommend or name a specific move that did NOT come from "
-    "analyze_position or compare_variations output, silently verify it with "
-    "check_moves first; if it comes back illegal, pick a legal move from the "
-    "returned list instead — never speak an illegal move."
+    "Say moves the way a person says them out loud (\"knight f3\", \"конь эф "
+    "три\", \"ат эф үш\"), never as engine notation like \"g1f3\"."
 )
 
 
@@ -497,14 +545,8 @@ def build_voice_prompt(
     sections = []
 
     # Same mandatory language directive the text prompt leads with.
-    if locale and locale != "en":
-        language_name = LOCALE_TO_LANGUAGE.get(locale, locale)
-        sections.append(
-            f"CRITICAL LANGUAGE RULE: You MUST respond entirely in {language_name}. "
-            f"All spoken explanations, questions, and chess commentary must be in "
-            f"{language_name}. This is non-negotiable — never switch to English "
-            "unless the player speaks to you in English."
-        )
+    if locale:
+        sections.append(language_rule(locale))
 
     # Persona core (shared with text) + spoken delivery overrides.
     sections.append(soul_content.rstrip())
@@ -515,6 +557,10 @@ def build_voice_prompt(
         context = user_profile.to_prompt_context()
         if context:
             sections.append(f"## Student Profile\n{context}")
+
+    # Same memory the text coach reads (mistakes, own games, playbook, focus).
+    # Built once per voice session at token mint, so it costs no per-turn time.
+    sections.extend(_student_context_blocks(user_profile, board_fen))
 
     # Compact current-position anchor (no tactical-analysis injection).
     if board_fen:

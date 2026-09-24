@@ -387,3 +387,17 @@ class TestToolDispatchRateLimitAndMetering:
         assert detail["error"] == "rate_limit_exceeded"
         assert detail["tier"] == "free"
         assert detail["retry_after"] >= 1
+
+
+@pytest.mark.unit
+def test_toolset_is_complete_from_startup():
+    """link_platform / sync_ratings live outside src/tools and used to register
+    only after the first text chat imported them — voice minted before that
+    got a smaller toolset."""
+    from src.tools import discover_and_register
+    from tools.registry import registry as reg
+
+    loaded = discover_and_register()
+    assert "platform_linking" in loaded
+    names = set(reg.get_tool_names_for_toolset("chess"))
+    assert {"link_platform", "sync_ratings"} <= names

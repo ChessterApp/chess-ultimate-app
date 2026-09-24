@@ -15,6 +15,12 @@ logger = logging.getLogger(__name__)
 
 TOOLSET = "chess"
 
+# Tool modules that live outside this package (they also serve non-tool code).
+# Imported here so the toolset is complete from startup — otherwise
+# link_platform / sync_ratings appeared only after the first text chat
+# imported the module, and a voice session minted before it lacked them.
+EXTRA_TOOL_MODULES = ("src.platform_linking",)
+
 
 def discover_and_register() -> list[str]:
     """Scan src/tools/ for modules and import them to trigger registration.
@@ -35,6 +41,13 @@ def discover_and_register() -> list[str]:
             logger.info("Loaded tool module: %s", module_name)
         except Exception:
             logger.exception("Failed to load tool module: %s", module_name)
+
+    for full_name in EXTRA_TOOL_MODULES:
+        try:
+            importlib.import_module(full_name)
+            loaded.append(full_name.rsplit(".", 1)[-1])
+        except Exception:
+            logger.exception("Failed to load tool module: %s", full_name)
 
     return loaded
 

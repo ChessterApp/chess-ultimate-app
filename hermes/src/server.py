@@ -41,6 +41,7 @@ from src.middleware.rate_limiter import (  # noqa: E402
     enforce_rate_limit,
     rate_limiter,
     voice_token_rate_limiter,
+    voice_tool_rate_limiter,
     get_user_tier,
     DEFAULT_TIER,
 )
@@ -81,6 +82,7 @@ from src.voice_metrics import (
     record_metric,
     sanitize_metric,
 )
+from src.voice_engine_note import engine_note
 from src.voice_quota import voice_quota_ledger
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
@@ -1947,6 +1949,10 @@ class VoicePromptRequest(BaseModel):
     tools_available: bool = True
 
 
+class VoiceEngineNoteRequest(BaseModel):
+    fen: str
+
+
 class VoiceHeartbeatRequest(BaseModel):
     user_id: str
     session_id: str
@@ -2000,7 +2006,9 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
 
     profile = _get_voice_profile(user_id)
     profile_context = profile.to_prompt_context()
-    system_prompt = build_voice_prompt(
+    # Memory blocks may hit Supabase — keep them off the event loop.
+    system_prompt = await asyncio.to_thread(
+        build_voice_prompt,
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=body.fen,
@@ -2008,6 +2016,24 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
         tools_available=body.tools_available,
     )
     return {"system_prompt": system_prompt, "profile_context": profile_context}
+
+
+@app.post("/api/coach/voice/engine-note")
+async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request):
+    """Stockfish's top moves for a board position, as one line for the live voice session.
+
+    The browser calls this whenever the board changes during a voice session and
+    passes the note into Gemini Live, so questions about the current position
+    are answered without a tool round trip (see src/voice_engine_note.py).
+    Same per-user limiter as voice tool calls. 422 when the FEN is not a legal
+    position or the engine fails — the client simply sends no note.
+    """
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    note = await asyncio.to_thread(engine_note, body.fen)
+    if note is None:
+        raise HTTPException(status_code=422, detail="position cannot be analysed")
+    return note
 
 
 def _session_summary(s) -> dict:

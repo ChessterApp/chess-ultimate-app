@@ -45,12 +45,14 @@ def _run(handler, **kw):
 def test_prompt_names_language_and_hides_the_fen():
     msgs = build_quick_messages("что играть?", "ru", "8/8/8/8/8/8/8/K6k w - - 0 1")
     assert msgs[0]["role"] == "system"
-    assert "in Russian" in msgs[0]["content"]
+    # The message's own language wins; the interface one is only the fallback.
+    assert "in the language of the student's message" in msgs[0]["content"]
+    assert "Use Russian only when the message shows no language" in msgs[0]["content"]
     assert "NEVER name a move" in msgs[0]["content"]
     assert msgs[1]["content"].startswith("[A position is set up")
     assert "8/8/8" not in msgs[1]["content"]  # the FEN itself is not sent
-    assert "in Kazakh" in build_quick_messages("x", "kz", None)[0]["content"]
-    assert "the student's language" in build_quick_messages("x", None, None)[0]["content"]
+    assert "Use Kazakh only" in build_quick_messages("x", "kz", None)[0]["content"]
+    assert "Use the student's language only" in build_quick_messages("x", None, None)[0]["content"]
 
 
 @pytest.mark.unit
