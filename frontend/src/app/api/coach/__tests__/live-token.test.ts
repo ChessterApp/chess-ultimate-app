@@ -13,6 +13,7 @@ vi.mock('@google/genai', () => ({
   },
   Modality: { AUDIO: 'AUDIO' },
   EndSensitivity: { END_SENSITIVITY_HIGH: 'END_SENSITIVITY_HIGH' },
+  Behavior: { BLOCKING: 'BLOCKING' },
 }));
 
 import { auth } from '@clerk/nextjs/server';
@@ -196,7 +197,9 @@ describe('POST /api/coach/live-token', () => {
 
     expect(response.status).toBe(200);
     const config = configFromMint();
-    expect(config.tools).toEqual([{ functionDeclarations: decls }]);
+    expect(config.tools).toEqual([
+      { functionDeclarations: decls.map((d) => ({ ...d, behavior: 'BLOCKING' })) },
+    ]);
     expect(config.systemInstruction).toContain('You have tools.');
   });
 
@@ -386,6 +389,24 @@ describe('POST /api/coach/live-token', () => {
       'import_game_from_url',
       'get_user_games',
     ]);
+  });
+
+  it('declares the voice tools BLOCKING so the answer follows the tool at once', async () => {
+    const config = await mintWithTools([{ name: 'get_puzzle' }, { name: 'board_control' }]);
+    expect(config.tools[0].functionDeclarations.map((d: any) => d.behavior)).toEqual([
+      'BLOCKING',
+      'BLOCKING',
+    ]);
+  });
+
+  it('COACH_VOICE_TOOL_BEHAVIOR=default leaves the model default', async () => {
+    process.env.COACH_VOICE_TOOL_BEHAVIOR = 'default';
+    try {
+      const config = await mintWithTools([{ name: 'get_puzzle' }]);
+      expect(config.tools[0].functionDeclarations[0]).toEqual({ name: 'get_puzzle' });
+    } finally {
+      delete process.env.COACH_VOICE_TOOL_BEHAVIOR;
+    }
   });
 
   it('COACH_VOICE_TOOLS=core falls back to the position-review subset', async () => {

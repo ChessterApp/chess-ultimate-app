@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
+import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
 
@@ -96,13 +96,22 @@ const RECAP_MAX_BYTES = 2048;
  * Tool declarations for the voice session: every well-formed one, or only the
  * core subset when COACH_VOICE_TOOLS=core. Entries without a string `name`
  * are dropped either way.
+ *
+ * Each is declared BLOCKING. gemini-3.8-live defaults to NON_BLOCKING calls:
+ * it finishes its "let me check" turn first and only then speaks about the
+ * result — 5.1 s (p90 10.9 s) to the answer on tool questions in the voice
+ * bench, against 3.3 s (p90 4.2 s) blocking; the acknowledgement before the
+ * call is spoken either way. COACH_VOICE_TOOL_BEHAVIOR=default drops the field.
  */
 function filterVoiceTools(tools: unknown[]): unknown[] {
   const coreOnly = process.env.COACH_VOICE_TOOLS === 'core';
-  return tools.filter((t) => {
-    const name = (t as { name?: unknown })?.name;
-    return typeof name === 'string' && name !== '' && (!coreOnly || VOICE_CORE_TOOLS.has(name));
-  });
+  const blocking = process.env.COACH_VOICE_TOOL_BEHAVIOR !== 'default';
+  return tools
+    .filter((t) => {
+      const name = (t as { name?: unknown })?.name;
+      return typeof name === 'string' && name !== '' && (!coreOnly || VOICE_CORE_TOOLS.has(name));
+    })
+    .map((t) => (blocking ? { ...(t as object), behavior: Behavior.BLOCKING } : t));
 }
 
 /**
