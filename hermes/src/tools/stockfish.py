@@ -6,6 +6,8 @@ import shutil
 import logging
 import re
 import subprocess
+import threading
+from collections import OrderedDict
 
 import chess
 
@@ -19,7 +21,12 @@ STOCKFISH_PATH = os.environ.get("STOCKFISH_PATH") or shutil.which("stockfish") o
 # 2-5 times per turn (bench 2026-09-23); depth 16 is ~2 s with the same top move in
 # coaching positions. STOCKFISH_DEPTH overrides without a deploy.
 DEFAULT_DEPTH = int(os.environ.get("STOCKFISH_DEPTH", "16"))
+# The models pass `depth` explicitly (the old schema text said "default 20", and
+# the voice bench of 2026-09-24 caught Gemini Live asking for 20 → 5 s of
+# silence), so the default alone does not bound the cost — the ceiling does.
+MAX_DEPTH = max(DEFAULT_DEPTH, int(os.environ.get("STOCKFISH_MAX_DEPTH", str(DEFAULT_DEPTH))))
 DEFAULT_MULTIPV = 3
+MAX_MULTIPV = 5
 TIMEOUT_SECONDS = 30
 
 ANALYZE_SCHEMA = {
@@ -29,8 +36,8 @@ ANALYZE_SCHEMA = {
         "type": "object",
         "properties": {
             "fen": {"type": "string", "description": "FEN string of the position to analyze."},
-            "depth": {"type": "integer", "description": "Search depth (default 20)."},
-            "multipv": {"type": "integer", "description": "Number of principal variations (default 3)."},
+            "depth": {"type": "integer", "description": f"Search depth; leave unset (default {DEFAULT_DEPTH}, max {MAX_DEPTH})."},
+            "multipv": {"type": "integer", "description": f"Number of principal variations (default {DEFAULT_MULTIPV}, max {MAX_MULTIPV})."},
         },
         "required": ["fen"],
     },
@@ -158,11 +165,14 @@ def analyze_position(
     result_lines = []
     for pv_num in sorted(best_lines.keys()):
         entry = best_lines[pv_num]
-        result_lines.append({
+        line = {
             "pv": entry.get("pv", ""),
             "score": entry.get("score", 0.0),
             "depth": entry.get("depth", 0),
-        })
+        }
+        if "mate_in" in entry:
+            line["mate_in"] = entry["mate_in"]
+        result_lines.append(line)
 
     return {
         "evaluation": evaluation,
@@ -171,11 +181,54 @@ def analyze_position(
     }
 
 
+# Results shared by the analyze_position tool and the voice [Engine] line
+# (src/voice_engine_note.py): the board is usually analysed the moment it
+# changes, so the model's own call for the same position is answered from here.
+_CACHE_MAX = 256
+_cache: "OrderedDict[tuple[str, int], dict]" = OrderedDict()
+_cache_lock = threading.Lock()
+
+
+def clear_analysis_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
+
+
+def analyze_cached(fen: str, depth: int = DEFAULT_DEPTH, multipv: int = DEFAULT_MULTIPV) -> dict:
+    """analyze_position behind a small LRU keyed by position (clocks ignored) and depth.
+
+    A cached run with at least as many lines serves a narrower request.
+    Errors are never cached.
+    """
+    key = (" ".join(fen.split()[:4]), depth)
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit is not None and len(hit.get("lines", [])) >= multipv:
+            _cache.move_to_end(key)
+            return {**hit, "lines": hit["lines"][:multipv]}
+    result = analyze_position(fen, depth=depth, multipv=multipv)
+    if "error" not in result:
+        with _cache_lock:
+            _cache[key] = result
+            _cache.move_to_end(key)
+            while len(_cache) > _CACHE_MAX:
+                _cache.popitem(last=False)
+    return result
+
+
+def _bounded_int(value, default: int, low: int, high: int) -> int:
+    """Model-supplied int arg clamped to [low, high]; junk falls back to default."""
+    try:
+        return max(low, min(high, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _handle_analyze_position(args: dict, **kwargs) -> str:
-    result = analyze_position(
+    result = analyze_cached(
         fen=args.get("fen", ""),
-        depth=args.get("depth", DEFAULT_DEPTH),
-        multipv=args.get("multipv", DEFAULT_MULTIPV),
+        depth=_bounded_int(args.get("depth"), DEFAULT_DEPTH, 1, MAX_DEPTH),
+        multipv=_bounded_int(args.get("multipv"), DEFAULT_MULTIPV, 1, MAX_MULTIPV),
     )
     return json.dumps(result, indent=2)
 
