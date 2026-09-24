@@ -139,3 +139,46 @@ def test_fen_validation():
     for fen in invalid_fens:
         result = analyze_position(fen)
         assert "error" in result, f"Expected error for FEN: {fen}"
+
+
+def test_handler_caps_model_supplied_depth_and_multipv():
+    """The model asks for depth 20 (old schema text) — the handler holds it at the ceiling."""
+    import json
+
+    from src.tools import stockfish
+
+    stockfish.clear_analysis_cache()
+    other = "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3"
+    with patch.object(stockfish, "analyze_position", return_value={"best_move": "e2e4"}) as run:
+        stockfish._handle_analyze_position({"fen": chess.STARTING_FEN, "depth": 20, "multipv": 9})
+        stockfish._handle_analyze_position({"fen": other, "depth": "deep"})
+    first, second = run.call_args_list
+    assert first.kwargs["depth"] == stockfish.MAX_DEPTH
+    assert first.kwargs["multipv"] == stockfish.MAX_MULTIPV
+    assert second.kwargs["depth"] == stockfish.DEFAULT_DEPTH
+    assert "default 20" not in json.dumps(stockfish.ANALYZE_SCHEMA)
+
+
+def test_analysis_cache_serves_same_position_and_narrower_requests():
+    from src.tools import stockfish
+
+    stockfish.clear_analysis_cache()
+    three = {"best_move": "e2e4", "lines": [{"pv": "e2e4"}, {"pv": "d2d4"}, {"pv": "c2c4"}]}
+    with patch.object(stockfish, "analyze_position", return_value=three) as run:
+        stockfish.analyze_cached(chess.STARTING_FEN, depth=16, multipv=3)
+        # Same position, different move clocks, fewer lines → served from the cache.
+        narrow = stockfish.analyze_cached("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 5 9", depth=16, multipv=1)
+        # A different depth is a different analysis.
+        stockfish.analyze_cached(chess.STARTING_FEN, depth=12, multipv=3)
+    assert run.call_count == 2
+    assert narrow["lines"] == [{"pv": "e2e4"}]
+
+
+def test_analysis_cache_never_stores_errors():
+    from src.tools import stockfish
+
+    stockfish.clear_analysis_cache()
+    with patch.object(stockfish, "analyze_position", return_value={"error": "timed out"}) as run:
+        stockfish.analyze_cached(chess.STARTING_FEN)
+        stockfish.analyze_cached(chess.STARTING_FEN)
+    assert run.call_count == 2
