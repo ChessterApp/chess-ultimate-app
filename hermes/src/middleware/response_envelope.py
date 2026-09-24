@@ -49,12 +49,56 @@ def extract_board_actions(text: str) -> tuple[str, list[dict]]:
 
 
 _GAME_RESULT_REQUIRED_KEYS = {"id", "white_name", "black_name"}
+_USER_GAME_REQUIRED_KEYS = {"id", "white", "black", "pgn"}
+MAX_GAME_CARDS = 20
+
+
+def _header(pgn: str, tag: str) -> str:
+    import re
+
+    m = re.search(rf'^\[{tag} "([^"]*)"\]', pgn or "", re.M)
+    return m.group(1) if m else ""
+
+
+def _user_game_card(row: dict, source: str) -> dict:
+    """One of the student's own / imported games in the card shape the clients
+    render for TWIC results, plus ``source`` and the PGN itself (no TWIC fetch)."""
+    pgn = row.get("pgn") or ""
+
+    def _elo(key: str, tag: str):
+        v = row.get(key)
+        if isinstance(v, (int, float)):
+            return int(v)
+        try:
+            return int(_header(pgn, tag))
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "id": row.get("id"),
+        "white_name": row.get("white") or _header(pgn, "White") or "?",
+        "black_name": row.get("black") or _header(pgn, "Black") or "?",
+        "white_elo": _elo("white_elo", "WhiteElo"),
+        "black_elo": _elo("black_elo", "BlackElo"),
+        "result": row.get("result") or _header(pgn, "Result") or "*",
+        "date": row.get("date") or _header(pgn, "UTCDate") or _header(pgn, "Date") or "",
+        "eco": row.get("eco") or _header(pgn, "ECO") or "",
+        "opening": row.get("opening_name") or row.get("opening") or _header(pgn, "Opening") or "",
+        "event": row.get("event") or _header(pgn, "Event") or "",
+        "source": row.get("source") or source,
+        "pgn": pgn,
+    }
 
 
 def extract_game_results(tool_results: list[Any]) -> list[dict]:
-    """Extract game search results from tool output.
+    """Game cards from tool output, for the clients' clickable game list.
 
-    Looks for JSON arrays where each element has id, white_name, black_name keys.
+    Three shapes are recognised: a TWIC search (a JSON array of rows with
+    id/white_name/black_name — returned as is), the student's saved games
+    (``{"games": [rows with id/white/black/pgn]}`` from get_user_games) and a
+    Lichess / Chess.com import (``{"last_games": [...]}``). The last two carry
+    the PGN in the card and a ``source`` so a client can open them without a
+    TWIC lookup.
     """
     if not tool_results:
         return []
@@ -64,15 +108,30 @@ def extract_game_results(tool_results: list[Any]) -> list[dict]:
             continue
         try:
             obj = json.loads(result)
-            if (
-                isinstance(obj, list)
-                and obj
-                and isinstance(obj[0], dict)
-                and _GAME_RESULT_REQUIRED_KEYS.issubset(obj[0].keys())
-            ):
-                return obj
         except (json.JSONDecodeError, TypeError):
             continue
+        if (
+            isinstance(obj, list)
+            and obj
+            and isinstance(obj[0], dict)
+            and _GAME_RESULT_REQUIRED_KEYS.issubset(obj[0].keys())
+        ):
+            return obj
+        if isinstance(obj, dict) and "error" not in obj:
+            rows = obj.get("games")
+            if isinstance(rows, list) and rows and isinstance(rows[0], dict) \
+                    and _USER_GAME_REQUIRED_KEYS.issubset(rows[0].keys()):
+                return [_user_game_card(r, "user") for r in rows[:MAX_GAME_CARDS] if isinstance(r, dict)]
+            rows = obj.get("last_games")
+            if isinstance(rows, list) and rows and isinstance(rows[0], dict) and rows[0].get("pgn"):
+                source = "chesscom" if "chess.com" in json.dumps(obj).lower() else "lichess"
+                cards = []
+                for i, r in enumerate(rows[:MAX_GAME_CARDS]):
+                    if not isinstance(r, dict):
+                        continue
+                    card = _user_game_card({**r, "id": r.get("id") or f"{source}-{i}"}, source)
+                    cards.append(card)
+                return cards
     return []
 
 

@@ -635,7 +635,10 @@ class TestCoachChat:
         events = _parse_sse(resp.text)
         error_events = [e for e in events if "error" in e]
         assert error_events
-        assert "model unavailable" in error_events[0]["error"]
+        # The student sees a calm sentence in their language; the exception
+        # text stays in the llm_error event and the diagnostic.
+        assert error_events[0]["error"].startswith("Тренер сейчас недоступен")
+        assert "model unavailable" not in error_events[0]["error"]
         # No trailing done event when the agent fails.
         assert not any("done" in e for e in events)
 

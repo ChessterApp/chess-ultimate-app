@@ -14,7 +14,7 @@ def test_with_weaknesses():
         {"category": "opening_theory", "description": "Losses in opening", "frequency": 5},
         {"category": "endgame", "description": "Losses in endgame", "frequency": 3},
     ]
-    result = training_recommender(user_id="user123", _weaknesses=weaknesses)
+    result = training_recommender(user_id="user123", _weaknesses=weaknesses, _focus=[], _programme=None)
 
     assert result["user_id"] == "user123"
     assert len(result["recommendations"]) >= 2
@@ -26,7 +26,7 @@ def test_with_weaknesses():
 @pytest.mark.unit
 def test_no_weaknesses():
     """No weaknesses returns default recommendations."""
-    result = training_recommender(user_id="user123", _weaknesses=[])
+    result = training_recommender(user_id="user123", _weaknesses=[], _focus=[], _programme=None)
 
     assert len(result["recommendations"]) >= 1
     assert any(r["weakness_addressed"] == "general" for r in result["recommendations"])
@@ -36,7 +36,7 @@ def test_no_weaknesses():
 def test_recommendation_fields():
     """Each recommendation has expected fields."""
     weaknesses = [{"category": "tactics", "frequency": 3}]
-    result = training_recommender(user_id="user123", _weaknesses=weaknesses)
+    result = training_recommender(user_id="user123", _weaknesses=weaknesses, _focus=[], _programme=None)
 
     for rec in result["recommendations"]:
         assert "type" in rec
@@ -50,7 +50,7 @@ def test_recommendation_fields():
 def test_recommendation_types():
     """Recommendations include valid types."""
     weaknesses = [{"category": "tactics", "frequency": 3}]
-    result = training_recommender(user_id="user123", _weaknesses=weaknesses)
+    result = training_recommender(user_id="user123", _weaknesses=weaknesses, _focus=[], _programme=None)
 
     valid_types = {"puzzle", "course", "practice"}
     for rec in result["recommendations"]:
@@ -64,7 +64,7 @@ def test_no_duplicate_titles():
         {"category": "opening_theory", "frequency": 5},
         {"category": "opening_theory", "frequency": 3},
     ]
-    result = training_recommender(user_id="user123", _weaknesses=weaknesses)
+    result = training_recommender(user_id="user123", _weaknesses=weaknesses, _focus=[], _programme=None)
 
     titles = [r["title"] for r in result["recommendations"]]
     assert len(titles) == len(set(titles))
@@ -75,7 +75,11 @@ def test_fetches_from_supabase():
     """Falls back to Supabase when no _weaknesses provided."""
     mock_profile = [{"weaknesses": [{"category": "tactics", "frequency": 2}]}]
 
-    with patch("src.tools.training_recommender.httpx.get") as mock_get:
+    # No programme (Supabase down for the programme tables) → generic path;
+    # the weakness itself still comes from user_chess_profiles via httpx.
+    with patch("src.tools.training_recommender.fetch_programme", return_value=None), \
+         patch("src.tools.training_recommender._fetch_focus_themes", return_value=[]), \
+         patch("src.tools.training_recommender.httpx.get") as mock_get:
         mock_resp = mock_get.return_value
         mock_resp.json.return_value = mock_profile
         mock_resp.raise_for_status = lambda: None

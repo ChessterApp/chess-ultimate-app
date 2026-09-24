@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useCoachBoard } from '@/hooks/useCoachBoard';
 import CoachBoard from '@/components/coach/CoachBoard';
-import CoachChat from '@/components/coach/CoachChat';
+import CoachChat, { type CoachChatHandle } from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
 import UpgradePrompt from '@/components/UpgradePrompt';
 import type { BoardAction, GameResult } from '@/types/coach';
@@ -16,17 +16,39 @@ import GameViewerPanel from '@/components/openings/GameViewerPanel';
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
 import CoachSessions from '@/components/coach/CoachSessions';
-import { coachApi, type BoardRecord } from '@/lib/coach/boards-api';
+import GamePanel, { GameStartDialog, type GameStartOptions } from '@/components/coach/GamePanel';
+import { coachApi, CoachApiError, type BoardRecord, type GameStateView } from '@/lib/coach/boards-api';
 
-/** Rebuild an OpenedGame tab from a persisted master_game board. */
-function openedGameFromBoard(b: BoardRecord): OpenedGame | null {
-  if (b.kind !== 'master_game' || !b.pgn) return null;
+/** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */
+function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: string }): OpenedGame | null {
+  if (!b.pgn) return null;
+  const gs = (b.game_state ?? null) as Record<string, unknown> | null;
+  if (b.kind === 'game') {
+    // A live game is played on the study board, not shown as a tab.
+    if (!gs || gs.status !== 'finished') return null;
+  } else if (b.kind !== 'master_game') {
+    return null;
+  }
   const src = (b.source ?? {}) as Record<string, unknown>;
   let parsed: ReturnType<typeof parseGamePgn>;
   try {
     parsed = parseGamePgn(b.pgn);
   } catch {
     return null;
+  }
+  if (b.kind === 'game' && gs) {
+    const studentWhite = gs.student_color === 'white';
+    return {
+      id: b.id,
+      white: studentWhite ? labels.you : labels.coach,
+      black: studentWhite ? labels.coach : labels.you,
+      result: String(gs.result ?? ''),
+      pgn: b.pgn,
+      moves: parsed.moves,
+      fens: parsed.fens,
+      startingFen: parsed.startingFen,
+      source: 'coach_game',
+    };
   }
   return {
     id: b.id,
@@ -42,7 +64,35 @@ function openedGameFromBoard(b: BoardRecord): OpenedGame | null {
     moves: parsed.moves,
     fens: parsed.fens,
     startingFen: parsed.startingFen,
-    source: 'twic',
+    source: typeof src.kind === 'string' ? src.kind : 'twic',
+  };
+}
+
+/** A live game restored from its board record (no last move / verdict known). */
+function gameViewFromBoard(b: BoardRecord): GameStateView | null {
+  const gs = (b.game_state ?? null) as Record<string, unknown> | null;
+  if (b.kind !== 'game' || !gs || gs.status !== 'playing') return null;
+  const moves = Array.isArray(gs.moves) ? (gs.moves as string[]) : [];
+  const studentColor = gs.student_color === 'black' ? 'black' : 'white';
+  const whiteToMove = moves.length % 2 === 0;
+  return {
+    board_id: b.id,
+    student_color: studentColor,
+    engine_elo: typeof gs.engine_elo === 'number' ? gs.engine_elo : 1500,
+    comment_mode: (gs.comment_mode as GameStateView['comment_mode']) ?? 'mistakes',
+    status: 'playing',
+    result: null,
+    termination: null,
+    winner: null,
+    fen: b.fen,
+    pgn: b.pgn,
+    ply: moves.length,
+    moves,
+    student_to_move: whiteToMove === (studentColor === 'white'),
+    in_check: false,
+    student: null,
+    engine: null,
+    comment_wanted: false,
   };
 }
 
@@ -64,6 +114,16 @@ export default function CoachPage() {
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
+
+  // A game against the coach, played on the study board (see GamePanel).
+  const [game, setGame] = useState<GameStateView | null>(null);
+  const [gameThinking, setGameThinking] = useState(false);
+  const [gameDialogOpen, setGameDialogOpen] = useState(false);
+  const [gameError, setGameError] = useState<string | null>(null);
+  const gameRef = useRef<GameStateView | null>(null);
+  gameRef.current = game;
+  const gameLive = game?.status === 'playing';
+  const chatRef = useRef<CoachChatHandle>(null);
 
   // Responsive board sizing
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
@@ -121,8 +181,16 @@ export default function CoachPage() {
         }
       }
       if (forStudy.length) {
-        board.applyBoardActions(forStudy);
+        // While a game is on, the study board IS the game: the coach may draw
+        // on it but never change the position under the student.
+        const live = gameRef.current?.status === 'playing';
+        const allowed = live
+          ? forStudy.filter((a) => a.type === 'draw_arrows' || a.type === 'highlight_squares' || a.type === 'flip_board')
+          : forStudy;
+        if (!allowed.length) return;
+        board.applyBoardActions(allowed);
         setActiveGameId(null);
+        if (live) return;
         // Actions the coach produced arrive stamped with board_id and are
         // already applied to the server board; a pasted PGN / FEN (no id)
         // must be persisted from here or a reload would lose the game.
@@ -220,9 +288,10 @@ export default function CoachPage() {
       const study = data.boards.find((b) => b.kind === 'study' || b.kind === 'puzzle') ?? data.boards[0];
       const games: OpenedGame[] = [];
       const indices: Record<string, number> = {};
+      const labels = { you: t('youLabel'), coach: t('coachLabel') };
       for (const b of data.boards) {
         if (b.id === study?.id) continue;
-        const g = openedGameFromBoard(b);
+        const g = openedGameFromBoard(b, labels);
         if (g) {
           games.push(g);
           indices[g.id] = b.ply - 1; // viewer index: -1 = start position
@@ -230,6 +299,10 @@ export default function CoachPage() {
       }
       setOpenedGames(games);
       setGameMoveIndices(indices);
+
+      // A game in progress comes back onto the study board, student's colour up.
+      const liveBoard = data.boards.find((b) => gameViewFromBoard(b) !== null);
+      const liveGame = liveBoard ? gameViewFromBoard(liveBoard) : null;
 
       if (study) {
         setStudyBoardId(study.id);
@@ -254,9 +327,18 @@ export default function CoachPage() {
           });
         }
       }
-      setActiveGameId(
-        data.active_board_id && games.some((g) => g.id === data.active_board_id) ? data.active_board_id : null,
-      );
+      if (liveGame) {
+        setGame(liveGame);
+        board.resetBoard();
+        if (liveGame.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: liveGame.pgn });
+        board.setOrientation(liveGame.student_color);
+        setActiveGameId(null);
+      } else {
+        setGame(null);
+        setActiveGameId(
+          data.active_board_id && games.some((g) => g.id === data.active_board_id) ? data.active_board_id : null,
+        );
+      }
     })();
     return () => {
       cancelled = true;
@@ -270,6 +352,7 @@ export default function CoachPage() {
   const lastSyncedFenRef = useRef<string | null>(null);
   useEffect(() => {
     if (!sessionId || !studyBoardId) return;
+    if (gameLive) return; // the game endpoint persists every move itself
     if (lastSyncedFenRef.current === null) {
       lastSyncedFenRef.current = board.fen; // first render after restore: nothing to sync
       return;
@@ -281,7 +364,111 @@ export default function CoachPage() {
       void coachApi.updateBoard(sessionId, studyBoardId, { position: fen });
     }, 700);
     return () => clearTimeout(timer);
-  }, [board.fen, sessionId, studyBoardId]);
+  }, [board.fen, sessionId, studyBoardId, gameLive]);
+
+  // ── Game against the coach ─────────────────────────────────────────────
+  const applyGameView = useCallback(
+    (view: GameStateView) => {
+      setGame(view);
+      setGameError(null);
+      if (view.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: view.pgn });
+      else board.applyBoardAction({ type: 'set_fen', fen: view.fen });
+      board.setOrientation(view.student_color);
+      setActiveGameId(null);
+    },
+    [board],
+  );
+
+  const requestGameComment = useCallback(
+    (sid: string, view: GameStateView) => {
+      void chatRef.current?.streamAssistant(
+        `/api/coach/sessions/${encodeURIComponent(sid)}/game/${encodeURIComponent(view.board_id)}/comment`,
+        { event: view.status === 'finished' ? 'end' : 'move' },
+      );
+    },
+    [],
+  );
+
+  const handleStartGame = useCallback(
+    async (options: GameStartOptions) => {
+      setGameThinking(true);
+      try {
+        let sid = sessionId;
+        if (!sid) {
+          const created = await coachApi.createSession();
+          if (!created) throw new Error('session');
+          sid = created.id;
+          handleSessionCreated(sid);
+        }
+        const view = await coachApi.startGame(sid, options);
+        if (!view) throw new Error('start');
+        setGameDialogOpen(false);
+        board.resetBoard();
+        applyGameView(view);
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : 'unknown';
+        setGameError(t('gameStartFailed', { reason }));
+      } finally {
+        setGameThinking(false);
+      }
+    },
+    [sessionId, handleSessionCreated, board, applyGameView, t],
+  );
+
+  const submitGameMove = useCallback(
+    async (uci: string) => {
+      const current = gameRef.current;
+      if (!sessionId || !current || current.status !== 'playing') return;
+      setGameThinking(true);
+      try {
+        const view = await coachApi.gameMove(sessionId, current.board_id, uci);
+        applyGameView(view);
+        if (view.comment_wanted) requestGameComment(sessionId, view);
+      } catch (err: unknown) {
+        const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
+        setGameError(t('gameMoveFailed', { reason }));
+      } finally {
+        setGameThinking(false);
+      }
+    },
+    [sessionId, applyGameView, requestGameComment, t],
+  );
+
+  // A move on the study board: the game's move while a game is on, otherwise
+  // the free study move the hook already handles.
+  const handleStudyMove = useCallback(
+    (from: string, to: string, promotion?: 'q' | 'r' | 'b' | 'n') => {
+      const current = gameRef.current;
+      if (current && current.status === 'playing') {
+        if (!current.student_to_move || gameThinking) return;
+        void submitGameMove(`${from}${to}${promotion ?? ''}`);
+        return;
+      }
+      board.setFenFromMove(from as Parameters<typeof board.setFenFromMove>[0], to as Parameters<typeof board.setFenFromMove>[1], promotion);
+    },
+    [board, gameThinking, submitGameMove],
+  );
+
+  const handleGameTakeback = useCallback(async () => {
+    if (!sessionId || !game) return;
+    const view = await coachApi.gameTakeback(sessionId, game.board_id);
+    if (view) applyGameView(view);
+  }, [sessionId, game, applyGameView]);
+
+  const handleGameResign = useCallback(async () => {
+    if (!sessionId || !game) return;
+    const view = await coachApi.gameResign(sessionId, game.board_id);
+    if (view) {
+      applyGameView(view);
+      requestGameComment(sessionId, view);
+    }
+  }, [sessionId, game, applyGameView, requestGameComment]);
+
+  const handleGameClose = useCallback(() => {
+    setGame(null);
+    setGameError(null);
+    if (sessionId && studyBoardId) void coachApi.updateSession(sessionId, { active_board_id: studyBoardId });
+  }, [sessionId, studyBoardId]);
 
   // Switch to another saved session (from the sessions panel).
   const handleSelectSession = useCallback(
@@ -292,6 +479,7 @@ export default function CoachPage() {
       setGameMoveIndices({});
       setActiveGameId(null);
       setStudyBoardId(null);
+      setGame(null);
       lastSyncedFenRef.current = null;
       handleSessionCreated(id);
     },
@@ -300,6 +488,7 @@ export default function CoachPage() {
 
   const handleNewSession = useCallback(() => {
     board.resetBoard();
+    setGame(null);
     setOpenedGames([]);
     setGameMoveIndices({});
     setActiveGameId(null);
@@ -318,8 +507,12 @@ export default function CoachPage() {
 
   // Open a game from chat results as a tab (persisted as a master_game board)
   const handleOpenGame = useCallback(async (game: GameResult) => {
-    // If already open, just switch to that tab
-    const existing = openedGames.find((g) => g.source === 'twic' && g.white === game.white_name && g.black === game.black_name && g.date === game.date);
+    // If already open, just switch to that tab. A TWIC card is recognised by its
+    // players and date; an own / imported card (it carries the PGN) by the PGN.
+    const source = game.source ?? 'twic';
+    const existing = source === 'twic'
+      ? openedGames.find((g) => g.source === 'twic' && g.white === game.white_name && g.black === game.black_name && g.date === game.date)
+      : openedGames.find((g) => g.source === source && g.pgn === game.pgn);
     if (existing) {
       setActiveGameId(existing.id);
       return;
@@ -329,23 +522,30 @@ export default function CoachPage() {
     if (openedGames.length >= 10) return;
 
     try {
-      const token = await getToken();
-      const res = await fetch(`/api/openings/games/${game.id}/pgn`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const { moves, fens, startingFen } = parseGamePgn(data.pgn);
+      let pgn = game.pgn;
+      if (!pgn) {
+        // Master database game: fetch the PGN by TWIC id.
+        const token = await getToken();
+        const res = await fetch(`/api/openings/games/${game.id}/pgn`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        pgn = data.pgn as string;
+      }
+      const { moves, fens, startingFen } = parseGamePgn(pgn);
 
       let boardId = `local-${game.id}`;
       if (sessionId) {
         const created = await coachApi.createBoard(sessionId, {
           kind: 'master_game',
           title: `${game.white_name} vs ${game.black_name}`,
-          pgn: data.pgn,
+          pgn,
           ply: 0,
           source: {
-            twic_game_id: game.id,
+            kind: source,
+            twic_game_id: source === 'twic' ? game.id : undefined,
+            game_id: source === 'twic' ? undefined : game.id,
             white: game.white_name,
             black: game.black_name,
             white_elo: game.white_elo,
@@ -365,17 +565,17 @@ export default function CoachPage() {
         id: gameIdStr,
         white: game.white_name,
         black: game.black_name,
-        whiteElo: game.white_elo,
-        blackElo: game.black_elo,
+        whiteElo: game.white_elo ?? undefined,
+        blackElo: game.black_elo ?? undefined,
         result: game.result,
         eco: game.eco,
         date: game.date,
         event: game.event,
-        pgn: data.pgn,
+        pgn,
         moves,
         fens,
         startingFen,
-        source: 'twic',
+        source,
       };
 
       setOpenedGames((prev) => [...prev, opened]);
@@ -420,7 +620,9 @@ export default function CoachPage() {
     return () => clearTimeout(timer);
   }, [gameMoveIndices, activeGameId, sessionId]);
 
-  const activeBoardId = activeGameId ?? studyBoardId;
+  // The coach's turns target the game board while a game is on (so it knows
+  // the game), the tab being viewed, or the study board.
+  const activeBoardId = activeGameId ?? (gameLive && game ? game.board_id : null) ?? studyBoardId;
 
   if (!isLoaded || subscription.loading) {
     return <LoadingScreen isVisible={true} />;
@@ -460,6 +662,14 @@ export default function CoachPage() {
         </div>
         <div className="relative flex items-center gap-3">
           <button
+            onClick={() => setGameDialogOpen(true)}
+            disabled={gameLive}
+            className="text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-40"
+            data-testid="play-coach"
+          >
+            {t('playWithCoach')}
+          </button>
+          <button
             onClick={() => setSessionsOpen((v) => !v)}
             className="text-sm text-gray-400 hover:text-white transition-colors"
             aria-expanded={sessionsOpen}
@@ -486,7 +696,14 @@ export default function CoachPage() {
       {/* Main content: Board + Chat split */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
-        <div className="lg:w-[55%] flex flex-col p-2 sm:p-4">
+        <div className="lg:w-[55%] flex flex-col p-2 sm:p-4 relative">
+          {gameDialogOpen && (
+            <GameStartDialog
+              busy={gameThinking}
+              onStart={(options) => void handleStartGame(options)}
+              onCancel={() => setGameDialogOpen(false)}
+            />
+          )}
           {openedGames.length > 0 && (
             <div className="flex items-center gap-1 px-2 py-1 border-b border-white/10 overflow-x-auto">
               <button
@@ -566,25 +783,46 @@ export default function CoachPage() {
                 </div>
               </div>
             ) : (
-              <CoachBoard
-                fen={board.fen}
-                arrows={board.arrows}
-                highlights={board.highlights}
-                orientation={board.orientation}
-                puzzleMode={board.puzzleMode}
-                puzzleState={board.puzzleState}
-                moveIndex={board.moveIndex}
-                pgnLength={board.pgn ? board.moveIndex + 1 : 0}
-                onMove={board.setFenFromMove}
-                onReset={board.resetBoard}
-                onFirst={board.firstMove}
-                onPrev={board.prevMove}
-                onNext={board.nextMove}
-                onLast={board.lastMove}
-                onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
-                onPuzzleMove={board.validatePuzzleMove}
-                boardSize={responsiveBoardSize}
-              />
+              <div className="flex flex-col items-center w-full">
+                <CoachBoard
+                  fen={board.fen}
+                  arrows={board.arrows}
+                  highlights={board.highlights}
+                  orientation={board.orientation}
+                  puzzleMode={board.puzzleMode}
+                  puzzleState={board.puzzleState}
+                  moveIndex={board.moveIndex}
+                  pgnLength={board.pgn ? board.moveIndex + 1 : 0}
+                  onMove={handleStudyMove}
+                  onReset={gameLive ? () => {} : board.resetBoard}
+                  onFirst={board.firstMove}
+                  onPrev={board.prevMove}
+                  onNext={board.nextMove}
+                  onLast={board.lastMove}
+                  onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
+                  onPuzzleMove={board.validatePuzzleMove}
+                  boardSize={responsiveBoardSize}
+                />
+                {game && (
+                  <div style={{ width: responsiveBoardSize }}>
+                    <GamePanel
+                      game={game}
+                      thinking={gameThinking}
+                      onHint={() => chatRef.current?.send(t('hintMessage'))}
+                      onTakeback={() => void handleGameTakeback()}
+                      onResign={() => void handleGameResign()}
+                      onReview={() => chatRef.current?.send(t('reviewMessage'))}
+                      onNewGame={() => setGameDialogOpen(true)}
+                      onClose={handleGameClose}
+                    />
+                    {gameError && (
+                      <div className="mt-1 text-xs text-red-300" data-testid="game-error">
+                        {gameError}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -592,6 +830,7 @@ export default function CoachPage() {
         {/* Chat panel */}
         <div className="flex-1 lg:flex-none lg:w-[45%] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col min-h-0">
           <CoachChat
+            ref={chatRef}
             currentFen={
               activeGameId && activeGame
                 ? ((gameMoveIndices[activeGameId] ?? -1) === -1

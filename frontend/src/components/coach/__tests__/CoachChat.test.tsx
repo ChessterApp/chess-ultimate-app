@@ -609,4 +609,154 @@ describe('CoachChat — pasted games go straight to the board', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
+
+  it('classifies Lichess and Chess.com game links', async () => {
+    const { classifyPastedText } = await import('../CoachChat');
+    expect(classifyPastedText('https://lichess.org/kAdOQKeh')).toBe('url');
+    expect(classifyPastedText('https://lichess.org/kAdOQKeh/black#23')).toBe('url');
+    expect(classifyPastedText('lichess.org/kAdOQKehAbCd')).toBe('url');
+    expect(classifyPastedText('https://www.chess.com/game/live/184239477800')).toBe('url');
+    expect(classifyPastedText('https://www.chess.com/analysis/game/live/184239477800?tab=review')).toBe('url');
+    expect(classifyPastedText('https://lichess.org/@/DrNykterstein')).toBeNull();
+    expect(classifyPastedText('https://chesster.io/coach')).toBeNull();
+  });
+
+  it('loads a pasted game link through /api/coach/import-url', async () => {
+    const onBoardActions = vi.fn();
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ pgn: '1. e4 e5 *', white: 'Hikaru', black: 'alexrustemov' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder);
+    fireEvent.paste(input, { clipboardData: { getData: () => 'https://www.chess.com/game/live/184239477800' } });
+    await vi.waitFor(() => expect(onBoardActions).toHaveBeenCalledWith([{ type: 'load_pgn', pgn: '1. e4 e5 *' }]));
+    expect(fetchMock).toHaveBeenCalledWith('/api/coach/import-url', expect.objectContaining({ method: 'POST' }));
+    expect(screen.getByText('Loaded the game from the link: Hikaru — alexrustemov.')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows the reason when a link cannot be loaded', async () => {
+    const onBoardActions = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 400, json: async () => ({ error: 'Lichess does not know this game' }) })));
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.paste(screen.getByPlaceholderText(coach.inputPlaceholder), { clipboardData: { getData: () => 'https://lichess.org/aaaaaaaa' } });
+    await vi.waitFor(() => expect(screen.getByText('Could not load the game from the link: Lichess does not know this game')).toBeTruthy());
+    expect(onBoardActions).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('CoachChat — a photo of the board or a scoresheet', () => {
+  function pngFile() {
+    return new File([new Uint8Array([137, 80, 78, 71])], 'board.png', { type: 'image/png' });
+  }
+
+  it('board photo → /api/convert-image → set_fen', async () => {
+    const onBoardActions = vi.fn();
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ fen: '8/8/8/4k3/8/8/8/4K2R w - - 0 1' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.click(screen.getByLabelText(coach.attachPhoto));
+    fireEvent.click(screen.getByText(coach.photoToPosition));
+    const input = screen.getByTestId('photo-input') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [pngFile()] } });
+    });
+    await vi.waitFor(() => expect(onBoardActions).toHaveBeenCalledWith([{ type: 'set_fen', fen: '8/8/8/4k3/8/8/8/4K2R w - - 0 1' }]));
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/convert-image');
+    expect(JSON.parse(String(init.body))).toHaveProperty('image');
+    expect(screen.getByText(coach.loadedFromPhoto)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('scoresheet photo → /api/convert-scoresheet → load_pgn', async () => {
+    const onBoardActions = vi.fn();
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ pgn: '1. d4 d5 *' }) }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.click(screen.getByLabelText(coach.attachPhoto));
+    fireEvent.click(screen.getByText(coach.scoresheetToGame));
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('photo-input'), { target: { files: [pngFile()] } });
+    });
+    await vi.waitFor(() => expect(onBoardActions).toHaveBeenCalledWith([{ type: 'load_pgn', pgn: '1. d4 d5 *' }]));
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/convert-scoresheet');
+    expect(JSON.parse(String(init.body)).images).toHaveLength(1);
+    expect(screen.getByText(coach.loadedFromScoresheet)).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  it('shows the reason when recognition fails', async () => {
+    const onBoardActions = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 429, json: async () => ({ error: 'rate_limited' }) })));
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.click(screen.getByLabelText(coach.attachPhoto));
+    fireEvent.click(screen.getByText(coach.photoToPosition));
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('photo-input'), { target: { files: [pngFile()] } });
+    });
+    await vi.waitFor(() => expect(screen.getByText('Could not recognize the photo: rate_limited')).toBeTruthy());
+    expect(onBoardActions).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe('CoachChat — own and imported games as cards', () => {
+  it('renders a source caption and opens a card that carries its PGN', async () => {
+    const onOpenGame = vi.fn();
+    const frames = [
+      'data: {"delta": "Вот твои партии."}\n\n',
+      'data: {"game_results": [{"id": "uuid-1", "white_name": "me", "black_name": "you", "result": "1-0", "date": "2026-09-20", "eco": "C50", "opening": "", "event": "Club", "white_elo": 1500, "black_elo": 1400, "source": "user", "pgn": "1. e4 e5 1-0"}]}\n\n',
+      'data: {"done": true, "session_id": "s1", "turn_id": "t1"}\n\n',
+    ];
+    const encoder = new TextEncoder();
+    let i = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => (i < frames.length ? { done: false, value: encoder.encode(frames[i++]) } : { done: true, value: undefined }),
+        }),
+      },
+    })));
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={vi.fn()} onOpenGame={onOpenGame} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder);
+    fireEvent.change(input, { target: { value: 'покажи мои партии' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+    await vi.waitFor(() => expect(screen.getByText('me')).toBeTruthy());
+    expect(screen.getByText(coach.sourceUser)).toBeTruthy();
+    fireEvent.click(screen.getByText('me'));
+    expect(onOpenGame).toHaveBeenCalledWith(expect.objectContaining({ id: 'uuid-1', source: 'user', pgn: '1. e4 e5 1-0' }));
+    vi.unstubAllGlobals();
+  });
 });

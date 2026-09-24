@@ -82,6 +82,20 @@ CANNED_STOCKFISH_OUTPUT = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _no_two_stage_by_default(monkeypatch):
+    """Keep the first-stage reaction OFF in tests.
+
+    It is a real OpenRouter call, and hermes/.env (loaded by src.config) may
+    carry a live key — every route test would otherwise spend tokens. Tests of
+    the two-stage path switch it on explicitly and patch the stream function.
+    """
+    from src import config as _config
+
+    monkeypatch.setattr(_config, "COACH_TWO_STAGE", False)
+    yield
+
+
 @pytest.fixture
 def fake_twic_db():
     """In-memory SQLite with games and move_stats tables."""

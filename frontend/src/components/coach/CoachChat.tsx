@@ -40,18 +40,34 @@ interface CoachChatProps {
  * message programmatically — used by the drawer's one-tap starter chips. */
 export interface CoachChatHandle {
   send: (text: string) => void;
+  /**
+   * Show an assistant message streamed from elsewhere (a game comment): POSTs
+   * `url` with `body`, reads `delta` SSE frames into one assistant bubble.
+   */
+  streamAssistant: (url: string, body: Record<string, unknown>) => Promise<void>;
 }
 
 /** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
 const PGN_RE = /(?:^|\s)1\.\s*[a-hNBRQKO0]/;
 const FEN_RE = /^\s*([rnbqkpRNBQKP1-8]+\/){7}[rnbqkpRNBQKP1-8]+\s+[wb]\s+(-|[KQkq]{1,4})\s+(-|[a-h][36])(\s+\d+\s+\d+)?\s*$/;
 
-export function classifyPastedText(text: string): 'pgn' | 'fen' | null {
+/** A link to one game on Lichess (8-char id) or Chess.com (numeric game id). */
+const GAME_URL_RE =
+  /^(?:https?:\/\/)?(?:www\.)?(?:lichess\.org\/(?:game\/export\/)?[A-Za-z0-9]{8}(?:[A-Za-z0-9]{4})?(?:[/#?].*)?|chess\.com\/(?:(?:analysis\/)?game\/(?:live|daily|computer)\/\d+|live\/game\/\d+)(?:[/#?].*)?)$/i;
+
+export function classifyPastedText(text: string): 'pgn' | 'fen' | 'url' | null {
   const t = (text || '').trim();
   if (!t) return null;
   if (FEN_RE.test(t)) return 'fen';
+  if (GAME_URL_RE.test(t)) return 'url';
   if (t.length > 20 && PGN_RE.test(t) && (t.match(/\d+\./g) ?? []).length >= 2) return 'pgn';
   return null;
+}
+
+/** Strip the `data:image/…;base64,` prefix — the conversion routes want raw base64. */
+function dataUrlToBase64(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',');
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
 }
 
 const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat(
@@ -347,27 +363,125 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // A pasted PGN or FEN (or a .pgn file) goes to the board directly and the
   // coach is told about it in one short line — the student should not have to
   // ask the model to "load this" and wait for a tool round-trip.
+  /** One local line in the thread (no server round-trip) — what the board just did. */
+  const addLocalLine = useCallback((content: string, id?: string) => {
+    const line: CoachMessage = { id: id ?? crypto.randomUUID(), role: 'user', content, timestamp: new Date() };
+    setMessages((prev) => [...prev, line]);
+    return line.id;
+  }, []);
+
+  const replaceLocalLine = useCallback((id: string, content: string) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content } : m)));
+  }, []);
+
+  // A pasted game link: Hermes fetches the PGN (Lichess export / Chess.com
+  // callback), the board loads it, the coach sees the new position next turn.
+  const loadGameFromUrl = useCallback(
+    async (url: string) => {
+      const lineId = addLocalLine(t('loadingUrl'));
+      try {
+        const res = await fetch('/api/coach/import-url', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          pgn?: string; white?: string; black?: string; error?: string;
+        };
+        if (!res.ok || !data.pgn) {
+          replaceLocalLine(lineId, t('urlFailed', { reason: data.error || `HTTP ${res.status}` }));
+          return;
+        }
+        onBoardActions([{ type: 'load_pgn', pgn: data.pgn }]);
+        replaceLocalLine(lineId, t('loadedFromUrl', { white: data.white ?? '?', black: data.black ?? '?' }));
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : t('unknownError');
+        replaceLocalLine(lineId, t('urlFailed', { reason }));
+      }
+    },
+    [addLocalLine, replaceLocalLine, onBoardActions, t],
+  );
+
   const loadPastedGame = useCallback(
     (text: string) => {
       const kind = classifyPastedText(text);
       const trimmed = text.trim();
       if (kind === 'pgn') {
         onBoardActions([{ type: 'load_pgn', pgn: trimmed }]);
-        setMessages((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), role: 'user', content: t('loadedPgn'), timestamp: new Date() },
-        ]);
+        addLocalLine(t('loadedPgn'));
       } else if (kind === 'fen') {
         onBoardActions([{ type: 'set_fen', fen: trimmed }]);
-        setMessages((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), role: 'user', content: t('loadedFen'), timestamp: new Date() },
-        ]);
+        addLocalLine(t('loadedFen'));
+      } else if (kind === 'url') {
+        void loadGameFromUrl(trimmed);
       } else {
         setInput((prev) => prev + trimmed);
       }
     },
-    [onBoardActions, t],
+    [onBoardActions, t, addLocalLine, loadGameFromUrl],
+  );
+
+  // A photo of a board (→ FEN) or of a paper scoresheet (→ PGN), through the
+  // site's existing vision routes; the result lands on the board like a paste.
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [photoMode, setPhotoMode] = useState<'position' | 'scoresheet' | null>(null);
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  const pickPhoto = useCallback((mode: 'position' | 'scoresheet') => {
+    setPhotoMode(mode);
+    setPhotoMenuOpen(false);
+    // Let React apply the mode before the native picker opens.
+    setTimeout(() => photoInputRef.current?.click(), 0);
+  }, []);
+
+  const recognizePhoto = useCallback(
+    async (file: File, mode: 'position' | 'scoresheet') => {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result ?? ''));
+        reader.onerror = () => reject(reader.error ?? new Error('read failed'));
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrlToBase64(dataUrl);
+      const lineId = addLocalLine(t('recognizingPhoto'));
+      setPhotoBusy(true);
+      try {
+        if (mode === 'position') {
+          const res = await fetch('/api/convert-image', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64 }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { fen?: string; error?: string };
+          if (!res.ok || !data.fen) {
+            replaceLocalLine(lineId, t('photoFailed', { reason: data.error || `HTTP ${res.status}` }));
+            return;
+          }
+          onBoardActions([{ type: 'set_fen', fen: data.fen }]);
+          replaceLocalLine(lineId, t('loadedFromPhoto'));
+        } else {
+          const res = await fetch('/api/convert-scoresheet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ images: [base64] }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { pgn?: string; error?: string };
+          if (!res.ok || !data.pgn) {
+            replaceLocalLine(lineId, t('photoFailed', { reason: data.error || `HTTP ${res.status}` }));
+            return;
+          }
+          onBoardActions([{ type: 'load_pgn', pgn: data.pgn }]);
+          replaceLocalLine(lineId, t('loadedFromScoresheet'));
+        }
+      } catch (err: unknown) {
+        const reason = err instanceof Error ? err.message : t('unknownError');
+        replaceLocalLine(lineId, t('photoFailed', { reason }));
+      } finally {
+        setPhotoBusy(false);
+      }
+    },
+    [addLocalLine, replaceLocalLine, onBoardActions, t],
   );
 
   const sendMessage = useCallback(async (overrideText?: string) => {
@@ -531,15 +645,69 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     }
   }, [input, isStreaming, currentFen, sessionId, boardId, onBoardActions, onSessionCreated, onActiveBoardChanged, t, contextNote]);
 
-  // Let a host drive a send (Review Coach Drawer starter chips).
+  // A streamed assistant message that did not come from the student's question
+  // (the coach's remark during a game). Same SSE frames as the chat: `delta`s
+  // into one bubble, `error` as the answer text.
+  const streamAssistant = useCallback(
+    async (url: string, body: Record<string, unknown>) => {
+      const assistantId = crypto.randomUUID();
+      setMessages((prev) => [...prev, { id: assistantId, role: 'assistant', content: '', timestamp: new Date() }]);
+      let content = '';
+      const patch = (text: string) =>
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m)));
+      try {
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const reader = response.body?.getReader();
+        if (!response.ok || !reader) throw new Error(`HTTP ${response.status}`);
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (data.delta) {
+                content += data.delta;
+                patch(content);
+              }
+              if (data.error) {
+                content += `${content ? '\n\n' : ''}*${t('errorLabel')}: ${data.error}*`;
+                patch(content);
+              }
+            } catch {
+              // skip non-JSON
+            }
+          }
+        }
+        if (!content) setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : t('unknownError');
+        patch(`*${t('connectionErrorLabel')}: ${message}*`);
+      }
+    },
+    [t],
+  );
+
+  // Let a host drive a send (Review Coach Drawer starter chips) or show a
+  // streamed remark (game mode).
   useImperativeHandle(
     ref,
     () => ({
       send: (text: string) => {
         void sendMessage(text);
       },
+      streamAssistant,
     }),
-    [sendMessage],
+    [sendMessage, streamAssistant],
   );
 
   const handleKeyDown = useCallback(
@@ -615,6 +783,18 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               )}
               {msg.gameResults && msg.gameResults.length > 0 && (
                 <div className="mt-3 rounded-lg overflow-hidden border border-white/10">
+                  {/* Own / imported games say where they come from; TWIC cards stay as before. */}
+                  {msg.gameResults[0].source && msg.gameResults[0].source !== 'twic' && (
+                    <div className="px-2 py-1 text-[11px] uppercase tracking-wide text-gray-500 bg-white/5">
+                      {msg.gameResults[0].source === 'user'
+                        ? t('sourceUser')
+                        : msg.gameResults[0].source === 'lichess'
+                          ? t('sourceLichess')
+                          : msg.gameResults[0].source === 'chesscom'
+                            ? t('sourceChesscom')
+                            : msg.gameResults[0].source}
+                    </div>
+                  )}
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-white/5 text-gray-400">
@@ -755,6 +935,58 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           >
             📎
           </button>
+          {/* A photo of the board → position, or of a scoresheet → game, via the
+              site's vision routes. Same result as a paste: the board changes and
+              one line in the thread says what happened. */}
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            data-testid="photo-input"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file || !photoMode) return;
+              await recognizePhoto(file, photoMode);
+            }}
+          />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setPhotoMenuOpen((open) => !open)}
+              disabled={isStreaming || photoBusy}
+              className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-30"
+              title={t('attachPhoto')}
+              aria-label={t('attachPhoto')}
+              aria-expanded={photoMenuOpen}
+            >
+              📷
+            </button>
+            {photoMenuOpen && (
+              <div
+                role="menu"
+                className="absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-white/10 bg-[#1b1b24] shadow-lg overflow-hidden z-10"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pickPhoto('position')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10"
+                >
+                  {t('photoToPosition')}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pickPhoto('scoresheet')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10 border-t border-white/5"
+                >
+                  {t('scoresheetToGame')}
+                </button>
+              </div>
+            )}
+          </div>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}

@@ -32,7 +32,7 @@ class TestPromptVersion:
         v1 = pb.get_prompt_version()
         pb._prompt_version_cache = None
         pb._prompt_version_mtime = None
-        with patch.object(pb, "PROMPT_TEMPLATE_VERSION", "2"):
+        with patch.object(pb, "PROMPT_TEMPLATE_VERSION", pb.PROMPT_TEMPLATE_VERSION + "-x"):
             v2 = pb.get_prompt_version()
         assert v1 != v2
 

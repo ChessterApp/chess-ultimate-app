@@ -104,7 +104,7 @@ describe('CoachPage - Game Tabs', () => {
     expect(coachPageContent).toContain('coachApi.createBoard(sessionId');
     expect(coachPageContent).toContain('coachApi.deleteBoard(sessionId, gameId)');
     expect(coachPageContent).toContain('coachApi.listBoards(sessionId)');
-    expect(coachPageContent).toContain('openedGameFromBoard(b)');
+    expect(coachPageContent).toContain('openedGameFromBoard(b, labels)');
   });
 
   it('tells the coach which board is active', () => {

@@ -104,3 +104,40 @@ class TestWrapResponseWithGameResults:
         envelope = wrap_response("Here are the results.", tool_results=[board_action, json.dumps(games)])
         assert len(envelope["board_actions"]) == 1
         assert len(envelope["game_results"]) == 1
+
+
+class TestOwnAndImportedGameCards:
+    """The student's own games and Lichess/Chess.com imports become cards too."""
+
+    PGN = '[Event "Rated Blitz"]\n[White "me"]\n[Black "you"]\n[Result "1-0"]\n[WhiteElo "1500"]\n[ECO "C50"]\n\n1. e4 e5 1-0'
+
+    def test_user_games_become_cards_with_pgn_and_source(self):
+        payload = json.dumps({"user_id": "u", "count": 1, "games": [
+            {"id": "uuid-1", "title": "me vs you", "white": "me", "black": "you", "white_elo": None,
+             "black_elo": 1400, "result": "1-0", "date": "2026-09-20", "event": "Club", "eco": None,
+             "opening_name": "Italian", "source": "lichess", "pgn": self.PGN},
+        ]})
+        cards = extract_game_results([payload])
+        assert len(cards) == 1
+        c = cards[0]
+        assert (c["id"], c["white_name"], c["black_name"], c["result"]) == ("uuid-1", "me", "you", "1-0")
+        assert c["white_elo"] == 1500 and c["black_elo"] == 1400  # from PGN when the row has none
+        assert c["eco"] == "C50" and c["opening"] == "Italian" and c["event"] == "Club"
+        assert c["source"] == "lichess" and c["pgn"] == self.PGN
+
+    def test_import_last_games_become_cards(self):
+        payload = json.dumps({"imported": 2, "summary": "Imported 2 games from Chess.com for x", "last_games": [
+            {"pgn": self.PGN, "white": "me", "black": "you", "result": "1-0", "date": "2026.09.20"},
+        ]})
+        cards = extract_game_results([payload])
+        assert cards[0]["source"] == "chesscom" and cards[0]["id"] == "chesscom-0"
+        assert cards[0]["white_elo"] == 1500
+
+    def test_error_and_empty_payloads_give_no_cards(self):
+        assert extract_game_results([json.dumps({"error": "x", "games": []})]) == []
+        assert extract_game_results([json.dumps({"user_id": "u", "count": 0, "games": []})]) == []
+
+    def test_wrap_response_carries_user_game_cards(self):
+        payload = json.dumps({"games": [{"id": "g", "white": "a", "black": "b", "pgn": self.PGN}]})
+        env = wrap_response("Вот твои партии.", tool_results=[payload])
+        assert env["game_results"][0]["source"] == "user"

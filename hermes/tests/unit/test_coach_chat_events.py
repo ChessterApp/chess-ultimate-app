@@ -119,7 +119,11 @@ class TestChatEvents:
         )
         assert resp.status_code == 200
         text = resp.text
-        assert "Agent error" in text  # error frame still emitted to client
+        # An error frame still reaches the client — but with the student-facing
+        # sentence, never the exception text (that stays in the event/diagnostic).
+        frames = [json.loads(l[6:]) for l in text.splitlines() if l.startswith("data: ")]
+        assert frames[-1]["error"].startswith("Тренер сейчас недоступен")
+        assert "openrouter 500" not in text
 
         events = _events_by_type(mock_log)
         assert "llm_error" in events

@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Optional
 
 import yaml
 from dotenv import load_dotenv
@@ -64,8 +65,32 @@ DEFAULT_MODEL = "google/gemini-3.8-flash"
 
 # Routing tiers a profile may define. ``utility`` is for the coach's own
 # housekeeping calls (best-of-N judge, memory writer, playbook distiller) —
-# never for a student-facing answer.
-MODEL_TIERS = ("fast", "analysis", "deep", "utility")
+# never for a student-facing answer. ``fallback`` is the model a turn switches
+# to when the routed model's provider fails (429 / 5xx / retries exhausted).
+# ``quick`` is the model for the one-sentence first reaction of a two-stage
+# answer (see COACH_TWO_STAGE); unset → the fast tier.
+MODEL_TIERS = ("fast", "analysis", "deep", "utility", "fallback", "quick")
+
+
+def fallback_model_for(routed_model: str, config: dict = None) -> Optional[str]:
+    """Model to switch to when ``routed_model``'s provider fails this turn.
+
+    The ``fallback`` tier, unless the turn is already on it (a game review on
+    Gemini falls back to the fast model instead). ``None`` when nothing else is
+    configured — the framework then fails the turn as before.
+    """
+    tiers = get_model_config(config).get("tiers", {}) or {}
+    for candidate in (tiers.get("fallback"), tiers.get("fast")):
+        if candidate and candidate != routed_model:
+            return candidate
+    return None
+
+
+def quick_model(config: dict = None) -> str:
+    """Model for the first-stage reaction: the ``quick`` tier, else ``fast``."""
+    mc = get_model_config(config)
+    tiers = mc.get("tiers", {}) or {}
+    return tiers.get("quick") or tiers.get("fast") or mc.get("default") or DEFAULT_MODEL
 
 
 def get_model_config(config: dict = None) -> dict:
@@ -146,6 +171,29 @@ COACH_EMIT_USAGE = _env_flag("COACH_EMIT_USAGE", False)
 # "low" keeps the tool discipline and cuts the wait. Empty string = framework default.
 COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "low").strip()
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
+
+# Two-stage answer (decision with the customer 2026-09-23): the student hears a
+# one-sentence reaction within ~1–1.5 s while the full engine-checked answer is
+# still being computed (its first token arrives only after every tool call,
+# p50 15–23 s on the bench). The reaction is a separate, tool-free model call
+# streamed first; the answer follows after a blank line in the same message.
+# It never gives a move or an evaluation — that is the second stage's job.
+#   COACH_TWO_STAGE          — kill switch (default ON).
+#   COACH_QUICK_BUDGET_MS    — the reaction is abandoned if it has not started
+#                              streaming within this budget or the full answer
+#                              arrives first (default 2500 ms).
+#   COACH_QUICK_MAX_TOKENS   — hard cap on the reaction length.
+#   COACH_MODEL_QUICK        — model for the reaction (default: the fast tier).
+COACH_TWO_STAGE = _env_flag("COACH_TWO_STAGE", True)
+COACH_QUICK_BUDGET_MS = int(os.environ.get("COACH_QUICK_BUDGET_MS", "2500"))
+COACH_QUICK_MAX_TOKENS = int(os.environ.get("COACH_QUICK_MAX_TOKENS", "60"))
+
+# Provider fallback: when the routed model's provider answers 429/402 or keeps
+# failing, the turn switches to the ``fallback`` tier (config.yaml) instead of
+# handing the student the error text (bench 2026-09-23: 19 of 36 Gemini turns
+# came back as "API call failed after 3 retries: HTTP 429 …" in the chat).
+# Disable with COACH_MODEL_FALLBACK_ENABLED=0 to fail the turn as before.
+COACH_MODEL_FALLBACK_ENABLED = _env_flag("COACH_MODEL_FALLBACK_ENABLED", True)
 
 # Per-student memory writer (CL Phase 1): after each completed text-chat turn,
 # a cheap off-request-path LLM call reflects on the turn and accumulates durable
