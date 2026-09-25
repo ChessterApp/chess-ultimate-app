@@ -224,8 +224,10 @@ async function runCase(ai, args, tools, c, pcm) {
     usage: { prompt: 0, response: 0, cached: 0 },
     events: [],
     segments: [],
+    heard: [],
   };
   const outAudio = [];
+  let playEnd = null;
   let lastAudioAt = 0;
   let segBreak = false;
   let done = false;
@@ -325,6 +327,15 @@ async function runCase(ai, args, tools, c, pcm) {
       if (d?.data && d.mimeType?.includes('audio/pcm')) {
         const buf = Buffer.from(d.data, 'base64');
         outAudio.push(buf);
+        // What the student hears: audio arrives faster than real time and the
+        // browser queues it gaplessly, so a chunk plays at max(arrival, end of
+        // the queue). Audible spans are merged; the gaps between them are the
+        // silences the student actually sits through.
+        const playStart = Math.max(t, playEnd ?? t);
+        playEnd = playStart + (buf.length / (OUT_RATE * 2)) * 1000;
+        const span = rec.heard[rec.heard.length - 1];
+        if (span && rel(playStart) <= span.end + 50) span.end = rel(playEnd);
+        else rec.heard.push({ start: rel(playStart), end: rel(playEnd) });
         if (rec.first_audio_ms === undefined) {
           rec.first_audio_ms = rel(t);
           if (rec.filler_before_tool === undefined) rec.filler_before_tool = true;
@@ -333,7 +344,7 @@ async function runCase(ai, args, tools, c, pcm) {
         // a filler still streaming when the tool returns is not taken for the answer.
         const seg = rec.segments[rec.segments.length - 1];
         if (!seg || segBreak || t - lastAudioAt > SEGMENT_GAP_MS) {
-          rec.segments.push({ start: rel(t), end: rel(t), text: '' });
+          rec.segments.push({ start: rel(t), end: rel(t), play_start: rel(playStart), text: '' });
           segBreak = false;
           if (lastToolSentAt !== null && t > lastToolSentAt) {
             lastPostToolAudioAt = t;
