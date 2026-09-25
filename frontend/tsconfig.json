@@ -39,6 +39,9 @@
   ],
   "exclude": [
     "node_modules",
-    "src/stockfish/engine/sf17-79.js"
+    "src/stockfish/engine/sf17-79.js",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx"
   ]
 }
