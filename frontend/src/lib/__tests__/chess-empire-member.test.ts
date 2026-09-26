@@ -232,17 +232,28 @@ describe('getMembershipState', () => {
     expect(result.memberId).toBeNull();
   });
 
-  it('returns state=no_link when link_status is frozen (never surface personalized data)', async () => {
+  it('returns state=frozen (with member fields) when link_status is frozen', async () => {
     nextResponse = {
-      data: [row({ id: 'mem-f', external_student_id: 'stu-f', link_status: 'frozen' })],
+      data: [
+        row({
+          id: 'mem-f',
+          external_student_id: 'stu-f',
+          link_status: 'frozen',
+          relationship: 'child',
+        }),
+      ],
       error: null,
     };
     const result = await getMembershipState({
       orgId: 'org-1',
       clerkUserId: 'user-f',
     });
-    expect(result.state).toBe('no_link');
-    expect(result.studentId).toBeNull();
+    // Distinct from no_link: keeps the member/name fields so the UI can greet.
+    expect(result.state).toBe('frozen');
+    expect(result.studentId).toBe('stu-f');
+    expect(result.memberId).toBe('mem-f');
+    expect(result.relationship).toBe('child');
+    expect(result.orgId).toBe('org-1');
   });
 
   it('returns state=no_link when link_status is revoked (access removed)', async () => {
@@ -465,6 +476,57 @@ describe('getMembershipState', () => {
       };
       const result = await getMembershipStateForUser('user-nokids');
       expect(result.studentId).toBe('stu-first');
+    });
+
+    it('a lone frozen row resolves to frozen, never no_link', async () => {
+      nextResponse = {
+        data: [
+          row({ id: 'mem-f', external_student_id: 'stu-f', link_status: 'frozen' }),
+        ],
+        error: null,
+      };
+      const result = await getMembershipStateForUser('user-frozen-only');
+      expect(result.state).toBe('frozen');
+      expect(result.studentId).toBe('stu-f');
+    });
+
+    it('a verified row wins over a frozen row', async () => {
+      nextResponse = {
+        data: [
+          row({ id: 'mem-a', external_student_id: 'stu-frozen', link_status: 'frozen', relationship: 'child' }),
+          row({ id: 'mem-b', external_student_id: 'stu-live', link_status: 'verified', relationship: 'child' }),
+        ],
+        error: null,
+      };
+      const result = await getMembershipStateForUser('user-frozen-plus-verified');
+      expect(result.state).toBe('verified');
+      expect(result.studentId).toBe('stu-live');
+    });
+
+    it('pending_confirm wins over a frozen row', async () => {
+      nextResponse = {
+        data: [
+          row({ id: 'mem-a', external_student_id: 'stu-frozen', link_status: 'frozen' }),
+          row({ id: 'mem-b', external_student_id: 'stu-pending', link_status: 'pending_confirm' }),
+        ],
+        error: null,
+      };
+      const result = await getMembershipStateForUser('user-frozen-plus-pending');
+      expect(result.state).toBe('pending_confirm');
+      expect(result.studentId).toBe('stu-pending');
+    });
+
+    it('a frozen row wins over an earlier revoked (no_link) row', async () => {
+      nextResponse = {
+        data: [
+          row({ id: 'mem-a', external_student_id: 'stu-revoked', link_status: 'revoked' }),
+          row({ id: 'mem-b', external_student_id: 'stu-frozen', link_status: 'frozen' }),
+        ],
+        error: null,
+      };
+      const result = await getMembershipStateForUser('user-revoked-plus-frozen');
+      expect(result.state).toBe('frozen');
+      expect(result.studentId).toBe('stu-frozen');
     });
   });
 });

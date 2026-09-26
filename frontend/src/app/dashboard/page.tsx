@@ -31,7 +31,7 @@ export default async function DashboardPage() {
     if (result.status === 'lookup_error') {
       return <EmpireError />;
     }
-    // 'ok' | 'no_link' — render the personalized node.
+    // 'ok' | 'no_link' | 'frozen' — render the personalized node.
     return result.node;
   }
 

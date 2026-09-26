@@ -86,6 +86,29 @@ describe('GET /api/chess-empire/link/status', () => {
     });
   });
 
+  it('returns frozen state as recoverable:false', async () => {
+    memberStore.result = { state: 'frozen', role: 'student' };
+    const res = await GET();
+    expect(await res.json()).toEqual({
+      state: 'frozen',
+      role: 'student',
+      recoverable: false,
+    });
+  });
+
+  it('forces recoverable:false for frozen even when a live pending cookie exists', async () => {
+    // A frozen membership can never be reactivated by re-claiming the invite,
+    // so a live cookie must NOT be reported as recoverable.
+    memberStore.result = { state: 'frozen', role: 'student' };
+    recoverableStore.current = true;
+    const res = await GET();
+    expect(await res.json()).toEqual({
+      state: 'frozen',
+      role: 'student',
+      recoverable: false,
+    });
+  });
+
   it('500 when the lookup throws', async () => {
     memberStore.throws = true;
     const res = await GET();

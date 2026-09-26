@@ -1833,7 +1833,10 @@
     "noLinkExpiredBody": "Open your branch invite link again and pick your name. If you don't have the link, ask your coach for it.",
     "noLinkExpiredReopen": "Reopen the invite",
     "noLinkDeadEndTitle": "We couldn't finish setting up your account",
-    "noLinkDeadEndBody": "This can happen when your invite link opened inside another app. Re-open your branch invite link in your browser and pick your name to finish connecting, or ask your coach to link you."
+    "noLinkDeadEndBody": "This can happen when your invite link opened inside another app. Re-open your branch invite link in your browser and pick your name to finish connecting, or ask your coach to link you.",
+    "frozenTitle": "Your membership is paused",
+    "frozenBody": "Your school has paused your Chesster membership, so your lessons and progress are on hold for now.",
+    "frozenContact": "Contact your branch or school administrator to reactivate it."
   },
   "adminCe": {
     "title": "Students",

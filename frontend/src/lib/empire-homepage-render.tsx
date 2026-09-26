@@ -21,6 +21,7 @@ import EmpireHomePage from '@/components/empire/EmpireHomePage';
 import EmpireCoachHome from '@/components/empire/EmpireCoachHome';
 import EmpireNoLinkClient from '@/components/empire/EmpireNoLinkClient';
 import EmpireAccessExpired from '@/components/empire/EmpireAccessExpired';
+import EmpireFrozenNotice from '@/components/empire/EmpireFrozenNotice';
 import ChessterDashboard from '@/app/dashboard/ChessterDashboard';
 import { getMembershipState } from '@/lib/chess-empire-member';
 import { autoClaimPendingCookie } from '@/lib/pending-registration';
@@ -47,12 +48,16 @@ import { computeCoachStats } from '@/lib/empire-coach-stats';
  *  - `ok`          → render `node` (verified student / coach / pending_confirm).
  *  - `no_link`     → render `node` (the standard Chesster dashboard wrapped in
  *                    the background poller that auto-upgrades once a link lands).
+ *  - `frozen`      → render `node` (the "membership paused" notice). NOT wrapped
+ *                    in the poller — re-claiming the invite cannot reactivate a
+ *                    frozen membership, so it never enters the claim flow.
  *  - `auth_null`   → no server-side session (stale token / signed-out).
  *  - `lookup_error`→ a required fetch threw; `error` is logged with a stable prefix.
  */
 export type EmpireHomeResult =
   | { status: 'ok'; node: React.ReactElement }
   | { status: 'no_link'; node: React.ReactElement }
+  | { status: 'frozen'; node: React.ReactElement }
   | { status: 'auth_null' }
   | { status: 'lookup_error'; error: unknown };
 
@@ -101,6 +106,13 @@ export async function renderEmpireHomepage(
         </EmpireNoLinkClient>
       ),
     };
+  }
+
+  // The school paused this membership. Show the "membership paused" notice and
+  // never wrap the dashboard in the invite poller — re-claiming the invite
+  // cannot reactivate a frozen membership, so it must not enter the claim flow.
+  if (membership.state === 'frozen') {
+    return { status: 'frozen', node: <EmpireFrozenNotice /> };
   }
 
   // Time-boxed access ran out (online invite past its window). Show the

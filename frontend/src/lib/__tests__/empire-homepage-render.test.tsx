@@ -111,6 +111,10 @@ vi.mock('@/components/empire/EmpireNoLinkClient', () => ({
     <div data-testid="nolink-poller">{props.children}</div>
   ),
 }));
+vi.mock('@/components/empire/EmpireFrozenNotice', () => ({
+  __esModule: true,
+  default: () => <div data-testid="frozen-notice" />,
+}));
 vi.mock('@/app/dashboard/ChessterDashboard', () => ({
   __esModule: true,
   default: ({ showTournamentCta = false }: { showTournamentCta?: boolean }) => (
@@ -138,9 +142,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// Narrow a result to `{ status: 'ok' | 'no_link'; node }` for rendering.
+// Narrow a result to a `node`-bearing variant for rendering.
 function nodeOf(result: Awaited<ReturnType<typeof renderEmpireHomepage>>) {
-  if (result.status !== 'ok' && result.status !== 'no_link') {
+  if (
+    result.status !== 'ok' &&
+    result.status !== 'no_link' &&
+    result.status !== 'frozen'
+  ) {
     throw new Error(`expected a renderable result, got ${result.status}`);
   }
   return result.node;
@@ -191,15 +199,30 @@ describe('renderEmpireHomepage — coach path', () => {
     expect(queryByTestId('empire-home')).toBeNull();
   });
 
-  // frozen / revoked / no-membership all resolve to state=no_link (see
-  // chess-empire-member), so the tournament CTA on the generic dashboard is
-  // their single coverage point on the tenant host.
-  it('shows the tournament CTA on the generic dashboard for no_link (frozen/revoked/no-membership)', async () => {
+  // revoked / no-membership resolve to state=no_link (see chess-empire-member),
+  // so the tournament CTA on the generic dashboard is their coverage point on
+  // the tenant host. (A frozen membership is a distinct state — see below.)
+  it('shows the tournament CTA on the generic dashboard for no_link (revoked/no-membership)', async () => {
     memberStore.state = 'no_link';
     memberStore.studentId = null;
     const result = await renderEmpireHomepage('org-1');
     const { getByTestId } = render(nodeOf(result));
     expect(getByTestId('empire-tournament-cta')).toBeTruthy();
+  });
+
+  it('renders the frozen notice (never the poller/claim flow) for a frozen membership', async () => {
+    memberStore.state = 'frozen';
+    memberStore.role = 'student';
+    memberStore.studentId = 'stu-frozen';
+    const result = await renderEmpireHomepage('org-1');
+    expect(result.status).toBe('frozen');
+    const { getByTestId, queryByTestId } = render(nodeOf(result));
+    expect(getByTestId('frozen-notice')).toBeTruthy();
+    // Frozen users must NEVER enter the invite poller / claim flow.
+    expect(queryByTestId('nolink-poller')).toBeNull();
+    expect(queryByTestId('empire-home')).toBeNull();
+    // No profile fetch needed for the frozen notice.
+    expect(getStudentProfile).not.toHaveBeenCalled();
   });
 
   it('shows the tournament CTA on the generic dashboard for online-track members', async () => {
