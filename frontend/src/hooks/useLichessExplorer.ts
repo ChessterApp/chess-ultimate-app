@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { handleRestrictedResponse } from '@/lib/access-fetch';
 
 export interface LichessMove {
   uci: string;
@@ -139,6 +140,8 @@ export function useLichessExplorer({
         });
 
         if (!response.ok) {
+          // Restricted (frozen/expired) member: redirect to upgrade, stop here.
+          if (await handleRestrictedResponse(response)) return;
           throw new Error(`Failed to fetch: ${response.status}`);
         }
 

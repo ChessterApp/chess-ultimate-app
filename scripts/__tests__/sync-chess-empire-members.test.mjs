@@ -19,13 +19,31 @@ import {
   buildSummaryMd,
   chunk,
   decideAction,
+  hasActivePersonalSubscription,
   reconcile,
   writeSummary,
 } from '../sync-chess-empire-members.mjs';
 
-function makeSupabase(members, updateRecorder) {
+function makeSupabase(members, updateRecorder, subs = []) {
   return {
     from(table) {
+      if (table === 'subscriptions') {
+        // Chain: .select().eq('clerk_user_id', id).order().limit() → {data, error}.
+        const s = { userId: null };
+        const chain = {
+          select() { return chain; },
+          eq(col, val) {
+            if (col === 'clerk_user_id') s.userId = val;
+            return chain;
+          },
+          order() { return chain; },
+          limit() {
+            const rows = subs.filter((r) => r.clerk_user_id === s.userId);
+            return Promise.resolve({ data: rows, error: null });
+          },
+        };
+        return chain;
+      }
       if (table === 'organization_members') {
         const chainState = { filters: {}, isSelect: true, updatePayload: null };
         const chain = {
@@ -215,6 +233,104 @@ test('reconcile: left → revoked, delete membership, terminal', async () => {
   assert.equal(updates[0].payload.link_status, 'revoked');
   assert.ok(updates[0].payload.link_revoked_at);
   assert.equal(clerk.calls.delete.length, 1);
+});
+
+// ── Personal-subscription coexistence (Phase 3) ──────────────────────────────
+
+test('hasActivePersonalSubscription: active row with no expiry → true', async () => {
+  const supabase = makeSupabase([], [], [
+    { clerk_user_id: 'u1', status: 'active', current_period_end: null },
+  ]);
+  assert.equal(await hasActivePersonalSubscription(supabase, 'u1'), true);
+});
+
+test('hasActivePersonalSubscription: canceled row → false', async () => {
+  const supabase = makeSupabase([], [], [
+    { clerk_user_id: 'u1', status: 'canceled', current_period_end: null },
+  ]);
+  assert.equal(await hasActivePersonalSubscription(supabase, 'u1'), false);
+});
+
+test('hasActivePersonalSubscription: active but past period end → false', async () => {
+  const supabase = makeSupabase([], [], [
+    { clerk_user_id: 'u1', status: 'active', current_period_end: '2000-01-01T00:00:00Z' },
+  ]);
+  assert.equal(await hasActivePersonalSubscription(supabase, 'u1'), false);
+});
+
+test('hasActivePersonalSubscription: no row → false', async () => {
+  const supabase = makeSupabase([], [], []);
+  assert.equal(await hasActivePersonalSubscription(supabase, 'nobody'), false);
+});
+
+test('reconcile: freeze with active personal sub keeps Clerk org membership', async () => {
+  const members = [{
+    id: 'mem-5',
+    organization_id: 'org-1',
+    user_id: 'user_5',
+    external_student_id: 'stu-5',
+    external_source: 'chess_empire',
+    link_status: 'verified',
+    organizations: { id: 'org-1', clerk_org_id: 'clerk-org-1' },
+  }];
+  const updates = [];
+  const subs = [{ clerk_user_id: 'user_5', status: 'active', current_period_end: null }];
+  const supabase = makeSupabase(members, updates, subs);
+  const ce = makeCe({ 'stu-5': { id: 'stu-5', status: 'frozen' } });
+  const clerk = makeClerk();
+  const result = await reconcile({ supabase, ce, clerk });
+
+  // link_status still flips to frozen (school-side truth) ...
+  assert.equal(result.counts.freeze, 1);
+  assert.equal(updates[0].payload.link_status, 'frozen');
+  // ... but the destructive Clerk removal is skipped.
+  assert.equal(clerk.calls.delete.length, 0);
+  assert.equal(result.counts.subKept, 1);
+  assert.match(result.details[0].note, /personal sub active/);
+});
+
+test('reconcile: revoke with active personal sub keeps Clerk org membership', async () => {
+  const members = [{
+    id: 'mem-6',
+    organization_id: 'org-1',
+    user_id: 'user_6',
+    external_student_id: 'stu-6',
+    external_source: 'chess_empire',
+    link_status: 'verified',
+    organizations: { id: 'org-1', clerk_org_id: 'clerk-org-1' },
+  }];
+  const updates = [];
+  const subs = [{ clerk_user_id: 'user_6', status: 'trialing', current_period_end: null }];
+  const supabase = makeSupabase(members, updates, subs);
+  const ce = makeCe({ 'stu-6': { id: 'stu-6', status: 'left' } });
+  const clerk = makeClerk();
+  const result = await reconcile({ supabase, ce, clerk });
+
+  assert.equal(result.counts.revoke, 1);
+  assert.equal(updates[0].payload.link_status, 'revoked');
+  assert.equal(clerk.calls.delete.length, 0);
+  assert.equal(result.counts.subKept, 1);
+});
+
+test('reconcile: freeze without personal sub still removes Clerk membership', async () => {
+  const members = [{
+    id: 'mem-7',
+    organization_id: 'org-1',
+    user_id: 'user_7',
+    external_student_id: 'stu-7',
+    external_source: 'chess_empire',
+    link_status: 'verified',
+    organizations: { id: 'org-1', clerk_org_id: 'clerk-org-1' },
+  }];
+  const updates = [];
+  const supabase = makeSupabase(members, updates, []);
+  const ce = makeCe({ 'stu-7': { id: 'stu-7', status: 'frozen' } });
+  const clerk = makeClerk();
+  const result = await reconcile({ supabase, ce, clerk });
+
+  assert.equal(result.counts.freeze, 1);
+  assert.equal(clerk.calls.delete.length, 1);
+  assert.equal(result.counts.subKept, 0);
 });
 
 test('reconcile: no-op when statuses aligned', async () => {

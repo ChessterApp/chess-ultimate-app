@@ -5,7 +5,11 @@ Endpoints for fetching courses, modules, and lessons
 
 from flask import Blueprint, jsonify, request
 from services.supabase_client import supabase
-from utils.auth import verify_clerk_token, get_current_user_id
+from utils.auth import (
+    verify_clerk_token,
+    get_current_user_id,
+    resolve_membership_restriction,
+)
 from utils.cache import with_cache
 from concurrent.futures import ThreadPoolExecutor
 import time
@@ -211,82 +215,136 @@ def get_courses_progress():
     """
     try:
         user_id = get_current_user_id()
-
-        # Every course starts at zeros so courses with no lessons return zeros.
-        courses = get_cached_courses()
-        result = {}
-        for course in courses:
-            result[course['id']] = {
-                'courseId': course['id'],
-                'completedLessons': 0,
-                'totalLessons': 0,
-                'progress': 0,
-            }
-
-        course_ids = [c['id'] for c in courses]
-        if not course_ids:
-            return jsonify(result), 200
-
-        # Map module_id -> course_id
-        modules_result = retry_supabase_query(
-            lambda: supabase.table('modules')
-                .select('id, course_id')
-                .in_('course_id', course_ids)
-                .execute()
-        )
-        module_to_course = {m['id']: m['course_id'] for m in (modules_result.data or [])}
-        module_ids = list(module_to_course.keys())
-        if not module_ids:
-            return jsonify(result), 200
-
-        # Map lesson_id -> course_id (via module) and count lessons per course
-        lessons_result = retry_supabase_query(
-            lambda: supabase.table('lessons')
-                .select('id, module_id')
-                .in_('module_id', module_ids)
-                .execute()
-        )
-        lesson_to_course = {}
-        for lesson in (lessons_result.data or []):
-            course_id = module_to_course.get(lesson['module_id'])
-            if course_id is None:
-                continue
-            lesson_to_course[lesson['id']] = course_id
-            result[course_id]['totalLessons'] += 1
-
-        # ONE user_progress query for all lessons across all courses
-        all_lesson_ids = list(lesson_to_course.keys())
-        if all_lesson_ids:
-            progress_result = retry_supabase_query(
-                lambda: supabase.table('user_progress')
-                    .select('lesson_id, status')
-                    .eq('user_id', user_id)
-                    .in_('lesson_id', all_lesson_ids)
-                    .execute()
-            )
-            for prog in (progress_result.data or []):
-                if prog.get('status') != 'completed':
-                    continue
-                course_id = lesson_to_course.get(prog['lesson_id'])
-                if course_id is None:
-                    continue
-                result[course_id]['completedLessons'] += 1
-
-        # Compute percentage: exactly 100 iff every lesson complete; never 100 otherwise.
-        for agg in result.values():
-            total = agg['totalLessons']
-            completed = agg['completedLessons']
-            if total <= 0:
-                agg['progress'] = 0
-            elif completed >= total:
-                agg['progress'] = 100
-            else:
-                agg['progress'] = min(round(completed / total * 100), 99)
-
-        return jsonify(result), 200
-
+        return jsonify(compute_progress_by_course(user_id)), 200
     except Exception as e:
         return jsonify({"error": f"Failed to fetch course progress: {str(e)}"}), 500
+
+
+def compute_progress_by_course(user_id):
+    """
+    Aggregate a user's completed lessons into per-course totals.
+
+    Returns { "<course_id>": {courseId, completedLessons, totalLessons, progress} }
+    where `progress` is 0..100 and exactly 100 iff every lesson in the course is
+    complete. Shared by GET /api/courses/progress and the restricted Learn
+    ceiling (`restricted_level_denial`).
+    """
+    # Every course starts at zeros so courses with no lessons return zeros.
+    courses = get_cached_courses()
+    result = {}
+    for course in courses:
+        result[course['id']] = {
+            'courseId': course['id'],
+            'completedLessons': 0,
+            'totalLessons': 0,
+            'progress': 0,
+        }
+
+    course_ids = [c['id'] for c in courses]
+    if not course_ids:
+        return result
+
+    # Map module_id -> course_id
+    modules_result = retry_supabase_query(
+        lambda: supabase.table('modules')
+            .select('id, course_id')
+            .in_('course_id', course_ids)
+            .execute()
+    )
+    module_to_course = {m['id']: m['course_id'] for m in (modules_result.data or [])}
+    module_ids = list(module_to_course.keys())
+    if not module_ids:
+        return result
+
+    # Map lesson_id -> course_id (via module) and count lessons per course
+    lessons_result = retry_supabase_query(
+        lambda: supabase.table('lessons')
+            .select('id, module_id')
+            .in_('module_id', module_ids)
+            .execute()
+    )
+    lesson_to_course = {}
+    for lesson in (lessons_result.data or []):
+        course_id = module_to_course.get(lesson['module_id'])
+        if course_id is None:
+            continue
+        lesson_to_course[lesson['id']] = course_id
+        result[course_id]['totalLessons'] += 1
+
+    # ONE user_progress query for all lessons across all courses
+    all_lesson_ids = list(lesson_to_course.keys())
+    if all_lesson_ids:
+        progress_result = retry_supabase_query(
+            lambda: supabase.table('user_progress')
+                .select('lesson_id, status')
+                .eq('user_id', user_id)
+                .in_('lesson_id', all_lesson_ids)
+                .execute()
+        )
+        for prog in (progress_result.data or []):
+            if prog.get('status') != 'completed':
+                continue
+            course_id = lesson_to_course.get(prog['lesson_id'])
+            if course_id is None:
+                continue
+            result[course_id]['completedLessons'] += 1
+
+    # Compute percentage: exactly 100 iff every lesson complete; never 100 otherwise.
+    for agg in result.values():
+        total = agg['totalLessons']
+        completed = agg['completedLessons']
+        if total <= 0:
+            agg['progress'] = 0
+        elif completed >= total:
+            agg['progress'] = 100
+        else:
+            agg['progress'] = min(round(completed / total * 100), 99)
+
+    return result
+
+
+def restricted_level_denial(course_id):
+    """
+    Learn ceiling gate for restricted (frozen/expired) members.
+
+    Mirrors the frontend `resolveRestrictedCeiling` + `computeLockStates`: the
+    ceiling is the 1-based position (courses sorted by order_index) of the first
+    course below 100% completion; every course ABOVE the ceiling is locked unless
+    the member has already fully completed it. Full-access members and any lookup
+    failure return None (allow) — Learn must never lock out on a transient blip.
+
+    Returns a Flask `(response, 403)` tuple when the requested course is above the
+    member's ceiling, else None.
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return None
+    if not resolve_membership_restriction(user_id).get('restricted'):
+        return None
+    try:
+        ordered = sorted(get_cached_courses(), key=lambda c: c.get('order_index', 0))
+        positions = {c['id']: i + 1 for i, c in enumerate(ordered)}
+        requested_position = positions.get(course_id)
+        if requested_position is None:
+            return None
+
+        progress = compute_progress_by_course(user_id)
+        # ownComplete invariant: a course the member already finished is never locked.
+        if progress.get(course_id, {}).get('progress', 0) >= 100:
+            return None
+
+        ceiling = len(ordered)  # all complete → nothing above; allow.
+        for i, course in enumerate(ordered):
+            if progress.get(course['id'], {}).get('progress', 0) < 100:
+                ceiling = i + 1
+                break
+
+        if requested_position > ceiling:
+            return jsonify({'error': 'MEMBERSHIP_RESTRICTED', 'scope': 'level'}), 403
+        return None
+    except Exception as exc:
+        logger.warning('[access] restricted ceiling check failed (allow): %s', exc)
+        return None
 
 
 @lessons_bp.route('/api/gamification/derived-profile', methods=['GET'])
@@ -421,6 +479,11 @@ def get_course_by_slug(course_slug):
 
         course_id = course['id']
 
+        # Learn ceiling: a restricted member may not open a course above their level.
+        denial = restricted_level_denial(course_id)
+        if denial:
+            return denial
+
         # OPTIMIZATION 2: Fetch modules (still need fresh for ordering)
         modules_result = retry_supabase_query(
             lambda: supabase.table('modules')
@@ -531,6 +594,11 @@ def get_lesson_by_slug(course_slug, lesson_slug):
 
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
+
+        # Learn ceiling: a restricted member may not open lessons above their level.
+        denial = restricted_level_denial(course['id'])
+        if denial:
+            return denial
 
         # Check if lesson is locked
         if lesson.get('requires_lesson_id'):

@@ -13,6 +13,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getMembershipStateForUser } from '@/lib/chess-empire-member';
+import { getPersonalSubscription } from '@/lib/personal-subscription';
 import {
   autoClaimPendingCookie,
   hasLivePendingCookie,
@@ -36,10 +37,19 @@ export async function GET() {
     // reactivate, so re-claiming the invite (even with a live cookie) is futile.
     const recoverable =
       membership.state === 'frozen' ? false : await hasLivePendingCookie();
+    // Phase 3: a paused/expired school link is overridden to full access when
+    // the user pays for their own plan. We surface the flag so the client
+    // provider resolves the same policy the server does. Only meaningful (and
+    // only queried) for restricted states.
+    const personalSubscriptionActive =
+      membership.state === 'frozen' || membership.state === 'expired'
+        ? (await getPersonalSubscription(userId)).active
+        : false;
     return NextResponse.json({
       state: membership.state,
       role: membership.role,
       recoverable,
+      personalSubscriptionActive,
     });
   } catch (err) {
     console.error('[chess-empire/link/status] lookup failed', err);

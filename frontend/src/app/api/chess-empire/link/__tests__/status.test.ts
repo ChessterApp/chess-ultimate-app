@@ -30,6 +30,17 @@ vi.mock('@/lib/pending-registration', () => ({
   hasLivePendingCookie: vi.fn(async () => recoverableStore.current),
 }));
 
+// Personal-subscription lookup (only consulted for frozen/expired states).
+const subStore = { active: false };
+vi.mock('@/lib/personal-subscription', () => ({
+  getPersonalSubscription: vi.fn(async () => ({
+    active: subStore.active,
+    plan: null,
+    status: subStore.active ? 'active' : 'none',
+    currentPeriodEnd: null,
+  })),
+}));
+
 import { GET } from '../status/route';
 
 beforeEach(() => {
@@ -37,6 +48,7 @@ beforeEach(() => {
   memberStore.result = { state: 'no_link', role: 'student' };
   memberStore.throws = false;
   recoverableStore.current = false;
+  subStore.active = false;
 });
 
 describe('GET /api/chess-empire/link/status', () => {
@@ -53,6 +65,7 @@ describe('GET /api/chess-empire/link/status', () => {
       state: 'no_link',
       role: 'student',
       recoverable: false,
+      personalSubscriptionActive: false,
     });
   });
 
@@ -63,6 +76,7 @@ describe('GET /api/chess-empire/link/status', () => {
       state: 'no_link',
       role: 'student',
       recoverable: true,
+      personalSubscriptionActive: false,
     });
   });
 
@@ -73,6 +87,7 @@ describe('GET /api/chess-empire/link/status', () => {
       state: 'verified',
       role: 'student',
       recoverable: false,
+      personalSubscriptionActive: false,
     });
   });
 
@@ -83,6 +98,7 @@ describe('GET /api/chess-empire/link/status', () => {
       state: 'pending_confirm',
       role: 'student',
       recoverable: false,
+      personalSubscriptionActive: false,
     });
   });
 
@@ -93,6 +109,7 @@ describe('GET /api/chess-empire/link/status', () => {
       state: 'frozen',
       role: 'student',
       recoverable: false,
+      personalSubscriptionActive: false,
     });
   });
 
@@ -106,6 +123,19 @@ describe('GET /api/chess-empire/link/status', () => {
       state: 'frozen',
       role: 'student',
       recoverable: false,
+      personalSubscriptionActive: false,
+    });
+  });
+
+  it('reports personalSubscriptionActive:true for a frozen member who self-pays', async () => {
+    memberStore.result = { state: 'frozen', role: 'student' };
+    subStore.active = true;
+    const res = await GET();
+    expect(await res.json()).toEqual({
+      state: 'frozen',
+      role: 'student',
+      recoverable: false,
+      personalSubscriptionActive: true,
     });
   });
 

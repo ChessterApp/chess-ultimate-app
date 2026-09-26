@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { requireApiAccess } from '@/lib/require-api-access';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
 
@@ -19,6 +20,9 @@ export async function POST(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   let body: { session_id?: string; seconds_delta?: number };
   try {

@@ -26,6 +26,8 @@ import random
 
 from flask import Blueprint, jsonify, request
 
+from utils.auth import require_active_membership
+
 logger = logging.getLogger(__name__)
 
 maia_bp = Blueprint("maia", __name__, url_prefix="/api/maia")
@@ -39,6 +41,7 @@ def _coerce_elo(value, default):
 
 
 @maia_bp.route("/move", methods=["POST"])
+@require_active_membership
 def maia_move():
     from services import maia_engine
 

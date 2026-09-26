@@ -16,7 +16,7 @@ import ImpersonationBanner from "@/components/super-admin/ImpersonationBanner";
 import { buildMetadata } from "@/lib/org-metadata";
 import { loadOrgFromHeaders } from "@/lib/org-from-headers";
 import { buildClerkLocalization } from "@/lib/clerk-localization";
-import { resolveMembershipState } from "@/lib/access-membership";
+import { resolveMembershipContext } from "@/lib/access-membership";
 import { MembershipProvider } from "@/components/providers/MembershipProvider";
 
 const geistSans = Geist({
@@ -53,7 +53,9 @@ export default async function RootLayout({
 
   // Resolve the signed-in user's membership so restricted (frozen/expired)
   // members get honest nav locks everywhere. Best-effort: null → full access.
-  const membershipState = await resolveMembershipState();
+  // The personal-subscription override lifts the restriction for self-payers.
+  const { state: membershipState, personalSubActive } =
+    await resolveMembershipContext();
 
   return (
     <ClerkProvider localization={clerkLocalization}>
@@ -79,7 +81,10 @@ export default async function RootLayout({
                 <LocalStorageMigration />
                 <ServiceWorkerRegistration />
                 <PrefetchManager />
-                <MembershipProvider state={membershipState}>
+                <MembershipProvider
+                  state={membershipState}
+                  personalSubActive={personalSubActive}
+                >
                   <ClientShell>
                     {children}
                   </ClientShell>

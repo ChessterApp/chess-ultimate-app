@@ -1,4 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
+import { requireApiAccess } from '@/lib/require-api-access';
 import { GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
@@ -361,6 +362,9 @@ export async function POST(request: Request) {
   if (!userId) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {

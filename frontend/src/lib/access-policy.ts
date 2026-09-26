@@ -66,10 +66,21 @@ const FULL_ACCESS: AccessPolicy = {
  * Resolve the access policy for a membership state. Only `frozen`/`expired`
  * restrict; every other state (including null/undefined, `no_link`,
  * `verified`, `pending_confirm`) gets full access.
+ *
+ * `personalSubActive` is the personal-subscription override (Phase 3): a user
+ * who pays for their own plan keeps full access even when their school link is
+ * paused (`frozen`) or elapsed (`expired`). The override only lifts a
+ * restriction — it never adds one — so it is a no-op for every non-restricted
+ * state. The underlying `MembershipState` is left untouched; the override lives
+ * purely at policy resolution.
  */
 export function getAccessPolicy(
   state: MembershipState | null | undefined,
+  personalSubActive = false,
 ): AccessPolicy {
+  if (personalSubActive && (state === 'frozen' || state === 'expired')) {
+    return FULL_ACCESS;
+  }
   if (state === 'frozen') {
     return {
       mode: 'restricted',

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { requireApiAccess } from '@/lib/require-api-access';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -18,6 +19,9 @@ export async function proxyToHermes(
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   let body: unknown = opts.body;
   if (body === undefined && request && method !== 'GET' && method !== 'DELETE') {

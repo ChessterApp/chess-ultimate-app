@@ -10,46 +10,54 @@ vi.mock('next/navigation', () => ({
   redirect: (url: string) => redirectMock(url),
 }));
 
-const resolveMembershipStateMock = vi.fn();
+const resolveAccessPolicyMock = vi.fn();
 vi.mock('@/lib/access-membership', () => ({
-  resolveMembershipState: () => resolveMembershipStateMock(),
+  resolveAccessPolicy: () => resolveAccessPolicyMock(),
 }));
 
 import { requireAccess } from '../require-access';
+import { getAccessPolicy } from '../access-policy';
 
 beforeEach(() => {
   redirectMock.mockClear();
-  resolveMembershipStateMock.mockReset();
+  resolveAccessPolicyMock.mockReset();
 });
 
 describe('requireAccess', () => {
   it('redirects a frozen member off a locked route with the feature key', async () => {
-    resolveMembershipStateMock.mockResolvedValue('frozen');
+    resolveAccessPolicyMock.mockResolvedValue(getAccessPolicy('frozen'));
     await requireAccess('/play');
     expect(redirectMock).toHaveBeenCalledWith('/dashboard?locked=play');
   });
 
   it('redirects an expired member off a locked route', async () => {
-    resolveMembershipStateMock.mockResolvedValue('expired');
+    resolveAccessPolicyMock.mockResolvedValue(getAccessPolicy('expired'));
     await requireAccess('/database');
     expect(redirectMock).toHaveBeenCalledWith('/dashboard?locked=database');
   });
 
   it('does not redirect a restricted member on an allowed route', async () => {
-    resolveMembershipStateMock.mockResolvedValue('frozen');
+    resolveAccessPolicyMock.mockResolvedValue(getAccessPolicy('frozen'));
     await requireAccess('/learn');
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it('does not redirect a full-access member on a gated route', async () => {
-    resolveMembershipStateMock.mockResolvedValue('verified');
+    resolveAccessPolicyMock.mockResolvedValue(getAccessPolicy('verified'));
     await requireAccess('/play');
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
   it('treats a null (non-member) state as full access', async () => {
-    resolveMembershipStateMock.mockResolvedValue(null);
+    resolveAccessPolicyMock.mockResolvedValue(getAccessPolicy(null));
     await requireAccess('/coach');
+    expect(redirectMock).not.toHaveBeenCalled();
+  });
+
+  it('grants full access to a restricted member with a personal subscription', async () => {
+    // The override resolves to a full-access policy → no redirect on a gated route.
+    resolveAccessPolicyMock.mockResolvedValue(getAccessPolicy('frozen', true));
+    await requireAccess('/play');
     expect(redirectMock).not.toHaveBeenCalled();
   });
 });

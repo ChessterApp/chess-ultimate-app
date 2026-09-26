@@ -7,16 +7,11 @@
  */
 import 'server-only';
 import { redirect } from 'next/navigation';
-import {
-  getAccessPolicy,
-  isRouteAllowed,
-  featureKeyForPath,
-} from '@/lib/access-policy';
-import { resolveMembershipState } from '@/lib/access-membership';
+import { isRouteAllowed, featureKeyForPath } from '@/lib/access-policy';
+import { resolveAccessPolicy } from '@/lib/access-membership';
 
 export async function requireAccess(pathname: string): Promise<void> {
-  const state = await resolveMembershipState();
-  const policy = getAccessPolicy(state);
+  const policy = await resolveAccessPolicy();
   if (isRouteAllowed(policy, pathname)) return;
   const feature = featureKeyForPath(pathname);
   redirect(feature ? `/dashboard?locked=${feature}` : '/dashboard');

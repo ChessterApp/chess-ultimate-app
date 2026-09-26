@@ -28,14 +28,17 @@ export function useMembership(): MembershipContextValue {
 
 export function MembershipProvider({
   state,
+  personalSubActive = false,
   children,
 }: {
   state: MembershipState | null;
+  /** Personal-subscription override — lifts a frozen/expired restriction. */
+  personalSubActive?: boolean;
   children: ReactNode;
 }) {
   const value = useMemo<MembershipContextValue>(
-    () => ({ state, policy: getAccessPolicy(state) }),
-    [state],
+    () => ({ state, policy: getAccessPolicy(state, personalSubActive) }),
+    [state, personalSubActive],
   );
   return (
     <MembershipContext.Provider value={value}>

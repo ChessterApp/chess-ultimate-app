@@ -41,6 +41,44 @@ describe('getAccessPolicy', () => {
   });
 });
 
+describe('getAccessPolicy — personal-subscription override', () => {
+  it('frozen + active sub → full access (override lifts restriction)', () => {
+    const p = getAccessPolicy('frozen', true);
+    expect(p.mode).toBe('full');
+    expect(p.reason).toBeNull();
+  });
+
+  it('frozen + no sub → restricted', () => {
+    const p = getAccessPolicy('frozen', false);
+    expect(p.mode).toBe('restricted');
+    expect(p.reason).toBe('frozen');
+  });
+
+  it('expired + active sub → full access', () => {
+    const p = getAccessPolicy('expired', true);
+    expect(p.mode).toBe('full');
+    expect(p.reason).toBeNull();
+  });
+
+  it('expired + no sub → restricted', () => {
+    const p = getAccessPolicy('expired', false);
+    expect(p.mode).toBe('restricted');
+    expect(p.reason).toBe('expired');
+  });
+
+  it('verified + no sub → full access (override irrelevant)', () => {
+    const p = getAccessPolicy('verified', false);
+    expect(p.mode).toBe('full');
+  });
+
+  it('override never adds a restriction to a non-restricted state', () => {
+    for (const state of ['verified', 'no_link', 'pending_confirm'] as const) {
+      expect(getAccessPolicy(state, true).mode).toBe('full');
+      expect(getAccessPolicy(state, false).mode).toBe('full');
+    }
+  });
+});
+
 describe('isRouteAllowed', () => {
   const restricted = getAccessPolicy('frozen');
   const full = getAccessPolicy('verified');

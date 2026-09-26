@@ -15,8 +15,8 @@
 import 'server-only';
 import { auth } from '@clerk/nextjs/server';
 import { cookies } from 'next/headers';
-import { getAccessPolicy, type AccessPolicy } from '@/lib/access-policy';
-import { resolveMembershipState } from '@/lib/access-membership';
+import { type AccessPolicy } from '@/lib/access-policy';
+import { resolveAccessPolicy } from '@/lib/access-membership';
 import {
   resolveRestrictedCeiling,
   slugifyTitle,
@@ -58,8 +58,7 @@ export interface LearnCeiling {
  * and an empty course list with no backend round-trips.
  */
 export async function resolveLearnCeiling(): Promise<LearnCeiling> {
-  const state = await resolveMembershipState();
-  const policy = getAccessPolicy(state);
+  const policy = await resolveAccessPolicy();
   if (policy.mode === 'full') {
     return { policy, ceiling: undefined, courses: [] };
   }

@@ -12,7 +12,7 @@ import chess.pgn
 from flask import Blueprint, request, jsonify
 
 from services.supabase_client import supabase
-from utils.auth import verify_clerk_token, get_current_user_id
+from utils.auth import verify_clerk_token, get_current_user_id, require_active_membership
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,7 @@ def _extract_pgn_headers(pgn_text: str) -> dict:
 
 @user_games_bp.route('/api/games', methods=['GET'])
 @verify_clerk_token
+@require_active_membership
 def list_games():
     """List user's games with pagination and filters.
 
@@ -178,6 +179,7 @@ def create_game():
 
 @user_games_bp.route('/api/games/<game_id>', methods=['GET'])
 @verify_clerk_token
+@require_active_membership
 def get_game(game_id):
     """Get a single game by ID."""
     user_id = get_current_user_id()

@@ -15,6 +15,7 @@ import FeedbackButtons from './FeedbackButtons';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi } from '@/lib/coach/boards-api';
+import { handleRestrictedResponse } from '@/lib/access-fetch';
 
 interface CoachChatProps {
   currentFen: string;
@@ -530,6 +531,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       });
 
       if (!response.ok) {
+        if (await handleRestrictedResponse(response)) return;
         throw new Error(`HTTP ${response.status}`);
       }
 
