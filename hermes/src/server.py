@@ -1038,6 +1038,76 @@ async def _bestofn_event_stream(
     yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
 
 
+async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_version: str):
+    """A greeting, thanks or goodbye: one fast tool-free reply (the quick model)
+    instead of the agent turn. The agent took 3–7 s to say hello, and with the
+    two-stage reaction on top it greeted twice (live site, 2026-09-26).
+    Streams like a chat answer: ``delta`` frames, then ``done``."""
+    from src.quick_reply import build_small_talk_messages, stream_completion
+
+    loop = asyncio.get_event_loop()
+    model = quick_model()
+    history = [(m.role, m.content) for m in session.messages[:-1]]
+    messages = build_small_talk_messages(body.message, body.locale, history)
+    log_event("turn_start", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
+              model=model, payload={"small_talk": True, "prompt_version": prompt_version,
+                                    "message_length": len(body.message)})
+    queue: asyncio.Queue = asyncio.Queue()
+    sentinel = object()
+
+    def _on_delta(text):
+        if text:
+            loop.call_soon_threadsafe(queue.put_nowait, text)
+
+    def _run():
+        try:
+            return stream_completion(
+                model=model, api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                messages=messages, on_delta=_on_delta, timeout_s=8.0, max_tokens=120, temperature=0.6,
+            )
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+    started = time.monotonic()
+    future = loop.run_in_executor(None, _run)
+    parts: list[str] = []
+    while True:
+        item = await queue.get()
+        if item is sentinel:
+            break
+        parts.append(item)
+        yield _sse({"delta": item})
+    reply = await future
+    text = "".join(parts).strip()
+    latency_ms = int((time.monotonic() - started) * 1000)
+    if not text:
+        log_event("llm_error", severity="warn", surface="text", user_id=user_id, session_id=session.id,
+                  turn_id=turn_id, model=model, ok=False,
+                  error_code=str(getattr(reply, "error", "") or "empty")[:80], payload={"path": "small_talk"})
+        yield _sse({"error": _student_error_text(body.locale)})
+        return
+    prompt_tokens = getattr(reply, "prompt_tokens", 0) or 0
+    completion_tokens = getattr(reply, "completion_tokens", 0) or 0
+    if prompt_tokens or completion_tokens:
+        threading.Thread(
+            target=_do_record_usage,
+            args=(user_id, session.id, model, prompt_tokens, completion_tokens, "text", turn_id, 0),
+            daemon=True,
+        ).start()
+    session.add_message(
+        "assistant", text,
+        extra={"turn_id": turn_id, "model": model, "prompt_version": prompt_version, "latency_ms": latency_ms,
+               "prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens},
+        evt={"user_id": user_id, "turn_id": turn_id, "surface": "text", "model": model},
+    )
+    log_event("turn_end", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
+              model=model, duration_ms=latency_ms, ok=True,
+              payload={"small_talk": True, "prompt_tokens": prompt_tokens,
+                       "completion_tokens": completion_tokens, "finish_reason": "stop"})
+    yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id,
+                "active_board_id": session.active_board_id})
+
+
 @app.post("/api/coach/chat")
 async def coach_chat(body: CoachChatRequest, request: Request):
     """Coach chat endpoint — streams the agent's reply as SSE token events.
@@ -1087,6 +1157,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except ValueError:
             pass  # ignore invalid FEN, use existing board state
     active_board = session.ensure_board()
+
+    # Small talk ("Привет", "спасибо") gets one fast tool-free reply instead of
+    # the agent loop — see _small_talk_stream.
+    from src.quick_reply import is_small_talk
+
+    live_game = active_board.kind == "game" and bool(active_board.game_state)
+    if config.COACH_TWO_STAGE and not body.context_note and not live_game and is_small_talk(body.message):
+        return StreamingResponse(
+            _small_talk_stream(body, session, user_id, turn_id, prompt_version),
+            media_type="text/event-stream",
+        )
 
     profile = load_user_profile(user_id)
     # Static persona/tool guidance stays in the system prompt (cacheable);

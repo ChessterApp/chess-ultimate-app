@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional
@@ -53,17 +54,36 @@ QUICK_SYSTEM_PROMPT = (
 MIN_REACTION_CHARS = 8
 
 
+# Openers of small talk: a greeting or thanks is answered in a couple of
+# seconds without tools, so a reaction only adds a false "let me look at the
+# position…" and a second greeting in the answer.
+_SMALL_TALK = (
+    "привет", "здравствуй", "здравствуйте", "добрый", "доброе", "салем", "сәлем", "салам",
+    "спасибо", "рахмет", "пока", "ок", "окей", "как дела",
+    "hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "bye",
+)
+
+
+def is_small_talk(message: str) -> bool:
+    text = re.sub(r"[^\w\s]", " ", (message or "").lower()).strip()
+    if len(text.split()) > 4:
+        return False
+    return any(text == w or text.startswith(w + " ") for w in _SMALL_TALK)
+
+
 def wants_reaction(message: str, has_position: bool) -> bool:
     """Whether a turn deserves a first-stage reaction at all.
 
-    A greeting or a two-word aside ("Привет!", "спасибо", "ok") is answered in
-    a few seconds without tools, and a reaction there reads as a false promise
-    ("let me look at the position…"). A question about a position on the board
-    always gets one, however short it is.
+    Small talk ("Привет!", "спасибо", "hi!") never gets one — /coach always
+    has a position on the board, and the live site answered "Привет" with
+    "Привет, сейчас посмотрю, что на доске… Привет! Рад…" (2026-09-26). A
+    question about a position on the board always gets one, however short.
     """
     words = (message or "").split()
+    if not words or is_small_talk(message):
+        return False
     if has_position:
-        return bool(words)
+        return True
     return len(words) >= 3
 
 
@@ -81,6 +101,33 @@ class QuickReply:
     @property
     def ok(self) -> bool:
         return not self.error and len(self.text.strip()) >= MIN_REACTION_CHARS
+
+
+SMALL_TALK_PROMPT = (
+    "You are Chesster, a friendly chess coach sitting next to the student. The student's "
+    "message is small talk — a greeting, thanks, a goodbye or \"how are you\". Reply in one or "
+    "two short, warm sentences in the language of their message (Russian, Kazakh or English; "
+    "{language} if you cannot tell). After a greeting, offer what you can do together: look at "
+    "the position on their board, a puzzle, an idea to learn, a game against you. After thanks, "
+    "say you are glad and offer a next step that fits the conversation. No moves, no "
+    "evaluations, no markdown, at most one emoji."
+)
+SMALL_TALK_HISTORY_TURNS = 4
+SMALL_TALK_HISTORY_CHARS = 400
+
+
+def build_small_talk_messages(
+    message: str, locale: Optional[str], history: Optional[list[tuple[str, str]]] = None,
+) -> list[dict]:
+    """The whole answer to small talk: the persona line, the last few turns for
+    context (so "спасибо" after a lesson can suggest a fitting puzzle), the message."""
+    language = _LANGUAGE.get((locale or "").lower(), "the student's language")
+    out = [{"role": "system", "content": SMALL_TALK_PROMPT.format(language=language)}]
+    for role, content in (history or [])[-SMALL_TALK_HISTORY_TURNS:]:
+        if role in ("user", "assistant") and content:
+            out.append({"role": role, "content": content[:SMALL_TALK_HISTORY_CHARS]})
+    out.append({"role": "user", "content": message.strip()})
+    return out
 
 
 def build_quick_messages(message: str, locale: Optional[str], board_fen: Optional[str]) -> list[dict]:

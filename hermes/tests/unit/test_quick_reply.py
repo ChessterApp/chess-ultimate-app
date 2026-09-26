@@ -129,3 +129,7 @@ def test_greetings_and_asides_get_no_reaction():
     assert not wants_reaction("", True)
     assert wants_reaction("Что играть?", True)  # short, but a position is on the board
     assert wants_reaction("Объясни идею сицилианской защиты", False)
+    # /coach always sends a position — small talk still gets no reaction.
+    for hello in ("Привет", "hi!", "Сәлем!", "Спасибо большое", "Как дела?", "Добрый день"):
+        assert not wants_reaction(hello, True), hello
+    assert wants_reaction("Привет, какой здесь лучший ход?", True)
