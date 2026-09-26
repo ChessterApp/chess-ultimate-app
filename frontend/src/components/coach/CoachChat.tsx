@@ -1002,9 +1002,12 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
                 loadPastedGame(text);
               }
             }}
+            // The keyboard slides up for ~300 ms; then show the latest message.
+            onFocus={() => setTimeout(() => messagesEndRef.current?.scrollIntoView({ block: 'end' }), 350)}
             placeholder={t('inputPlaceholder')}
             rows={1}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
+            // 16px on phones: iOS Safari zooms the whole page into a smaller field.
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
             disabled={isStreaming}
           />
           {isStreaming ? (

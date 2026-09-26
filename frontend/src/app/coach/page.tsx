@@ -7,6 +7,8 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useCoachBoard } from '@/hooks/useCoachBoard';
+import useOnScreenKeyboard from '@/hooks/useOnScreenKeyboard';
+import { useChromeVisibility } from '@/components/ChromeVisibilityContext';
 import CoachBoard from '@/components/coach/CoachBoard';
 import CoachChat, { type CoachChatHandle } from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
@@ -135,6 +137,18 @@ export default function CoachPage() {
   }, []);
 
   const snapTo8 = (size: number) => Math.floor(size / 8) * 8;
+
+  // Typing on a phone: the keyboard takes half the screen, so the board and
+  // the app bars step aside and the page pins itself to what is left — the
+  // thread and the input stay visible (live site 2026-09-25: the keyboard
+  // opened and neither the chat nor the typed text could be seen).
+  const keyboard = useOnScreenKeyboard();
+  const typingOnPhone = keyboard.open && windowWidth < 1024;
+  const { setChromeHidden } = useChromeVisibility();
+  useEffect(() => {
+    setChromeHidden(typingOnPhone);
+    return () => setChromeHidden(false);
+  }, [typingOnPhone, setChromeHidden]);
 
   const responsiveBoardSize = useMemo(() => {
     if (windowWidth < 400) return snapTo8(windowWidth - 8);
@@ -634,7 +648,15 @@ export default function CoachPage() {
   }
 
   return (
-    <div className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col">
+    <div
+      className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col"
+      style={
+        typingOnPhone
+          ? { position: 'fixed', left: 0, right: 0, top: keyboard.top, height: keyboard.height, zIndex: 40 }
+          : undefined
+      }
+      data-testid="coach-page"
+    >
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-white/10">
         <div className="flex items-center gap-3">
@@ -693,7 +715,7 @@ export default function CoachPage() {
       {/* Main content: Board + Chat split */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
-        <div className="lg:w-[55%] flex flex-col p-2 sm:p-4 relative">
+        <div className={`lg:w-[55%] flex flex-col p-2 sm:p-4 relative ${typingOnPhone ? 'hidden' : ''}`}>
           {gameDialogOpen && (
             <GameStartDialog
               busy={gameThinking}
