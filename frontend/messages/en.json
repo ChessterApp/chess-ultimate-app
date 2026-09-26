@@ -2733,7 +2733,8 @@
       "database": "Database",
       "puzzles": "Puzzles",
       "games": "Games",
-      "editor": "Board Editor"
+      "editor": "Board Editor",
+      "level": "This level"
     },
     "hub": {
       "frozenTitle": "Your membership is paused",
@@ -2743,7 +2744,9 @@
       "stillOpenTitle": "What's still open",
       "learnStillOpen": "Learn stays available — keep working through your lessons.",
       "continueLearning": "Continue learning",
-      "contactSchool": "Or contact your school to reactivate your membership."
+      "contactSchool": "Or contact your school to reactivate your membership.",
+      "levelComplete": "Level {level} complete! 🎉",
+      "continueNextLevel": "Continue with Level {level}: {title}"
     },
     "upgrade": {
       "expiredHeadline": "Your trial ended — keep your progress going",
@@ -2763,6 +2766,16 @@
       "subscribe": "Subscribe",
       "startYearly": "Get yearly",
       "loading": "…"
+    },
+    "learnCeiling": {
+      "hint": "Available with an active membership"
+    },
+    "levelComplete": {
+      "title": "Level {level} complete! 🎉",
+      "subtitle": "Amazing work — you've finished this level.",
+      "nextUp": "Up next",
+      "nextLevel": "Level {level}: {title}",
+      "backToLearn": "Back to Learn"
     }
   }
 }

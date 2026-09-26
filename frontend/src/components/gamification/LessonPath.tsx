@@ -20,11 +20,17 @@ interface Course {
   progress: number;
   lessons: Lesson[];
   isLocked: boolean;
+  /** Locked by the restricted-member ceiling (not ordinary progression). */
+  isCeilingLocked?: boolean;
 }
 
 interface LessonPathProps {
   courses: Course[];
   courseSlug?: string;
+  /** Hint shown under a ceiling-locked course ("Available with an active membership"). */
+  ceilingHint?: string;
+  /** Invoked when a ceiling-locked course is clicked — opens the upgrade modal. */
+  onCeilingLockClick?: () => void;
 }
 
 const levelColors: Record<string, { bg: string; border: string; text: string; light: string; glow: string; gradient: string }> = {
@@ -122,7 +128,7 @@ function getZigzagOffset(index: number): string {
   return '-translate-x-10';
 }
 
-export function LessonPath({ courses, courseSlug }: LessonPathProps) {
+export function LessonPath({ courses, courseSlug, ceilingHint, onCeilingLockClick }: LessonPathProps) {
   const t = useTranslations('learn');
   const groups = groupByLevel(courses);
   let globalIndex = 0;
@@ -178,6 +184,8 @@ export function LessonPath({ courses, courseSlug }: LessonPathProps) {
                     isExpanded={course.slug === courseSlug}
                     courseIndex={nodeIndex}
                     isCurrentActive={isCurrentActive}
+                    ceilingHint={ceilingHint}
+                    onCeilingLockClick={onCeilingLockClick}
                   />
                 </div>
               </div>
@@ -194,13 +202,21 @@ interface CourseNodeProps {
   isExpanded: boolean;
   courseIndex: number;
   isCurrentActive: boolean;
+  ceilingHint?: string;
+  onCeilingLockClick?: () => void;
 }
 
-function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: CourseNodeProps) {
+function CourseNode({ course, isExpanded, courseIndex, isCurrentActive, ceilingHint, onCeilingLockClick }: CourseNodeProps) {
   const t = useTranslations('learn');
   const colors = levelColors[course.level] || levelColors.beginner;
   const isCompleted = course.progress === 100;
   const icon = levelIcons[course.level] || '\u265F\uFE0E';
+  const isCeilingLocked = !!course.isCeilingLocked;
+
+  const handleLockedClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (isCeilingLocked) onCeilingLockClick?.();
+  };
 
   return (
     <div className="flex flex-col items-center">
@@ -208,7 +224,9 @@ function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: Course
         href={course.isLocked ? '#' : `/learn/${course.slug}`}
         className={`relative flex items-center justify-center w-20 h-20 rounded-full transition-all duration-300 ${
           course.isLocked
-            ? 'bg-gray-200 cursor-not-allowed border-4 border-gray-300'
+            ? isCeilingLocked
+              ? 'bg-purple-50 cursor-pointer border-4 border-purple-200 hover:scale-105 active:scale-95'
+              : 'bg-gray-200 cursor-not-allowed border-4 border-gray-300'
             : isCompleted
             ? `bg-gradient-to-br ${colors.gradient} border-4 border-white shadow-lg`
             : isCurrentActive
@@ -216,7 +234,7 @@ function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: Course
             : `bg-white border-4 ${colors.border} hover:scale-105 active:scale-95 shadow-md`
         }`}
         aria-label={course.title}
-        onClick={course.isLocked ? (e: React.MouseEvent) => e.preventDefault() : undefined}
+        onClick={course.isLocked ? handleLockedClick : undefined}
       >
         {/* Progress ring for non-locked, non-completed courses */}
         {!course.isLocked && !isCompleted && course.progress > 0 && (
@@ -246,7 +264,7 @@ function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: Course
 
         {/* Icon content */}
         {course.isLocked ? (
-          <span className="text-2xl text-gray-400">🔒</span>
+          <span className={`text-2xl ${isCeilingLocked ? 'text-purple-500' : 'text-gray-400'}`}>🔒</span>
         ) : isCompleted ? (
           <span className="text-3xl">👑</span>
         ) : (
@@ -259,6 +277,15 @@ function CourseNode({ course, isExpanded, courseIndex, isCurrentActive }: Course
         <div className={`text-sm font-semibold ${course.isLocked ? 'text-gray-400' : 'text-gray-800'}`}>
           {course.title}
         </div>
+        {isCeilingLocked && ceilingHint && (
+          <button
+            type="button"
+            onClick={onCeilingLockClick}
+            className="mt-1 text-xs font-medium text-purple-600 hover:underline"
+          >
+            {ceilingHint}
+          </button>
+        )}
       </div>
 
       {/* START / CONTINUE button for current active course */}

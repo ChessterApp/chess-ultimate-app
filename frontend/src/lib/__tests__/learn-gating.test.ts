@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { computeLockStates, type GatingCourse } from '../learn-gating'
+import {
+  computeLockStates,
+  resolveRestrictedCeiling,
+  slugifyTitle,
+  type GatingCourse,
+} from '../learn-gating'
 
 // Helper: build N courses with order_index 1..N and ids "c1".."cN".
 function makeCourses(n: number): GatingCourse[] {
@@ -139,5 +144,123 @@ describe('computeLockStates', () => {
     for (const i of [6, 7, 8]) {
       expect(result[`c${i}`]).toBe(true)
     }
+  })
+
+  // ---- restrictedCeiling ---------------------------------------------------
+
+  it('restrictedCeiling locks courses above the ceiling even when the previous course is complete', () => {
+    // Courses 1-3 complete would normally unlock course 4 via prevComplete, but
+    // a restricted member capped at level 3 must not reach it.
+    const result = computeLockStates(
+      makeCourses(8),
+      makeProgress({ c1: 100, c2: 100, c3: 100 }),
+      undefined,
+      3
+    )
+    expect(result.c1).toBe(false)
+    expect(result.c2).toBe(false)
+    expect(result.c3).toBe(false)
+    for (let i = 4; i <= 8; i++) {
+      expect(result[`c${i}`]).toBe(true) // hard-capped above the ceiling
+    }
+  })
+
+  it('restrictedCeiling never re-locks a course whose own progress is 100', () => {
+    // Course 6 (above the ceiling of 3) is already fully complete — the
+    // ownComplete invariant beats the ceiling.
+    const result = computeLockStates(
+      makeCourses(8),
+      makeProgress({ c1: 100, c2: 100, c3: 100, c6: 100 }),
+      undefined,
+      3
+    )
+    expect(result.c4).toBe(true) // above ceiling, not complete -> locked
+    expect(result.c5).toBe(true)
+    expect(result.c6).toBe(false) // own progress 100 -> stays unlocked
+    // c7's previous (c6) is complete, but c7 is above the ceiling and not itself
+    // complete, so the ceiling clamps it shut regardless of prevComplete.
+    expect(result.c7).toBe(true)
+  })
+
+  it('undefined restrictedCeiling is identical to legacy behavior', () => {
+    const progress = makeProgress({ c1: 100, c2: 100 })
+    const legacy = computeLockStates(makeCourses(8), progress, 3)
+    const withUndefined = computeLockStates(makeCourses(8), progress, 3, undefined)
+    expect(withUndefined).toEqual(legacy)
+  })
+
+  it('restricted CE student: the ceiling wins over a higher ceLevelFloor', () => {
+    // A frozen CE student has floor 5 (level 5) but a ceiling of 2 (only
+    // completed 1, working on 2). The ceiling must clamp the floor's unlocks.
+    const result = computeLockStates(
+      makeCourses(8),
+      makeProgress({ c1: 100 }),
+      5, // ceLevelFloor
+      2 // restrictedCeiling
+    )
+    expect(result.c1).toBe(false) // completed
+    expect(result.c2).toBe(false) // at the ceiling
+    for (let i = 3; i <= 8; i++) {
+      expect(result[`c${i}`]).toBe(true) // floor would open 3-5, ceiling clamps
+    }
+  })
+})
+
+describe('resolveRestrictedCeiling', () => {
+  it('returns undefined for a full-access policy', () => {
+    expect(
+      resolveRestrictedCeiling({ mode: 'full' }, makeCourses(5), {})
+    ).toBeUndefined()
+  })
+
+  it('returns undefined for an empty course list', () => {
+    expect(resolveRestrictedCeiling({ mode: 'restricted' }, [], {})).toBeUndefined()
+  })
+
+  it('restricted, no progress: current level is the first course', () => {
+    expect(
+      resolveRestrictedCeiling({ mode: 'restricted' }, makeCourses(5), {})
+    ).toBe(1)
+  })
+
+  it('restricted: current level is the first course whose progress < 100', () => {
+    const result = resolveRestrictedCeiling(
+      { mode: 'restricted' },
+      makeCourses(5),
+      makeProgress({ c1: 100, c2: 100, c3: 40 })
+    )
+    expect(result).toBe(3)
+  })
+
+  it('restricted, everything complete: returns the last position', () => {
+    const result = resolveRestrictedCeiling(
+      { mode: 'restricted' },
+      makeCourses(5),
+      makeProgress({ c1: 100, c2: 100, c3: 100, c4: 100, c5: 100 })
+    )
+    expect(result).toBe(5)
+  })
+
+  it('resolves by 1-based position from scrambled input (order_index not 1-based)', () => {
+    const courses: GatingCourse[] = [
+      { id: 'c3', order_index: 10 },
+      { id: 'c1', order_index: 3 },
+      { id: 'c2', order_index: 4 },
+    ]
+    // c1 complete, c2 incomplete -> current level is position 2.
+    const result = resolveRestrictedCeiling(
+      { mode: 'restricted' },
+      courses,
+      makeProgress({ c1: 100 })
+    )
+    expect(result).toBe(2)
+  })
+})
+
+describe('slugifyTitle', () => {
+  it('matches the backend generate_slug_from_title behavior', () => {
+    expect(slugifyTitle('Chess Fundamentals')).toBe('chess-fundamentals')
+    expect(slugifyTitle('  King & Pawn  ')).toBe('king-pawn')
+    expect(slugifyTitle('Level 1: Basics!')).toBe('level-1-basics')
   })
 })

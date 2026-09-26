@@ -23,6 +23,7 @@ import EmpireNoLinkClient from '@/components/empire/EmpireNoLinkClient';
 import EmpireRestrictedHub from '@/components/empire/EmpireRestrictedHub';
 import ChessterDashboard from '@/app/dashboard/ChessterDashboard';
 import { getMembershipState } from '@/lib/chess-empire-member';
+import { resolveLearnCeiling } from '@/lib/learn-ceiling-server';
 import { autoClaimPendingCookie } from '@/lib/pending-registration';
 import { resolveStudentDisplayName } from '@/lib/student-name';
 import {
@@ -59,6 +60,29 @@ export type EmpireHomeResult =
   | { status: 'frozen'; node: React.ReactElement }
   | { status: 'auth_null' }
   | { status: 'lookup_error'; error: unknown };
+
+/**
+ * Level-complete framing for the restricted Home hub. When the member's current
+ * level (their Learn ceiling) is already 100% complete, surface "Level N
+ * complete — continue with Level N+1". Best-effort: any gap resolves to `{}`,
+ * leaving the hub's default "Learn stays open" copy.
+ */
+async function resolveRestrictedHubProps(): Promise<{
+  currentLevel?: number;
+  currentLevelComplete?: boolean;
+  nextLevelTitle?: string | null;
+}> {
+  const { ceiling, courses } = await resolveLearnCeiling();
+  if (ceiling === undefined) return {};
+  const current = courses.find((c) => c.position === ceiling);
+  if (!current || current.progress !== 100) return {};
+  const next = courses.find((c) => c.position === ceiling + 1) ?? null;
+  return {
+    currentLevel: ceiling,
+    currentLevelComplete: true,
+    nextLevelTitle: next?.title ?? null,
+  };
+}
 
 export async function renderEmpireHomepage(
   orgId: string,
@@ -111,13 +135,15 @@ export async function renderEmpireHomepage(
   // never wrap the dashboard in the invite poller — re-claiming the invite
   // cannot reactivate a frozen membership, so it must not enter the claim flow.
   if (membership.state === 'frozen') {
-    return { status: 'frozen', node: <EmpireRestrictedHub reason="frozen" /> };
+    const hub = await resolveRestrictedHubProps();
+    return { status: 'frozen', node: <EmpireRestrictedHub reason="frozen" {...hub} /> };
   }
 
   // Time-boxed access ran out (online invite past its window). Show the
   // restricted "trial ended" hub instead of the app — no profile fetch needed.
   if (membership.state === 'expired') {
-    return { status: 'ok', node: <EmpireRestrictedHub reason="expired" /> };
+    const hub = await resolveRestrictedHubProps();
+    return { status: 'ok', node: <EmpireRestrictedHub reason="expired" {...hub} /> };
   }
 
   // Online-track members have no Chess Empire roster profile to personalize

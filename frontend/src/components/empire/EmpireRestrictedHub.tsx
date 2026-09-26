@@ -13,12 +13,22 @@ import { getAccessPolicy } from '@/lib/access-policy';
 
 export default function EmpireRestrictedHub({
   reason,
+  currentLevel,
+  currentLevelComplete = false,
+  nextLevelTitle = null,
 }: {
   reason: 'frozen' | 'expired';
+  /** 1-based number of the member's current level (their ceiling). */
+  currentLevel?: number;
+  /** Whether that current level is already 100% complete. */
+  currentLevelComplete?: boolean;
+  /** Title of the next (locked) level, if any. */
+  nextLevelTitle?: string | null;
 }) {
   const t = useTranslations('access');
   const policy = getAccessPolicy(reason);
   const isFrozen = reason === 'frozen';
+  const showLevelComplete = currentLevelComplete && currentLevel !== undefined;
 
   return (
     <div
@@ -41,9 +51,23 @@ export default function EmpireRestrictedHub({
           <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">
             {t('hub.stillOpenTitle')}
           </h2>
-          <p className="mt-2 text-sm text-gray-600">{t('hub.learnStillOpen')}</p>
-          {/* TODO(Phase 2): show "finish Level N — X%" progress here (needs the
-              level-progress fetch — intentionally not fetched in Phase 1). */}
+          {showLevelComplete ? (
+            <>
+              <p className="mt-2 text-sm font-semibold text-gray-800">
+                {t('hub.levelComplete', { level: currentLevel! })}
+              </p>
+              <p className="mt-1 text-sm text-gray-600">
+                {nextLevelTitle
+                  ? t('hub.continueNextLevel', {
+                      level: currentLevel! + 1,
+                      title: nextLevelTitle,
+                    })
+                  : t('hub.learnStillOpen')}
+              </p>
+            </>
+          ) : (
+            <p className="mt-2 text-sm text-gray-600">{t('hub.learnStillOpen')}</p>
+          )}
           <Link
             href="/learn"
             className="mt-4 inline-flex items-center justify-center rounded-full bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition-transform hover:scale-105 active:scale-95"
