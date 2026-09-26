@@ -20,8 +20,7 @@ import { auth } from '@clerk/nextjs/server';
 import EmpireHomePage from '@/components/empire/EmpireHomePage';
 import EmpireCoachHome from '@/components/empire/EmpireCoachHome';
 import EmpireNoLinkClient from '@/components/empire/EmpireNoLinkClient';
-import EmpireAccessExpired from '@/components/empire/EmpireAccessExpired';
-import EmpireFrozenNotice from '@/components/empire/EmpireFrozenNotice';
+import EmpireRestrictedHub from '@/components/empire/EmpireRestrictedHub';
 import ChessterDashboard from '@/app/dashboard/ChessterDashboard';
 import { getMembershipState } from '@/lib/chess-empire-member';
 import { autoClaimPendingCookie } from '@/lib/pending-registration';
@@ -108,17 +107,17 @@ export async function renderEmpireHomepage(
     };
   }
 
-  // The school paused this membership. Show the "membership paused" notice and
+  // The school paused this membership. Show the restricted "paused" hub and
   // never wrap the dashboard in the invite poller — re-claiming the invite
   // cannot reactivate a frozen membership, so it must not enter the claim flow.
   if (membership.state === 'frozen') {
-    return { status: 'frozen', node: <EmpireFrozenNotice /> };
+    return { status: 'frozen', node: <EmpireRestrictedHub reason="frozen" /> };
   }
 
   // Time-boxed access ran out (online invite past its window). Show the
-  // access-expired screen instead of the app — no profile fetch needed.
+  // restricted "trial ended" hub instead of the app — no profile fetch needed.
   if (membership.state === 'expired') {
-    return { status: 'ok', node: <EmpireAccessExpired /> };
+    return { status: 'ok', node: <EmpireRestrictedHub reason="expired" /> };
   }
 
   // Online-track members have no Chess Empire roster profile to personalize

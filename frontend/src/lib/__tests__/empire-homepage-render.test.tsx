@@ -111,9 +111,11 @@ vi.mock('@/components/empire/EmpireNoLinkClient', () => ({
     <div data-testid="nolink-poller">{props.children}</div>
   ),
 }));
-vi.mock('@/components/empire/EmpireFrozenNotice', () => ({
+vi.mock('@/components/empire/EmpireRestrictedHub', () => ({
   __esModule: true,
-  default: () => <div data-testid="frozen-notice" />,
+  default: (props: { reason: string }) => (
+    <div data-testid="frozen-notice" data-reason={props.reason} />
+  ),
 }));
 vi.mock('@/app/dashboard/ChessterDashboard', () => ({
   __esModule: true,

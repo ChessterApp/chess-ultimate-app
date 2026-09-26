@@ -3,8 +3,12 @@
 import { usePathname } from 'next/navigation';
 import PrefetchLink from '@/components/PrefetchLink';
 import { warmMaia } from '@/lib/engine/maiaSingleton';
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import { Lock } from 'lucide-react';
+import { useMembership } from '@/components/providers/MembershipProvider';
+import { isRouteAllowed, featureKeyForPath } from '@/lib/access-policy';
+import LockedFeatureModal from '@/components/access/LockedFeatureModal';
 
 interface NavItem {
   href: string;
@@ -96,6 +100,8 @@ interface BottomNavigationProps {
 export function BottomNavigation({ className = '' }: BottomNavigationProps) {
   const pathname = usePathname();
   const t = useTranslations('navigation');
+  const { policy } = useMembership();
+  const [lockedFeature, setLockedFeature] = useState<string | null>(null);
 
   const isActive = (href: string) => {
     if (!pathname) return false;
@@ -115,6 +121,32 @@ export function BottomNavigation({ className = '' }: BottomNavigationProps) {
       <div className="flex items-center justify-around h-16">
         {navItems.map((item) => {
           const active = isActive(item.href);
+
+          // Restricted members see the item but locked: muted, lock badge, and a
+          // tap opens the upsell modal rather than navigating.
+          const locked =
+            policy.mode === 'restricted' && !isRouteAllowed(policy, item.href);
+          if (locked) {
+            return (
+              <button
+                key={item.href}
+                type="button"
+                aria-disabled="true"
+                onClick={() =>
+                  setLockedFeature(featureKeyForPath(item.href) ?? item.labelKey)
+                }
+                className="relative flex flex-col items-center justify-center flex-1 h-full text-gray-300"
+              >
+                <div>{item.icon}</div>
+                <span className="text-xs mt-1 font-medium">{t(item.labelKey)}</span>
+                <Lock
+                  className="absolute top-2 right-1/4 h-3 w-3"
+                  data-testid="nav-lock"
+                />
+              </button>
+            );
+          }
+
           return (
             <PrefetchLink
               key={item.href}
@@ -137,6 +169,15 @@ export function BottomNavigation({ className = '' }: BottomNavigationProps) {
           );
         })}
       </div>
+
+      {lockedFeature && (
+        <LockedFeatureModal
+          featureKey={lockedFeature}
+          reason={policy.reason}
+          upgradePath={policy.upgradePath}
+          onClose={() => setLockedFeature(null)}
+        />
+      )}
     </nav>
   );
 }

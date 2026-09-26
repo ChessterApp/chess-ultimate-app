@@ -19,6 +19,7 @@ import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp"
 import SyncBoundary from "@/components/SyncBoundary"
 import SyncIndicator from "@/components/SyncIndicator"
 import { ChromeVisibilityProvider } from "@/components/ChromeVisibilityContext"
+import LockedRedirectListener from "@/components/access/LockedRedirectListener"
 
 // Lazy load MUI provider only when needed
 const MuiProvider = lazy(() => import("@/components/providers/MuiProvider"))
@@ -112,6 +113,7 @@ export default function ClientShell({ children }: { children: ReactNode }) {
           </div>
           <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
           <SyncIndicator />
+          <LockedRedirectListener />
         </OfflineBanner>
       </SubscriptionProvider>
     </ToastProvider>

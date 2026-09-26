@@ -2718,5 +2718,51 @@
     "removeCancelButton": "Cancel",
     "removing": "Removing…",
     "removeError": "Couldn't remove this member. Please try again."
+  },
+  "access": {
+    "close": "Close",
+    "lockedTitle": "{feature} is part of the active membership",
+    "frozenBody": "Your school membership is paused.",
+    "expiredBody": "Your trial period has ended.",
+    "continueCta": "Continue on your own",
+    "keepGoingCta": "Keep going",
+    "contactSchool": "Contact your school to reactivate your membership.",
+    "feature": {
+      "play": "Play",
+      "coach": "AI Coach",
+      "database": "Database",
+      "puzzles": "Puzzles",
+      "games": "Games",
+      "editor": "Board Editor"
+    },
+    "hub": {
+      "frozenTitle": "Your membership is paused",
+      "frozenStatus": "Your school has paused your Chesster membership, so your lessons and progress are on hold for now.",
+      "expiredTitle": "Your trial has ended",
+      "expiredStatus": "Your trial period has ended — your progress is saved and waiting for you.",
+      "stillOpenTitle": "What's still open",
+      "learnStillOpen": "Learn stays available — keep working through your lessons.",
+      "continueLearning": "Continue learning",
+      "contactSchool": "Or contact your school to reactivate your membership."
+    },
+    "upgrade": {
+      "expiredHeadline": "Your trial ended — keep your progress going",
+      "expiredSubtitle": "Pick a plan and continue right where you left off.",
+      "continueHeadline": "Your school membership is paused — continue on your own",
+      "continueSubtitle": "Keep your lessons, coach, and progress going with a personal plan.",
+      "contactSchoolTitle": "Still with a school?",
+      "contactSchoolBody": "If your membership was paused by mistake, contact your branch or school administrator to reactivate it.",
+      "weekly": "Weekly",
+      "monthly": "Monthly",
+      "yearly": "Yearly",
+      "weeklyPrice": "$5.90/week",
+      "monthlyPrice": "$9.90/month",
+      "yearlyPrice": "$49.90/year",
+      "perMonth": "Just $4.16/month",
+      "bestValue": "Best value",
+      "subscribe": "Subscribe",
+      "startYearly": "Get yearly",
+      "loading": "…"
+    }
   }
 }
