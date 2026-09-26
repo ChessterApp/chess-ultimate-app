@@ -311,6 +311,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         const data = await res.json();
         if (data?.id) {
           activeSessionIdRef.current = data.id;
+          restoredForRef.current = data.id; // brand new — nothing to reload
           onSessionCreated?.(data.id);
         }
       }
@@ -593,6 +594,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             }
 
             if (data.session_id && onSessionCreated) {
+              // This chat holds the conversation already (with game cards the
+              // server copy lacks) — don't reload it for its own new session.
+              restoredForRef.current = data.session_id;
               onSessionCreated(data.session_id);
             }
 

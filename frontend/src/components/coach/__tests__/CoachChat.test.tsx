@@ -546,6 +546,50 @@ describe('CoachChat — persisted sessions and boards', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps the conversation when the first answer brings a new session id', async () => {
+    // Live site 2026-09-25: the chat went blank right after the first answer.
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url) === '/api/coach/chat') {
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              const enc = new TextEncoder();
+              controller.enqueue(enc.encode('data: {"delta": "Привет! Чем помочь?"}\n\n'));
+              controller.enqueue(enc.encode('data: {"done": true, "session_id": "s-new"}\n\n'));
+              controller.close();
+            },
+          }),
+        };
+      }
+      // The server copy (if asked) would come back empty and wipe the thread.
+      return { ok: true, json: async () => ({ messages: [] }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    function Page() {
+      const [sid, setSid] = React.useState<string | null>(null);
+      return (
+        <CoachChat currentFen="fen" sessionId={sid} restoreHistory onSessionCreated={setSid} onBoardActions={() => {}} />
+      );
+    }
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <Page />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement | HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Привет' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    expect(await screen.findByText('Привет! Чем помочь?')).toBeTruthy();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText('Привет! Чем помочь?')).toBeTruthy();
+    expect(screen.queryByText('Привет')).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/sessions/s-new/messages'))).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
   it('sends board_id with every chat turn', async () => {
     const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
       if (String(url) === '/api/coach/chat') {

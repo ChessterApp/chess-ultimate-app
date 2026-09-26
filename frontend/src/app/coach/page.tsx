@@ -270,21 +270,18 @@ export default function CoachPage() {
 
   // Restore the session's boards from the server: the study board's position,
   // history and orientation, and every master-game tab. Runs once per session
-  // id; a session that no longer exists is forgotten.
+  // id. A failed restore changes nothing: the session id is kept, because a
+  // Hermes without the boards API (404), a Hermes hiccup and an unknown
+  // session all look alike here — and forgetting the id wiped the chat right
+  // after the first answer on the live site (2026-09-25). An unknown id costs
+  // nothing: the next chat turn recreates the session under it.
   useEffect(() => {
     if (!sessionId || restoredSessionRef.current === sessionId) return;
     restoredSessionRef.current = sessionId;
     let cancelled = false;
     void (async () => {
       const data = await coachApi.listBoards(sessionId);
-      if (cancelled) return;
-      if (!data) {
-        // 404 (deleted / unknown session) or Hermes down: start clean.
-        localStorage.removeItem('coach-session-id');
-        setSessionId(null);
-        restoredSessionRef.current = null;
-        return;
-      }
+      if (cancelled || !data) return;
       const study = data.boards.find((b) => b.kind === 'study' || b.kind === 'puzzle') ?? data.boards[0];
       const games: OpenedGame[] = [];
       const indices: Record<string, number> = {};
