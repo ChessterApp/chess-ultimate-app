@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "3"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23)
+PROMPT_TEMPLATE_VERSION = "4"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -225,9 +225,10 @@ def build_system_prompt(
         "### Board Control — board_control (USE PROACTIVELY)\n"
         "Your PRIMARY teaching tool. The student has an interactive board — use it constantly.\n\n"
         "Actions and when to use them:\n"
-        "- **set_fen**: Set a position on the board. Use whenever explaining a concept, "
-        "tactic, or strategic idea. Construct clear example positions for pins, forks, "
-        "skewers, discovered attacks, etc.\n"
+        "- **set_fen**: Set a position on the board — ONLY a position that came from a tool "
+        "result, the student's game or the student's own message. Never type an example "
+        "position from memory: examples of a concept (pin, fork, skewer…) come from "
+        "get_topic / get_lesson, which put them on the board themselves.\n"
         "- **load_pgn**: Load a full game on the board. Use when referencing master games "
         "so the student can replay the moves.\n"
         "- **draw_arrows**: Highlight key lines, threats, and tactical patterns. "
@@ -241,17 +242,11 @@ def build_system_prompt(
         "- **flip_board**: Flip the board perspective.\n"
         "- **clear_board**: Reset the board.\n\n"
         "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
-        "shows an unrelated position, SET UP an example position FIRST, then explain. "
-        "Never describe a position in words alone.\n\n"
-        "Example — showing a pin:\n"
-        "Call board_control with:\n"
-        '  action_type: "set_fen"\n'
-        '  fen: "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"\n'
-        "Then call board_control again with:\n"
-        '  action_type: "draw_arrows"\n'
-        '  arrows: [{"from": "h5", "to": "f7", "brush": "red"}]\n\n'
-        "This shows the Scholar's Mate threat with an arrow. "
-        "ALWAYS call the tool — never just describe the position in text.\n\n"
+        "shows an unrelated position, call get_topic FIRST — it puts a verified example on "
+        "the board (the site's own lesson when there is one) — then explain exactly that "
+        "position. Never describe or build an example position from memory: a wrong piece "
+        "on a wrong square is worse than no example. If no tool has an example, explain on "
+        "the current board or offer a puzzle (get_puzzle).\n\n"
         "### Lichess/Chess.com Game Loading Workflow\n"
         "When the user asks to find, load, or show a game from Lichess or Chess.com:\n"
         "1. Call lichess_game_import or chesscom_game_import with the username and max_games=1\n"
@@ -266,17 +261,20 @@ def build_system_prompt(
         "what to study, what comes next, about a course or lesson, or how to fix a "
         "weakness: read the programme with these tools and recommend REAL lessons by "
         "title with their url — never invent courses or lessons. To teach a lesson, "
-        "call get_lesson, explain its content in your own words, and put its "
-        "exercise or puzzles on the board with board_control set_puzzle (fen + "
-        "solution from the tool result). Ask get_user_progress only for statistics.\n\n"
+        "call get_lesson: it puts the lesson's exercise on the board as a puzzle itself; "
+        "explain the lesson's content in your own words and guide the student through that "
+        "exercise. Ask get_user_progress only for statistics.\n\n"
         "### Knowledge base — get_topic / list_topics\n"
-        "Before explaining a chess concept (a tactic, a pawn structure, a typical "
-        "position, an opening idea, an endgame technique) call get_topic: it returns "
-        "the summary, key ideas, typical mistakes, VERIFIED example positions and the "
-        "puzzle themes for that concept. Teach from it: set its position on the board "
-        "(board_control set_fen), draw the plan with arrows, then offer a puzzle with "
-        "get_puzzle(theme=…). list_topics shows the whole map when the student asks "
-        "what they could learn. Do not invent example positions from memory.\n\n"
+        "Before explaining or showing a chess concept (a tactic, a pawn structure, a typical "
+        "position, an opening idea, an endgame technique) call get_topic: it returns the "
+        "summary, key ideas, typical mistakes and puzzle themes, and PUTS AN EXAMPLE ON THE "
+        "BOARD itself — from the site's lesson on the topic when there is one, else a "
+        "verified position of the base — described in its `example` field. Teach from that "
+        "example: say what is on the board as the FEN shows it, draw the plan with arrows, "
+        "then OFFER a puzzle — set it up (get_puzzle(theme=…)) only when the student asks, "
+        "never in the same answer, or the board jumps away from the example you are "
+        "explaining. list_topics shows the whole map when "
+        "the student asks what they could learn. Never invent example positions.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation.\n\n"
         "### check_moves\n"
@@ -461,6 +459,9 @@ VOICE_TOOL_LAYER = (
     "\"let me check that\" or \"one sec, looking now\") and THEN make the tool "
     "call. Never go silent while a tool runs — the player should always hear you "
     "respond right away.\n"
+    "Examples of a concept (pin, fork, skewer…) come ONLY from get_topic or "
+    "get_lesson, which put the position on the board themselves; describe exactly "
+    "that position. Never set up an example position from memory.\n"
     "Before you recommend or name a specific move that did NOT come from "
     "analyze_position or compare_variations output, silently verify it with "
     "check_moves first; if it comes back illegal, pick a legal move from the "

@@ -141,3 +141,28 @@ class TestOwnAndImportedGameCards:
         payload = json.dumps({"games": [{"id": "g", "white": "a", "black": "b", "pgn": self.PGN}]})
         env = wrap_response("Вот твои партии.", tool_results=[payload])
         assert env["game_results"][0]["source"] == "user"
+
+
+@pytest.mark.unit
+def test_board_actions_carried_next_to_tool_data_reach_the_client():
+    """get_topic / get_lesson show their own example: the actions ride in the result."""
+    topic = json.dumps({
+        "slug": "pin",
+        "board_actions": [
+            {"type": "set_fen", "fen": "8/8/8/8/8/8/8/K6k w - - 0 1"},
+            {"type": "draw_arrows", "arrows": [{"from": "a1", "to": "a2", "brush": "green"}]},
+            {"type": "not_an_action"},
+        ],
+    })
+    failed = json.dumps({"error": "x", "board_actions": [{"type": "set_fen", "fen": "8/8/8/8/8/8/8/K6k w - - 0 1"}]})
+    env = wrap_response("Смотри на доску.", tool_results=[topic, failed])
+    assert [a["type"] for a in env["board_actions"]] == ["set_fen", "draw_arrows"]
+
+
+@pytest.mark.unit
+def test_voice_bridge_takes_board_actions_from_tool_data():
+    from src.tool_bridge import _extract_board_actions
+
+    result = {"slug": "pin", "board_actions": [{"type": "set_fen", "fen": "8/8/8/8/8/8/8/K6k w - - 0 1"}]}
+    assert _extract_board_actions(result) == result["board_actions"]
+    assert _extract_board_actions({"type": "flip_board"}) == [{"type": "flip_board"}]

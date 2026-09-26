@@ -181,9 +181,13 @@ def _final_fen_from_pgn(pgn: str) -> Optional[str]:
 
 
 def _extract_board_actions(result: Any) -> list[dict]:
-    """Return board-action dicts embedded in a parsed tool result."""
+    """Return board-action dicts embedded in a parsed tool result: the result
+    itself (board_control), a list of them, or a ``board_actions`` list carried
+    next to the data (get_topic's example, get_lesson's exercise)."""
     actions: list[dict] = []
     candidates = result if isinstance(result, list) else [result]
+    if isinstance(result, dict) and isinstance(result.get("board_actions"), list):
+        candidates = result["board_actions"]
     for candidate in candidates:
         if isinstance(candidate, dict) and candidate.get("type") in _BOARD_ACTION_TYPES:
             actions.append(candidate)

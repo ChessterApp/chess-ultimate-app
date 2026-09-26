@@ -120,15 +120,25 @@ class TestPromptBuilder:
         assert LOCALE_TO_LANGUAGE["kz"] == "Kazakh"
         assert LOCALE_TO_LANGUAGE["en"] == "English"
 
-    def test_prompt_contains_set_fen_example(self):
+    def test_prompt_sends_concept_examples_to_the_tools(self):
+        # 2026-09-25: the coach typed its own "pin" position (a knight on c3 that
+        # wasn't there). Examples now come from get_topic / get_lesson only.
         prompt = build_system_prompt(soul_content=MOCK_SOUL)
         assert "set_fen" in prompt
         assert "draw_arrows" in prompt
-        assert "Scholar's Mate" in prompt
+        assert "call get_topic FIRST" in prompt
+        assert "Never type an example" in prompt
+        assert "Construct clear example positions" not in prompt
 
-    def test_prompt_contains_example_fen(self):
+    def test_prompt_has_no_hand_written_example_fen(self):
         prompt = build_system_prompt(soul_content=MOCK_SOUL)
-        assert "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4" in prompt
+        assert "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4" not in prompt
+        assert "Scholar's Mate" not in prompt
+
+    def test_voice_prompt_forbids_invented_examples(self):
+        from src.prompt_builder import build_voice_prompt
+        prompt = build_voice_prompt(MOCK_SOUL)
+        assert "come ONLY from get_topic or get_lesson" in prompt
 
     def test_prompt_contains_check_moves_directive(self):
         # Text mode must instruct verifying non-engine move suggestions.

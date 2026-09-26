@@ -156,6 +156,13 @@ def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
                 obj = json.loads(result)
                 if isinstance(obj, dict) and obj.get("type") in _BOARD_ACTION_TYPES:
                     board_actions.append(obj)
+                elif isinstance(obj, dict) and "error" not in obj:
+                    # A tool that shows its own result (get_topic's example,
+                    # get_lesson's exercise) carries the actions alongside it.
+                    board_actions.extend(
+                        a for a in obj.get("board_actions") or []
+                        if isinstance(a, dict) and a.get("type") in _BOARD_ACTION_TYPES
+                    )
             except (json.JSONDecodeError, TypeError):
                 pass
 
