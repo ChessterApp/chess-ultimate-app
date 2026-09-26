@@ -26,6 +26,7 @@ const isPublicRoute = createRouteMatcher([
   '/games',  // Games hub — poster cards only; individual games gate themselves (client-side, like /coach)
   '/games/tug-of-war(.*)',  // Classroom tug-of-war prototype — public per PRD (zero-friction smartboard use)
   '/family/join(.*)',  // Family invite links — page has its own sign-in fallback; must be reachable signed-out
+  '/delete-account',  // Google Play requires this URL reachable signed-out; deletion API still auth-checks server-side
   '/api/(.*)',  // Allow all API routes without auth
 ])
 
