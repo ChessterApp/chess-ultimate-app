@@ -25,7 +25,7 @@ import requests
 
 from flask import Blueprint, request, jsonify, Response, stream_with_context
 from services.supabase_client import supabase
-from utils.auth import verify_clerk_token, get_current_user_id
+from utils.auth import verify_clerk_token, get_current_user_id, require_active_membership
 from utils.cache import with_cache
 
 logger = logging.getLogger(__name__)
@@ -2067,6 +2067,7 @@ def _longest_name_token(name: str) -> str:
     return max(tokens, key=len) if tokens else ''
 
 @openings_bp.route('/games/by-position', methods=['GET'])
+@require_active_membership
 def games_by_position():
     """Fast lookup: find games that reach a given FEN using the position hash index.
     Returns game metadata only (no PGN). PGN is fetched on demand via /games/<id>/pgn.
@@ -2667,6 +2668,7 @@ _candidates_cache = {}   # board_hash -> (timestamp, result_dict)
 _CANDIDATES_CACHE_TTL = 600  # 10 minutes
 
 @openings_bp.route('/positions/candidates', methods=['GET'])
+@require_active_membership
 @with_cache(max_age=300)
 def position_candidates():
     """Return candidate next moves for a FEN using TWIC position index.

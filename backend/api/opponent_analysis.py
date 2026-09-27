@@ -19,6 +19,8 @@ from typing import Optional, List, Dict, Any, Tuple
 from flask import Blueprint, request, jsonify
 import logging
 
+from utils.auth import require_active_membership
+
 logger = logging.getLogger(__name__)
 
 opponent_bp = Blueprint('opponent', __name__, url_prefix='/api/opponent')
@@ -83,6 +85,7 @@ def database_status():
 
 
 @opponent_bp.route('/search', methods=['GET'])
+@require_active_membership
 def search_players():
     """
     Search for players by name (autocomplete).
@@ -166,6 +169,7 @@ def search_players():
 
 
 @opponent_bp.route('/<player_name>/profile', methods=['GET'])
+@require_active_membership
 def get_player_profile(player_name: str):
     """
     Get player profile with aggregated statistics.
@@ -260,6 +264,7 @@ def get_player_profile(player_name: str):
 
 
 @opponent_bp.route('/<player_name>/games', methods=['GET'])
+@require_active_membership
 def get_player_games(player_name: str):
     """
     Get filtered games for a player.
@@ -462,6 +467,7 @@ def get_player_result(result: str, is_white: bool) -> str:
 
 
 @opponent_bp.route('/<player_name>/openings', methods=['GET'])
+@require_active_membership
 def get_player_openings(player_name: str):
     """
     Get opening statistics for a player.
@@ -570,6 +576,7 @@ def get_player_openings(player_name: str):
 
 
 @opponent_bp.route('/<player_name>/opponents', methods=['GET'])
+@require_active_membership
 def get_player_opponents(player_name: str):
     """
     Get most frequent opponents for a player.
@@ -642,6 +649,7 @@ def get_player_opponents(player_name: str):
 
 
 @opponent_bp.route('/game/<int:game_id>/pgn', methods=['GET'])
+@require_active_membership
 def get_game_pgn(game_id: int):
     """
     Get full PGN for a specific game.

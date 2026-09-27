@@ -79,6 +79,12 @@ describe('EmpireCoachHome', () => {
     // First student has a real razryad; second's "none" is suppressed.
     expect(getAllByTestId('empire-coach-roster-razryad')).toHaveLength(1);
     expect(queryByTestId('empire-coach-roster-empty')).toBeNull();
+
+    // Quick links point to tournaments and the games hub.
+    expect(getByTestId('empire-coach-link-tournaments').getAttribute('href')).toBe(
+      '/tournaments',
+    );
+    expect(getByTestId('empire-coach-link-games').getAttribute('href')).toBe('/games');
   });
 
   it('falls back to an initials avatar and empty states with no enrichment', async () => {

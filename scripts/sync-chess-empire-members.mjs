@@ -23,6 +23,14 @@
  *   |           |                      | clerk.delete_membership (skip 404)     |
  *   | (missing) | any                  | warning, no action                     |
  *
+ * Personal-subscription coexistence (Phase 3): the school link is the source of
+ * truth for `link_status`, so `freeze`/`revoke` ALWAYS set the new link_status.
+ * BUT if the member pays for their own Chesster plan (an active personal Whop
+ * subscription in `subscriptions`), we SKIP the destructive Clerk org removal so
+ * their self-paid access survives the school pausing/dropping them. Logged as
+ * `freeze/revoke (personal sub active — org membership kept)` and counted in
+ * `counts.subKept`.
+ *
  * Output: writes a run summary to notes/cron/chess-empire-sync-YYYY-MM-DD.md
  * and prints a JSON summary to stdout for log capture.
  *
@@ -74,6 +82,33 @@ export function decideAction(ceStatus, linkStatus) {
 }
 
 /**
+ * Whether `clerkUserId` holds an active personal Whop subscription (Phase 3).
+ * Reads the same `subscriptions` table the webhook upserts: active/trialing and
+ * not past its billing period. Any error / no row → false (no override). Kept a
+ * pure helper (injected `supabase`) so the sync test can drive it offline.
+ */
+export async function hasActivePersonalSubscription(
+  supabase,
+  clerkUserId,
+  nowMs = Date.now(),
+) {
+  if (!clerkUserId) return false;
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('status, current_period_end')
+    .eq('clerk_user_id', clerkUserId)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (error || !data || data.length === 0) return false;
+  const row = data[0];
+  if (!['active', 'trialing'].includes(row.status)) return false;
+  if (row.current_period_end && new Date(row.current_period_end).getTime() < nowMs) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Chunk an array into fixed-size slices — used to keep the `id=in.(…)`
  * query string bounded so PostgREST doesn't reject it.
  */
@@ -101,6 +136,7 @@ export function buildSummaryMd(result, today) {
   lines.push(`- verified→frozen: ${result.counts.freeze}`);
   lines.push(`- frozen→verified: ${result.counts.thaw}`);
   lines.push(`- anything→revoked: ${result.counts.revoke}`);
+  lines.push(`- org membership kept (personal sub active): ${result.counts.subKept}`);
   lines.push(`- no-op: ${result.counts.none}`);
   lines.push(`**Warnings:** ${result.counts.missing + result.warnings.length}`);
   lines.push(`**Errors:** ${result.errors.length}`);
@@ -153,7 +189,7 @@ export async function reconcile({
 }) {
   const started = Date.now();
 
-  const counts = { none: 0, thaw: 0, freeze: 0, revoke: 0, missing: 0 };
+  const counts = { none: 0, thaw: 0, freeze: 0, revoke: 0, missing: 0, subKept: 0 };
   const details = [];
   const warnings = [];
   const errors = [];
@@ -244,26 +280,42 @@ export async function reconcile({
           counts.thaw += 1;
         } else if (decision.action === 'freeze') {
           detail.after = 'frozen';
+          // link_status is school-side truth and always flips; the Clerk org
+          // removal is skipped when the member pays for their own plan.
+          const subActive = await hasActivePersonalSubscription(
+            supabase, row.user_id, now().getTime(),
+          );
           if (!dryRun) {
             await supabase
               .from('organization_members')
               .update({ link_status: 'frozen' })
               .eq('id', row.id);
-            if (clerkOrgId) {
+            if (clerkOrgId && !subActive) {
               await clerk.deleteMembership(clerkOrgId, row.user_id);
             }
+          }
+          if (subActive) {
+            detail.note = 'freeze (personal sub active — org membership kept)';
+            counts.subKept += 1;
           }
           counts.freeze += 1;
         } else if (decision.action === 'revoke') {
           detail.after = 'revoked';
+          const subActive = await hasActivePersonalSubscription(
+            supabase, row.user_id, now().getTime(),
+          );
           if (!dryRun) {
             await supabase
               .from('organization_members')
               .update({ link_status: 'revoked', link_revoked_at: nowIso })
               .eq('id', row.id);
-            if (clerkOrgId) {
+            if (clerkOrgId && !subActive) {
               await clerk.deleteMembership(clerkOrgId, row.user_id);
             }
+          }
+          if (subActive) {
+            detail.note = 'revoke (personal sub active — org membership kept)';
+            counts.subKept += 1;
           }
           counts.revoke += 1;
         }

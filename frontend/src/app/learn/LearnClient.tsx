@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useAuth, SignInButton } from '@clerk/nextjs'
 import { useTranslations, useLocale } from 'next-intl'
+import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import LoadingScreen from '@/components/LoadingScreen'
 import { apiFetch, ApiError } from '@/lib/api'
@@ -10,7 +11,8 @@ import { useToast } from '@/components/ToastProvider'
 import { LessonPath } from '@/components/gamification/LessonPath'
 import { SpeechBubble } from '@/components/mascot/SpeechBubble'
 import { useCourseProgress } from '@/hooks/useCourseProgress'
-import { computeLockStates } from '@/lib/learn-gating'
+import { computeLockStates, resolveRestrictedCeiling } from '@/lib/learn-gating'
+import { getAccessPolicy, type AccessPolicy } from '@/lib/access-policy'
 
 interface Course {
   id: string
@@ -31,10 +33,17 @@ function generateSlug(title: string): string {
     .replace(/^-|-$/g, '')
 }
 
-export default function LearnClient({ ceLevelFloor }: { ceLevelFloor?: number }) {
+export default function LearnClient({
+  ceLevelFloor,
+  policy = getAccessPolicy(null),
+}: {
+  ceLevelFloor?: number
+  policy?: AccessPolicy
+}) {
   const { getToken, isSignedIn, isLoaded } = useAuth()
   const t = useTranslations()
   const locale = useLocale()
+  const router = useRouter()
   const { showToast } = useToast()
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,15 +91,21 @@ export default function LearnClient({ ceLevelFloor }: { ceLevelFloor?: number })
   // Transform courses for LessonPath component
   const lessonPathCourses = useMemo(() => {
     const sortedCourses = [...courses].sort((a, b) => a.order_index - b.order_index)
-    const lockStates = computeLockStates(
-      sortedCourses.map((c) => ({ id: c.id, order_index: c.order_index })),
-      courseProgress,
-      ceLevelFloor
-    )
+    const gatingCourses = sortedCourses.map((c) => ({ id: c.id, order_index: c.order_index }))
+
+    // Restricted (frozen/expired) members are capped at their current level.
+    const restrictedCeiling = resolveRestrictedCeiling(policy, gatingCourses, courseProgress)
+
+    const lockStates = computeLockStates(gatingCourses, courseProgress, ceLevelFloor, restrictedCeiling)
+    // Without the ceiling — anything locked here but unlocked below was locked
+    // *by the restriction*, so it gets the distinct "membership" treatment.
+    const baseLockStates = computeLockStates(gatingCourses, courseProgress, ceLevelFloor)
+
     return sortedCourses
       .map((course) => {
         const progress = courseProgress[course.id]
         const isLocked = lockStates[course.id] ?? false
+        const isCeilingLocked = isLocked && !(baseLockStates[course.id] ?? false)
 
         return {
           id: course.id,
@@ -99,10 +114,11 @@ export default function LearnClient({ ceLevelFloor }: { ceLevelFloor?: number })
           level: course.level,
           progress: progress?.progress || 0,
           isLocked,
+          isCeilingLocked,
           lessons: [] // Lessons loaded on course page
         }
       })
-  }, [courses, courseProgress, ceLevelFloor])
+  }, [courses, courseProgress, ceLevelFloor, policy])
 
   if (loading || !isLoaded) {
     return <LoadingScreen isVisible={true} />
@@ -153,7 +169,13 @@ export default function LearnClient({ ceLevelFloor }: { ceLevelFloor?: number })
 
         {/* Single continuous course path */}
         {lessonPathCourses.length > 0 ? (
-          <LessonPath courses={lessonPathCourses} />
+          <LessonPath
+            courses={lessonPathCourses}
+            ceilingHint={t('access.learnCeiling.hint')}
+            onCeilingLockClick={() =>
+              router.replace('/learn?locked=level', { scroll: false })
+            }
+          />
         ) : (
           <div className="text-center text-gray-500 bg-white rounded-2xl p-8">
             <p className="text-lg">{t('dashboard.noCourses')}</p>

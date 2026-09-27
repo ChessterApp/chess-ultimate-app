@@ -16,6 +16,10 @@ import Breadcrumbs from '@/components/Breadcrumbs'
 import { XPGain } from '@/components/gamification/XPDisplay'
 import { CelebrationOverlay, QuickCelebration } from '@/components/gamification/CelebrationOverlay'
 import { InlineTip } from '@/components/mascot/SpeechBubble'
+import LevelCompleteConversion from '@/components/empire/LevelCompleteConversion'
+import { useMembership } from '@/components/providers/MembershipProvider'
+import { slugifyTitle } from '@/lib/learn-gating'
+import { shouldShowLevelComplete } from '@/lib/level-complete-guard'
 import type { ReactNode } from 'react'
 import type { Components } from 'react-markdown'
 
@@ -100,6 +104,7 @@ export default function LessonPage() {
   const lessonSlug = params?.lessonSlug as string
   const router = useRouter()
   const { getToken, isLoaded, isSignedIn } = useAuth()
+  const { policy } = useMembership()
   const t = useTranslations()
   const locale = useLocale()
   const { showToast } = useToast()
@@ -122,6 +127,8 @@ export default function LessonPage() {
   const [showCelebration, setShowCelebration] = useState(false)
   const [showQuickCelebration, setShowQuickCelebration] = useState(false)
   const [quickCelebrationMessage, setQuickCelebrationMessage] = useState('')
+  // Restricted-member level-complete conversion overlay (frozen/expired only).
+  const [conversion, setConversion] = useState<{ level: number; nextTitle: string | null } | null>(null)
 
   useEffect(() => {
     async function fetchLesson() {
@@ -333,12 +340,60 @@ export default function LessonPage() {
     await markLessonComplete()
   }
 
+  // When a RESTRICTED member finishes their current level, return the level +
+  // next-level title for the conversion screen; null otherwise (normal flow).
+  // Guarded to fire once per course via localStorage. Best-effort — any failure
+  // falls back to the normal celebration + redirect.
+  const resolveLevelCompletion = async (): Promise<{ level: number; nextTitle: string | null } | null> => {
+    try {
+      const token = await getToken()
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
+      const headers = { Authorization: `Bearer ${token}` }
+      const [courses, progress] = await Promise.all([
+        apiFetch<Array<{ id: string; title: string; slug?: string; order_index: number }>>(
+          `${apiUrl}/api/courses?locale=${locale}`, { headers }
+        ),
+        apiFetch<Record<string, { progress: number }>>(
+          `${apiUrl}/api/courses/progress`, { headers }
+        ),
+      ])
+      const sorted = [...courses].sort((a, b) => a.order_index - b.order_index)
+      const idx = sorted.findIndex((c) => (c.slug || slugifyTitle(c.title)) === courseSlug)
+      if (idx === -1) return null
+
+      const current = sorted[idx]
+      // Only fire once the whole course is complete.
+      if ((progress[current.id]?.progress ?? 0) !== 100) return null
+      // Nothing to convert to if there is no next level.
+      const next = sorted[idx + 1]
+      if (!next) return null
+
+      // Once per course completion (guards against re-firing on revisits).
+      if (!shouldShowLevelComplete(current.id)) return null
+
+      return { level: idx + 1, nextTitle: next.title }
+    } catch {
+      return null
+    }
+  }
+
   const completeLessonAndRedirect = async () => {
     if (completingLesson) return
 
     setCompletingLesson(true)
     try {
       await markLessonComplete()
+
+      // A restricted member who just finished their current level gets the
+      // endowed-progress conversion screen instead of the plain redirect.
+      if (policy.mode === 'restricted') {
+        const conv = await resolveLevelCompletion()
+        if (conv) {
+          setConversion(conv)
+          return
+        }
+      }
+
       // Show celebration overlay before redirecting
       setShowCelebration(true)
     } catch (err) {
@@ -609,6 +664,19 @@ export default function LessonPage() {
           xpGained={xpEarned}
           onClose={handleCelebrationClose}
           autoClose={false}
+        />
+      )}
+
+      {conversion && (
+        <LevelCompleteConversion
+          reason={policy.reason}
+          upgradePath={policy.upgradePath}
+          level={conversion.level}
+          nextLevelTitle={conversion.nextTitle}
+          onBackToLearn={() => {
+            setConversion(null)
+            router.push('/learn')
+          }}
         />
       )}
     </div>

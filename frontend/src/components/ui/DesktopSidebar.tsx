@@ -14,6 +14,10 @@ import { useLocale } from 'next-intl';
 import { useBranding, useOrganization } from '@/contexts/OrganizationContext';
 import AddFamilyMember from '@/components/AddFamilyMember';
 import AddFamilyIcon from '@/components/AddFamilyIcon';
+import { Lock } from 'lucide-react';
+import { useMembership } from '@/components/providers/MembershipProvider';
+import { isRouteAllowed, featureKeyForPath } from '@/lib/access-policy';
+import LockedFeatureModal from '@/components/access/LockedFeatureModal';
 
 interface SidebarItem {
   href: string;
@@ -106,6 +110,9 @@ export default function DesktopSidebar() {
   const { isSignedIn } = useAuth();
   const branding = useBranding();
   const { org } = useOrganization();
+  const { policy } = useMembership();
+  // Feature key of the locked item the user tapped — drives the upsell modal.
+  const [lockedFeature, setLockedFeature] = useState<string | null>(null);
   // Same gate as the mobile Navbar: the universal "add family member" flow is a
   // Chess Empire feature. Both UserButton instances (this sidebar + the mobile
   // Navbar) are mounted at once — Clerk only reliably honors custom MenuItems that
@@ -132,6 +139,37 @@ export default function DesktopSidebar() {
 
   const renderItem = (item: SidebarItem) => {
     const active = isActive(item.href);
+
+    // Restricted (frozen/expired) members keep every item VISIBLE, but a locked
+    // one renders muted with a lock and opens the upsell modal instead of
+    // navigating. Kept a real <button> so it stays keyboard-accessible.
+    const locked =
+      policy.mode === 'restricted' && !isRouteAllowed(policy, item.href);
+    if (locked) {
+      return (
+        <button
+          key={item.href}
+          type="button"
+          aria-disabled="true"
+          onClick={() =>
+            setLockedFeature(featureKeyForPath(item.href) ?? item.labelKey)
+          }
+          title={collapsed ? t(item.labelKey) : undefined}
+          className={`flex w-full items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 text-gray-400 dark:text-gray-600 hover:bg-gray-50 dark:hover:bg-white/5 ${
+            collapsed ? 'justify-center' : ''
+          }`}
+        >
+          <div className="flex-shrink-0">{item.icon}</div>
+          {!collapsed && (
+            <span className="text-sm truncate">{t(item.labelKey)}</span>
+          )}
+          {!collapsed && (
+            <Lock className="ml-auto h-3.5 w-3.5 flex-shrink-0" data-testid="nav-lock" />
+          )}
+        </button>
+      );
+    }
+
     return (
       <PrefetchLink
         key={item.href}
@@ -252,6 +290,15 @@ export default function DesktopSidebar() {
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
         </svg>
       </button>
+
+      {lockedFeature && (
+        <LockedFeatureModal
+          featureKey={lockedFeature}
+          reason={policy.reason}
+          upgradePath={policy.upgradePath}
+          onClose={() => setLockedFeature(null)}
+        />
+      )}
     </aside>
   );
 }

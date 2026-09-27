@@ -2,15 +2,18 @@
  * GET /api/chess-empire/link/status
  *
  * Returns the current Clerk user's Chess Empire link state
- * (`no_link` | `pending_confirm` | `verified`). No params — the row is
- * resolved by the caller's Clerk session. Polled by the `no_link` view on the
- * dashboard to detect when the async webhook (or the client claim) has written
- * the member row, so it can `router.refresh()` into the personalized page.
+ * (`no_link` | `pending_confirm` | `verified` | `frozen`). No params — the row
+ * is resolved by the caller's Clerk session. Polled by the `no_link` view on
+ * the dashboard to detect when the async webhook (or the client claim) has
+ * written the member row, so it can `router.refresh()` into the personalized
+ * page. A `frozen` membership is reported distinctly and is always
+ * `recoverable: false` — re-claiming the invite cannot reactivate it.
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getMembershipStateForUser } from '@/lib/chess-empire-member';
+import { getPersonalSubscription } from '@/lib/personal-subscription';
 import {
   autoClaimPendingCookie,
   hasLivePendingCookie,
@@ -29,12 +32,24 @@ export async function GET() {
     // `recoverable` tells a still-`no_link` client whether the branch link can
     // yet complete from server-side cookie state, or whether it's a dead end
     // (e.g. an external browser after an in-app-webview OAuth bounce, which
-    // carries no pending cookie). The `state` field is unchanged.
-    const recoverable = await hasLivePendingCookie();
+    // carries no pending cookie). The `state` field is unchanged. A `frozen`
+    // membership is a hard NO — the school paused it and only an admin can
+    // reactivate, so re-claiming the invite (even with a live cookie) is futile.
+    const recoverable =
+      membership.state === 'frozen' ? false : await hasLivePendingCookie();
+    // Phase 3: a paused/expired school link is overridden to full access when
+    // the user pays for their own plan. We surface the flag so the client
+    // provider resolves the same policy the server does. Only meaningful (and
+    // only queried) for restricted states.
+    const personalSubscriptionActive =
+      membership.state === 'frozen' || membership.state === 'expired'
+        ? (await getPersonalSubscription(userId)).active
+        : false;
     return NextResponse.json({
       state: membership.state,
       role: membership.role,
       recoverable,
+      personalSubscriptionActive,
     });
   } catch (err) {
     console.error('[chess-empire/link/status] lookup failed', err);

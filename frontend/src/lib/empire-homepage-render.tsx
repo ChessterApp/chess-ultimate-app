@@ -20,9 +20,10 @@ import { auth } from '@clerk/nextjs/server';
 import EmpireHomePage from '@/components/empire/EmpireHomePage';
 import EmpireCoachHome from '@/components/empire/EmpireCoachHome';
 import EmpireNoLinkClient from '@/components/empire/EmpireNoLinkClient';
-import EmpireAccessExpired from '@/components/empire/EmpireAccessExpired';
+import EmpireRestrictedHub from '@/components/empire/EmpireRestrictedHub';
 import ChessterDashboard from '@/app/dashboard/ChessterDashboard';
 import { getMembershipState } from '@/lib/chess-empire-member';
+import { resolveLearnCeiling } from '@/lib/learn-ceiling-server';
 import { autoClaimPendingCookie } from '@/lib/pending-registration';
 import { resolveStudentDisplayName } from '@/lib/student-name';
 import {
@@ -47,14 +48,41 @@ import { computeCoachStats } from '@/lib/empire-coach-stats';
  *  - `ok`          → render `node` (verified student / coach / pending_confirm).
  *  - `no_link`     → render `node` (the standard Chesster dashboard wrapped in
  *                    the background poller that auto-upgrades once a link lands).
+ *  - `frozen`      → render `node` (the "membership paused" notice). NOT wrapped
+ *                    in the poller — re-claiming the invite cannot reactivate a
+ *                    frozen membership, so it never enters the claim flow.
  *  - `auth_null`   → no server-side session (stale token / signed-out).
  *  - `lookup_error`→ a required fetch threw; `error` is logged with a stable prefix.
  */
 export type EmpireHomeResult =
   | { status: 'ok'; node: React.ReactElement }
   | { status: 'no_link'; node: React.ReactElement }
+  | { status: 'frozen'; node: React.ReactElement }
   | { status: 'auth_null' }
   | { status: 'lookup_error'; error: unknown };
+
+/**
+ * Level-complete framing for the restricted Home hub. When the member's current
+ * level (their Learn ceiling) is already 100% complete, surface "Level N
+ * complete — continue with Level N+1". Best-effort: any gap resolves to `{}`,
+ * leaving the hub's default "Learn stays open" copy.
+ */
+async function resolveRestrictedHubProps(): Promise<{
+  currentLevel?: number;
+  currentLevelComplete?: boolean;
+  nextLevelTitle?: string | null;
+}> {
+  const { ceiling, courses } = await resolveLearnCeiling();
+  if (ceiling === undefined) return {};
+  const current = courses.find((c) => c.position === ceiling);
+  if (!current || current.progress !== 100) return {};
+  const next = courses.find((c) => c.position === ceiling + 1) ?? null;
+  return {
+    currentLevel: ceiling,
+    currentLevelComplete: true,
+    nextLevelTitle: next?.title ?? null,
+  };
+}
 
 export async function renderEmpireHomepage(
   orgId: string,
@@ -103,10 +131,19 @@ export async function renderEmpireHomepage(
     };
   }
 
+  // The school paused this membership. Show the restricted "paused" hub and
+  // never wrap the dashboard in the invite poller — re-claiming the invite
+  // cannot reactivate a frozen membership, so it must not enter the claim flow.
+  if (membership.state === 'frozen') {
+    const hub = await resolveRestrictedHubProps();
+    return { status: 'frozen', node: <EmpireRestrictedHub reason="frozen" {...hub} /> };
+  }
+
   // Time-boxed access ran out (online invite past its window). Show the
-  // access-expired screen instead of the app — no profile fetch needed.
+  // restricted "trial ended" hub instead of the app — no profile fetch needed.
   if (membership.state === 'expired') {
-    return { status: 'ok', node: <EmpireAccessExpired /> };
+    const hub = await resolveRestrictedHubProps();
+    return { status: 'ok', node: <EmpireRestrictedHub reason="expired" {...hub} /> };
   }
 
   // Online-track members have no Chess Empire roster profile to personalize

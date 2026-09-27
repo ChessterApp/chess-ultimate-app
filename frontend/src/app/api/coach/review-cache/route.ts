@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { requireApiAccess } from '@/lib/require-api-access';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 /**
@@ -17,6 +18,9 @@ export async function GET(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   const key = request.nextUrl.searchParams.get('key');
   if (!key) {
@@ -45,6 +49,9 @@ export async function POST(request: NextRequest) {
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   let body: {
     cache_key?: string;

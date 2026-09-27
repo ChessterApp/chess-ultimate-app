@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { requireApiAccess } from '@/lib/require-api-access';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
 
@@ -17,6 +18,9 @@ export async function POST(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   let body: { message: string; fen?: string; session_id?: string; context_note?: string };
   try {

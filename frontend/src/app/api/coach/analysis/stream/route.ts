@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { requireApiAccess } from '@/lib/require-api-access';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -17,6 +18,9 @@ export async function POST(request: NextRequest) {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  const denied = await requireApiAccess();
+  if (denied) return denied;
 
   let body: {
     fen?: string;

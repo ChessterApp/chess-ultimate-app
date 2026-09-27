@@ -8,6 +8,11 @@
  *  - `pending_confirm` → email auto-match found a single student; the user
  *    must confirm on the homepage before we treat it as verified.
  *  - `verified` → normal personalized surface.
+ *  - `frozen` → the school paused this membership (nightly sync set
+ *    `link_status = 'frozen'`). Distinct from `no_link`: re-claiming the invite
+ *    cannot reactivate it — only the branch/school admin can. The UI shows a
+ *    "membership paused" notice, never the invite-claim flow.
+ *  - `expired` → a verified online invite whose `access_expires_at` elapsed.
  *
  * `getLinkedStudentId` is kept as a thin wrapper that returns the verified
  * student id or null, for callers that only care about the terminal state.
@@ -32,6 +37,7 @@ export type MembershipState =
   | 'no_link'
   | 'pending_confirm'
   | 'verified'
+  | 'frozen'
   | 'expired';
 export type MemberRole = 'student' | 'coach';
 export type MemberSource = 'chess_empire' | 'online';
@@ -145,15 +151,31 @@ function rowToState(row: MemberRow | null): MembershipStateResult {
       orgId,
     };
   }
+  if (row.link_status === 'frozen') {
+    // The school paused this membership. Keep the member/name fields (like
+    // `verified`) so the UI can greet the user, but this is NOT recoverable by
+    // re-claiming the invite — only the branch/school admin can reactivate.
+    return {
+      state: 'frozen',
+      studentId: row.external_student_id,
+      memberId: row.id,
+      role,
+      source,
+      relationship,
+      orgId,
+    };
+  }
   return noLink;
 }
 
 /**
  * Deterministically pick the "primary" membership for the legacy single-row
- * helpers from all of a user's rows (fetch order = id ascending). A verified
- * row wins over pending_confirm; among verified, relationship='self' wins, then
- * the earliest. With no verified/pending rows the earliest row's state stands
- * (e.g. a lone expired row). An empty set → no_link.
+ * helpers from all of a user's rows (fetch order = id ascending). Precedence is
+ * verified > pending_confirm > frozen > no_link: a verified row wins over
+ * pending_confirm, which wins over frozen (a lone frozen row must NOT collapse
+ * to no_link). Among verified, relationship='self' wins, then the earliest.
+ * With none of those the earliest row's state stands (e.g. a lone expired row).
+ * An empty set → no_link.
  */
 function pickPrimaryState(
   states: MembershipStateResult[],
@@ -165,6 +187,8 @@ function pickPrimaryState(
   }
   const pending = states.find((s) => s.state === 'pending_confirm');
   if (pending) return pending;
+  const frozen = states.find((s) => s.state === 'frozen');
+  if (frozen) return frozen;
   return states[0];
 }
 

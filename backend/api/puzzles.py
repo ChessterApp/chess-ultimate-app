@@ -6,7 +6,7 @@ Endpoints for fetching and tracking progress on multiple puzzles within a lesson
 from flask import Blueprint, jsonify, request
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id
-from api.lessons import resolve_course_and_lesson
+from api.lessons import resolve_course_and_lesson, restricted_level_denial
 import logging
 import time
 
@@ -80,9 +80,15 @@ def get_lesson_puzzles(course_slug, lesson_slug):
         user_id = get_current_user_id()
 
         # Find lesson by slug (uses proven resolver from lessons.py)
-        _, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
+        course, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
+
+        # Lesson puzzles are Learn content — apply the same restricted ceiling.
+        if course:
+            denial = restricted_level_denial(course['id'])
+            if denial:
+                return denial
 
         lesson_id = lesson['id']
 
@@ -285,9 +291,15 @@ def get_single_puzzle(course_slug, lesson_slug, puzzle_index):
         user_id = get_current_user_id()
 
         # Find lesson (uses proven resolver from lessons.py)
-        _, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
+        course, lesson = resolve_course_and_lesson(course_slug, lesson_slug)
         if not lesson:
             return jsonify({"error": "Lesson not found"}), 404
+
+        # Lesson puzzles are Learn content — apply the same restricted ceiling.
+        if course:
+            denial = restricted_level_denial(course['id'])
+            if denial:
+                return denial
 
         # Find puzzle
         puzzle_result = supabase.table('lesson_puzzles')\

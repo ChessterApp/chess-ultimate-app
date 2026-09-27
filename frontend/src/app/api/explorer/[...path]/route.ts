@@ -6,6 +6,7 @@ import {
   playerCircuitBreaker,
   EMPTY_EXPLORER_RESPONSE,
 } from '@/lib/explorer-cache';
+import { requireApiAccess } from '@/lib/require-api-access';
 
 // Allow up to 120s for player endpoint (Lichess queue processing)
 export const maxDuration = 120;
@@ -23,6 +24,10 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  // Gate the database/opening-explorer feature for restricted members (Phase 3).
+  const denied = await requireApiAccess();
+  if (denied) return denied;
+
   try {
     // Extract path segments (e.g., ['masters'] or ['lichess'])
     const resolvedParams = await params;

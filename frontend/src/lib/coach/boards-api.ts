@@ -6,6 +6,8 @@
  * own state and these calls only make it survive a reload.
  */
 
+import { handleRestrictedResponse } from '@/lib/access-fetch';
+
 export type BoardKind = 'study' | 'puzzle' | 'game' | 'master_game';
 
 export interface BoardRecord {
@@ -89,6 +91,10 @@ async function callWithError<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
   });
   if (!res.ok) {
+    // A frozen/expired member hitting a gated coach API is redirected to upgrade.
+    if (await handleRestrictedResponse(res)) {
+      throw new CoachApiError(res.status, 'MEMBERSHIP_RESTRICTED');
+    }
     let message = `HTTP ${res.status}`;
     try {
       const data = (await res.json()) as { detail?: unknown; error?: unknown };
@@ -112,7 +118,10 @@ async function call<T>(path: string, init?: RequestInit): Promise<T | null> {
       headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
       credentials: 'include',
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      await handleRestrictedResponse(res);
+      return null;
+    }
     return (await res.json()) as T;
   } catch {
     return null;

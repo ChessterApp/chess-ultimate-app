@@ -4,10 +4,15 @@ Protects API routes and extracts user_id from Clerk tokens
 """
 
 from functools import wraps
+from datetime import datetime, timezone
 from flask import request, jsonify
 import jwt
+import logging
 import os
+import time
 import requests
+
+logger = logging.getLogger(__name__)
 
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
 
@@ -227,6 +232,188 @@ def require_super_admin(f):
         request.clerk_claims = claims
         request.clerk_user = user_record
 
+        return f(*args, **kwargs)
+
+    return decorated
+
+
+# ─── Membership access gate (Phase 3) ─────────────────────────────────────────
+#
+# Server-side mirror of the frontend access policy: a `frozen` (school paused)
+# or `expired` (online trial elapsed) member is restricted to Home + Learn,
+# UNLESS they pay for their own plan (an active personal Whop subscription
+# overrides the paused/expired school link). `require_active_membership` composes
+# after `verify_clerk_token`; where a route has no auth decorator it self-
+# extracts the bearer token best-effort and fails open for anonymous callers
+# (they cannot be identified, so there is nothing to enforce).
+
+_MEMBER_SOURCES = ('chess_empire', 'online')
+_ACTIVE_SUB_STATUSES = ('active', 'trialing')
+
+
+def _iso_to_epoch_ms(value) -> float | None:
+    """Parse an ISO-8601 timestamp to epoch milliseconds; None if unparseable."""
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp() * 1000
+    except (ValueError, TypeError):
+        return None
+
+
+def _member_row_state(row: dict) -> str:
+    """Mirror the frontend `rowToState`: link_status (+ expiry) → membership state."""
+    if not row.get('external_student_id'):
+        return 'no_link'
+    link = row.get('link_status')
+    if link == 'verified':
+        expires = _iso_to_epoch_ms(row.get('access_expires_at'))
+        if expires is not None and expires < time.time() * 1000:
+            return 'expired'
+        return 'verified'
+    if link == 'pending_confirm':
+        return 'pending_confirm'
+    if link == 'frozen':
+        return 'frozen'
+    return 'no_link'
+
+
+def _pick_primary_membership_state(states: list[str]) -> str:
+    """Mirror the frontend `pickPrimaryState` precedence for a family account:
+    verified > pending_confirm > frozen > else the first row's state."""
+    if not states:
+        return 'no_link'
+    if 'verified' in states:
+        return 'verified'
+    if 'pending_confirm' in states:
+        return 'pending_confirm'
+    if 'frozen' in states:
+        return 'frozen'
+    return states[0]
+
+
+def _membership_supabase():
+    """Return the shared Supabase client (indirection kept so tests can patch it)."""
+    from services.supabase_client import get_supabase_client
+    return get_supabase_client()
+
+
+def _fetch_primary_membership_state(supabase, user_id: str) -> str:
+    res = (
+        supabase.table('organization_members')
+        .select('external_student_id, link_status, access_expires_at, external_source')
+        .eq('user_id', user_id)
+        .in_('external_source', list(_MEMBER_SOURCES))
+        .order('id', desc=False)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        return 'no_link'
+    return _pick_primary_membership_state([_member_row_state(r) for r in rows])
+
+
+def _has_active_personal_subscription(supabase, user_id: str) -> bool:
+    res = (
+        supabase.table('subscriptions')
+        .select('status, current_period_end')
+        .eq('clerk_user_id', user_id)
+        .order('updated_at', desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        return False
+    row = rows[0]
+    if row.get('status') not in _ACTIVE_SUB_STATUSES:
+        return False
+    period_end = _iso_to_epoch_ms(row.get('current_period_end'))
+    if period_end is not None and period_end < time.time() * 1000:
+        return False
+    return True
+
+
+def resolve_membership_restriction(user_id: str) -> dict:
+    """
+    Resolve whether `user_id` is a restricted member (frozen/expired without an
+    active personal subscription). Returns {'restricted': bool, 'reason': str|None}.
+
+    Cached per request on `flask.g`. FAILS OPEN (restricted=False) on any Supabase
+    error so an outage never locks everyone out — only a successful lookup that
+    actually finds a restricted state returns restricted=True.
+    """
+    if not user_id:
+        return {'restricted': False, 'reason': None}
+
+    from flask import g
+    cache = getattr(g, '_membership_restriction_cache', None)
+    if cache is None:
+        cache = {}
+        g._membership_restriction_cache = cache
+    if user_id in cache:
+        return cache[user_id]
+
+    result = {'restricted': False, 'reason': None}
+    try:
+        supabase = _membership_supabase()
+        state = _fetch_primary_membership_state(supabase, user_id)
+        if state in ('frozen', 'expired'):
+            if not _has_active_personal_subscription(supabase, user_id):
+                result = {'restricted': True, 'reason': state}
+    except Exception as exc:  # connectivity / client error → fail open
+        logger.warning('[access] membership restriction check failed (fail-open): %s', exc)
+        result = {'restricted': False, 'reason': None}
+
+    cache[user_id] = result
+    return result
+
+
+def _caller_user_id() -> str | None:
+    """User id for the access gate: prefer the one set by `verify_clerk_token`,
+    else best-effort decode a bearer token, else None (anonymous)."""
+    user_id = getattr(request, 'user_id', None)
+    if user_id:
+        return user_id
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[len('Bearer '):]
+        if token:
+            try:
+                return _decode_clerk_token(token).get('sub')
+            except Exception:
+                return None
+    return None
+
+
+def require_active_membership(f):
+    """
+    Gate a route on the caller NOT being a restricted (frozen/expired) member.
+    Compose AFTER `verify_clerk_token` where present; safe to use alone (it self-
+    extracts the bearer token and no-ops for anonymous callers).
+
+    Usage:
+        @bp.route('/thing')
+        @verify_clerk_token
+        @require_active_membership
+        def thing():
+            ...
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        user_id = _caller_user_id()
+        if not user_id:
+            # Cannot identify the caller → nothing to enforce.
+            return f(*args, **kwargs)
+        restriction = resolve_membership_restriction(user_id)
+        if restriction['restricted']:
+            return jsonify({
+                'error': 'MEMBERSHIP_RESTRICTED',
+                'reason': restriction['reason'],
+            }), 403
         return f(*args, **kwargs)
 
     return decorated
