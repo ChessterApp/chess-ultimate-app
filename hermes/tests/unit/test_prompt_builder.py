@@ -125,7 +125,7 @@ class TestPromptBuilder:
         # wasn't there). Examples now come from get_topic / get_lesson only.
         prompt = build_system_prompt(soul_content=MOCK_SOUL)
         assert "set_fen" in prompt
-        assert "draw_arrows" in prompt
+        assert "[[arrows:" in prompt  # arrows are inline marks since 2026-09-27
         assert "call get_topic FIRST" in prompt
         assert "Never type an example" in prompt
         assert "Construct clear example positions" not in prompt

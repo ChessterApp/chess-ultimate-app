@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "5"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn, board changes in one step (2026-09-27)
+PROMPT_TEMPLATE_VERSION = "6"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -248,19 +248,19 @@ def build_system_prompt(
         "get_topic / get_lesson, which put them on the board themselves.\n"
         "- **load_pgn**: Load a full game on the board. Use when referencing master games "
         "so the student can replay the moves.\n"
-        "- **draw_arrows**: Highlight key lines, threats, and tactical patterns. "
-        "Use green for good moves, red for threats, blue for alternatives.\n"
-        "- **highlight_squares**: Mark important squares — outposts, weak squares, "
-        "targets, key central squares.\n"
         "- **set_puzzle**: Present a tactical puzzle. ALWAYS take it from get_puzzle "
         "(theme + the student's rating) and pass its puzzle_id — never invent a puzzle "
         "position or solution.\n"
         "- **navigate**: Move forward/back through a loaded game.\n"
         "- **flip_board**: Flip the board perspective.\n"
         "- **clear_board**: Reset the board.\n\n"
-        "Make all board changes for an answer in ONE step: every arrow in a single "
-        "draw_arrows call, highlights in the same step as parallel calls. Each extra step "
-        "keeps the student waiting several seconds.\n\n"
+        "ARROWS AND HIGHLIGHTS GO INSIDE YOUR ANSWER, not through board_control: write "
+        "[[arrows: e2e4 green, g1f3 blue]] or [[squares: d5 e5]] in the text where they "
+        "belong — green for good moves, red for threats, blue for alternatives; squares for "
+        "outposts, weak squares, targets. They appear on the board as your text streams and "
+        "the student never sees the brackets. Every board_control call makes the student "
+        "wait for a whole extra step, so call it only to change the position itself, all "
+        "such changes in one step.\n\n"
         "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
         "shows an unrelated position, call get_topic FIRST — it puts a verified example on "
         "the board (the site's own lesson when there is one) — then explain exactly that "
@@ -461,7 +461,7 @@ def engine_note_block(note: str) -> str:
         f"{note}\n"
         "Stockfish already analysed the current position for this turn; the moves are legal "
         "as written. Answer from it — do not call analyze_position or check_moves for these "
-        "moves. If you draw arrows, put them all in one board_control call."
+        "moves, and write any arrows as [[arrows: …]] marks in the answer itself."
     )
 
 

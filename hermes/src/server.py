@@ -91,6 +91,7 @@ from src.voice_metrics import (
 )
 from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
+from src.board_markup import MarkupFilter, strip_markup
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -1333,6 +1334,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         tool_starts: dict = {}
         partial_parts: list[str] = []
         answer_parts: list[str] = []  # the answer stage's deltas, as streamed
+        markup = MarkupFilter()
         streamed_chars = 0
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -1530,6 +1532,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             yield frame
                 elif kind == "delta":
                     streamed_any = True
+                    # Inline [[arrows: …]] / [[squares: …]] marks become board
+                    # actions now and never reach the text (src/board_markup.py).
+                    payload, mark_actions = markup.feed(payload)
+                    for action in mark_actions:
+                        yield _board_frame([action])
+                    if not payload:
+                        continue
                     partial_parts.append(payload)
                     answer_parts.append(payload)
                     streamed_chars += len(payload)
@@ -1555,6 +1564,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
+            # An unfinished "[[" at the very end was not a mark after all.
+            tail = markup.flush()
+            if tail:
+                partial_parts.append(tail)
+                answer_parts.append(tail)
+                tail = _answer_delta(tail)
+                if tail:
+                    yield _sse({"delta": tail})
             await future  # ensure the executor thread has fully unwound
             if quick_future is not None and quick["reply"] is not None:
                 await quick_future
@@ -1698,6 +1715,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # turn), fall back to emitting the completed text as a single delta so the
         # concatenated deltas always reconstruct the full assistant message.
         if not streamed_any:
+            answer_text, mark_actions = strip_markup(answer_text)
+            for action in mark_actions:
+                yield _board_frame([action])
             yield _sse({"delta": answer_text})
 
         # What the student saw, as one message: reaction, blank line, answer. Text
