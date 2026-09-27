@@ -6,6 +6,12 @@ import { resolveUserTier } from '@/lib/subscription-tier';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
+// A whole-game review or a hard position can run past a minute (bench
+// 2026-09-27: 6 of 36 turns on Hermes bc3cec8); at 60 s the answer was cut off
+// mid-sentence with an error. 120 s is what the explorer proxy already runs with.
+export const maxDuration = 120;
+const HERMES_TIMEOUT_MS = 115_000;
+
 /**
  * POST /api/coach/chat — SSE proxy to Hermes chess coach backend.
  * Streams text tokens, then sends board_actions as a final SSE event.
@@ -68,7 +74,7 @@ export async function POST(request: NextRequest) {
                 ? body.context_note
                 : undefined,
           }),
-          signal: AbortSignal.timeout(60000),
+          signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });
 
         if (!hermesResponse.ok) {
