@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useToast } from '@/components/ToastProvider';
-import { initErrorReporting, reportError } from '@/lib/errorReporter';
+import { initErrorReporting, isFromBrowserExtension, reportError } from '@/lib/errorReporter';
 
 export default function UnhandledErrorCatcher() {
   const { showToast } = useToast();
@@ -12,6 +12,8 @@ export default function UnhandledErrorCatcher() {
     initErrorReporting();
 
     const handler = (event: PromiseRejectionEvent) => {
+      // A browser extension's own failure is not the site's: no toast, no report.
+      if (isFromBrowserExtension(event.reason)) return;
       event.preventDefault();
       console.error('Unhandled rejection:', event.reason);
       reportError(
