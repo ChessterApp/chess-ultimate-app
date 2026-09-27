@@ -54,6 +54,15 @@ class TestMarkupFilter:
         text, actions = _run(["Смотри [[arrows: сюда]] дальше"])
         assert text == "Смотри дальше" and actions == []
 
+    def test_bare_marks_models_write_anyway(self):
+        """Bench 2026-09-27: DeepSeek wrote «возьмут [[red]] ...cxd4» — a colour next to a move."""
+        text, actions = _run(["Если возьмут [[red]] ...cxd4, бей конём [[f3d4 blue]], поле [[d5]]."])
+        assert text == "Если возьмут ...cxd4, бей конём, поле."
+        assert actions == [
+            {"type": "draw_arrows", "arrows": [{"from": "f3", "to": "d4", "brush": "blue"}]},
+            {"type": "highlight_squares", "squares": ["d5"], "color": "yellow"},
+        ]
+
     def test_whole_text(self):
         clean, actions = strip_markup("x [[arrows: e2 e4]] y")
         assert clean == "x y" and actions[0]["arrows"][0]["to"] == "e4"

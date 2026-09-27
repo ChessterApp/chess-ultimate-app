@@ -19,7 +19,11 @@ import re
 from typing import Optional
 
 _COLORS = ("green", "red", "blue", "yellow")
-_MARK = re.compile(r"\[\[\s*(arrows?|squares?|highlights?)\s*:?\s*(.*?)\s*\]\]", re.IGNORECASE | re.DOTALL)
+_MARK = re.compile(r"\[\[\s*(.*?)\s*\]\]", re.DOTALL)
+_KIND = re.compile(r"(arrows?|squares?|highlights?)\b\s*:?\s*", re.IGNORECASE)
+_COLOR_ONLY = re.compile(r"(?:green|red|blue|yellow)", re.IGNORECASE)
+# A bare [[…]] (no "arrows:" / "squares:") is ours only when it is this short.
+_BARE_MAX = 40
 _ARROW = re.compile(
     r"\b([a-h][1-8])\s*(?:->|-|–|—|>)?\s*([a-h][1-8])\b(?:\s*\(?\s*(green|red|blue|yellow)\b)?",
     re.IGNORECASE,
@@ -36,18 +40,24 @@ class MarkupFilter:
         self._pending = ""
         self._arrows: list[dict] = []
         self._squares: list[str] = []
-        self._last = ""          # last character let through
-        self._eat_space = False  # a mark was cut after a space: drop the space after it
+        self._last = ""  # last character let through
+        # After a cut mark: "held" — the space before it was kept back and goes
+        # back only if a word follows; "emitted" — that space already went out,
+        # so a space right after the mark is dropped.
+        self._gap: Optional[str] = None
 
     def _emit(self, out: list[str], text: str) -> None:
         if not text:
             return
-        if self._eat_space:
-            self._eat_space = False
-            if text[0] == " ":
-                text = text[1:]
-                if not text:
-                    return
+        if self._gap == "held":
+            if text[0].isalnum():
+                text = " " + text
+        elif self._gap == "emitted" and text[0] == " ":
+            text = text[1:]
+            if not text:
+                self._gap = None
+                return
+        self._gap = None
         out.append(text)
         self._last = text[-1]
 
@@ -58,30 +68,40 @@ class MarkupFilter:
         while True:
             start = self._pending.find("[[")
             if start < 0:
-                # A trailing "[" may open a mark in the next delta.
-                keep = 1 if self._pending.endswith("[") else 0
+                # A trailing "[" (and the space before it) may open a mark in the next delta.
+                keep = 0
+                if self._pending.endswith("["):
+                    keep = 2 if self._pending.endswith(" [") else 1
                 self._emit(out, self._pending[: len(self._pending) - keep])
                 self._pending = self._pending[len(self._pending) - keep:]
                 break
-            self._emit(out, self._pending[:start])
+            pre = self._pending[:start]
             end = self._pending.find("]]", start)
             if end < 0:
-                rest = self._pending[start:]
+                hold = 1 if pre.endswith(" ") else 0  # the space travels with the mark
+                rest = self._pending[start - hold:]
                 if len(rest) > MAX_MARK_CHARS:
-                    self._emit(out, rest)
+                    self._emit(out, self._pending)
                     self._pending = ""
                 else:
+                    self._emit(out, pre[: len(pre) - hold])
                     self._pending = rest
                 break
             mark = self._pending[start:end + 2]
             self._pending = self._pending[end + 2:]
             parsed = self._parse(mark)
             if parsed is None:
-                self._emit(out, mark)  # some other [[...]]: leave it in the text
+                self._emit(out, pre + mark)  # some other [[...]]: leave it in the text
                 continue
+            if pre.endswith(" "):
+                self._emit(out, pre[:-1])
+                self._gap = "held"
+            else:
+                self._emit(out, pre)
+                if self._gap is None:
+                    self._gap = "emitted" if self._last in (" ", "\n") else None
             if parsed:
                 actions.append(parsed)
-            self._eat_space = self._last in (" ", "\n")
         return "".join(out), actions
 
     def flush(self) -> str:
@@ -92,11 +112,27 @@ class MarkupFilter:
         return "".join(out)
 
     def _parse(self, mark: str) -> Optional[dict]:
-        """A board action for *mark*; {} for a known mark with nothing usable; None if not ours."""
+        """A board action for *mark*; {} for a mark of ours with nothing usable; None if not ours.
+
+        Besides the documented [[arrows: …]] / [[squares: …]], models write bare
+        marks — [[red]] next to a move, [[d2d4]] — which are ours too: a bare
+        colour is dropped, bare squares become arrows or highlights.
+        """
         m = _MARK.fullmatch(mark)
         if not m:
             return None
-        kind, body = m.group(1).lower(), m.group(2)
+        body = m.group(1)
+        k = _KIND.match(body)
+        if k:
+            kind, body = k.group(1).lower(), body[k.end():]
+        elif _COLOR_ONLY.fullmatch(body.strip()):
+            return {}
+        elif len(body) <= _BARE_MAX and _ARROW.search(body):
+            kind = "arrows"
+        elif len(body) <= _BARE_MAX and _SQUARE.search(body):
+            kind = "squares"
+        else:
+            return None
         if kind.startswith("arrow"):
             added = False
             for a, b, color in _ARROW.findall(body):
