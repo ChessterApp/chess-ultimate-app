@@ -38,7 +38,11 @@ from src.config import (
 # silently degrades to in-memory (sessions would not survive restarts).
 load_env()
 
-from src.middleware.response_envelope import wrap_response  # noqa: E402
+from src.middleware.response_envelope import (  # noqa: E402
+    extract_board_actions,
+    tool_board_actions,
+    wrap_response,
+)
 from src.middleware.rate_limiter import (  # noqa: E402
     enforce_rate_limit,
     rate_limiter,
@@ -1414,6 +1418,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 tool_name, str(args)[:200], str(result)[:200],
             )
             tool_results.append(result)
+            # The board changes go out the moment the tool finishes: the arrows
+            # of an answer used to reach the student only when the whole turn was
+            # over, seconds after the text that talks about them.
+            actions = tool_board_actions(result)
+            if actions:
+                loop.call_soon_threadsafe(queue.put_nowait, ("board_actions", actions))
             started = tool_starts.pop(tool_call_id, None)
             duration_ms = int((time.monotonic() - started) * 1000) if started else None
             ok, error_code, payload = _tool_call_payload(tool_name, args, result)
@@ -1462,6 +1472,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         result_text = None
         error_exc = None
         main_done = False
+
+        def _board_frame(actions: list) -> str:
+            """Apply *actions* to the session's board record (so the position survives
+            a reload) and frame them, each tagged with the board (tab) it hit."""
+            try:
+                for action in actions:
+                    if isinstance(action, dict):
+                        action.setdefault("board_id", active_board.id)
+                session.apply_board_actions(actions, board_id=active_board.id)
+            except Exception:
+                logger.debug("applying board actions to the session board failed", exc_info=True)
+            return _sse({"board_actions": actions})
 
         def _finish_quick():
             """Close the reaction stage: separator + stage marker if it was shown."""
@@ -1527,6 +1549,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
                     yield _sse({"tool_result": payload})
+                elif kind == "board_actions":
+                    yield _board_frame(payload)
                 elif kind == "result":
                     result_text = payload
                 elif kind == "error":
@@ -1762,18 +1786,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         envelope = wrap_response(answer_text, tool_results=tool_results)
 
-        board_actions = envelope.get("board_actions", [])
-        if board_actions:
-            # Apply to the session's board record so the position survives a
-            # reload, and tell the client which board (tab) each action hit.
-            try:
-                for action in board_actions:
-                    if isinstance(action, dict):
-                        action.setdefault("board_id", active_board.id)
-                session.apply_board_actions(board_actions, board_id=active_board.id)
-            except Exception:
-                logger.debug("applying board actions to the session board failed", exc_info=True)
-            yield _sse({"board_actions": board_actions})
+        # The tools' board actions went out as each tool finished; only actions
+        # written into the answer text itself are left.
+        _, text_actions = extract_board_actions(answer_text)
+        if text_actions:
+            yield _board_frame(text_actions)
 
         game_results = envelope.get("game_results", [])
         if game_results:

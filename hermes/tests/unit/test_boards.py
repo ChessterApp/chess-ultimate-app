@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import json
 import chess
 import pytest
 from fastapi.testclient import TestClient
@@ -195,22 +196,32 @@ class TestBoardRoutes:
     def test_chat_applies_coach_actions_to_the_board(self, mock_profile, mock_agent):
         mock_profile.return_value = UserProfile(user_id="boards-user")
         agent = MagicMock()
-        agent.chat.return_value = "Look at the Ruy Lopez."
+
+        def _chat(message, stream_callback=None):
+            # board_control results, as the framework reports each finished tool.
+            agent.tool_complete_callback("c1", "board_control", {}, json.dumps({"type": "load_pgn", "pgn": PGN}))
+            agent.tool_complete_callback("c2", "board_control", {}, json.dumps({"type": "flip_board"}))
+            if stream_callback:
+                stream_callback("Look at the Ruy Lopez.")
+            return "Look at the Ruy Lopez."
+
+        agent.chat.side_effect = _chat
         mock_agent.return_value = agent
 
         sid = self.client.post("/api/coach/sessions", headers=USER).json()["id"]
         bid = self.client.get(f"/api/coach/sessions/{sid}/boards", headers=USER).json()["active_board_id"]
 
-        with patch("src.server.wrap_response", return_value={
-            "message": "Look at the Ruy Lopez.",
-            "board_actions": [{"type": "load_pgn", "pgn": PGN}, {"type": "flip_board"}],
-            "game_results": [],
-        }):
-            resp = self.client.post("/api/coach/chat", headers=USER,
-                                    json={"message": "покажи испанку", "session_id": sid, "board_id": bid})
+        resp = self.client.post("/api/coach/chat", headers=USER,
+                                json={"message": "покажи испанку", "session_id": sid, "board_id": bid})
         assert resp.status_code == 200
         body = resp.text
         assert f'"board_id": "{bid}"' in body and '"active_board_id"' in body
+        # Each tool's actions went out as it finished, before the answer's text.
+        frames = [json.loads(l[6:]) for l in body.splitlines() if l.startswith("data: ")]
+        kinds = [next(iter(f)) for f in frames]
+        assert kinds.index("board_actions") < kinds.index("delta")
+        assert [a["type"] for f in frames if "board_actions" in f for a in f["board_actions"]] == \
+            ["load_pgn", "flip_board"]
 
         board = self.client.get(f"/api/coach/sessions/{sid}/boards", headers=USER).json()["boards"][0]
         assert board["pgn"] == PGN and board["ply"] == 6 and board["orientation"] == "black"

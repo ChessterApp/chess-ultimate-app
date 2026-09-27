@@ -135,6 +135,25 @@ def extract_game_results(tool_results: list[Any]) -> list[dict]:
     return []
 
 
+def tool_board_actions(result: Any) -> list[dict]:
+    """Board actions carried by one raw tool result (board_control's own action,
+    or the ones get_topic / get_lesson attach to what they show)."""
+    if not isinstance(result, str):
+        return []
+    try:
+        obj = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if isinstance(obj, dict) and obj.get("type") in _BOARD_ACTION_TYPES:
+        return [obj]
+    if isinstance(obj, dict) and "error" not in obj:
+        return [
+            a for a in obj.get("board_actions") or []
+            if isinstance(a, dict) and a.get("type") in _BOARD_ACTION_TYPES
+        ]
+    return []
+
+
 def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
     """Wrap an agent response into a ResponseEnvelope dict.
 
@@ -148,23 +167,8 @@ def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
     board_actions = []
 
     # Extract from tool results
-    if tool_results:
-        for result in tool_results:
-            if not isinstance(result, str):
-                continue
-            try:
-                obj = json.loads(result)
-                if isinstance(obj, dict) and obj.get("type") in _BOARD_ACTION_TYPES:
-                    board_actions.append(obj)
-                elif isinstance(obj, dict) and "error" not in obj:
-                    # A tool that shows its own result (get_topic's example,
-                    # get_lesson's exercise) carries the actions alongside it.
-                    board_actions.extend(
-                        a for a in obj.get("board_actions") or []
-                        if isinstance(a, dict) and a.get("type") in _BOARD_ACTION_TYPES
-                    )
-            except (json.JSONDecodeError, TypeError):
-                pass
+    for result in tool_results or []:
+        board_actions.extend(tool_board_actions(result))
 
     # Also extract any board actions embedded in the message text
     clean_message, embedded_actions = extract_board_actions(message)
