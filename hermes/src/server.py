@@ -1210,7 +1210,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     engine_started = time.monotonic()
     engine_future = None
     if config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game:
-        engine_future = _engine_pool.submit(engine_note, session.board_state)
+        engine_future = _engine_pool.submit(
+            engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
+        )
     engine_state = {"used": False, "ms": None, "timed_out": False}
 
     profile = load_user_profile(user_id)

@@ -163,15 +163,48 @@ def test_analysis_cache_serves_same_position_and_narrower_requests():
     from src.tools import stockfish
 
     stockfish.clear_analysis_cache()
-    three = {"best_move": "e2e4", "lines": [{"pv": "e2e4"}, {"pv": "d2d4"}, {"pv": "c2c4"}]}
+    three = {"best_move": "e2e4", "lines": [
+        {"pv": "e2e4", "depth": 16}, {"pv": "d2d4", "depth": 16}, {"pv": "c2c4", "depth": 16}]}
     with patch.object(stockfish, "analyze_position", return_value=three) as run:
         stockfish.analyze_cached(chess.STARTING_FEN, depth=16, multipv=3)
         # Same position, different move clocks, fewer lines → served from the cache.
         narrow = stockfish.analyze_cached("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 5 9", depth=16, multipv=1)
-        # A different depth is a different analysis.
+        # A shallower request is served by the deeper run…
         stockfish.analyze_cached(chess.STARTING_FEN, depth=12, multipv=3)
+        # …a deeper one is a new analysis.
+        stockfish.analyze_cached(chess.STARTING_FEN, depth=18, multipv=3)
     assert run.call_count == 2
-    assert narrow["lines"] == [{"pv": "e2e4"}]
+    assert narrow["lines"] == [{"pv": "e2e4", "depth": 16}]
+
+
+@pytest.mark.unit
+def test_timed_analysis_goes_by_time_and_shares_the_cache():
+    from src.tools import stockfish
+
+    stockfish.clear_analysis_cache()
+    reached = {"best_move": "e2e4", "lines": [
+        {"pv": "e2e4", "depth": 17}, {"pv": "d2d4", "depth": 17}, {"pv": "c2c4", "depth": 17}]}
+    with patch.object(stockfish, "analyze_position", return_value=reached) as run:
+        stockfish.analyze_timed(chess.STARTING_FEN, 1500)
+        # The model's own call at the default depth is then free.
+        stockfish.analyze_cached(chess.STARTING_FEN, depth=16, multipv=3)
+        stockfish.analyze_timed(chess.STARTING_FEN, 1500)
+    assert run.call_count == 1
+    assert run.call_args.kwargs["movetime_ms"] == 1500
+
+
+@pytest.mark.unit
+def test_movetime_is_sent_to_stockfish():
+    mock_proc = MagicMock()
+    mock_proc.stdin = MagicMock()
+    mock_proc.stdout = io.StringIO(MULTI_PV_OUTPUT)
+    mock_proc.stderr = io.StringIO("")
+    mock_proc.wait = MagicMock(return_value=0)
+    with patch("subprocess.Popen", return_value=mock_proc):
+        analyze_position(chess.STARTING_FEN, movetime_ms=1500)
+    written = "".join(c.args[0] for c in mock_proc.stdin.write.call_args_list)
+    assert "go movetime 1500" in written
+    assert "go depth" not in written
 
 
 def test_analysis_cache_never_stores_errors():

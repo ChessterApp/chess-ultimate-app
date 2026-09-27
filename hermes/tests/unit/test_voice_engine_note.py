@@ -58,6 +58,15 @@ class TestEngineNote:
         with patch.object(voice_engine_note, "analyze_cached", return_value={"error": "timed out"}):
             assert engine_note(SICILIAN) is None
 
+    def test_movetime_searches_by_time_and_reports_the_depth_reached(self):
+        lines = {"best_move": "", "lines": [{"pv": "d2d4 c5d4", "score": 0.4, "depth": 19}]}
+        with patch.object(voice_engine_note, "analyze_timed", return_value=lines) as timed, \
+             patch.object(voice_engine_note, "analyze_cached") as by_depth:
+            note = engine_note(SICILIAN, movetime_ms=1500)
+        timed.assert_called_once_with(SICILIAN, 1500, multipv=3)
+        by_depth.assert_not_called()
+        assert "Stockfish depth 19" in note["note"]
+
 
 @pytest.mark.unit
 class TestEngineNoteRoute:

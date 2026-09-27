@@ -195,11 +195,17 @@ COACH_QUICK_MAX_TOKENS = int(os.environ.get("COACH_QUICK_MAX_TOKENS", "60"))
 # so "what should I play here?" is answered without an analyze_position round
 # trip (bench 2026-09-27: the model's first call plus the engine took 7–20 s
 # before the answer's first word).
-#   COACH_ENGINE_NOTE          — kill switch (default ON).
-#   COACH_ENGINE_NOTE_WAIT_MS  — how long the agent waits for the analysis before
-#                                it starts without it (default 2500 ms).
+#   COACH_ENGINE_NOTE              — kill switch (default ON).
+#   COACH_ENGINE_NOTE_WAIT_MS      — how long the agent waits for the analysis
+#                                    before it starts without it (default 2500 ms).
+#   COACH_ENGINE_NOTE_MOVETIME_MS  — the engine searches this long rather than to
+#                                    a fixed depth, so the line is ready within the
+#                                    wait whatever the host's CPU (default 1500 ms;
+#                                    at depth 16 it missed the wait in 16 of 25
+#                                    turns on the bench).
 COACH_ENGINE_NOTE = _env_flag("COACH_ENGINE_NOTE", True)
 COACH_ENGINE_NOTE_WAIT_MS = int(os.environ.get("COACH_ENGINE_NOTE_WAIT_MS", "2500"))
+COACH_ENGINE_NOTE_MOVETIME_MS = int(os.environ.get("COACH_ENGINE_NOTE_MOVETIME_MS", "1500"))
 
 # Provider fallback: when the routed model's provider answers 429/402 or keeps
 # failing, the turn switches to the ``fallback`` tier (config.yaml) instead of

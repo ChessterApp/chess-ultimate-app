@@ -14,7 +14,7 @@ from typing import Optional
 
 import chess
 
-from src.tools.stockfish import DEFAULT_DEPTH, DEFAULT_MULTIPV, analyze_cached
+from src.tools.stockfish import DEFAULT_DEPTH, DEFAULT_MULTIPV, analyze_cached, analyze_timed
 
 PV_PLIES = 4
 
@@ -60,8 +60,12 @@ def _game_over_note(board: chess.Board, fen: str) -> Optional[str]:
     return None
 
 
-def engine_note(fen: str, depth: int = DEFAULT_DEPTH) -> Optional[dict]:
-    """Return {fen, note, best, lines} for a legal position, or None when it cannot be analysed."""
+def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int] = None) -> Optional[dict]:
+    """Return {fen, note, best, lines} for a legal position, or None when it cannot be analysed.
+
+    With *movetime_ms* the engine searches for that long instead of to *depth*
+    (the text turn waits for the line, so it must be ready on time).
+    """
     try:
         board = chess.Board(fen)
     except (ValueError, IndexError):
@@ -74,7 +78,10 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH) -> Optional[dict]:
         return {"fen": fen, "note": over, "best": None, "lines": []}
 
     with _slots:
-        result = analyze_cached(fen, depth=depth, multipv=DEFAULT_MULTIPV)
+        if movetime_ms:
+            result = analyze_timed(fen, movetime_ms, multipv=DEFAULT_MULTIPV)
+        else:
+            result = analyze_cached(fen, depth=depth, multipv=DEFAULT_MULTIPV)
     if "error" in result or not result.get("lines"):
         return None
 

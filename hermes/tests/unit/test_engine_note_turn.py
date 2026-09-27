@@ -84,7 +84,7 @@ class TestEngineNoteInTurn:
         mock_agent.return_value = agent
         with patch("src.server.engine_note", return_value=NOTE) as fake_engine:
             self._post({"message": "Что мне здесь играть?", "fen": SICILIAN})
-        fake_engine.assert_called_once_with(SICILIAN)
+        fake_engine.assert_called_once_with(SICILIAN, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS)
         message = agent.seen[0]
         assert "## Engine analysis of the board" in message
         assert NOTE["note"] in message
@@ -103,7 +103,7 @@ class TestEngineNoteInTurn:
         agent = _agent()
         mock_agent.return_value = agent
 
-        def _slow(fen):
+        def _slow(fen, **kw):
             time.sleep(0.5)
             return NOTE
 
