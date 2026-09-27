@@ -186,6 +186,22 @@ class TestGetLesson:
         assert out["puzzles"][1]["solution"] == ["Ra8+"]
         assert out["puzzles"][0]["hint"] == "Central knight"
 
+    def test_show_puts_the_exercise_on_the_board(self):
+        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+            shown = get_lesson("knight-fork", locale="ru", show=True)
+            read_only = get_lesson("knight-fork", locale="ru")
+        assert shown["board_actions"] == [
+            {"type": "set_puzzle", "fen": "6k1/5ppp/8/8/8/8/5PPP/3N2K1 w - - 0 1", "solution": ["Ne3"]}
+        ]
+        assert "board_actions" not in read_only
+
+    def test_tool_shows_by_default(self):
+        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+            out = json.loads(lp._handle_get_lesson({"lesson": "knight-fork"}))
+            quiet = json.loads(lp._handle_get_lesson({"lesson": "knight-fork", "show": False}))
+        assert out["board_actions"][0]["type"] == "set_puzzle"
+        assert "board_actions" not in quiet
+
     def test_english_locale_uses_base_columns(self):
         with patch("src.tools.learning_path._supabase_query", _fake_query()):
             out = get_lesson("knight-fork", locale="en")

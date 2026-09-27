@@ -29,7 +29,9 @@ BOARD_CONTROL_SCHEMA = {
     "description": (
         "Control the chess board UI. Use this to set positions (FEN), "
         "load games (PGN), set puzzles, draw arrows, highlight squares, "
-        "navigate through moves, flip the board, or clear it."
+        "navigate through moves, flip the board, or clear it. set_fen only with a "
+        "position from a tool result, the student's game or the student's message — "
+        "never an example typed from memory (get_topic / get_lesson show examples)."
     ),
     "parameters": {
         "type": "object",

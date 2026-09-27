@@ -56,6 +56,20 @@ async function flush() {
   }
 }
 
+const EXTENSION_URL_RE = /(chrome|moz|safari(-web)?)-extension:\/\//;
+
+/**
+ * True when an error comes from a browser extension injected into the page,
+ * not from the site: its stack (or the script it was thrown in) is an
+ * extension URL. Such errors used to show "An unexpected error occurred"
+ * toasts on every page for students with, e.g., an anti-tracking extension.
+ */
+export function isFromBrowserExtension(error: unknown, filename?: string): boolean {
+  if (filename && EXTENSION_URL_RE.test(filename)) return true;
+  const stack = error instanceof Error ? error.stack : typeof error === 'string' ? error : undefined;
+  return !!stack && EXTENSION_URL_RE.test(stack);
+}
+
 /** Report an error from anywhere in the app */
 export function reportError(
   error: Error | string,
@@ -78,6 +92,7 @@ export function initErrorReporting() {
   if (typeof window === 'undefined') return;
 
   window.addEventListener('error', (event) => {
+    if (isFromBrowserExtension(event.error, event.filename)) return;
     reportError(
       event.error || event.message,
       'error',

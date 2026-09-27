@@ -419,3 +419,72 @@ class TestReactionPolish:
         session = session_store.get(frames[-1]["session_id"], "two-stage-user")
         assert [m for m in session.messages if m.role == "assistant"][-1].content == \
             "Смотрю на позицию, сейчас проверю на движке.\n\nХод e4."
+
+
+class TestSmallTalk:
+    """A greeting or thanks is answered by the quick model alone — no agent turn,
+    no "let me look at the position" reaction, no second greeting (2026-09-26)."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @staticmethod
+    def _fake_completion(text="Привет! Давай разберём позицию или решим задачу?"):
+        calls = []
+
+        def fake(*, model, api_key, messages, on_delta=None, **kw):
+            calls.append(messages)
+            for chunk in (text[:8], text[8:]):
+                on_delta(chunk)
+            return QuickReply(text=text, model=model, prompt_tokens=40, completion_tokens=12)
+
+        fake.calls = calls
+        return fake
+
+    @patch("src.server.log_event")
+    @patch("src.server._create_agent")
+    def test_greeting_skips_the_agent(self, mock_agent, mock_log, monkeypatch):
+        monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
+        fake = self._fake_completion()
+        with patch("src.quick_reply.stream_completion", fake):
+            resp = self.client.post("/api/coach/chat", headers=USER, json={
+                "message": "Привет", "locale": "ru",
+                "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            })
+        frames = _frames(resp.text)
+        mock_agent.assert_not_called()
+        assert _deltas(frames) == "Привет! Давай разберём позицию или решим задачу?"
+        assert _stages(frames) == []
+        assert frames[-1]["done"] is True and frames[-1]["turn_id"]
+        session = session_store.get(frames[-1]["session_id"], "two-stage-user")
+        assert [m.role for m in session.messages] == ["user", "assistant"]
+        assert session.messages[-1].content == "Привет! Давай разберём позицию или решим задачу?"
+        assert fake.calls[0][-1] == {"role": "user", "content": "Привет"}
+        events = {c.args[0]: c.kwargs for c in mock_log.call_args_list}
+        assert events["turn_end"]["payload"]["small_talk"] is True
+
+    @patch("src.server.log_event")
+    @patch("src.server.load_user_profile")
+    @patch("src.server._create_agent")
+    def test_a_real_question_still_goes_to_the_agent(self, mock_agent, mock_profile, mock_log, monkeypatch):
+        monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
+        mock_profile.return_value = UserProfile(user_id="two-stage-user")
+        mock_agent.return_value = _agent()
+        with patch("src.quick_reply.stream_quick_reply", _quick()):
+            self.client.post("/api/coach/chat", headers=USER,
+                             json={"message": "Привет, какой здесь лучший ход?", "locale": "ru"})
+        mock_agent.assert_called_once()
+
+    @patch("src.server.log_event")
+    @patch("src.server._create_agent")
+    def test_quick_model_failure_shows_the_usual_error(self, mock_agent, mock_log, monkeypatch):
+        monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
+
+        def broken(**kw):
+            return QuickReply(model=kw["model"], error="http_429: slow down")
+
+        with patch("src.quick_reply.stream_completion", broken):
+            resp = self.client.post("/api/coach/chat", headers=USER, json={"message": "спасибо", "locale": "ru"})
+        frames = _frames(resp.text)
+        mock_agent.assert_not_called()
+        assert "error" in frames[-1] and "429" not in frames[-1]["error"]

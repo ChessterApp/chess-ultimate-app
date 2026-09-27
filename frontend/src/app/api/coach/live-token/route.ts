@@ -73,6 +73,13 @@ const VOICE_TOOL_ALLOWLIST = new Set<string>([
   'score_position_themes',
   'check_moves',
   'get_puzzle',
+  // Examples of a concept come from the site's lessons / the knowledge base,
+  // which put them on the board themselves — without these the voice coach
+  // invented a "pin" position (live site 2026-09-25).
+  'get_topic',
+  'list_topics',
+  'get_lesson',
+  'get_learning_path',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or

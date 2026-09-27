@@ -7,7 +7,9 @@ export default async function CoachLayout({
 }) {
   await requireAccess('/coach');
   return (
-    <div className="min-h-screen" style={{ background: '#1a1a2e' }}>
+    // Phones: the page sizes itself between the app bars (see coach/page.tsx);
+    // a full-screen minimum here would push it past them again.
+    <div className="md:min-h-screen" style={{ background: '#1a1a2e' }}>
       {children}
     </div>
   );

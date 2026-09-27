@@ -312,6 +312,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         const data = await res.json();
         if (data?.id) {
           activeSessionIdRef.current = data.id;
+          restoredForRef.current = data.id; // brand new — nothing to reload
           onSessionCreated?.(data.id);
         }
       }
@@ -595,6 +596,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             }
 
             if (data.session_id && onSessionCreated) {
+              // This chat holds the conversation already (with game cards the
+              // server copy lacks) — don't reload it for its own new session.
+              restoredForRef.current = data.session_id;
               onSessionCreated(data.session_id);
             }
 
@@ -1000,9 +1004,12 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
                 loadPastedGame(text);
               }
             }}
+            // The keyboard slides up for ~300 ms; then show the latest message.
+            onFocus={() => setTimeout(() => messagesEndRef.current?.scrollIntoView({ block: 'end' }), 350)}
             placeholder={t('inputPlaceholder')}
             rows={1}
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
+            // 16px on phones: iOS Safari zooms the whole page into a smaller field.
+            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
             disabled={isStreaming}
           />
           {isStreaming ? (

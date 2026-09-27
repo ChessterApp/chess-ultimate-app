@@ -7,6 +7,8 @@ import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useCoachBoard } from '@/hooks/useCoachBoard';
+import useOnScreenKeyboard from '@/hooks/useOnScreenKeyboard';
+import { useChromeVisibility } from '@/components/ChromeVisibilityContext';
 import CoachBoard from '@/components/coach/CoachBoard';
 import CoachChat, { type CoachChatHandle } from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
@@ -135,6 +137,28 @@ export default function CoachPage() {
   }, []);
 
   const snapTo8 = (size: number) => Math.floor(size / 8) * 8;
+
+  // Typing on a phone: the keyboard takes half the screen, so the board and
+  // the app bars step aside and the page pins itself to what is left — the
+  // thread and the input stay visible (live site 2026-09-25: the keyboard
+  // opened and neither the chat nor the typed text could be seen).
+  const keyboard = useOnScreenKeyboard();
+  const typingOnPhone = keyboard.open && windowWidth < 1024;
+  const { setChromeHidden } = useChromeVisibility();
+  useEffect(() => {
+    setChromeHidden(typingOnPhone);
+    return () => setChromeHidden(false);
+  }, [typingOnPhone, setChromeHidden]);
+
+  // On a phone the page sits between the app's top bar (in the flow above it)
+  // and the fixed bottom navigation. A plain 100dvh pushed the chat input below
+  // the screen edge, under the bottom bar, until the page was scrolled. The
+  // top offset is measured, the bottom bar is 4rem + the safe area.
+  const [pageTop, setPageTop] = useState(0);
+  const measurePageTop = useCallback((el: HTMLDivElement | null) => {
+    if (el) setPageTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+  }, []);
+  const withBottomNav = windowWidth < 768 && !typingOnPhone;
 
   const responsiveBoardSize = useMemo(() => {
     if (windowWidth < 400) return snapTo8(windowWidth - 8);
@@ -270,21 +294,18 @@ export default function CoachPage() {
 
   // Restore the session's boards from the server: the study board's position,
   // history and orientation, and every master-game tab. Runs once per session
-  // id; a session that no longer exists is forgotten.
+  // id. A failed restore changes nothing: the session id is kept, because a
+  // Hermes without the boards API (404), a Hermes hiccup and an unknown
+  // session all look alike here — and forgetting the id wiped the chat right
+  // after the first answer on the live site (2026-09-25). An unknown id costs
+  // nothing: the next chat turn recreates the session under it.
   useEffect(() => {
     if (!sessionId || restoredSessionRef.current === sessionId) return;
     restoredSessionRef.current = sessionId;
     let cancelled = false;
     void (async () => {
       const data = await coachApi.listBoards(sessionId);
-      if (cancelled) return;
-      if (!data) {
-        // 404 (deleted / unknown session) or Hermes down: start clean.
-        localStorage.removeItem('coach-session-id');
-        setSessionId(null);
-        restoredSessionRef.current = null;
-        return;
-      }
+      if (cancelled || !data) return;
       const study = data.boards.find((b) => b.kind === 'study' || b.kind === 'puzzle') ?? data.boards[0];
       const games: OpenedGame[] = [];
       const indices: Record<string, number> = {};
@@ -637,7 +658,21 @@ export default function CoachPage() {
   }
 
   return (
-    <div className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col">
+    <div
+      className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col"
+      ref={measurePageTop}
+      style={
+        typingOnPhone
+          ? {
+              position: 'fixed', left: 0, right: 0, top: keyboard.top, height: keyboard.height, zIndex: 40,
+              background: '#1a1a2e', // the layout's colour — pinned, the page no longer sits on it
+            }
+          : withBottomNav
+            ? { height: `calc(100dvh - ${pageTop}px - 4rem - env(safe-area-inset-bottom))` }
+            : undefined
+      }
+      data-testid="coach-page"
+    >
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-2 border-b border-white/10">
         <div className="flex items-center gap-3">
@@ -696,7 +731,7 @@ export default function CoachPage() {
       {/* Main content: Board + Chat split */}
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
-        <div className="lg:w-[55%] flex flex-col p-2 sm:p-4 relative">
+        <div className={`lg:w-[55%] flex flex-col p-2 sm:p-4 relative ${typingOnPhone ? 'hidden' : ''}`}>
           {gameDialogOpen && (
             <GameStartDialog
               busy={gameThinking}

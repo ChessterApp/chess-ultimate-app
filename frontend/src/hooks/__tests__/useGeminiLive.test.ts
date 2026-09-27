@@ -230,9 +230,18 @@ describe('useGeminiLive', () => {
     expect(result.current.status).toBe('speaking');
     expect(createdSources.length).toBe(1);
 
-    // User speaks over the coach -> flush.
+    // A click / a cough / an echo spike (one short frame) must not cut the coach off.
     act(() => {
       lastWorkletNode.port.onmessage({ data: { pcm: new ArrayBuffer(4), rms: 0.9 } });
+    });
+    expect(createdSources[0].stop).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('speaking');
+
+    // The user keeps talking over the coach (3 × 100 ms of 16 kHz PCM) -> flush.
+    act(() => {
+      for (let i = 0; i < 3; i++) {
+        lastWorkletNode.port.onmessage({ data: { pcm: new ArrayBuffer(3200), rms: 0.9 } });
+      }
     });
 
     expect(createdSources[0].stop).toHaveBeenCalled();
@@ -1041,9 +1050,9 @@ describe('useGeminiLive', () => {
       });
     });
     expect(result.current.status).toBe('speaking');
-    // User speaks over the coach.
+    // User speaks over the coach for 300 ms.
     act(() => {
-      lastWorkletNode.port.onmessage({ data: { pcm: new ArrayBuffer(4), rms: 0.9 } });
+      lastWorkletNode.port.onmessage({ data: { pcm: new ArrayBuffer(9600), rms: 0.9 } });
     });
 
     expect(metrics.find((m) => m.event === 'barge_in')).toBeTruthy();

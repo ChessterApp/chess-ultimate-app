@@ -418,9 +418,12 @@ def get_lesson(
     locale: Optional[str] = "ru",
     supabase_url: str = None,
     supabase_key: str = None,
+    show: bool = False,
 ) -> dict:
     """One lesson in full: text, exercise (FEN + solution in SAN), its puzzles
-    (FEN + solution in SAN + hint), link, and the student's status."""
+    (FEN + solution in SAN + hint), link, and the student's status. With
+    *show*, the exercise (else the first puzzle) goes onto the board as a
+    puzzle straight from the lesson — the model never retypes the FEN."""
     programme = fetch_programme(url=supabase_url, key=supabase_key)
     if programme is None:
         return {"error": "Could not read the study programme (Supabase unavailable)."}
@@ -500,6 +503,14 @@ def get_lesson(
         ]
         out["puzzles_hint"] = ("To put a puzzle on the student's board call board_control with "
                                "action_type=set_puzzle, fen=<fen> and solution=<solution>.")
+    if show:
+        shown = out.get("board_puzzle") or next(
+            ({"fen": p["fen"], "solution": p["solution"]} for p in out.get("puzzles") or [] if p.get("fen")),
+            None,
+        )
+        if shown:
+            out["board_actions"] = [{"type": "set_puzzle", "fen": shown["fen"], "solution": shown["solution"]}]
+            out["board_hint"] = "The lesson's exercise is ALREADY on the board as a puzzle; guide the student through it."
     return out
 
 
@@ -528,10 +539,10 @@ LESSON_SCHEMA = {
     "name": "get_lesson",
     "description": (
         "Read one lesson of the site's programme: its text, exercise (FEN + solution), "
-        "puzzles (FEN + solution + hint) and link. Use it to teach or explain a lesson, "
-        "to put its exercise on the board (board_control set_puzzle with the returned fen "
-        "and solution), or to check what a lesson covers. Identify the lesson by slug, id or "
-        "part of its title."
+        "puzzles (FEN + solution + hint) and link — and PUT ITS EXERCISE ON THE BOARD as a "
+        "puzzle itself (else its first puzzle). Use it to teach or explain a lesson and to show "
+        "the site's own example of a topic. show=false only to check what a lesson covers "
+        "without touching the board. Identify the lesson by slug, id or part of its title."
     ),
     "parameters": {
         "type": "object",
@@ -539,6 +550,7 @@ LESSON_SCHEMA = {
             "lesson": {"type": "string", "description": "Lesson slug, id, or part of its title."},
             "user_id": {"type": "string", "description": "The student's ID (for their status)."},
             "locale": {"type": "string", "description": "ru | kz | en — language for the text."},
+            "show": {"type": "boolean", "description": "Put the exercise on the board (default true)."},
         },
         "required": ["lesson"],
     },
@@ -563,6 +575,7 @@ def _handle_get_lesson(args: dict, **kwargs) -> str:
         lesson=str(args.get("lesson") or ""),
         user_id=user_id,
         locale=args.get("locale") or "ru",
+        show=args.get("show") is not False,
     )
     return json.dumps(result, ensure_ascii=False)
 

@@ -63,6 +63,13 @@ export interface UseGeminiLiveReturn {
 const OUTPUT_SAMPLE_RATE = 24000;
 // RMS above which local mic activity counts as barge-in while the model is speaking.
 const BARGE_IN_RMS = 0.05;
+// ...and for how long: about a syllable of loud input, with gaps shorter than
+// BARGE_IN_GAP_MS bridged. A single ~3 ms frame used to be enough, so a click,
+// a cough or the coach's own voice leaking from the speakers cut him off
+// mid-sentence (local check 2026-09-27). Gemini's own speech-aware
+// `interrupted` signal still stops playback too.
+const BARGE_IN_SUSTAIN_MS = 250;
+const BARGE_IN_GAP_MS = 120;
 // RMS above which a mic frame counts as speech — used to approximate VAD end
 // (the user's last spoken frame) as the start of the time-to-first-audio window.
 const SPEECH_RMS = 0.02;
@@ -243,6 +250,10 @@ export default function useGeminiLive(
   // performance.now() of the user's most recent spoken (above-threshold) mic
   // frame — approximates VAD end, the start of the time-to-first-audio window.
   const lastUserSpeechAtRef = useRef<number | null>(null);
+  // Loud mic time accumulated while the coach speaks, and when it was last
+  // loud — local barge-in needs BARGE_IN_SUSTAIN_MS of it.
+  const bargeInLoudMsRef = useRef(0);
+  const bargeInLastLoudAtRef = useRef<number | null>(null);
   // True while we're still waiting for the first model audio chunk of a turn,
   // so TTFA is measured once per turn (reset when playback drains / on barge-in).
   const firstAudioPendingRef = useRef(true);
@@ -893,15 +904,24 @@ export default function useGeminiLive(
           if (firstAudioPendingRef.current) ensureTurnId();
         }
 
-        // Local barge-in: user speaks over the coach. Record it (with the turn it
-        // interrupted) BEFORE flushPlayback clears the turn id.
+        // Local barge-in: the user keeps talking over the coach. Record it (with
+        // the turn it interrupted) BEFORE flushPlayback clears the turn id.
+        const now = performance.now();
+        const quietTooLong =
+          bargeInLastLoudAtRef.current !== null && now - bargeInLastLoudAtRef.current > BARGE_IN_GAP_MS;
+        if (quietTooLong) bargeInLoudMsRef.current = 0;
         if (data.rms > BARGE_IN_RMS && statusRef.current === 'speaking') {
-          reportMetric({
-            event: 'barge_in',
-            turn_id: turnIdRef.current ?? undefined,
-            turn: turnRef.current,
-          });
-          flushPlayback();
+          bargeInLoudMsRef.current += (data.pcm.byteLength / 2 / 16000) * 1000;
+          bargeInLastLoudAtRef.current = now;
+          if (bargeInLoudMsRef.current >= BARGE_IN_SUSTAIN_MS) {
+            bargeInLoudMsRef.current = 0;
+            reportMetric({
+              event: 'barge_in',
+              turn_id: turnIdRef.current ?? undefined,
+              turn: turnRef.current,
+            });
+            flushPlayback();
+          }
         }
 
         try {

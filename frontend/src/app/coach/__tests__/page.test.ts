@@ -71,3 +71,19 @@ describe('Coach Page - Premium Gating', () => {
     expect(pageContent).toContain("router.push('/sign-in')");
   });
 });
+
+describe('CoachPage - session restore', () => {
+  const source = readFileSync(resolve(__dirname, '../page.tsx'), 'utf8');
+  // The effect that restores the boards, from its listBoards call to its cleanup.
+  const start = source.indexOf('coachApi.listBoards(sessionId)');
+  const restore = source.slice(start, source.indexOf('cancelled = true', start));
+
+  it('keeps the session when the boards cannot be loaded', () => {
+    // Live site 2026-09-25: a Hermes without the boards API answered 404, the
+    // page forgot the session and the chat went blank after the first answer.
+    expect(start).toBeGreaterThan(0);
+    expect(restore).toContain('if (cancelled || !data) return;');
+    expect(restore).not.toContain('setSessionId(null)');
+    expect(restore).not.toContain("removeItem('coach-session-id')");
+  });
+});

@@ -394,6 +394,26 @@ describe('POST /api/coach/live-token', () => {
     expect(kept.length).toBeLessThanOrEqual(8);
   });
 
+  it('lets the voice coach show examples from the lessons and the knowledge base', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const decls = [{ name: 'get_topic' }, { name: 'get_lesson' }, { name: 'list_topics' }, { name: 'get_learning_path' }];
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/tools')) {
+        return { ok: true, json: async () => ({ tools: decls }) };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    await POST(makeRequest({ fen: 'somefen' }));
+    const kept = createMock.mock.calls[0][0].config.liveConnectConstraints.config.tools[0].functionDeclarations.map(
+      (d: any) => d.name,
+    );
+    expect(kept).toEqual(['get_topic', 'get_lesson', 'list_topics', 'get_learning_path']);
+  });
+
   it('keeps check_moves in the voice tool allowlist', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';

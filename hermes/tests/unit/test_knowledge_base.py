@@ -205,6 +205,56 @@ def test_get_topic_links_site_lessons(topics, monkeypatch):
     assert out["site_lessons"][0]["url"].endswith("/learn/tactics-101/knight-fork")
 
 
+# ── The example get_topic puts on the board (2026-09-25: invented "pin") ──
+
+
+@pytest.mark.unit
+def test_get_topic_shows_a_verified_example_from_the_base(topics):
+    out = get_topic("lucena", locale="ru", topics=topics, with_lessons=False)
+    assert out["example"]["source"] == "knowledge_base"
+    assert out["example"]["fen"] == "1K6/1P1k4/8/8/8/8/r7/2R5 w - - 0 1"
+    assert out["board_actions"] == [
+        {"type": "set_fen", "fen": "1K6/1P1k4/8/8/8/8/r7/2R5 w - - 0 1"},
+        {"type": "draw_arrows", "arrows": [{"from": "c1", "to": "c4", "brush": "green"}]},  # Rc4
+    ]
+    assert "ALREADY on the student's board" in out["board_hint"]
+
+
+@pytest.mark.unit
+def test_get_topic_prefers_the_sites_own_lesson(topics, monkeypatch):
+    import src.tools.learning_path as lp
+    import src.tools.knowledge_topics as kt
+
+    lesson_fen = "6k1/5ppp/8/8/8/8/5PPP/3N2K1 w - - 0 1"
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [{"slug": "knight-fork", "title": "Вилка конём"}])
+    monkeypatch.setattr(lp, "get_lesson", lambda *a, **k: {
+        "title": "Вилка конём", "url": "https://chesster.io/learn/tactics-101/knight-fork",
+        "exercise": {"fen": lesson_fen, "solution": ["Ne3"], "hint": "Ищите прыжок коня"},
+    })
+    out = get_topic("fork", locale="ru", topics=topics)
+    assert out["example"]["source"] == "site_lesson"
+    assert out["example"]["url"].endswith("/knight-fork")
+    assert out["board_actions"][0] == {"type": "set_fen", "fen": lesson_fen}
+    assert out["board_actions"][1]["arrows"] == [{"from": "d1", "to": "e3", "brush": "green"}]
+
+
+@pytest.mark.unit
+def test_get_topic_skips_an_illegal_lesson_position(topics, monkeypatch):
+    import src.tools.learning_path as lp
+    import src.tools.knowledge_topics as kt
+
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [{"slug": "broken"}])
+    monkeypatch.setattr(lp, "get_lesson", lambda *a, **k: {"title": "x", "exercise": {"fen": "not a fen"}})
+    out = get_topic("lucena", topics=topics)
+    assert out["example"]["source"] == "knowledge_base"
+
+
+@pytest.mark.unit
+def test_get_topic_show_false_leaves_the_board_alone(topics):
+    out = get_topic("lucena", topics=topics, with_lessons=False, show=False)
+    assert "board_actions" not in out and "example" not in out
+
+
 @pytest.mark.unit
 def test_content_dir_ships_with_the_repo():
     assert (Path(kb.CONTENT_DIR) / "README.md").exists()
