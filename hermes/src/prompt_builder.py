@@ -459,7 +459,9 @@ def engine_note_block(note: str) -> str:
     return (
         "## Engine analysis of the board\n"
         f"{note}\n"
-        "Computed for this turn on the current position; the moves are legal as written."
+        "Stockfish already analysed the current position for this turn; the moves are legal "
+        "as written. Answer from it — do not call analyze_position or check_moves for these "
+        "moves. If you draw arrows, put them all in one board_control call."
     )
 
 
