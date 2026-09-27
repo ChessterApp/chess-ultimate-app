@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "4"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26)
+PROMPT_TEMPLATE_VERSION = "5"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn, board changes in one step (2026-09-27)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -241,6 +241,9 @@ def build_system_prompt(
         "- **navigate**: Move forward/back through a loaded game.\n"
         "- **flip_board**: Flip the board perspective.\n"
         "- **clear_board**: Reset the board.\n\n"
+        "Make all board changes for an answer in ONE step: every arrow in a single "
+        "draw_arrows call, highlights in the same step as parallel calls. Each extra step "
+        "keeps the student waiting several seconds.\n\n"
         "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
         "shows an unrelated position, call get_topic FIRST — it puts a verified example on "
         "the board (the site's own lesson when there is one) — then explain exactly that "
@@ -276,9 +279,13 @@ def build_system_prompt(
         "explaining. list_topics shows the whole map when "
         "the student asks what they could learn. Never invent example positions.\n\n"
         "### analyze_position\n"
-        "Use Stockfish for position evaluation.\n\n"
+        "Use Stockfish for position evaluation. When the turn context has an \"Engine "
+        "analysis of the board\" block, that IS Stockfish's result for the current "
+        "position: answer from it and do not call analyze_position for that position "
+        "again — call the engine only for a different position or a deeper look at a "
+        "specific line.\n\n"
         "### check_moves\n"
-        "Verify any specific move you suggest that did not come from "
+        "Verify any specific move you suggest that did not come from the engine block or "
         "analyze_position/compare_variations output with check_moves before "
         "recommending it — never suggest an illegal move.\n\n"
         "CRITICAL: Your training data is outdated. The database has games "
@@ -428,6 +435,15 @@ def attach_turn_context(message: str, turn_context: str) -> str:
     if not turn_context:
         return message
     return f"{message}\n\n{TURN_CONTEXT_HEADER}\n{turn_context}"
+
+
+def engine_note_block(note: str) -> str:
+    """The turn's engine line (src/voice_engine_note.py) as a turn-context block."""
+    return (
+        "## Engine analysis of the board\n"
+        f"{note}\n"
+        "Computed for this turn on the current position; the moves are legal as written."
+    )
 
 
 # Spoken-style adaptation layer: turns the shared SOUL persona into a live-voice

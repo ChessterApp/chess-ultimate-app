@@ -168,7 +168,8 @@ COACH_EMIT_USAGE = _env_flag("COACH_EMIT_USAGE", False)
 # Reasoning effort sent to reasoning-capable models via OpenRouter (DeepSeek, Claude,
 # OpenAI, Gemini 2.x). The framework defaults to "medium"; on DeepSeek that meant
 # 60–105 s of hidden thinking before the first word on some turns (bench 2026-09-23).
-# "low" keeps the tool discipline and cuts the wait. Empty string = framework default.
+# "low" keeps the tool discipline and cuts the wait. Empty string = framework default;
+# "none" switches the hidden thinking off.
 COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "low").strip()
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
@@ -187,6 +188,18 @@ COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 COACH_TWO_STAGE = _env_flag("COACH_TWO_STAGE", True)
 COACH_QUICK_BUDGET_MS = int(os.environ.get("COACH_QUICK_BUDGET_MS", "2500"))
 COACH_QUICK_MAX_TOKENS = int(os.environ.get("COACH_QUICK_MAX_TOKENS", "60"))
+
+# Engine line in the text turn (2026-09-27): when the request carries the board,
+# Stockfish starts the moment the question arrives — alongside the profile load,
+# the prompt build and the reaction — and its top moves go into the turn context,
+# so "what should I play here?" is answered without an analyze_position round
+# trip (bench 2026-09-27: the model's first call plus the engine took 7–20 s
+# before the answer's first word).
+#   COACH_ENGINE_NOTE          — kill switch (default ON).
+#   COACH_ENGINE_NOTE_WAIT_MS  — how long the agent waits for the analysis before
+#                                it starts without it (default 2500 ms).
+COACH_ENGINE_NOTE = _env_flag("COACH_ENGINE_NOTE", True)
+COACH_ENGINE_NOTE_WAIT_MS = int(os.environ.get("COACH_ENGINE_NOTE_WAIT_MS", "2500"))
 
 # Provider fallback: when the routed model's provider answers 429/402 or keeps
 # failing, the turn switches to the ``fallback`` tier (config.yaml) instead of
