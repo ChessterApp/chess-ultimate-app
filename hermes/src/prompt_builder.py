@@ -11,6 +11,7 @@ Assembles the full system prompt for the AI agent from:
 import hashlib
 import logging
 import threading
+import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
@@ -110,6 +111,13 @@ def _resolve_board_analysis(fen: str) -> Optional[str]:
     return analysis
 
 
+# The fetch runs inside the prompt build, before the reaction can start: a CCP
+# service that hangs would add MASTRA_CCP_TIMEOUT to every turn with a board.
+# After a timeout the local port is used alone for a while.
+_CCP_TIMEOUT_BACKOFF_S = 600.0
+_ccp_skip_until = 0.0
+
+
 def _fetch_ccp_analysis(fen: str) -> Optional[str]:
     """Fetch board analysis from the Mastra CCP HTTP service.
 
@@ -118,14 +126,23 @@ def _fetch_ccp_analysis(fen: str) -> Optional[str]:
     on any non-200 response, timeout, connection error, or malformed body so the
     caller can fall back to the local Python port.
     """
+    global _ccp_skip_until
+    if time.monotonic() < _ccp_skip_until:
+        return None
     try:
         import httpx
 
         from src.config import MASTRA_CCP_URL, MASTRA_CCP_TIMEOUT
 
-        resp = httpx.post(
-            MASTRA_CCP_URL, json={"fen": fen}, timeout=MASTRA_CCP_TIMEOUT
-        )
+        try:
+            resp = httpx.post(
+                MASTRA_CCP_URL, json={"fen": fen}, timeout=MASTRA_CCP_TIMEOUT
+            )
+        except httpx.TimeoutException:
+            _ccp_skip_until = time.monotonic() + _CCP_TIMEOUT_BACKOFF_S
+            logger.warning("Mastra CCP timed out; local board analysis only for %.0f s",
+                           _CCP_TIMEOUT_BACKOFF_S)
+            return None
         if resp.status_code != 200:
             return None
         data = resp.json()

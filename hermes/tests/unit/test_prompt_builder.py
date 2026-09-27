@@ -279,6 +279,32 @@ class TestCcpAnalysisInjection:
         )
         assert prompt_builder._fetch_ccp_analysis(chess.STARTING_FEN) is None
 
+    def test_timeout_skips_the_service_for_a_while(self, monkeypatch):
+        monkeypatch.setattr(prompt_builder, "_ccp_skip_until", 0.0)
+        calls = {"n": 0}
+
+        def slow_post(*a, **k):
+            calls["n"] += 1
+            raise httpx.ReadTimeout("slow")
+
+        monkeypatch.setattr(httpx, "post", slow_post)
+        assert prompt_builder._fetch_ccp_analysis(chess.STARTING_FEN) is None
+        assert prompt_builder._fetch_ccp_analysis(chess.STARTING_FEN) is None
+        assert calls["n"] == 1
+
+    def test_connection_error_does_not_back_off(self, monkeypatch):
+        monkeypatch.setattr(prompt_builder, "_ccp_skip_until", 0.0)
+        calls = {"n": 0}
+
+        def refused(*a, **k):
+            calls["n"] += 1
+            raise httpx.ConnectError("refused")
+
+        monkeypatch.setattr(httpx, "post", refused)
+        prompt_builder._fetch_ccp_analysis(chess.STARTING_FEN)
+        prompt_builder._fetch_ccp_analysis(chess.STARTING_FEN)
+        assert calls["n"] == 2
+
 
 @pytest.mark.unit
 class TestAnalysisCache:
