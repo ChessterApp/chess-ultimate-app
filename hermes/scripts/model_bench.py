@@ -76,10 +76,19 @@ def normalize_notation(text: str) -> str:
 
 
 # ── one request ───────────────────────────────────────────────────────────
-async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: float) -> dict:
+async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: float,
+                   prewarm: float = 0.0) -> dict:
     body = {"message": case["message"], "locale": case.get("locale") or "ru"}
     if case.get("fen"):
         body["fen"] = case["fen"]
+        if prewarm:
+            # What the coach page does when a position appears: analyse it while
+            # the student looks at it; the question comes *prewarm* seconds later.
+            try:
+                await client.post(f"{base}/api/coach/voice/engine-note", json={"fen": case["fen"]},
+                                  headers={"X-User-Id": "bench"}, timeout=prewarm + 10)
+            except Exception:
+                pass
     text, tools, usage, error, board_actions = [], [], None, None, []
     t0 = time.monotonic()
     ttft = None
@@ -223,7 +232,8 @@ async def wait_health(base: str, seconds: int = 60) -> bool:
 
 
 async def bench_model(model: str, cases: list, port: int, out_dir: Path, concurrency: int,
-                      timeout: float, stockfish: str, depth: int, repeat: int) -> list:
+                      timeout: float, stockfish: str, depth: int, repeat: int,
+                      prewarm: float = 0.0) -> list:
     tag = model.replace("/", "__")
     proc = start_server(model, port, out_dir / f"{tag}.server.log")
     base = f"http://127.0.0.1:{port}"
@@ -235,7 +245,7 @@ async def bench_model(model: str, cases: list, port: int, out_dir: Path, concurr
 
         async def one(case, rep):
             async with sem:
-                res = await run_case(client, base, case, timeout)
+                res = await run_case(client, base, case, timeout, prewarm)
                 res["rep"] = rep
                 res["model"] = model
                 res["score"] = score(case, res, stockfish, depth)
@@ -337,6 +347,8 @@ def main():
     ap.add_argument("--timeout", type=float, default=240)
     ap.add_argument("--port-base", type=int, default=8660)
     ap.add_argument("--depth", type=int, default=16, help="Stockfish depth for grading")
+    ap.add_argument("--prewarm", type=float, default=0.0,
+                    help="analyse each case's position first, as the coach page does (timeout, s)")
     args = ap.parse_args()
 
     from src.config import load_env
@@ -364,7 +376,7 @@ def main():
         t0 = time.time()
         all_results[model] = asyncio.run(bench_model(
             model, cases, args.port_base + i, out_dir, args.concurrency, args.timeout,
-            stockfish, args.depth, args.repeat))
+            stockfish, args.depth, args.repeat, args.prewarm))
         print(f"  done in {time.time() - t0:.0f}s")
     table = summarize(all_results, cases)
     (out_dir / "summary.md").write_text(table + "\n", encoding="utf-8")

@@ -383,13 +383,9 @@ def _create_agent(
             "api_key": api_key,
             "base_url": OPENROUTER_BASE_URL,
         }
-    if config.COACH_REASONING_EFFORT:
-        # The framework only forwards this for reasoning-capable families and
-        # drops it elsewhere, so it is safe to pass for every model.
-        effort = config.COACH_REASONING_EFFORT
-        agent_kwargs["reasoning_config"] = (
-            {"enabled": False} if effort.lower() in ("none", "off") else {"effort": effort}
-        )
+    reasoning = _reasoning_config(model)
+    if reasoning is not None:
+        agent_kwargs["reasoning_config"] = reasoning
     agent = AIAgent(**agent_kwargs)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;
@@ -478,6 +474,21 @@ def _record_turn_usage(
     )
     thread.start()
     return thread
+
+
+def _reasoning_config(model: str) -> Optional[dict]:
+    """The reasoning setting sent with *model*, or None to leave the framework's own.
+
+    The framework only forwards it for reasoning-capable families and drops it
+    elsewhere. Claude answers without extended thinking: with nothing sent the
+    framework switches thinking ON at medium effort, and the whole point of a
+    Claude tier is an answer in ~2 s (bench 2026-09-27: Haiku 4.5 without
+    thinking started answering at 3.6 s p50, DeepSeek with low reasoning 12.5 s).
+    """
+    effort = config.COACH_REASONING_EFFORT
+    if (model or "").startswith("anthropic/") or (effort and effort.lower() in ("none", "off")):
+        return {"enabled": False}
+    return {"effort": effort} if effort else None
 
 
 def _turn_fallback_model(routed_model: str) -> Optional[str]:

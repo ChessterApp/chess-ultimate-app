@@ -176,3 +176,18 @@ class TestReasoningSwitch:
         with patch("run_agent.AIAgent") as fake:
             server._create_agent(model="deepseek/deepseek-v4.1-flash", system_prompt="s")
         assert fake.call_args.kwargs["reasoning_config"] == expected
+
+    def test_claude_answers_without_thinking_whatever_the_effort(self, monkeypatch):
+        """With nothing sent the framework turns Claude's thinking on at medium effort."""
+        monkeypatch.setattr(config, "COACH_REASONING_EFFORT", "low")
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", False)
+        with patch("run_agent.AIAgent") as fake:
+            server._create_agent(model="anthropic/claude-haiku-4.5", system_prompt="s")
+        assert fake.call_args.kwargs["reasoning_config"] == {"enabled": False}
+
+    def test_empty_effort_leaves_the_framework_default(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_REASONING_EFFORT", "")
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", False)
+        with patch("run_agent.AIAgent") as fake:
+            server._create_agent(model="deepseek/deepseek-v4.1-flash", system_prompt="s")
+        assert "reasoning_config" not in fake.call_args.kwargs
