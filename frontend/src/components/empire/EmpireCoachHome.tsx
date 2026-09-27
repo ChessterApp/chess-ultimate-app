@@ -11,6 +11,8 @@
  * Visual language mirrors the student home (`EmpireHomePage`): dark-slate hero
  * with an emerald-accented avatar, white stat cards, slate typography.
  */
+import Link from 'next/link';
+import { Trophy, Gamepad2 } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 import type { CEActiveStudent } from '@/lib/chess-empire-client';
 import type { CoachHomeStats } from '@/lib/empire-coach-stats';
@@ -158,6 +160,45 @@ export default async function EmpireCoachHome({
             </div>
           </div>
         </div>
+
+        {/* Quick links */}
+        <section data-testid="empire-coach-quick-links">
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-slate-500 mb-3">
+            {t('coachQuickLinksLabel')}
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href="/tournaments"
+              data-testid="empire-coach-link-tournaments"
+              className="rounded-xl bg-white border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 hover:border-slate-300 transition-colors"
+            >
+              <Trophy className="w-5 h-5 shrink-0" style={{ color: ACCENT }} aria-hidden="true" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-800">
+                  {t('coachLinkTournaments')}
+                </div>
+                <div className="text-xs text-slate-500 truncate">
+                  {t('coachLinkTournamentsSub')}
+                </div>
+              </div>
+            </Link>
+            <Link
+              href="/games"
+              data-testid="empire-coach-link-games"
+              className="rounded-xl bg-white border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3 hover:border-slate-300 transition-colors"
+            >
+              <Gamepad2 className="w-5 h-5 shrink-0" style={{ color: ACCENT }} aria-hidden="true" />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-slate-800">
+                  {t('coachLinkGames')}
+                </div>
+                <div className="text-xs text-slate-500 truncate">
+                  {t('coachLinkGamesSub')}
+                </div>
+              </div>
+            </Link>
+          </div>
+        </section>
 
         {/* League breakdown */}
         <section
