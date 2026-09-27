@@ -150,6 +150,16 @@ export default function CoachPage() {
     return () => setChromeHidden(false);
   }, [typingOnPhone, setChromeHidden]);
 
+  // On a phone the page sits between the app's top bar (in the flow above it)
+  // and the fixed bottom navigation. A plain 100dvh pushed the chat input below
+  // the screen edge, under the bottom bar, until the page was scrolled. The
+  // top offset is measured, the bottom bar is 4rem + the safe area.
+  const [pageTop, setPageTop] = useState(0);
+  const measurePageTop = useCallback((el: HTMLDivElement | null) => {
+    if (el) setPageTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
+  }, []);
+  const withBottomNav = windowWidth < 768 && !typingOnPhone;
+
   const responsiveBoardSize = useMemo(() => {
     if (windowWidth < 400) return snapTo8(windowWidth - 8);
     if (windowWidth < 600) return snapTo8(windowWidth - 12);
@@ -650,10 +660,16 @@ export default function CoachPage() {
   return (
     <div
       className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col"
+      ref={measurePageTop}
       style={
         typingOnPhone
-          ? { position: 'fixed', left: 0, right: 0, top: keyboard.top, height: keyboard.height, zIndex: 40 }
-          : undefined
+          ? {
+              position: 'fixed', left: 0, right: 0, top: keyboard.top, height: keyboard.height, zIndex: 40,
+              background: '#1a1a2e', // the layout's colour — pinned, the page no longer sits on it
+            }
+          : withBottomNav
+            ? { height: `calc(100dvh - ${pageTop}px - 4rem - env(safe-area-inset-bottom))` }
+            : undefined
       }
       data-testid="coach-page"
     >
