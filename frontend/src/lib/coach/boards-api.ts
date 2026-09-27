@@ -220,4 +220,20 @@ export const coachApi = {
     call<{ messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: number; source: string }> }>(
       `/api/coach/sessions/${encodeURIComponent(sessionId)}/messages`,
     ),
+
+  /**
+   * Have Hermes analyse `fen` now, fire-and-forget: the analysis lands in its
+   * cache and a question about the position starts from Stockfish's result
+   * instead of waiting ~1.7 s for it. Plain fetch, not `call` — a background
+   * request must never redirect the student, and any failure (an older Hermes
+   * answers 404) just means no head start.
+   */
+  prewarmEngine: (fen: string) => {
+    void fetch('/api/coach/voice/engine-note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ fen }),
+    }).catch(() => undefined);
+  },
 };
