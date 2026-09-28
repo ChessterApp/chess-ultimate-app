@@ -72,6 +72,20 @@ def _fen_from_moves(moves: str) -> tuple[str, list[str]]:
     return board.fen(), san_list
 
 
+_ARROW_SPEC = re.compile(r"^\s*([a-h][1-8])\s*[-–]?\s*([a-h][1-8])(?:\s*[: ]\s*(green|red|blue|yellow))?\s*$")
+
+
+def _parse_arrows(value) -> list[dict]:
+    """``arrows: ["g5d8 red", "f8e7"]`` — the idea of a position drawn on the board
+    when the coach shows it (colour defaults to green). Bad entries are dropped."""
+    out = []
+    for item in value or []:
+        m = _ARROW_SPEC.match(str(item))
+        if m and m.group(1) != m.group(2):
+            out.append({"from": m.group(1), "to": m.group(2), "brush": m.group(3) or "green"})
+    return out
+
+
 def _normalise_position(pos: dict, topic_slug: str, index: int) -> Optional[dict]:
     """Return a validated position record or None (logged) if it is unusable."""
     if not isinstance(pos, dict):
@@ -81,6 +95,7 @@ def _normalise_position(pos: dict, topic_slug: str, index: int) -> Optional[dict
         "title_en": str(pos.get("title_en") or "").strip(),
         "plan_ru": str(pos.get("plan_ru") or "").strip(),
         "best_move": str(pos.get("best_move") or "").strip() or None,
+        "arrows": _parse_arrows(pos.get("arrows")),
         "moves": None,
         "fen": None,
     }

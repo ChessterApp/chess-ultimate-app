@@ -106,6 +106,7 @@
     - title_ru: Французская, вариант продвижения
       moves: "1. e4 e6 2. d4 d5 3. e5 c5 4. c3 Nc6 5. Nf3 Qb6 6. a3 Nh6 7. b4 cxd4 8. cxd4 Nf5"
       plan_ru: "Чёрные давят на d4 конём f5 и ферзём; белые защищают центр (Bb2, Be2) и ищут игру на королевском фланге."
+      arrows: ["f5d4 red", "b6d4 red", "c6d4 red"]
 
 - slug: opposite-side-castling
   aliases: ["разносторонние рокировки", "гонка атак"]

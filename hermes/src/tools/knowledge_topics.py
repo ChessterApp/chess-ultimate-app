@@ -158,16 +158,91 @@ def _example_from_base(t: dict) -> Optional[dict]:
                 "title": p["title_ru"],
                 "fen": p["fen"],
                 "key_move": p.get("best_move"),
+                "arrows": p.get("arrows") or [],
                 "note": p.get("plan_ru") or "",
             }
     return None
 
 
+# A move as the plans write it: «1...Kd6», «2.Kf5», «Qb3», «...Ne4», «O-O», «b4–b5».
+# A bare square («слон на c4», «поле d5») is a move only after a move number or
+# «...», or as the first half of a «b4–b5» range.
+_PLAN_MOVE = re.compile(
+    r"(?<![\w-])(?P<prefix>\d+\.+\s*|\.\.\.\s*|…\s*)?"
+    r"(?P<move>O-O-O|O-O|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8]|[a-h][1-8])"
+    r"(?P<range>\s*[–—-]\s*[a-h][1-8])?(?P<mistake>\?)?(?![\w])"
+)
+_SIDE_WORD = re.compile(r"\b(бел\w*|ч[её]рн\w*|white|black)", re.IGNORECASE)
+MAX_PLAN_ARROWS = 3
+
+
+def _plan_side(plan: str, m: "re.Match") -> Optional[bool]:
+    """Whose move a plan token is: «1...»/«...» Black, «1.» White, else the side named
+    last in the same sentence («Белые: h4–h5, Bh6»); None when the text does not say."""
+    prefix = m.group("prefix") or ""
+    if "..." in prefix or "…" in prefix:
+        return chess.BLACK
+    if prefix.strip().endswith("."):
+        return chess.WHITE
+    sentence = re.split(r"[.;!?]\s", plan[: m.start()])[-1]
+    words = _SIDE_WORD.findall(sentence)
+    if not words:
+        return None
+    return chess.WHITE if words[-1].lower().startswith(("бел", "white")) else chess.BLACK
+
+
+def _plan_arrows(fen: str, plan: str) -> list[dict]:
+    """Arrows for the moves a plan names that are playable in *fen*.
+
+    Most examples of the base are about a plan, not one best move (36 of 49 had
+    no key move, so a shown example came with no arrow at all — the voice coach
+    does not draw them itself). The side to move's moves are green, the other
+    side's (tried on the board with the turn passed) blue; a move that is not
+    legal where the example stands is skipped, so nothing false is drawn.
+    """
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return []
+    other = board.copy(stack=False)
+    other.push(chess.Move.null())
+    arrows: list[dict] = []
+    plan = plan or ""
+    for m in _PLAN_MOVE.finditer(plan):
+        token = m.group("move")
+        if token[0] in "abcdefgh" and not (m.group("prefix") or m.group("range")):
+            continue  # a square named in the text, not a move
+        if m.group("mistake"):
+            continue  # «9...cxd4?» is the mistake the text warns about
+        side = _plan_side(plan, m)
+        boards = [(board, "green"), (other, "blue")]
+        if side is not None:
+            boards = [pair for pair in boards if pair[0].turn == side]
+        for b, brush in boards:
+            try:
+                mv = b.parse_san(token)
+            except ValueError:
+                continue
+            arrow = {"from": chess.square_name(mv.from_square), "to": chess.square_name(mv.to_square), "brush": brush}
+            # One arrow per piece: in «1...Kd6 2.Kf5 Ke7» the later king moves start
+            # from another square, so from here they would show a different move.
+            if all(a["from"] != arrow["from"] for a in arrows):
+                arrows.append(arrow)
+            break
+        if len(arrows) >= MAX_PLAN_ARROWS:
+            break
+    return arrows
+
+
 def _example_actions(example: dict) -> list[dict]:
     actions = [{"type": "set_fen", "fen": example["fen"]}]
     arrow = _arrow(example["fen"], example.get("key_move"))
-    if arrow:
-        actions.append({"type": "draw_arrows", "arrows": [arrow]})
+    # The base's own arrows first (the idea of the position), then the key move,
+    # then the moves its plan names.
+    arrows = (example.get("arrows") or ([arrow] if arrow else None)
+              or _plan_arrows(example["fen"], example.get("note") or ""))
+    if arrows:
+        actions.append({"type": "draw_arrows", "arrows": arrows})
     return actions
 
 

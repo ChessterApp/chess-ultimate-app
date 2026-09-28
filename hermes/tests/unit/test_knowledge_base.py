@@ -259,3 +259,55 @@ def test_get_topic_show_false_leaves_the_board_alone(topics):
 def test_content_dir_ships_with_the_repo():
     assert (Path(kb.CONTENT_DIR) / "README.md").exists()
     assert len(list(Path(kb.CONTENT_DIR).glob("*.yaml"))) == 7
+
+
+# ── arrows of a shown example ───────────────────────────────────────────────
+# 2026-09-28: the voice coach showed the French advance chain with no arrow —
+# 36 of 49 examples had no key move, and the voice model does not draw itself.
+
+from src.tools.knowledge_topics import _example_actions, _example_from_base, _plan_arrows  # noqa: E402
+
+
+def _arrows(actions):
+    return [f"{a['from']}{a['to']}:{a['brush']}" for x in actions if x["type"] == "draw_arrows" for a in x["arrows"]]
+
+
+def test_plan_arrows_take_the_first_move_of_a_line_per_piece():
+    fen = "8/8/4k3/8/4K3/4P3/8/8 b - - 0 1"  # opposition, Black to move
+    plan = "1...Kd6 2.Kf5 Ke7 3.Ke5 Kd7 — король занял ключевое поле."
+    # Ke7 / Kd7 later in the line start from other squares — not drawn from e6.
+    assert [f"{a['from']}{a['to']}" for a in _plan_arrows(fen, plan)] == ["e6d6"]
+
+
+def test_plan_arrows_skip_squares_mistakes_and_follow_the_named_side():
+    fen = chess.Board().fen()
+    plan = ("Слон на c4 бьёт f7 — это клетки, не ходы. Ошибка 1.f3? ослабляет короля. "
+            "Белые: e4, Nf3. Чёрные: ...e5, ...Nc6.")
+    arrows = [f"{a['from']}{a['to']}:{a['brush']}" for a in _plan_arrows(fen, plan)]
+    assert "f2f3:green" not in arrows          # «1.f3?» is the mistake
+    assert not any(a.startswith("c2c4") for a in arrows)  # «на c4» is a square
+    assert arrows == ["g1f3:green", "e7e5:blue", "b8c6:blue"]
+
+
+def test_base_arrows_come_first_then_key_move_then_plan(tmp_path):
+    fen = "rnbqkb1r/ppp2ppp/4pn2/3p2B1/2PP4/2N5/PP2PPPP/R2QKBNR b KQkq - 3 4"
+    explicit = {"fen": fen, "arrows": [{"from": "g5", "to": "d8", "brush": "red"}], "key_move": "Be7",
+                "note": "Чёрные развязываются ходом Be7."}
+    assert _arrows(_example_actions(explicit)) == ["g5d8:red"]
+    assert _arrows(_example_actions({**explicit, "arrows": []})) == ["f8e7:green"]
+    assert _arrows(_example_actions({**explicit, "arrows": [], "key_move": None})) == ["f8e7:green"]
+
+
+def test_arrows_field_is_parsed_and_bad_entries_dropped():
+    assert kb._parse_arrows(["g5d8 red", "f8-e7", "c5d4:blue", "z9z9", "e4e4", 17]) == [
+        {"from": "g5", "to": "d8", "brush": "red"},
+        {"from": "f8", "to": "e7", "brush": "green"},
+        {"from": "c5", "to": "d4", "brush": "blue"},
+    ]
+
+
+def test_most_shown_examples_come_with_arrows(topics):
+    records = topics.values() if isinstance(topics, dict) else topics
+    shown = [_example_actions(ex) for ex in (_example_from_base(t) for t in records) if ex]
+    with_arrows = sum(1 for acts in shown if _arrows(acts))
+    assert with_arrows >= 35, (with_arrows, len(shown))
