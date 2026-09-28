@@ -75,6 +75,11 @@ def normalize_notation(text: str) -> str:
     return text
 
 
+# The pro tier: a fast run passes the free tier's 30 requests a minute and the
+# bench then records Hermes' own 429s as answers.
+BENCH_HEADERS = {"X-User-Id": "bench", "X-Subscription-Tier": "pro"}
+
+
 # ── one request ───────────────────────────────────────────────────────────
 async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: float,
                    prewarm: float = 0.0) -> dict:
@@ -86,7 +91,7 @@ async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: fl
             # the student looks at it; the question comes *prewarm* seconds later.
             try:
                 await client.post(f"{base}/api/coach/voice/engine-note", json={"fen": case["fen"]},
-                                  headers={"X-User-Id": "bench"}, timeout=prewarm + 10)
+                                  headers=BENCH_HEADERS, timeout=prewarm + 10)
             except Exception:
                 pass
     text, tools, usage, error, board_actions = [], [], None, None, []
@@ -98,7 +103,7 @@ async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: fl
     in_quick, quick_first, answer_first = False, None, None
     try:
         async with client.stream("POST", f"{base}/api/coach/chat", json=body,
-                                 headers={"X-User-Id": "bench"}, timeout=timeout) as r:
+                                 headers=BENCH_HEADERS, timeout=timeout) as r:
             if r.status_code != 200:
                 error = f"http {r.status_code}: {(await r.aread())[:300]!r}"
             else:

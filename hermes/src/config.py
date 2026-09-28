@@ -191,11 +191,12 @@ COACH_GEMINI_REASONING_EFFORT = os.environ.get("COACH_GEMINI_REASONING_EFFORT", 
 COACH_PROVIDER_SORT = os.environ.get("COACH_PROVIDER_SORT", "throughput").strip()
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
-# Answer length. "full" (default) leaves it to the persona (SOUL.md) — answers of
-# 400–1300 tokens, 3–5 s to stream in full after the first word. "brief" adds a
-# length rule to the prompt: the verdict first, a few sentences, depth on request.
-# The customer decides; COACH_ANSWER_STYLE=brief switches it on without a deploy.
-COACH_ANSWER_STYLE = os.environ.get("COACH_ANSWER_STYLE", "full").strip().lower()
+# Answer length. "brief" (default since 2026-09-28) adds a length rule to the
+# prompt: the verdict first, a few sentences, depth on request — answers 3x
+# shorter and the whole turn 3.1 s p50 against 5.2 s on the bench. "full" leaves
+# it to the persona (SOUL.md): answers of 400–1300 tokens with headings and
+# lists. COACH_ANSWER_STYLE=full brings the long answers back without a deploy.
+COACH_ANSWER_STYLE = os.environ.get("COACH_ANSWER_STYLE", "brief").strip().lower()
 
 # A provider that goes silent mid-answer: the framework waited 120 s for the next
 # byte (HERMES_STREAM_READ_TIMEOUT) and 180 s for the next chunk

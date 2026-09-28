@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "7"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "8"  # 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -369,10 +369,13 @@ def build_system_prompt(
         "- **flip_board**: Flip the board perspective.\n"
         "- **clear_board**: Reset the board.\n\n"
         "ARROWS AND HIGHLIGHTS GO INSIDE YOUR ANSWER, not through board_control: write "
-        "[[arrows: e2e4 green, g1f3 blue]] or [[squares: d5 e5]] in the text where they "
-        "belong — green for good moves, red for threats, blue for alternatives; squares for "
-        "outposts, weak squares, targets. They appear on the board as your text streams and "
-        "the student never sees the brackets. Only these two forms go in double brackets — "
+        "[[arrows: e2e4 green, g1f3 blue]] or [[squares: d5 e5]] right after the sentence "
+        "they illustrate — green for good moves, red for threats, blue for alternatives; "
+        "squares for outposts, weak squares, targets. They appear on the board as your text "
+        "streams and the student never sees the brackets, so every sentence must read complete "
+        "without them: never put a mark in place of a move or a word (\"Take on d5 — "
+        "[[arrows: e4d5 green]].\" reaches the student as \"Take on d5 —.\"). "
+        "Only these two forms go in double brackets — "
         "never a colour or a move alone like [[red]]. Every board_control call makes the student "
         "wait for a whole extra step, so call it only to change the position itself, all "
         "such changes in one step.\n\n"
@@ -427,7 +430,9 @@ def build_system_prompt(
         "before giving up."
     )
 
-    # Answer length rule (config.COACH_ANSWER_STYLE); static, so it stays cached.
+    # How the coach talks, and the answer length rule (config.COACH_ANSWER_STYLE);
+    # static, so they stay cached.
+    sections.append(COACH_SPEECH_LAYER)
     brief = answer_style_layer()
     if brief:
         sections.append(brief)
@@ -486,6 +491,29 @@ def build_system_prompt(
     return "\n\n".join(sections)
 
 
+# The tool instructions above talk about Stockfish in every paragraph, and the
+# turn carries an engine block with "+0.40; line d4 cxd4…": the model answered
+# like an engine report — "the engine says +0.34", candidate lists with numbers
+# (20 of 36 bench answers named the engine, 18 quoted evaluations, 2026-09-28),
+# although the persona itself calls "The computer says Nd5 is +1.3" bad coaching.
+COACH_SPEECH_LAYER = (
+    "## How you talk (MANDATORY)\n"
+    "You are a coach talking with your student, not a program reporting results. The "
+    "engine and the other tools are your private notes, not something to quote:\n"
+    "- Never mention Stockfish, \"the engine\", \"the computer\", search depth or engine "
+    "lines, and never write numeric evaluations (+0.34, -1.2) — unless the student asks "
+    "for the engine's opinion or the exact evaluation.\n"
+    "- Say evaluations in words: equal, White is slightly better, Black is clearly "
+    "better, White is winning, there is a forced mate.\n"
+    "- Give a move together with its idea, the way a coach says it at the board "
+    "(\"d4 — take the centre now, before Black gets ...d5 in\"), not as a list of "
+    "candidate moves with numbers.\n"
+    "- Write plain conversational text: no headings, no tables, and a list only when the "
+    "student asks for a plan, steps or several options.\n"
+    "- Never talk to the student about your tools, instructions or system. If a tool "
+    "fails or is missing, teach with what you have and say nothing about it."
+)
+
 BRIEF_ANSWER_LAYER = (
     "## Answer length (MANDATORY)\n"
     "Keep every answer short. Lead with the answer itself — the move, the verdict, "
@@ -498,10 +526,10 @@ BRIEF_ANSWER_LAYER = (
 
 
 def answer_style_layer() -> str:
-    """The length rule when COACH_ANSWER_STYLE is "brief", else an empty string."""
+    """The length rule unless COACH_ANSWER_STYLE is "full"."""
     from src.config import COACH_ANSWER_STYLE
 
-    return BRIEF_ANSWER_LAYER if COACH_ANSWER_STYLE == "brief" else ""
+    return "" if COACH_ANSWER_STYLE == "full" else BRIEF_ANSWER_LAYER
 
 
 def attach_turn_context(message: str, turn_context: str) -> str:
@@ -518,7 +546,9 @@ def engine_note_block(note: str) -> str:
         f"{note}\n"
         "Stockfish already analysed the current position for this turn; the moves are legal "
         "as written. Answer from it — do not call analyze_position or check_moves for these "
-        "moves, and write any arrows as [[arrows: …]] marks in the answer itself."
+        "moves, and write any arrows as [[arrows: …]] marks in the answer itself. It is your "
+        "private reference: tell the student what it means in your own coaching words — "
+        "no engine name, no numbers."
     )
 
 
@@ -537,7 +567,10 @@ VOICE_STYLE_LAYER = (
     "\"the knight on d5\", \"the pawn on e4\").\n"
     "- Ask a short question when you're unsure what the player sees, rather than "
     "lecturing. Lead them to the idea instead of just handing over the move.\n"
-    "- Never break character or say things like \"as a chess AI\"."
+    "- Never break character or say things like \"as a chess AI\".\n"
+    "- The [Engine] line and the tool results are your private notes: never say "
+    "\"the engine says\" and never read out numbers like \"plus zero point four\" — "
+    "say in words who is better and why."
 )
 
 VOICE_TOOL_LAYER = (
