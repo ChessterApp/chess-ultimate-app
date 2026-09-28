@@ -11,7 +11,7 @@ import pytest
 
 import src.config as config
 import src.memory_writer as mw
-from src.prompt_builder import build_system_prompt
+from src.prompt_builder import build_system_prompt, build_voice_prompt
 from src.user_profile import UserProfile
 
 MOCK_SOUL = "# Chess Coach\nYou are a chess coach."
@@ -73,6 +73,26 @@ class TestFlagOn:
         # Fail-open: the block is simply omitted, the prompt still builds.
         assert "Recent verified mistakes" not in prompt
         assert "Chess Coach" in prompt
+
+
+@pytest.mark.unit
+class TestVoiceGetsTheSameMemory:
+    """TZ 3d: the voice coach reads the student's memory like the text coach."""
+
+    def test_voice_prompt_carries_the_corrections_block(self):
+        profile = UserProfile(user_id="u1", rating=1400)
+        corrections = [{"reflection": "Claimed Ke2 at FEN; engine says check."}]
+        with patch.object(config, "COACH_MEMORY_WRITER", True), \
+             patch.object(mw, "load_active_corrections", return_value=corrections):
+            prompt = build_voice_prompt(MOCK_SOUL, user_profile=profile)
+        assert "## Recent verified mistakes to avoid repeating" in prompt
+        assert "Claimed Ke2" in prompt
+
+    def test_voice_prompt_without_profile_loads_nothing(self):
+        with patch.object(config, "COACH_MEMORY_WRITER", True), \
+             patch.object(mw, "load_active_corrections") as load:
+            build_voice_prompt(MOCK_SOUL)
+        load.assert_not_called()
 
 
 @pytest.mark.unit

@@ -2281,7 +2281,9 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
 
     profile = _get_voice_profile(user_id)
     profile_context = profile.to_prompt_context()
-    system_prompt = build_voice_prompt(
+    # Memory blocks may hit Supabase — keep them off the event loop.
+    system_prompt = await asyncio.to_thread(
+        build_voice_prompt,
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=body.fen,
