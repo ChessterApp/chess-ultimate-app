@@ -253,7 +253,15 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         return {"error": "The knowledge base is empty on this server (hermes/content/topics)."}
     matches = kb.find_topics(topic, topics)
     if not matches:
-        return {"error": f"No topic matches {topic!r}. Call list_topics to see them."}
+        # The whole map in one go: with only "call list_topics" the model guessed
+        # names — five get_topic calls for "the Italian game" (bench 2026-09-28).
+        return {
+            "error": f"No topic matches {topic!r}.",
+            "topics": [{"slug": slug, "title": kb.title(t, locale)} for slug, t in topics.items()],
+            "hint": ("Call get_topic with one of these slugs only if it really is the subject. "
+                     "If none fits, answer without the knowledge base — do not call get_topic "
+                     "again for this question."),
+        }
     if len(matches) > 1 and matches[0]["slug"] != (topic or "").strip().lower():
         return {
             "ambiguous": True,

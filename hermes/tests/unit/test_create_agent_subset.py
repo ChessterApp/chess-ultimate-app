@@ -77,7 +77,7 @@ class TestCreateAgentSubset:
         names = {t["function"]["name"] for t in agent.tools}
         assert len(agent.tools) < len(FULL_TOOLS)
         assert len(agent.tools) <= 3 + len(CORE_TOOLS)
-        for core in CORE_TOOLS:
+        for core in CORE_TOOLS & {t["function"]["name"] for t in FULL_TOOLS}:
             assert core in names
         # Consistency invariant: validator matches the reduced tool set exactly.
         assert agent.valid_tool_names == names

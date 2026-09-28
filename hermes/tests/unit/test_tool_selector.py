@@ -57,7 +57,9 @@ def _names(decls):
 class TestSelectToolSubset:
     def test_core_always_present(self):
         subset = select_tool_subset(SAMPLE, "tell me about the weather", topk=3)
-        for core in CORE_TOOLS:
+        # Every core tool the declarations carry survives (a core tool absent from
+        # the declarations cannot be added).
+        for core in CORE_TOOLS & set(_names(SAMPLE)):
             assert core in _names(subset)
 
     def test_length_bounded_by_topk_plus_core(self):
@@ -119,7 +121,7 @@ def _oai_names(tools):
 class TestSelectOpenAIToolSubset:
     def test_core_always_present(self):
         subset = select_openai_tool_subset(OAI_SAMPLE, "tell me about the weather", topk=3)
-        for core in CORE_TOOLS:
+        for core in CORE_TOOLS & set(_oai_names(OAI_SAMPLE)):
             assert core in _oai_names(subset)
 
     def test_openai_shape_and_parameters_preserved(self):
