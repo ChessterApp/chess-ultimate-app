@@ -16,6 +16,7 @@ PY="${HERMES_PY:-$HERE/.venv/bin/python}"
 cd "$HERE"
 export HERMES_HOME="$HERE/profiles/chess-coach"
 export STOCKFISH_PATH="${STOCKFISH_PATH:-$(command -v stockfish || echo /opt/homebrew/bin/stockfish)}"
+export PUZZLES_DB_PATH="${PUZZLES_DB_PATH:-$HERE/data/puzzles.db}"
 export COACH_EMIT_USAGE=1
 export COACH_MODEL_DEFAULT="$MODEL" COACH_MODEL_FAST="$MODEL" COACH_MODEL_ANALYSIS="$MODEL" COACH_MODEL_DEEP="$MODEL"
 echo "coach on $MODEL → http://127.0.0.1:$PORT  (Ctrl-C to stop)"

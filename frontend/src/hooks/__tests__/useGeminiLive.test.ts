@@ -326,6 +326,76 @@ describe('useGeminiLive', () => {
     expect(g.session.sendClientContent).not.toHaveBeenCalled();
   });
 
+  // ---- [Engine] line ---------------------------------------------------------
+
+  // Token endpoint -> token; engine-note endpoint -> the supplied handler.
+  function engineFetch(noteFor: (fen: string) => Promise<any>) {
+    return vi.fn(async (url: string, opts: any) => {
+      if (url === '/api/coach/voice/engine-note') {
+        return noteFor(JSON.parse(opts.body).fen);
+      }
+      return {
+        ok: true,
+        json: async () => ({ token: 'auth_tokens/abc', model: 'gemini-3.8-live' }),
+      };
+    });
+  }
+  const noteTurn = (text: string) => ({
+    turns: [{ role: 'user', parts: [{ text }] }],
+    turnComplete: false,
+  });
+
+  it('follows each position with its [Engine] line when Hermes returns one', async () => {
+    const fetchMock = engineFetch(async (fen) => ({
+      ok: true,
+      json: async () => ({ note: `[Engine] ${fen} — Best: d4.` }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => 'INIT_FEN' }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    await waitFor(() =>
+      expect(g.session.sendClientContent).toHaveBeenCalledWith(noteTurn('[Engine] INIT_FEN — Best: d4.')),
+    );
+
+    await act(async () => {
+      result.current.sendBoardUpdate('NEW_FEN');
+    });
+    await waitFor(() =>
+      expect(g.session.sendClientContent).toHaveBeenCalledWith(noteTurn('[Engine] NEW_FEN — Best: d4.')),
+    );
+    // The same position again is not re-sent (no second engine request).
+    const noteCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => url === '/api/coach/voice/engine-note').length;
+    const before = noteCalls();
+    act(() => result.current.sendBoardUpdate('NEW_FEN'));
+    expect(noteCalls()).toBe(before);
+  });
+
+  it('drops an [Engine] line for a position the board has already left', async () => {
+    let releaseFirst: () => void = () => {};
+    const fetchMock = engineFetch((fen) =>
+      fen === 'INIT_FEN'
+        ? new Promise((resolve) => {
+            releaseFirst = () => resolve({ ok: true, json: async () => ({ note: '[Engine] stale' }) });
+          })
+        : Promise.resolve({ ok: false, status: 404, json: async () => ({}) }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => 'INIT_FEN' }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    act(() => result.current.sendBoardUpdate('NEW_FEN'));
+    await act(async () => {
+      releaseFirst();
+    });
+
+    const texts = g.session.sendClientContent.mock.calls.map((c: any[]) => c[0].turns[0].parts[0].text);
+    expect(texts).toEqual(['Current position (FEN): INIT_FEN', 'Current position (FEN): NEW_FEN']);
+  });
+
   // ---- Tool bridge (Phase 2) ----------------------------------------------
 
   // Route fetch: token endpoint -> token; tool endpoint -> supplied handler.
