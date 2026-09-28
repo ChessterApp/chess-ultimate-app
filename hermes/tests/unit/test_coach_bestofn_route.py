@@ -153,6 +153,38 @@ class TestFlagOnBestOfN:
     @patch("src.bestofn.evaluate_turn")
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
+    def test_winner_arrow_marks_go_to_the_board_not_the_text(
+        self, mock_profile, mock_agent, mock_eval, mock_judge, _log
+    ):
+        # Production, 2026-09-28: "[[arrows: f3g5 green]]" reached the student as text.
+        mock_profile.return_value = UserProfile(user_id="bon-user")
+        winner = "Ключ — удар по f7. [[arrows: f3g5 green]] После ...d5 белые бьют на d5."
+        mock_agent.side_effect = [_agent(winner), _agent(winner)]
+        mock_eval.return_value = {"status": "ok", "correctness_score": 0.9,
+                                  "illegal_move_rate": 0.0, "claims": [], "notes": []}
+        mock_judge.return_value = {"choice": 0, "reason": "same", "model": "cheap"}
+
+        with patch.object(config, "COACH_BESTOFN", True), \
+             patch.object(config, "COACH_BESTOFN_N", 2):
+            resp = self.client.post(
+                "/api/coach/chat", headers=USER_HEADERS,
+                json={"message": "Проанализируй эту позицию", "fen": FEN},
+            )
+
+        text, done = _deltas(resp)
+        assert done and "[[" not in text
+        assert text == "Ключ — удар по f7. После ...d5 белые бьют на d5."
+        frames = [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
+        arrows = [a for f in frames for a in f.get("board_actions", []) if a.get("type") == "draw_arrows"]
+        assert arrows and arrows[0]["arrows"] == [{"from": "f3", "to": "g5", "brush": "green"}]
+        session = session_store.get(frames[-1]["session_id"], "bon-user")
+        assert "[[" not in session.messages[-1].content
+
+    @patch("src.server.log_event")
+    @patch("src.bestofn.run_judge")
+    @patch("src.bestofn.evaluate_turn")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
     def test_flag_on_no_fen_takes_normal_path(
         self, mock_profile, mock_agent, mock_eval, mock_judge, _log
     ):

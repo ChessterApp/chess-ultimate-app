@@ -1084,11 +1084,27 @@ async def _bestofn_event_stream(
             exc=exc,
             model=model,
         )
-        yield _sse({"error": f"Agent error: {exc}"})
+        yield _sse({"error": _student_error_text(body.locale)})
         return
 
     latency_ms = int((time.monotonic() - turn_started) * 1000)
     response_text = result.text or "I wasn't able to generate a response. Please try again."
+    # The winner is buffered text: the live path's filters never saw it. Inline
+    # [[arrows: …]] marks reached the student as text (production, 2026-09-28)
+    # and so could the framework's stream notices.
+    for notice in _FRAMEWORK_STREAM_NOTICES:
+        response_text = re.sub(re.escape(notice) + r"[^\n]*", "", response_text)
+    response_text, mark_actions = strip_markup(response_text)
+    response_text = response_text.strip() or response_text
+    if mark_actions:
+        board = session.ensure_board()
+        for action in mark_actions:
+            action.setdefault("board_id", board.id)
+        try:
+            session.apply_board_actions(mark_actions, board_id=board.id)
+        except Exception:
+            logger.debug("applying board actions to the session board failed", exc_info=True)
+        yield _sse({"board_actions": mark_actions})
 
     # Stream the buffered winner as chunked deltas (client contract unchanged).
     for chunk in _chunk_text(response_text):
@@ -1407,10 +1423,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 bestofn_ready = False
 
             if bestofn_ready:
+                # The candidates get the turn's engine line too — without it each
+                # one called analyze_position itself (or answered without it).
+                note = await loop.run_in_executor(
+                    None, _await_engine_note, engine_future, engine_started, engine_state
+                )
+                bestofn_message = augmented_message
+                if note:
+                    bestofn_message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
                     session_id=session_id, session=session, body=body,
-                    augmented_message=augmented_message, user_id=user_id,
+                    augmented_message=bestofn_message, user_id=user_id,
                     turn_id=turn_id, prompt_version=prompt_version, evt_ctx=evt_ctx,
                     request=request, loop=loop,
                 ):

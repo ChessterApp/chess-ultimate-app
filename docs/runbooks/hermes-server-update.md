@@ -228,7 +228,7 @@ git push
 ```bash
 cd /root/hermes-chess && cp .env /root/hermes-update/env-before-$(cat /root/hermes-update/backup-ts)
 chmod 600 /root/hermes-update/env-before-*
-for v in HERMES_ADMIN_TOKEN WHOP_WEBHOOK_SECRET SUPABASE_URL SUPABASE_SERVICE_KEY OPENROUTER_API_KEY STOCKFISH_PATH COACH_TWO_STAGE; do
+for v in HERMES_ADMIN_TOKEN WHOP_WEBHOOK_SECRET SUPABASE_URL SUPABASE_SERVICE_KEY OPENROUTER_API_KEY STOCKFISH_PATH COACH_TWO_STAGE COACH_BESTOFN; do
   grep -q "^$v=" .env && echo "$v: задана" || echo "$v: нет"; done
 ```
 
@@ -246,6 +246,7 @@ for v in HERMES_ADMIN_TOKEN WHOP_WEBHOOK_SECRET SUPABASE_URL SUPABASE_SERVICE_KE
   его даёт владелец аккаунта Whop. Если совпадений нет (вебхуки идут не сюда), продолжай и отметь в отчёте.
 - `COACH_TWO_STAGE`: если задана `0`, быстрая реакция выключена. Не меняй, но отметь в отчёте:
   проверка 3 в этом случае покажет старое время.
+- `COACH_BESTOFN`: если задана `1`/`true`, вопросы с позицией на доске идут режимом «лучший из двух»: модель пишет два ответа, судья выбирает один, и он приходит целиком через 3–5 с, без первой фразы, примерно вдвое дороже. Не меняй, но выпиши значение в отчёт (строкой `COACH_BESTOFN=…`).
 - `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` / `STOCKFISH_PATH` уже должны быть. Если какой-то нет,
   отметь в отчёте, не придумывай значения.
 
@@ -414,6 +415,7 @@ for s in $(cat sid-after sid-before); do
 Репозиторий Hermes (вариант B): закоммичено и отправлено / нет прав на push
 OpenRouter: остаток $<…>, free tier <да/нет>
 Переменные: HERMES_ADMIN_TOKEN <создан/уже был>, WHOP_WEBHOOK_SECRET <задан/нет — вебхуки Whop сюда <идут/не идут>>
+COACH_BESTOFN=<значение или «не задана»>, COACH_TWO_STAGE=<значение или «не задана»>
 Миграции 016–019: применены / нужно применить вручную в Supabase SQL Editor
 База задач: собрана (<размер>) / не собрана (<почему>)
 Проверки:
