@@ -22,6 +22,11 @@ _COLORS = ("green", "red", "blue", "yellow")
 _MARK = re.compile(r"\[\[\s*(.*?)\s*\]\]", re.DOTALL)
 _KIND = re.compile(r"(arrows?|squares?|highlights?)\b\s*:?\s*", re.IGNORECASE)
 _COLOR_ONLY = re.compile(r"(?:green|red|blue|yellow)", re.IGNORECASE)
+# A tool call written out as text instead of made — «[[board_control: set_fen, fen="…"]]».
+_TOOLISH = re.compile(
+    r"(board_control|set_fen|load_pgn|set_puzzle|navigate|flip_board|clear_board|draw_arrows|highlight_squares)\b",
+    re.IGNORECASE,
+)
 # A bare [[…]] (no "arrows:" / "squares:") is ours only when it is this short.
 _BARE_MAX = 40
 _ARROW = re.compile(
@@ -87,8 +92,19 @@ class MarkupFilter:
                     self._emit(out, pre[: len(pre) - hold])
                     self._pending = rest
                 break
-            mark = self._pending[start:end + 2]
-            self._pending = self._pending[end + 2:]
+            # «arrows=[h5e5 red]]]»: brackets opened inside the mark close after its "]]".
+            mark_end = end + 2
+            unclosed = self._pending.count("[", start + 2, end) - self._pending.count("]", start + 2, end)
+            while unclosed > 0 and mark_end < len(self._pending) and self._pending[mark_end] == "]":
+                mark_end += 1
+                unclosed -= 1
+            if unclosed > 0 and mark_end == len(self._pending) and len(self._pending) - start <= MAX_MARK_CHARS:
+                hold = 1 if pre.endswith(" ") else 0
+                self._emit(out, pre[: len(pre) - hold])
+                self._pending = self._pending[start - hold:]
+                break  # the closing "]" may be in the next delta
+            mark = self._pending[start:mark_end]
+            self._pending = self._pending[mark_end:]
             parsed = self._parse(mark)
             if parsed is None:
                 self._emit(out, pre + mark)  # some other [[...]]: leave it in the text
@@ -125,6 +141,16 @@ class MarkupFilter:
         k = _KIND.match(body)
         if k:
             kind, body = k.group(1).lower(), body[k.end():]
+        elif _TOOLISH.match(body):
+            # Without thinking the model sometimes writes the call instead of making
+            # it. Its arrows / squares still count; a position change is dropped —
+            # set_fen comes only from tools.
+            if re.search(r"draw_arrows", body, re.IGNORECASE) and _ARROW.search(body):
+                kind = "arrows"
+            elif re.search(r"highlight", body, re.IGNORECASE) and _SQUARE.search(body):
+                kind = "squares"
+            else:
+                return {}
         elif _COLOR_ONLY.fullmatch(body.strip()):
             return {}
         elif len(body) <= _BARE_MAX and _ARROW.search(body):

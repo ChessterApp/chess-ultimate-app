@@ -63,6 +63,16 @@ class TestMarkupFilter:
             {"type": "highlight_squares", "squares": ["d5"], "color": "yellow"},
         ]
 
+    def test_a_tool_call_written_as_text_is_cut(self):
+        """Local run 2026-09-28: without thinking DeepSeek wrote the call instead of making it."""
+        text, actions = _run([
+            'Разберём защиту.\n\n[[board_control: set_fen, fen="rnbqkbnr/pppp1ppp/8/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 1 2"]]',
+            '\n\nФерзь бьёт e5 [[board_control: draw_arrows, arrows=[h5e5 red]]].',
+        ])
+        assert "[[" not in text and "board_control" not in text
+        assert text.startswith("Разберём защиту.") and text.endswith("Ферзь бьёт e5.")
+        assert actions == [{"type": "draw_arrows", "arrows": [{"from": "h5", "to": "e5", "brush": "red"}]}]
+
     def test_whole_text(self):
         clean, actions = strip_markup("x [[arrows: e2 e4]] y")
         assert clean == "x y" and actions[0]["arrows"][0]["to"] == "e4"
