@@ -12,6 +12,8 @@ import sqlite3
 
 from tools.registry import registry
 
+from src.tools._sqlite_budget import install_timeout, is_timeout
+
 from src.openings_book import get_book
 
 logger = logging.getLogger(__name__)
@@ -75,12 +77,19 @@ def _get_stats_from_db(eco, db_path: str = None) -> dict:
     codes = [eco] if isinstance(eco, str) else sorted(set(eco))
     conn = sqlite3.connect(path)
     try:
+        install_timeout(conn)
         marks = ",".join("?" * len(codes))
         cur = conn.execute(
             f"SELECT result, COUNT(*) FROM games WHERE eco IN ({marks}) GROUP BY result",
             codes,
         )
         rows = cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        if not is_timeout(exc):
+            raise
+        # The book part of the answer (name, moves) still goes out without numbers.
+        logger.warning("opening stats timed out for %s", codes)
+        rows = []
     finally:
         conn.close()
 

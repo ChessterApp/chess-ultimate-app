@@ -7,6 +7,8 @@ import sqlite3
 
 from tools.registry import registry
 
+from src.tools._sqlite_budget import TIMEOUT_ERROR, install_timeout, is_timeout
+
 logger = logging.getLogger(__name__)
 
 TWIC_DB_PATH = os.environ.get(
@@ -92,8 +94,15 @@ def get_player_openings(
 
     try:
         conn.row_factory = sqlite3.Row
+        # LIKE '%name%' over the games table: a full scan on the production DB.
+        install_timeout(conn)
         cur = conn.execute(query, params)
         rows = cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        if not is_timeout(exc):
+            raise
+        logger.warning("get_player_openings timed out for %r", player_name)
+        return {"error": TIMEOUT_ERROR, "player_name": player_name, "openings": []}
     finally:
         if own_conn:
             conn.close()
