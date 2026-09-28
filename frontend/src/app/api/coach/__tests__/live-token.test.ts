@@ -216,6 +216,31 @@ describe('POST /api/coach/live-token', () => {
     expect(configFromMint().sessionResumption).toEqual({});
   });
 
+  it('switches hidden thinking off by default, and COACH_LIVE_THINKING_BUDGET brings it back', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ tools: [] }) })) as any;
+    const { POST } = await import('../live-token/route');
+
+    const mintedThinking = async (budget: string | undefined) => {
+      createMock.mockClear();
+      if (budget === undefined) delete process.env.COACH_LIVE_THINKING_BUDGET;
+      else process.env.COACH_LIVE_THINKING_BUDGET = budget;
+      try {
+        await POST(makeRequest({ fen: 'somefen' }));
+        return configFromMint().thinkingConfig;
+      } finally {
+        delete process.env.COACH_LIVE_THINKING_BUDGET;
+      }
+    };
+
+    // A token budget, never a thinking level: gemini-3.8-live rejects levels.
+    expect(await mintedThinking(undefined)).toEqual({ thinkingBudget: 0 });
+    expect(await mintedThinking('512')).toEqual({ thinkingBudget: 512 });
+    expect(await mintedThinking('')).toBeUndefined();
+  });
+
   it('mints the token without tools (still 200) when the tools fetch fails', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';

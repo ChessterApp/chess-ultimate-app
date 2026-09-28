@@ -58,7 +58,7 @@ function parseArgs(argv) {
     tools: 'voice', // voice (prod allowlist) | all | none
     behavior: 'unset', // unset | blocking | nonblocking
     scheduling: 'unset', // unset | INTERRUPT | WHEN_IDLE | SILENT
-    thinking: 'unset', // unset | minimal | low ...
+    thinking: 'unset', // unset | minimal | low ... | a token budget (0 = off)
     hermes: 'http://127.0.0.1:8690',
     dataset: path.join(REPO, 'hermes/eval/datasets/voice_bench_v1.jsonl'),
     out: path.join(REPO, 'hermes/eval/bench', `${new Date().toISOString().slice(0, 10)}-voice`),
@@ -206,7 +206,13 @@ async function runCase(ai, args, tools, c, pcm) {
       },
     };
   }
-  if (args.thinking !== 'unset') config.thinkingConfig = { thinkingLevel: args.thinking };
+  // gemini-3.8-live rejects thinkingLevel (close 1007 "Thinking level is not
+  // supported for this model") but takes a token budget: --thinking 0.
+  if (args.thinking !== 'unset') {
+    config.thinkingConfig = /^\d+$/.test(String(args.thinking))
+      ? { thinkingBudget: Number(args.thinking) }
+      : { thinkingLevel: args.thinking };
+  }
 
   const rec = {
     id: c.id,

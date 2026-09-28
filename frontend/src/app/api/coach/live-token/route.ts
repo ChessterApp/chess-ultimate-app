@@ -21,6 +21,24 @@ const LIVE_MODEL = process.env.COACH_LIVE_MODEL || 'gemini-3.8-live';
 // sensitivity with that window, to try on live users.
 const LIVE_SILENCE_MS = Number(process.env.COACH_LIVE_SILENCE_MS) || 0;
 
+/**
+ * Hidden thinking before the coach speaks: off by default. gemini-3.8-live takes
+ * a token budget, not a thinking level (a level closes the socket with 1007
+ * "Thinking level is not supported"); gemini-3.1-flash-live-preview takes it too.
+ * Voice bench 2026-09-28 (13 questions): a zero budget brought the first sound
+ * from 1.77 to 1.42 s p50 and the answer after a tool from 4.0 to 2.5 s, and the
+ * coach named the engine's move instead of only asking back.
+ * COACH_LIVE_THINKING_BUDGET=<tokens> gives thinking back; an empty value leaves
+ * the model's default. Returns null for "leave the default".
+ */
+function liveThinkingBudget(raw = process.env.COACH_LIVE_THINKING_BUDGET): number | null {
+  if (raw === undefined) return 0;
+  const value = raw.trim();
+  if (!value) return null;
+  const budget = Number(value);
+  return Number.isInteger(budget) && budget >= 0 ? budget : 0;
+}
+
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
 // Voice persona, aligned with the Hermes text coach (profiles/chess-coach/SOUL.md):
@@ -521,6 +539,10 @@ export async function POST(request: Request) {
     }
     if (functionDeclarations.length > 0) {
       liveConfig.tools = [{ functionDeclarations }];
+    }
+    const thinkingBudget = liveThinkingBudget();
+    if (thinkingBudget !== null) {
+      liveConfig.thinkingConfig = { thinkingBudget };
     }
 
     const token = await ai.authTokens.create({
