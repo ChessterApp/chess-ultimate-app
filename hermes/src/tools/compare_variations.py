@@ -1,13 +1,12 @@
 """Tool: compare_variations — Stockfish multipv analysis comparing top lines."""
 
 import json
-import os
 import logging
 
 import chess
 
 from tools.registry import registry
-from src.tools.stockfish import analyze_position
+from src.tools.stockfish import DEFAULT_DEPTH, MAX_DEPTH, _bounded_int, analyze_position
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ COMPARE_SCHEMA = {
             },
             "depth": {
                 "type": "integer",
-                "description": "Search depth (default 20).",
+                "description": f"Search depth; leave unset (default {DEFAULT_DEPTH}, max {MAX_DEPTH}).",
             },
         },
         "required": ["fen"],
@@ -38,10 +37,6 @@ COMPARE_SCHEMA = {
 }
 
 DEFAULT_NUM_LINES = 3
-# Depth 20 costs ~6 s per position on the coach host and the model calls the engine
-# 2-5 times per turn (bench 2026-09-23); depth 16 is ~2 s with the same top move in
-# coaching positions. STOCKFISH_DEPTH overrides without a deploy.
-DEFAULT_DEPTH = int(os.environ.get("STOCKFISH_DEPTH", "16"))
 
 
 def compare_variations(
@@ -59,7 +54,7 @@ def compare_variations(
         return {"error": f"Invalid FEN: {fen}"}
 
     num_lines = max(1, min(num_lines, 10))
-    depth = max(1, min(depth, 30))
+    depth = max(1, min(depth, MAX_DEPTH))
 
     kwargs = {"fen": fen, "depth": depth, "multipv": num_lines}
     if stockfish_path:
@@ -90,8 +85,8 @@ def compare_variations(
 def _handle_compare_variations(args: dict, **kwargs) -> str:
     result = compare_variations(
         fen=args.get("fen", ""),
-        num_lines=args.get("num_lines", DEFAULT_NUM_LINES),
-        depth=args.get("depth", DEFAULT_DEPTH),
+        num_lines=_bounded_int(args.get("num_lines"), DEFAULT_NUM_LINES, 1, 10),
+        depth=_bounded_int(args.get("depth"), DEFAULT_DEPTH, 1, MAX_DEPTH),
     )
     return json.dumps(result, indent=2)
 

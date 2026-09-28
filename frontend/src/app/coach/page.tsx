@@ -526,6 +526,23 @@ export default function CoachPage() {
     [openedGames, activeGameId]
   );
 
+  // The position the chat asks about: the open master game's current move, else the board.
+  const chatFen =
+    activeGameId && activeGame
+      ? (gameMoveIndices[activeGameId] ?? -1) === -1
+        ? activeGame.startingFen
+        : activeGame.fens[gameMoveIndices[activeGameId]]
+      : board.fen;
+
+  // Warm Hermes' analysis of that position while the student looks at it, so a
+  // question about it starts from Stockfish's result. Not during a live game:
+  // the coach hints there and gets no engine line.
+  useEffect(() => {
+    if (gameLive || !chatFen) return;
+    const timer = setTimeout(() => coachApi.prewarmEngine(chatFen), 500);
+    return () => clearTimeout(timer);
+  }, [chatFen, gameLive]);
+
   // Open a game from chat results as a tab (persisted as a master_game board)
   const handleOpenGame = useCallback(async (game: GameResult) => {
     // If already open, just switch to that tab. A TWIC card is recognised by its
@@ -866,13 +883,7 @@ export default function CoachPage() {
         <div className="flex-1 lg:flex-none lg:w-[45%] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col min-h-0">
           <CoachChat
             ref={chatRef}
-            currentFen={
-              activeGameId && activeGame
-                ? ((gameMoveIndices[activeGameId] ?? -1) === -1
-                    ? activeGame.startingFen
-                    : activeGame.fens[gameMoveIndices[activeGameId]])
-                : board.fen
-            }
+            currentFen={chatFen}
             sessionId={sessionId}
             boardId={activeBoardId && !activeBoardId.startsWith('local-') ? activeBoardId : null}
             restoreHistory

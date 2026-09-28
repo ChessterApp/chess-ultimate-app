@@ -93,6 +93,9 @@ def _no_two_stage_by_default(monkeypatch):
     from src import config as _config
 
     monkeypatch.setattr(_config, "COACH_TWO_STAGE", False)
+    # Same for the turn's engine line: a real Stockfish run per route test with a
+    # FEN. Its tests switch it on and patch the engine.
+    monkeypatch.setattr(_config, "COACH_ENGINE_NOTE", False)
     yield
 
 

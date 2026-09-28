@@ -748,6 +748,23 @@ export default function useGeminiLive(
     }
   }, [reportMetric, ensureTurnId]);
 
+  // Gemini rarely marks a transcription `finished`, so an utterance also ends at
+  // the turn's edges: the student's when the coach starts answering (speech or a
+  // tool call), the coach's when its turn completes or is cut off. Without this
+  // every utterance of a call merged into one bubble and no voice line reached
+  // the session history — a reload lost the talk, the text coach never saw it.
+  const openUtterancesRef = useRef({ user: false, model: false });
+  const closeUtterance = useCallback((role: 'user' | 'model') => {
+    if (!openUtterancesRef.current[role]) return;
+    openUtterancesRef.current[role] = false;
+    optionsRef.current.onTranscript?.({
+      role,
+      text: '',
+      final: true,
+      turnId: turnIdRef.current ?? undefined,
+    });
+  }, []);
+
   const handleMessage = useCallback(
     (msg: LiveServerMessage) => {
       // Keep the latest resumable handle so we can reconnect after a drop.
@@ -757,6 +774,7 @@ export default function useGeminiLive(
       }
 
       if (msg.toolCall) {
+        closeUtterance('user');
         void handleToolCall(msg.toolCall);
       }
       if (msg.toolCallCancellation) {
@@ -783,24 +801,34 @@ export default function useGeminiLive(
       if (sc.inputTranscription?.text) {
         // A user utterance starts a turn; mint the id now so the transcript row
         // and the turn's events (tool_call, turn_end) share one turn_id.
+        const final = !!sc.inputTranscription.finished;
+        openUtterancesRef.current.user = !final;
         optionsRef.current.onTranscript?.({
           role: 'user',
           text: sc.inputTranscription.text,
-          final: !!sc.inputTranscription.finished,
+          final,
           turnId: ensureTurnId(),
         });
       }
       if (sc.outputTranscription?.text) {
+        closeUtterance('user');
+        const final = !!sc.outputTranscription.finished;
+        openUtterancesRef.current.model = !final;
         optionsRef.current.onTranscript?.({
           role: 'model',
           text: sc.outputTranscription.text,
-          final: !!sc.outputTranscription.finished,
+          final,
           turnId: turnIdRef.current ?? undefined,
         });
       }
 
       if (sc.interrupted) {
         flushPlayback();
+        closeUtterance('model');
+      }
+      if (sc.turnComplete) {
+        closeUtterance('user');
+        closeUtterance('model');
       }
 
       const parts = sc.modelTurn?.parts;
@@ -813,7 +841,7 @@ export default function useGeminiLive(
         }
       }
     },
-    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId],
+    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance],
   );
 
   const fail = useCallback(

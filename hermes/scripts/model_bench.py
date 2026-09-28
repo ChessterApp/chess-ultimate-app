@@ -76,13 +76,26 @@ def normalize_notation(text: str) -> str:
 
 
 # ── one request ───────────────────────────────────────────────────────────
-async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: float) -> dict:
+async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: float,
+                   prewarm: float = 0.0) -> dict:
     body = {"message": case["message"], "locale": case.get("locale") or "ru"}
     if case.get("fen"):
         body["fen"] = case["fen"]
+        if prewarm:
+            # What the coach page does when a position appears: analyse it while
+            # the student looks at it; the question comes *prewarm* seconds later.
+            try:
+                await client.post(f"{base}/api/coach/voice/engine-note", json={"fen": case["fen"]},
+                                  headers={"X-User-Id": "bench"}, timeout=prewarm + 10)
+            except Exception:
+                pass
     text, tools, usage, error, board_actions = [], [], None, None, []
     t0 = time.monotonic()
     ttft = None
+    # Two-stage replies: the reaction streams between {"stage": "quick"} and
+    # {"stage": "answer"}; everything else is the answer. answer_first is what the
+    # student waits for — the first word of the real answer.
+    in_quick, quick_first, answer_first = False, None, None
     try:
         async with client.stream("POST", f"{base}/api/coach/chat", json=body,
                                  headers={"X-User-Id": "bench"}, timeout=timeout) as r:
@@ -93,16 +106,25 @@ async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: fl
                     if not line.startswith("data:"):
                         continue
                     d = json.loads(line[5:])
-                    if "delta" in d:
-                        if ttft is None and d["delta"].strip():
-                            ttft = time.monotonic() - t0
+                    now = time.monotonic() - t0
+                    if "stage" in d:
+                        in_quick = d["stage"] == "quick"
+                    elif "delta" in d:
+                        if d["delta"].strip():
+                            if ttft is None:
+                                ttft = now
+                            if in_quick and quick_first is None:
+                                quick_first = now
+                            if not in_quick and answer_first is None:
+                                answer_first = now
                         text.append(d["delta"])
                     elif "tool_call" in d:
-                        tools.append({"tool": d["tool_call"], "ok": None})
+                        tools.append({"tool": d["tool_call"], "ok": None, "t_start": round(now, 2)})
                     elif "tool_result" in d:
                         for t in reversed(tools):
                             if t["tool"] == d["tool_result"]["tool"] and t["ok"] is None:
                                 t["ok"] = d["tool_result"]["ok"]
+                                t["t_end"] = round(now, 2)
                                 break
                     elif "usage" in d:
                         usage = d["usage"]
@@ -116,6 +138,8 @@ async def run_case(client: httpx.AsyncClient, base: str, case: dict, timeout: fl
     return {
         "id": case["id"], "kind": case["kind"], "text": "".join(text), "tools": tools,
         "usage": usage, "error": error, "ttft_s": round(ttft, 2) if ttft else None,
+        "quick_s": round(quick_first, 2) if quick_first else None,
+        "answer_s": round(answer_first, 2) if answer_first else None,
         "total_s": round(total, 2), "board_actions": len(board_actions),
     }
 
@@ -132,7 +156,10 @@ def score(case: dict, res: dict, stockfish: str, depth: int) -> dict:
     called = [t["tool"] for t in res["tools"]]
     s["tools_called"] = called
     s["tool_failures"] = [t["tool"] for t in res["tools"] if t["ok"] is False]
-    s["engine_called"] = any(t in ENGINE_TOOLS for t in called)
+    # The turn's engine line (COACH_ENGINE_NOTE) is Stockfish's output too.
+    engine_note = ((res.get("usage") or {}).get("engine_note") or {}).get("used")
+    s["engine_note"] = bool(engine_note)
+    s["engine_called"] = any(t in ENGINE_TOOLS for t in called) or s["engine_note"]
     expect = set(case.get("expect_tools") or [])
     s["expected_tool_hit"] = (not expect) or bool(expect & set(called))
 
@@ -175,10 +202,17 @@ def start_server(model: str, port: int, log_path: Path) -> subprocess.Popen:
     env.update({
         "HERMES_HOME": str(ROOT / "profiles" / "chess-coach"),
         "COACH_EMIT_USAGE": "1",
-        "COACH_MODEL_DEFAULT": model, "COACH_MODEL_FAST": model,
-        "COACH_MODEL_ANALYSIS": model, "COACH_MODEL_DEEP": model,
     })
+    # "prod" keeps the routing of config.yaml (what students get); any other
+    # value pins every tier to that one model.
+    if model != "prod":
+        env.update({
+            "COACH_MODEL_DEFAULT": model, "COACH_MODEL_FAST": model,
+            "COACH_MODEL_ANALYSIS": model, "COACH_MODEL_DEEP": model,
+        })
     env.setdefault("STOCKFISH_PATH", "/opt/homebrew/bin/stockfish")
+    if (ROOT / "data" / "puzzles.db").exists():
+        env.setdefault("PUZZLES_DB_PATH", str(ROOT / "data" / "puzzles.db"))
     log = open(log_path, "w")
     return subprocess.Popen([sys.executable, "-m", "uvicorn", "src.server:app", "--port", str(port),
                              "--log-level", "warning"], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -198,7 +232,8 @@ async def wait_health(base: str, seconds: int = 60) -> bool:
 
 
 async def bench_model(model: str, cases: list, port: int, out_dir: Path, concurrency: int,
-                      timeout: float, stockfish: str, depth: int, repeat: int) -> list:
+                      timeout: float, stockfish: str, depth: int, repeat: int,
+                      prewarm: float = 0.0) -> list:
     tag = model.replace("/", "__")
     proc = start_server(model, port, out_dir / f"{tag}.server.log")
     base = f"http://127.0.0.1:{port}"
@@ -210,13 +245,14 @@ async def bench_model(model: str, cases: list, port: int, out_dir: Path, concurr
 
         async def one(case, rep):
             async with sem:
-                res = await run_case(client, base, case, timeout)
+                res = await run_case(client, base, case, timeout, prewarm)
                 res["rep"] = rep
                 res["model"] = model
                 res["score"] = score(case, res, stockfish, depth)
                 results.append(res)
                 mark = "ERR " if res["error"] else ("ok  " if res["score"]["lang_ok"] else "LANG")
-                print(f"  {mark} {case['id']:12s} {res['total_s']:6.1f}s ttft={res['ttft_s']} "
+                print(f"  {mark} {case['id']:12s} {res['total_s']:6.1f}s quick={res['quick_s']} "
+                      f"answer={res['answer_s']} "
                       f"tools={[t['tool'] for t in res['tools']]} cost={res['score']['cost_usd']}"
                       + (f"  !! {res['error'][:120]}" if res["error"] else ""), flush=True)
 
@@ -250,6 +286,8 @@ def summarize(all_results: dict, cases: list) -> str:
         need_engine = [r for r in ok if ENGINE_TOOLS & set(by_id[r["id"]].get("expect_tools") or [])]
         lat = sorted(r["total_s"] for r in ok)
         ttft = sorted(r["ttft_s"] for r in ok if r["ttft_s"])
+        quick = sorted(r["quick_s"] for r in ok if r.get("quick_s"))
+        answer = sorted(r["answer_s"] for r in ok if r.get("answer_s"))
         cost = [r["score"]["cost_usd"] for r in ok if r["score"]["cost_usd"] is not None]
         p = lambda xs, q: (xs[min(len(xs) - 1, int(q * len(xs)))] if xs else None)
         rows.append({
@@ -265,7 +303,10 @@ def summarize(all_results: dict, cases: list) -> str:
             "illegal/claims": f"{illegal}/{claims}",
             "correctness": round(sum(corr) / len(corr), 2) if corr else None,
             "traps": f"{sum(1 for s in sc if s.get('trap_caught'))}/{sum(1 for s in sc if 'trap_caught' in s)}",
-            "ttft_p50": p(ttft, 0.5), "total_p50": p(lat, 0.5), "total_p90": p(lat, 0.9),
+            "ttft_p50": p(ttft, 0.5), "quick_p50": p(quick, 0.5),
+            "answer_p50": p(answer, 0.5), "answer_p90": p(answer, 0.9),
+            "total_p50": p(lat, 0.5), "total_p90": p(lat, 0.9),
+            "tools_avg": round(sum(len(r["tools"]) for r in ok) / max(len(ok), 1), 1),
             "cost_p50": round(p(cost, 0.5), 4) if cost else None,
             "cost_sum": round(sum(cost), 3) if cost else None,
             "iters_avg": round(sum((r["usage"] or {}).get("iterations") or 0 for r in ok) / max(len(ok), 1), 1),
@@ -274,6 +315,23 @@ def summarize(all_results: dict, cases: list) -> str:
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for r in rows:
         lines.append("| " + " | ".join(str(r[c]) for c in cols) + " |")
+
+    # Wait per kind of question: what the student sees for "best move" differs a lot
+    # from a whole-game review.
+    lines += ["", "| model | kind | n | quick_p50 | answer_p50 | answer_max | total_p50 | tools_avg |",
+              "|---|---|---|---|---|---|---|---|"]
+    for model, rs in all_results.items():
+        by_kind = defaultdict(list)
+        for r in rs:
+            if not r["error"]:
+                by_kind[r["kind"]].append(r)
+        for kind, krs in sorted(by_kind.items()):
+            q = sorted(r["quick_s"] for r in krs if r.get("quick_s"))
+            a = sorted(r["answer_s"] for r in krs if r.get("answer_s"))
+            t = sorted(r["total_s"] for r in krs)
+            med = lambda xs: xs[len(xs) // 2] if xs else None
+            lines.append(f"| {model} | {kind} | {len(krs)} | {med(q)} | {med(a)} | {a[-1] if a else None} "
+                         f"| {med(t)} | {round(sum(len(r['tools']) for r in krs) / len(krs), 1)} |")
     return "\n".join(lines)
 
 
@@ -289,6 +347,8 @@ def main():
     ap.add_argument("--timeout", type=float, default=240)
     ap.add_argument("--port-base", type=int, default=8660)
     ap.add_argument("--depth", type=int, default=16, help="Stockfish depth for grading")
+    ap.add_argument("--prewarm", type=float, default=0.0,
+                    help="analyse each case's position first, as the coach page does (timeout, s)")
     args = ap.parse_args()
 
     from src.config import load_env
@@ -316,7 +376,7 @@ def main():
         t0 = time.time()
         all_results[model] = asyncio.run(bench_model(
             model, cases, args.port_base + i, out_dir, args.concurrency, args.timeout,
-            stockfish, args.depth, args.repeat))
+            stockfish, args.depth, args.repeat, args.prewarm))
         print(f"  done in {time.time() - t0:.0f}s")
     table = summarize(all_results, cases)
     (out_dir / "summary.md").write_text(table + "\n", encoding="utf-8")

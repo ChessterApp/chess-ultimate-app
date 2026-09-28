@@ -7,11 +7,13 @@ backed by Hermes AIAgent with the chess coach persona.
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
 import uuid
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from typing import Any, Optional
 
@@ -36,11 +38,16 @@ from src.config import (
 # silently degrades to in-memory (sessions would not survive restarts).
 load_env()
 
-from src.middleware.response_envelope import wrap_response  # noqa: E402
+from src.middleware.response_envelope import (  # noqa: E402
+    extract_board_actions,
+    tool_board_actions,
+    wrap_response,
+)
 from src.middleware.rate_limiter import (  # noqa: E402
     enforce_rate_limit,
     rate_limiter,
     voice_token_rate_limiter,
+    voice_tool_rate_limiter,
     get_user_tier,
     DEFAULT_TIER,
 )
@@ -50,6 +57,7 @@ from src.prompt_builder import (
     attach_turn_context,
     build_system_prompt,
     build_voice_prompt,
+    engine_note_block,
     get_prompt_version,
 )
 from src.event_logger import log_event, new_turn_id
@@ -82,6 +90,8 @@ from src.voice_metrics import (
     sanitize_metric,
 )
 from src.voice_quota import voice_quota_ledger
+from src.voice_engine_note import engine_note
+from src.board_markup import MarkupFilter, strip_markup
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -373,10 +383,11 @@ def _create_agent(
             "api_key": api_key,
             "base_url": OPENROUTER_BASE_URL,
         }
-    if config.COACH_REASONING_EFFORT:
-        # The framework only forwards this for reasoning-capable families and
-        # drops it elsewhere, so it is safe to pass for every model.
-        agent_kwargs["reasoning_config"] = {"effort": config.COACH_REASONING_EFFORT}
+    reasoning = _reasoning_config(model)
+    if reasoning is not None:
+        agent_kwargs["reasoning_config"] = reasoning
+    if config.COACH_PROVIDER_SORT:
+        agent_kwargs["provider_sort"] = config.COACH_PROVIDER_SORT
     agent = AIAgent(**agent_kwargs)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;
@@ -467,6 +478,21 @@ def _record_turn_usage(
     return thread
 
 
+def _reasoning_config(model: str) -> Optional[dict]:
+    """The reasoning setting sent with *model*, or None to leave the framework's own.
+
+    The framework only forwards it for reasoning-capable families and drops it
+    elsewhere. Claude answers without extended thinking: with nothing sent the
+    framework switches thinking ON at medium effort, and the whole point of a
+    Claude tier is an answer in ~2 s (bench 2026-09-27: Haiku 4.5 without
+    thinking started answering at 3.6 s p50, DeepSeek with low reasoning 12.5 s).
+    """
+    effort = config.COACH_REASONING_EFFORT
+    if (model or "").startswith("anthropic/") or (effort and effort.lower() in ("none", "off")):
+        return {"enabled": False}
+    return {"effort": effort} if effort else None
+
+
 def _turn_fallback_model(routed_model: str) -> Optional[str]:
     """Fallback for this turn, or ``None`` when failover is switched off."""
     if not config.COACH_MODEL_FALLBACK_ENABLED:
@@ -480,6 +506,33 @@ def _served_model(agent, routed_model: str) -> str:
     if isinstance(served, str) and served:
         return served
     return routed_model
+
+
+# Engine lines for text turns run here, not on the default executor that also
+# carries the agent and the reaction; engine_note itself caps parallel engines.
+_engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note")
+
+
+def _await_engine_note(future, started: float, state: dict) -> Optional[dict]:
+    """The turn's engine line, waiting at most COACH_ENGINE_NOTE_WAIT_MS from *started*.
+
+    Runs on the agent's executor thread. A late or failed analysis never blocks
+    the turn: the agent starts without it and can still call the engine itself.
+    """
+    if future is None:
+        return None
+    budget = config.COACH_ENGINE_NOTE_WAIT_MS / 1000.0 - (time.monotonic() - started)
+    try:
+        note = future.result(timeout=max(0.0, budget))
+    except FutureTimeout:
+        state["timed_out"] = True
+        return None
+    except Exception:  # noqa: BLE001 — the engine line is best-effort
+        logger.debug("engine note failed", exc_info=True)
+        return None
+    state["ms"] = int((time.monotonic() - started) * 1000)
+    state["used"] = bool(note)
+    return note
 
 
 # When the framework exhausts its retries (and any fallback) it RETURNS the
@@ -1169,6 +1222,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             media_type="text/event-stream",
         )
 
+    # The engine line (see config.COACH_ENGINE_NOTE): Stockfish starts now and runs
+    # while the profile loads, the prompt is built and the reaction streams. Not
+    # during a live game — the coach must hint there, not hold the best move.
+    engine_started = time.monotonic()
+    engine_future = None
+    if config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game:
+        engine_future = _engine_pool.submit(
+            engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
+        )
+    engine_state = {"used": False, "ms": None, "timed_out": False}
+
     profile = load_user_profile(user_id)
     # Static persona/tool guidance stays in the system prompt (cacheable);
     # date, profile, memory and board state travel in the user message.
@@ -1282,6 +1346,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # Per-turn state used by the coach_events instrumentation below.
         tool_starts: dict = {}
         partial_parts: list[str] = []
+        answer_parts: list[str] = []  # the answer stage's deltas, as streamed
+        markup = MarkupFilter()
         streamed_chars = 0
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -1367,6 +1433,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 tool_name, str(args)[:200], str(result)[:200],
             )
             tool_results.append(result)
+            # The board changes go out the moment the tool finishes: the arrows
+            # of an answer used to reach the student only when the whole turn was
+            # over, seconds after the text that talks about them.
+            actions = tool_board_actions(result)
+            if actions:
+                loop.call_soon_threadsafe(queue.put_nowait, ("board_actions", actions))
             started = tool_starts.pop(tool_call_id, None)
             duration_ms = int((time.monotonic() - started) * 1000) if started else None
             ok, error_code, payload = _tool_call_payload(tool_name, args, result)
@@ -1396,7 +1468,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         def _run():
             try:
-                result = agent.chat(augmented_message, stream_callback=_on_delta)
+                # Waits on this executor thread, so the reaction keeps streaming.
+                note = _await_engine_note(engine_future, engine_started, engine_state)
+                message = augmented_message
+                if note:
+                    message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
@@ -1410,6 +1487,18 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         result_text = None
         error_exc = None
         main_done = False
+
+        def _board_frame(actions: list) -> str:
+            """Apply *actions* to the session's board record (so the position survives
+            a reload) and frame them, each tagged with the board (tab) it hit."""
+            try:
+                for action in actions:
+                    if isinstance(action, dict):
+                        action.setdefault("board_id", active_board.id)
+                session.apply_board_actions(actions, board_id=active_board.id)
+            except Exception:
+                logger.debug("applying board actions to the session board failed", exc_info=True)
+            return _sse({"board_actions": actions})
 
         def _finish_quick():
             """Close the reaction stage: separator + stage marker if it was shown."""
@@ -1456,7 +1545,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             yield frame
                 elif kind == "delta":
                     streamed_any = True
+                    # Inline [[arrows: …]] / [[squares: …]] marks become board
+                    # actions now and never reach the text (src/board_markup.py).
+                    payload, mark_actions = markup.feed(payload)
+                    for action in mark_actions:
+                        yield _board_frame([action])
+                    if not payload:
+                        continue
                     partial_parts.append(payload)
+                    answer_parts.append(payload)
                     streamed_chars += len(payload)
                     if quick["finished"]:
                         payload = _answer_delta(payload)
@@ -1474,10 +1571,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
                     yield _sse({"tool_result": payload})
+                elif kind == "board_actions":
+                    yield _board_frame(payload)
                 elif kind == "result":
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
+            # An unfinished "[[" at the very end was not a mark after all.
+            tail = markup.flush()
+            if tail:
+                partial_parts.append(tail)
+                answer_parts.append(tail)
+                tail = _answer_delta(tail)
+                if tail:
+                    yield _sse({"delta": tail})
             await future  # ensure the executor thread has fully unwound
             if quick_future is not None and quick["reply"] is not None:
                 await quick_future
@@ -1621,9 +1728,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # turn), fall back to emitting the completed text as a single delta so the
         # concatenated deltas always reconstruct the full assistant message.
         if not streamed_any:
+            answer_text, mark_actions = strip_markup(answer_text)
+            for action in mark_actions:
+                yield _board_frame([action])
             yield _sse({"delta": answer_text})
 
-        # What the student saw, as one message: reaction, blank line, answer.
+        # What the student saw, as one message: reaction, blank line, answer. Text
+        # the model writes alongside a tool call streams too but is not part of
+        # the final message, so the stored answer is the streamed one.
+        streamed_answer = re.sub(r"<think>.*?</think>\s*", "", "".join(answer_parts), flags=re.DOTALL).strip()
+        if streamed_any and streamed_answer:
+            answer_text = streamed_answer
         response_text = f"{quick_text}\n\n{answer_text}" if quick_text else answer_text
 
         # Record real token usage for this turn (fire-and-forget; never blocks)
@@ -1654,6 +1769,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
+                "engine_note": dict(engine_state),
                 "quick": {
                     "model": quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),
@@ -1678,6 +1794,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "finish_reason": finish_reason,
                 "routed_model": model,
                 "quick_shown": bool(quick_text),
+                "engine_note": dict(engine_state),
             },
         )
 
@@ -1702,18 +1819,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         envelope = wrap_response(answer_text, tool_results=tool_results)
 
-        board_actions = envelope.get("board_actions", [])
-        if board_actions:
-            # Apply to the session's board record so the position survives a
-            # reload, and tell the client which board (tab) each action hit.
-            try:
-                for action in board_actions:
-                    if isinstance(action, dict):
-                        action.setdefault("board_id", active_board.id)
-                session.apply_board_actions(board_actions, board_id=active_board.id)
-            except Exception:
-                logger.debug("applying board actions to the session board failed", exc_info=True)
-            yield _sse({"board_actions": board_actions})
+        # The tools' board actions went out as each tool finished; only actions
+        # written into the answer text itself are left.
+        _, text_actions = extract_board_actions(answer_text)
+        if text_actions:
+            yield _board_frame(text_actions)
 
         game_results = envelope.get("game_results", [])
         if game_results:
@@ -2028,6 +2138,10 @@ class VoicePromptRequest(BaseModel):
     tools_available: bool = True
 
 
+class VoiceEngineNoteRequest(BaseModel):
+    fen: str
+
+
 class VoiceHeartbeatRequest(BaseModel):
     user_id: str
     session_id: str
@@ -2089,6 +2203,24 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
         tools_available=body.tools_available,
     )
     return {"system_prompt": system_prompt, "profile_context": profile_context}
+
+
+@app.post("/api/coach/voice/engine-note")
+async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request):
+    """Stockfish's top moves for a board position, as one line for the live voice session.
+
+    The browser calls this whenever the board changes during a voice session and
+    passes the note into Gemini Live, so questions about the current position
+    are answered without a tool round trip (see src/voice_engine_note.py).
+    Same per-user limiter as voice tool calls. 422 when the FEN is not a legal
+    position or the engine fails — the client simply sends no note.
+    """
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    note = await asyncio.to_thread(engine_note, body.fen)
+    if note is None:
+        raise HTTPException(status_code=422, detail="position cannot be analysed")
+    return note
 
 
 def _session_summary(s) -> dict:

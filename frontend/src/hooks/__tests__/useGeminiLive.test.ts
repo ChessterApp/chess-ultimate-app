@@ -210,6 +210,36 @@ describe('useGeminiLive', () => {
     expect(() => act(() => result.current.disconnect())).not.toThrow();
   });
 
+  it('transcripts: utterances close at the turn edges when Gemini never marks them finished', async () => {
+    // Local run 2026-09-28: no transcription ever came with `finished`, so every
+    // utterance of a call merged into one bubble and none reached the history.
+    vi.stubGlobal('fetch', tokenOk());
+    const onTranscript = vi.fn();
+    const { result } = renderHook(() => useGeminiLive({ onTranscript }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    const send = (m: unknown) => act(() => g.connectArgs.value.callbacks.onmessage(m));
+
+    send({ serverContent: { inputTranscription: { text: 'Покажи французскую' } } });
+    send({ serverContent: { outputTranscription: { text: 'Французская защита' } } });
+    send({ serverContent: { outputTranscription: { text: ' — это e4 e6.' } } });
+    send({ serverContent: { turnComplete: true } });
+    send({ serverContent: { inputTranscription: { text: 'А план?' } } });
+    send({ toolCall: { functionCalls: [] } });
+
+    const calls = onTranscript.mock.calls.map(([t]) => `${t.role}:${t.final ? 'final' : 'part'}:${t.text}`);
+    expect(calls).toEqual([
+      'user:part:Покажи французскую',
+      'user:final:', // the coach started answering
+      'model:part:Французская защита',
+      'model:part: — это e4 e6.',
+      'model:final:', // turn complete
+      'user:part:А план?',
+      'user:final:', // the coach answers with a tool
+    ]);
+  });
+
   it('barge-in: high-RMS worklet message while speaking flushes playback and returns to listening', async () => {
     vi.stubGlobal('fetch', tokenOk());
     const { result } = renderHook(() => useGeminiLive());

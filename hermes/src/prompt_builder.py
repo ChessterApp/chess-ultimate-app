@@ -11,6 +11,7 @@ Assembles the full system prompt for the AI agent from:
 import hashlib
 import logging
 import threading
+import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Optional
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "4"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26)
+PROMPT_TEMPLATE_VERSION = "6"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -110,6 +111,13 @@ def _resolve_board_analysis(fen: str) -> Optional[str]:
     return analysis
 
 
+# The fetch runs inside the prompt build, before the reaction can start: a CCP
+# service that hangs would add MASTRA_CCP_TIMEOUT to every turn with a board.
+# After a timeout the local port is used alone for a while.
+_CCP_TIMEOUT_BACKOFF_S = 600.0
+_ccp_skip_until = 0.0
+
+
 def _fetch_ccp_analysis(fen: str) -> Optional[str]:
     """Fetch board analysis from the Mastra CCP HTTP service.
 
@@ -118,14 +126,23 @@ def _fetch_ccp_analysis(fen: str) -> Optional[str]:
     on any non-200 response, timeout, connection error, or malformed body so the
     caller can fall back to the local Python port.
     """
+    global _ccp_skip_until
+    if time.monotonic() < _ccp_skip_until:
+        return None
     try:
         import httpx
 
         from src.config import MASTRA_CCP_URL, MASTRA_CCP_TIMEOUT
 
-        resp = httpx.post(
-            MASTRA_CCP_URL, json={"fen": fen}, timeout=MASTRA_CCP_TIMEOUT
-        )
+        try:
+            resp = httpx.post(
+                MASTRA_CCP_URL, json={"fen": fen}, timeout=MASTRA_CCP_TIMEOUT
+            )
+        except httpx.TimeoutException:
+            _ccp_skip_until = time.monotonic() + _CCP_TIMEOUT_BACKOFF_S
+            logger.warning("Mastra CCP timed out; local board analysis only for %.0f s",
+                           _CCP_TIMEOUT_BACKOFF_S)
+            return None
         if resp.status_code != 200:
             return None
         data = resp.json()
@@ -231,16 +248,20 @@ def build_system_prompt(
         "get_topic / get_lesson, which put them on the board themselves.\n"
         "- **load_pgn**: Load a full game on the board. Use when referencing master games "
         "so the student can replay the moves.\n"
-        "- **draw_arrows**: Highlight key lines, threats, and tactical patterns. "
-        "Use green for good moves, red for threats, blue for alternatives.\n"
-        "- **highlight_squares**: Mark important squares — outposts, weak squares, "
-        "targets, key central squares.\n"
         "- **set_puzzle**: Present a tactical puzzle. ALWAYS take it from get_puzzle "
         "(theme + the student's rating) and pass its puzzle_id — never invent a puzzle "
         "position or solution.\n"
         "- **navigate**: Move forward/back through a loaded game.\n"
         "- **flip_board**: Flip the board perspective.\n"
         "- **clear_board**: Reset the board.\n\n"
+        "ARROWS AND HIGHLIGHTS GO INSIDE YOUR ANSWER, not through board_control: write "
+        "[[arrows: e2e4 green, g1f3 blue]] or [[squares: d5 e5]] in the text where they "
+        "belong — green for good moves, red for threats, blue for alternatives; squares for "
+        "outposts, weak squares, targets. They appear on the board as your text streams and "
+        "the student never sees the brackets. Only these two forms go in double brackets — "
+        "never a colour or a move alone like [[red]]. Every board_control call makes the student "
+        "wait for a whole extra step, so call it only to change the position itself, all "
+        "such changes in one step.\n\n"
         "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
         "shows an unrelated position, call get_topic FIRST — it puts a verified example on "
         "the board (the site's own lesson when there is one) — then explain exactly that "
@@ -276,9 +297,13 @@ def build_system_prompt(
         "explaining. list_topics shows the whole map when "
         "the student asks what they could learn. Never invent example positions.\n\n"
         "### analyze_position\n"
-        "Use Stockfish for position evaluation.\n\n"
+        "Use Stockfish for position evaluation. When the turn context has an \"Engine "
+        "analysis of the board\" block, that IS Stockfish's result for the current "
+        "position: answer from it and do not call analyze_position for that position "
+        "again — call the engine only for a different position or a deeper look at a "
+        "specific line.\n\n"
         "### check_moves\n"
-        "Verify any specific move you suggest that did not come from "
+        "Verify any specific move you suggest that did not come from the engine block or "
         "analyze_position/compare_variations output with check_moves before "
         "recommending it — never suggest an illegal move.\n\n"
         "CRITICAL: Your training data is outdated. The database has games "
@@ -428,6 +453,17 @@ def attach_turn_context(message: str, turn_context: str) -> str:
     if not turn_context:
         return message
     return f"{message}\n\n{TURN_CONTEXT_HEADER}\n{turn_context}"
+
+
+def engine_note_block(note: str) -> str:
+    """The turn's engine line (src/voice_engine_note.py) as a turn-context block."""
+    return (
+        "## Engine analysis of the board\n"
+        f"{note}\n"
+        "Stockfish already analysed the current position for this turn; the moves are legal "
+        "as written. Answer from it — do not call analyze_position or check_moves for these "
+        "moves, and write any arrows as [[arrows: …]] marks in the answer itself."
+    )
 
 
 # Spoken-style adaptation layer: turns the shared SOUL persona into a live-voice
