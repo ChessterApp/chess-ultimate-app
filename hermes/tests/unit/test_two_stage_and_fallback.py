@@ -389,7 +389,17 @@ class TestReactionPolish:
         monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
         mock_profile.return_value = UserProfile(user_id="two-stage-user")
         mock_agent.return_value = _agent(reply="Привет! Чем займёмся?", delay=0.1)
-        with patch("src.quick_reply.stream_quick_reply", _quick()) as quick:
+
+        # A greeting takes the small-talk path, a real OpenRouter call unless
+        # patched (it used to spend the key in hermes/.env and failed without one).
+        def _small_talk(*, model, on_delta=None, **kwargs):
+            from src.quick_reply import QuickReply
+
+            on_delta("Привет! Чем займёмся?")
+            return QuickReply(text="Привет! Чем займёмся?", model=model)
+
+        with patch("src.quick_reply.stream_quick_reply", _quick()), \
+                patch("src.quick_reply.stream_completion", _small_talk):
             resp = self.client.post("/api/coach/chat", headers=USER, json={"message": "Привет!"})
         frames = _frames(resp.text)
         assert _stages(frames) == []

@@ -176,6 +176,13 @@ COACH_EMIT_USAGE = _env_flag("COACH_EMIT_USAGE", False)
 # the engine grader's correctness 0.61 against 0.55 for production before.
 # COACH_REASONING_EFFORT=low brings the thinking back.
 COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "none").strip()
+# Thinking level for Gemini 3 models (the deep tier: game reviews, the fallback).
+# The framework forwards reasoning settings only to "google/gemini-2*", so Gemini
+# 3.8 Flash thought at its default on every step of a review — ~8 s per call
+# against ~3 s at "minimal" (2026-09-28, OpenRouter). Gemini 3 cannot switch
+# thinking off ("Reasoning is mandatory", HTTP 400), so "none" means "minimal".
+# Empty string = the provider's default.
+COACH_GEMINI_REASONING_EFFORT = os.environ.get("COACH_GEMINI_REASONING_EFFORT", "minimal").strip()
 # OpenRouter provider order for the coach's calls: "throughput" / "latency" / "price";
 # empty = OpenRouter's default, which leans to the cheapest providers. For DeepSeek
 # V4.1 Flash those run several times slower and some serve an fp4-compressed
@@ -183,6 +190,24 @@ COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "none").strip(
 # "throughput" (Together), and 36 bench turns still cost $0.13-0.19 by the balance.
 COACH_PROVIDER_SORT = os.environ.get("COACH_PROVIDER_SORT", "throughput").strip()
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
+
+# Answer length. "full" (default) leaves it to the persona (SOUL.md) — answers of
+# 400–1300 tokens, 3–5 s to stream in full after the first word. "brief" adds a
+# length rule to the prompt: the verdict first, a few sentences, depth on request.
+# The customer decides; COACH_ANSWER_STYLE=brief switches it on without a deploy.
+COACH_ANSWER_STYLE = os.environ.get("COACH_ANSWER_STYLE", "full").strip().lower()
+
+# A provider that goes silent mid-answer: the framework waited 120 s for the next
+# byte (HERMES_STREAM_READ_TIMEOUT) and 180 s for the next chunk
+# (HERMES_STREAM_STALE_TIMEOUT) — on the bench of 2026-09-28 one answer stopped
+# mid-word at 2.3 s and the turn closed at 125 s. The coach's models send their
+# first chunk within seconds (no hidden thinking), so a silence of this many
+# seconds is a dead connection: before any text the framework retries it, after
+# some text the turn ends with a note to the student (server._watch_stream_cuts).
+# The framework's own env vars, when set, win.
+COACH_STREAM_STALL_S = float(os.environ.get("COACH_STREAM_STALL_S", "30"))
+os.environ.setdefault("HERMES_STREAM_READ_TIMEOUT", str(COACH_STREAM_STALL_S))
+os.environ.setdefault("HERMES_STREAM_STALE_TIMEOUT", str(2 * COACH_STREAM_STALL_S))
 
 # Two-stage answer (decision with the customer 2026-09-23): the student hears a
 # one-sentence reaction within ~1–1.5 s while the full engine-checked answer is

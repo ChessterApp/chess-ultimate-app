@@ -389,6 +389,8 @@ def _create_agent(
     if config.COACH_PROVIDER_SORT:
         agent_kwargs["provider_sort"] = config.COACH_PROVIDER_SORT
     agent = AIAgent(**agent_kwargs)
+    _arm_gemini_reasoning(agent)
+    _watch_stream_cuts(agent)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;
     # the tool block is part of the cached prefix, so a per-turn tool subset
@@ -493,6 +495,42 @@ def _reasoning_config(model: str) -> Optional[dict]:
     return {"effort": effort} if effort else None
 
 
+def _gemini_reasoning(model: str) -> Optional[dict]:
+    """The thinking level for a Gemini 3 model, or None for any other model.
+
+    Gemini 3 rejects ``enabled: false``, so "none"/"off" becomes "minimal".
+    """
+    name = (model or "").lower()
+    if not name.startswith("google/gemini-") or name.startswith("google/gemini-2"):
+        return None
+    effort = config.COACH_GEMINI_REASONING_EFFORT.lower()
+    if not effort:
+        return None
+    return {"effort": "minimal" if effort in ("none", "off") else effort}
+
+
+def _arm_gemini_reasoning(agent) -> None:
+    """Send Gemini 3 its thinking level on every call of *agent*.
+
+    The framework forwards reasoning only to "google/gemini-2*" models, so a
+    Gemini 3 turn — the deep tier, or any tier after a failover — thought at
+    the provider's default. The model is read per call: a failover switches
+    ``agent.model`` mid-turn.
+    """
+    build = getattr(agent, "_build_api_kwargs", None)
+    if build is None:
+        return
+
+    def _build_api_kwargs(api_messages):
+        kwargs = build(api_messages)
+        reasoning = _gemini_reasoning(getattr(agent, "model", ""))
+        if reasoning and isinstance(kwargs, dict) and "messages" in kwargs:
+            kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), "reasoning": reasoning}
+        return kwargs
+
+    agent._build_api_kwargs = _build_api_kwargs
+
+
 def _turn_fallback_model(routed_model: str) -> Optional[str]:
     """Fallback for this turn, or ``None`` when failover is switched off."""
     if not config.COACH_MODEL_FALLBACK_ENABLED:
@@ -563,6 +601,47 @@ _STUDENT_ERROR_TEXT = {
 def _student_error_text(locale: Optional[str]) -> str:
     """What the student sees when the turn fails: never the provider's text."""
     return _STUDENT_ERROR_TEXT.get((locale or "ru").lower(), _STUDENT_ERROR_TEXT["ru"])
+
+
+# Notices the framework writes into the reply stream when a provider connection
+# dies (English, meant for its own chat UI); they never reach the student.
+_FRAMEWORK_STREAM_NOTICES = (
+    "⚠ Connection dropped mid tool-call",
+    "⚠ Stream stalled mid tool-call",
+)
+
+
+def _is_framework_notice(text: str) -> bool:
+    return any(notice in text for notice in _FRAMEWORK_STREAM_NOTICES)
+
+
+_STREAM_CUT_TEXT = {
+    "ru": "(Связь с моделью оборвалась, ответ неполный — задайте вопрос ещё раз.)",
+    "kz": "(Модельмен байланыс үзілді, жауап толық емес — сұрағыңызды қайта қойыңыз.)",
+    "kk": "(Модельмен байланыс үзілді, жауап толық емес — сұрағыңызды қайта қойыңыз.)",
+    "en": "(The connection to the model dropped and the answer is incomplete — please ask again.)",
+}
+
+
+def _watch_stream_cuts(agent) -> None:
+    """Flag ``agent._coach_stream_cut`` when a reply stream dies after its first text.
+
+    The framework then ends the turn with what was streamed so far (a retry
+    would repeat the text on screen) and says nothing; the chat adds a note
+    so the student knows the answer is cut, not finished.
+    """
+    agent._coach_stream_cut = False
+    call = getattr(agent, "_interruptible_streaming_api_call", None)
+    if call is None:
+        return
+
+    def _streaming_call(*args, **kwargs):
+        response = call(*args, **kwargs)
+        if getattr(response, "id", None) == "partial-stream-stub":
+            agent._coach_stream_cut = True
+        return response
+
+    agent._interruptible_streaming_api_call = _streaming_call
 
 
 def _chunk_text(text: str, size: int = 80):
@@ -1544,6 +1623,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         for frame in _finish_quick():
                             yield frame
                 elif kind == "delta":
+                    if _is_framework_notice(payload):
+                        continue
                     streamed_any = True
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
@@ -1585,6 +1666,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 tail = _answer_delta(tail)
                 if tail:
                     yield _sse({"delta": tail})
+            if streamed_any and getattr(agent, "_coach_stream_cut", False) is True and error_exc is None:
+                cut_note = "\n\n" + _STREAM_CUT_TEXT.get((body.locale or "ru").lower(), _STREAM_CUT_TEXT["ru"])
+                partial_parts.append(cut_note)
+                answer_parts.append(cut_note)
+                yield _sse({"delta": cut_note})
             await future  # ensure the executor thread has fully unwound
             if quick_future is not None and quick["reply"] is not None:
                 await quick_future

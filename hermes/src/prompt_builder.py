@@ -35,8 +35,10 @@ _prompt_version_mtime: Optional[float] = None
 
 def _compute_prompt_version(soul_content: str) -> str:
     """First 10 hex chars of sha256(SOUL.md + template version constant)."""
+    # The length rule changes the prompt without touching SOUL.md or the template.
+    style = "brief" if answer_style_layer() else ""
     digest = hashlib.sha256(
-        (soul_content + PROMPT_TEMPLATE_VERSION).encode("utf-8")
+        (soul_content + PROMPT_TEMPLATE_VERSION + style).encode("utf-8")
     ).hexdigest()
     return digest[:10]
 
@@ -313,6 +315,11 @@ def build_system_prompt(
         "before giving up."
     )
 
+    # Answer length rule (config.COACH_ANSWER_STYLE); static, so it stays cached.
+    brief = answer_style_layer()
+    if brief:
+        sections.append(brief)
+
     # ── Volatile suffix ────────────────────────────────────────────────
     # Everything below changes turn-to-turn (or day-to-day) and therefore
     # trails the static prefix above so it never busts the cached prefix.
@@ -446,6 +453,24 @@ def build_system_prompt(
     if return_parts:
         return "\n\n".join(sections[:static_end]), "\n\n".join(sections[static_end:])
     return "\n\n".join(sections)
+
+
+BRIEF_ANSWER_LAYER = (
+    "## Answer length (MANDATORY)\n"
+    "Keep every answer short. Lead with the answer itself — the move, the verdict, "
+    "the idea — then give the one reason that matters. A question about a move or a "
+    "position: 2–4 sentences. Anything else: at most about 80 words. A game review: "
+    "the 2–3 turning points, one or two sentences each. No headings, no lists of "
+    "options, no recap at the end. When there is more worth saying, offer it in one "
+    "short question instead of saying it. Longer only when the student asks for detail."
+)
+
+
+def answer_style_layer() -> str:
+    """The length rule when COACH_ANSWER_STYLE is "brief", else an empty string."""
+    from src.config import COACH_ANSWER_STYLE
+
+    return BRIEF_ANSWER_LAYER if COACH_ANSWER_STYLE == "brief" else ""
 
 
 def attach_turn_context(message: str, turn_context: str) -> str:
