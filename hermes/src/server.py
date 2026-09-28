@@ -1090,6 +1090,13 @@ async def _bestofn_event_stream(
     latency_ms = int((time.monotonic() - turn_started) * 1000)
     response_text = result.text or "I wasn't able to generate a response. Please try again."
 
+    # Best-of-N buffers the winning candidate and streams it directly, bypassing
+    # the MarkupFilter that the live path runs on every delta. The speed prompt
+    # writes arrows inline as [[arrows: ...]], so strip that markup here too —
+    # otherwise it leaks into the visible text and no board_actions frame is sent
+    # (best-move check regression, 2026-09-28).
+    response_text, markup_actions = strip_markup(response_text)
+
     # Stream the buffered winner as chunked deltas (client contract unchanged).
     for chunk in _chunk_text(response_text):
         yield _sse({"delta": chunk})
@@ -1159,8 +1166,12 @@ async def _bestofn_event_stream(
 
     envelope = wrap_response(response_text, tool_results=tool_results)
 
-    board_actions = envelope.get("board_actions", [])
+    board_actions = list(markup_actions) + envelope.get("board_actions", [])
     if board_actions:
+        try:
+            session.apply_board_actions(board_actions)
+        except Exception:
+            logger.debug("applying best-of-N board actions to the session board failed", exc_info=True)
         yield _sse({"board_actions": board_actions})
 
     game_results = envelope.get("game_results", [])

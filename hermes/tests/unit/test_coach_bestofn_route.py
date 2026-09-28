@@ -153,6 +153,59 @@ class TestFlagOnBestOfN:
     @patch("src.bestofn.evaluate_turn")
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
+    def test_flag_on_strips_inline_markup_and_emits_board_actions(
+        self, mock_profile, mock_agent, mock_eval, mock_judge, _log
+    ):
+        """Regression (2026-09-28): the buffered best-of-N winner streams directly,
+        bypassing the live path's MarkupFilter. The speed prompt writes arrows
+        inline as ``[[arrows: ...]]``; without stripping, that leaked raw into the
+        visible text and no ``board_actions`` frame was emitted (best-move check
+        failed while pin/puzzle/review passed). The winner's markup must be stripped
+        from the deltas AND surfaced as a board_actions frame."""
+        mock_profile.return_value = UserProfile(user_id="bon-user")
+
+        clean = "Лучший ход — Bb5."
+        agent0 = _agent("plain candidate")
+        agent1 = _agent(clean + " [[arrows: b5c6 green]]")
+        mock_agent.side_effect = [agent0, agent1]
+
+        def _fake_eval(fen, text, user, depth):
+            score = 0.9 if "Bb5" in text else 0.5
+            return {"status": "ok", "correctness_score": score,
+                    "illegal_move_rate": 0.0, "claims": [], "notes": []}
+
+        mock_eval.side_effect = _fake_eval
+        mock_judge.return_value = {"choice": 1, "reason": "clearer", "model": "cheap"}
+
+        with patch.object(config, "COACH_BESTOFN", True), \
+             patch.object(config, "COACH_BESTOFN_N", 2):
+            resp = self.client.post(
+                "/api/coach/chat", headers=USER_HEADERS,
+                json={"message": "what is the best move?", "fen": FEN},
+            )
+
+        assert resp.status_code == 200
+        text, done = _deltas(resp)
+        assert done
+        # The visible reply is clean — no raw markup leaked into the deltas.
+        assert "[[" not in text
+        assert text.strip() == clean
+
+        # The arrows were surfaced as a board_actions frame instead.
+        board_frames = [
+            json.loads(line[len("data: "):])["board_actions"]
+            for line in resp.text.splitlines()
+            if line.startswith("data: ") and "board_actions" in json.loads(line[len("data: "):])
+        ]
+        assert board_frames, "expected a board_actions frame from the stripped arrows"
+        assert any(a.get("arrows") for frame in board_frames for a in frame), \
+            "board_actions frame should carry the parsed arrows"
+
+    @patch("src.server.log_event")
+    @patch("src.bestofn.run_judge")
+    @patch("src.bestofn.evaluate_turn")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
     def test_flag_on_no_fen_takes_normal_path(
         self, mock_profile, mock_agent, mock_eval, mock_judge, _log
     ):
