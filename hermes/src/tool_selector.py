@@ -12,9 +12,16 @@ Kept intentionally simple and deterministic. Enabled only behind the
 import re
 
 # Tools the coach needs on essentially every turn: board setup, engine analysis,
-# and engine-free move-legality checks. Never dropped in the default
-# (``full``) mode.
-CORE_TOOLS = frozenset({"board_control", "analyze_position", "check_moves"})
+# engine-free move-legality checks, and the teaching tools the prompt makes
+# mandatory — "call get_topic before explaining a concept", "puzzles only from
+# get_puzzle", "recommend real lessons". Keyword selection missed them on plain
+# questions: for "how do I improve my endgame?" the coach got neither, wrote the
+# get_topic call out as text and told the student its tools were missing (bench
+# 2026-09-28). Never dropped in the default (``full``) mode.
+CORE_TOOLS = frozenset({
+    "board_control", "analyze_position", "check_moves",
+    "get_topic", "get_puzzle", "get_learning_path", "get_lesson",
+})
 
 # Board-render / FEN-parse tools that are redundant when the board is already
 # rendered on the student's screen. Suppressed only in ``panel`` mode.

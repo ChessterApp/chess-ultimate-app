@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "6"  # 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27)
+PROMPT_TEMPLATE_VERSION = "8"  # 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -35,8 +35,10 @@ _prompt_version_mtime: Optional[float] = None
 
 def _compute_prompt_version(soul_content: str) -> str:
     """First 10 hex chars of sha256(SOUL.md + template version constant)."""
+    # The length rule changes the prompt without touching SOUL.md or the template.
+    style = "brief" if answer_style_layer() else ""
     digest = hashlib.sha256(
-        (soul_content + PROMPT_TEMPLATE_VERSION).encode("utf-8")
+        (soul_content + PROMPT_TEMPLATE_VERSION + style).encode("utf-8")
     ).hexdigest()
     return digest[:10]
 
@@ -176,165 +178,40 @@ LOCALE_TO_LANGUAGE = {
 }
 
 
+def language_rule(locale: str) -> str:
+    """The language directive both prompts lead with (text and voice).
+
+    The language of the student's own words wins (TZ 3g); the interface locale
+    only decides when a message carries no language of its own. The old rule
+    ("respond entirely in <locale>") told the model to use the interface
+    language even when the student wrote or spoke in another one.
+    """
+    interface = LOCALE_TO_LANGUAGE.get(locale, locale)
+    return (
+        "CRITICAL LANGUAGE RULE: Answer in the language of the student's latest "
+        "message — Russian, Kazakh or English — even when it differs from the "
+        f"interface language. The interface language is {interface}: use it when "
+        'a message shows no language of its own (just a move, a FEN, "ok") and '
+        "for the first thing you say. Never mix languages in one reply and never "
+        "switch to a language the student did not use."
+    )
+
+
 TURN_CONTEXT_HEADER = "[Turn context — supplied by the system, not written by the student]"
 
 
-def build_system_prompt(
-    soul_content: str,
-    user_profile: Optional[UserProfile] = None,
+def _student_context_blocks(
+    user_profile: Optional[UserProfile],
     board_fen: Optional[str] = None,
     move_history: Optional[list[str]] = None,
-    locale: Optional[str] = None,
-    return_parts: bool = False,
-):
-    """Build the full system prompt for the chess coaching agent.
+) -> list[str]:
+    """Per-student memory blocks shared by the text and the voice prompt.
 
-    Args:
-        soul_content: The SOUL.md persona text.
-        user_profile: Optional user profile for personalization.
-        board_fen: Optional current board FEN position.
-        move_history: Optional list of SAN moves played so far.
-        locale: Optional UI locale code (e.g. 'ru', 'kz', 'en').
-        return_parts: When True, return ``(static_prompt, turn_context)``
-            instead of one string. The static part (language rule, persona,
-            tool guidance) is identical from turn to turn and can be served
-            from the provider's prompt cache; the turn context (date, profile,
-            memory, board state) changes every turn and belongs in the user
-            message, where it cannot bust the cached prefix.
-
-    Returns:
-        Complete system prompt string, or a ``(static, turn_context)`` tuple.
+    Failure memory, the student's recently reviewed games, the coaching
+    playbook and the engine-measured training focus. Each block is flag-gated
+    and fail-open, so with every flag off this returns [].
     """
-    sections = []
-
-    # Inject mandatory language directive before everything else
-    if locale and locale != "en":
-        language_name = LOCALE_TO_LANGUAGE.get(locale, locale)
-        sections.append(
-            f"CRITICAL LANGUAGE RULE: You MUST respond entirely in {language_name}. "
-            f"All explanations, questions, and chess commentary must be in {language_name}. "
-            "This is non-negotiable — never switch to English unless the user explicitly writes in English."
-        )
-
-    # ── Static prefix ──────────────────────────────────────────────────
-    # SOUL persona and the tool-usage instructions never change turn-to-turn,
-    # so they lead the prompt to form a stable Anthropic prompt-cache prefix.
-    # All volatile blocks (current date, profile, board state) come AFTER so a
-    # cache hit survives across turns. Order is valid for every provider.
-    sections.append(soul_content.rstrip())
-
-    # Tool instructions (static)
-    sections.append(
-        "## Tool Usage (MANDATORY)\n"
-        "You have access to chess tools. You MUST use them — never answer "
-        "game/player/opening questions from memory alone.\n\n"
-        "### search_master_games\n"
-        "ALWAYS call this tool when the user asks about a player's games, "
-        "recent tournaments, head-to-head records, or specific game examples. "
-        "Never say 'I don't have data' or 'the tournament hasn't happened yet' "
-        "without searching first.\n\n"
-        "Search tips:\n"
-        "- Use the player's SURNAME only (e.g. player=\"Sindarov\" not \"Javohir Sindarov\")\n"
-        "- For events, use the key word (e.g. event=\"Candidates\" not \"Candidates Match\")\n"
-        "- Always set year_min for recent tournaments (e.g. year_min=2026)\n"
-        "- If first search returns no results, retry with broader terms "
-        "(drop event filter, widen year range)\n\n"
-        "### Board Control — board_control (USE PROACTIVELY)\n"
-        "Your PRIMARY teaching tool. The student has an interactive board — use it constantly.\n\n"
-        "Actions and when to use them:\n"
-        "- **set_fen**: Set a position on the board — ONLY a position that came from a tool "
-        "result, the student's game or the student's own message. Never type an example "
-        "position from memory: examples of a concept (pin, fork, skewer…) come from "
-        "get_topic / get_lesson, which put them on the board themselves.\n"
-        "- **load_pgn**: Load a full game on the board. Use when referencing master games "
-        "so the student can replay the moves.\n"
-        "- **set_puzzle**: Present a tactical puzzle. ALWAYS take it from get_puzzle "
-        "(theme + the student's rating) and pass its puzzle_id — never invent a puzzle "
-        "position or solution.\n"
-        "- **navigate**: Move forward/back through a loaded game.\n"
-        "- **flip_board**: Flip the board perspective.\n"
-        "- **clear_board**: Reset the board.\n\n"
-        "ARROWS AND HIGHLIGHTS GO INSIDE YOUR ANSWER, not through board_control: write "
-        "[[arrows: e2e4 green, g1f3 blue]] or [[squares: d5 e5]] in the text where they "
-        "belong — green for good moves, red for threats, blue for alternatives; squares for "
-        "outposts, weak squares, targets. They appear on the board as your text streams and "
-        "the student never sees the brackets. Only these two forms go in double brackets — "
-        "never a colour or a move alone like [[red]]. Every board_control call makes the student "
-        "wait for a whole extra step, so call it only to change the position itself, all "
-        "such changes in one step.\n\n"
-        "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
-        "shows an unrelated position, call get_topic FIRST — it puts a verified example on "
-        "the board (the site's own lesson when there is one) — then explain exactly that "
-        "position. Never describe or build an example position from memory: a wrong piece "
-        "on a wrong square is worse than no example. If no tool has an example, explain on "
-        "the current board or offer a puzzle (get_puzzle).\n\n"
-        "### Lichess/Chess.com Game Loading Workflow\n"
-        "When the user asks to find, load, or show a game from Lichess or Chess.com:\n"
-        "1. Call lichess_game_import or chesscom_game_import with the username and max_games=1\n"
-        "2. The result includes last_games with pgn field — take the PGN from there\n"
-        "3. Call board_control with action_type=\"load_pgn\" and pgn=<the PGN from step 2>\n"
-        "Never say you cannot load the game — always follow this 2-step workflow.\n"
-        "If the student gives a LINK to a game (lichess.org/…, chess.com/game/…), call "
-        "import_game_from_url with that link instead of the username import, then load_pgn.\n\n"
-        "### Study programme — get_learning_path / get_lesson / training_recommender\n"
-        "The site has a real programme (courses → modules → lessons with exercises "
-        "and puzzles) and records the student's progress in it. When the student asks "
-        "what to study, what comes next, about a course or lesson, or how to fix a "
-        "weakness: read the programme with these tools and recommend REAL lessons by "
-        "title with their url — never invent courses or lessons. To teach a lesson, "
-        "call get_lesson: it puts the lesson's exercise on the board as a puzzle itself; "
-        "explain the lesson's content in your own words and guide the student through that "
-        "exercise. Ask get_user_progress only for statistics.\n\n"
-        "### Knowledge base — get_topic / list_topics\n"
-        "Before explaining or showing a chess concept (a tactic, a pawn structure, a typical "
-        "position, an opening idea, an endgame technique) call get_topic: it returns the "
-        "summary, key ideas, typical mistakes and puzzle themes, and PUTS AN EXAMPLE ON THE "
-        "BOARD itself — from the site's lesson on the topic when there is one, else a "
-        "verified position of the base — described in its `example` field. Teach from that "
-        "example: say what is on the board as the FEN shows it, draw the plan with arrows, "
-        "then OFFER a puzzle — set it up (get_puzzle(theme=…)) only when the student asks, "
-        "never in the same answer, or the board jumps away from the example you are "
-        "explaining. list_topics shows the whole map when "
-        "the student asks what they could learn. Never invent example positions.\n\n"
-        "### analyze_position\n"
-        "Use Stockfish for position evaluation. When the turn context has an \"Engine "
-        "analysis of the board\" block, that IS Stockfish's result for the current "
-        "position: answer from it and do not call analyze_position for that position "
-        "again — call the engine only for a different position or a deeper look at a "
-        "specific line.\n\n"
-        "### check_moves\n"
-        "Verify any specific move you suggest that did not come from the engine block or "
-        "analyze_position/compare_variations output with check_moves before "
-        "recommending it — never suggest an illegal move.\n\n"
-        "CRITICAL: Your training data is outdated. The database has games "
-        "through April 2026 including the FIDE Candidates 2026. ALWAYS search "
-        "before claiming a tournament hasn't happened or a player has no games. "
-        "If a search returns 0 results, try again with fewer/broader filters "
-        "before giving up."
-    )
-
-    # ── Volatile suffix ────────────────────────────────────────────────
-    # Everything below changes turn-to-turn (or day-to-day) and therefore
-    # trails the static prefix above so it never busts the cached prefix.
-    static_end = len(sections)
-
-    # Current date so the model knows what year it is
-    now = datetime.now(timezone.utc)
-    sections.append(
-        f"## Current Date\nToday is {now.strftime('%B %d, %Y')}. "
-        "Use this when interpreting time references in user queries."
-    )
-
-    # Fire-and-forget rating sync for linked platform accounts
-    if user_profile:
-        maybe_sync_ratings(user_profile.user_id)
-
-    # User context
-    if user_profile:
-        context = user_profile.to_prompt_context()
-        if context:
-            sections.append(f"## Student Profile\n{context}")
-
+    sections: list[str] = []
     # Failure memory (CL Phase 1): inject the student's most recent verified
     # mistakes so the coach avoids repeating them. Flag-gated (default OFF → this
     # block is a no-op and the prompt is byte-identical) and fully fail-open.
@@ -418,6 +295,172 @@ def build_system_prompt(
         except Exception:
             logger.debug("curriculum injection failed", exc_info=True)
 
+    return sections
+
+
+def build_system_prompt(
+    soul_content: str,
+    user_profile: Optional[UserProfile] = None,
+    board_fen: Optional[str] = None,
+    move_history: Optional[list[str]] = None,
+    locale: Optional[str] = None,
+    return_parts: bool = False,
+):
+    """Build the full system prompt for the chess coaching agent.
+
+    Args:
+        soul_content: The SOUL.md persona text.
+        user_profile: Optional user profile for personalization.
+        board_fen: Optional current board FEN position.
+        move_history: Optional list of SAN moves played so far.
+        locale: Optional UI locale code (e.g. 'ru', 'kz', 'en').
+        return_parts: When True, return ``(static_prompt, turn_context)``
+            instead of one string. The static part (language rule, persona,
+            tool guidance) is identical from turn to turn and can be served
+            from the provider's prompt cache; the turn context (date, profile,
+            memory, board state) changes every turn and belongs in the user
+            message, where it cannot bust the cached prefix.
+
+    Returns:
+        Complete system prompt string, or a ``(static, turn_context)`` tuple.
+    """
+    sections = []
+
+    # Inject mandatory language directive before everything else
+    if locale:
+        sections.append(language_rule(locale))
+
+    # ── Static prefix ──────────────────────────────────────────────────
+    # SOUL persona and the tool-usage instructions never change turn-to-turn,
+    # so they lead the prompt to form a stable Anthropic prompt-cache prefix.
+    # All volatile blocks (current date, profile, board state) come AFTER so a
+    # cache hit survives across turns. Order is valid for every provider.
+    sections.append(soul_content.rstrip())
+
+    # Tool instructions (static)
+    sections.append(
+        "## Tool Usage (MANDATORY)\n"
+        "You have access to chess tools. You MUST use them — never answer "
+        "game/player/opening questions from memory alone.\n\n"
+        "### search_master_games\n"
+        "ALWAYS call this tool when the user asks about a player's games, "
+        "recent tournaments, head-to-head records, or specific game examples. "
+        "Never say 'I don't have data' or 'the tournament hasn't happened yet' "
+        "without searching first.\n\n"
+        "Search tips:\n"
+        "- Use the player's SURNAME only (e.g. player=\"Sindarov\" not \"Javohir Sindarov\")\n"
+        "- For events, use the key word (e.g. event=\"Candidates\" not \"Candidates Match\")\n"
+        "- Always set year_min for recent tournaments (e.g. year_min=2026)\n"
+        "- If first search returns no results, retry with broader terms "
+        "(drop event filter, widen year range)\n\n"
+        "### Board Control — board_control (USE PROACTIVELY)\n"
+        "Your PRIMARY teaching tool. The student has an interactive board — use it constantly.\n\n"
+        "Actions and when to use them:\n"
+        "- **set_fen**: Set a position on the board — ONLY a position that came from a tool "
+        "result, the student's game or the student's own message. Never type an example "
+        "position from memory: examples of a concept (pin, fork, skewer…) come from "
+        "get_topic / get_lesson, which put them on the board themselves.\n"
+        "- **load_pgn**: Load a full game on the board. Use when referencing master games "
+        "so the student can replay the moves.\n"
+        "- **set_puzzle**: Present a tactical puzzle. ALWAYS take it from get_puzzle "
+        "(theme + the student's rating) and pass its puzzle_id — never invent a puzzle "
+        "position or solution.\n"
+        "- **navigate**: Move forward/back through a loaded game.\n"
+        "- **flip_board**: Flip the board perspective.\n"
+        "- **clear_board**: Reset the board.\n\n"
+        "ARROWS AND HIGHLIGHTS GO INSIDE YOUR ANSWER, not through board_control: write "
+        "[[arrows: e2e4 green, g1f3 blue]] or [[squares: d5 e5]] right after the sentence "
+        "they illustrate — green for good moves, red for threats, blue for alternatives; "
+        "squares for outposts, weak squares, targets. They appear on the board as your text "
+        "streams and the student never sees the brackets, so every sentence must read complete "
+        "without them: never put a mark in place of a move or a word (\"Take on d5 — "
+        "[[arrows: e4d5 green]].\" reaches the student as \"Take on d5 —.\"). "
+        "Only these two forms go in double brackets — "
+        "never a colour or a move alone like [[red]]. Every board_control call makes the student "
+        "wait for a whole extra step, so call it only to change the position itself, all "
+        "such changes in one step.\n\n"
+        "GOLDEN RULE: If you are explaining a chess concept and the board is empty or "
+        "shows an unrelated position, call get_topic FIRST — it puts a verified example on "
+        "the board (the site's own lesson when there is one) — then explain exactly that "
+        "position. Never describe or build an example position from memory: a wrong piece "
+        "on a wrong square is worse than no example. If no tool has an example, explain on "
+        "the current board or offer a puzzle (get_puzzle).\n\n"
+        "### Lichess/Chess.com Game Loading Workflow\n"
+        "When the user asks to find, load, or show a game from Lichess or Chess.com:\n"
+        "1. Call lichess_game_import or chesscom_game_import with the username and max_games=1\n"
+        "2. The result includes last_games with pgn field — take the PGN from there\n"
+        "3. Call board_control with action_type=\"load_pgn\" and pgn=<the PGN from step 2>\n"
+        "Never say you cannot load the game — always follow this 2-step workflow.\n"
+        "If the student gives a LINK to a game (lichess.org/…, chess.com/game/…), call "
+        "import_game_from_url with that link instead of the username import, then load_pgn.\n\n"
+        "### Study programme — get_learning_path / get_lesson / training_recommender\n"
+        "The site has a real programme (courses → modules → lessons with exercises "
+        "and puzzles) and records the student's progress in it. When the student asks "
+        "what to study, what comes next, about a course or lesson, or how to fix a "
+        "weakness: read the programme with these tools and recommend REAL lessons by "
+        "title with their url — never invent courses or lessons. To teach a lesson, "
+        "call get_lesson: it puts the lesson's exercise on the board as a puzzle itself; "
+        "explain the lesson's content in your own words and guide the student through that "
+        "exercise. Ask get_user_progress only for statistics.\n\n"
+        "### Knowledge base — get_topic / list_topics\n"
+        "Before explaining or showing a chess concept (a tactic, a pawn structure, a typical "
+        "position, an opening idea, an endgame technique) call get_topic: it returns the "
+        "summary, key ideas, typical mistakes and puzzle themes, and PUTS AN EXAMPLE ON THE "
+        "BOARD itself — from the site's lesson on the topic when there is one, else a "
+        "verified position of the base — described in its `example` field. Teach from that "
+        "example: say what is on the board as the FEN shows it, draw the plan with arrows, "
+        "then OFFER a puzzle — set it up (get_puzzle(theme=…)) only when the student asks, "
+        "never in the same answer, or the board jumps away from the example you are "
+        "explaining. list_topics shows the whole map when "
+        "the student asks what they could learn. Never invent example positions.\n\n"
+        "### analyze_position\n"
+        "Use Stockfish for position evaluation. When the turn context has an \"Engine "
+        "analysis of the board\" block, that IS Stockfish's result for the current "
+        "position: answer from it and do not call analyze_position for that position "
+        "again — call the engine only for a different position or a deeper look at a "
+        "specific line.\n\n"
+        "### check_moves\n"
+        "Verify any specific move you suggest that did not come from the engine block or "
+        "analyze_position/compare_variations output with check_moves before "
+        "recommending it — never suggest an illegal move.\n\n"
+        "CRITICAL: Your training data is outdated. The database has games "
+        "through April 2026 including the FIDE Candidates 2026. ALWAYS search "
+        "before claiming a tournament hasn't happened or a player has no games. "
+        "If a search returns 0 results, try again with fewer/broader filters "
+        "before giving up."
+    )
+
+    # How the coach talks, and the answer length rule (config.COACH_ANSWER_STYLE);
+    # static, so they stay cached.
+    sections.append(COACH_SPEECH_LAYER)
+    brief = answer_style_layer()
+    if brief:
+        sections.append(brief)
+
+    # ── Volatile suffix ────────────────────────────────────────────────
+    # Everything below changes turn-to-turn (or day-to-day) and therefore
+    # trails the static prefix above so it never busts the cached prefix.
+    static_end = len(sections)
+
+    # Current date so the model knows what year it is
+    now = datetime.now(timezone.utc)
+    sections.append(
+        f"## Current Date\nToday is {now.strftime('%B %d, %Y')}. "
+        "Use this when interpreting time references in user queries."
+    )
+
+    # Fire-and-forget rating sync for linked platform accounts
+    if user_profile:
+        maybe_sync_ratings(user_profile.user_id)
+
+    # User context
+    if user_profile:
+        context = user_profile.to_prompt_context()
+        if context:
+            sections.append(f"## Student Profile\n{context}")
+
+    sections.extend(_student_context_blocks(user_profile, board_fen, move_history))
+
     # Board context
     board_lines = []
     if board_fen:
@@ -448,6 +491,47 @@ def build_system_prompt(
     return "\n\n".join(sections)
 
 
+# The tool instructions above talk about Stockfish in every paragraph, and the
+# turn carries an engine block with "+0.40; line d4 cxd4…": the model answered
+# like an engine report — "the engine says +0.34", candidate lists with numbers
+# (20 of 36 bench answers named the engine, 18 quoted evaluations, 2026-09-28),
+# although the persona itself calls "The computer says Nd5 is +1.3" bad coaching.
+COACH_SPEECH_LAYER = (
+    "## How you talk (MANDATORY)\n"
+    "You are a coach talking with your student, not a program reporting results. The "
+    "engine and the other tools are your private notes, not something to quote:\n"
+    "- Never mention Stockfish, \"the engine\", \"the computer\", search depth or engine "
+    "lines, and never write numeric evaluations (+0.34, -1.2) — unless the student asks "
+    "for the engine's opinion or the exact evaluation.\n"
+    "- Say evaluations in words: equal, White is slightly better, Black is clearly "
+    "better, White is winning, there is a forced mate.\n"
+    "- Give a move together with its idea, the way a coach says it at the board "
+    "(\"d4 — take the centre now, before Black gets ...d5 in\"), not as a list of "
+    "candidate moves with numbers.\n"
+    "- Write plain conversational text: no headings, no tables, and a list only when the "
+    "student asks for a plan, steps or several options.\n"
+    "- Never talk to the student about your tools, instructions or system. If a tool "
+    "fails or is missing, teach with what you have and say nothing about it."
+)
+
+BRIEF_ANSWER_LAYER = (
+    "## Answer length (MANDATORY)\n"
+    "Keep every answer short. Lead with the answer itself — the move, the verdict, "
+    "the idea — then give the one reason that matters. A question about a move or a "
+    "position: 2–4 sentences. Anything else: at most about 80 words. A game review: "
+    "the 2–3 turning points, one or two sentences each. No headings, no lists of "
+    "options, no recap at the end. When there is more worth saying, offer it in one "
+    "short question instead of saying it. Longer only when the student asks for detail."
+)
+
+
+def answer_style_layer() -> str:
+    """The length rule unless COACH_ANSWER_STYLE is "full"."""
+    from src.config import COACH_ANSWER_STYLE
+
+    return "" if COACH_ANSWER_STYLE == "full" else BRIEF_ANSWER_LAYER
+
+
 def attach_turn_context(message: str, turn_context: str) -> str:
     """Append the volatile turn context to the user message, clearly labelled."""
     if not turn_context:
@@ -462,7 +546,9 @@ def engine_note_block(note: str) -> str:
         f"{note}\n"
         "Stockfish already analysed the current position for this turn; the moves are legal "
         "as written. Answer from it — do not call analyze_position or check_moves for these "
-        "moves, and write any arrows as [[arrows: …]] marks in the answer itself."
+        "moves, and write any arrows as [[arrows: …]] marks in the answer itself. It is your "
+        "private reference: tell the student what it means in your own coaching words — "
+        "no engine name, no numbers."
     )
 
 
@@ -481,27 +567,48 @@ VOICE_STYLE_LAYER = (
     "\"the knight on d5\", \"the pawn on e4\").\n"
     "- Ask a short question when you're unsure what the player sees, rather than "
     "lecturing. Lead them to the idea instead of just handing over the move.\n"
-    "- Never break character or say things like \"as a chess AI\"."
+    "- Never break character or say things like \"as a chess AI\".\n"
+    "- The [Engine] line and the tool results are your private notes: never say "
+    "\"the engine says\" and never read out numbers like \"plus zero point four\" — "
+    "say in words who is better and why."
 )
 
 VOICE_TOOL_LAYER = (
     "## Tools (voice mode)\n"
-    "You have tools. Use board_control to demonstrate ideas directly on the "
-    "board — set positions, draw arrows, highlight squares, step through moves — "
-    "and use the engine and database tools (analyze the position, search master "
-    "games, opening and position stats) instead of guessing or inventing lines.\n"
+    "You have the same tools as the text coach. Use them instead of guessing or "
+    "inventing lines:\n"
+    "- The current position: after the board changes the system may add a line "
+    "starting with \"[Engine]\" — Stockfish's verified top moves for that FEN. "
+    "When it matches the current position, answer from it straight away, no tool "
+    "call. Otherwise, or for any other position, call analyze_position.\n"
+    "- Any move you name that did not come from the engine: verify it with "
+    "check_moves first; if it is illegal, pick a legal move from the returned "
+    "list — never speak an illegal move.\n"
+    "- A concept (a tactic, a pawn structure, an endgame technique, an opening "
+    "idea): get_topic — it puts a verified example on the board itself (the "
+    "site's lesson when there is one); describe exactly that position.\n"
+    "- Puzzles: get_puzzle (theme + the student's rating), then board_control "
+    "set_puzzle with its puzzle_id — never invent a puzzle.\n"
+    "- Openings: identify_opening for the name, get_opening_stats for what is "
+    "played. Master games: search_master_games (surname only) or "
+    "find_games_by_position.\n"
+    "- The student's own games: get_user_games; a game link → "
+    "import_game_from_url; a Lichess/Chess.com username → lichess_game_import / "
+    "chesscom_game_import; then board_control load_pgn.\n"
+    "- What to study next: get_learning_path, get_lesson, training_recommender — "
+    "name real lessons, never invented ones.\n"
+    "- Show, don't only tell: board_control sets positions, draws arrows, "
+    "highlights squares, steps through a game.\n"
     "CRITICAL for a live voice conversation: the moment you decide to call a "
     "tool, FIRST speak a brief spoken acknowledgment out loud (something like "
     "\"let me check that\" or \"one sec, looking now\") and THEN make the tool "
     "call. Never go silent while a tool runs — the player should always hear you "
     "respond right away.\n"
     "Examples of a concept (pin, fork, skewer…) come ONLY from get_topic or "
-    "get_lesson, which put the position on the board themselves; describe exactly "
-    "that position. Never set up an example position from memory.\n"
-    "Before you recommend or name a specific move that did NOT come from "
-    "analyze_position or compare_variations output, silently verify it with "
-    "check_moves first; if it comes back illegal, pick a legal move from the "
-    "returned list instead — never speak an illegal move."
+    "get_lesson, which put the position on the board themselves. Never set up an "
+    "example position from memory.\n"
+    "Say moves the way a person says them out loud (\"knight f3\", \"конь эф "
+    "три\", \"ат эф үш\"), never as engine notation like \"g1f3\"."
 )
 
 
@@ -534,14 +641,8 @@ def build_voice_prompt(
     sections = []
 
     # Same mandatory language directive the text prompt leads with.
-    if locale and locale != "en":
-        language_name = LOCALE_TO_LANGUAGE.get(locale, locale)
-        sections.append(
-            f"CRITICAL LANGUAGE RULE: You MUST respond entirely in {language_name}. "
-            f"All spoken explanations, questions, and chess commentary must be in "
-            f"{language_name}. This is non-negotiable — never switch to English "
-            "unless the player speaks to you in English."
-        )
+    if locale:
+        sections.append(language_rule(locale))
 
     # Persona core (shared with text) + spoken delivery overrides.
     sections.append(soul_content.rstrip())
@@ -552,6 +653,10 @@ def build_voice_prompt(
         context = user_profile.to_prompt_context()
         if context:
             sections.append(f"## Student Profile\n{context}")
+
+    # Same memory the text coach reads (mistakes, own games, playbook, focus).
+    # Built once per voice session at token mint, so it costs no per-turn time.
+    sections.extend(_student_context_blocks(user_profile, board_fen))
 
     # Compact current-position anchor (no tactical-analysis injection).
     if board_fen:

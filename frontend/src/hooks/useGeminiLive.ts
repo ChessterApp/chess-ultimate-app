@@ -237,6 +237,10 @@ export default function useGeminiLive(
   // In-flight tool-call fetches, keyed by functionCall id, so a
   // toolCallCancellation can abort them.
   const toolAbortRef = useRef<Map<string, AbortController>>(new Map());
+  // The board the session was last told about, and the in-flight [Engine]
+  // note request for it (a newer position aborts the older request).
+  const boardFenRef = useRef<string | null>(null);
+  const engineNoteAbortRef = useRef<AbortController | null>(null);
 
   // ── Latency instrumentation ────────────────────────────────────────────────
   // Turn counter for per-turn TTFA records.
@@ -466,6 +470,9 @@ export default function useGeminiLive(
       }
     });
     toolAbortRef.current.clear();
+    engineNoteAbortRef.current?.abort();
+    engineNoteAbortRef.current = null;
+    boardFenRef.current = null;
     const node = workletNodeRef.current;
     if (node) {
       try {
@@ -970,6 +977,47 @@ export default function useGeminiLive(
     [flushPlayback, reportMetric, ensureTurnId],
   );
 
+  // Tell the live session about a board position: the FEN at once, then
+  // Stockfish's top moves as an "[Engine] …" line when Hermes has them (1–2 s
+  // for a new position, instant from its cache). With the line in context the
+  // coach answers "what's the best move here?" without a tool round trip. Any
+  // failure just means no line — the coach falls back to analyze_position.
+  const sendPosition = useCallback((session: Session, fen: string) => {
+    boardFenRef.current = fen;
+    try {
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: boardUpdateText(fen) }] }],
+        turnComplete: false,
+      });
+    } catch {
+      /* session may be closing */
+    }
+    engineNoteAbortRef.current?.abort();
+    const controller = new AbortController();
+    engineNoteAbortRef.current = controller;
+    void fetch('/api/coach/voice/engine-note', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ fen }),
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { note?: unknown } | null) => {
+        const note = data?.note;
+        // Drop a note for a position the board has already left.
+        if (typeof note !== 'string' || !note || boardFenRef.current !== fen) return;
+        if (sessionRef.current !== session) return;
+        session.sendClientContent({
+          turns: [{ role: 'user', parts: [{ text: note }] }],
+          turnComplete: false,
+        });
+      })
+      .catch(() => {
+        /* aborted or unavailable — no engine line this time */
+      });
+  }, []);
+
   // Lets the connection callbacks reach the drop handler without a dependency
   // cycle (the drop handler in turn re-opens the connection).
   const handleDropRef = useRef<(errMsg?: string) => void>(() => {});
@@ -1090,14 +1138,7 @@ export default function useGeminiLive(
       // Anchor the initial position client-side so the coach is never blind to it,
       // regardless of whether the token's system instruction carried the FEN.
       if (fen) {
-        try {
-          session.sendClientContent({
-            turns: [{ role: 'user', parts: [{ text: boardUpdateText(fen) }] }],
-            turnComplete: false,
-          });
-        } catch {
-          /* session may be closing */
-        }
+        sendPosition(session, fen);
       }
 
       await wireCapture(session);
@@ -1125,6 +1166,7 @@ export default function useGeminiLive(
       handleMessage,
       acquireMedia,
       wireCapture,
+      sendPosition,
       setStatus,
       reportMetric,
       stopHeartbeat,
@@ -1256,18 +1298,14 @@ export default function useGeminiLive(
 
   // Push the current board position into the open session mid-conversation.
   // turnComplete:false injects context without interrupting the audio turn.
-  const sendBoardUpdate = useCallback((fen: string) => {
-    const session = sessionRef.current;
-    if (!session || !fen) return;
-    try {
-      session.sendClientContent({
-        turns: [{ role: 'user', parts: [{ text: boardUpdateText(fen) }] }],
-        turnComplete: false,
-      });
-    } catch {
-      /* session may be closing */
-    }
-  }, []);
+  const sendBoardUpdate = useCallback(
+    (fen: string) => {
+      const session = sessionRef.current;
+      if (!session || !fen || fen === boardFenRef.current) return;
+      sendPosition(session, fen);
+    },
+    [sendPosition],
+  );
 
   // Ensure resources are released on unmount.
   useEffect(() => {

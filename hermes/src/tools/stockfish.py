@@ -25,6 +25,10 @@ DEFAULT_DEPTH = int(os.environ.get("STOCKFISH_DEPTH", "16"))
 # the voice bench of 2026-09-24 caught Gemini Live asking for 20 → 5 s of
 # silence), so the default alone does not bound the cost — the ceiling does.
 MAX_DEPTH = max(DEFAULT_DEPTH, int(os.environ.get("STOCKFISH_MAX_DEPTH", str(DEFAULT_DEPTH))))
+# Depth alone does not bound the time: a sharp middlegame at depth 16 with three
+# lines took 24 s in a game review on the bench of 2026-09-28. The search stops
+# at the depth or after this many milliseconds, whichever comes first (0 = no cap).
+MAX_MS = int(os.environ.get("STOCKFISH_MAX_MS", "3000"))
 DEFAULT_MULTIPV = 3
 MAX_MULTIPV = 5
 TIMEOUT_SECONDS = 30
@@ -117,7 +121,12 @@ def analyze_position(
         proc.stdin.write("isready\n")
         proc.stdin.write(f"setoption name MultiPV value {multipv}\n")
         proc.stdin.write(f"position fen {fen}\n")
-        proc.stdin.write(f"go movetime {movetime_ms}\n" if movetime_ms else f"go depth {depth}\n")
+        if movetime_ms:
+            proc.stdin.write(f"go movetime {movetime_ms}\n")
+        elif MAX_MS > 0:
+            proc.stdin.write(f"go depth {depth} movetime {MAX_MS}\n")
+        else:
+            proc.stdin.write(f"go depth {depth}\n")
         proc.stdin.flush()
 
         lines = []
@@ -175,11 +184,17 @@ def analyze_position(
             line["mate_in"] = entry["mate_in"]
         result_lines.append(line)
 
-    return {
+    result = {
         "evaluation": evaluation,
         "best_move": best_move,
         "lines": result_lines,
     }
+    # Stopped by the time cap short of the requested depth (a found mate also
+    # ends early, but then the line is already decided).
+    reached = result_lines[0]["depth"] if result_lines else 0
+    if not movetime_ms and MAX_MS > 0 and reached < depth and "mate_in" not in (result_lines[0] if result_lines else {}):
+        result["time_capped"] = True
+    return result
 
 
 # Results shared by the analyze_position tool and the voice [Engine] line
@@ -206,7 +221,11 @@ def _cache_get(fen: str, depth: int, multipv: int) -> dict | None:
     key = " ".join(fen.split()[:4])
     with _cache_lock:
         hit = _cache.get(key)
-        if hit is None or _result_depth(hit) < depth or len(hit.get("lines", [])) < multipv:
+        if hit is None or len(hit.get("lines", [])) < multipv:
+            return None
+        # A run the time cap stopped is as deep as this host gets in the budget;
+        # searching again would spend the same seconds for the same answer.
+        if _result_depth(hit) < depth and not hit.get("time_capped"):
             return None
         _cache.move_to_end(key)
         return {**hit, "lines": hit["lines"][:multipv]}

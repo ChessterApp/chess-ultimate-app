@@ -102,9 +102,17 @@ class TestPromptBuilder:
         assert "CRITICAL LANGUAGE RULE" in prompt
         assert "Kazakh" in prompt
 
-    def test_locale_english_no_directive(self):
+    def test_locale_english_gets_the_same_rule(self):
+        # The question's language wins for every interface language, English too.
         prompt = build_system_prompt(soul_content=MOCK_SOUL, locale="en")
-        assert "CRITICAL LANGUAGE RULE" not in prompt
+        assert "CRITICAL LANGUAGE RULE" in prompt
+        assert "The interface language is English" in prompt
+
+    def test_question_language_beats_interface_language(self):
+        prompt = build_system_prompt(soul_content=MOCK_SOUL, locale="ru")
+        assert "language of the student's latest message" in prompt
+        assert "even when it differs from the" in prompt
+        assert "respond entirely in" not in prompt
 
     def test_locale_none_no_directive(self):
         prompt = build_system_prompt(soul_content=MOCK_SOUL, locale=None)
@@ -400,8 +408,9 @@ class TestBuildVoicePrompt:
         prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, locale="ru")
         assert "Russian" in prompt
 
-    def test_no_language_directive_for_english(self):
-        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, locale="en")
+    def test_voice_uses_the_same_language_rule_as_text(self):
+        prompt = prompt_builder.build_voice_prompt(MOCK_SOUL, locale="kz")
+        assert prompt.startswith(prompt_builder.language_rule("kz"))
         assert "MUST respond entirely in" not in prompt
 
     def test_tools_toggle(self):

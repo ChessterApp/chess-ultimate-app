@@ -1,6 +1,6 @@
 import { auth } from '@clerk/nextjs/server';
 import { requireApiAccess } from '@/lib/require-api-access';
-import { GoogleGenAI, Modality } from '@google/genai';
+import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
 
@@ -8,7 +8,36 @@ import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier'
 export const runtime = 'nodejs';
 export const preferredRegion = 'iad1';
 
-const LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+// gemini-3.8-live is Google's recommended Live model (3.1 Flash Live is now a
+// "legacy preview"), priced the same. In the voice bench (2026-09-24) it speaks
+// a short acknowledgement before every tool call instead of going silent.
+// COACH_LIVE_MODEL switches back without a deploy.
+const LIVE_MODEL = process.env.COACH_LIVE_MODEL || 'gemini-3.8-live';
+
+// End-of-speech detection is left to Google by default: on gemini-3.8-live a
+// 500 ms window measured no faster than the default and 300 ms saved ~0.2 s
+// (voice bench 2026-09-24) — too little to risk cutting off a student who
+// pauses mid-thought. COACH_LIVE_SILENCE_MS=<ms> turns on high end-of-speech
+// sensitivity with that window, to try on live users.
+const LIVE_SILENCE_MS = Number(process.env.COACH_LIVE_SILENCE_MS) || 0;
+
+/**
+ * Hidden thinking before the coach speaks: off by default. gemini-3.8-live takes
+ * a token budget, not a thinking level (a level closes the socket with 1007
+ * "Thinking level is not supported"); gemini-3.1-flash-live-preview takes it too.
+ * Voice bench 2026-09-28 (13 questions): a zero budget brought the first sound
+ * from 1.77 to 1.42 s p50 and the answer after a tool from 4.0 to 2.5 s, and the
+ * coach named the engine's move instead of only asking back.
+ * COACH_LIVE_THINKING_BUDGET=<tokens> gives thinking back; an empty value leaves
+ * the model's default. Returns null for "leave the default".
+ */
+function liveThinkingBudget(raw = process.env.COACH_LIVE_THINKING_BUDGET): number | null {
+  if (raw === undefined) return 0;
+  const value = raw.trim();
+  if (!value) return null;
+  const budget = Number(value);
+  return Number.isInteger(budget) && budget >= 0 ? budget : 0;
+}
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -25,9 +54,10 @@ Be direct and encouraging — believe in them, but don't let them off easy. Prai
 mistakes. You can refer to squares, pieces, threats, and simple plans out loud. Never break character or say things
 like "as a chess AI". When you are unsure what they see, ask a short question rather than lecturing.`;
 
-// Mirrors the CRITICAL LANGUAGE RULE Hermes puts first in build_voice_prompt(),
-// for the fallback prompt used when Hermes is unreachable.
-const LOCALE_TO_LANGUAGE: Record<string, string> = { ru: 'Russian', kk: 'Kazakh', en: 'English' };
+// Mirrors the CRITICAL LANGUAGE RULE Hermes puts first in build_voice_prompt()
+// (language_rule in prompt_builder.py), for the fallback prompt used when
+// Hermes is unreachable: the player's own language wins over the interface one.
+const LOCALE_TO_LANGUAGE: Record<string, string> = { ru: 'Russian', kz: 'Kazakh', kk: 'Kazakh', en: 'English' };
 
 function readCookie(request: Request, name: string): string | undefined {
   const header = request.headers.get('cookie') ?? '';
@@ -39,10 +69,10 @@ function readCookie(request: Request, name: string): string | undefined {
 }
 
 function languageDirective(locale: string): string {
-  if (!locale || locale === 'en') return '';
   const language = LOCALE_TO_LANGUAGE[locale] ?? locale;
-  return `CRITICAL LANGUAGE RULE: You MUST speak entirely in ${language}. All explanations, questions and chess
-commentary must be in ${language}. Never switch to English unless the player speaks to you in English.
+  return `CRITICAL LANGUAGE RULE: Answer in the language the player speaks to you in — Russian, Kazakh or
+English — even when it differs from the interface language. The interface language is ${language}: use it for
+the first thing you say and when the player's words show no language of their own. Never mix languages in one reply.
 
 `;
 }
@@ -58,11 +88,11 @@ IMPORTANT for a live voice conversation: the moment you decide to call a tool, F
 acknowledgment out loud (something like "let me check that" or "one sec, looking now") and THEN make the tool
 call. Never go silent while a tool runs — the player should always hear you respond right away.`;
 
-// Voice-relevant subset of the chess toolset. The full Hermes toolset (~20
-// tools) includes import/sync/link/account actions that make no sense in a live
-// spoken position review and only bloat the token constraint. Keep voice to the
-// "explain the current position / show master play" tools. Edit here to tune.
-const VOICE_TOOL_ALLOWLIST = new Set<string>([
+// The voice coach gets the same chess toolset as the text coach (TZ 3d: every
+// tool in voice mode) — knowledge base, study programme, the student's games,
+// imports. COACH_VOICE_TOOLS=core falls back to the old position-review subset
+// if the larger declaration ever costs too much latency.
+const VOICE_CORE_TOOLS = new Set<string>([
   'board_control',
   'analyze_position',
   'get_position_stats',
@@ -89,14 +119,25 @@ const RECAP_MAX_CHARS_PER_MSG = 200;
 const RECAP_MAX_BYTES = 2048;
 
 /**
- * Keep only the voice-relevant tool declarations. Anything without a string
- * `name` in the allowlist is dropped.
+ * Tool declarations for the voice session: every well-formed one, or only the
+ * core subset when COACH_VOICE_TOOLS=core. Entries without a string `name`
+ * are dropped either way.
+ *
+ * Each is declared BLOCKING. gemini-3.8-live defaults to NON_BLOCKING calls:
+ * it finishes its "let me check" turn first and only then speaks about the
+ * result — 5.1 s (p90 10.9 s) to the answer on tool questions in the voice
+ * bench, against 3.3 s (p90 4.2 s) blocking; the acknowledgement before the
+ * call is spoken either way. COACH_VOICE_TOOL_BEHAVIOR=default drops the field.
  */
 function filterVoiceTools(tools: unknown[]): unknown[] {
-  return tools.filter((t) => {
-    const name = (t as { name?: unknown })?.name;
-    return typeof name === 'string' && VOICE_TOOL_ALLOWLIST.has(name);
-  });
+  const coreOnly = process.env.COACH_VOICE_TOOLS === 'core';
+  const blocking = process.env.COACH_VOICE_TOOL_BEHAVIOR !== 'default';
+  return tools
+    .filter((t) => {
+      const name = (t as { name?: unknown })?.name;
+      return typeof name === 'string' && name !== '' && (!coreOnly || VOICE_CORE_TOOLS.has(name));
+    })
+    .map((t) => (blocking ? { ...(t as object), behavior: Behavior.BLOCKING } : t));
 }
 
 /**
@@ -450,7 +491,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // Curate the toolset down to the voice-relevant allowlist before embedding.
   const functionDeclarations = filterVoiceTools(rawTools);
 
   // Prefer Hermes' single-source prompt (persona + spoken style + profile + FEN
@@ -489,8 +529,20 @@ export async function POST(request: Request) {
       // dropped connection (network blip / session time limit) and reconnect.
       sessionResumption: {},
     };
+    if (LIVE_SILENCE_MS > 0) {
+      liveConfig.realtimeInputConfig = {
+        automaticActivityDetection: {
+          endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+          silenceDurationMs: LIVE_SILENCE_MS,
+        },
+      };
+    }
     if (functionDeclarations.length > 0) {
       liveConfig.tools = [{ functionDeclarations }];
+    }
+    const thinkingBudget = liveThinkingBudget();
+    if (thinkingBudget !== null) {
+      liveConfig.thinkingConfig = { thinkingBudget };
     }
 
     const token = await ai.authTokens.create({

@@ -12,6 +12,8 @@ vi.mock('@google/genai', () => ({
     authTokens = { create: createMock };
   },
   Modality: { AUDIO: 'AUDIO' },
+  EndSensitivity: { END_SENSITIVITY_HIGH: 'END_SENSITIVITY_HIGH' },
+  Behavior: { BLOCKING: 'BLOCKING' },
 }));
 
 import { auth } from '@clerk/nextjs/server';
@@ -76,7 +78,7 @@ describe('POST /api/coach/live-token', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.token).toBe('ephemeral-token-xyz');
-    expect(data.model).toBe('gemini-3.1-flash-live-preview');
+    expect(data.model).toBe('gemini-3.8-live');
     expect(typeof data.expiresAt).toBe('string');
     expect(createMock).toHaveBeenCalledTimes(1);
   });
@@ -195,7 +197,9 @@ describe('POST /api/coach/live-token', () => {
 
     expect(response.status).toBe(200);
     const config = configFromMint();
-    expect(config.tools).toEqual([{ functionDeclarations: decls }]);
+    expect(config.tools).toEqual([
+      { functionDeclarations: decls.map((d) => ({ ...d, behavior: 'BLOCKING' })) },
+    ]);
     expect(config.systemInstruction).toContain('You have tools.');
   });
 
@@ -210,6 +214,31 @@ describe('POST /api/coach/live-token', () => {
 
     expect(response.status).toBe(200);
     expect(configFromMint().sessionResumption).toEqual({});
+  });
+
+  it('switches hidden thinking off by default, and COACH_LIVE_THINKING_BUDGET brings it back', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ tools: [] }) })) as any;
+    const { POST } = await import('../live-token/route');
+
+    const mintedThinking = async (budget: string | undefined) => {
+      createMock.mockClear();
+      if (budget === undefined) delete process.env.COACH_LIVE_THINKING_BUDGET;
+      else process.env.COACH_LIVE_THINKING_BUDGET = budget;
+      try {
+        await POST(makeRequest({ fen: 'somefen' }));
+        return configFromMint().thinkingConfig;
+      } finally {
+        delete process.env.COACH_LIVE_THINKING_BUDGET;
+      }
+    };
+
+    // A token budget, never a thinking level: gemini-3.8-live rejects levels.
+    expect(await mintedThinking(undefined)).toEqual({ thinkingBudget: 0 });
+    expect(await mintedThinking('512')).toEqual({ thinkingBudget: 512 });
+    expect(await mintedThinking('')).toBeUndefined();
   });
 
   it('mints the token without tools (still 200) when the tools fetch fails', async () => {
@@ -350,51 +379,45 @@ describe('POST /api/coach/live-token', () => {
     expect(block).toContain('Bold');
   });
 
-  // ── Voice tool allowlist ────────────────────────────────────────────────────
+  // ── Voice toolset ───────────────────────────────────────────────────────────
 
-  it('filters the toolset down to the voice allowlist, dropping import/account tools', async () => {
+  const mintWithTools = async (decls: unknown[]) => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
     createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
-
-    const decls = [
-      { name: 'board_control' },
-      { name: 'analyze_position' },
-      { name: 'get_position_stats' },
-      { name: 'get_opening_stats' },
-      { name: 'search_master_games' },
-      // Excluded: import / sync / link / account tools.
-      { name: 'chesscom_game_import' },
-      { name: 'lichess_game_import' },
-      { name: 'link_platform' },
-      { name: 'get_user_games' },
-      { name: 'get_user_progress' },
-    ];
     global.fetch = vi.fn(async (url: string) => {
       if (String(url).includes('/api/coach/tools')) {
         return { ok: true, json: async () => ({ tools: decls }) };
       }
       return { ok: true, json: async () => ({ messages: [] }) };
     }) as any;
-
     const { POST } = await import('../live-token/route');
     const response = await POST(makeRequest({ fen: 'somefen' }));
-
     expect(response.status).toBe(200);
-    const kept = configFromMint().tools[0].functionDeclarations.map(
-      (d: any) => d.name,
-    );
-    expect(kept).toContain('board_control');
-    expect(kept).toContain('analyze_position');
-    expect(kept).toContain('search_master_games');
-    expect(kept).not.toContain('chesscom_game_import');
-    expect(kept).not.toContain('lichess_game_import');
-    expect(kept).not.toContain('link_platform');
-    expect(kept).not.toContain('get_user_games');
-    expect(kept.length).toBeLessThanOrEqual(8);
+    return configFromMint();
+  };
+
+  it('declares every chess tool to the voice coach, like the text coach (TZ 3d)', async () => {
+    const config = await mintWithTools([
+      { name: 'board_control' },
+      { name: 'analyze_position' },
+      { name: 'get_topic' },
+      { name: 'get_learning_path' },
+      { name: 'import_game_from_url' },
+      { name: 'get_user_games' },
+    ]);
+    expect(config.tools[0].functionDeclarations.map((d: any) => d.name)).toEqual([
+      'board_control',
+      'analyze_position',
+      'get_topic',
+      'get_learning_path',
+      'import_game_from_url',
+      'get_user_games',
+    ]);
   });
 
-  it('lets the voice coach show examples from the lessons and the knowledge base', async () => {
+  it('COACH_VOICE_TOOLS=core still lets the voice coach show examples from the lessons and the knowledge base', async () => {
+    process.env.COACH_VOICE_TOOLS = 'core';
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
     createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
@@ -412,9 +435,11 @@ describe('POST /api/coach/live-token', () => {
       (d: any) => d.name,
     );
     expect(kept).toEqual(['get_topic', 'get_lesson', 'list_topics', 'get_learning_path']);
+    delete process.env.COACH_VOICE_TOOLS;
   });
 
-  it('keeps check_moves in the voice tool allowlist', async () => {
+  it('COACH_VOICE_TOOLS=core keeps check_moves in the voice tool allowlist', async () => {
+    process.env.COACH_VOICE_TOOLS = 'core';
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
     createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
@@ -441,27 +466,54 @@ describe('POST /api/coach/live-token', () => {
     );
     expect(kept).toContain('check_moves');
     expect(kept).not.toContain('chesscom_game_import');
+    delete process.env.COACH_VOICE_TOOLS;
   });
 
-  it('embeds no tools (and no tool guidance) when none survive the allowlist', async () => {
-    (auth as any).mockResolvedValue({ userId: 'user_123' });
-    process.env.GEMINI_API_KEY = 'AQ.test-key';
-    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+  it('declares the voice tools BLOCKING so the answer follows the tool at once', async () => {
+    const config = await mintWithTools([{ name: 'get_puzzle' }, { name: 'board_control' }]);
+    expect(config.tools[0].functionDeclarations.map((d: any) => d.behavior)).toEqual([
+      'BLOCKING',
+      'BLOCKING',
+    ]);
+  });
 
-    const decls = [{ name: 'chesscom_game_import' }, { name: 'sync_ratings' }];
-    global.fetch = vi.fn(async (url: string) => {
-      if (String(url).includes('/api/coach/tools')) {
-        return { ok: true, json: async () => ({ tools: decls }) };
-      }
-      return { ok: true, json: async () => ({ messages: [] }) };
-    }) as any;
+  it('COACH_VOICE_TOOL_BEHAVIOR=default leaves the model default', async () => {
+    process.env.COACH_VOICE_TOOL_BEHAVIOR = 'default';
+    try {
+      const config = await mintWithTools([{ name: 'get_puzzle' }]);
+      expect(config.tools[0].functionDeclarations[0]).toEqual({ name: 'get_puzzle' });
+    } finally {
+      delete process.env.COACH_VOICE_TOOL_BEHAVIOR;
+    }
+  });
 
-    const { POST } = await import('../live-token/route');
-    const response = await POST(makeRequest({ fen: 'somefen' }));
+  it('COACH_VOICE_TOOLS=core falls back to the position-review subset', async () => {
+    process.env.COACH_VOICE_TOOLS = 'core';
+    try {
+      const config = await mintWithTools([
+        { name: 'check_moves' },
+        { name: 'board_control' },
+        { name: 'chesscom_game_import' },
+        { name: 'get_topic' },
+      ]);
+      expect(config.tools[0].functionDeclarations.map((d: any) => d.name)).toEqual([
+        'check_moves',
+        'board_control',
+        'get_topic',
+      ]);
+    } finally {
+      delete process.env.COACH_VOICE_TOOLS;
+    }
+  });
 
-    expect(response.status).toBe(200);
-    expect(configFromMint().tools).toBeUndefined();
-    expect(configFromMint().systemInstruction).not.toContain('You have tools.');
+  it('embeds no tools when Hermes returns none with a usable name', async () => {
+    const config = await mintWithTools([{ name: '' }, { description: 'nameless' }]);
+    expect(config.tools).toBeUndefined();
+  });
+
+  it("leaves end-of-speech detection to Google's default", async () => {
+    const config = await mintWithTools([]);
+    expect(config.realtimeInputConfig).toBeUndefined();
   });
 
   it('adds the acknowledge-before-tool guidance when voice tools are present', async () => {
@@ -653,7 +705,7 @@ describe('POST /api/coach/live-token', () => {
     expect(response.status).toBe(200);
     const prompt = systemInstructionFromMint();
     expect(prompt.startsWith('CRITICAL LANGUAGE RULE')).toBe(true);
-    expect(prompt).toContain('entirely in Russian');
+    expect(prompt).toContain('The interface language is Russian');
     expect(prompt).toContain("Chesster's chess coach");
   });
 
@@ -669,7 +721,7 @@ describe('POST /api/coach/live-token', () => {
 
     const { POST } = await import('../live-token/route');
     await POST(makeRequest({}));
-    expect(systemInstructionFromMint()).toContain('entirely in Russian');
+    expect(systemInstructionFromMint()).toContain('The interface language is Russian');
   });
 
   // ── Voice minutes quota enforcement (Task 3) ────────────────────────────────

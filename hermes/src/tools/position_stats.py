@@ -9,6 +9,8 @@ import chess
 
 from tools.registry import registry
 
+from src.tools._sqlite_budget import TIMEOUT_ERROR, install_timeout, is_timeout
+
 logger = logging.getLogger(__name__)
 
 TWIC_DB_PATH = os.environ.get(
@@ -66,12 +68,18 @@ def get_position_stats(
 
     try:
         conn.row_factory = sqlite3.Row
+        install_timeout(conn)
         cur = conn.execute(
             "SELECT move_san, games, white_wins, draws, black_wins "
             "FROM move_stats WHERE board_hash = ? ORDER BY games DESC",
             (board_hash,),
         )
         rows = cur.fetchall()
+    except sqlite3.OperationalError as exc:
+        if not is_timeout(exc):
+            raise
+        logger.warning("get_position_stats timed out for %s", fen)
+        return {"error": TIMEOUT_ERROR, "fen": fen}
     finally:
         if own_conn:
             conn.close()

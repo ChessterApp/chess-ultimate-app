@@ -7,6 +7,8 @@ import sqlite3
 
 from tools.registry import registry
 
+from src.tools._sqlite_budget import TIMEOUT_ERROR, install_timeout, is_timeout
+
 logger = logging.getLogger(__name__)
 
 TWIC_DB_PATH = os.environ.get(
@@ -112,6 +114,9 @@ def search_master_games(
 
     try:
         conn.row_factory = sqlite3.Row
+        # Player/opening/event filters are LIKE '%…%' — a full scan of the games
+        # table; the budget turns a stuck search into an error the model skips.
+        install_timeout(conn)
         cur = conn.execute(query, params)
         rows = cur.fetchall()
         return [dict(row) for row in rows]
@@ -122,16 +127,22 @@ def search_master_games(
 
 def _handle_search_master_games(args: dict, **kwargs) -> str:
     logger.info("search_master_games called with args: %s", json.dumps(args))
-    results = search_master_games(
-        player=args.get("player"),
-        event=args.get("event"),
-        eco=args.get("eco"),
-        opening=args.get("opening"),
-        result=args.get("result"),
-        year_min=args.get("year_min"),
-        year_max=args.get("year_max"),
-        limit=args.get("limit", DEFAULT_LIMIT),
-    )
+    try:
+        results = search_master_games(
+            player=args.get("player"),
+            event=args.get("event"),
+            eco=args.get("eco"),
+            opening=args.get("opening"),
+            result=args.get("result"),
+            year_min=args.get("year_min"),
+            year_max=args.get("year_max"),
+            limit=args.get("limit", DEFAULT_LIMIT),
+        )
+    except sqlite3.OperationalError as exc:
+        if not is_timeout(exc):
+            raise
+        logger.warning("search_master_games timed out: %s", json.dumps(args))
+        return json.dumps({"error": TIMEOUT_ERROR, "games": []})
     logger.info("search_master_games returned %d results", len(results))
     return json.dumps(results, indent=2)
 
