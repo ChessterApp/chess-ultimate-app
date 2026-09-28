@@ -171,6 +171,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       const mappedRole: 'user' | 'assistant' =
         tr.role === 'user' ? 'user' : 'assistant';
       const currentId = voiceMsgIdRef.current[tr.role];
+      // An empty closing mark (the hook ends utterances at turn edges) with no
+      // open bubble has nothing to finish.
+      if (!tr.text && !currentId) return;
       if (currentId) {
         voiceTextRef.current[tr.role] += tr.text;
         setMessages((prev) =>
