@@ -191,3 +191,20 @@ class TestReasoningSwitch:
         with patch("run_agent.AIAgent") as fake:
             server._create_agent(model="deepseek/deepseek-v4.1-flash", system_prompt="s")
         assert "reasoning_config" not in fake.call_args.kwargs
+
+
+@pytest.mark.unit
+class TestProviderSort:
+    def test_agent_asks_openrouter_for_the_fastest_providers(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_PROVIDER_SORT", "throughput")
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", False)
+        with patch("run_agent.AIAgent") as fake:
+            server._create_agent(model="deepseek/deepseek-v4.1-flash", system_prompt="s")
+        assert fake.call_args.kwargs["provider_sort"] == "throughput"
+
+    def test_unset_keeps_openrouters_default(self, monkeypatch):
+        monkeypatch.setattr(config, "COACH_PROVIDER_SORT", "")
+        monkeypatch.setattr(config, "COACH_TOOL_SUBSET", False)
+        with patch("run_agent.AIAgent") as fake:
+            server._create_agent(model="deepseek/deepseek-v4.1-flash", system_prompt="s")
+        assert "provider_sort" not in fake.call_args.kwargs

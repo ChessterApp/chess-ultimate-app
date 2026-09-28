@@ -171,6 +171,13 @@ COACH_EMIT_USAGE = _env_flag("COACH_EMIT_USAGE", False)
 # "low" keeps the tool discipline and cuts the wait. Empty string = framework default;
 # "none" switches the hidden thinking off.
 COACH_REASONING_EFFORT = os.environ.get("COACH_REASONING_EFFORT", "low").strip()
+# OpenRouter provider order for the coach's calls: "throughput" / "latency" / "price".
+# Unset = OpenRouter's default, which leans to the cheapest providers; for
+# DeepSeek V4.1 Flash those think the same tokens several times slower (and some
+# serve an fp4-compressed model): on 2026-09-27 the same low-reasoning answer
+# started at 3.5-7.2 s by default and 2.4-3.2 s with "throughput" (Together),
+# at about 5x the input price.
+COACH_PROVIDER_SORT = os.environ.get("COACH_PROVIDER_SORT", "").strip()
 COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 
 # Two-stage answer (decision with the customer 2026-09-23): the student hears a

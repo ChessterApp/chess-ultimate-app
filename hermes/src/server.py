@@ -386,6 +386,8 @@ def _create_agent(
     reasoning = _reasoning_config(model)
     if reasoning is not None:
         agent_kwargs["reasoning_config"] = reasoning
+    if config.COACH_PROVIDER_SORT:
+        agent_kwargs["provider_sort"] = config.COACH_PROVIDER_SORT
     agent = AIAgent(**agent_kwargs)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;

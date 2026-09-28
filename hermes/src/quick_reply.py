@@ -206,6 +206,10 @@ def stream_completion(
         "reasoning": {"enabled": False},
         "usage": {"include": True},
     }
+    from src.config import COACH_PROVIDER_SORT
+
+    if COACH_PROVIDER_SORT:
+        payload["provider"] = {"sort": COACH_PROVIDER_SORT}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
