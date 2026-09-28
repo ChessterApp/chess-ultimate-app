@@ -28,11 +28,20 @@ MATE_SCORE = 10000.0
 # Beyond this many pawns a position is simply won: +12 → +9 is not a mistake.
 EVAL_CAP = 10.0
 
+# The biggest swings only: a lost game can hold a dozen "mistakes", and every
+# extra moment is more for the model to read and more for the student to wade through.
+MAX_MOMENTS = int(os.environ.get("CRITICAL_MOMENTS_MAX", "6"))
+# Plies of the engine's line shown for each moment.
+BEST_LINE_PLIES = 6
+
 CRITICAL_MOMENTS_SCHEMA = {
     "name": "find_critical_moments",
     "description": (
         "Analyze a game move-by-move to find turning points where the evaluation "
-        "swung significantly (blunders, mistakes, missed mates)."
+        "swung significantly (blunders, mistakes, missed mates). Each moment already "
+        "carries the position before the move (fen_before), the engine's best move "
+        "there and its line in SAN — explain the moments from these; call "
+        "analyze_position only when a deeper look at one of them is really needed."
     ),
     "parameters": {
         "type": "object",
@@ -76,26 +85,50 @@ def _quick_eval(proc, fen: str, depth: int = ANALYSIS_DEPTH) -> dict | None:
             break
         if not line.startswith("info") or " score " not in line or "bound" in line:
             continue
+        pv = re.search(r" pv (.+)", line)
         m = re.search(r"score cp (-?\d+)", line)
         if m:
             result = {"score": int(m.group(1)) / 100.0}
-            continue
-        m = re.search(r"score mate (-?\d+)", line)
-        if m:
+        else:
+            m = re.search(r"score mate (-?\d+)", line)
+            if not m:
+                continue
             mate_in = int(m.group(1))
             result = {"score": MATE_SCORE * (1 if mate_in > 0 else -1), "mate_in": mate_in}
+        if pv:
+            result["pv"] = pv.group(1).split()
     return result if result else None
 
 
-def _white_eval(board: chess.Board, proc) -> float:
-    """Evaluation of *board* from White's side: engine score, or the result for a finished game."""
+def _white_eval(board: chess.Board, proc) -> tuple[float, list[str]]:
+    """Evaluation of *board* from White's side and the engine's line (UCI) there.
+
+    A finished game scores its result and has no line.
+    """
     if board.is_checkmate():
-        return -MATE_SCORE if board.turn == chess.WHITE else MATE_SCORE
+        return (-MATE_SCORE if board.turn == chess.WHITE else MATE_SCORE), []
     if board.is_stalemate() or board.is_insufficient_material():
-        return 0.0
+        return 0.0, []
     ev = _quick_eval(proc, board.fen(), ANALYSIS_DEPTH)
     score = ev.get("score", 0.0) if ev else 0.0
-    return score if board.turn == chess.WHITE else -score
+    pv = (ev or {}).get("pv") or []
+    return (score if board.turn == chess.WHITE else -score), pv
+
+
+def _san_line(board: chess.Board, uci_moves: list[str], plies: int = BEST_LINE_PLIES) -> list[str]:
+    """The first *plies* moves of an engine line in SAN; stops at the first illegal one."""
+    board = board.copy(stack=False)
+    line = []
+    for uci in uci_moves[:plies]:
+        try:
+            move = chess.Move.from_uci(uci)
+        except ValueError:
+            break
+        if move not in board.legal_moves:
+            break
+        line.append(board.san(move))
+        board.push(move)
+    return line
 
 
 def _for_mover(white_eval: float, mover: chess.Color) -> float:
@@ -164,7 +197,8 @@ def find_critical_moments(
         # Every eval from White's side: UCI scores are the side to move's, and
         # comparing them raw across a move flips the sign each ply — a won game
         # came back with nearly every move a "blunder".
-        evals = [_white_eval(b, proc) for b in positions]
+        scanned = [_white_eval(b, proc) for b in positions]
+        evals = [score for score, _ in scanned]
 
         # A move is critical when the mover's own evaluation drops by the threshold.
         critical = []
@@ -185,7 +219,7 @@ def find_critical_moments(
             else:
                 moment_type = "blunder" if loss >= 3.0 else "mistake"
 
-            critical.append({
+            moment = {
                 "move_number": positions[i].fullmove_number,
                 "side": "white" if mover == chess.WHITE else "black",
                 "move": moves_san[i],
@@ -193,7 +227,15 @@ def find_critical_moments(
                 "eval_after": round(eval_after, 2),
                 "eval_change": round(eval_after - eval_before, 2),
                 "type": moment_type,
-            })
+                "fen_before": positions[i].fen(),
+            }
+            # What the engine wanted instead — the scan already searched this
+            # position, so the review needs no analyze_position round per moment.
+            best_line = _san_line(positions[i], scanned[i][1])
+            if best_line and best_line[0] != moves_san[i]:
+                moment["best_move"] = best_line[0]
+                moment["best_line"] = " ".join(best_line)
+            critical.append((loss, moment))
     finally:
         if own_proc and proc:
             try:
@@ -203,11 +245,21 @@ def find_critical_moments(
             except (BrokenPipeError, subprocess.TimeoutExpired):
                 proc.kill()
 
-    return {
+    found = len(critical)
+    # The biggest swings, back in game order.
+    kept = sorted(critical, key=lambda c: -c[0])[:MAX_MOMENTS] if MAX_MOMENTS > 0 else critical
+    order = {id(m): n for n, (_, m) in enumerate(critical)}
+    moments = sorted((m for _, m in kept), key=lambda m: order[id(m)])
+
+    result = {
         "total_moves": len(moves_san),
         "evals_from": "white",  # eval_* fields: + good for White; ±10000 = forced mate
-        "critical_moments": critical,
+        "engine_depth": ANALYSIS_DEPTH,
+        "critical_moments": moments,
     }
+    if found > len(moments):
+        result["moments_found"] = found
+    return result
 
 
 def _handle_find_critical_moments(args: dict, **kwargs) -> str:
