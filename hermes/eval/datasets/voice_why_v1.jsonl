@@ -1,0 +1,4 @@
+{"id": "why-analyze", "kind": "engine", "text": "Проанализируй эту позицию.", "voice": "Milena", "locale": "ru", "expect_lang": "ru", "fen": "rnb1kb1r/p1ppqppp/5n2/1p2p3/4P3/2NP4/PPP1BPPP/R1BQK1NR w KQkq - 0 6", "expect_tools": []}
+{"id": "why-nxb5", "kind": "engine", "text": "Зачем здесь конь бьёт на b5? Что он там делает?", "voice": "Milena", "locale": "ru", "expect_lang": "ru", "fen": "rnb1kb1r/p1ppqppp/5n2/1p2p3/4P3/2NP4/PPP1BPPP/R1BQK1NR w KQkq - 0 6", "expect_tools": []}
+{"id": "why-scholar", "kind": "engine", "text": "Что мне здесь играть?", "voice": "Milena", "locale": "ru", "expect_lang": "ru", "fen": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3", "expect_tools": []}
+{"id": "why-kz", "kind": "engine", "text": "Осы позицияны талдап берші.", "voice": "Aru", "locale": "kz", "expect_lang": "kz", "fen": "rnb1kb1r/p1ppqppp/5n2/1p2p3/4P3/2NP4/PPP1BPPP/R1BQK1NR w KQkq - 0 6", "expect_tools": []}

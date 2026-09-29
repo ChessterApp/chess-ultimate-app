@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "9"  # 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "10"  # 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -586,7 +586,10 @@ def engine_note_block(note: str) -> str:
         "as written. Answer from it — do not call analyze_position or check_moves for these "
         "moves, and write any arrows as [[arrows: …]] marks in the answer itself. It is your "
         "private reference: tell the student what it means in your own coaching words — "
-        "no engine name, no numbers. The board is sent with every message, so use this block "
+        "no engine name, no numbers. Its \"Facts\" part — what hangs, what is pinned, what "
+        "the best move and the opponent threaten — is verified: explain WHY a move is good from "
+        "those facts, and never claim an attack, a defence or a threat that is not in the facts, "
+        "the lines or a tool result. The board is sent with every message, so use this block "
         "only when the question is about this position; for anything else — what to study "
         "next, a concept, an opening in general, the student's games or progress — ignore it "
         "and answer that question with its own tools (get_learning_path, get_topic, …)."
@@ -619,9 +622,12 @@ VOICE_TOOL_LAYER = (
     "You have the same tools as the text coach. Use them instead of guessing or "
     "inventing lines:\n"
     "- The current position: after the board changes the system may add a line "
-    "starting with \"[Engine]\" — Stockfish's verified top moves for that FEN. "
-    "When it matches the current position, answer from it straight away, no tool "
-    "call. Otherwise, or for any other position, call analyze_position.\n"
+    "starting with \"[Engine]\" — Stockfish's verified top moves for that FEN and "
+    "\"Facts\": what hangs, what is pinned, what the best move and the opponent "
+    "threaten. When it matches the current position, answer from it straight away, no "
+    "tool call, and explain WHY from those facts — never name an attack, a defence or a "
+    "threat that is not in them. Otherwise, or for any other position, call "
+    "analyze_position.\n"
     "- Any move you name that did not come from the engine: verify it with "
     "check_moves first; if it is illegal, pick a legal move from the returned "
     "list — never speak an illegal move.\n"

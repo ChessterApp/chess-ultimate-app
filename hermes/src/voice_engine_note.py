@@ -9,11 +9,14 @@ through the same cache as the tool, so a later analyze_position call for this
 position is free too.
 """
 
+import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import chess
 
+from src.position_facts import THREAT_MOVETIME_MS, dynamic_facts, static_facts
 from src.tools.stockfish import DEFAULT_DEPTH, DEFAULT_MULTIPV, analyze_cached, analyze_timed
 
 PV_PLIES = 4
@@ -21,6 +24,22 @@ PV_PLIES = 4
 # Stepping through a game fires one request per move; never run more than a
 # couple of engines for it at once (each request is a Stockfish process).
 _slots = threading.BoundedSemaphore(2)
+# The opponent's-threat search runs beside the main analysis (it does not need
+# the best move), so the facts add one short search to the line, not two.
+_threat_pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="threat")
+
+
+def _threat_analysis(fen: str) -> dict:
+    return analyze_timed(fen, THREAT_MOVETIME_MS, multipv=1, min_depth=10)
+
+
+def _passed_fen(board: chess.Board) -> Optional[str]:
+    """The position with the side to move passing, or None when it cannot pass (check)."""
+    if board.is_check():
+        return None
+    passed = board.copy(stack=False)
+    passed.push(chess.Move.null())
+    return passed.fen() if passed.is_valid() and not passed.is_check() else None
 
 
 def _san_line(board: chess.Board, pv: str, plies: int = PV_PLIES) -> list[str]:
@@ -77,6 +96,9 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     if over:
         return {"fen": fen, "note": over, "best": None, "lines": []}
 
+    with_facts = os.environ.get("COACH_ENGINE_FACTS", "1").strip().lower() not in ("0", "false", "no", "off")
+    passed_fen = _passed_fen(board) if with_facts else None
+    prefetch = _threat_pool.submit(_threat_analysis, passed_fen) if passed_fen else None
     with _slots:
         if movetime_ms:
             result = analyze_timed(fen, movetime_ms, multipv=DEFAULT_MULTIPV)
@@ -102,4 +124,26 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     if len(lines) > 1:
         parts.append("Also: " + ", ".join(f"{ln['moves'][0]} ({ln['eval']})" for ln in lines[1:]) + ".")
     parts.append(f"Evaluations are from White's side, Stockfish depth {best['depth'] or depth}.")
-    return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines}
+
+    # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
+    facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
+    if facts:
+        parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
+    return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts}
+
+
+def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:
+    """What hangs, what is pinned, what the best move and the opponent threaten.
+
+    Never fails the line: a broken fact search just leaves the facts out.
+    """
+    try:
+        if prefetch is not None:
+            prefetch.result(timeout=THREAT_MOVETIME_MS / 1000.0 + 2.0)  # warms the cache
+        best_uci = (top.get("pv") or "").split()[0] if top.get("pv") else None
+        score = top.get("score") or 0.0
+        if top.get("mate_in") is not None:
+            score = 10000.0 if top["mate_in"] > 0 else -10000.0
+        return static_facts(board) + dynamic_facts(board, best_uci, float(score), _threat_analysis)
+    except Exception:  # noqa: BLE001 — the facts are a bonus on top of the moves
+        return static_facts(board) if board.is_valid() else []

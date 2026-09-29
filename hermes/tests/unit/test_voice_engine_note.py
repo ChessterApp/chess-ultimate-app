@@ -1,6 +1,6 @@
 """The voice [Engine] line: SAN lines, White-side evals, game-over notes, the endpoint."""
 
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -63,7 +63,10 @@ class TestEngineNote:
         with patch.object(voice_engine_note, "analyze_timed", return_value=lines) as timed, \
              patch.object(voice_engine_note, "analyze_cached") as by_depth:
             note = engine_note(SICILIAN, movetime_ms=1500)
-        timed.assert_called_once_with(SICILIAN, 1500, multipv=3)
+        # The main search goes by time; the others are the short threat searches
+        # of the facts (300 ms, one line each).
+        assert call(SICILIAN, 1500, multipv=3) in timed.call_args_list
+        assert all(c.args[1] == 300 for c in timed.call_args_list if c != call(SICILIAN, 1500, multipv=3))
         by_depth.assert_not_called()
         assert "Stockfish depth 19" in note["note"]
 
