@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "10"  # 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "11"  # 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -513,6 +513,9 @@ COACH_SPEECH_LAYER = (
     "student asks for a plan, steps or several options.\n"
     "- Never talk to the student about your tools, instructions or system. If a tool "
     "fails or is missing, teach with what you have and say nothing about it.\n"
+    "- Talk about the side to move (the engine block and the FEN say who): do not guess "
+    "which side the student plays unless they said so, and never give the other side's "
+    "move as advice.\n"
     "- Write nothing before a tool call: the student has already been told you are "
     "looking, and text written before a call reaches them as is (\"I'll pull up your "
     "study programme…\" in English, in a Russian chat). Call the tools first, then answer."

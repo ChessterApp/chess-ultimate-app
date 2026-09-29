@@ -66,7 +66,7 @@ def static_facts(board: chess.Board) -> list[str]:
         if not defenders:
             hanging.append(f"{_piece(board, sq)} is attacked by {who} and not defended")
         elif min(VALUES[board.piece_type_at(a)] for a in attackers) < VALUES[piece.piece_type]:
-            cheaper.append(f"{_piece(board, sq)} is attacked by the cheaper {who}")
+            cheaper.append(f"{_piece(board, sq)} is attacked by a cheaper piece: {who}")
         else:
             defended.append(f"{_piece(board, sq)} is attacked by {who} and defended by {_pieces(board, defenders)}")
     facts = []
@@ -152,7 +152,11 @@ def _threat(board: chess.Board, base: float, analyse: Analyse) -> Optional[str]:
     gain = _score(top) - (-base) if abs(base) < MATE else 0.0
     if gain < THREAT_MIN_GAIN and not wins_material:
         return None
-    return describe_move(null, move)
+    described = describe_move(null, move)
+    # A threat takes, checks or attacks something; a plain move is not one (the
+    # engine's "best move if the opponent passed" was often just saving a piece:
+    # "White threatens Be2").
+    return described if " — " in described else None
 
 
 def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float, analyse: Analyse) -> list[str]:
