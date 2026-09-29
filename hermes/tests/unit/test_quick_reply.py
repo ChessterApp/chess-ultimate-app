@@ -25,20 +25,13 @@ def _chunk(text=None, usage=None):
 
 def _run(handler, **kw):
     """Call stream_quick_reply against an httpx.MockTransport."""
-    transport = httpx.MockTransport(handler)
-    real_client = httpx.Client
-
-    class _Client(real_client):
-        def __init__(self, *a, **k):
-            k["transport"] = transport
-            super().__init__(*a, **k)
-
-    original = quick_reply.httpx.Client
-    quick_reply.httpx.Client = _Client
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    original = quick_reply._http
+    quick_reply._http = lambda: client
     try:
         return stream_quick_reply(model="test/model", api_key="k", message="что играть?", **kw)
     finally:
-        quick_reply.httpx.Client = original
+        quick_reply._http = original
 
 
 @pytest.mark.unit

@@ -13,7 +13,9 @@ the reaction when the budget runs out or the real answer arrives first, so a
 slow reaction can never delay the answer.
 
 Plain httpx is used instead of the agent framework: the framework's retry,
-fallback and tool loop are exactly the latency this stage exists to hide.
+fallback and tool loop are exactly the latency this stage exists to hide. The
+calls share the pooled connection of src/llm_transport.py and race the
+fallback model when the provider is silent (2026-09-30).
 """
 
 from __future__ import annotations
@@ -184,6 +186,85 @@ def stream_quick_reply(
     )
 
 
+def _payload(model: str, messages: list[dict], max_tokens: int, temperature: float) -> dict:
+    from src.config import COACH_PROVIDER_SORT
+    from src.llm_transport import reasoning_for
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": True,
+        # These calls must not think first — the wait is what they exist to avoid.
+        # Gemini 3 cannot switch thinking off, only down to "minimal".
+        "reasoning": reasoning_for(model) or {"enabled": False},
+        "usage": {"include": True},
+    }
+    if COACH_PROVIDER_SORT:
+        payload["provider"] = {"sort": COACH_PROVIDER_SORT}
+    return payload
+
+
+class _HttpError(Exception):
+    pass
+
+
+class _EventStream:
+    """The parsed SSE events of one streamed completion, tagged with its model."""
+
+    def __init__(self, response: httpx.Response, model: str):
+        self.response = response
+        self.model = model
+
+    def __iter__(self):
+        try:
+            done = False
+            for line in self.response.iter_lines():
+                # Read on past [DONE] to the end of the body: a response closed
+                # early takes its connection with it instead of back to the pool.
+                if done or not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    done = True
+                    continue
+                try:
+                    yield (self.model, json.loads(data))
+                except json.JSONDecodeError:
+                    continue
+        finally:
+            self.response.close()
+
+    def close(self) -> None:
+        self.response.close()
+
+
+def _open(client: httpx.Client, url: str, payload: dict, headers: dict, timeout_s: float) -> _EventStream:
+    request = client.build_request("POST", url, json=payload, headers=headers,
+                                   timeout=httpx.Timeout(timeout_s, read=timeout_s))
+    response = client.send(request, stream=True)
+    if response.status_code != 200:
+        body = response.read()[:300].decode("utf-8", "replace")
+        response.close()
+        raise _HttpError(f"http_{response.status_code}: {body}")
+    return _EventStream(response, payload["model"])
+
+
+def _says_something(item) -> bool:
+    _, event = item
+    if event.get("usage"):
+        return True
+    choices = event.get("choices") or []
+    return bool(choices and ((choices[0].get("delta") or {}).get("content") or choices[0].get("finish_reason")))
+
+
+def _http() -> httpx.Client:
+    from src.llm_transport import shared_http
+
+    return shared_http()
+
+
 def stream_completion(
     *,
     model: str,
@@ -195,77 +276,71 @@ def stream_completion(
     should_abort: Optional[Callable[[], bool]] = None,
     url: str = OPENROUTER_CHAT_URL,
     temperature: float = 0.6,
+    hedge_ms: Optional[int] = None,
 ) -> QuickReply:
     """One tool-free, no-reasoning streamed completion (the reaction, a game
-    comment): plain httpx against OpenRouter, never raises — see QuickReply.error."""
+    comment): plain httpx against OpenRouter, never raises — see QuickReply.error.
+
+    It goes over the shared connection pool, and when *model* is silent for
+    ``hedge_ms`` (COACH_QUICK_HEDGE_MS) the fallback model gets the same request;
+    the first to answer is streamed and ``QuickReply.model`` names it.
+    """
+    from src import llm_transport
+
     reply = QuickReply(model=model)
     started = time.monotonic()
     if not api_key:
         reply.error = "no_api_key"
         return reply
 
-    payload = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-        "stream": True,
-        # These calls must not think first — the wait is what they exist to avoid.
-        "reasoning": {"enabled": False},
-        "usage": {"include": True},
-    }
-    from src.config import COACH_PROVIDER_SORT
-
-    if COACH_PROVIDER_SORT:
-        payload["provider"] = {"sort": COACH_PROVIDER_SORT}
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "https://chesster.io",
         "X-Title": "Chesster coach (quick reaction)",
     }
+    delay_ms = llm_transport.QUICK_HEDGE_MS if hedge_ms is None else hedge_ms
+    backup = llm_transport.hedge_model_for(model) if delay_ms > 0 else None
     parts: list[str] = []
+    events = None
     try:
-        with httpx.Client(timeout=httpx.Timeout(timeout_s, read=timeout_s)) as client:
-            with client.stream("POST", url, json=payload, headers=headers) as resp:
-                if resp.status_code != 200:
-                    body = resp.read()[:300].decode("utf-8", "replace")
-                    reply.error = f"http_{resp.status_code}: {body}"
-                    return reply
-                for line in resp.iter_lines():
-                    if should_abort and should_abort():
-                        reply.error = "aborted"
-                        break
-                    if not line or not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if data == "[DONE]":
-                        break
-                    try:
-                        event = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-                    usage = event.get("usage")
-                    if isinstance(usage, dict):
-                        reply.prompt_tokens = int(usage.get("prompt_tokens") or 0)
-                        reply.completion_tokens = int(usage.get("completion_tokens") or 0)
-                    choices = event.get("choices") or []
-                    if not choices:
-                        continue
-                    delta = (choices[0].get("delta") or {}).get("content")
-                    if not delta:
-                        continue
-                    if reply.first_token_ms is None:
-                        reply.first_token_ms = int((time.monotonic() - started) * 1000)
-                    parts.append(delta)
-                    reply.chunks.append(delta)
-                    if on_delta:
-                        on_delta(delta)
+        client = _http()
+        primary = _open(client, url, _payload(model, messages, max_tokens, temperature), headers, timeout_s)
+        open_backup = None
+        if backup:
+            def open_backup():
+                return _open(client, url, _payload(backup, messages, max_tokens, temperature), headers, timeout_s)
+        events = llm_transport.race(primary, open_backup, delay_ms / 1000.0, _says_something)
+        for served, event in events:
+            if should_abort and should_abort():
+                reply.error = "aborted"
+                break
+            reply.model = served
+            usage = event.get("usage")
+            if isinstance(usage, dict):
+                reply.prompt_tokens = int(usage.get("prompt_tokens") or 0)
+                reply.completion_tokens = int(usage.get("completion_tokens") or 0)
+            choices = event.get("choices") or []
+            if not choices:
+                continue
+            delta = (choices[0].get("delta") or {}).get("content")
+            if not delta:
+                continue
+            if reply.first_token_ms is None:
+                reply.first_token_ms = int((time.monotonic() - started) * 1000)
+            parts.append(delta)
+            reply.chunks.append(delta)
+            if on_delta:
+                on_delta(delta)
+    except _HttpError as exc:
+        reply.error = str(exc)
     except httpx.TimeoutException:
         reply.error = "timeout"
     except Exception as exc:  # noqa: BLE001 — the first stage is best-effort
         reply.error = f"{type(exc).__name__}: {exc}"[:300]
     finally:
+        if events is not None:
+            events.close()
         reply.latency_ms = int((time.monotonic() - started) * 1000)
     # Exactly what the student saw (the chunks were streamed as they came), so
     # the stored message and the screen agree; only surrounding whitespace goes.

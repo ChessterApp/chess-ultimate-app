@@ -253,6 +253,10 @@ COACH_ENGINE_NOTE_MOVETIME_MS = int(os.environ.get("COACH_ENGINE_NOTE_MOVETIME_M
 COACH_REVIEW_PRESTEP = _env_flag("COACH_REVIEW_PRESTEP", True)
 COACH_REVIEW_WAIT_MS = int(os.environ.get("COACH_REVIEW_WAIT_MS", "6000"))
 
+# Load the framework, the engines and the ECO book when the server starts, not
+# on the first students' questions (1-2 s slower after every restart).
+COACH_WARMUP = _env_flag("COACH_WARMUP", True)
+
 # Provider fallback: when the routed model's provider answers 429/402 or keeps
 # failing, the turn switches to the ``fallback`` tier (config.yaml) instead of
 # handing the student the error text (bench 2026-09-23: 19 of 36 Gemini turns

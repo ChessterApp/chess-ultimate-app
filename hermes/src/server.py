@@ -192,11 +192,47 @@ _soul_content = load_soul()
 
 
 @asynccontextmanager
+def _warm_up() -> None:
+    """Load at startup what the first questions after a restart used to load.
+
+    Bench 2026-09-29: the first three turns built their agent in 1.1-2.0 s
+    (then 0.03 s) and waited 1.1-2.0 s for the engine line — the framework's
+    tools, the Stockfish processes and the ECO book index all load on first use.
+    """
+    started = time.monotonic()
+    steps = {}
+    try:
+        _create_agent(quick_model(), "warm-up", session_id="warm-up", user_query="warm-up")
+        steps["agent"] = int((time.monotonic() - started) * 1000)
+    except Exception:  # noqa: BLE001 — warming up is best-effort
+        logger.warning("warm-up: agent failed", exc_info=True)
+    try:
+        from src.voice_engine_note import engine_note
+
+        # After 1.e4 e5: the engine, the threat search and the ECO book index.
+        engine_note("rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2", movetime_ms=200)
+        steps["engine"] = int((time.monotonic() - started) * 1000)
+    except Exception:  # noqa: BLE001
+        logger.warning("warm-up: engine failed", exc_info=True)
+    try:
+        from src.knowledge_base import load_topics
+        from src.llm_transport import shared_http
+
+        load_topics()
+        shared_http()
+    except Exception:  # noqa: BLE001
+        logger.warning("warm-up: knowledge base failed", exc_info=True)
+    _timings_log.info("warm-up done %s", json.dumps({**steps, "total": int((time.monotonic() - started) * 1000)}))
+
+
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     app.state.config = _config
     app.state.model_config = _model_config
     app.state.soul_content = _soul_content
+    if config.COACH_WARMUP:
+        # In the background: the server takes requests at once.
+        asyncio.get_running_loop().run_in_executor(None, _warm_up)
 
     # Daily retention purge (coach_events/analytics_events + local spool).
     # Fire-and-forget background task; kill-switch is RETENTION_ENABLED.
@@ -393,6 +429,11 @@ def _create_agent(
     agent = AIAgent(**agent_kwargs)
     _arm_gemini_reasoning(agent)
     _watch_stream_cuts(agent)
+    # One pooled connection to OpenRouter, and a stalled first call raced
+    # against the fallback model (src/llm_transport.py).
+    from src import llm_transport
+
+    llm_transport.install(agent)
 
     # Claude via OpenRouter gets cache_control breakpoints from the framework;
     # the tool block is part of the cached prefix, so a per-turn tool subset
@@ -502,13 +543,9 @@ def _gemini_reasoning(model: str) -> Optional[dict]:
 
     Gemini 3 rejects ``enabled: false``, so "none"/"off" becomes "minimal".
     """
-    name = (model or "").lower()
-    if not name.startswith("google/gemini-") or name.startswith("google/gemini-2"):
-        return None
-    effort = config.COACH_GEMINI_REASONING_EFFORT.lower()
-    if not effort:
-        return None
-    return {"effort": "minimal" if effort in ("none", "off") else effort}
+    from src.llm_transport import reasoning_for
+
+    return reasoning_for(model)
 
 
 def _arm_gemini_reasoning(agent) -> None:
@@ -540,8 +577,24 @@ def _turn_fallback_model(routed_model: str) -> Optional[str]:
     return fallback_model_for(routed_model)
 
 
+def _hedge_state(agent) -> dict:
+    """The race record of the turn (src/llm_transport.py), {} when there is none."""
+    hedge = getattr(agent, "_coach_hedge", None)
+    return dict(hedge) if isinstance(hedge, dict) else {}
+
+
+def _reply_model(reply) -> Optional[str]:
+    """The model that wrote a reaction (the backup when it won the race)."""
+    model = getattr(reply, "model", None)
+    return model if isinstance(model, str) and model else None
+
+
 def _served_model(agent, routed_model: str) -> str:
-    """The model that actually produced the turn (differs after a failover)."""
+    """The model that actually produced the turn (differs after a failover, or
+    when the backup won the race against a stalled provider)."""
+    hedge = _hedge_state(agent)
+    if hedge.get("winner") == "backup" and isinstance(hedge.get("model"), str):
+        return hedge["model"]
     served = getattr(agent, "model", None)
     if isinstance(served, str) and served:
         return served
@@ -1821,7 +1874,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 user_id=user_id,
                 session_id=session.id,
                 turn_id=turn_id,
-                model=quick_model_id,
+                model=_reply_model(quick_reply) or quick_model_id,
                 duration_ms=getattr(quick_reply, "latency_ms", None),
                 ok=bool(quick_text),
                 error_code=getattr(quick_reply, "error", None) if quick_reply else "no_reply",
@@ -1835,7 +1888,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             if quick_reply is not None and (quick_reply.prompt_tokens or quick_reply.completion_tokens):
                 threading.Thread(
                     target=_do_record_usage,
-                    args=(user_id, session.id, quick_model_id, quick_reply.prompt_tokens,
+                    args=(user_id, session.id, _reply_model(quick_reply) or quick_model_id, quick_reply.prompt_tokens,
                           quick_reply.completion_tokens, "text", turn_id, 0),
                     daemon=True,
                 ).start()
@@ -1957,8 +2010,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "engine_note": dict(engine_state),
                 "review": dict(review_state),
                 "stages_ms": dict(stages),
+                "hedge": _hedge_state(agent),
                 "quick": {
-                    "model": quick_model_id, "shown": bool(quick_text),
+                    "model": _reply_model(quick_reply) or quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),
                     "latency_ms": getattr(quick_reply, "latency_ms", None),
                     "error": getattr(quick_reply, "error", None) if quick_reply else None,
@@ -1983,6 +2037,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "quick_shown": bool(quick_text),
                 "engine_note": dict(engine_state),
                 "review": dict(review_state),
+                "hedge": _hedge_state(agent),
                 "stages_ms": {**stages, "engine_ready": engine_state.get("ms"),
                               "review_ready": review_state.get("ms"),
                               "total": int((time.monotonic() - request_started) * 1000)},
@@ -1993,6 +2048,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             json.dumps({"turn": turn_id, "tier": route["tier"], "model": served_model,
                         "iterations": iterations, **stages,
                         "engine_ready": engine_state.get("ms"), "review_ready": review_state.get("ms"),
+                        "hedge": _hedge_state(agent).get("winner"),
+                        "quick_model": _reply_model(quick_reply) if two_stage else None,
                         # All from the request's arrival (latency_ms starts at the stream).
                         "total": int((time.monotonic() - request_started) * 1000)}),
         )
