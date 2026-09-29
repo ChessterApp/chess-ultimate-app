@@ -26,7 +26,8 @@ import { GoogleGenAI, Modality } from '@google/genai';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '../..');
 
-// Mirrors VOICE_TOOL_ALLOWLIST in src/app/api/coach/live-token/route.ts.
+// Mirrors VOICE_CORE_TOOLS in src/app/api/coach/live-token/route.ts — what the
+// 3.1 default gets in production (the 3.8 package takes every tool: --tools all).
 const PROD_VOICE_TOOLS = new Set([
   'board_control',
   'analyze_position',
@@ -38,6 +39,10 @@ const PROD_VOICE_TOOLS = new Set([
   'score_position_themes',
   'check_moves',
   'get_puzzle',
+  'get_topic',
+  'list_topics',
+  'get_lesson',
+  'get_learning_path',
 ]);
 
 const IN_RATE = 16000;
