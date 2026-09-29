@@ -8,11 +8,23 @@ import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier'
 export const runtime = 'nodejs';
 export const preferredRegion = 'iad1';
 
-// gemini-3.8-live is Google's recommended Live model (3.1 Flash Live is now a
-// "legacy preview"), priced the same. In the voice bench (2026-09-24) it speaks
-// a short acknowledgement before every tool call instead of going silent.
-// COACH_LIVE_MODEL switches back without a deploy.
-const LIVE_MODEL = process.env.COACH_LIVE_MODEL || 'gemini-3.8-live';
+// The Live model. Production runs gemini-3.1-flash-live-preview: on 2026-09-28
+// gemini-3.8-live went out as the default and every voice start failed with 502 —
+// the production Gemini key could not mint a 3.8 session (the same token
+// config works with other keys), and the switch had not been agreed with the
+// customer (3.8 also hears some Kazakh as Kyrgyz). COACH_LIVE_MODEL=gemini-3.8-live
+// turns the 3.8 package on (every tool, BLOCKING calls, no hidden thinking —
+// voice bench 2026-09-24/28) once the key has access.
+const DEFAULT_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+
+function liveModel(): string {
+  return process.env.COACH_LIVE_MODEL || DEFAULT_LIVE_MODEL;
+}
+
+/** The 3.8 voice package: every tool, BLOCKING calls and a zero thinking budget by default. */
+function isLive38(model: string): boolean {
+  return model.startsWith('gemini-3.8');
+}
 
 // End-of-speech detection is left to Google by default: on gemini-3.8-live a
 // 500 ms window measured no faster than the default and 300 ms saved ~0.2 s
@@ -28,11 +40,12 @@ const LIVE_SILENCE_MS = Number(process.env.COACH_LIVE_SILENCE_MS) || 0;
  * Voice bench 2026-09-28 (13 questions): a zero budget brought the first sound
  * from 1.77 to 1.42 s p50 and the answer after a tool from 4.0 to 2.5 s, and the
  * coach named the engine's move instead of only asking back.
- * COACH_LIVE_THINKING_BUDGET=<tokens> gives thinking back; an empty value leaves
- * the model's default. Returns null for "leave the default".
+ * COACH_LIVE_THINKING_BUDGET=<tokens> sets it, an empty value leaves the model's
+ * default. By default only the 3.8 package sends a zero budget; 3.1 keeps the
+ * configuration production ran before 2026-09-28. Returns null for "leave the default".
  */
-function liveThinkingBudget(raw = process.env.COACH_LIVE_THINKING_BUDGET): number | null {
-  if (raw === undefined) return 0;
+function liveThinkingBudget(model: string, raw = process.env.COACH_LIVE_THINKING_BUDGET): number | null {
+  if (raw === undefined) return isLive38(model) ? 0 : null;
   const value = raw.trim();
   if (!value) return null;
   const budget = Number(value);
@@ -119,19 +132,22 @@ const RECAP_MAX_CHARS_PER_MSG = 200;
 const RECAP_MAX_BYTES = 2048;
 
 /**
- * Tool declarations for the voice session: every well-formed one, or only the
- * core subset when COACH_VOICE_TOOLS=core. Entries without a string `name`
- * are dropped either way.
+ * Tool declarations for the voice session. The 3.8 package takes every
+ * well-formed one; other models the core subset production ran before
+ * (COACH_VOICE_TOOLS=all|core overrides). Entries without a string `name` are
+ * dropped either way.
  *
- * Each is declared BLOCKING. gemini-3.8-live defaults to NON_BLOCKING calls:
- * it finishes its "let me check" turn first and only then speaks about the
- * result — 5.1 s (p90 10.9 s) to the answer on tool questions in the voice
- * bench, against 3.3 s (p90 4.2 s) blocking; the acknowledgement before the
- * call is spoken either way. COACH_VOICE_TOOL_BEHAVIOR=default drops the field.
+ * The 3.8 package declares each BLOCKING. gemini-3.8-live defaults to
+ * NON_BLOCKING calls: it finishes its "let me check" turn first and only then
+ * speaks about the result — 5.1 s (p90 10.9 s) to the answer on tool questions
+ * in the voice bench, against 3.3 s (p90 4.2 s) blocking.
+ * COACH_VOICE_TOOL_BEHAVIOR=blocking|default overrides.
  */
-function filterVoiceTools(tools: unknown[]): unknown[] {
-  const coreOnly = process.env.COACH_VOICE_TOOLS === 'core';
-  const blocking = process.env.COACH_VOICE_TOOL_BEHAVIOR !== 'default';
+function filterVoiceTools(tools: unknown[], model: string): unknown[] {
+  const toolsMode = process.env.COACH_VOICE_TOOLS || (isLive38(model) ? 'all' : 'core');
+  const coreOnly = toolsMode === 'core';
+  const behavior = process.env.COACH_VOICE_TOOL_BEHAVIOR || (isLive38(model) ? 'blocking' : 'default');
+  const blocking = behavior === 'blocking';
   return tools
     .filter((t) => {
       const name = (t as { name?: unknown })?.name;
@@ -491,7 +507,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const functionDeclarations = filterVoiceTools(rawTools);
+  const model = liveModel();
+  const functionDeclarations = filterVoiceTools(rawTools, model);
 
   // Prefer Hermes' single-source prompt (persona + spoken style + profile + FEN
   // + spoken tool directives, all rendered from SOUL.md). Fall back to the
@@ -540,7 +557,7 @@ export async function POST(request: Request) {
     if (functionDeclarations.length > 0) {
       liveConfig.tools = [{ functionDeclarations }];
     }
-    const thinkingBudget = liveThinkingBudget();
+    const thinkingBudget = liveThinkingBudget(model);
     if (thinkingBudget !== null) {
       liveConfig.thinkingConfig = { thinkingBudget };
     }
@@ -551,7 +568,7 @@ export async function POST(request: Request) {
         expireTime,
         newSessionExpireTime,
         liveConnectConstraints: {
-          model: LIVE_MODEL,
+          model,
           config: liveConfig,
         },
         httpOptions: { apiVersion: 'v1alpha' },
@@ -561,7 +578,7 @@ export async function POST(request: Request) {
     return jsonResponse(
       {
         token: token.name,
-        model: LIVE_MODEL,
+        model,
         expiresAt: expireTime,
         // Byte size of the assembled system prompt, for client latency telemetry.
         promptBytes: Buffer.byteLength(systemInstruction, 'utf8'),

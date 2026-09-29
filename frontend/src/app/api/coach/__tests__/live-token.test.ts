@@ -78,7 +78,8 @@ describe('POST /api/coach/live-token', () => {
     expect(response.status).toBe(200);
     const data = await response.json();
     expect(data.token).toBe('ephemeral-token-xyz');
-    expect(data.model).toBe('gemini-3.8-live');
+    // 3.1 stays the default: the production key could not mint 3.8 (502, 2026-09-28).
+    expect(data.model).toBe('gemini-3.1-flash-live-preview');
     expect(typeof data.expiresAt).toBe('string');
     expect(createMock).toHaveBeenCalledTimes(1);
   });
@@ -197,9 +198,8 @@ describe('POST /api/coach/live-token', () => {
 
     expect(response.status).toBe(200);
     const config = configFromMint();
-    expect(config.tools).toEqual([
-      { functionDeclarations: decls.map((d) => ({ ...d, behavior: 'BLOCKING' })) },
-    ]);
+    // 3.1 gets the declarations as production had them before 2026-09-28: no behavior field.
+    expect(config.tools).toEqual([{ functionDeclarations: decls }]);
     expect(config.systemInstruction).toContain('You have tools.');
   });
 
@@ -216,29 +216,33 @@ describe('POST /api/coach/live-token', () => {
     expect(configFromMint().sessionResumption).toEqual({});
   });
 
-  it('switches hidden thinking off by default, and COACH_LIVE_THINKING_BUDGET brings it back', async () => {
+  it('3.8 runs without hidden thinking, 3.1 keeps its default; COACH_LIVE_THINKING_BUDGET overrides', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
     createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
     global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ tools: [] }) })) as any;
     const { POST } = await import('../live-token/route');
 
-    const mintedThinking = async (budget: string | undefined) => {
+    const mintedThinking = async (budget: string | undefined, model?: string) => {
       createMock.mockClear();
       if (budget === undefined) delete process.env.COACH_LIVE_THINKING_BUDGET;
       else process.env.COACH_LIVE_THINKING_BUDGET = budget;
+      if (model) process.env.COACH_LIVE_MODEL = model;
       try {
         await POST(makeRequest({ fen: 'somefen' }));
         return configFromMint().thinkingConfig;
       } finally {
         delete process.env.COACH_LIVE_THINKING_BUDGET;
+        delete process.env.COACH_LIVE_MODEL;
       }
     };
 
+    // 3.1 (the default) keeps the configuration production ran before.
+    expect(await mintedThinking(undefined)).toBeUndefined();
     // A token budget, never a thinking level: gemini-3.8-live rejects levels.
-    expect(await mintedThinking(undefined)).toEqual({ thinkingBudget: 0 });
+    expect(await mintedThinking(undefined, 'gemini-3.8-live')).toEqual({ thinkingBudget: 0 });
     expect(await mintedThinking('512')).toEqual({ thinkingBudget: 512 });
-    expect(await mintedThinking('')).toBeUndefined();
+    expect(await mintedThinking('', 'gemini-3.8-live')).toBeUndefined();
   });
 
   it('mints the token without tools (still 200) when the tools fetch fails', async () => {
@@ -397,7 +401,8 @@ describe('POST /api/coach/live-token', () => {
     return configFromMint();
   };
 
-  it('declares every chess tool to the voice coach, like the text coach (TZ 3d)', async () => {
+  it('the 3.8 package declares every chess tool, like the text coach (TZ 3d)', async () => {
+    process.env.COACH_LIVE_MODEL = 'gemini-3.8-live';
     const config = await mintWithTools([
       { name: 'board_control' },
       { name: 'analyze_position' },
@@ -414,6 +419,14 @@ describe('POST /api/coach/live-token', () => {
       'import_game_from_url',
       'get_user_games',
     ]);
+    delete process.env.COACH_LIVE_MODEL;
+  });
+
+  it('3.1 (the default) declares the core subset production ran before', async () => {
+    const config = await mintWithTools([
+      { name: 'board_control' }, { name: 'get_topic' }, { name: 'import_game_from_url' },
+    ]);
+    expect(config.tools[0].functionDeclarations).toEqual([{ name: 'board_control' }, { name: 'get_topic' }]);
   });
 
   it('COACH_VOICE_TOOLS=core still lets the voice coach show examples from the lessons and the knowledge base', async () => {
@@ -469,12 +482,17 @@ describe('POST /api/coach/live-token', () => {
     delete process.env.COACH_VOICE_TOOLS;
   });
 
-  it('declares the voice tools BLOCKING so the answer follows the tool at once', async () => {
-    const config = await mintWithTools([{ name: 'get_puzzle' }, { name: 'board_control' }]);
-    expect(config.tools[0].functionDeclarations.map((d: any) => d.behavior)).toEqual([
-      'BLOCKING',
-      'BLOCKING',
-    ]);
+  it('the 3.8 package declares the voice tools BLOCKING so the answer follows the tool at once', async () => {
+    process.env.COACH_LIVE_MODEL = 'gemini-3.8-live';
+    try {
+      const config = await mintWithTools([{ name: 'get_puzzle' }, { name: 'board_control' }]);
+      expect(config.tools[0].functionDeclarations.map((d: any) => d.behavior)).toEqual([
+        'BLOCKING',
+        'BLOCKING',
+      ]);
+    } finally {
+      delete process.env.COACH_LIVE_MODEL;
+    }
   });
 
   it('COACH_VOICE_TOOL_BEHAVIOR=default leaves the model default', async () => {
