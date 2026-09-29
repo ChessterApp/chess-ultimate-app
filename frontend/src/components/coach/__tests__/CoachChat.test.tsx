@@ -654,6 +654,37 @@ describe('CoachChat — pasted games go straight to the board', () => {
     vi.unstubAllGlobals();
   });
 
+  it('reads a game pasted in Russian notation', () => {
+    const onBoardActions = vi.fn();
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    fireEvent.paste(screen.getByPlaceholderText(coach.inputPlaceholder), {
+      clipboardData: { getData: () => '1.e4 e5 2.Фh5 Кc6 3.Сc4 Кf6 4.Фxf7# 0-1' },
+    });
+    expect(onBoardActions).toHaveBeenCalledWith([
+      { type: 'load_pgn', pgn: '1.e4 e5 2.Qh5 Nc6 3.Bc4 Nf6 4.Qxf7# 0-1' },
+    ]);
+    expect(screen.getByText(coach.loadedPgn)).toBeTruthy();
+  });
+
+  it('says so when pasted moves cannot be read, and keeps the text', () => {
+    // Production, 2026-09-29: an unreadable game was dropped while the chat said it was loaded.
+    const onBoardActions = vi.fn();
+    render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
+      </NextIntlClientProvider>,
+    );
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.paste(input, { clipboardData: { getData: () => '1. e4 e5 2. Qh5 Nc6 3. Qxa8 Nf6' } });
+    expect(onBoardActions).not.toHaveBeenCalled();
+    expect(screen.getByText(coach.pgnUnreadable)).toBeTruthy();
+    expect(input.value).toBe('1. e4 e5 2. Qh5 Nc6 3. Qxa8 Nf6');
+  });
+
   it('classifies Lichess and Chess.com game links', async () => {
     const { classifyPastedText } = await import('../CoachChat');
     expect(classifyPastedText('https://lichess.org/kAdOQKeh')).toBe('url');

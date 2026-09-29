@@ -9,6 +9,7 @@ import React, {
   useImperativeHandle,
 } from 'react';
 import { useTranslations } from 'next-intl';
+import { Chess } from 'chess.js';
 import ReactMarkdown from 'react-markdown';
 import ToolIndicator from './ToolIndicator';
 import FeedbackButtons from './FeedbackButtons';
@@ -56,8 +57,34 @@ const FEN_RE = /^\s*([rnbqkpRNBQKP1-8]+\/){7}[rnbqkpRNBQKP1-8]+\s+[wb]\s+(-|[KQk
 const GAME_URL_RE =
   /^(?:https?:\/\/)?(?:www\.)?(?:lichess\.org\/(?:game\/export\/)?[A-Za-z0-9]{8}(?:[A-Za-z0-9]{4})?(?:[/#?].*)?|chess\.com\/(?:(?:analysis\/)?game\/(?:live|daily|computer)\/\d+|live\/game\/\d+)(?:[/#?].*)?)$/i;
 
+const RU_PIECES: Record<string, string> = { Кр: 'K', Ф: 'Q', Л: 'R', С: 'B', К: 'N' };
+
+/**
+ * Russian figurine letters → SAN: students paste "1.e4 e5 2.Фh5 Кc6 3.Сc4"
+ * (Кр — king, Ф — queen, Л — rook, С — bishop, К — knight; х/× as the capture
+ * sign; 0-0 for castling). The board's parser knows only SAN and silently
+ * dropped such a game while the chat said it was loaded (2026-09-29).
+ */
+export function normalizeRussianSan(text: string): string {
+  return (text || '')
+    .replace(/(^|[\s.(])(Кр|Ф|Л|С|К)(?=[a-hх×x:]|[1-8][a-hх×x:])/g, (_m, pre: string, p: string) => pre + RU_PIECES[p])
+    .replace(/([a-hKQRBN1-8])[х×:](?=[a-h][1-8])/g, '$1x')
+    .replace(/\b0-0-0\b/g, 'O-O-O')
+    .replace(/\b0-0\b/g, 'O-O');
+}
+
+/** True when the board's parser (chess.js) reads *pgn* as a game. */
+function isReadablePgn(pgn: string): boolean {
+  try {
+    new Chess().loadPgn(pgn);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function classifyPastedText(text: string): 'pgn' | 'fen' | 'url' | null {
-  const t = (text || '').trim();
+  const t = normalizeRussianSan((text || '').trim());
   if (!t) return null;
   if (FEN_RE.test(t)) return 'fen';
   if (GAME_URL_RE.test(t)) return 'url';
@@ -412,7 +439,14 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       const kind = classifyPastedText(text);
       const trimmed = text.trim();
       if (kind === 'pgn') {
-        onBoardActions([{ type: 'load_pgn', pgn: trimmed }]);
+        const pgn = normalizeRussianSan(trimmed);
+        if (!isReadablePgn(pgn)) {
+          // Say so and keep the text: it can still go to the coach as a message.
+          addLocalLine(t('pgnUnreadable'));
+          setInput((prev) => prev + trimmed);
+          return;
+        }
+        onBoardActions([{ type: 'load_pgn', pgn }]);
         addLocalLine(t('loadedPgn'));
       } else if (kind === 'fen') {
         onBoardActions([{ type: 'set_fen', fen: trimmed }]);
