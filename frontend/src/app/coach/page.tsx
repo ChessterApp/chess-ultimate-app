@@ -160,13 +160,54 @@ export default function CoachPage() {
   }, []);
   const withBottomNav = windowWidth < 768 && !typingOnPhone;
 
+  // Beside the chat the board gets 55% of what the sidebar leaves, so on a
+  // desktop its size follows that area, not the window: a fixed 520 px board
+  // (and a 520 + 280 px game view) overflowed it under the sidebar and the
+  // chat on laptops (live site, 2026-09-29).
+  const [boardArea, setBoardArea] = useState({ width: 0, height: 0 });
+  const boardAreaObserver = useRef<ResizeObserver | null>(null);
+  const measureBoardArea = useCallback((el: HTMLDivElement | null) => {
+    boardAreaObserver.current?.disconnect();
+    boardAreaObserver.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      // A hidden column (typing on a phone) measures 0: keep the last size.
+      if (el.clientWidth > 0) setBoardArea({ width: el.clientWidth, height: el.clientHeight });
+    };
+    measure();
+    boardAreaObserver.current = new ResizeObserver(measure);
+    boardAreaObserver.current.observe(el);
+  }, []);
+
   const responsiveBoardSize = useMemo(() => {
     if (windowWidth < 400) return snapTo8(windowWidth - 8);
     if (windowWidth < 600) return snapTo8(windowWidth - 12);
     if (windowWidth < 768) return snapTo8(Math.min(windowWidth - 24, 440));
     if (windowWidth < 1024) return snapTo8(Math.min(windowWidth - 48, 500));
-    return 520;
-  }, [windowWidth]);
+    if (!boardArea.width) return 520;
+    return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8)));
+  }, [windowWidth, boardArea.width]);
+
+  // An opened master game: the move list sits beside the board when the board
+  // keeps at least MIN_BESIDE px that way, else under it — with the board sized
+  // so board, controls and list fit the height.
+  const gameLayout = useMemo(() => {
+    const PANEL = 280;
+    const GAP = 8;
+    const CONTROLS = 56;
+    const LIST = 150;
+    const MIN_BESIDE = 440;
+    if (windowWidth < 1024 || !boardArea.width) {
+      return { beside: windowWidth >= 1024, size: responsiveBoardSize, panelWidth: PANEL };
+    }
+    const besideSize = Math.min(520, boardArea.width - PANEL - GAP, boardArea.height - CONTROLS - GAP);
+    if (besideSize >= MIN_BESIDE) {
+      return { beside: true, size: snapTo8(besideSize), panelWidth: PANEL };
+    }
+    const underSize = Math.min(520, boardArea.width - GAP, boardArea.height - CONTROLS - LIST - 2 * GAP);
+    const size = snapTo8(Math.max(280, underSize));
+    return { beside: false, size, panelWidth: size };
+  }, [windowWidth, boardArea.width, boardArea.height, responsiveBoardSize]);
 
   // Redirect unauthenticated users to sign-in
   useEffect(() => {
@@ -785,9 +826,9 @@ export default function CoachPage() {
               ))}
             </div>
           )}
-          <div className="flex-1 flex items-center justify-center">
+          <div ref={measureBoardArea} className="flex-1 min-h-0 flex items-center justify-center">
             {activeGameId && activeGame ? (
-              <div className="flex flex-col lg:flex-row items-center lg:items-start gap-2">
+              <div className={`flex gap-2 ${gameLayout.beside ? 'flex-row items-start' : 'flex-col items-center'}`}>
                 <CoachBoard
                   fen={
                     (gameMoveIndices[activeGameId] ?? -1) === -1
@@ -824,9 +865,18 @@ export default function CoachPage() {
                   }
                   onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
                   onPuzzleMove={() => 'wrong' as const}
-                  boardSize={responsiveBoardSize}
+                  boardSize={gameLayout.size}
                 />
-                <div className="w-full lg:w-[280px] max-h-[150px] lg:max-h-[200px] overflow-y-auto">
+                {/* The panel is MUI in the site's light theme (dark text): on the
+                    dark coach page it needs its light card, like the board's controls. */}
+                <div
+                  className="overflow-y-auto bg-white rounded-lg"
+                  style={{
+                    width: gameLayout.panelWidth,
+                    maxHeight: gameLayout.beside ? gameLayout.size + 56 : 150,
+                  }}
+                  data-testid="game-viewer-side"
+                >
                   <GameViewerPanel
                     game={activeGame}
                     currentMoveIndex={gameMoveIndices[activeGameId] ?? -1}

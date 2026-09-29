@@ -172,11 +172,12 @@ describe('CoachPage - Game Tabs', () => {
     expect(trueBranch).toContain('puzzleState={null}');
   });
 
-  it('wraps GameViewerPanel in a scrollable container with responsive max-height', () => {
-    // Mobile: max-h-[150px], Desktop: lg:max-h-[200px]
-    expect(coachPageContent).toContain('max-h-[150px]');
-    expect(coachPageContent).toContain('lg:max-h-[200px]');
-    expect(coachPageContent).toContain('overflow-y-auto');
+  it('wraps GameViewerPanel in a scrollable light card sized to the board area', () => {
+    // Beside the board when it keeps >= 440 px that way, else under it; the size
+    // follows the measured board area, not the window (overflow on laptops, 2026-09-29).
+    expect(coachPageContent).toContain('overflow-y-auto bg-white rounded-lg');
+    expect(coachPageContent).toContain('gameLayout.beside');
+    expect(coachPageContent).toContain('ref={measureBoardArea}');
   });
 
   it('uses flex-col on mobile and flex-row on desktop for board+panel layout', () => {
