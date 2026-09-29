@@ -61,13 +61,39 @@ def validate_fen(fen: str) -> str:
         raise ValueError(f"Invalid FEN: {exc}") from exc
 
 
-def parse_pgn_moves(pgn_text: str) -> list[str]:
-    """Parse a PGN string and return a list of SAN moves."""
+def _read_game(pgn_text: str):
     import io
+
     game = chess.pgn.read_game(io.StringIO(pgn_text))
     if game is None:
         raise ValueError("Could not parse PGN")
+    # python-chess stops at an illegal move and keeps the moves before it: a
+    # made-up game loaded as a silently shortened one.
+    if game.errors:
+        raise ValueError(f"The PGN has an illegal or unreadable move ({game.errors[0]}); "
+                         "load the exact PGN from get_game_pgn or an import result")
+    return game
+
+
+def parse_pgn_moves(pgn_text: str) -> list[str]:
+    """Parse a PGN string and return a list of SAN moves."""
+    game = _read_game(pgn_text)
     return [move.san() for move in game.mainline()]
+
+
+def pgn_summary(pgn_text: str) -> str:
+    """'Carlsen,M vs Rasulov,Vu, 24 moves, 0-1' — what a loaded PGN puts on the board."""
+    game = _read_game(pgn_text)
+    headers = game.headers
+    plies = sum(1 for _ in game.mainline_moves())
+    white = headers.get("White", "?")
+    black = headers.get("Black", "?")
+    parts = [f"{white} vs {black}" if white != "?" or black != "?" else "a game",
+             f"{(plies + 1) // 2} moves"]
+    result = headers.get("Result", "*")
+    if result and result != "*":
+        parts.append(result)
+    return ", ".join(parts)
 
 
 # --- BoardAction subtypes ---
@@ -88,6 +114,10 @@ class LoadPgn(BaseModel):
     action: ActionType = Field(ActionType.LOAD_PGN, alias="type")
     pgn: str
     moves: list[str] = Field(default_factory=list)
+    # What is on the board now, for the model to name it (production, 2026-09-29:
+    # the coach said "Gukesh - Carlsen is on the board, without moves" while
+    # another game was loaded).
+    loaded: str = ""
 
     model_config = {"populate_by_name": True}
 
@@ -101,6 +131,11 @@ class LoadPgn(BaseModel):
     def model_post_init(self, _context) -> None:
         if not self.moves:
             self.moves = parse_pgn_moves(self.pgn)
+        if not self.moves:
+            raise ValueError("The PGN has no moves — load the game's PGN from get_game_pgn or an "
+                             "import result, never an empty or made-up game")
+        if not self.loaded:
+            self.loaded = pgn_summary(self.pgn)
 
 
 class SetPuzzle(BaseModel):

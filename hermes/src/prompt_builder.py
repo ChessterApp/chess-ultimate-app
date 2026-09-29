@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "11"  # 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "12"  # 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -580,6 +580,39 @@ def reply_language_note(message: str, locale: Optional[str] = None) -> str:
             f"student's message. Never switch to another language.]")
 
 
+def review_block(result: dict) -> str:
+    """The game's critical moments, found by the server before the turn (see coach_chat).
+
+    A game review used to spend its first model call (2-3.5 s on Gemini) only
+    deciding to load the game and call find_critical_moments; the server does
+    both the moment the message arrives.
+    """
+    moments = result.get("critical_moments") or []
+    lines = [
+        "## Critical moments of the student's game (engine, depth "
+        f"{result.get('engine_depth', 12)}; evaluations from White's side)",
+        "The game is ALREADY loaded on the student's board: do not load it again and do not "
+        "call find_critical_moments for it.",
+        f"Moves in the game: {result.get('total_moves', '?')}.",
+    ]
+    for m in moments:
+        dots = "." if m.get("side") == "white" else "..."
+        line = (f"- {m.get('move_number')}{dots}{m.get('move')} ({m.get('side')}, {m.get('type')}): "
+                f"{m.get('eval_before'):+} → {m.get('eval_after'):+}")
+        if m.get("best_move"):
+            line += f". Better: {m['best_move']} (line {m.get('best_line', m['best_move'])})"
+        if m.get("fen_before"):
+            line += f". Position before the move: {m['fen_before']}"
+        lines.append(line)
+    if not moments:
+        lines.append("- The engine found no swing of 1.5 pawns or more: a clean game.")
+    lines.append(
+        "Explain the turning points that matter most, in your own words: what went wrong and "
+        "what was better. Set a position on the board only when you walk through one of them."
+    )
+    return "\n".join(lines)
+
+
 def engine_note_block(note: str) -> str:
     """The turn's engine line (src/voice_engine_note.py) as a turn-context block."""
     return (
@@ -592,7 +625,10 @@ def engine_note_block(note: str) -> str:
         "no engine name, no numbers. Its \"Facts\" part — what hangs, what is pinned, what "
         "the best move and the opponent threaten — is verified: explain WHY a move is good from "
         "those facts, and never claim an attack, a defence or a threat that is not in the facts, "
-        "the lines or a tool result. The board is sent with every message, so use this block "
+        "the lines or a tool result. Its \"Opening\" line is the ECO book's name for this "
+        "position — use that name; without one, never name the opening from memory (call "
+        "identify_opening with the moves if you have them). The board is sent with every "
+        "message, so use this block "
         "only when the question is about this position; for anything else — what to study "
         "next, a concept, an opening in general, the student's games or progress — ignore it "
         "and answer that question with its own tools (get_learning_path, get_topic, …)."
@@ -627,7 +663,8 @@ VOICE_TOOL_LAYER = (
     "- The current position: after the board changes the system may add a line "
     "starting with \"[Engine]\" — Stockfish's verified top moves for that FEN and "
     "\"Facts\": what hangs, what is pinned, what the best move and the opponent "
-    "threaten. When it matches the current position, answer from it straight away, no "
+    "threaten, and the ECO book's name of the opening when it has one — never name an "
+    "opening yourself. When it matches the current position, answer from it straight away, no "
     "tool call, and explain WHY from those facts — never name an attack, a defence or a "
     "threat that is not in them. Otherwise, or for any other position, call "
     "analyze_position.\n"

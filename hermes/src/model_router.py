@@ -63,6 +63,38 @@ def looks_like_pgn(query: str) -> bool:
     return bool(query) and _PGN_RE.search(query) is not None
 
 
+_TAG_LINE_RE = re.compile(r'^\s*\[\w+\s+"[^"]*"\]\s*$')
+
+
+def extract_game_pgn(message: str, min_plies: int = 8) -> str | None:
+    """The game in a chat message — its PGN tags and movetext — when it parses.
+
+    Text before the game ("Разбери мою партию…") and after it is dropped; a
+    message whose moves do not replay (typos, a lone variation) gives None and
+    the turn goes on without the server's review step.
+    """
+    if not looks_like_pgn(message):
+        return None
+    import io
+
+    import chess.pgn
+
+    lines = message.splitlines()
+    tags = [ln.strip() for ln in lines if _TAG_LINE_RE.match(ln)]
+    start = re.search(r"(?<![\w.])1\.\s*[a-hNBRQKO]", message)
+    if start is None:
+        return None
+    movetext = message[start.start():].strip()
+    pgn = ("\n".join(tags) + "\n\n" + movetext) if tags else movetext
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn))
+    except Exception:
+        return None
+    if game is None or game.errors or len(list(game.mainline_moves())) < min_plies:
+        return None
+    return pgn
+
+
 def explain_route(query: str, model_tiers: dict, default_model: str) -> dict:
     """Resolve the model AND why it was chosen, for logging/telemetry.
 

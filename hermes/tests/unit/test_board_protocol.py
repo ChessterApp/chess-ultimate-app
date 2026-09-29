@@ -154,3 +154,27 @@ class TestResponseEnvelope:
         assert d["message"] == "Here's the position."
         assert len(d["board_actions"]) == 1
         assert d["board_actions"][0]["type"] == "set_fen"
+
+
+# ── Loading a game: it must be a real one, and the model hears which (2026-09-29) ──
+
+@pytest.mark.unit
+def test_load_pgn_names_what_is_now_on_the_board():
+    from src.tools.board_control import build_board_action
+
+    pgn = '[White "Carlsen,M"]\n[Black "Rasulov,Vu"]\n[Result "0-1"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 Nf6 0-1'
+    action = build_board_action("load_pgn", {"pgn": pgn})
+    assert action["type"] == "load_pgn"
+    assert action["loaded"] == "Carlsen,M vs Rasulov,Vu, 3 moves, 0-1"
+
+
+@pytest.mark.unit
+def test_load_pgn_refuses_an_empty_or_broken_game():
+    from src.tools.board_control import build_board_action
+
+    # Production: "Gukesh - Carlsen is on the board, without moves".
+    empty = build_board_action("load_pgn", {"pgn": '[White "Gukesh"]\n[Black "Carlsen"]\n\n*'})
+    assert "no moves" in empty["error"]
+    # python-chess stops at an illegal move and keeps the rest: a made-up game.
+    broken = build_board_action("load_pgn", {"pgn": "1. e4 e5 2. Ke3 Nc6 3. Qh5"})
+    assert "illegal" in broken["error"]

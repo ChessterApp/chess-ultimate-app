@@ -59,6 +59,7 @@ from src.prompt_builder import (
     build_voice_prompt,
     engine_note_block,
     reply_language_note,
+    review_block,
     get_prompt_version,
 )
 from src.event_logger import log_event, new_turn_id
@@ -574,6 +575,41 @@ def _await_engine_note(future, started: float, state: dict) -> Optional[dict]:
     return note
 
 
+# One line per text turn with its stage timings, for `pm2 logs hermes-chess`.
+# The app's own loggers print nothing below WARNING under uvicorn.run (only
+# uvicorn's loggers are configured), so this one carries its own handler.
+_timings_log = logging.getLogger("hermes.turn_timings")
+if not _timings_log.handlers:
+    _timings_handler = logging.StreamHandler()
+    _timings_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    _timings_log.addHandler(_timings_handler)
+    _timings_log.setLevel(logging.INFO)
+    _timings_log.propagate = False
+
+
+def _await_review(future, started: float, state: dict) -> Optional[dict]:
+    """The game's critical moments, waiting at most COACH_REVIEW_WAIT_MS from *started*.
+
+    A late or failed scan leaves the review to the model's own tools.
+    """
+    if future is None:
+        return None
+    budget = config.COACH_REVIEW_WAIT_MS / 1000.0 - (time.monotonic() - started)
+    try:
+        result = future.result(timeout=max(0.0, budget))
+    except FutureTimeout:
+        return None
+    except Exception:  # noqa: BLE001 — the pre-step is best-effort
+        logger.debug("review pre-step failed", exc_info=True)
+        return None
+    if not isinstance(result, dict) or "error" in result:
+        return None
+    state["used"] = True
+    state["ms"] = int((time.monotonic() - started) * 1000)
+    state["moments"] = len(result.get("critical_moments") or [])
+    return result
+
+
 # When the framework exhausts its retries (and any fallback) it RETURNS the
 # failure as the final response text instead of raising — on the bench
 # (2026-09-23) 19 Gemini turns reached the student as "API call failed after 3
@@ -767,9 +803,9 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     user_id = request.headers.get("x-clerk-user-id", "anonymous")
 
     # Get or create session
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
-        session = session_store.create(user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
 
     # Build the user message from the last message in the conversation
     user_message = body.messages[-1].content if body.messages else ""
@@ -783,10 +819,10 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     session.add_message("user", user_message)
 
     # Load user profile for personalization
-    profile = load_user_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
 
     # Build personalized system prompt
-    system_prompt = build_system_prompt(
+    system_prompt = await asyncio.to_thread(build_system_prompt, 
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
@@ -806,7 +842,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
         )
         user_message = f"Previous conversation:\n{history}\n\nCurrent message:\n{user_message}"
 
-    agent = _create_agent(
+    agent = await asyncio.to_thread(_create_agent, 
         model=model, system_prompt=system_prompt, session_id=session_id,
         user_query=raw_user_query, fallback_model=_turn_fallback_model(model),
     )
@@ -1266,6 +1302,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     finally `{"done": true, "session_id": ...}`. On failure a single
     `{"error": ...}` frame is emitted instead of the trailing events.
     """
+    # Stage timings of the turn (ms from the request): logged with turn_end and
+    # as one "turn timings" log line, so production shows where time goes.
+    request_started = time.monotonic()
+    stages: dict = {}
+
+    def _mark(stage: str) -> None:
+        stages[stage] = int((time.monotonic() - request_started) * 1000)
+
     user_id = _get_user_id(request)
 
     # Rate limiting
@@ -1275,9 +1319,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     analytics_tracker.track_chat(user_id, body.session_id or "")
 
     session_id = body.session_id or str(uuid.uuid4())
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
-        session = session_store.create(user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
+    _mark("session")
 
     # Hygiene: normalize inbound free-text (no-op unless COACH_NORMALIZE_INPUT).
     # body.fen is handled separately below and is never normalized.
@@ -1323,22 +1368,38 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # during a live game — the coach must hint there, not hold the best move.
     engine_started = time.monotonic()
     engine_future = None
-    if config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game:
+    # A game in the message: the server loads it and finds its critical moments
+    # right away, beside the reaction — the model's first review step did only
+    # that (2-3.5 s). COACH_REVIEW_PRESTEP=0 leaves it to the model.
+    review_pgn = None
+    review_future = None
+    if config.COACH_REVIEW_PRESTEP and route.get("reason") == "pgn_in_message" and not live_game:
+        from src.model_router import extract_game_pgn
+        from src.tools.critical_moments import find_critical_moments
+
+        review_pgn = extract_game_pgn(body.message)
+        if review_pgn:
+            review_future = _engine_pool.submit(find_critical_moments, review_pgn)
+    review_state = {"used": False, "ms": None, "moments": None}
+    if (config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game
+            and review_future is None):
         engine_future = _engine_pool.submit(
             engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
         )
     engine_state = {"used": False, "ms": None, "timed_out": False}
 
-    profile = load_user_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
+    _mark("profile")
     # Static persona/tool guidance stays in the system prompt (cacheable);
     # date, profile, memory and board state travel in the user message.
-    system_prompt, turn_context = build_system_prompt(
+    system_prompt, turn_context = await asyncio.to_thread(build_system_prompt, 
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
         locale=body.locale,
         return_parts=True,
     )
+    _mark("prompt")
     logger.info("Model routed: %s for message: %s", model, body.message[:80])
 
     # Build conversation context from session history (exclude the just-added user message)
@@ -1366,10 +1427,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         augmented_message = current_message
 
     fallback_model = _turn_fallback_model(model)
-    agent = _create_agent(
+    agent = await asyncio.to_thread(_create_agent, 
         model=model, system_prompt=system_prompt, session_id=session_id,
         user_query=body.message, fallback_model=fallback_model,
     )
+    _mark("agent")
 
     log_event(
         "turn_start",
@@ -1578,6 +1640,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 message = augmented_message
                 if note:
                     message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                review = _await_review(review_future, engine_started, review_state)
+                if review:
+                    message = f"{message}\n\n{review_block(review)}"
                 message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
@@ -1622,6 +1687,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             quick["finished"] = True
             return frames
 
+        if review_pgn and review_future is not None:
+            # The game goes on the board at once, before any word of the review.
+            yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
+
         try:
             while not (main_done and quick["finished"]):
                 item = await queue.get()
@@ -1639,6 +1708,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         continue  # late chunk of an abandoned reaction
                     if not quick["shown"]:
                         quick["shown"] = True
+                        _mark("reaction_first")
                         yield _sse({"stage": "quick"})
                     quick["parts"].append(payload)
                     partial_parts.append(payload)
@@ -1652,6 +1722,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 elif kind == "delta":
                     if _is_framework_notice(payload):
                         continue
+                    if not streamed_any:
+                        _mark("answer_first")
                     streamed_any = True
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
@@ -1883,6 +1955,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
                 "engine_note": dict(engine_state),
+                "review": dict(review_state),
+                "stages_ms": dict(stages),
                 "quick": {
                     "model": quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),
@@ -1908,7 +1982,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "routed_model": model,
                 "quick_shown": bool(quick_text),
                 "engine_note": dict(engine_state),
+                "review": dict(review_state),
+                "stages_ms": {**stages, "engine_ready": engine_state.get("ms"),
+                              "review_ready": review_state.get("ms"),
+                              "total": int((time.monotonic() - request_started) * 1000)},
             },
+        )
+        _timings_log.info(
+            "turn timings %s",
+            json.dumps({"turn": turn_id, "tier": route["tier"], "model": served_model,
+                        "iterations": iterations, **stages,
+                        "engine_ready": engine_state.get("ms"), "review_ready": review_state.get("ms"),
+                        # All from the request's arrival (latency_ms starts at the stream).
+                        "total": int((time.monotonic() - request_started) * 1000)}),
         )
 
         # Per-student memory (CL Phase 1): reflect on the completed turn and write
@@ -2272,7 +2358,12 @@ _voice_profile_lock = threading.Lock()
 
 
 def _get_voice_profile(user_id: str) -> UserProfile:
-    """Return the user's profile, cached for ~5 min to spare a Supabase hit."""
+    """Return the user's profile, cached for ~5 min to spare a Supabase hit.
+
+    The text turn uses it too (2026-09-29): every chat turn loaded the profile
+    from Supabase on the event loop, freezing every other student's stream for
+    the round trip. Callers in async handlers run it in a thread.
+    """
     now = time.monotonic()
     with _voice_profile_lock:
         entry = _voice_profile_cache.get(user_id)
@@ -2288,6 +2379,12 @@ def clear_voice_profile_cache() -> None:
     """Empty the voice profile cache (used by tests)."""
     with _voice_profile_lock:
         _voice_profile_cache.clear()
+
+
+def _forget_profile(user_id: str) -> None:
+    """Drop one user's cached profile after it changes."""
+    with _voice_profile_lock:
+        _voice_profile_cache.pop(user_id, None)
 
 
 @app.post("/api/coach/voice/prompt")
@@ -2306,7 +2403,7 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
     # Enforced before the profile cache so a cache hit can never bypass the limit.
     await enforce_rate_limit(request, limiter=voice_token_rate_limiter)
 
-    profile = _get_voice_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
     profile_context = profile.to_prompt_context()
     # Memory blocks may hit Supabase — keep them off the event loop.
     system_prompt = await asyncio.to_thread(
@@ -2367,7 +2464,7 @@ async def coach_list_sessions(request: Request):
 async def coach_create_session(request: Request, body: CoachSessionCreateRequest = None):
     """Create a new coaching session (with its default study board)."""
     user_id = _get_user_id(request)
-    session = session_store.create(user_id=user_id)
+    session = await asyncio.to_thread(session_store.create, user_id=user_id)
     if body and body.title:
         session.set_title(body.title)
     session.ensure_board()
@@ -2378,7 +2475,7 @@ async def coach_create_session(request: Request, body: CoachSessionCreateRequest
 async def coach_update_session(session_id: str, body: CoachSessionUpdateRequest, request: Request):
     """Rename a session or switch its active board."""
     user_id = _get_user_id(request)
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     if body.title is not None:
@@ -2488,7 +2585,7 @@ async def coach_get_messages(
     Scoped to the requesting user; 404 if the session is unknown to them.
     """
     user_id = _get_user_id(request)
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -2525,14 +2622,14 @@ async def coach_append_message(
             status_code=400, detail="role must be 'user' or 'assistant'"
         )
 
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         # Never clobber a session owned by another user (the store is keyed by
         # id alone, so create() would overwrite it). Only create when the id is
         # genuinely free.
-        if session_store.get(session_id) is not None:
+        if await asyncio.to_thread(session_store.get, session_id) is not None:
             raise HTTPException(status_code=404, detail="Session not found")
-        session = session_store.create(user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
 
     # Stamp the utterance time + turn id onto the row (migration 008 columns).
     # Fail-soft: persist_message drops these if the columns don't exist yet.
@@ -2950,11 +3047,11 @@ async def coach_analysis(request: Request):
         return limited
     usage_info = limited
 
-    session = _resolve_analysis_session(user_id, conversation_id)
+    session = await asyncio.to_thread(_resolve_analysis_session, user_id, conversation_id)
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = _prepare_analysis_turn(session, fen, query)
+    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
 
     loop = asyncio.get_event_loop()
     try:
@@ -3029,11 +3126,11 @@ async def coach_analysis_stream(request: Request):
     if isinstance(limited, JSONResponse):
         return limited
 
-    session = _resolve_analysis_session(user_id, conversation_id)
+    session = await asyncio.to_thread(_resolve_analysis_session, user_id, conversation_id)
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = _prepare_analysis_turn(session, fen, query)
+    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
 
     async def event_stream():
         streamed_any = False
@@ -3090,7 +3187,7 @@ async def coach_history(conversation_id: str, request: Request):
     /api/coach/sessions/{id}/messages; 404 if the user does not own it.
     """
     user_id = _get_user_id(request)
-    session = session_store.get(conversation_id, user_id)
+    session = await asyncio.to_thread(session_store.get, conversation_id, user_id)
     if session is None:
         return JSONResponse(
             status_code=404,
@@ -3122,7 +3219,7 @@ async def coach_history(conversation_id: str, request: Request):
 async def coach_get_profile(request: Request):
     """Get the user's coaching profile."""
     user_id = _get_user_id(request)
-    profile = load_user_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
     return profile.model_dump()
 
 
@@ -3140,6 +3237,7 @@ async def coach_update_profile(request: Request):
         style=body.get("style", "unknown"),
     )
     save_user_profile(profile)
+    _forget_profile(user_id)
     return profile.model_dump()
 
 

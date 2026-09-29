@@ -96,6 +96,14 @@ def _no_two_stage_by_default(monkeypatch):
     # Same for the turn's engine line: a real Stockfish run per route test with a
     # FEN. Its tests switch it on and patch the engine.
     monkeypatch.setattr(_config, "COACH_ENGINE_NOTE", False)
+    # Text turns read the profile through a 5-minute cache now: a profile a test
+    # patched in must not leak into the next test.
+    try:
+        from src.server import clear_voice_profile_cache
+
+        clear_voice_profile_cache()
+    except Exception:
+        pass
     yield
 
 
