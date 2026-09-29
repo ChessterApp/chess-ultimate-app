@@ -97,7 +97,16 @@ def test_get_puzzle_tool_returns_position_and_how_to_show():
     assert out["theme"] == "mateIn1"
     assert out["count"] == 1
     assert out["puzzles"][0]["puzzle_id"] == "mate01"
-    assert "set_puzzle" in out["how_to_show"]
+    # The first puzzle goes on the board with the result: no second model step
+    # for board_control (2026-09-30).
+    assert "already on the student's board" in out["how_to_show"]
+    assert out["on_board"] == "mate01"
+    (action,) = out["board_actions"]
+    assert action["type"] == "set_puzzle" and action["puzzle_id"] == "mate01"
+    assert action["fen"] == out["puzzles"][0]["fen"] and action["solution"] == out["puzzles"][0]["solution"]
+    from src.middleware.response_envelope import tool_board_actions
+
+    assert tool_board_actions(json.dumps(out)) == [action]
 
     assert "error" in get_puzzle(theme="несуществующая тема")
     assert "error" in get_puzzle(theme="zugzwang")

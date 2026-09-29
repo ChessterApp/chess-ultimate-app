@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "12"  # 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "13"  # 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -364,8 +364,9 @@ def build_system_prompt(
         "- **load_pgn**: Load a full game on the board. Use when referencing master games "
         "so the student can replay the moves.\n"
         "- **set_puzzle**: Present a tactical puzzle. ALWAYS take it from get_puzzle "
-        "(theme + the student's rating) and pass its puzzle_id — never invent a puzzle "
-        "position or solution.\n"
+        "(theme + the student's rating) — never invent a puzzle position or solution. "
+        "get_puzzle puts its first puzzle on the board itself; set_puzzle with a "
+        "puzzle_id is only for another puzzle from its list.\n"
         "- **navigate**: Move forward/back through a loaded game.\n"
         "- **flip_board**: Flip the board perspective.\n"
         "- **clear_board**: Reset the board.\n\n"
@@ -674,8 +675,8 @@ VOICE_TOOL_LAYER = (
     "- A concept (a tactic, a pawn structure, an endgame technique, an opening "
     "idea): get_topic — it puts a verified example on the board itself (the "
     "site's lesson when there is one); describe exactly that position.\n"
-    "- Puzzles: get_puzzle (theme + the student's rating), then board_control "
-    "set_puzzle with its puzzle_id — never invent a puzzle.\n"
+    "- Puzzles: get_puzzle (theme + the student's rating) — it puts the puzzle "
+    "on the board itself; never invent a puzzle.\n"
     "- Openings: identify_opening for the name, get_opening_stats for what is "
     "played. Master games: search_master_games (surname only) or "
     "find_games_by_position.\n"
