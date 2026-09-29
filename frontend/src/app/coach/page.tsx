@@ -179,14 +179,51 @@ export default function CoachPage() {
     boardAreaObserver.current.observe(el);
   }, []);
 
+  // On a phone board and chat share one column: sized by width alone the board
+  // left the chat 3 px on a 390x664 viewport (Chrome on an iPhone) and its top
+  // rank slid under the header (2026-09-29). The chat keeps at least a third of
+  // the height; the board takes what is left.
+  const [contentHeight, setContentHeight] = useState(0);
+  const contentObserver = useRef<ResizeObserver | null>(null);
+  const measureContent = useCallback((el: HTMLDivElement | null) => {
+    contentObserver.current?.disconnect();
+    contentObserver.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      if (el.clientHeight > 0) setContentHeight(el.clientHeight);
+    };
+    measure();
+    contentObserver.current = new ResizeObserver(measure);
+    contentObserver.current.observe(el);
+  }, []);
+  const MOBILE_GAME_LIST = 90;
+  // On a phone the move list under a master game fit only its header in the
+  // height left over, squeezing the chat: the tab names the players and the
+  // board's own controls step through the moves.
+  const showGameList = windowWidth >= 768;
+
   const responsiveBoardSize = useMemo(() => {
-    if (windowWidth < 400) return snapTo8(windowWidth - 8);
-    if (windowWidth < 600) return snapTo8(windowWidth - 12);
-    if (windowWidth < 768) return snapTo8(Math.min(windowWidth - 24, 440));
-    if (windowWidth < 1024) return snapTo8(Math.min(windowWidth - 48, 500));
+    if (windowWidth < 1024) {
+      let size: number;
+      if (windowWidth < 400) size = windowWidth - 8;
+      else if (windowWidth < 600) size = windowWidth - 12;
+      else if (windowWidth < 768) size = Math.min(windowWidth - 24, 440);
+      else size = Math.min(windowWidth - 48, 500);
+      if (contentHeight > 0) {
+        const CONTROLS = 44;
+        const PADDING = 16;
+        const chatMin = Math.max(180, Math.round(contentHeight * 0.36));
+        const tabs = openedGames.length > 0 ? 36 : 0;
+        // A phone shows no move list under a master game (see showGameList).
+        const below = activeGameId ? (windowWidth >= 768 ? MOBILE_GAME_LIST + 8 : 0) : game ? 110 : 0;
+        const byHeight = contentHeight - chatMin - CONTROLS - PADDING - tabs - below;
+        size = Math.min(size, Math.max(200, byHeight));
+      }
+      return snapTo8(size);
+    }
     if (!boardArea.width) return 520;
     return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8)));
-  }, [windowWidth, boardArea.width]);
+  }, [windowWidth, boardArea.width, contentHeight, openedGames.length, activeGameId, game]);
 
   // An opened master game: the move list sits beside the board when the board
   // keeps at least MIN_BESIDE px that way, else under it — with the board sized
@@ -198,7 +235,11 @@ export default function CoachPage() {
     const LIST = 150;
     const MIN_BESIDE = 440;
     if (windowWidth < 1024 || !boardArea.width) {
-      return { beside: windowWidth >= 1024, size: responsiveBoardSize, panelWidth: PANEL };
+      return {
+        beside: windowWidth >= 1024,
+        size: responsiveBoardSize,
+        panelWidth: windowWidth >= 1024 ? PANEL : responsiveBoardSize,
+      };
     }
     const besideSize = Math.min(520, boardArea.width - PANEL - GAP, boardArea.height - CONTROLS - GAP);
     if (besideSize >= MIN_BESIDE) {
@@ -732,8 +773,8 @@ export default function CoachPage() {
       data-testid="coach-page"
     >
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-2 border-b border-white/10">
-        <div className="flex items-center gap-3">
+      <header className="flex items-center justify-between gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-white/10">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           <Link
             href="/dashboard"
             className="text-gray-400 hover:text-white transition-colors"
@@ -746,32 +787,32 @@ export default function CoachPage() {
               />
             </svg>
           </Link>
-          <h1 className="text-lg font-semibold text-white">{t('title')}</h1>
+          <h1 className="text-base sm:text-lg font-semibold text-white whitespace-nowrap">{t('title')}</h1>
           {board.puzzleMode && (
             <span className="text-xs px-2 py-0.5 bg-yellow-500/20 text-yellow-400 rounded">
               {t('puzzleMode')}
             </span>
           )}
         </div>
-        <div className="relative flex items-center gap-3">
+        <div className="relative flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             onClick={() => setGameDialogOpen(true)}
             disabled={gameLive}
-            className="text-sm text-gray-400 hover:text-white transition-colors disabled:opacity-40"
+            className="text-xs sm:text-sm whitespace-nowrap text-gray-400 hover:text-white transition-colors disabled:opacity-40"
             data-testid="play-coach"
           >
             {t('playWithCoach')}
           </button>
           <button
             onClick={() => setSessionsOpen((v) => !v)}
-            className="text-sm text-gray-400 hover:text-white transition-colors"
+            className="text-xs sm:text-sm whitespace-nowrap text-gray-400 hover:text-white transition-colors"
             aria-expanded={sessionsOpen}
           >
             {t('sessions')}
           </button>
           <button
             onClick={handleNewSession}
-            className="text-sm text-gray-400 hover:text-white transition-colors"
+            className="text-xs sm:text-sm whitespace-nowrap text-gray-400 hover:text-white transition-colors"
           >
             {t('newSession')}
           </button>
@@ -787,7 +828,7 @@ export default function CoachPage() {
       </header>
 
       {/* Main content: Board + Chat split */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+      <div ref={measureContent} className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
         <div className={`lg:w-[55%] flex flex-col p-2 sm:p-4 relative ${typingOnPhone ? 'hidden' : ''}`}>
           {gameDialogOpen && (
@@ -867,13 +908,14 @@ export default function CoachPage() {
                   onPuzzleMove={() => 'wrong' as const}
                   boardSize={gameLayout.size}
                 />
-                {/* The panel is MUI in the site's light theme (dark text): on the
+{/* The panel is MUI in the site's light theme (dark text): on the
                     dark coach page it needs its light card, like the board's controls. */}
+                {showGameList && (
                 <div
                   className="overflow-y-auto bg-white rounded-lg"
                   style={{
                     width: gameLayout.panelWidth,
-                    maxHeight: gameLayout.beside ? gameLayout.size + 56 : 150,
+                    maxHeight: gameLayout.beside ? gameLayout.size + 56 : windowWidth < 1024 ? MOBILE_GAME_LIST : 150,
                   }}
                   data-testid="game-viewer-side"
                 >
@@ -883,6 +925,7 @@ export default function CoachPage() {
                     onMoveIndexChange={(idx) => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: idx }))}
                   />
                 </div>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center w-full">
