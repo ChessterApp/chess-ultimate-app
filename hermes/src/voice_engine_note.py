@@ -124,12 +124,29 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     if len(lines) > 1:
         parts.append("Also: " + ", ".join(f"{ln['moves'][0]} ({ln['eval']})" for ln in lines[1:]) + ".")
     parts.append(f"Evaluations are from White's side, Stockfish depth {best['depth'] or depth}.")
+    opening = _opening(fen)
+    if opening:
+        parts.append(opening)
 
     # COACH_ENGINE_FACTS=0 leaves the line as moves and evaluations only.
     facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
     return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts}
+
+
+def _opening(fen: str) -> Optional[str]:
+    """'Opening (ECO book): C60 Ruy Lopez — испанская партия.' when the book names this position."""
+    try:
+        from src.openings_book import get_book
+
+        found = get_book().by_position(fen)
+    except Exception:  # noqa: BLE001 — the name is a bonus on top of the moves
+        return None
+    if not found:
+        return None
+    ru = f" — {found['name_ru']}" if found.get("name_ru") else ""
+    return f"Opening (ECO book): {found['eco']} {found['name']}{ru}."
 
 
 def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:

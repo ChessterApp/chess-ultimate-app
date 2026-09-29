@@ -90,6 +90,72 @@ RU_ALIASES = {
     "гамбит": "Gambit",
 }
 
+# Russian names of opening families (the part of a book name before ":"), for
+# the engine line: the coach named the Ruy Lopez "Puy Lopez" and called one
+# position both Italian and Spanish when it named openings by eye (2026-09-29).
+RU_FAMILY = {
+    "Ruy Lopez": "испанская партия",
+    "Italian Game": "итальянская партия",
+    "Sicilian Defense": "сицилианская защита",
+    "French Defense": "французская защита",
+    "Caro-Kann Defense": "защита Каро-Канн",
+    "Scandinavian Defense": "скандинавская защита",
+    "Queen's Gambit": "ферзевый гамбит",
+    "Queen's Gambit Accepted": "принятый ферзевый гамбит",
+    "Queen's Gambit Declined": "отказанный ферзевый гамбит",
+    "Slav Defense": "славянская защита",
+    "Semi-Slav Defense": "полуславянская защита",
+    "King's Indian Defense": "староиндийская защита",
+    "Queen's Indian Defense": "новоиндийская защита",
+    "Nimzo-Indian Defense": "защита Нимцовича",
+    "Grünfeld Defense": "защита Грюнфельда",
+    "English Opening": "английское начало",
+    "Réti Opening": "дебют Рети",
+    "Pirc Defense": "защита Пирца–Уфимцева",
+    "Alekhine Defense": "защита Алехина",
+    "Russian Game": "русская партия (защита Петрова)",
+    "Petrov's Defense": "русская партия (защита Петрова)",
+    "Scotch Game": "шотландская партия",
+    "Vienna Game": "венская партия",
+    "King's Gambit": "королевский гамбит",
+    "King's Gambit Accepted": "принятый королевский гамбит",
+    "King's Gambit Declined": "отказанный королевский гамбит",
+    "Benko Gambit": "волжский гамбит",
+    "Benoni Defense": "защита Бенони",
+    "Dutch Defense": "голландская защита",
+    "Catalan Opening": "каталонское начало",
+    "London System": "лондонская система",
+    "Bishop's Opening": "дебют слона",
+    "Four Knights Game": "партия четырёх коней",
+    "Three Knights Opening": "партия трёх коней",
+    "Philidor Defense": "защита Филидора",
+    "Modern Defense": "современная защита",
+    "Colle System": "система Колле",
+    "Trompowsky Attack": "атака Тромповского",
+    "Budapest Defense": "будапештская защита",
+    "Center Game": "центральный дебют",
+    "Queen's Pawn Game": "дебют ферзевых пешек",
+    "King's Pawn Game": "дебют королевской пешки",
+    "Ponziani Opening": "дебют Понциани",
+    "Englund Gambit": "гамбит Энглунда",
+    "Bird Opening": "дебют Берда",
+    "Nimzo-Larsen Attack": "дебют Нимцовича–Ларсена",
+    "Owen Defense": "защита Оуэна",
+    "Horwitz Defense": "защита Горвица",
+    "Elephant Gambit": "гамбит слона",
+    "Latvian Gambit": "латышский гамбит",
+    "Danish Gambit": "датский гамбит",
+    "Indian Defense": "индийская защита",
+    "Old Indian Defense": "староиндийская защита (старая)",
+    "Bogo-Indian Defense": "защита Боголюбова",
+}
+
+
+def _position_key(board) -> str:
+    """Placement, side to move, castling and en passant — the clocks do not name an opening."""
+    return " ".join(board.fen().split()[:4])
+
+
 # Embedded fallback when the TSV directory is unavailable.
 _FALLBACK = [
     ("B20", "Sicilian Defense", "1. e4 c5"),
@@ -126,6 +192,7 @@ class OpeningBook:
             self._by_eco.setdefault(entry[0], []).append(entry)
             self._by_moves.setdefault(_split_moves(entry[2]), entry)
         self._max_depth = max((len(k) for k in self._by_moves), default=0)
+        self._by_position: Optional[dict[str, tuple[str, str, str]]] = None
 
     # ── lookups ──────────────────────────────────────────────────────
     def by_eco(self, eco: str) -> list[tuple[str, str, str]]:
@@ -149,6 +216,42 @@ class OpeningBook:
                 hits = [e for e in self.entries if all(w in e[1].lower() for w in words)]
         hits.sort(key=lambda e: (len(_split_moves(e[2])), e[1]))
         return hits[:limit] if limit else hits
+
+    def by_position(self, fen: str) -> Optional[dict]:
+        """The book line that ends exactly in *fen*'s position (any move order), or None.
+
+        The index — every line replayed once, ~0.2 s for the 3,800 lines — is
+        built on first use. Where several lines reach one position the shortest
+        (most general) name wins.
+        """
+        import chess
+
+        if self._by_position is None:
+            index: dict[str, tuple[str, str, str]] = {}
+            for entry in self.entries:
+                board = chess.Board()
+                try:
+                    for san in _split_moves(entry[2]):
+                        board.push_san(san)
+                except ValueError:
+                    continue
+                key = _position_key(board)
+                old = index.get(key)
+                if old is None or len(_split_moves(entry[2])) < len(_split_moves(old[2])):
+                    index[key] = entry
+            self._by_position = index
+        try:
+            key = _position_key(chess.Board(fen))
+        except ValueError:
+            return None
+        entry = self._by_position.get(key)
+        if entry is None:
+            return None
+        family = entry[1].split(":")[0].strip()
+        found = {"eco": entry[0], "name": entry[1], "book_line": entry[2]}
+        if family in RU_FAMILY:
+            found["name_ru"] = RU_FAMILY[family]
+        return found
 
     def identify(self, moves) -> Optional[dict]:
         """Longest book line that is a prefix of *moves* (SAN list or PGN string)."""

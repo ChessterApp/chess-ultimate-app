@@ -96,3 +96,36 @@ def test_the_engine_line_carries_the_facts():
     assert "Facts (verified on the board and by the engine):" in note["note"]
     assert "Nxc7+" in note["note"] and "not defended" in note["note"]
     assert any("fork" in f for f in note["facts"])
+
+
+# ── Opening names from the ECO book (2026-09-29) ────────────────────────
+
+@pytest.mark.unit
+def test_the_book_names_a_position_whatever_the_move_order():
+    from src.openings_book import OpeningBook
+
+    book = OpeningBook([
+        ("C60", "Ruy Lopez", "1. e4 e5 2. Nf3 Nc6 3. Bb5"),
+        ("C50", "Italian Game", "1. e4 e5 2. Nf3 Nc6 3. Bc4"),
+        ("C44", "King's Pawn Game", "1. e4 e5 2. Nf3 Nc6"),
+    ], "test")
+    spanish = book.by_position("r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3")
+    assert spanish == {"eco": "C60", "name": "Ruy Lopez", "book_line": "1. e4 e5 2. Nf3 Nc6 3. Bb5",
+                       "name_ru": "испанская партия"}
+    # The clocks differ (another move order): still the Italian Game.
+    italian = book.by_position("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 7 5")
+    assert italian["name"] == "Italian Game" and italian["name_ru"] == "итальянская партия"
+    # Out of the book: no name, so the coach does not guess one.
+    assert book.by_position(SCREENSHOT) is None
+
+
+@pytest.mark.unit
+def test_the_engine_line_names_the_opening_from_the_book():
+    from src import voice_engine_note
+
+    fen = "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"
+    top = {"lines": [{"pv": "a7a6 b5a4", "score": -0.3, "depth": 16}]}
+    with patch.object(voice_engine_note, "analyze_timed", return_value=top), \
+            patch.object(voice_engine_note, "_threat_analysis", return_value={"lines": []}):
+        note = voice_engine_note.engine_note(fen, movetime_ms=1500)
+    assert "Opening (ECO book): C60 Ruy Lopez — испанская партия." in note["note"]
