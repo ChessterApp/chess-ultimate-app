@@ -1,5 +1,5 @@
 import { auth } from '@clerk/nextjs/server';
-import { requireApiAccess } from '@/lib/require-api-access';
+import { requireCoachAccess } from '@/lib/coach-access';
 import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
@@ -21,7 +21,7 @@ function liveModel(): string {
   return process.env.COACH_LIVE_MODEL || DEFAULT_LIVE_MODEL;
 }
 
-/** The 3.8 voice package: every tool, BLOCKING calls and a zero thinking budget by default. */
+/** The 3.8 voice package: every tool and BLOCKING calls by default. */
 function isLive38(model: string): boolean {
   return model.startsWith('gemini-3.8');
 }
@@ -40,12 +40,15 @@ const LIVE_SILENCE_MS = Number(process.env.COACH_LIVE_SILENCE_MS) || 0;
  * Voice bench 2026-09-28 (13 questions): a zero budget brought the first sound
  * from 1.77 to 1.42 s p50 and the answer after a tool from 4.0 to 2.5 s, and the
  * coach named the engine's move instead of only asking back.
+ * On 3.1 (voice bench 2026-09-30, 26 turns) a zero budget kept the median first
+ * sound (2.24 → 2.31 s) and cut the slow tail: p90 first sound 3.53 → 2.46 s, the
+ * answer after a tool 6.44 → 2.94 s; the language and tool choice held (26/26,
+ * 18/22 against 25/26, 17/22). So every model gets a zero budget by default.
  * COACH_LIVE_THINKING_BUDGET=<tokens> sets it, an empty value leaves the model's
- * default. By default only the 3.8 package sends a zero budget; 3.1 keeps the
- * configuration production ran before 2026-09-28. Returns null for "leave the default".
+ * default (production before 2026-09-30). Returns null for "leave the default".
  */
-function liveThinkingBudget(model: string, raw = process.env.COACH_LIVE_THINKING_BUDGET): number | null {
-  if (raw === undefined) return isLive38(model) ? 0 : null;
+function liveThinkingBudget(raw = process.env.COACH_LIVE_THINKING_BUDGET): number | null {
+  if (raw === undefined) return 0;
   const value = raw.trim();
   if (!value) return null;
   const budget = Number(value);
@@ -427,7 +430,7 @@ export async function POST(request: Request) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  const denied = await requireApiAccess();
+  const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
   const apiKey = process.env.GEMINI_API_KEY;
@@ -557,7 +560,7 @@ export async function POST(request: Request) {
     if (functionDeclarations.length > 0) {
       liveConfig.tools = [{ functionDeclarations }];
     }
-    const thinkingBudget = liveThinkingBudget(model);
+    const thinkingBudget = liveThinkingBudget();
     if (thinkingBudget !== null) {
       liveConfig.thinkingConfig = { thinkingBudget };
     }

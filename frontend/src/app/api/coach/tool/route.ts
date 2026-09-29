@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { requireApiAccess } from '@/lib/require-api-access';
+import { requireCoachAccess } from '@/lib/coach-access';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
 
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const denied = await requireApiAccess();
+  const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
   let body: { name?: string; args?: Record<string, unknown>; session_id?: string };

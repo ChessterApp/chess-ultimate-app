@@ -38,6 +38,7 @@ function makeReturn(overrides: Partial<UseGeminiLiveReturn> = {}): UseGeminiLive
     error: null,
     prepare: vi.fn(async () => {}),
     connect: vi.fn(async () => {}),
+    prefetch: vi.fn(),
     disconnect: vi.fn(),
     sendBoardUpdate: vi.fn(),
     remainingSeconds: null,
@@ -242,6 +243,14 @@ describe('CoachChat voice mode', () => {
       String(url).endsWith('/api/coach/sessions')
     );
     expect(createCall).toBeFalsy();
+  });
+
+  it('asks for the voice token while the pointer is on the mic button', () => {
+    const prefetch = vi.fn();
+    live.ret = makeReturn({ status: 'idle', isActive: false, prefetch });
+    renderChat();
+    fireEvent.pointerEnter(screen.getByTestId('voice-toggle'));
+    expect(prefetch).toHaveBeenCalledTimes(1);
   });
 
   it('passes the live FEN through getFen', () => {
