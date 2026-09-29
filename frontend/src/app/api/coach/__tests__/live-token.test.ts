@@ -237,8 +237,10 @@ describe('POST /api/coach/live-token', () => {
       }
     };
 
-    // 3.1 (the default) keeps the configuration production ran before.
-    expect(await mintedThinking(undefined)).toBeUndefined();
+    // 3.1 (the default) answers without hidden thinking too (voice bench 2026-09-30).
+    expect(await mintedThinking(undefined)).toEqual({ thinkingBudget: 0 });
+    // An empty value brings back the model's own default (production before 30.09).
+    expect(await mintedThinking('')).toBeUndefined();
     // A token budget, never a thinking level: gemini-3.8-live rejects levels.
     expect(await mintedThinking(undefined, 'gemini-3.8-live')).toEqual({ thinkingBudget: 0 });
     expect(await mintedThinking('512')).toEqual({ thinkingBudget: 512 });

@@ -175,6 +175,65 @@ describe('useGeminiLive', () => {
     expect(result.current.status).toBe('listening');
   });
 
+  it('connect() uses the token asked for ahead of the tap (one mint)', async () => {
+    const fetchMock = tokenOk();
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => 'FEN' }));
+
+    act(() => {
+      result.current.prefetch();
+      result.current.prefetch(); // hover then press: still one request
+    });
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    const mints = fetchMock.mock.calls.filter((c) => (c as any[])[0] === '/api/coach/live-token');
+    expect(mints).toHaveLength(1);
+    expect(g.ctorArgs.value.apiKey).toBe('auth_tokens/abc');
+    expect(result.current.isActive).toBe(true);
+  });
+
+  it('asks again when the board changed since the early token', async () => {
+    const fetchMock = tokenOk();
+    vi.stubGlobal('fetch', fetchMock);
+    let fen = 'FEN-1';
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => fen }));
+
+    act(() => result.current.prefetch());
+    fen = 'FEN-2';
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    const bodies = fetchMock.mock.calls
+      .filter((c) => (c as any[])[0] === '/api/coach/live-token')
+      .map((c) => JSON.parse((c as any[])[1].body).fen);
+    expect(bodies).toEqual(['FEN-1', 'FEN-2']);
+  });
+
+  it('asks again when the early token failed', async () => {
+    let call = 0;
+    const fetchMock = vi.fn(async () => {
+      call += 1;
+      if (call === 1) return { ok: false, status: 502, json: async () => ({}) };
+      return {
+        ok: true,
+        json: async () => ({ token: 'auth_tokens/second', model: 'gemini-3.1-flash-live-preview' }),
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => 'FEN' }));
+
+    act(() => result.current.prefetch());
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    expect(g.ctorArgs.value.apiKey).toBe('auth_tokens/second');
+    expect(result.current.isActive).toBe(true);
+  });
+
   it('sets status=error and calls onError when the token endpoint fails', async () => {
     const fetchMock = vi.fn(async () => ({ ok: false, status: 401, json: async () => ({}) }));
     vi.stubGlobal('fetch', fetchMock);

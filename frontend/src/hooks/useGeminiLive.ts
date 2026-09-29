@@ -75,6 +75,12 @@ export interface UseGeminiLiveReturn {
   /** Acquire mic + audio contexts inside the tap handler, before any network work. */
   prepare: () => Promise<void>;
   connect: () => Promise<void>;
+  /**
+   * Ask for the session token ahead of the tap (the mic button calls it on
+   * hover / focus / touch). It takes 1.4-3 s on chesster.io; connect() reuses it
+   * while it is fresh and the board has not changed.
+   */
+  prefetch: () => void;
   disconnect: () => void;
   sendBoardUpdate: (fen: string) => void;
   /**
@@ -83,6 +89,18 @@ export interface UseGeminiLiveReturn {
    * open. Updated once per heartbeat tick while a session is live.
    */
   remainingSeconds: number | null;
+}
+
+// A token asked for ahead of the tap is used while younger than this. The route
+// gives it 60 s to open a session (newSessionExpireTime); the rest is margin,
+// and it keeps the conversation recap inside the token recent.
+const PREFETCH_REUSE_MS = 40_000;
+
+interface PrefetchedToken {
+  fen: string | undefined;
+  sessionId: string | null;
+  at: number;
+  response: Promise<Response>;
 }
 
 // Gemini Live audio formats (non-negotiable, per spec).
@@ -1098,6 +1116,50 @@ export default function useGeminiLive(
   // cycle (the drop handler in turn re-opens the connection).
   const handleDropRef = useRef<(errMsg?: string) => void>(() => {});
 
+  // A session token asked for ahead of the tap (see prefetch). One use: the
+  // token itself is single-use, and it carries the FEN it was minted for.
+  const prefetchedRef = useRef<PrefetchedToken | null>(null);
+
+  const requestToken = useCallback(
+    (fen: string | undefined, sessionId: string | null | undefined, resumeHandle?: string) =>
+      fetch('/api/coach/live-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          fen,
+          session_id: sessionId ?? undefined,
+          resume: resumeHandle ?? undefined,
+        }),
+      }),
+    [],
+  );
+
+  const prefetch = useCallback(() => {
+    if (sessionRef.current) return;
+    const fen = optionsRef.current.getFen?.();
+    const current = prefetchedRef.current;
+    if (current && current.fen === fen && Date.now() - current.at < PREFETCH_REUSE_MS) return;
+    const sessionId = optionsRef.current.getSessionId?.();
+    const response = requestToken(fen, sessionId);
+    // A failed prefetch is simply not used: connect() asks again and reports.
+    response.catch(() => {});
+    prefetchedRef.current = { fen, sessionId: sessionId ?? null, at: Date.now(), response };
+  }, [requestToken]);
+
+  /** The prefetched token's response if it still fits this connection, else null. */
+  const takePrefetched = useCallback(
+    (fen: string | undefined, sessionId: string | null | undefined): Promise<Response> | null => {
+      const current = prefetchedRef.current;
+      prefetchedRef.current = null;
+      if (!current || current.fen !== fen || Date.now() - current.at >= PREFETCH_REUSE_MS) return null;
+      // Minted without a session: fine for a brand-new one (nothing to recap yet).
+      if (current.sessionId && current.sessionId !== (sessionId ?? null)) return null;
+      return current.response;
+    },
+    [],
+  );
+
   // Open a Live session. Pass a resumption handle to resume a dropped session
   // (fresh token, same conversation state) instead of starting a new one.
   const openConnection = useCallback(
@@ -1114,16 +1176,11 @@ export default function useGeminiLive(
       const fen = optionsRef.current.getFen?.();
       const sessionId = optionsRef.current.getSessionId?.();
       const tokenStart = performance.now();
-      const res = await fetch('/api/coach/live-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          fen,
-          session_id: sessionId ?? undefined,
-          resume: resumeHandle ?? undefined,
-        }),
-      });
+      const early = resumeHandle ? null : takePrefetched(fen, sessionId);
+      let res = early ? await early.catch(() => null) : null;
+      if (!res || !res.ok) {
+        res = await requestToken(fen, sessionId, resumeHandle);
+      }
       if (!res.ok) {
         // Voice minutes exhausted — surface as quota, not a connection error, so
         // the caller can show the "minutes used up" message.
@@ -1247,6 +1304,8 @@ export default function useGeminiLive(
       reportMetric,
       stopHeartbeat,
       heartbeatTick,
+      requestToken,
+      takePrefetched,
     ],
   );
 
@@ -1397,6 +1456,7 @@ export default function useGeminiLive(
     error,
     prepare,
     connect,
+    prefetch,
     disconnect,
     sendBoardUpdate,
     remainingSeconds,

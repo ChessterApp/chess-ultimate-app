@@ -2,8 +2,10 @@
 
 Before this tool the coach had no puzzle source: ``set_puzzle`` took a FEN and
 a solution the model made up, and the student could not solve them. Now the
-coach asks for a puzzle by theme and rating, gets a real position with a
-verified solution, and puts it on the board with ``set_puzzle`` by id.
+coach asks for a puzzle by theme and rating and gets a real position with a
+verified solution. The first puzzle goes on the board with the result itself
+(2026-09-30): the model used to spend a second step — about 1.5 s — calling
+``board_control set_puzzle`` for it.
 """
 
 import json
@@ -12,6 +14,7 @@ import random
 
 from tools.registry import registry
 
+from src.board_protocol import SetPuzzle
 from src.puzzle_db import THEME_ALIASES, db_available, find_puzzles, resolve_theme, stats
 
 logger = logging.getLogger(__name__)
@@ -24,7 +27,8 @@ GET_PUZZLE_SCHEMA = {
         "Get a verified tactical puzzle (Lichess puzzle set) by theme and rating. "
         "Returns the position the student must solve (FEN, side to move), the "
         "solution in SAN, rating and themes. ALWAYS use this instead of inventing "
-        "a puzzle; then call board_control set_puzzle with the returned puzzle_id. "
+        "a puzzle. The first returned puzzle is put on the student's board "
+        "automatically — do not call board_control for it. "
         f"Themes (English tags, RU/KK phrases like «вилка», «связка», «мат в 2» are accepted): {_THEME_LIST}."
     ),
     "parameters": {
@@ -97,12 +101,20 @@ def get_puzzle(
             "rating": rating_int,
             "hint": "Try another theme or drop the opening filter.",
         }
+    first = puzzles[0]
+    shown = SetPuzzle(fen=first["fen"], solution=first["solution"], puzzle_id=first["puzzle_id"])
     return {
         "theme": resolved,
         "rating": rating_int,
         "count": len(puzzles),
         "puzzles": puzzles,
-        "how_to_show": "Call board_control with action_type='set_puzzle' and puzzle_id=<puzzle_id>.",
+        "on_board": first["puzzle_id"],
+        "how_to_show": (
+            "The first puzzle is already on the student's board — do not call board_control "
+            "for it. Say whose move it is and what to look for, never the solution. Another "
+            "puzzle from this list: board_control set_puzzle with its puzzle_id."
+        ),
+        "board_actions": [shown.model_dump(by_alias=True)],
     }
 
 

@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/super-admin', label: 'Overview', enabled: true },
   { href: '/super-admin/users', label: 'Users', enabled: true },
   { href: '/super-admin/schools', label: 'Schools', enabled: true },
+  { href: '/super-admin/usage', label: 'Расходы на ИИ', enabled: true },
   { href: '/super-admin/audit', label: 'Audit log', badge: 'Phase 7D', enabled: false },
 ];
 

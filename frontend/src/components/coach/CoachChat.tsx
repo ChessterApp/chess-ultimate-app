@@ -298,6 +298,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     error: voiceError,
     prepare: voicePrepare,
     connect: voiceConnect,
+    prefetch: voicePrefetch,
     disconnect: voiceDisconnect,
     sendBoardUpdate: voiceSendBoardUpdate,
     remainingSeconds: voiceRemainingSeconds,
@@ -367,9 +368,18 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     } catch {
       return;
     }
-    await ensureVoiceSession();
+    // The session and the token in parallel: a brand-new session has nothing
+    // for the token's conversation recap, and the voice calls read the session
+    // id only later (about 1 s saved on chesster.io when there was none).
+    void ensureVoiceSession();
     voiceConnect();
   }, [voiceActive, voicePrepare, voiceConnect, voiceDisconnect, ensureVoiceSession]);
+
+  // The session token takes 1.4-3 s to mint on chesster.io: ask for it while
+  // the pointer is on the mic button, before the tap.
+  const prefetchVoice = useCallback(() => {
+    if (!voiceActive) voicePrefetch();
+  }, [voiceActive, voicePrefetch]);
 
   // Disconnect a live session on unmount without re-running on every toggle.
   const voiceActiveRef = useRef(voiceActive);
@@ -1074,6 +1084,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           {voiceSupported && (
             <button
               onClick={toggleVoice}
+              onPointerEnter={prefetchVoice}
+              onPointerDown={prefetchVoice}
+              onFocus={prefetchVoice}
               disabled={voiceStatus === 'connecting'}
               data-testid="voice-toggle"
               data-status={voiceStatus}
