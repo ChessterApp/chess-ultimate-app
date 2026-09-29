@@ -575,6 +575,18 @@ def _await_engine_note(future, started: float, state: dict) -> Optional[dict]:
     return note
 
 
+# One line per text turn with its stage timings, for `pm2 logs hermes-chess`.
+# The app's own loggers print nothing below WARNING under uvicorn.run (only
+# uvicorn's loggers are configured), so this one carries its own handler.
+_timings_log = logging.getLogger("hermes.turn_timings")
+if not _timings_log.handlers:
+    _timings_handler = logging.StreamHandler()
+    _timings_handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    _timings_log.addHandler(_timings_handler)
+    _timings_log.setLevel(logging.INFO)
+    _timings_log.propagate = False
+
+
 def _await_review(future, started: float, state: dict) -> Optional[dict]:
     """The game's critical moments, waiting at most COACH_REVIEW_WAIT_MS from *started*.
 
@@ -1290,6 +1302,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     finally `{"done": true, "session_id": ...}`. On failure a single
     `{"error": ...}` frame is emitted instead of the trailing events.
     """
+    # Stage timings of the turn (ms from the request): logged with turn_end and
+    # as one "turn timings" log line, so production shows where time goes.
+    request_started = time.monotonic()
+    stages: dict = {}
+
+    def _mark(stage: str) -> None:
+        stages[stage] = int((time.monotonic() - request_started) * 1000)
+
     user_id = _get_user_id(request)
 
     # Rate limiting
@@ -1302,6 +1322,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
+    _mark("session")
 
     # Hygiene: normalize inbound free-text (no-op unless COACH_NORMALIZE_INPUT).
     # body.fen is handled separately below and is never normalized.
@@ -1368,6 +1389,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     engine_state = {"used": False, "ms": None, "timed_out": False}
 
     profile = await asyncio.to_thread(_get_voice_profile, user_id)
+    _mark("profile")
     # Static persona/tool guidance stays in the system prompt (cacheable);
     # date, profile, memory and board state travel in the user message.
     system_prompt, turn_context = await asyncio.to_thread(build_system_prompt, 
@@ -1377,6 +1399,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         locale=body.locale,
         return_parts=True,
     )
+    _mark("prompt")
     logger.info("Model routed: %s for message: %s", model, body.message[:80])
 
     # Build conversation context from session history (exclude the just-added user message)
@@ -1408,6 +1431,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         model=model, system_prompt=system_prompt, session_id=session_id,
         user_query=body.message, fallback_model=fallback_model,
     )
+    _mark("agent")
 
     log_event(
         "turn_start",
@@ -1684,6 +1708,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         continue  # late chunk of an abandoned reaction
                     if not quick["shown"]:
                         quick["shown"] = True
+                        _mark("reaction_first")
                         yield _sse({"stage": "quick"})
                     quick["parts"].append(payload)
                     partial_parts.append(payload)
@@ -1697,6 +1722,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 elif kind == "delta":
                     if _is_framework_notice(payload):
                         continue
+                    if not streamed_any:
+                        _mark("answer_first")
                     streamed_any = True
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
@@ -1929,6 +1956,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "tools_selected": _selected_tool_names(agent),
                 "engine_note": dict(engine_state),
                 "review": dict(review_state),
+                "stages_ms": dict(stages),
                 "quick": {
                     "model": quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),
@@ -1954,7 +1982,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "routed_model": model,
                 "quick_shown": bool(quick_text),
                 "engine_note": dict(engine_state),
+                "review": dict(review_state),
+                "stages_ms": {**stages, "engine_ready": engine_state.get("ms"),
+                              "review_ready": review_state.get("ms"),
+                              "total": int((time.monotonic() - request_started) * 1000)},
             },
+        )
+        _timings_log.info(
+            "turn timings %s",
+            json.dumps({"turn": turn_id, "tier": route["tier"], "model": served_model,
+                        "iterations": iterations, **stages,
+                        "engine_ready": engine_state.get("ms"), "review_ready": review_state.get("ms"),
+                        # All from the request's arrival (latency_ms starts at the stream).
+                        "total": int((time.monotonic() - request_started) * 1000)}),
         )
 
         # Per-student memory (CL Phase 1): reflect on the completed turn and write
