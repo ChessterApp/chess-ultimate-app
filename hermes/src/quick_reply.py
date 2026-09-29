@@ -41,8 +41,10 @@ QUICK_SYSTEM_PROMPT = (
     "student's message (Russian, Kazakh or English). Use {language} only when the "
     "message shows no language of its own (just a move, a FEN, \"ok\").\n"
     "Acknowledge what the student asked and say what you are about to check or "
-    "look at — the line, the opening, the game, the database, or the position "
-    "(mention the position ONLY if the message says one is on the board).\n"
+    "look at — the line, the opening, the game, the database, the lessons, or the "
+    "position. Mention the position ONLY when the question is about the position on "
+    "the board — never for what to study next, a concept in general, an opening in "
+    "general or the student's own games.\n"
     "Rules:\n"
     "- NEVER name a move, give an evaluation, a verdict, a plan or a hint.\n"
     "- NEVER ask the student a question.\n"
@@ -143,7 +145,11 @@ def build_quick_messages(message: str, locale: Optional[str], board_fen: Optiona
     system = QUICK_SYSTEM_PROMPT.format(language=language)
     user = message.strip()
     if board_fen:
-        user = f"[A position is set up on the student's board.]\n{user}"
+        # The coach page sends its board with every message, so this is only a
+        # hint: "what should I study next?" came back as "let me look at the
+        # position" (production, 2026-09-28).
+        user = (f"[The student's board shows a position; it matters only if the question "
+                f"is about it.]\n{user}")
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": user},

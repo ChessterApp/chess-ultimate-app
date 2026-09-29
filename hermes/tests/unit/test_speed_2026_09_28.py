@@ -227,3 +227,51 @@ def test_brief_style_adds_the_length_rule_and_changes_the_version(monkeypatch):
     assert prompt_builder.BRIEF_ANSWER_LAYER not in full
     assert prompt_builder.BRIEF_ANSWER_LAYER in brief
     assert prompt_builder._compute_prompt_version("soul") != full_version
+
+
+# ── Reply language at the end of the turn (2026-09-29) ───────────────────
+
+@pytest.mark.unit
+def test_the_reply_language_follows_the_message_not_the_notation():
+    from src.prompt_builder import reply_language, reply_language_note
+
+    assert reply_language("Что мне изучать дальше?", "en") == "Russian"
+    assert reply_language("Осы жерде қандай жүріс жасаған дұрыс?", "ru") == "Kazakh"
+    assert reply_language("What should I play here?", "ru") == "English"
+    assert reply_language("Is Nxe5 good here?", "ru") == "English"
+    # Moves alone carry no language: the interface decides.
+    assert reply_language("Nf3?", "ru") == "Russian"
+    assert reply_language("Nf3?", "en") == "English"
+    assert reply_language("ok", "kz") == "Kazakh"
+    assert "in Russian" in reply_language_note("Что играть?", "ru")
+
+
+@pytest.mark.unit
+def test_the_language_line_closes_the_turn_sent_to_the_model(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from src.user_profile import UserProfile
+
+    captured = {}
+    agent = MagicMock()
+    agent.tools = []
+    agent._api_call_count = 1
+    agent.max_iterations = 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+
+    def _chat(message, stream_callback=None):
+        captured["message"] = message
+        stream_callback("Играй e4.")
+        return "Играй e4."
+
+    agent.chat.side_effect = _chat
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id="lang-user")), \
+            patch("src.server.log_event"):
+        resp = TestClient(server.app).post(
+            "/api/coach/chat", headers={"X-User-Id": "lang-user"},
+            json={"message": "Что мне изучать дальше?", "locale": "en"},
+        )
+    assert resp.status_code == 200
+    assert captured["message"].rstrip().endswith("Never switch to another language.]")
+    assert "write your whole answer in Russian" in captured["message"]

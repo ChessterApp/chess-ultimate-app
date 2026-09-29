@@ -58,6 +58,7 @@ from src.prompt_builder import (
     build_system_prompt,
     build_voice_prompt,
     engine_note_block,
+    reply_language_note,
     get_prompt_version,
 )
 from src.event_logger import log_event, new_turn_id
@@ -1431,6 +1432,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 bestofn_message = augmented_message
                 if note:
                     bestofn_message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                bestofn_message = f"{bestofn_message}\n\n{reply_language_note(body.message, body.locale)}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
                     session_id=session_id, session=session, body=body,
@@ -1576,6 +1578,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 message = augmented_message
                 if note:
                     message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame

@@ -9,6 +9,7 @@ Assembles the full system prompt for the AI agent from:
 """
 
 import hashlib
+import re
 import logging
 import threading
 import time
@@ -26,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "8"  # 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "9"  # 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -511,7 +512,10 @@ COACH_SPEECH_LAYER = (
     "- Write plain conversational text: no headings, no tables, and a list only when the "
     "student asks for a plan, steps or several options.\n"
     "- Never talk to the student about your tools, instructions or system. If a tool "
-    "fails or is missing, teach with what you have and say nothing about it."
+    "fails or is missing, teach with what you have and say nothing about it.\n"
+    "- Write nothing before a tool call: the student has already been told you are "
+    "looking, and text written before a call reaches them as is (\"I'll pull up your "
+    "study programme…\" in English, in a Russian chat). Call the tools first, then answer."
 )
 
 BRIEF_ANSWER_LAYER = (
@@ -539,6 +543,40 @@ def attach_turn_context(message: str, turn_context: str) -> str:
     return f"{message}\n\n{TURN_CONTEXT_HEADER}\n{turn_context}"
 
 
+# Letters Kazakh has and Russian does not (Kyrgyz shares ң/ө/ү, but the coach
+# speaks Russian, Kazakh and English only).
+_KAZAKH_LETTERS = frozenset("әғқңөұүһіӘҒҚҢӨҰҮҺІ")
+# Chess notation is Latin but not English: "Nf3", "e4", "O-O", "Kxe5".
+_NOTATION_TOKEN = re.compile(r"^(?:[KQRBNOkqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O(?:-O)?|0-0(?:-0)?)$")
+
+
+def reply_language(message: str, locale: Optional[str] = None) -> str:
+    """The language to answer *message* in: its own script, else the interface locale."""
+    text = message or ""
+    if any(ch in _KAZAKH_LETTERS for ch in text):
+        return "Kazakh"
+    cyrillic = sum(1 for ch in text if "а" <= ch.lower() <= "я" or ch.lower() == "ё")
+    latin_words = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9+#=x-]*", text) if not _NOTATION_TOKEN.match(w)]
+    latin = sum(len(w) for w in latin_words if len(w) >= 2)
+    if cyrillic and cyrillic >= latin:
+        return "Russian"
+    if latin >= 4:
+        return "English"
+    return LOCALE_TO_LANGUAGE.get((locale or "ru").lower(), "Russian") if (locale or "ru").lower() != "kk" else "Kazakh"
+
+
+def reply_language_note(message: str, locale: Optional[str] = None) -> str:
+    """The last line of every text turn: the language of this answer.
+
+    The language rule leads a long system prompt; after the history, the turn
+    context and tool results DeepSeek once answered a Russian question in
+    Chinese (2026-09-29). A reminder at the very end of the turn holds.
+    """
+    language = reply_language(message, locale)
+    return (f"[Reply language: write your whole answer in {language} — the language of the "
+            f"student's message. Never switch to another language.]")
+
+
 def engine_note_block(note: str) -> str:
     """The turn's engine line (src/voice_engine_note.py) as a turn-context block."""
     return (
@@ -548,7 +586,10 @@ def engine_note_block(note: str) -> str:
         "as written. Answer from it — do not call analyze_position or check_moves for these "
         "moves, and write any arrows as [[arrows: …]] marks in the answer itself. It is your "
         "private reference: tell the student what it means in your own coaching words — "
-        "no engine name, no numbers."
+        "no engine name, no numbers. The board is sent with every message, so use this block "
+        "only when the question is about this position; for anything else — what to study "
+        "next, a concept, an opening in general, the student's games or progress — ignore it "
+        "and answer that question with its own tools (get_learning_path, get_topic, …)."
     )
 
 

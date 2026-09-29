@@ -49,7 +49,7 @@ def test_prompt_names_language_and_hides_the_fen():
     assert "in the language of the student's message" in msgs[0]["content"]
     assert "Use Russian only when the message shows no language" in msgs[0]["content"]
     assert "NEVER name a move" in msgs[0]["content"]
-    assert msgs[1]["content"].startswith("[A position is set up")
+    assert msgs[1]["content"].startswith("[The student's board shows a position; it matters only if")
     assert "8/8/8" not in msgs[1]["content"]  # the FEN itself is not sent
     assert "Use Kazakh only" in build_quick_messages("x", "kz", None)[0]["content"]
     assert "Use the student's language only" in build_quick_messages("x", None, None)[0]["content"]
