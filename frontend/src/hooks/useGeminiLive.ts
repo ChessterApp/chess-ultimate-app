@@ -18,6 +18,32 @@ import type {
 
 export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'error';
 
+// A student asking about a concept ("что такое связка", "покажи пример вилки",
+// "what is a skewer"): the site fetches the knowledge-base example itself, puts
+// it on the board and tells the model, like the [Engine] line. On production
+// (2026-09-29) the 3.1 Live coach said "let me find an example" without calling
+// get_topic and described a pin that was not on the board.
+export const CONCEPT_QUESTION_RE =
+  /(что\s+так(ое|ая|ой|ие)|объясни|расскажи\s+(мне\s+)?(про|о|об)\b|покажи\s+(мне\s+)?(пример|как)|пример\S*\s+\S+|что\s+значит|как\s+(играть|использовать|работает)|деген\s+не|түсіндір|мысал|what\s+is|what's\s+an?\b|explain|show\s+me\s+(an?\s+)?example|example\s+of)/i;
+// Wait this long after the last transcribed fragment: the student has finished
+// the question, and the coach (≈1.5 s after speech ends) has not answered yet.
+export const CONCEPT_LOOKUP_DELAY_MS = 400;
+
+/** The note the model gets with a knowledge-base example the site put on the board. */
+export function topicNote(result: {
+  title?: string;
+  example?: { title?: string; fen?: string; note?: string; side_to_move?: string };
+}): string | null {
+  const ex = result.example;
+  if (!ex?.fen) return null;
+  return (
+    `[Topic] The knowledge-base example for «${result.title ?? ''}» is now on the student's board: ` +
+    `${ex.title ?? ''} (FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}). ` +
+    `${ex.note ?? ''} Explain exactly this position — describe no other example and do not ` +
+    `call get_topic for it again.`
+  ).replace(/\s+/g, ' ').trim();
+}
+
 export interface UseGeminiLiveOptions {
   getFen?: () => string;
   /** Current coach session id, so the minted token carries the shared conversation memory. */
@@ -761,6 +787,48 @@ export default function useGeminiLive(
   // every utterance of a call merged into one bubble and no voice line reached
   // the session history — a reload lost the talk, the text coach never saw it.
   const openUtterancesRef = useRef({ user: false, model: false });
+  // The student's current utterance (fragments joined) and whether its concept
+  // example was already looked up — see CONCEPT_QUESTION_RE.
+  const userUtteranceRef = useRef('');
+  const conceptDoneRef = useRef(false);
+  const conceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const lookUpConcept = useCallback(async (text: string) => {
+    if (conceptDoneRef.current || !CONCEPT_QUESTION_RE.test(text) || text.trim().split(/\s+/).length < 2) {
+      return;
+    }
+    conceptDoneRef.current = true;
+    const session = sessionRef.current;
+    if (!session) return;
+    try {
+      const res = await fetch('/api/coach/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: 'get_topic',
+          args: { topic: text },
+          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as
+        | { result?: Parameters<typeof topicNote>[0]; board_actions?: unknown[] }
+        | null;
+      const note = data?.result ? topicNote(data.result) : null;
+      // No match or an ambiguous one: leave the concept to the coach's own tools.
+      if (!note || !Array.isArray(data?.board_actions) || data.board_actions.length === 0) return;
+      if (sessionRef.current !== session) return;
+      try {
+        optionsRef.current.onToolResult?.('get_topic', data);
+      } catch {
+        /* UI callback errors must not break the session */
+      }
+      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+    } catch {
+      /* unavailable — the coach can still call get_topic itself */
+    }
+  }, []);
   const closeUtterance = useCallback((role: 'user' | 'model') => {
     if (!openUtterancesRef.current[role]) return;
     openUtterancesRef.current[role] = false;
@@ -809,6 +877,14 @@ export default function useGeminiLive(
         // A user utterance starts a turn; mint the id now so the transcript row
         // and the turn's events (tool_call, turn_end) share one turn_id.
         const final = !!sc.inputTranscription.finished;
+        if (!openUtterancesRef.current.user) {
+          userUtteranceRef.current = '';
+          conceptDoneRef.current = false;
+        }
+        userUtteranceRef.current += sc.inputTranscription.text;
+        const utterance = userUtteranceRef.current;
+        if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
+        conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);
         openUtterancesRef.current.user = !final;
         optionsRef.current.onTranscript?.({
           role: 'user',
@@ -848,7 +924,7 @@ export default function useGeminiLive(
         }
       }
     },
-    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance],
+    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept],
   );
 
   const fail = useCallback(

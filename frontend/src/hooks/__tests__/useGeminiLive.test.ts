@@ -345,6 +345,60 @@ describe('useGeminiLive', () => {
     turnComplete: false,
   });
 
+  // ---- Concept examples the site fetches itself (2026-09-29) --------------
+
+  function conceptFetch(topicResponse: any) {
+    return vi.fn(async (url: string, opts: any) => {
+      if (url === '/api/coach/tool') {
+        return { ok: true, json: async () => topicResponse(JSON.parse(opts.body)) };
+      }
+      if (url === '/api/coach/voice/engine-note') return { ok: false, status: 404, json: async () => ({}) };
+      return { ok: true, json: async () => ({ token: 'auth_tokens/abc', model: 'gemini-3.1-flash-live-preview' }) };
+    });
+  }
+  const PIN = {
+    result: {
+      title: 'Связка',
+      example: { title: 'Слон g5 связывает коня f6 с ферзём d8', fen: 'PIN_FEN', note: 'Конь f6 связан.', side_to_move: 'Black' },
+    },
+    board_actions: [{ type: 'set_fen', fen: 'PIN_FEN' }],
+  };
+
+  it('a concept question puts the knowledge-base example on the board and tells the coach', async () => {
+    const fetchMock = conceptFetch(() => PIN);
+    vi.stubGlobal('fetch', fetchMock);
+    const onToolResult = vi.fn();
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => 'F', onToolResult }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    const send = (m: unknown) => act(() => g.connectArgs.value.callbacks.onmessage(m));
+    send({ serverContent: { inputTranscription: { text: 'Объясни, что такое' } } });
+    send({ serverContent: { inputTranscription: { text: ' связка.' } } });
+
+    await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('get_topic', PIN));
+    const call = fetchMock.mock.calls.find(([url]) => url === '/api/coach/tool');
+    expect(JSON.parse((call as any[])[1].body)).toMatchObject({ name: 'get_topic', args: { topic: 'Объясни, что такое связка.' } });
+    const texts = g.session.sendClientContent.mock.calls.map((c: any[]) => c[0].turns[0].parts[0].text);
+    expect(texts.some((t: string) => t.startsWith('[Topic]') && t.includes('Слон g5 связывает коня f6') && t.includes('PIN_FEN'))).toBe(true);
+    // Once per utterance.
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/coach/tool')).toHaveLength(1);
+  });
+
+  it('a question that is not about a concept looks nothing up', async () => {
+    const fetchMock = conceptFetch(() => PIN);
+    vi.stubGlobal('fetch', fetchMock);
+    const onToolResult = vi.fn();
+    const { result } = renderHook(() => useGeminiLive({ getFen: () => 'F', onToolResult }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { inputTranscription: { text: 'Что мне здесь играть?' } } }));
+    await new Promise((r) => setTimeout(r, 600));
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/coach/tool')).toHaveLength(0);
+    expect(onToolResult).not.toHaveBeenCalled();
+  });
+
   it('follows each position with its [Engine] line when Hermes returns one', async () => {
     const fetchMock = engineFetch(async (fen) => ({
       ok: true,
