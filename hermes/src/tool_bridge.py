@@ -12,6 +12,7 @@ Both endpoints are generic: the registry is the single source of truth, so no
 tool schema is ever hand-copied here.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -372,7 +373,7 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     board_actions = _extract_board_actions(parsed)
 
     if body.session_id and board_actions:
-        session = session_store.get(body.session_id, user_id)
+        session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
         if session is not None:
             _sync_session_board(session, board_actions)
 

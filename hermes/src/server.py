@@ -767,9 +767,9 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     user_id = request.headers.get("x-clerk-user-id", "anonymous")
 
     # Get or create session
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
-        session = session_store.create(user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
 
     # Build the user message from the last message in the conversation
     user_message = body.messages[-1].content if body.messages else ""
@@ -783,10 +783,10 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     session.add_message("user", user_message)
 
     # Load user profile for personalization
-    profile = load_user_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
 
     # Build personalized system prompt
-    system_prompt = build_system_prompt(
+    system_prompt = await asyncio.to_thread(build_system_prompt, 
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
@@ -806,7 +806,7 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
         )
         user_message = f"Previous conversation:\n{history}\n\nCurrent message:\n{user_message}"
 
-    agent = _create_agent(
+    agent = await asyncio.to_thread(_create_agent, 
         model=model, system_prompt=system_prompt, session_id=session_id,
         user_query=raw_user_query, fallback_model=_turn_fallback_model(model),
     )
@@ -1275,9 +1275,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     analytics_tracker.track_chat(user_id, body.session_id or "")
 
     session_id = body.session_id or str(uuid.uuid4())
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
-        session = session_store.create(user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
 
     # Hygiene: normalize inbound free-text (no-op unless COACH_NORMALIZE_INPUT).
     # body.fen is handled separately below and is never normalized.
@@ -1329,10 +1329,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         )
     engine_state = {"used": False, "ms": None, "timed_out": False}
 
-    profile = load_user_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
     # Static persona/tool guidance stays in the system prompt (cacheable);
     # date, profile, memory and board state travel in the user message.
-    system_prompt, turn_context = build_system_prompt(
+    system_prompt, turn_context = await asyncio.to_thread(build_system_prompt, 
         soul_content=_soul_content,
         user_profile=profile,
         board_fen=session.board_state,
@@ -1366,7 +1366,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         augmented_message = current_message
 
     fallback_model = _turn_fallback_model(model)
-    agent = _create_agent(
+    agent = await asyncio.to_thread(_create_agent, 
         model=model, system_prompt=system_prompt, session_id=session_id,
         user_query=body.message, fallback_model=fallback_model,
     )
@@ -2272,7 +2272,12 @@ _voice_profile_lock = threading.Lock()
 
 
 def _get_voice_profile(user_id: str) -> UserProfile:
-    """Return the user's profile, cached for ~5 min to spare a Supabase hit."""
+    """Return the user's profile, cached for ~5 min to spare a Supabase hit.
+
+    The text turn uses it too (2026-09-29): every chat turn loaded the profile
+    from Supabase on the event loop, freezing every other student's stream for
+    the round trip. Callers in async handlers run it in a thread.
+    """
     now = time.monotonic()
     with _voice_profile_lock:
         entry = _voice_profile_cache.get(user_id)
@@ -2288,6 +2293,12 @@ def clear_voice_profile_cache() -> None:
     """Empty the voice profile cache (used by tests)."""
     with _voice_profile_lock:
         _voice_profile_cache.clear()
+
+
+def _forget_profile(user_id: str) -> None:
+    """Drop one user's cached profile after it changes."""
+    with _voice_profile_lock:
+        _voice_profile_cache.pop(user_id, None)
 
 
 @app.post("/api/coach/voice/prompt")
@@ -2306,7 +2317,7 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
     # Enforced before the profile cache so a cache hit can never bypass the limit.
     await enforce_rate_limit(request, limiter=voice_token_rate_limiter)
 
-    profile = _get_voice_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
     profile_context = profile.to_prompt_context()
     # Memory blocks may hit Supabase — keep them off the event loop.
     system_prompt = await asyncio.to_thread(
@@ -2367,7 +2378,7 @@ async def coach_list_sessions(request: Request):
 async def coach_create_session(request: Request, body: CoachSessionCreateRequest = None):
     """Create a new coaching session (with its default study board)."""
     user_id = _get_user_id(request)
-    session = session_store.create(user_id=user_id)
+    session = await asyncio.to_thread(session_store.create, user_id=user_id)
     if body and body.title:
         session.set_title(body.title)
     session.ensure_board()
@@ -2378,7 +2389,7 @@ async def coach_create_session(request: Request, body: CoachSessionCreateRequest
 async def coach_update_session(session_id: str, body: CoachSessionUpdateRequest, request: Request):
     """Rename a session or switch its active board."""
     user_id = _get_user_id(request)
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     if body.title is not None:
@@ -2488,7 +2499,7 @@ async def coach_get_messages(
     Scoped to the requesting user; 404 if the session is unknown to them.
     """
     user_id = _get_user_id(request)
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
@@ -2525,14 +2536,14 @@ async def coach_append_message(
             status_code=400, detail="role must be 'user' or 'assistant'"
         )
 
-    session = session_store.get(session_id, user_id)
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         # Never clobber a session owned by another user (the store is keyed by
         # id alone, so create() would overwrite it). Only create when the id is
         # genuinely free.
-        if session_store.get(session_id) is not None:
+        if await asyncio.to_thread(session_store.get, session_id) is not None:
             raise HTTPException(status_code=404, detail="Session not found")
-        session = session_store.create(user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
 
     # Stamp the utterance time + turn id onto the row (migration 008 columns).
     # Fail-soft: persist_message drops these if the columns don't exist yet.
@@ -2950,11 +2961,11 @@ async def coach_analysis(request: Request):
         return limited
     usage_info = limited
 
-    session = _resolve_analysis_session(user_id, conversation_id)
+    session = await asyncio.to_thread(_resolve_analysis_session, user_id, conversation_id)
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = _prepare_analysis_turn(session, fen, query)
+    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
 
     loop = asyncio.get_event_loop()
     try:
@@ -3029,11 +3040,11 @@ async def coach_analysis_stream(request: Request):
     if isinstance(limited, JSONResponse):
         return limited
 
-    session = _resolve_analysis_session(user_id, conversation_id)
+    session = await asyncio.to_thread(_resolve_analysis_session, user_id, conversation_id)
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = _prepare_analysis_turn(session, fen, query)
+    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
 
     async def event_stream():
         streamed_any = False
@@ -3090,7 +3101,7 @@ async def coach_history(conversation_id: str, request: Request):
     /api/coach/sessions/{id}/messages; 404 if the user does not own it.
     """
     user_id = _get_user_id(request)
-    session = session_store.get(conversation_id, user_id)
+    session = await asyncio.to_thread(session_store.get, conversation_id, user_id)
     if session is None:
         return JSONResponse(
             status_code=404,
@@ -3122,7 +3133,7 @@ async def coach_history(conversation_id: str, request: Request):
 async def coach_get_profile(request: Request):
     """Get the user's coaching profile."""
     user_id = _get_user_id(request)
-    profile = load_user_profile(user_id)
+    profile = await asyncio.to_thread(_get_voice_profile, user_id)
     return profile.model_dump()
 
 
@@ -3140,6 +3151,7 @@ async def coach_update_profile(request: Request):
         style=body.get("style", "unknown"),
     )
     save_user_profile(profile)
+    _forget_profile(user_id)
     return profile.model_dump()
 
 
