@@ -275,3 +275,30 @@ def test_the_language_line_closes_the_turn_sent_to_the_model(monkeypatch):
     assert resp.status_code == 200
     assert captured["message"].rstrip().endswith("Never switch to another language.]")
     assert "write your whole answer in Russian" in captured["message"]
+
+
+# ── Game review pre-step (2026-09-29) ─────────────────────────────────────
+
+@pytest.mark.unit
+def test_the_game_is_cut_out_of_the_message_and_must_replay():
+    from src.model_router import extract_game_pgn
+
+    msg = ("Разбери мою партию, я играл чёрными.\n\n[White \"Me\"]\n[Black \"You\"]\n\n"
+           "1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Bg5 Be7 5. e3 O-O 6. Nf3 Nbd7 0-1")
+    pgn = extract_game_pgn(msg)
+    assert pgn.startswith('[White "Me"]\n[Black "You"]\n\n1. d4 d5')
+    assert "Разбери" not in pgn
+    assert extract_game_pgn("Что играть после 1. e4 e5 2. Nf3?") is None
+    # Moves that do not replay are not a game.
+    assert extract_game_pgn("1. e4 e5 2. Ke3 Ke6 3. Kd4 Kd5 4. Kc4 Kc5 5. Qh5 Nc6 6. Qxf7") is None
+
+
+@pytest.mark.unit
+def test_the_review_block_lists_the_moments_with_the_better_move():
+    from src.prompt_builder import review_block
+
+    block = review_block({"total_moves": 40, "engine_depth": 12, "critical_moments": [
+        {"move_number": 16, "side": "black", "move": "Bh5", "type": "blunder", "eval_before": 0.01,
+         "eval_after": 4.85, "best_move": "Be6", "best_line": "Be6 h3 Bxb3", "fen_before": "x"}]})
+    assert "ALREADY loaded on the student's board" in block
+    assert "- 16...Bh5 (black, blunder): +0.01 → +4.85. Better: Be6 (line Be6 h3 Bxb3)" in block

@@ -59,6 +59,7 @@ from src.prompt_builder import (
     build_voice_prompt,
     engine_note_block,
     reply_language_note,
+    review_block,
     get_prompt_version,
 )
 from src.event_logger import log_event, new_turn_id
@@ -572,6 +573,29 @@ def _await_engine_note(future, started: float, state: dict) -> Optional[dict]:
     state["ms"] = int((time.monotonic() - started) * 1000)
     state["used"] = bool(note)
     return note
+
+
+def _await_review(future, started: float, state: dict) -> Optional[dict]:
+    """The game's critical moments, waiting at most COACH_REVIEW_WAIT_MS from *started*.
+
+    A late or failed scan leaves the review to the model's own tools.
+    """
+    if future is None:
+        return None
+    budget = config.COACH_REVIEW_WAIT_MS / 1000.0 - (time.monotonic() - started)
+    try:
+        result = future.result(timeout=max(0.0, budget))
+    except FutureTimeout:
+        return None
+    except Exception:  # noqa: BLE001 — the pre-step is best-effort
+        logger.debug("review pre-step failed", exc_info=True)
+        return None
+    if not isinstance(result, dict) or "error" in result:
+        return None
+    state["used"] = True
+    state["ms"] = int((time.monotonic() - started) * 1000)
+    state["moments"] = len(result.get("critical_moments") or [])
+    return result
 
 
 # When the framework exhausts its retries (and any fallback) it RETURNS the
@@ -1323,7 +1347,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # during a live game — the coach must hint there, not hold the best move.
     engine_started = time.monotonic()
     engine_future = None
-    if config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game:
+    # A game in the message: the server loads it and finds its critical moments
+    # right away, beside the reaction — the model's first review step did only
+    # that (2-3.5 s). COACH_REVIEW_PRESTEP=0 leaves it to the model.
+    review_pgn = None
+    review_future = None
+    if config.COACH_REVIEW_PRESTEP and route.get("reason") == "pgn_in_message" and not live_game:
+        from src.model_router import extract_game_pgn
+        from src.tools.critical_moments import find_critical_moments
+
+        review_pgn = extract_game_pgn(body.message)
+        if review_pgn:
+            review_future = _engine_pool.submit(find_critical_moments, review_pgn)
+    review_state = {"used": False, "ms": None, "moments": None}
+    if (config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game
+            and review_future is None):
         engine_future = _engine_pool.submit(
             engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
         )
@@ -1578,6 +1616,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 message = augmented_message
                 if note:
                     message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                review = _await_review(review_future, engine_started, review_state)
+                if review:
+                    message = f"{message}\n\n{review_block(review)}"
                 message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
@@ -1621,6 +1662,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             held_answer.clear()
             quick["finished"] = True
             return frames
+
+        if review_pgn and review_future is not None:
+            # The game goes on the board at once, before any word of the review.
+            yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
 
         try:
             while not (main_done and quick["finished"]):
@@ -1883,6 +1928,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
                 "engine_note": dict(engine_state),
+                "review": dict(review_state),
                 "quick": {
                     "model": quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),

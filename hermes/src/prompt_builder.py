@@ -580,6 +580,39 @@ def reply_language_note(message: str, locale: Optional[str] = None) -> str:
             f"student's message. Never switch to another language.]")
 
 
+def review_block(result: dict) -> str:
+    """The game's critical moments, found by the server before the turn (see coach_chat).
+
+    A game review used to spend its first model call (2-3.5 s on Gemini) only
+    deciding to load the game and call find_critical_moments; the server does
+    both the moment the message arrives.
+    """
+    moments = result.get("critical_moments") or []
+    lines = [
+        "## Critical moments of the student's game (engine, depth "
+        f"{result.get('engine_depth', 12)}; evaluations from White's side)",
+        "The game is ALREADY loaded on the student's board: do not load it again and do not "
+        "call find_critical_moments for it.",
+        f"Moves in the game: {result.get('total_moves', '?')}.",
+    ]
+    for m in moments:
+        dots = "." if m.get("side") == "white" else "..."
+        line = (f"- {m.get('move_number')}{dots}{m.get('move')} ({m.get('side')}, {m.get('type')}): "
+                f"{m.get('eval_before'):+} → {m.get('eval_after'):+}")
+        if m.get("best_move"):
+            line += f". Better: {m['best_move']} (line {m.get('best_line', m['best_move'])})"
+        if m.get("fen_before"):
+            line += f". Position before the move: {m['fen_before']}"
+        lines.append(line)
+    if not moments:
+        lines.append("- The engine found no swing of 1.5 pawns or more: a clean game.")
+    lines.append(
+        "Explain the turning points that matter most, in your own words: what went wrong and "
+        "what was better. Set a position on the board only when you walk through one of them."
+    )
+    return "\n".join(lines)
+
+
 def engine_note_block(note: str) -> str:
     """The turn's engine line (src/voice_engine_note.py) as a turn-context block."""
     return (
