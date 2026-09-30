@@ -177,3 +177,77 @@ def test_tool_markup_written_as_text_is_cut(text, clean):
     from src.answer_check import strip_leaks
 
     assert strip_leaks(text) == clean
+
+
+@pytest.mark.unit
+class TestPlanningAsAnswer:
+    """Production 2026-09-30: the model wrote its deliberation as the reply."""
+
+    @pytest.mark.parametrize("text", [
+        "Студент спрашивает о планах белых в испанской партии.",
+        "Нужно ответить по-русски, коротко, с ходами из блока (d4, O-O).",
+        "Стоит ли вызывать get_topic?",
+        "Только факты из блока: конь c6 атакован слоном b5.",
+        "The student asks about plans; I should answer briefly.",
+    ])
+    def test_meta_is_caught(self, text):
+        from src.answer_check import META_ISSUE
+
+        assert check_sentence(text, _ctx()) == [META_ISSUE]
+
+    @pytest.mark.parametrize("text", [
+        "Главное правило — король идёт вперёд.",
+        "Блокада проходной пешки — конь на d5.",
+        "Ты сам сказал, что хочешь подтянуть эндшпиль.",
+        "Take on d5 with exd5, and Black has to recapture.",
+    ])
+    def test_coaching_is_not_meta(self, text):
+        assert check_sentence(text, _ctx()) == []
+
+    def test_gate_holds_a_planning_sentence_whole(self):
+        from src.answer_check import META_ISSUE
+
+        gate = SentenceGate(_ctx())
+        # Nothing of «Студент спрашивает …» streams out before the sentence is judged.
+        assert gate.feed("Студент спрашивает о планах ") == []
+        out = gate.feed("белых в испанской партии. Дам планы")
+        assert out[0] == ("Студент спрашивает о планах белых в испанской партии. ", [META_ISSUE],
+                          "Студент спрашивает о планах белых в испанской партии. ")
+
+
+@pytest.mark.unit
+class TestRewriteOverlap:
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @patch("src.server.config.COACH_ENGINE_NOTE", False)
+    @patch("src.server.config.COACH_OPENING_PRESTEP", False)
+    @patch("src.quick_reply.stream_completion")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_rewrite_repeating_the_shown_start_is_trimmed(self, mock_profile, mock_agent, mock_fix):
+        """A rewrite told to continue after «Take on» wrote «Take on d5 …» again (2026-09-30)."""
+        mock_profile.return_value = UserProfile(user_id="overlap-user")
+        agent = MagicMock()
+
+        def _chat(message, stream_callback=None):
+            stream_callback("Take on ")
+            stream_callback("d5: the knight jumps from f3 to d5. ")
+            return "Take on d5: the knight jumps from f3 to d5. "
+
+        agent.chat.side_effect = _chat
+        mock_agent.return_value = agent
+
+        def _fix(**kwargs):
+            for part in ("Take on d5 ", "with exd5, and Black recaptures with the queen."):
+                kwargs["on_delta"](part)
+            return QuickReply(model=kwargs["model"])
+
+        mock_fix.side_effect = _fix
+        user = {"X-User-Id": "overlap-user"}
+        sid = self.client.post("/api/coach/sessions", headers=user).json()["id"]
+        resp = self.client.post("/api/coach/chat", headers=user, json={
+            "message": "what should I play?", "session_id": sid, "fen": ELEPHANT, "locale": "en",
+        })
+        text = "".join(json.loads(l[6:]).get("delta", "") for l in resp.text.splitlines() if l.startswith("data: "))
+        assert text == "Take on d5 with exd5, and Black recaptures with the queen."

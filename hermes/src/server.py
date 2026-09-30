@@ -1656,7 +1656,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter()
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
-               "reply": None, "started": None, "first_ms": None, "emitted": False}
+               "reply": None, "started": None, "first_ms": None, "emitted": False,
+               "shown_prefix": "", "head": ""}
         turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
@@ -1868,6 +1869,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             """Frames for answer text that passed the check (the stream as before)."""
             nonlocal streamed_chars
             text = strip_leaks(text)  # DeepSeek's tool-call markup written as text
+            # A mark on a line of its own leaves an empty paragraph behind.
+            if text.startswith("\n") and answer_parts and answer_parts[-1].endswith("\n\n"):
+                text = text.lstrip("\n")
+            text = re.sub(r"\n{3,}", "\n\n", text)
             if not text:
                 return []
             if "answer_shown" not in stages:
@@ -1900,7 +1905,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if issues:
                     logger.info("answer check: %s | %s", "; ".join(issues), sentence.strip()[:200])
                     if source == "agent" and config.COACH_ANSWER_FIX:
-                        fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic())
+                        # The start of the sentence that already went out (before its
+                        # first move or piece): the rewrite must not say it again.
+                        fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic(),
+                                   shown_prefix=sentence[: len(sentence) - len(text)] if sentence.endswith(text) else "")
                         loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues)
                     else:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
@@ -1973,11 +1981,27 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not fix["running"] or not payload:
                         continue
                     if not fix["emitted"]:
+                        # Hold the first characters until the shown start of the
+                        # sentence can be compared: a model told to continue after
+                        # «Take on» sometimes writes «Take on d5 …» again (2026-09-30).
+                        prefix = fix["shown_prefix"].strip()
+                        fix["head"] += payload
+                        if prefix and len(fix["head"].strip()) < len(prefix) + 2:
+                            continue
+                        payload, fix["head"] = fix["head"], ""
+                        if prefix and payload.lstrip().lower().startswith(prefix.lower()):
+                            payload = payload.lstrip()[len(prefix):]
+                            if not payload:
+                                continue
                         fix["emitted"] = True
                         fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
                         shown = "".join(answer_parts)
-                        if shown and not shown[-1].isspace():
+                        if shown and shown[-1].isspace():
+                            payload = payload.lstrip(" ")
+                        elif shown and not payload[0].isspace():
                             payload = " " + payload
+                        if not payload:
+                            continue
                     payload, mark_actions = fix_markup.feed(payload)
                     for action in mark_actions:
                         yield _board_frame([action])
@@ -1985,6 +2009,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         yield frame
                 elif kind == "fix_done":
                     fix["reply"] = payload
+                    if fix["head"] and not fix["emitted"]:
+                        # A rewrite shorter than the held prefix: send it as it is.
+                        head, fix["head"] = fix["head"], ""
+                        fix["emitted"] = True
+                        head, mark_actions = fix_markup.feed(head)
+                        for action in mark_actions:
+                            yield _board_frame([action])
+                        for frame in _sentence_frames(fix_gate.feed(head), "fix"):
+                            yield frame
                     tail = fix_markup.flush()
                     for frame in _sentence_frames((fix_gate.feed(tail) if tail else []) + fix_gate.flush(), "fix"):
                         yield frame

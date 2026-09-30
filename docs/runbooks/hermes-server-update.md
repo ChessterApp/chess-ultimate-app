@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 30.09-2 (дебюты по названию, проверка ответа, уроки сайта, меньше ожидания Supabase)
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 30.09-3 (мысли модели не попадают в ответ; поправки после проверки прода)
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,16 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 30.09-3 (если сервер уже на 30.09-2 — обновлённом 30.09 в 11:45 UTC, — меняется только это;
+код только `hermes/src/`, миграций и переменных нет, достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 12в):
+- **Мысли модели больше не попадают в ответ.** На проде на вопрос «планы белых в испанской партии» тренер
+  выдал ученику свои рассуждения («Студент спрашивает… Нужно ответить по-русски… Стоит ли вызывать
+  get_topic?»). Такое предложение теперь не показывается, остаток ответа дописывается заново.
+- Дописывающая модель не повторяет уже показанное начало фразы (было «Take on Take on d5»).
+- Курсы без `slug` больше не получают ссылку `/learn/None`; случайный сбой запроса к Supabase не оставляет
+  программу без колонок до перезапуска.
+- Пустые абзацы от вырезанных стрелок схлопываются.
 
 Новое в версии 30.09-2 (если сервер уже на версии 30.09, меняется только это):
 - **Дебюты по названию.** На «что такое жареная печень», «как играть против детского мата», «планы в
@@ -184,6 +194,7 @@ grep -q '_small_talk_stream' chess-ultimate-app/hermes/src/server.py \
   && test -f chess-ultimate-app/hermes/src/llm_transport.py \
   && test -f chess-ultimate-app/hermes/src/opening_knowledge.py \
   && test -f chess-ultimate-app/hermes/src/answer_check.py \
+  && grep -q 'META_ISSUE' chess-ultimate-app/hermes/src/answer_check.py \
   && echo "ускорение в main есть" || echo "НЕТ ускорения"
 ```
 
@@ -417,6 +428,11 @@ curl -s -X POST localhost:8642/api/coach/tool/get_learning_path -H 'Content-Type
 #     ожидание: JSON с курсами (courses…), НЕ "error"; если error — в pm2 logs строка «Supabase rejected the query on …» с причиной
 # 12б. замер стадий: на трёх обычных ходах session < 10 мс, agent ≈ prompt
 pm2 logs hermes-chess --lines 200 --nostream | grep 'turn timings' | tail -3
+# 12в. мысли модели не в ответе: в тексте не должно быть слов «Студент спрашивает», «Нужно ответить», «get_topic», «из блока»
+curl -sN --max-time 120 -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' \
+  -H 'X-User-Id: deploy-check' -d '{"message":"Какие планы у белых в испанской партии?","locale":"ru","session_id":"'"$SID"'"}' \
+  -o spanish.sse -w 'испанская: %{time_total} с\n'
+python3 -c "import json,re; t=''.join(json.loads(l[6:]).get('delta','') for l in open('spanish.sse') if l.startswith('data: ')); print(t); print('МЫСЛИ В ОТВЕТЕ' if re.search(r'Студент спрашивает|Нужно ответить|get_topic|из блока', t) else 'ок')"
 # 12. проверка ответов включена: в логах после вопросов появляется строка «answer check» только если модель ошиблась;
 #     сама проверка видна по событию — сервер не должен писать ошибок вида "answer check context update failed"
 pm2 logs hermes-chess --lines 400 --nostream | grep -c 'answer check' ; echo "(0 — ошибок модели не было; число — сколько предложений заменено)"

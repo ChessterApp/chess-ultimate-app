@@ -517,10 +517,39 @@ def _fits(book, name: str, played: list[str]) -> Optional[bool]:
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
+    if is_meta(sentence):
+        return [META_ISSUE]
     text = sentence.replace("ё", "е")
     lowered = text.lower()
     issues = _move_issues(lowered) + _attack_issues(lowered) + _san_issues(text, ctx) + _opening_issues(text)
     return list(dict.fromkeys(issues))
+
+
+# The coach's private planning written out as the answer. On production
+# (2026-09-30, «планы белых в испанской») DeepSeek without reasoning put its
+# whole deliberation in the text: «Студент спрашивает о планах… Нужно ответить
+# по-русски, коротко, с ходами из блока… Стоит ли вызывать get_topic?». Tool
+# names, the words of the instructions (the block, the facts, the playbook,
+# the rule), and the student in the third person never belong in a reply.
+_META_RE = re.compile(
+    r"\b(?:get_[a-z_]+|board_control|analyze_position|check_moves|find_critical_moments|search_master_games|"
+    r"identify_opening|compare_variations|set_fen|load_pgn|draw_arrows|highlight_squares|playbook|"
+    r"system prompt|tool[- ]?call|function[- ]?call)\b"
+    r"|(?<![а-яa-z])(?:студент|ученик)\s+(?:спрашивает|просит|хочет|задал)"
+    r"|(?<![а-яa-z])(?:нужно|надо|стоит ли|могу ли|должен|должна)\s+(?:ответить|отвечать|вызывать|вызвать|"
+    r"упоминать|назвать|использовать|сказать про|дать)"
+    r"|(?<![а-яa-z])(?:из|в|по)\s+блок[аеу]?(?![а-я])|(?<![а-яa-z])блок\s+(?:движка|дебюта|фактов|уже)"
+    r"|(?<![а-яa-z])(?:инструкци[яию]|правило:|факт[ыа]\s+из|только факты|engine[- ]verified|не проверено)"
+    r"|(?<![а-яa-z])(?:the student (?:asks|wants|is asking)|i (?:should|need to|must|'ll) (?:answer|reply|mention|"
+    r"call|use|avoid|stick)|according to the (?:block|instructions|facts)|from the (?:engine|opening) block)",
+    re.IGNORECASE)
+
+META_ISSUE = "this is the coach's private planning (tools, instructions, the student in the third person), not an answer"
+
+
+def is_meta(text: str) -> bool:
+    """*text* narrates the coach's instructions or tools instead of answering."""
+    return bool(_META_RE.search((text or "").replace("ё", "е")))
 
 
 # Where a chess claim can begin: a piece word, a square, a move number, a
@@ -562,8 +591,10 @@ class SentenceGate:
             full = self._released + sentence
             self._released = ""
             out.append((sentence, check_sentence(full, self.ctx), full))
-        # The claim-free start of the unfinished sentence goes out now.
-        safe = self._safe_prefix(self._buf)
+        # The claim-free start of the unfinished sentence goes out now — unless
+        # the sentence so far reads like the coach's planning: that is held
+        # whole and checked (a released «Студент спрашивает» cannot be recalled).
+        safe = "" if is_meta(self._released + self._buf) else self._safe_prefix(self._buf)
         if safe:
             self._released += safe
             self._buf = self._buf[len(safe):]
