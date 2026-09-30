@@ -35,6 +35,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 from src.event_logger import log_event
 from src.user_profile import load_user_profile, save_user_profile
 
@@ -228,7 +235,7 @@ def _call_reflector_llm(
     if not api_key:
         return None
     try:
-        resp = httpx.post(
+        resp = httpx.post(  # OpenRouter, not Supabase: not on the pool
             _OPENROUTER_URL,
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -271,7 +278,7 @@ def _post_row(table: str, row: dict) -> bool:
     if not url or not key:
         return False
     try:
-        resp = httpx.post(
+        resp = _sb().post(
             f"{url}/rest/v1/{table}",
             json=row,
             headers={
@@ -468,7 +475,7 @@ def load_active_corrections(user_id: str, limit: int = 3) -> list[dict]:
     if not url or not key:
         return []
     try:
-        resp = httpx.get(
+        resp = _sb().get(
             f"{url}/rest/v1/coach_corrections",
             params={
                 "user_id": f"eq.{user_id}",

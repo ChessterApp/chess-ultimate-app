@@ -387,6 +387,8 @@ class TestCoachChat:
         mock_agent.return_value = agent_instance
 
         note = '[Review context] classified as "blunder"; grounded in the engine evaluation.'
+        # An id the server does not know gets a fresh one now; this test's session exists.
+        session_store.create(user_id="test-user-123", session_id="ctx-note-s1")
         resp = self.client.post(
             "/api/coach/chat",
             headers=USER_HEADERS,
@@ -403,6 +405,9 @@ class TestCoachChat:
         session = session_store.get("ctx-note-s1", "test-user-123")
         assert [m.content for m in session.messages if m.role == "user"] == ["почему это ошибка?"]
 
+    # Token-level streaming mechanics: with the answer check on, text goes out
+    # per checked sentence instead (tests/unit/test_answer_check.py).
+    @patch("src.server.config.COACH_ANSWER_CHECK", False)
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
     def test_chat_streams_real_tokens_via_callback(self, mock_profile, mock_agent):
@@ -566,7 +571,8 @@ class TestCoachChat:
         assert resp.status_code == 200
         _parse_sse(resp.text)
 
-        system_prompt = mock_agent.call_args.kwargs["system_prompt"]
+        # The agent is built before the prompt exists and gets it as an attribute.
+        system_prompt = agent_instance.ephemeral_system_prompt
         sent = agent_instance.chat.call_args.args[0]
         assert fen not in system_prompt
         assert "## Current Date" not in system_prompt

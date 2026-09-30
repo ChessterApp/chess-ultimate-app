@@ -211,8 +211,9 @@ class TestBoardRoutes:
         sid = self.client.post("/api/coach/sessions", headers=USER).json()["id"]
         bid = self.client.get(f"/api/coach/sessions/{sid}/boards", headers=USER).json()["active_board_id"]
 
+        # No opening named in the message: the opening pre-step stays out of it.
         resp = self.client.post("/api/coach/chat", headers=USER,
-                                json={"message": "покажи испанку", "session_id": sid, "board_id": bid})
+                                json={"message": "покажи эту партию", "session_id": sid, "board_id": bid})
         assert resp.status_code == 200
         body = resp.text
         assert f'"board_id": "{bid}"' in body and '"active_board_id"' in body

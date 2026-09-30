@@ -7,6 +7,13 @@ import os
 import chess
 import chess.pgn
 import httpx
+
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
 import io
 
 from tools.registry import registry
@@ -177,7 +184,7 @@ def _update_profile_weaknesses(
     }
 
     try:
-        httpx.patch(
+        _sb().patch(
             f"{base}/rest/v1/user_chess_profiles",
             params={"user_id": f"eq.{user_id}"},
             headers=headers,

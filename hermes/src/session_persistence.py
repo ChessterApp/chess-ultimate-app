@@ -19,6 +19,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 10
@@ -140,7 +147,7 @@ class SessionPersistence:
             now = datetime.now(timezone.utc).isoformat()
             headers = self._headers()
             headers["Prefer"] = "resolution=merge-duplicates"
-            httpx.post(
+            _sb().post(
                 f"{self.url}/rest/v1/coach_sessions",
                 json={
                     "id": session_id,
@@ -204,7 +211,7 @@ class SessionPersistence:
         }
         payload = {**base, **{k: v for k, v in (extra or {}).items() if v is not None}}
         try:
-            httpx.post(
+            _sb().post(
                 f"{self.url}/rest/v1/coach_messages",
                 json=payload,
                 headers=self._headers(),
@@ -220,7 +227,7 @@ class SessionPersistence:
                     "for session %s", session_id
                 )
                 try:
-                    httpx.post(
+                    _sb().post(
                         f"{self.url}/rest/v1/coach_messages",
                         json=base,
                         headers=self._headers(),
@@ -264,7 +271,7 @@ class SessionPersistence:
 
     def _update_board_state(self, session_id: str, fen: str) -> None:
         try:
-            httpx.patch(
+            _sb().patch(
                 f"{self.url}/rest/v1/coach_sessions",
                 params={"id": f"eq.{session_id}"},
                 json={
@@ -307,7 +314,7 @@ class SessionPersistence:
                 "source": board.get("source"),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
-            httpx.post(
+            _sb().post(
                 f"{self.url}/rest/v1/coach_boards", json=row, headers=headers, timeout=TIMEOUT
             ).raise_for_status()
         except Exception:
@@ -320,7 +327,7 @@ class SessionPersistence:
 
     def _delete_board(self, board_id: str) -> None:
         try:
-            httpx.delete(
+            _sb().delete(
                 f"{self.url}/rest/v1/coach_boards",
                 params={"id": f"eq.{board_id}"},
                 headers=self._headers(),
@@ -338,7 +345,7 @@ class SessionPersistence:
     def _update_session_fields(self, session_id: str, fields: dict) -> None:
         try:
             self._await_session_ready(session_id)
-            httpx.patch(
+            _sb().patch(
                 f"{self.url}/rest/v1/coach_sessions",
                 params={"id": f"eq.{session_id}"},
                 json={**fields, "updated_at": datetime.now(timezone.utc).isoformat()},
@@ -353,7 +360,7 @@ class SessionPersistence:
         if not self.enabled:
             return []
         try:
-            resp = httpx.get(
+            resp = _sb().get(
                 f"{self.url}/rest/v1/coach_boards",
                 params={"session_id": f"eq.{session_id}", "select": "*", "order": "created_at.asc"},
                 headers=self._headers(),
@@ -375,7 +382,7 @@ class SessionPersistence:
 
     def _delete_session(self, session_id: str) -> None:
         try:
-            httpx.delete(
+            _sb().delete(
                 f"{self.url}/rest/v1/coach_sessions",
                 params={"id": f"eq.{session_id}"},
                 headers=self._headers(),
@@ -391,7 +398,7 @@ class SessionPersistence:
         if not self.enabled:
             return None
         try:
-            resp = httpx.get(
+            resp = _sb().get(
                 f"{self.url}/rest/v1/coach_sessions",
                 params={"id": f"eq.{session_id}", "select": "*"},
                 headers=self._headers(),
@@ -409,7 +416,7 @@ class SessionPersistence:
         if not self.enabled:
             return []
         try:
-            resp = httpx.get(
+            resp = _sb().get(
                 f"{self.url}/rest/v1/coach_sessions",
                 params={"user_id": f"eq.{user_id}", "select": "*"},
                 headers=self._headers(),
@@ -426,7 +433,7 @@ class SessionPersistence:
         if not self.enabled:
             return []
         try:
-            resp = httpx.get(
+            resp = _sb().get(
                 f"{self.url}/rest/v1/coach_messages",
                 params={
                     "session_id": f"eq.{session_id}",

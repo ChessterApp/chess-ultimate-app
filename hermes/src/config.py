@@ -253,6 +253,32 @@ COACH_ENGINE_NOTE_MOVETIME_MS = int(os.environ.get("COACH_ENGINE_NOTE_MOVETIME_M
 COACH_REVIEW_PRESTEP = _env_flag("COACH_REVIEW_PRESTEP", True)
 COACH_REVIEW_WAIT_MS = int(os.environ.get("COACH_REVIEW_WAIT_MS", "6000"))
 
+# Threads of the event loop's default executor (2026-09-30): every turn holds
+# one for the agent call and one for the reaction; the default (cpu+4) queued
+# the next students' session/profile steps invisibly.
+COACH_EXECUTOR_THREADS = int(os.environ.get("COACH_EXECUTOR_THREADS", "32"))
+
+# Opening pre-step (2026-09-30): a message that names an opening («как играть
+# против жареной печени») gets the ECO-book line on the board and in the turn —
+# the line, the book's alternatives (the defences) and facts of its final
+# position — before the model is called (src/opening_knowledge.py).
+#   COACH_OPENING_PRESTEP — kill switch (default ON).
+COACH_OPENING_PRESTEP = _env_flag("COACH_OPENING_PRESTEP", True)
+
+# Answer check (2026-09-30): each finished sentence of a text answer is checked
+# on the board before it is shown (src/answer_check.py) — a piece moving or
+# attacking against its pattern, a move no piece can make, moves given for the
+# wrong opening. A wrong sentence is not shown; the rest of the answer is
+# rewritten from there by one tool-free call told what was wrong.
+#   COACH_ANSWER_CHECK      — kill switch (default ON): off streams as before.
+#   COACH_ANSWER_FIX        — rewrite after a wrong sentence (default ON); off
+#                             drops the wrong sentences only.
+#   COACH_ANSWER_FIX_MAX_TOKENS / COACH_ANSWER_FIX_TIMEOUT_S — the rewrite call.
+COACH_ANSWER_CHECK = _env_flag("COACH_ANSWER_CHECK", True)
+COACH_ANSWER_FIX = _env_flag("COACH_ANSWER_FIX", True)
+COACH_ANSWER_FIX_MAX_TOKENS = int(os.environ.get("COACH_ANSWER_FIX_MAX_TOKENS", "400"))
+COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", "12"))
+
 # Load the framework, the engines and the ECO book when the server starts, not
 # on the first students' questions (1-2 s slower after every restart).
 COACH_WARMUP = _env_flag("COACH_WARMUP", True)

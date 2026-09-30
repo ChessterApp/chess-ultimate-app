@@ -230,6 +230,12 @@ async def lifespan(app: FastAPI):
     app.state.config = _config
     app.state.model_config = _model_config
     app.state.soul_content = _soul_content
+    # Every turn holds one executor thread for the whole agent call (5–40 s)
+    # and one for the reaction; the default pool (cpu+4, 6–8 on the host)
+    # queued the session/profile steps of the next students invisibly.
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=config.COACH_EXECUTOR_THREADS, thread_name_prefix="coach")
+    )
     if config.COACH_WARMUP:
         # In the background: the server takes requests at once.
         asyncio.get_running_loop().run_in_executor(None, _warm_up)
@@ -376,6 +382,19 @@ def _model_gets_prompt_cache(model: str) -> bool:
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
+def _skip_compression_check(agent_cls) -> None:
+    """The framework's construction-time check of the compression model's context
+    window downloads the models.dev registry (5 MB, ~1–2 s) once an hour — and,
+    when that host is unreachable, on EVERY agent construction with a 15 s
+    timeout (a failed fetch sets no TTL). The coach builds a fresh agent per
+    turn and hands it one message, so context compression never runs: the
+    check is a warning about a path the coach does not take."""
+    if getattr(agent_cls, "_coach_compression_check_skipped", False):
+        return
+    agent_cls._check_compression_model_feasibility = lambda self: None
+    agent_cls._coach_compression_check_skipped = True
+
+
 def _create_agent(
     model: str,
     system_prompt: str,
@@ -398,6 +417,7 @@ def _create_agent(
     """
     from run_agent import AIAgent
 
+    _skip_compression_check(AIAgent)
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     agent_kwargs = dict(
         model=model,
@@ -441,14 +461,25 @@ def _create_agent(
     # full, stable tool set for those models and subset only the others.
     subset_ok = not _model_gets_prompt_cache(model)
     if config.COACH_TOOL_SUBSET and subset_ok and user_query and getattr(agent, "tools", None):
+        from src.opening_knowledge import mentions_opening
         from src.tool_selector import select_openai_tool_subset
 
+        all_tools = agent.tools
         agent.tools = select_openai_tool_subset(
             agent.tools,
             user_query,
             topk=config.COACH_TOOL_SUBSET_TOPK,
             mode=mode,
         )
+        # A named opening keeps the book tools: «против жареной печени» matched
+        # none of their keywords and the model answered from memory (2026-09-30).
+        if mentions_opening(user_query):
+            chosen = {t["function"]["name"] for t in agent.tools}
+            agent.tools = agent.tools + [
+                t for t in all_tools
+                if t["function"]["name"] in ("get_opening_stats", "identify_opening")
+                and t["function"]["name"] not in chosen
+            ]
         # Keep the model-call validator consistent with the reduced tool set.
         agent.valid_tool_names = {t["function"]["name"] for t in agent.tools}
 
@@ -1371,10 +1402,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # Analytics
     analytics_tracker.track_chat(user_id, body.session_id or "")
 
-    session_id = body.session_id or str(uuid.uuid4())
-    session = await asyncio.to_thread(session_store.get, session_id, user_id)
+    # The profile depends on the user alone: its (rare) Supabase read starts
+    # now and overlaps the session and opening steps below.
+    profile_task = asyncio.create_task(asyncio.to_thread(_get_voice_profile, user_id))
+
+    # A new chat sends no session id: the session is created here, without a
+    # database lookup for an id that cannot exist yet (one roundtrip saved on
+    # the first message of every chat). An id that belongs to someone else, or
+    # to nobody, gets a fresh one too — as the voice path does — instead of an
+    # upsert over the other user's row.
+    session = None
+    if body.session_id:
+        session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
     if session is None:
-        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id)
+    session_id = session.id
     _mark("session")
 
     # Hygiene: normalize inbound free-text (no-op unless COACH_NORMALIZE_INPUT).
@@ -1434,14 +1476,40 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn:
             review_future = _engine_pool.submit(find_critical_moments, review_pgn)
     review_state = {"used": False, "ms": None, "moments": None}
-    if (config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game
-            and review_future is None):
+    # An opening named in the message: its book line goes on the board and into
+    # the turn before the model is called (src/opening_knowledge.py) — the engine
+    # line below then describes the line's final position, not the old board.
+    opening_plan = None
+    if config.COACH_OPENING_PRESTEP and not live_game and review_future is None:
+        try:
+            from src.opening_knowledge import plan_opening
+
+            opening_plan = await asyncio.to_thread(
+                plan_opening, body.message, session.board_state, active_board.pgn
+            )
+            if opening_plan and opening_plan.load:
+                session.apply_board_actions(
+                    [{"type": "load_pgn", "pgn": opening_plan.pgn}], board_id=active_board.id
+                )
+        except Exception:  # noqa: BLE001 — the pre-step is best-effort
+            logger.debug("opening pre-step failed", exc_info=True)
+            opening_plan = None
+    _mark("opening")
+    if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan) and session.board_state
+            and not live_game and review_future is None):
         engine_future = _engine_pool.submit(
             engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
         )
     engine_state = {"used": False, "ms": None, "timed_out": False}
 
-    profile = await asyncio.to_thread(_get_voice_profile, user_id)
+    # The agent does not depend on the prompt (it only stores it), so it is
+    # built while the profile arrives and the prompt is assembled.
+    fallback_model = _turn_fallback_model(model)
+    agent_task = asyncio.create_task(asyncio.to_thread(
+        _create_agent, model=model, system_prompt="", session_id=session_id,
+        user_query=body.message, fallback_model=fallback_model,
+    ))
+    profile = await profile_task
     _mark("profile")
     # Static persona/tool guidance stays in the system prompt (cacheable);
     # date, profile, memory and board state travel in the user message.
@@ -1479,11 +1547,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     else:
         augmented_message = current_message
 
-    fallback_model = _turn_fallback_model(model)
-    agent = await asyncio.to_thread(_create_agent, 
-        model=model, system_prompt=system_prompt, session_id=session_id,
-        user_query=body.message, fallback_model=fallback_model,
-    )
+    agent = await agent_task
+    agent.ephemeral_system_prompt = system_prompt
     _mark("agent")
 
     log_event(
@@ -1503,6 +1568,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             "tools_selected": _selected_tool_names(agent),
             "fallback_model": fallback_model,
             "two_stage": bool(config.COACH_TWO_STAGE),
+            "opening": opening_plan.name if opening_plan else None,
+            "opening_loaded": bool(opening_plan and opening_plan.load),
         },
     )
 
@@ -1545,8 +1612,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     None, _await_engine_note, engine_future, engine_started, engine_state
                 )
                 bestofn_message = augmented_message
+                if opening_plan:
+                    bestofn_message = f"{bestofn_message}\n\n{opening_plan.block}"
                 if note:
-                    bestofn_message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                    bestofn_message = (f"{bestofn_message}\n\n"
+                                       f"{engine_note_block(note['note'], opening=bool(opening_plan))}")
                 bestofn_message = f"{bestofn_message}\n\n{reply_language_note(body.message, body.locale)}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
@@ -1569,6 +1639,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         answer_parts: list[str] = []  # the answer stage's deltas, as streamed
         markup = MarkupFilter()
         streamed_chars = 0
+
+        # The answer check (src/answer_check.py): the positions a written move may
+        # belong to (the board, the opening line, the game, what tools put on the
+        # board), a gate that holds each sentence until it is checked, and one
+        # rewrite of the rest of the answer after a wrong sentence.
+        from src.answer_check import CheckContext, SentenceGate, fix_messages, strip_leaks
+
+        check_ctx = CheckContext.from_fens(
+            [session.board_state, body.fen],
+            [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
+            + [b["line"] for b in (opening_plan.branches if opening_plan else [])],
+            question=body.message,
+        )
+        gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
+        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
+        fix_markup = MarkupFilter()
+        fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
+               "reply": None, "started": None, "first_ms": None, "emitted": False}
+        turn_msg = {"message": None}
 
         # ── Two-stage answer ──────────────────────────────────────────────
         # A tool-free one-sentence reaction streams first while the agent is
@@ -1659,6 +1748,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             actions = tool_board_actions(result)
             if actions:
                 loop.call_soon_threadsafe(queue.put_nowait, ("board_actions", actions))
+            # What the tool put on the board (a topic example, a puzzle, a game)
+            # is a position the answer may talk about.
+            try:
+                check_ctx.add_text(result if isinstance(result, str) else json.dumps(result))
+                for action in actions or []:
+                    if isinstance(action, dict):
+                        check_ctx.add(action.get("fen"))
+                        if action.get("pgn"):
+                            check_ctx.add_line(action["pgn"])
+            except Exception:  # noqa: BLE001 — the check must never break a turn
+                logger.debug("answer check context update failed", exc_info=True)
             started = tool_starts.pop(tool_call_id, None)
             duration_ms = int((time.monotonic() - started) * 1000) if started else None
             ok, error_code, payload = _tool_call_payload(tool_name, args, result)
@@ -1691,18 +1791,42 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 # Waits on this executor thread, so the reaction keeps streaming.
                 note = _await_engine_note(engine_future, engine_started, engine_state)
                 message = augmented_message
+                if opening_plan:
+                    message = f"{message}\n\n{opening_plan.block}"
                 if note:
-                    message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                    message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan))}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
                 message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
+                turn_msg["message"] = message
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+        def _run_fix(shown: str, wrong: str, issues: list):
+            """The rest of the answer after a wrong sentence: one tool-free call."""
+            reply = None
+            try:
+                from src.quick_reply import stream_completion
+
+                reply = stream_completion(
+                    model=model,
+                    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                    messages=fix_messages(turn_msg["message"] or augmented_message, shown, wrong, issues,
+                                          reply_language_note(body.message, body.locale)),
+                    on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
+                    timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,
+                    max_tokens=config.COACH_ANSWER_FIX_MAX_TOKENS,
+                    temperature=0.4,
+                )
+            except Exception:  # noqa: BLE001 — without the rewrite the wrong part is just left out
+                logger.debug("answer fix crashed", exc_info=True)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, ("fix_done", reply))
 
         turn_started = time.monotonic()
         quick_future = loop.run_in_executor(None, _run_quick) if two_stage else None
@@ -1740,15 +1864,70 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             quick["finished"] = True
             return frames
 
+        def _answer_frames(text: str) -> list:
+            """Frames for answer text that passed the check (the stream as before)."""
+            nonlocal streamed_chars
+            text = strip_leaks(text)  # DeepSeek's tool-call markup written as text
+            if not text:
+                return []
+            if "answer_shown" not in stages:
+                _mark("answer_shown")
+            partial_parts.append(text)
+            answer_parts.append(text)
+            streamed_chars += len(text)
+            frames = []
+            if quick["finished"]:
+                text = _answer_delta(text)
+                if text:
+                    frames.append(_sse({"delta": text}))
+            elif not quick["shown"]:
+                # The answer got here first — abandon the reaction.
+                quick["abort"] = True
+                frames.extend(_finish_quick())
+                frames.append(_sse({"delta": text}))
+            else:
+                held_answer.append(text)
+            return frames
+
+        def _sentence_frames(pairs, source: str) -> list:
+            """Checked sentences → frames. A wrong sentence of the model's answer is
+            not shown and starts the rewrite (which replaces the rest of the draft);
+            a wrong sentence of the rewrite is left out."""
+            frames = []
+            for text, issues, sentence in pairs:
+                if source == "agent" and (fix["running"] or fix["done"]):
+                    continue  # the rewrite stands in for the rest of the draft
+                if issues:
+                    logger.info("answer check: %s | %s", "; ".join(issues), sentence.strip()[:200])
+                    if source == "agent" and config.COACH_ANSWER_FIX:
+                        fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic())
+                        loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues)
+                    else:
+                        fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
+                    continue
+                frames.extend(_answer_frames(text))
+            return frames
+
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
+        if opening_plan and opening_plan.load:
+            # So does the opening the student asked about — applied to the
+            # session board already (before the engine note); this frame only
+            # shows it, without a second replay and a second pair of writes.
+            yield _sse({"board_actions": [{"type": "load_pgn", "pgn": opening_plan.pgn,
+                                           "board_id": active_board.id}]})
 
         try:
-            while not (main_done and quick["finished"]):
+            while not (main_done and quick["finished"] and not fix["running"]):
                 item = await queue.get()
                 if item is sentinel:
                     main_done = True
+                    # The end of the draft: an unfinished "[[" was not a mark, and
+                    # the last sentence gets its check too.
+                    tail = markup.flush()
+                    for frame in _sentence_frames((gate.feed(tail) if tail else []) + gate.flush(), "agent"):
+                        yield frame
                     if not quick["finished"] and not quick["shown"]:
                         # Answer complete, reaction never started: drop it.
                         quick["abort"] = True
@@ -1778,6 +1957,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not streamed_any:
                         _mark("answer_first")
                     streamed_any = True
+                    if fix["running"] or fix["done"]:
+                        continue  # the draft after a wrong sentence is replaced
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
                     payload, mark_actions = markup.feed(payload)
@@ -1785,21 +1966,30 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         yield _board_frame([action])
                     if not payload:
                         continue
-                    partial_parts.append(payload)
-                    answer_parts.append(payload)
-                    streamed_chars += len(payload)
-                    if quick["finished"]:
-                        payload = _answer_delta(payload)
-                        if payload:
-                            yield _sse({"delta": payload})
-                    elif not quick["shown"]:
-                        # The answer got here first — abandon the reaction.
-                        quick["abort"] = True
-                        for frame in _finish_quick():
-                            yield frame
-                        yield _sse({"delta": payload})
-                    else:
-                        held_answer.append(payload)
+                    # Each sentence goes out once it is complete and checked.
+                    for frame in _sentence_frames(gate.feed(payload), "agent"):
+                        yield frame
+                elif kind == "fix":
+                    if not fix["running"] or not payload:
+                        continue
+                    if not fix["emitted"]:
+                        fix["emitted"] = True
+                        fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
+                        shown = "".join(answer_parts)
+                        if shown and not shown[-1].isspace():
+                            payload = " " + payload
+                    payload, mark_actions = fix_markup.feed(payload)
+                    for action in mark_actions:
+                        yield _board_frame([action])
+                    for frame in _sentence_frames(fix_gate.feed(payload), "fix"):
+                        yield frame
+                elif kind == "fix_done":
+                    fix["reply"] = payload
+                    tail = fix_markup.flush()
+                    for frame in _sentence_frames((fix_gate.feed(tail) if tail else []) + fix_gate.flush(), "fix"):
+                        yield frame
+                    fix["running"] = False
+                    fix["done"] = True
                 elif kind == "tool_call":
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
@@ -1810,14 +2000,6 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
-            # An unfinished "[[" at the very end was not a mark after all.
-            tail = markup.flush()
-            if tail:
-                partial_parts.append(tail)
-                answer_parts.append(tail)
-                tail = _answer_delta(tail)
-                if tail:
-                    yield _sse({"delta": tail})
             if streamed_any and getattr(agent, "_coach_stream_cut", False) is True and error_exc is None:
                 cut_note = "\n\n" + _STREAM_CUT_TEXT.get((body.locale or "ru").lower(), _STREAM_CUT_TEXT["ru"])
                 partial_parts.append(cut_note)
@@ -1892,6 +2074,36 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                           quick_reply.completion_tokens, "text", turn_id, 0),
                     daemon=True,
                 ).start()
+
+        # The answer check: what was stopped and how the rest was written.
+        fix_reply = fix["reply"]
+        answer_check = {
+            "fixed": bool(fix["sentence"]),
+            "issues": fix["issues"],
+            "sentence": (fix["sentence"] or "").strip()[:300] or None,
+            "fix_first_ms": fix["first_ms"],
+            "fix_model": _reply_model(fix_reply) if fix_reply is not None else None,
+            "fix_error": getattr(fix_reply, "error", None) if fix_reply is not None else None,
+            "dropped": fix["dropped"],
+        }
+        if answer_check["fixed"] or answer_check["dropped"]:
+            log_event(
+                "answer_check",
+                severity="warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload=answer_check,
+            )
+        if fix_reply is not None and (fix_reply.prompt_tokens or fix_reply.completion_tokens):
+            threading.Thread(
+                target=_do_record_usage,
+                args=(user_id, session.id, _reply_model(fix_reply) or model, fix_reply.prompt_tokens,
+                      fix_reply.completion_tokens, "text", turn_id, 0),
+                daemon=True,
+            ).start()
 
         # A provider failure returned AS TEXT is an error, not an answer.
         provider_error_text = result_text if _looks_like_provider_error(result_text) else None
@@ -2011,6 +2223,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "review": dict(review_state),
                 "stages_ms": dict(stages),
                 "hedge": _hedge_state(agent),
+                "answer_check": answer_check,
+                "opening": opening_plan.name if opening_plan else None,
                 "quick": {
                     "model": _reply_model(quick_reply) or quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),
@@ -2038,6 +2252,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "engine_note": dict(engine_state),
                 "review": dict(review_state),
                 "hedge": _hedge_state(agent),
+                "answer_check": answer_check,
                 "stages_ms": {**stages, "engine_ready": engine_state.get("ms"),
                               "review_ready": review_state.get("ms"),
                               "total": int((time.monotonic() - request_started) * 1000)},
@@ -2409,27 +2624,61 @@ class VoiceHeartbeatRequest(BaseModel):
 # same profile. The prompt itself is rebuilt every call (cheap, in-memory) and
 # the mint rate limit is enforced BEFORE the cache lookup — so caching never lets
 # an extra session spawn through.
-_VOICE_PROFILE_TTL = 300  # seconds (5 min)
+_VOICE_PROFILE_TTL = 300  # seconds (5 min): after that the copy is refreshed in the background
+_VOICE_PROFILE_MAX_AGE = 3600  # seconds: older than this it is reloaded on the path
 _voice_profile_cache: dict[str, tuple[float, UserProfile]] = {}
 _voice_profile_lock = threading.Lock()
+_voice_profile_refreshing: set = set()
 
 
 def _get_voice_profile(user_id: str) -> UserProfile:
-    """Return the user's profile, cached for ~5 min to spare a Supabase hit.
+    """Return the user's profile, cached to spare a Supabase hit.
 
     The text turn uses it too (2026-09-29): every chat turn loaded the profile
     from Supabase on the event loop, freezing every other student's stream for
     the round trip. Callers in async handlers run it in a thread.
+
+    A copy older than the TTL is handed out at once and refreshed in the
+    background (a roundtrip to Supabase from the production host is 250–500
+    ms; it used to land on one turn of every student every 5 minutes); only a
+    copy older than an hour, or none, is loaded on the path. A load that
+    failed is not cached: the next turn tries again.
     """
     now = time.monotonic()
     with _voice_profile_lock:
         entry = _voice_profile_cache.get(user_id)
-        if entry and entry[0] > now:
-            return entry[1]
+    if entry:
+        loaded_at, profile = entry
+        age = now - loaded_at
+        if age < _VOICE_PROFILE_TTL:
+            return profile
+        if age < _VOICE_PROFILE_MAX_AGE:
+            _refresh_profile_in_background(user_id)
+            return profile
     profile = load_user_profile(user_id)
-    with _voice_profile_lock:
-        _voice_profile_cache[user_id] = (now + _VOICE_PROFILE_TTL, profile)
+    if not getattr(profile, "load_failed", False):
+        with _voice_profile_lock:
+            _voice_profile_cache[user_id] = (now, profile)
     return profile
+
+
+def _refresh_profile_in_background(user_id: str) -> None:
+    with _voice_profile_lock:
+        if user_id in _voice_profile_refreshing:
+            return
+        _voice_profile_refreshing.add(user_id)
+
+    def _refresh():
+        try:
+            profile = load_user_profile(user_id)
+            if not getattr(profile, "load_failed", False):
+                with _voice_profile_lock:
+                    _voice_profile_cache[user_id] = (time.monotonic(), profile)
+        finally:
+            with _voice_profile_lock:
+                _voice_profile_refreshing.discard(user_id)
+
+    threading.Thread(target=_refresh, name="profile-refresh", daemon=True).start()
 
 
 def clear_voice_profile_cache() -> None:
@@ -2511,7 +2760,9 @@ def _session_summary(s) -> dict:
 async def coach_list_sessions(request: Request):
     """List all coaching sessions for a user, newest activity first."""
     user_id = _get_user_id(request)
-    sessions = session_store.list(user_id)
+    # Off the event loop: a cold list loads every session of the user from
+    # Supabase (13 sessions = dozens of roundtrips) and froze every stream.
+    sessions = await asyncio.to_thread(session_store.list, user_id)
     summaries = [_session_summary(s) for s in sessions]
     summaries.sort(key=lambda x: x["updated_at"], reverse=True)
     return summaries
@@ -2556,9 +2807,10 @@ async def coach_delete_session(session_id: str, request: Request):
 # ── Boards (tabs) of a session ────────────────────────────────────────
 
 
-def _get_session_or_404(session_id: str, request: Request):
+async def _get_session_or_404(session_id: str, request: Request):
     user_id = _get_user_id(request)
-    session = session_store.get(session_id, user_id)
+    # A session not in memory is loaded from Supabase — in a thread.
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
@@ -2566,7 +2818,7 @@ def _get_session_or_404(session_id: str, request: Request):
 
 @app.get("/api/coach/sessions/{session_id}/boards")
 async def coach_list_boards(session_id: str, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     session.ensure_board()
     return {"active_board_id": session.active_board_id,
             "boards": [b.to_public() for b in session.boards]}
@@ -2574,7 +2826,7 @@ async def coach_list_boards(session_id: str, request: Request):
 
 @app.post("/api/coach/sessions/{session_id}/boards")
 async def coach_create_board(session_id: str, body: CoachBoardCreateRequest, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     try:
         board = session.add_board(
             activate=body.activate, kind=body.kind, title=body.title or "", pgn=body.pgn or "",
@@ -2587,7 +2839,7 @@ async def coach_create_board(session_id: str, body: CoachBoardCreateRequest, req
 
 @app.patch("/api/coach/sessions/{session_id}/boards/{board_id}")
 async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpdateRequest, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = session.get_board(board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="Board not found")
@@ -2627,7 +2879,7 @@ async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpd
 
 @app.delete("/api/coach/sessions/{session_id}/boards/{board_id}")
 async def coach_delete_board(session_id: str, board_id: str, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     if not session.remove_board(board_id):
         raise HTTPException(status_code=404, detail="Board not found")
     return {"deleted": board_id, "active_board_id": session.active_board_id}
@@ -2718,7 +2970,7 @@ async def coach_game_start(session_id: str, body: CoachGameStartRequest, request
     """Start a game against the coach on a new, active board of kind ``game``."""
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     loop = asyncio.get_event_loop()
     try:
         _, payload = await loop.run_in_executor(
@@ -2736,7 +2988,7 @@ async def coach_game_move(session_id: str, board_id: str, body: CoachGameMoveReq
     """The student's move: verdict + the engine's reply, or the game's end."""
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     loop = asyncio.get_event_loop()
     try:
@@ -2752,7 +3004,7 @@ async def coach_game_move(session_id: str, board_id: str, body: CoachGameMoveReq
 async def coach_game_resign(session_id: str, board_id: str, request: Request):
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     try:
         return game_mode.resign(session, board)
@@ -2764,7 +3016,7 @@ async def coach_game_resign(session_id: str, board_id: str, request: Request):
 async def coach_game_takeback(session_id: str, board_id: str, request: Request):
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     try:
         return game_mode.takeback(session, board)
@@ -2781,7 +3033,7 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     from src.quick_reply import stream_completion
 
     user_id = _get_user_id(request)
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     messages = game_mode.comment_prompt(board, body.locale, body.event)
     model = quick_model()

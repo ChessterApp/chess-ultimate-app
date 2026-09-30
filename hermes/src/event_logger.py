@@ -33,6 +33,13 @@ from typing import Any, Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 logger = logging.getLogger("hermes.event_logger")
 
 # Daily JSONL spool lives next to the voice-latency beacons.
@@ -173,7 +180,7 @@ class _EventLogger:
     def _post_supabase(self, record: dict) -> None:
         if not self._supabase_enabled:
             return
-        httpx.post(
+        _sb().post(
             f"{self._url}/rest/v1/coach_events",
             json=record,
             headers={

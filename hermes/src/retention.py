@@ -27,6 +27,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 from src.event_logger import METRICS_DIR, log_event
 
 logger = logging.getLogger("hermes.retention")
@@ -86,7 +93,7 @@ def _purge_table(table: str, cutoff: datetime, *, id_col: str = "id") -> int:
     deleted = 0
     try:
         for _ in range(_MAX_BATCHES):
-            resp = httpx.get(
+            resp = _sb().get(
                 f"{url}/rest/v1/{table}",
                 params={
                     "select": id_col,
@@ -105,7 +112,7 @@ def _purge_table(table: str, cutoff: datetime, *, id_col: str = "id") -> int:
             if not ids:
                 break
             id_list = ",".join(str(i) for i in ids)
-            del_resp = httpx.delete(
+            del_resp = _sb().delete(
                 f"{url}/rest/v1/{table}",
                 params={id_col: f"in.({id_list})"},
                 headers=headers,

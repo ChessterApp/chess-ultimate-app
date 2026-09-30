@@ -167,9 +167,10 @@ class Session(BaseModel):
             # A position that continues the loaded game is a navigation, not a
             # new study position; anything else replaces the board's history.
             board.set_position(fen)
-            self.save_board(board)
+            self.save_board(board)  # writes board_state too when the board is active
+        changed = self.board_state != fen
         self.board_state = fen
-        if self._persistence is not None:
+        if changed and self._persistence is not None and board.id != self.active_board_id:
             self._persistence.update_board_state(self.id, fen)
 
 
@@ -224,7 +225,16 @@ class SessionStore:
             board_state=row.get("board_state") or chess.STARTING_FEN,
             active_board_id=row.get("active_board_id"),
         )
-        for b in self._persistence.load_boards(session_id):
+        # Boards and messages depend on the session id only: two roundtrips at
+        # once instead of one after the other (250–500 ms each from production).
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="session-load") as pool:
+            boards_future = pool.submit(self._persistence.load_boards, session_id)
+            messages_future = pool.submit(self._persistence.load_messages, session_id)
+            board_rows = boards_future.result()
+            message_rows = messages_future.result()
+        for b in board_rows:
             try:
                 session.boards.append(board_from_row(b))
             except Exception:  # a malformed row must not lose the session
@@ -232,7 +242,7 @@ class SessionStore:
         active = session.active_board()
         if active is not None:
             session.board_state = active.fen
-        for m in self._persistence.load_messages(session_id):
+        for m in message_rows:
             # Append directly to avoid re-persisting loaded messages.
             session.messages.append(
                 SessionMessage(
@@ -246,10 +256,18 @@ class SessionStore:
         return session
 
     def list(self, user_id: str) -> list[Session]:
-        """List all sessions for a user (merges cache with backend)."""
-        for row in self._persistence.load_user_sessions(user_id):
-            if row["id"] not in self._sessions:
-                self._load(row["id"])
+        """List all sessions for a user (merges cache with backend).
+
+        Sessions not in memory (after a restart) load side by side: a user
+        with 13 sessions used to wait for 26 roundtrips one after the other.
+        """
+        missing = [row["id"] for row in self._persistence.load_user_sessions(user_id)
+                   if row["id"] not in self._sessions]
+        if missing:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=min(8, len(missing)), thread_name_prefix="session-list") as pool:
+                list(pool.map(self._load, missing))
         return [s for s in self._sessions.values() if s.user_id == user_id]
 
     def delete(self, session_id: str, user_id: str = None) -> bool:

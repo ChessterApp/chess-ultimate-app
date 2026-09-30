@@ -113,6 +113,21 @@ class TestAnalyticsTracker:
     def test_persist_calls_supabase(self, mock_post):
         tracker = AnalyticsTracker()
         tracker.track_chat("u1")
+        # The write happens on the writer thread, never on the caller's.
+        for _ in range(200):
+            if mock_post.called:
+                break
+            time.sleep(0.01)
         mock_post.assert_called_once()
         call_url = mock_post.call_args[0][0]
         assert "analytics_events" in call_url
+
+    @patch("src.analytics.httpx.post")
+    @patch.dict("os.environ", {"SUPABASE_URL": "https://fake.supabase.co", "SUPABASE_SERVICE_KEY": "key"})
+    def test_track_never_waits_for_supabase(self, mock_post):
+        """A slow Supabase must not hold the chat turn (it did, on the event loop, 2026-09-30)."""
+        mock_post.side_effect = lambda *a, **k: time.sleep(0.5)
+        tracker = AnalyticsTracker()
+        t0 = time.monotonic()
+        tracker.track_chat("u1")
+        assert time.monotonic() - t0 < 0.1

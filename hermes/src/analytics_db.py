@@ -33,6 +33,13 @@ from typing import Any, Iterable, Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 logger = logging.getLogger("hermes.analytics_db")
 
 _HTTP_TIMEOUT = 10
@@ -71,7 +78,7 @@ def _fetch(table: str, select: str, filters: dict[str, str]) -> list[dict]:
                 "Range-Unit": "items",
                 "Range": f"{offset}-{offset + _PAGE_SIZE - 1}",
             }
-            resp = httpx.get(
+            resp = _sb().get(
                 f"{url}/rest/v1/{table}",
                 params=params,
                 headers=page_headers,

@@ -25,6 +25,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 from tools.registry import registry
 
 from src.identity import resolve_user_id
@@ -159,7 +166,7 @@ def _fetch_user_weaknesses(user_id: str, supabase_url: str = None, supabase_key:
         return []
     headers = {"apikey": api_key, "Authorization": f"Bearer {api_key}"}
     try:
-        resp = httpx.get(
+        resp = _sb().get(
             f"{base}/rest/v1/user_chess_profiles",
             params={"user_id": f"eq.{user_id}", "select": "weaknesses"},
             headers=headers, timeout=TIMEOUT,

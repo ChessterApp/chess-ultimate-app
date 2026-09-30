@@ -16,6 +16,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 from tools.registry import registry
 
 from src.identity import resolve_user_id
@@ -35,17 +42,20 @@ _COLOR_TO_DB = {"white": "w", "black": "b", "w": "w", "b": "b"}
 _DB_TO_COLOR = {"w": "white", "b": "black"}
 
 
-def _supabase_query(
+def _supabase_query_ex(
     table: str, params: dict, url: str = None, key: str = None
-) -> Optional[list]:
-    """GET rows from Supabase PostgREST. Returns ``None`` (not ``[]``) on failure
-    so callers can tell "no rows" from "the query broke"."""
+) -> tuple[Optional[list], Optional[str]]:
+    """GET rows from Supabase PostgREST: (rows, None) or (None, why).
+
+    *why* is PostgREST's own message for a rejected query («column lessons.slug
+    does not exist», a missing relationship) — the callers that adapt their
+    select to the live schema read it; everything else is logged."""
     base = url or SUPABASE_URL
     api_key = key or SUPABASE_KEY
 
     if not base or not api_key:
         logger.warning("Supabase not configured")
-        return None
+        return None, "Supabase not configured"
 
     headers = {
         "apikey": api_key,
@@ -53,17 +63,39 @@ def _supabase_query(
     }
 
     try:
-        resp = httpx.get(
+        resp = _sb().get(
             f"{base}/rest/v1/{table}",
             params=params,
             headers=headers,
             timeout=TIMEOUT,
         )
+    except Exception as exc:  # noqa: BLE001 — network, DNS, timeout
+        logger.warning("Supabase query failed for table %s: %s", table, exc)
+        return None, f"{type(exc).__name__}: {exc}"
+    try:
         resp.raise_for_status()
-        return resp.json()
-    except Exception:
-        logger.exception("Supabase query failed for table: %s", table)
-        return None
+    except httpx.HTTPStatusError:
+        why = resp.text[:400]
+        try:
+            why = resp.json().get("message") or why
+        except Exception:  # noqa: BLE001 — not JSON
+            pass
+        logger.warning("Supabase rejected the query on %s (HTTP %s): %s", table, resp.status_code, why)
+        return None, f"HTTP {resp.status_code}: {why}"
+    try:
+        return resp.json(), None
+    except ValueError as exc:
+        logger.warning("Supabase returned non-JSON for table %s", table)
+        return None, f"bad JSON: {exc}"
+
+
+def _supabase_query(
+    table: str, params: dict, url: str = None, key: str = None
+) -> Optional[list]:
+    """GET rows from Supabase PostgREST. Returns ``None`` (not ``[]``) on failure
+    so callers can tell "no rows" from "the query broke"."""
+    rows, _ = _supabase_query_ex(table, params, url=url, key=key)
+    return rows
 
 
 def _supabase_get(table: str, params: dict, url: str = None, key: str = None) -> list:
