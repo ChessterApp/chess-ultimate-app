@@ -256,10 +256,18 @@ class SessionStore:
         return session
 
     def list(self, user_id: str) -> list[Session]:
-        """List all sessions for a user (merges cache with backend)."""
-        for row in self._persistence.load_user_sessions(user_id):
-            if row["id"] not in self._sessions:
-                self._load(row["id"])
+        """List all sessions for a user (merges cache with backend).
+
+        Sessions not in memory (after a restart) load side by side: a user
+        with 13 sessions used to wait for 26 roundtrips one after the other.
+        """
+        missing = [row["id"] for row in self._persistence.load_user_sessions(user_id)
+                   if row["id"] not in self._sessions]
+        if missing:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=min(8, len(missing)), thread_name_prefix="session-list") as pool:
+                list(pool.map(self._load, missing))
         return [s for s in self._sessions.values() if s.user_id == user_id]
 
     def delete(self, session_id: str, user_id: str = None) -> bool:
