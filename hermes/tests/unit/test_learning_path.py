@@ -380,3 +380,24 @@ def test_drop_from_select():
     assert lp._drop_from_select(sel, column="slug") == "id,title,lesson_puzzles(id,fen,solution_line,hint_text)"
     assert lp._drop_from_select(sel, column="solution_line") == "id,slug,title,lesson_puzzles(id,fen,hint_text)"
     assert lp._drop_from_select(sel, relation="lesson_puzzles") == "id,slug,title"
+
+
+def test_course_without_slug_has_no_broken_url():
+    """A course row without a slug and with a Russian title has no address on the site:
+    the tool omits the url rather than emitting «/learn/None» (production, 2026-09-30)."""
+    def ex(table, params, url=None, key=None):
+        if table == "courses":
+            return [{"id": "c9", "slug": None, "title": "Эндшпиль", "level": "beginner", "order_index": 1}], None
+        if table == "modules":
+            return [{"id": "m9", "course_id": "c9", "title": "Пешки", "order_index": 1}], None
+        if table == "lessons":
+            return [{"id": "l9", "module_id": "m9", "title": "Проходная", "lesson_type": "theory", "order_index": 1}], None
+        if table == "user_progress":
+            return [], None
+        raise AssertionError(table)
+
+    with patch("src.tools.learning_path._supabase_query_ex", ex):
+        out = get_learning_path("u1", locale="ru")
+    assert out["courses"][0]["url"] is None and out["courses"][0]["slug"] is None
+    assert out["continue_with"]["url"] is None
+    assert "None" not in json.dumps(out)

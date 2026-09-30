@@ -193,9 +193,18 @@ def _slug(row: dict) -> str:
     return re.sub(r"-+", "-", title).strip("-")
 
 
-def _lesson_url(course: dict, lesson: dict) -> str:
+def _course_url(course: dict) -> Optional[str]:
+    """The course page, or None when the site has no address for it (no slug and a
+    non-Latin title) — never «/learn/None» (production, 2026-09-30)."""
+    slug = _slug(course)
+    return f"{SITE_URL}/learn/{slug}" if slug else None
+
+
+def _lesson_url(course: dict, lesson: dict) -> Optional[str]:
+    base = _course_url(course)
+    if not base:
+        return None
     slug = _slug(lesson)
-    base = f"{SITE_URL}/learn/{_slug(course)}"
     return f"{base}/{slug}" if slug else base
 
 
@@ -309,7 +318,7 @@ def _match_course(programme: dict, needle: str) -> Optional[dict]:
     if not n:
         return None
     for c in programme.get("courses", []):
-        if n in (c.get("slug") or "").lower() or n == (c.get("id") or "").lower():
+        if n in _slug(c).lower() or n == (c.get("id") or "").lower():
             return c
     for c in programme.get("courses", []):
         for field in ("title", "title_ru", "title_kk"):
@@ -347,7 +356,8 @@ def get_learning_path(
             return {
                 "error": f"No course matches {course!r}.",
                 "courses": [
-                    {"slug": x.get("slug"), "title": _loc(x, "title", locale)} for x in programme["courses"]
+                    {"slug": _slug(x) or None, "course_id": x.get("id"), "title": _loc(x, "title", locale)}
+                    for x in programme["courses"]
                 ],
             }
         modules = []
@@ -359,11 +369,11 @@ def get_learning_path(
             })
         out = {
             "course": {
-                "slug": c.get("slug"),
+                "slug": _slug(c) or None,
                 "title": _cap(_loc(c, "title", locale), TITLE_CHAR_CAP),
                 "level": c.get("level"),
                 "description": _cap(_loc(c, "description", locale), 400),
-                "url": f"{SITE_URL}/learn/{c.get('slug')}",
+                "url": _course_url(c),
             },
             "modules": modules,
         }
@@ -379,12 +389,12 @@ def get_learning_path(
         total += len(lessons)
         completed += done
         courses_out.append({
-            "slug": c.get("slug"),
+            "slug": _slug(c) or None,
             "title": _cap(_loc(c, "title", locale), TITLE_CHAR_CAP),
             "level": c.get("level"),
             "lessons_total": len(lessons),
             "lessons_completed": done,
-            "url": f"{SITE_URL}/learn/{c.get('slug')}",
+            "url": _course_url(c),
         })
 
     nxt = next_lesson(programme, progress)
