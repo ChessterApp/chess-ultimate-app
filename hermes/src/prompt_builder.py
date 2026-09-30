@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "13"  # 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "14"  # 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -614,8 +614,23 @@ def review_block(result: dict) -> str:
     return "\n".join(lines)
 
 
-def engine_note_block(note: str) -> str:
-    """The turn's engine line (src/voice_engine_note.py) as a turn-context block."""
+def engine_note_block(note: str, opening: bool = False) -> str:
+    """The turn's engine line (src/voice_engine_note.py) as a turn-context block.
+
+    With *opening* the board shows the opening the student asked about (see
+    src/opening_knowledge.py), so the block is part of that answer, not a
+    position to ignore for a general opening question.
+    """
+    if opening:
+        return (
+            "## Engine analysis of the board (the opening line above, its final position)\n"
+            f"{note}\n"
+            "Stockfish analysed the position the opening line ends in; the moves are legal as "
+            "written. Use it with the opening block to explain the line — what the last move "
+            "threatens, what the best reply is — in your own coaching words: no engine name, no "
+            "numbers. Its \"Facts\" part is verified; never claim an attack, a defence or a "
+            "threat that is not in the facts, the lines or a tool result."
+        )
     return (
         "## Engine analysis of the board\n"
         f"{note}\n"

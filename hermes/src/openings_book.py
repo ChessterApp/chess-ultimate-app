@@ -90,6 +90,124 @@ RU_ALIASES = {
     "гамбит": "Gambit",
 }
 
+# Named lines students ask about by name, in any of their spellings — slang
+# included («жареная печень» is the Fried Liver Attack). Each pattern maps to
+# one exact book name. On production (2026-09-30) the coach, asked «как играть
+# против жареной печени», took the quiet Italian on the board for it, then
+# explained the fork with a knight jumping f3-d5: the name reached neither the
+# book nor the model's tools. Checked in order; the first match wins, so the
+# specific lines come before the families they belong to.
+_NAMED = [
+    (r"жарен\w*\s+печен|печен\w*\s+жарен|фегателло|fegatello|fried[\s-]*liver|фрайд\s*ливер",
+     "Italian Game: Two Knights Defense, Fried Liver Attack"),
+    (r"траксл|уилкс|wilkes|traxler", "Italian Game: Two Knights Defense, Traxler Counterattack"),
+    (r"полерио|polerio", "Italian Game: Two Knights Defense, Polerio Defense"),
+    (r"вариант\w*\s+фриц|fritz\s+variation", "Italian Game: Two Knights Defense, Fritz Variation"),
+    (r"ульвестад|ulvestad", "Italian Game: Two Knights Defense, Ulvestad Variation"),
+    (r"детск\w*\s+мат|scholar'?s\s+mate", "Scholar's Mate"),
+    (r"дурацк\w*\s+мат|fool'?s\s+mate", "Barnes Opening: Fool's Mate"),
+    (r"(?:мат\w*|ловушк\w*)\s+легал|\bлегаля\b|l[ée]gal'?s?\s+(?:mate|trap)", "Légal Trap"),
+    (r"шиллинг|блэкберн|блекберн|blackburne[\s-]+shilling|костич|kosti[cć]", "Blackburne Shilling Trap"),
+    (r"пианиссимо|pianissimo", "Italian Game: Giuoco Pianissimo"),
+    (r"джуоко|giuoco\s+piano|тих\w+\s+итальянск", "Italian Game: Giuoco Piano"),
+    (r"венгерск\w*\s+защит|hungarian\s+defen", "Italian Game: Hungarian Defense"),
+    (r"эванс|evans\s+gambit", "Italian Game: Evans Gambit"),
+    (r"макс\w*\s+ланге|max\s+lange", "Italian Game: Scotch Gambit, Max Lange Attack"),
+    (r"атак\w*\s+маршал|marshall\s+attack", "Ruy Lopez: Marshall Attack"),
+    (r"берлинск\w*\s+(?:защит|стен)|berlin\s+(?:defen|wall)", "Ruy Lopez: Berlin Defense"),
+    (r"стаффорд|stafford", "Petrov's Defense: Stafford Gambit"),
+    (r"х[эе]ллоуин|halloween", "Four Knights Game: Halloween Gambit"),
+    (r"югославск\w*\s+атак|yugoslav\s+attack", "Sicilian Defense: Dragon Variation, Yugoslav Attack"),
+    (r"ускоренн\w*\s+дракон|accelerated\s+dragon", "Sicilian Defense: Accelerated Dragon"),
+    (r"смит[\s-]*морр|гамбит\w*\s+морр|morra\s+gambit", "Sicilian Defense: Smith-Morra Gambit"),
+    (r"алапин|alapin", "Sicilian Defense: Alapin Variation"),
+    (r"найдорф|najdorf", "Sicilian Defense: Najdorf Variation"),
+    (r"дракон|dragon", "Sicilian Defense: Dragon Variation"),
+    (r"лондонск|london\s+system", "Queen's Pawn Game: London System"),
+    (r"двух\s+коней|two\s+knights", "Italian Game: Two Knights Defense"),
+]
+
+# Families by name. Adjectives are matched in the feminine/neuter forms the
+# opening names take («сицилианская», «английское начало»), and a surname only
+# next to «защита»/«дебют» — «партии Алехина» are a player's games, not the
+# Alekhine Defense.
+_FAMILIES = [
+    # «сицилианка», «испанка», «итальянка», «француженка» — how players say it;
+    # «сицилиялық қорғаныс», «итальян/испан партиясы» — Kazakh.
+    (r"сицилианск|сицилианк|сицилиял|sicilian", "Sicilian Defense"),
+    (r"испанск(?:ая|ую|ой|ие|их)|испанк|испан\s+парти|ruy\s+lopez|spanish\s+(?:game|opening)", "Ruy Lopez"),
+    (r"итальянск(?:ая|ую|ой|ие|их)|итальянк|итальян\s+парти|italian\s+(?:game|opening)", "Italian Game"),
+    (r"французск(?:ая|ую|ой)\s*(?:защит|парти)?|француженк|француз\s+қорған|french\s+defen", "French Defense"),
+    (r"каро[\s-]*канн|caro[\s-]*kann", "Caro-Kann Defense"),
+    (r"скандинавск(?:ая|ую|ой)|scandinavian", "Scandinavian Defense"),
+    (r"принят\w*\s+ферзев|queen'?s\s+gambit\s+accepted", "Queen's Gambit Accepted"),
+    (r"отказанн\w*\s+ферзев|queen'?s\s+gambit\s+declined", "Queen's Gambit Declined"),
+    (r"ферзев\w*\s+гамбит|queen'?s\s+gambit", "Queen's Gambit"),
+    (r"полуславянск|semi[\s-]*slav", "Semi-Slav Defense"),
+    (r"славянск(?:ая|ую|ой)|славянк|slav\s+defen", "Slav Defense"),
+    (r"староиндийск|староиндийк|king'?s\s+indian", "King's Indian Defense"),
+    (r"новоиндийск|новоиндийк|queen'?s\s+indian", "Queen's Indian Defense"),
+    (r"(?:защит\w*|дебют\w*)\s+нимцович|нимцо[\s-]*индийск|nimzo[\s-]*indian", "Nimzo-Indian Defense"),
+    (r"(?:защит\w*)\s+грюнфельд|gr[üu]nfeld", "Grünfeld Defense"),
+    (r"английск(?:ое|ого|ому|им)\s+начал|английск\w*\s+дебют|english\s+opening", "English Opening"),
+    (r"(?:дебют\w*|начал\w*)\s+рети|r[ée]ti\s+opening", "Réti Opening"),
+    (r"пирц|уфимцев|pirc", "Pirc Defense"),
+    (r"защит\w*\s+алехин|alekhine'?s?\s+defen", "Alekhine Defense"),
+    (r"русск(?:ая|ую|ой)\s+парти|защит\w*\s+петров|petrov|petroff|russian\s+game", "Russian Game"),
+    (r"шотландск(?:ая|ую|ой|ий)|scotch\s+(?:game|opening|gambit)", "Scotch Game"),
+    (r"венск(?:ая|ую|ой|ий)|vienna\s+(?:game|gambit)", "Vienna Game"),
+    (r"королевск\w*\s+гамбит|king'?s\s+gambit", "King's Gambit"),
+    (r"волжск\w*\s+гамбит|benko", "Benko Gambit"),
+    (r"бенони|benoni", "Benoni Defense"),
+    (r"голландск(?:ая|ую|ой)|голландк|dutch\s+defen", "Dutch Defense"),
+    (r"каталон|catalan", "Catalan Opening"),
+    (r"(?:защит\w*)\s+тарраш|tarrasch", "Tarrasch"),
+    (r"(?:защит\w*)\s+чигорин|chigorin", "Chigorin"),
+    (r"четыр[её]х\s+коней|four\s+knights", "Four Knights Game"),
+    (r"тр[её]х\s+коней|three\s+knights", "Three Knights Opening"),
+    (r"дебют\w*\s+слона|bishop'?s\s+opening", "Bishop's Opening"),
+    (r"защит\w*\s+филидор|philidor\s+defen", "Philidor Defense"),
+    (r"(?:систем\w*)\s+колле|colle\s+system", "Colle System"),
+    (r"тромповск|trompowsky", "Trompowsky Attack"),
+    (r"будапештск|budapest", "Budapest Defense"),
+    (r"понциани|ponziani", "Ponziani Opening"),
+    (r"энглунд|englund", "Englund Gambit"),
+    (r"латышск\w*\s+гамбит|latvian\s+gambit", "Latvian Gambit"),
+    (r"датск\w*\s+гамбит|danish\s+gambit", "Danish Gambit"),
+    (r"центральн\w*\s+дебют|center\s+game", "Center Game"),
+]
+
+_FAMILIES_RE = [(re.compile(r"(?<![а-яёa-z])(?:" + p + ")", re.IGNORECASE), name) for p, name in _FAMILIES]
+_NAMED_RE = [(re.compile(r"(?<![а-яёa-z])(?:" + p + ")", re.IGNORECASE), name) for p, name in _NAMED]
+
+# Traps that are not ECO lines, with the defences the coach should show. Moves
+# checked with python-chess (each trap ends in mate).
+TRAPS = [
+    ("C23", "Scholar's Mate", "1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7#"),
+    ("C23", "Scholar's Mate, defence 3...g6", "1. e4 e5 2. Bc4 Nc6 3. Qh5 g6 4. Qf3 Nf6"),
+    ("C23", "Scholar's Mate, defence 3...Qe7", "1. e4 e5 2. Bc4 Nc6 3. Qh5 Qe7"),
+    ("C41", "Légal Trap", "1. e4 e5 2. Nf3 d6 3. Bc4 Bg4 4. Nc3 g6 5. Nxe5 Bxd1 6. Bxf7+ Ke7 7. Nd5#"),
+    ("C41", "Légal Trap, declined 5...dxe5 (no mate, a pawn down)", "1. e4 e5 2. Nf3 d6 3. Bc4 Bg4 4. Nc3 g6 5. Nxe5 dxe5 6. Qxg4"),
+    ("C50", "Blackburne Shilling Trap", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3#"),
+    ("C50", "Blackburne Shilling Trap, avoided 4. Nxd4", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxd4 exd4 5. c3"),
+]
+
+
+def named_opening(text: str) -> Optional[str]:
+    """The book name of the opening *text* talks about, or None.
+
+    A named line («жареная печень» → the Fried Liver Attack) wins over its
+    family; a family («сицилианская») maps to the family name.
+    """
+    lowered = (text or "").lower().replace("ё", "е").replace("’", "'")
+    for rx, name in _NAMED_RE:
+        if rx.search(lowered):
+            return name
+    for rx, name in _FAMILIES_RE:
+        if rx.search(lowered):
+            return name
+    return None
+
 # Russian names of opening families (the part of a book name before ":"), for
 # the engine line: the coach named the Ruy Lopez "Puy Lopez" and called one
 # position both Italian and Spanish when it named openings by eye (2026-09-29).
@@ -199,14 +317,23 @@ class OpeningBook:
         return sorted(self._by_eco.get((eco or "").upper().strip(), []), key=lambda e: len(_split_moves(e[2])))
 
     def by_name(self, name: str, limit: Optional[int] = None) -> list[tuple[str, str, str]]:
-        """Lines whose name contains *name* (case-insensitive, RU aliases honoured)."""
+        """Lines whose name contains *name* (case-insensitive, RU aliases and slang honoured).
+
+        The line named exactly comes first, then lines where the name starts a
+        part of the book name, then the rest: «Fried Liver» is the Fried Liver
+        Attack, not the shorter Anti-Fried Liver Defense (3...h6).
+        """
         key = (name or "").strip().lower()
         if not key:
             return []
-        for alias, english in RU_ALIASES.items():
-            if alias in key:
-                key = english.lower()
-                break
+        named = named_opening(key)
+        if named:
+            key = named.lower()
+        else:
+            for alias, english in RU_ALIASES.items():
+                if alias in key:
+                    key = english.lower()
+                    break
         key_norm = key.replace("’", "'")
         hits = [e for e in self.entries if key_norm in e[1].lower().replace("’", "'")]
         if not hits:
@@ -214,8 +341,61 @@ class OpeningBook:
             words = [w for w in re.split(r"[\s:,]+", key_norm) if len(w) > 2]
             if words:
                 hits = [e for e in self.entries if all(w in e[1].lower() for w in words)]
-        hits.sort(key=lambda e: (len(_split_moves(e[2])), e[1]))
+
+        def rank(entry) -> tuple:
+            full = entry[1].lower().replace("’", "'")
+            parts = [p.strip() for p in re.split(r"[:,]", full)]
+            if full == key_norm:
+                closeness = 0
+            elif any(p.startswith(key_norm) for p in parts) or full.startswith(key_norm):
+                closeness = 1
+            else:
+                closeness = 2
+            return (closeness, len(_split_moves(entry[2])), entry[1])
+
+        hits.sort(key=rank)
         return hits[:limit] if limit else hits
+
+    def exact(self, name: str) -> Optional[tuple[str, str, str]]:
+        """The shortest line named exactly *name*, or None."""
+        found = [e for e in self.entries if e[1] == name]
+        return min(found, key=lambda e: len(_split_moves(e[2]))) if found else None
+
+    def branches(self, name: str, pgn: str, points: int = 5, per_point: int = 4) -> list[dict]:
+        """Named book lines of the same branch that leave *pgn* — where a side
+        can play something else — and named continuations after its last move.
+
+        Only lines of *name*'s parent count: for «Two Knights Defense, Fried
+        Liver Attack» that is the Two Knights Defense (Traxler, Polerio, Fritz…),
+        not every opening that starts 1.e4 e5. Each item is {"ply", "move",
+        "name", "eco", "line"}: *ply* indexes the differing move (0 = White's
+        first). The last *points* branch points, in move order, the shortest
+        line per differing move.
+        """
+        base = name.rsplit(",", 1)[0] if "," in name else name.split(":", 1)[0]
+        seq = _split_moves(pgn)
+        found: dict[tuple[int, str], tuple[str, str, str]] = {}
+        for entry in self.entries:
+            if entry[1] == name or not entry[1].startswith(base):
+                continue
+            moves = _split_moves(entry[2])
+            k = 0  # the first ply where the entry leaves the line (or runs past it)
+            while k < len(seq) and k < len(moves) and moves[k] == seq[k]:
+                k += 1
+            if k >= len(moves):
+                continue  # a prefix of the line
+            key = (k, moves[k])
+            old = found.get(key)
+            if old is None or len(_split_moves(entry[2])) < len(_split_moves(old[2])):
+                found[key] = entry
+        latest = sorted({k for k, _ in found}, reverse=True)[:points]
+        items = []
+        for k in sorted(latest):
+            at_k = sorted(((m, e) for (kk, m), e in found.items() if kk == k),
+                          key=lambda me: (len(_split_moves(me[1][2])), me[1][1]))
+            for move, entry in at_k[:per_point]:
+                items.append({"ply": k, "move": move, "name": entry[1], "eco": entry[0], "line": entry[2]})
+        return items
 
     def by_position(self, fen: str) -> Optional[dict]:
         """The book line that ends exactly in *fen*'s position (any move order), or None.
@@ -289,6 +469,6 @@ def get_book() -> OpeningBook:
             entries = _load_dir(directory)
             if entries:
                 logger.info("opening book: %d lines from %s", len(entries), directory)
-                return OpeningBook(entries, directory)
+                return OpeningBook(entries + list(TRAPS), directory)
     logger.warning("opening book: TSV directory not found, using the embedded fallback")
-    return OpeningBook(list(_FALLBACK), "embedded")
+    return OpeningBook(list(_FALLBACK) + list(TRAPS), "embedded")

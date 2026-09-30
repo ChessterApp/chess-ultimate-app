@@ -441,14 +441,25 @@ def _create_agent(
     # full, stable tool set for those models and subset only the others.
     subset_ok = not _model_gets_prompt_cache(model)
     if config.COACH_TOOL_SUBSET and subset_ok and user_query and getattr(agent, "tools", None):
+        from src.opening_knowledge import mentions_opening
         from src.tool_selector import select_openai_tool_subset
 
+        all_tools = agent.tools
         agent.tools = select_openai_tool_subset(
             agent.tools,
             user_query,
             topk=config.COACH_TOOL_SUBSET_TOPK,
             mode=mode,
         )
+        # A named opening keeps the book tools: «против жареной печени» matched
+        # none of their keywords and the model answered from memory (2026-09-30).
+        if mentions_opening(user_query):
+            chosen = {t["function"]["name"] for t in agent.tools}
+            agent.tools = agent.tools + [
+                t for t in all_tools
+                if t["function"]["name"] in ("get_opening_stats", "identify_opening")
+                and t["function"]["name"] not in chosen
+            ]
         # Keep the model-call validator consistent with the reduced tool set.
         agent.valid_tool_names = {t["function"]["name"] for t in agent.tools}
 
@@ -1434,8 +1445,27 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn:
             review_future = _engine_pool.submit(find_critical_moments, review_pgn)
     review_state = {"used": False, "ms": None, "moments": None}
-    if (config.COACH_ENGINE_NOTE and body.fen and session.board_state and not live_game
-            and review_future is None):
+    # An opening named in the message: its book line goes on the board and into
+    # the turn before the model is called (src/opening_knowledge.py) — the engine
+    # line below then describes the line's final position, not the old board.
+    opening_plan = None
+    if config.COACH_OPENING_PRESTEP and not live_game and review_future is None:
+        try:
+            from src.opening_knowledge import plan_opening
+
+            opening_plan = await asyncio.to_thread(
+                plan_opening, body.message, session.board_state, active_board.pgn
+            )
+            if opening_plan and opening_plan.load:
+                session.apply_board_actions(
+                    [{"type": "load_pgn", "pgn": opening_plan.pgn}], board_id=active_board.id
+                )
+        except Exception:  # noqa: BLE001 — the pre-step is best-effort
+            logger.debug("opening pre-step failed", exc_info=True)
+            opening_plan = None
+    _mark("opening")
+    if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan) and session.board_state
+            and not live_game and review_future is None):
         engine_future = _engine_pool.submit(
             engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
         )
@@ -1503,6 +1533,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             "tools_selected": _selected_tool_names(agent),
             "fallback_model": fallback_model,
             "two_stage": bool(config.COACH_TWO_STAGE),
+            "opening": opening_plan.name if opening_plan else None,
+            "opening_loaded": bool(opening_plan and opening_plan.load),
         },
     )
 
@@ -1545,8 +1577,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     None, _await_engine_note, engine_future, engine_started, engine_state
                 )
                 bestofn_message = augmented_message
+                if opening_plan:
+                    bestofn_message = f"{bestofn_message}\n\n{opening_plan.block}"
                 if note:
-                    bestofn_message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                    bestofn_message = (f"{bestofn_message}\n\n"
+                                       f"{engine_note_block(note['note'], opening=bool(opening_plan))}")
                 bestofn_message = f"{bestofn_message}\n\n{reply_language_note(body.message, body.locale)}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
@@ -1691,8 +1726,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 # Waits on this executor thread, so the reaction keeps streaming.
                 note = _await_engine_note(engine_future, engine_started, engine_state)
                 message = augmented_message
+                if opening_plan:
+                    message = f"{message}\n\n{opening_plan.block}"
                 if note:
-                    message = f"{augmented_message}\n\n{engine_note_block(note['note'])}"
+                    message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan))}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
@@ -1743,6 +1780,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
+        if opening_plan and opening_plan.load:
+            # So does the opening the student asked about (applied to the
+            # session already; this frame shows it).
+            yield _board_frame([{"type": "load_pgn", "pgn": opening_plan.pgn}])
 
         try:
             while not (main_done and quick["finished"]):

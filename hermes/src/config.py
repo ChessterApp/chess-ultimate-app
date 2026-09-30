@@ -253,6 +253,13 @@ COACH_ENGINE_NOTE_MOVETIME_MS = int(os.environ.get("COACH_ENGINE_NOTE_MOVETIME_M
 COACH_REVIEW_PRESTEP = _env_flag("COACH_REVIEW_PRESTEP", True)
 COACH_REVIEW_WAIT_MS = int(os.environ.get("COACH_REVIEW_WAIT_MS", "6000"))
 
+# Opening pre-step (2026-09-30): a message that names an opening («как играть
+# против жареной печени») gets the ECO-book line on the board and in the turn —
+# the line, the book's alternatives (the defences) and facts of its final
+# position — before the model is called (src/opening_knowledge.py).
+#   COACH_OPENING_PRESTEP — kill switch (default ON).
+COACH_OPENING_PRESTEP = _env_flag("COACH_OPENING_PRESTEP", True)
+
 # Load the framework, the engines and the ECO book when the server starts, not
 # on the first students' questions (1-2 s slower after every restart).
 COACH_WARMUP = _env_flag("COACH_WARMUP", True)
