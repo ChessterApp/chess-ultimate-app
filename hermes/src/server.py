@@ -1609,7 +1609,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # belong to (the board, the opening line, the game, what tools put on the
         # board), a gate that holds each sentence until it is checked, and one
         # rewrite of the rest of the answer after a wrong sentence.
-        from src.answer_check import CheckContext, SentenceGate, fix_messages
+        from src.answer_check import CheckContext, SentenceGate, fix_messages, strip_leaks
 
         check_ctx = CheckContext.from_fens(
             [session.board_state, body.fen],
@@ -1832,6 +1832,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _answer_frames(text: str) -> list:
             """Frames for answer text that passed the check (the stream as before)."""
             nonlocal streamed_chars
+            text = strip_leaks(text)  # DeepSeek's tool-call markup written as text
             if not text:
                 return []
             if "answer_shown" not in stages:
@@ -1858,7 +1859,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             not shown and starts the rewrite (which replaces the rest of the draft);
             a wrong sentence of the rewrite is left out."""
             frames = []
-            for sentence, issues in pairs:
+            for text, issues, sentence in pairs:
                 if source == "agent" and (fix["running"] or fix["done"]):
                     continue  # the rewrite stands in for the rest of the draft
                 if issues:
@@ -1869,7 +1870,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     else:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                     continue
-                frames.extend(_answer_frames(sentence))
+                frames.extend(_answer_frames(text))
             return frames
 
         if review_pgn and review_future is not None:

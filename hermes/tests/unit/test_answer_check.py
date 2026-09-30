@@ -98,15 +98,23 @@ class TestSentences:
         assert done == ["Ход 1. e4 e5 2. Nf3 — хорош. ", "Дальше 5... Na5! ", "А теперь?", "\n", "- пункт\n"]
         assert rest == "Кон"
 
-    def test_gate_holds_until_the_sentence_ends(self):
+    def test_gate_holds_from_where_a_claim_can_begin(self):
         gate = SentenceGate(_ctx())
-        assert gate.feed("Конь с f3 ") == []
-        assert gate.feed("прыгает на d5. Дальше") == [("Конь с f3 прыгает на d5. ", ["a knight cannot move from f3 to d5"])]
-        assert gate.flush() == [("Дальше", [])]
+        # Words before the first piece name stream at once; the claim is held.
+        assert gate.feed("Смотри сюда: конь с f3 ") == [("Смотри сюда: ", [], "Смотри сюда: ")]
+        assert gate.feed("прыгает на d5. Дальше") == [
+            ("конь с f3 прыгает на d5. ", ["a knight cannot move from f3 to d5"], "Смотри сюда: конь с f3 прыгает на d5. ")]
+        assert gate.flush() == [("Дальше", [], "Дальше")]
+
+    def test_gate_never_releases_a_partial_word(self):
+        gate = SentenceGate(_ctx())
+        assert gate.feed("Хороший вопрос, ко") == [("Хороший вопрос, ", [], "Хороший вопрос, ")]
+        assert gate.feed("нь с f3 бьёт d5.") == []  # a final "." may be a move number: wait
+        assert gate.flush() == [("конь с f3 бьёт d5.", [], "Хороший вопрос, конь с f3 бьёт d5.")]
 
     def test_disabled_gate_passes_text_through(self):
         gate = SentenceGate(_ctx(), enabled=False)
-        assert gate.feed("Конь с f3 ") == [("Конь с f3 ", [])]
+        assert gate.feed("Конь с f3 ") == [("Конь с f3 ", [], "Конь с f3 ")]
 
 
 @pytest.mark.unit
@@ -135,7 +143,7 @@ class TestTurn:
 
         def _fix(**kwargs):
             seen["messages"] = kwargs["messages"]
-            kwargs["on_delta"]("Вилку ставит конь на f7: он бьёт ферзя d8 и ладью h8.")
+            kwargs["on_delta"]("это удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8.")
             reply = QuickReply(model=kwargs["model"])
             reply.prompt_tokens, reply.completion_tokens = 100, 20
             return reply
@@ -148,8 +156,24 @@ class TestTurn:
         })
         text = "".join(json.loads(l[6:]).get("delta", "") for l in resp.text.splitlines() if l.startswith("data: "))
         assert "f3 прыгает" not in text and "ерунда" not in text
-        assert text.startswith("Хороший вопрос. Вилку ставит конь на f7")
+        # The claim-free start of the sentence was already out; the rewrite continues it.
+        assert text == "Хороший вопрос. Ход, о котором речь — это удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8."
         fix_prompt = seen["messages"][1]["content"]
-        assert "a knight cannot move from f3 to d5" in fix_prompt and "Хороший вопрос." in fix_prompt
+        assert "a knight cannot move from f3 to d5" in fix_prompt
+        assert "Хороший вопрос. Ход, о котором речь —" in fix_prompt
+        assert "Ход, о котором речь — Nd5: конь с f3 прыгает на d5." in fix_prompt
         stored = [m.content for m in session_store.get(sid, "check-user").messages if m.role == "assistant"]
         assert stored == [text.strip()]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("text, clean", [
+    ('id" string="false">3686097Нашёл — у Карлсена полно партий.', "Нашёл — у Карлсена полно партий."),
+    ('<｜DSML｜invoke name="get_game_pgn"><｜DSML｜parameter name="game_id" string="false">3686097'
+     '</｜DSML｜parameter></｜DSML｜invoke>Вот партия.', "Вот партия."),
+    ("Обычный текст: конь на f3, «кавычки» и > знак.", "Обычный текст: конь на f3, «кавычки» и > знак."),
+])
+def test_tool_markup_written_as_text_is_cut(text, clean):
+    from src.answer_check import strip_leaks
+
+    assert strip_leaks(text) == clean

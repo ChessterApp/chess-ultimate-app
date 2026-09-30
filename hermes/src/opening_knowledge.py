@@ -121,7 +121,12 @@ def _facts(board: chess.Board) -> list[str]:
     return facts
 
 
-def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, facts: list[str]) -> str:
+# «как играть против…», «как защищаться», «how to avoid»: the student meets the line.
+_AGAINST_RE = re.compile(r"против|защит|избеж|отвеча|against|avoid|defen|meet|counter", re.IGNORECASE)
+
+
+def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, facts: list[str],
+                message: str = "") -> str:
     ru = RU_NAMED.get(name) or RU_FAMILY.get(name.split(":")[0].strip())
     title = f"{eco} {name}" + (f" — по-русски: {ru}" if ru else "")
     lines = [
@@ -137,11 +142,40 @@ def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, fac
     if facts:
         lines.append("Facts of the final position of the line (checked on the board): "
                      + "; ".join(f.rstrip(".") for f in facts) + ".")
-    if branches:
-        lines.append("Where the book lets a side play something else (these are the named alternatives — "
-                     "the defences and the other tries):")
-        for b in branches:
+    # The side whose move ends the line is the one playing it; the other meets it.
+    player = chess.WHITE if len(_split_moves(pgn)) % 2 == 1 else chess.BLACK
+    meets = "Black" if player == chess.WHITE else "White"
+    plays = "White" if player == chess.WHITE else "Black"
+    length = len(_split_moves(pgn))
+    goes_on = [b for b in branches if b["ply"] >= length]
+    earlier = [b for b in branches if b["ply"] < length]
+    # How much book follows a choice is how much it is played: the main defence
+    # (5...Na5 against the Fried Liver) has far more lines than 4...Nxe4.
+    all_moves = [_split_moves(e[2]) for e in get_book().entries]
+    for b in branches:
+        prefix = _split_moves(b["line"])[: b["ply"] + 1]
+        b["book_lines"] = sum(1 for m in all_moves if m[: len(prefix)] == prefix)
+    defences = sorted((b for b in earlier if (b["ply"] % 2 == 1) == (player == chess.WHITE)),
+                      key=lambda b: -b["book_lines"])
+    tries = [b for b in earlier if b not in defences]
+    if defences:
+        lines.append(f"Book choices for {meets} (the side that meets this line — its defences and ways to "
+                     f"avoid it), the most played first (by the number of book lines after it):")
+        for b in defences:
+            lines.append(f"- {_move_label(b['ply'], b['move'])} — {_short_name(b['name'])} ({b['eco']}, "
+                         f"{b['book_lines']} book lines): {b['line']}")
+    if tries:
+        lines.append(f"Other book tries for {plays}:")
+        for b in tries:
             lines.append(f"- {_move_label(b['ply'], b['move'])} — {_short_name(b['name'])} ({b['eco']}): {b['line']}")
+    if goes_on:
+        lines.append("How the line goes on in the book:")
+        for b in goes_on:
+            lines.append(f"- {_move_label(b['ply'], b['move'])} — {_short_name(b['name'])} ({b['eco']}): {b['line']}")
+    if defences and _AGAINST_RE.search(message or ""):
+        lines.append(f"The student asks how to meet it: recommend {meets}'s main book choice above (the "
+                     f"first one), say at which move it comes and why it works, and name one more; do "
+                     f"not advise walking into the line itself.")
     lines.append(
         "Answer about THIS opening from this block: what it is, the idea of each side, the trap or "
         "the main threat, and — when the student asks how to play against it — which alternative "
@@ -172,7 +206,7 @@ def plan_opening(message: str, board_fen: Optional[str] = None,
         return None
     load = not _board_in_opening(pgn, board_fen, board_pgn)
     branches = book.branches(full_name, pgn)
-    block = build_block(full_name, eco, pgn, branches, load, _facts(final))
+    block = build_block(full_name, eco, pgn, branches, load, _facts(final), message)
     return OpeningPlan(
         name=full_name, eco=eco, pgn=pgn, final_fen=final.fen(), load=load,
         block=block, branches=branches,

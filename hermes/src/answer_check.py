@@ -65,10 +65,13 @@ _STOP_MOVE = r"[^.!?;:,\n—–()]"
 _MOVE_CLAIMS = []
 for _ptype, _pat in _RU_PIECES:
     _MOVE_CLAIMS.append((_ptype, re.compile(
-        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,2}}?)\s+(?:с|со|из)\s+(?P<a>{SQ})"
+        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,2}}?)\s+(?:с|со|из)\s+(?:пол[яе]\s+)?(?P<a>{SQ})"
         rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?){{0,3}}?)\s+на\s+(?P<b>{SQ})(?![0-9])")))
     _MOVE_CLAIMS.append((_ptype, re.compile(
         _W + "(?:" + _pat + ")" + _E + rf"\s+(?:с\s+)?(?P<a>{SQ})\s*[-–]\s*(?P<b>{SQ})(?![0-9])")))
+    _MOVE_CLAIMS.append((_ptype, re.compile(
+        _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,3}}?)\s+на\s+(?P<b>{SQ})"
+        rf"(?P<mid2>(?:\s+{_STOP_MOVE}+?){{0,1}}?)\s+(?:с|со)\s+(?:пол[яе]\s+)?(?P<a>{SQ})(?![0-9])")))
 for _ptype, _pat in _EN_PIECES:
     _MOVE_CLAIMS.append((_ptype, re.compile(
         _W + "(?:" + _pat + ")" + _E + rf"(?P<mid1>(?:\s+{_STOP_MOVE}+?){{0,2}}?)\s+(?:from|on)\s+(?P<a>{SQ})"
@@ -83,12 +86,12 @@ _RU_SUBJECTS = [
     (chess.ROOK, r"ладья|ладьи|ладь[её]й"),
     (chess.QUEEN, r"ферзь|ферз[её]м"),
     (chess.KING, r"король|корол[её]м"),
-    (chess.PAWN, r"пешка|пешки|пешкой"),
+    (chess.PAWN, r"пешка|пешкой"),
 ]
-_RU_VERBS = (r"(?:бь[её]т|бьют|бил[аи]?\s+бы|атакует|атакуют|атаковал\w*|нападает|нападают|напал[аи]?|"
+_RU_VERBS = (r"(?<![а-я])(?:бь[её]т|бьют|бил[аи]?\s+бы|атакует|атакуют|атаковал\w*|нападает|нападают|напал[аи]?|"
              r"угрожает|угрожают|держит|держат|смотрит|смотрят|давит|давят|целится|целятся|"
              r"защищает|защищают|контролирует|контролируют|вилк\w*)(?![а-я])")
-_EN_VERBS = (r"(?:attacks|attack|hits|forks|targets|eyes|would\s+attack|is\s+attacking|defends|protects|"
+_EN_VERBS = (r"(?<![a-z])(?:attacks|attack|hits|forks|targets|eyes|would\s+attack|is\s+attacking|defends|protects|"
              r"controls)(?![a-z])")
 # «её держит только конь c6»: the subject comes after the verb — not this piece's claim.
 _INVERTED = re.compile(r"^\s*(?:[^\s,]+\s+){0,2}?(?:конь|слон|ладья|ферзь|король|пешка|the\s+(?:knight|bishop|rook|queen|king|pawn))(?![а-яa-z])")
@@ -212,6 +215,9 @@ class CheckContext:
             ctx.add_line(pgn)
         converted, _ = _to_san(question or "")
         ctx.quoted = {m["san"] for m in _MOVE.finditer(converted)}
+        start = re.search(r"(?<![0-9])1\s?\.\s?(?=[KQRBNa-hO])", converted)
+        if start:
+            ctx.add_line(converted[start.start():])  # «Как называется дебют 1.e4 e5 …?»
         return ctx
 
     def add_text(self, text: str) -> None:
@@ -517,10 +523,22 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     return list(dict.fromkeys(issues))
 
 
-class SentenceGate:
-    """Holds streamed text until a sentence is complete, then hands it out with its issues.
+# Where a chess claim can begin: a piece word, a square, a move number, a
+# figurine, castling. Text before that in a sentence claims nothing checkable.
+_CLAIM_START = re.compile(
+    r"[a-h][1-8]|\d|[♔-♟]|O-O|" + _W + r"(?:" + "|".join(p for _, p in _RU_PIECES + _EN_PIECES) + r")" + _E,
+    re.IGNORECASE)
 
-    Disabled, it passes text straight through (the stream as before).
+
+class SentenceGate:
+    """Holds streamed text until its sentence is complete and checked.
+
+    Only the part of a sentence from where a claim can begin is held: the words
+    before the first piece name, square or move number go out as they arrive,
+    so a plain opening («Хороший вопрос — тут у тебя есть выбор.») streams as
+    before and the first word is not delayed by the check. ``feed`` returns
+    (text, issues, sentence): *text* to show unless *issues*, *sentence* the
+    whole sentence the check ran on. Disabled, text passes straight through.
     """
 
     MAX_HOLD = 600  # characters without a sentence end: check and release anyway
@@ -529,22 +547,46 @@ class SentenceGate:
         self.ctx = ctx or CheckContext.from_fens()
         self.enabled = enabled
         self._buf = ""
+        self._released = ""  # the start of the current sentence, already out
 
-    def feed(self, text: str) -> list[tuple[str, list[str]]]:
+    def feed(self, text: str) -> list[tuple[str, list[str], str]]:
         if not self.enabled:
-            return [(text, [])] if text else []
+            return [(text, [], text)] if text else []
         self._buf += text
+        out: list[tuple[str, list[str], str]] = []
         sentences, self._buf = _split_sentences(self._buf)
         if len(self._buf) > self.MAX_HOLD:
             sentences.append(self._buf)
             self._buf = ""
-        return [(s, check_sentence(s, self.ctx)) for s in sentences]
+        for sentence in sentences:
+            full = self._released + sentence
+            self._released = ""
+            out.append((sentence, check_sentence(full, self.ctx), full))
+        # The claim-free start of the unfinished sentence goes out now.
+        safe = self._safe_prefix(self._buf)
+        if safe:
+            self._released += safe
+            self._buf = self._buf[len(safe):]
+            out.append((safe, [], safe))
+        return out
 
-    def flush(self) -> list[tuple[str, list[str]]]:
+    @staticmethod
+    def _safe_prefix(buf: str) -> str:
+        """The start of *buf* that no claim can be part of: whole words before the
+        first piece name, square, digit or figurine (a word may be cut mid-delta)."""
+        m = _CLAIM_START.search(buf)
+        limit = m.start() if m else len(buf)
+        # Back to the start of the word the claim begins in, and never a partial word.
+        cut = buf.rfind(" ", 0, limit) + 1 if m else buf.rfind(" ") + 1
+        cut = max(cut, buf.rfind("\n", 0, limit) + 1)
+        return buf[:cut]
+
+    def flush(self) -> list[tuple[str, list[str], str]]:
         rest, self._buf = self._buf, ""
+        full, self._released = self._released + rest, ""
         if not rest:
             return []
-        return [(rest, check_sentence(rest, self.ctx) if self.enabled else [])]
+        return [(rest, check_sentence(full, self.ctx) if self.enabled else [], full)]
 
 
 def _split_sentences(buf: str) -> tuple[list[str], str]:
@@ -597,9 +639,11 @@ def fix_messages(turn_message: str, shown: str, wrong: str, issues: list[str], l
     """
     system = (
         "You are a chess coach finishing your reply to a student. The beginning of the reply is "
-        "already on the student's screen. The next sentence of your draft was checked on the "
-        "board and is WRONG; it was not shown. Write the rest of the reply: continue right after "
-        "the shown text, make the point the wrong sentence tried to make — correctly — and finish "
+        "already on the student's screen — it may end in the middle of a sentence, and then your "
+        "text must complete that very sentence so it reads naturally. The next part of your draft "
+        "was checked on the board and is WRONG; it was not shown. Write the rest of the reply: "
+        "continue right after the shown text, make the point the wrong sentence tried to make — "
+        "correctly — and finish "
         "the thought in 2–4 short sentences, the way a coach talks. Do not mention a mistake, a "
         "draft or a check. Do not repeat what is already shown. Name only moves, squares and "
         "attacks you can read in the verified context (the engine block, the opening block, the "
@@ -609,8 +653,25 @@ def fix_messages(turn_message: str, shown: str, wrong: str, issues: list[str], l
     user = (
         f"{turn_message}\n\n"
         f"## Already shown to the student\n{shown.strip() or '(nothing yet — write the whole answer)'}\n\n"
-        f"## The next sentence of the draft — WRONG, not shown\n{wrong.strip()}\n"
+        f"## The sentence of the draft that is WRONG (its start may already be shown; the rest was not)\n"
+        f"{wrong.strip()}\n"
         f"Why it is wrong (checked on the board): {'; '.join(issues)}.\n\n"
         f"{language_note}\nContinue the reply now."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+# DeepSeek's own tool-call markup (DSML) sometimes reaches the text through the
+# provider: on production (2026-09-30) an answer began «id" string="false">3686097Нашёл —».
+_DSML = r"[｜|]\s*DSML\s*[｜|]"
+_LEAKS = re.compile(
+    rf"<\s*{_DSML}\s*parameter[^>]*>[^<]{{0,200}}<\s*/\s*{_DSML}\s*parameter\s*>"   # a whole parameter
+    rf"|<\s*/?\s*{_DSML}[^>]*>"                                                        # any other DSML tag
+    r"|(?:<[^>\n]{0,40})?\b[\w-]{0,40}\"\s*string=\"(?:true|false)\"\s*>[A-Za-z0-9_.:/-]{0,60}"
+    r"(?:<\s*/[^>\n]{0,40}>)?"                                                         # a cut-off fragment
+    r"|<\s*/?\s*(?:function_calls|invoke|parameter)\b[^>\n]{0,80}>", re.IGNORECASE)
+
+
+def strip_leaks(text: str) -> str:
+    """*text* without tool-call markup the model wrote as text."""
+    return _LEAKS.sub("", text) if text else text
