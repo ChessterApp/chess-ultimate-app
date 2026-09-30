@@ -35,7 +35,7 @@ import chess
 from tools.registry import registry
 
 from src.identity import resolve_user_id
-from src.tools.user_data import _supabase_query
+from src.tools.user_data import _supabase_query_ex
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,14 @@ TITLE_CHAR_CAP = 120
 MAX_LESSON_MATCHES = 5
 
 _programme_lock = threading.Lock()
-_programme_cache: dict = {"at": 0.0, "value": None}
+_programme_cache: dict = {"at": 0.0, "value": None, "why": None}
+
+
+def programme_error() -> dict:
+    """The tool error for an unreadable programme, with PostgREST's reason so the
+    log line and the model both say what is wrong (not «Supabase unavailable»)."""
+    why = _programme_cache.get("why") or "no response"
+    return {"error": f"Could not read the study programme — {why[:300]}"}
 
 
 # ── Localisation ───────────────────────────────────────────────────────────
@@ -84,19 +91,112 @@ LESSON_LIST_SELECT = "id,slug,module_id,title,title_ru,lesson_type,exercise_type
 
 # PostgREST rejects the whole query when one selected column is missing, and the
 # optional columns above come from later migrations (003 slug, 010 *_ru, 001
-# exercise_type). If the rich select fails, retry with the base schema so the
-# tool degrades to English titles instead of failing outright.
-COURSE_SELECT_MIN = "id,slug,title,level,order_index"
+# exercise_type) that production may not have run: on 2026-09-30 the live
+# ``lessons`` table had no ``slug`` (nor ``solution_line``), both selects were
+# rejected and every student heard «the programme is unavailable». The query
+# therefore adapts to the live schema: when PostgREST names a missing column
+# («column lessons.slug does not exist») or relationship, that part of the
+# select is dropped and the query retried; the select that worked is kept for
+# the table until the process restarts. *_MIN is the last resort.
+COURSE_SELECT_MIN = "id,title,level,order_index"
 MODULE_SELECT_MIN = "id,course_id,title,order_index"
-LESSON_LIST_SELECT_MIN = "id,slug,module_id,title,lesson_type,order_index"
+LESSON_LIST_SELECT_MIN = "id,module_id,title,lesson_type,order_index"
+
+_MISSING_COLUMN_RE = re.compile(r"column\s+(?:\"?[\w.]+\"?\.)?\"?(\w+)\"?\s+does not exist", re.IGNORECASE)
+_MISSING_RELATION_RE = re.compile(r"relationship between\s+'?(\w+)'?\s+and\s+'?(\w+)'?", re.IGNORECASE)
+_MAX_ADAPT = 8
+
+_select_lock = threading.Lock()
+_working_select: dict[tuple[str, str], str] = {}  # (table, requested select) → the select that works
+
+
+def _drop_from_select(select: str, column: str = None, relation: str = None) -> str:
+    """*select* without *column* (top level or inside an embedded resource) or
+    without the embedded *relation* — «a,b,rel(c,d)» → «a,b»."""
+    parts, depth, cur = [], 0, ""
+    for ch in select:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    if cur:
+        parts.append(cur)
+    out = []
+    for part in parts:
+        part = part.strip()
+        if "(" in part:
+            name, inner = part.split("(", 1)
+            if relation and name.strip() == relation:
+                continue
+            inner = ",".join(c for c in inner.rstrip(")").split(",") if c.strip() != column)
+            out.append(f"{name}({inner})")
+        elif part != column:
+            out.append(part)
+    return ",".join(out)
+
+
+def _query_adaptive(table: str, select: str, select_min: str, url: str, key: str, **extra) -> tuple[Optional[list], Optional[str]]:
+    """Rows for *select* on *table*, dropping what the live schema lacks. (rows, None) or (None, why)."""
+    with _select_lock:
+        current = _working_select.get((table, select), select)
+    why = None
+    for _ in range(_MAX_ADAPT):
+        rows, why = _supabase_query_ex(table, {"select": current, **extra}, url=url, key=key)
+        if rows is not None:
+            with _select_lock:
+                _working_select[(table, select)] = current
+            return rows, None
+        narrowed = current
+        m = _MISSING_COLUMN_RE.search(why or "")
+        if m and m.group(1) in re.split(r"[(),]", current):
+            narrowed = _drop_from_select(current, column=m.group(1))
+        else:
+            r = _MISSING_RELATION_RE.search(why or "")
+            if r:
+                for name in r.groups():
+                    if f"{name}(" in current:
+                        narrowed = _drop_from_select(current, relation=name)
+        if narrowed == current:
+            break  # not a schema difference: network, key, timeout
+        logger.warning("%s: live schema lacks a part of the select — retrying without it (%s)", table, why)
+        current = narrowed
+    if select_min and select_min != current:
+        rows, why_min = _supabase_query_ex(table, {"select": select_min, **extra}, url=url, key=key)
+        if rows is not None:
+            with _select_lock:
+                _working_select[(table, select)] = select_min
+            return rows, None
+        why = why_min or why
+    return None, why
 
 
 def _query_with_fallback(table: str, select: str, select_min: str, url: str, key: str, **extra) -> Optional[list]:
-    rows = _supabase_query(table, {"select": select, **extra}, url=url, key=key)
-    if rows is None and select_min != select:
-        logger.warning("%s: rich select failed, retrying with base columns", table)
-        rows = _supabase_query(table, {"select": select_min, **extra}, url=url, key=key)
+    rows, _ = _query_adaptive(table, select, select_min, url, key, **extra)
     return rows
+
+
+def _slug(row: dict) -> str:
+    """The row's slug, or the one the site derives from the title (LearnClient.generateSlug:
+    Latin letters and digits only — a Russian title gives an empty slug, and the site
+    then links the course page)."""
+    slug = row.get("slug")
+    if isinstance(slug, str) and slug.strip():
+        return slug.strip()
+    title = (row.get("title") or "").lower()
+    title = re.sub(r"\s+", "-", title)
+    title = re.sub(r"[^a-z0-9-]", "", title)
+    return re.sub(r"-+", "-", title).strip("-")
+
+
+def _lesson_url(course: dict, lesson: dict) -> str:
+    slug = _slug(lesson)
+    base = f"{SITE_URL}/learn/{_slug(course)}"
+    return f"{base}/{slug}" if slug else base
 
 
 def fetch_programme(url: str = None, key: str = None, force: bool = False) -> Optional[dict]:
@@ -109,10 +209,14 @@ def fetch_programme(url: str = None, key: str = None, force: bool = False) -> Op
             return cached
 
     order = {"order": "order_index.asc"}
-    courses = _query_with_fallback("courses", COURSE_SELECT, COURSE_SELECT_MIN, url, key, **order)
-    modules = _query_with_fallback("modules", MODULE_SELECT, MODULE_SELECT_MIN, url, key, **order)
-    lessons = _query_with_fallback("lessons", LESSON_LIST_SELECT, LESSON_LIST_SELECT_MIN, url, key, **order)
+    courses, why_c = _query_adaptive("courses", COURSE_SELECT, COURSE_SELECT_MIN, url, key, **order)
+    modules, why_m = _query_adaptive("modules", MODULE_SELECT, MODULE_SELECT_MIN, url, key, **order)
+    lessons, why_l = _query_adaptive("lessons", LESSON_LIST_SELECT, LESSON_LIST_SELECT_MIN, url, key, **order)
     if courses is None or modules is None or lessons is None:
+        why = "; ".join(f"{t}: {w}" for t, w in (("courses", why_c), ("modules", why_m), ("lessons", why_l)) if w)
+        with _programme_lock:
+            _programme_cache["why"] = why
+        logger.warning("study programme unavailable — %s", why)
         return None
     courses = [r for r in courses if isinstance(r, dict) and r.get("id")]
     modules = [r for r in modules if isinstance(r, dict) and r.get("id")]
@@ -161,11 +265,9 @@ def iter_lessons(programme: dict):
 
 def fetch_progress(user_id: str, url: str = None, key: str = None) -> Optional[dict]:
     """lesson_id → {status, score, updated_at}. ``None`` when the query failed."""
-    rows = _supabase_query(
-        "user_progress",
-        {"user_id": f"eq.{user_id}", "select": "lesson_id,status,score,updated_at,completed_at",
-         "order": "updated_at.desc"},
-        url=url, key=key,
+    rows, _ = _query_adaptive(
+        "user_progress", "lesson_id,status,score,updated_at,completed_at", "lesson_id,status,updated_at",
+        url, key, user_id=f"eq.{user_id}", order="updated_at.desc",
     )
     if rows is None:
         return None
@@ -176,11 +278,11 @@ def _lesson_view(course: dict, module: dict, lesson: dict, progress: dict, local
     p = progress.get(lesson["id"]) or {}
     view = {
         "lesson_id": lesson["id"],
-        "slug": lesson.get("slug"),
+        "slug": _slug(lesson) or None,
         "title": _cap(_loc(lesson, "title", locale), TITLE_CHAR_CAP),
         "type": lesson.get("lesson_type"),
         "status": p.get("status") or "not_started",
-        "url": f"{SITE_URL}/learn/{course.get('slug')}/{lesson.get('slug')}",
+        "url": _lesson_url(course, lesson),
     }
     if p.get("score") is not None:
         view["score"] = p.get("score")
@@ -231,7 +333,7 @@ def get_learning_path(
     """
     programme = fetch_programme(url=supabase_url, key=supabase_key)
     if programme is None:
-        return {"error": "Could not read the study programme (Supabase unavailable)."}
+        return programme_error()
     progress = fetch_progress(user_id, url=supabase_url, key=supabase_key)
     if progress is None:
         progress = {}
@@ -349,8 +451,8 @@ def find_lessons(programme: dict, needle: str) -> list[tuple]:
     exact, contains, overlap = [], [], []
     n_tokens = [t for t in _norm(n).split() if t not in _LESSON_STOPWORDS]
     for c, m, l in iter_lessons(programme):
-        slug = (l.get("slug") or "").lower()
-        if n == slug or n == (l.get("id") or "").lower():
+        slug = _slug(l).lower()
+        if (slug and n == slug) or n == (l.get("id") or "").lower():
             exact.append((c, m, l))
             continue
         titles = [(l.get(f) or "").lower() for f in ("title", "title_ru")]
@@ -426,19 +528,19 @@ def get_lesson(
     puzzle straight from the lesson — the model never retypes the FEN."""
     programme = fetch_programme(url=supabase_url, key=supabase_key)
     if programme is None:
-        return {"error": "Could not read the study programme (Supabase unavailable)."}
+        return programme_error()
     matches = find_lessons(programme, lesson)
     if not matches:
         return {"error": f"No lesson matches {lesson!r}. Use get_learning_path to see the lesson titles."}
-    if len(matches) > 1 and not any((l.get("slug") or "").lower() == lesson.strip().lower() for _, _, l in matches):
+    if len(matches) > 1 and not any(_slug(l).lower() == lesson.strip().lower() for _, _, l in matches):
         return {
             "ambiguous": True,
             "lessons": [
-                {"slug": l.get("slug"), "title": _loc(l, "title", locale),
+                {"slug": _slug(l) or None, "lesson_id": l.get("id"), "title": _loc(l, "title", locale),
                  "course": _loc(c, "title", locale), "module": _loc(m, "title", locale)}
                 for c, m, l in matches[:MAX_LESSON_MATCHES]
             ],
-            "hint": "Call get_lesson again with the exact slug.",
+            "hint": "Call get_lesson again with the exact slug or lesson_id.",
         }
     course, module, brief = matches[0]
 
@@ -458,12 +560,12 @@ def get_lesson(
     content = _loc(row, "content", locale)
     out = {
         "lesson_id": row["id"],
-        "slug": row.get("slug"),
+        "slug": _slug(row) or None,
         "title": _cap(_loc(row, "title", locale), TITLE_CHAR_CAP),
-        "course": {"slug": course.get("slug"), "title": _cap(_loc(course, "title", locale), TITLE_CHAR_CAP)},
+        "course": {"slug": _slug(course) or None, "title": _cap(_loc(course, "title", locale), TITLE_CHAR_CAP)},
         "module": _cap(_loc(module, "title", locale), TITLE_CHAR_CAP),
         "type": row.get("lesson_type"),
-        "url": f"{SITE_URL}/learn/{course.get('slug')}/{row.get('slug')}",
+        "url": _lesson_url(course, row),
         "content": _cap(content, CONTENT_CHAR_CAP),
         "content_truncated": len(content) > CONTENT_CHAR_CAP,
     }

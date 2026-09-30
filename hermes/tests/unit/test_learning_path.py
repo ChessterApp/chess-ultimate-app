@@ -59,6 +59,15 @@ PROGRESS = [
 ]
 
 
+def _ex(fake):
+    """A rows-or-None fake as the (rows, why) reader the module uses."""
+    def ex(table, params, url=None, key=None):
+        rows = fake(table, params, url=url, key=key)
+        return (rows, None) if rows is not None else (None, "HTTP 400: query rejected")
+    ex.calls = getattr(fake, "calls", None)
+    return ex
+
+
 def _fake_query(progress=PROGRESS, lesson_full=LESSON_L3_FULL, fail=()):
     calls = []
 
@@ -94,7 +103,7 @@ def _fresh_cache():
 class TestLearningPath:
     def test_overview_counts_progress_and_continue_lesson(self):
         fake = _fake_query()
-        with patch("src.tools.learning_path._supabase_query", fake):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(fake)):
             out = get_learning_path("u1", locale="ru")
         assert out["lessons_total"] == 4 and out["lessons_completed"] == 1
         by_slug = {c["slug"]: c for c in out["courses"]}
@@ -110,13 +119,13 @@ class TestLearningPath:
         json.dumps(out)  # serialisable
 
     def test_kazakh_titles_fall_back_to_russian(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_learning_path("u1", locale="kz")
         titles = [c["title"] for c in out["courses"]]
         assert titles == ["Шахмат негіздері", "Тактика"]
 
     def test_course_expanded_with_statuses(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_learning_path("u1", locale="en", course="basics")
         assert out["course"]["slug"] == "chess-basics"
         lessons = out["modules"][0]["lessons"]
@@ -125,25 +134,25 @@ class TestLearningPath:
         assert lessons[0]["title"] == "The King"
 
     def test_unknown_course_lists_the_real_ones(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_learning_path("u1", course="quantum chess")
         assert "error" in out
         assert [c["slug"] for c in out["courses"]] == ["chess-basics", "tactics-101"]
 
     def test_no_progress_still_answers(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query(fail=("user_progress",))):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query(fail=("user_progress",)))):
             out = get_learning_path("u1")
         assert out["continue_with"]["slug"] == "the-king"
         assert "note" in out
 
     def test_programme_unavailable_is_an_error(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query(fail=("courses",))):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query(fail=("courses",)))):
             out = get_learning_path("u1")
         assert "error" in out
 
     def test_programme_is_cached(self):
         fake = _fake_query()
-        with patch("src.tools.learning_path._supabase_query", fake):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(fake)):
             get_learning_path("u1")
             get_learning_path("u1")
         assert [t for t, _ in fake.calls].count("courses") == 1
@@ -153,7 +162,7 @@ class TestLearningPath:
 @pytest.mark.unit
 class TestFindLessons:
     def test_by_slug_id_and_title_fragment(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             prog = lp.fetch_programme()
         assert [l["id"] for _, _, l in find_lessons(prog, "knight-fork")] == ["l3"]
         assert [l["id"] for _, _, l in find_lessons(prog, "L2")] == ["l2"]
@@ -162,7 +171,7 @@ class TestFindLessons:
         assert find_lessons(prog, "") == []
 
     def test_token_overlap(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             prog = lp.fetch_programme()
         assert [l["id"] for _, _, l in find_lessons(prog, "урок про пешку и короля")] == ["l4"]
 
@@ -170,7 +179,7 @@ class TestFindLessons:
 @pytest.mark.unit
 class TestGetLesson:
     def test_full_lesson_with_san_solutions(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_lesson("knight-fork", user_id="u1", locale="ru")
         assert out["title"] == "Вилка конём"
         assert out["course"]["slug"] == "tactics-101" and out["module"] == "Двойные удары"
@@ -187,7 +196,7 @@ class TestGetLesson:
         assert out["puzzles"][0]["hint"] == "Central knight"
 
     def test_show_puts_the_exercise_on_the_board(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             shown = get_lesson("knight-fork", locale="ru", show=True)
             read_only = get_lesson("knight-fork", locale="ru")
         assert shown["board_actions"] == [
@@ -196,33 +205,33 @@ class TestGetLesson:
         assert "board_actions" not in read_only
 
     def test_tool_shows_by_default(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = json.loads(lp._handle_get_lesson({"lesson": "knight-fork"}))
             quiet = json.loads(lp._handle_get_lesson({"lesson": "knight-fork", "show": False}))
         assert out["board_actions"][0]["type"] == "set_puzzle"
         assert "board_actions" not in quiet
 
     def test_english_locale_uses_base_columns(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_lesson("knight-fork", locale="en")
         assert out["content"] == "A knight attacks two pieces at once."
         assert out["exercise"]["hint"] == "Look for a knight jump"
         assert "student_status" not in out
 
     def test_ambiguous_title_lists_candidates(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_lesson("король", locale="ru")
         assert out["ambiguous"] is True
         assert [l["slug"] for l in out["lessons"]] == ["the-king", "king-and-pawn"]
 
     def test_unknown_lesson(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             out = get_lesson("ферзевый гамбит для чайников")
         assert "error" in out
 
     def test_content_is_capped(self):
         long_lesson = {**LESSON_L3_FULL, "content_ru": "х" * 10_000}
-        with patch("src.tools.learning_path._supabase_query", _fake_query(lesson_full=long_lesson)):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query(lesson_full=long_lesson))):
             out = get_lesson("knight-fork", locale="ru")
         assert out["content_truncated"] is True
         assert len(out["content"]) == lp.CONTENT_CHAR_CAP
@@ -242,7 +251,7 @@ def test_solution_san_handles_uci_san_and_lines():
 @pytest.mark.unit
 class TestRecommenderOnProgramme:
     def _prog(self):
-        with patch("src.tools.learning_path._supabase_query", _fake_query()):
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             return lp.fetch_programme()
 
     def test_weakness_maps_to_real_lesson(self):
@@ -303,7 +312,8 @@ def test_rich_select_falls_back_to_base_columns():
         if table == "courses" and "title_kk" in params["select"]:
             return None  # e.g. 400: column courses.title_kk does not exist
         if table == "courses":
-            return [{"id": "c1", "slug": "chess-basics", "title": "Chess Basics", "level": "beginner", "order_index": 1}]
+            return [{"id": "c1", "slug": "chess-basics", "title": "Chess Basics", "title_ru": "Основы",
+                     "level": "beginner", "order_index": 1}]
         if table == "modules":
             return [{"id": "m1", "course_id": "c1", "title": "Pieces", "title_ru": "Фигуры", "order_index": 1}]
         if table == "lessons":
@@ -313,8 +323,60 @@ def test_rich_select_falls_back_to_base_columns():
             return []
         raise AssertionError(table)
 
-    with patch("src.tools.learning_path._supabase_query", q):
+    def ex(table, params, url=None, key=None):
+        rows = q(table, params, url=url, key=key)
+        return (rows, None) if rows is not None else (None, "HTTP 400: column courses.title_kk does not exist")
+
+    with patch("src.tools.learning_path._supabase_query_ex", ex):
         out = get_learning_path("u1", locale="ru")
-    assert out["courses"][0]["title"] == "Chess Basics"  # base column, no ru available
+    assert out["courses"][0]["title"] == "Основы"  # only the missing column was dropped; title_ru still read
     assert out["continue_with"]["title"] == "Король"
-    assert [s for t, s in calls if t == "courses"] == [lp.COURSE_SELECT, lp.COURSE_SELECT_MIN]
+    assert [s for t, s in calls if t == "courses"] == [lp.COURSE_SELECT, lp.COURSE_SELECT.replace("title_kk,", "")]
+
+
+def test_live_schema_without_lesson_slugs():
+    """Production 2026-09-30: ``lessons`` had no ``slug`` column, PostgREST rejected both selects
+    and the coach told every student the programme was unavailable. The select adapts."""
+    calls = []
+
+    def ex(table, params, url=None, key=None):
+        calls.append((table, params["select"]))
+        if table == "courses":
+            return [{"id": "c1", "slug": "chess-basics", "title": "Chess Basics", "title_ru": "Основы шахмат",
+                     "level": "beginner", "order_index": 1}], None
+        if table == "modules":
+            return [{"id": "m1", "course_id": "c1", "title": "Pieces", "title_ru": "Фигуры", "order_index": 1}], None
+        if table == "lessons":
+            if "slug" in params["select"].split(","):
+                return None, "HTTP 400: column lessons.slug does not exist"
+            return [{"id": "l1", "module_id": "m1", "title": "The King", "title_ru": "Король",
+                     "lesson_type": "theory", "exercise_type": None, "order_index": 1}], None
+        if table == "user_progress":
+            return [], None
+        raise AssertionError(table)
+
+    with patch("src.tools.learning_path._supabase_query_ex", ex):
+        out = get_learning_path("u1", locale="ru")
+        again = get_learning_path("u1", locale="ru")
+    assert "error" not in out and out["continue_with"]["title"] == "Король"
+    # No slug in the database: the link is the one the site itself makes (Latin-only slug from the title).
+    assert out["continue_with"]["url"] == "https://chesster.io/learn/chess-basics/the-king"
+    lesson_selects = [s for t, s in calls if t == "lessons"]
+    assert lesson_selects == [lp.LESSON_LIST_SELECT, lp.LESSON_LIST_SELECT.replace("slug,", "")]
+    assert again == out  # the programme is cached; the working select is remembered
+
+
+def test_programme_error_names_the_reason():
+    def ex(table, params, url=None, key=None):
+        return None, "HTTP 401: Invalid API key"
+
+    with patch("src.tools.learning_path._supabase_query_ex", ex):
+        out = get_learning_path("u1", locale="ru")
+    assert out["error"].startswith("Could not read the study programme — courses: HTTP 401")
+
+
+def test_drop_from_select():
+    sel = "id,slug,title,lesson_puzzles(id,fen,solution_line,hint_text)"
+    assert lp._drop_from_select(sel, column="slug") == "id,title,lesson_puzzles(id,fen,solution_line,hint_text)"
+    assert lp._drop_from_select(sel, column="solution_line") == "id,slug,title,lesson_puzzles(id,fen,hint_text)"
+    assert lp._drop_from_select(sel, relation="lesson_puzzles") == "id,slug,title"
