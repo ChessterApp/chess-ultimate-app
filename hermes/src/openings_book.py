@@ -193,6 +193,15 @@ TRAPS = [
 ]
 
 
+def named_openings(text: str) -> list[tuple[str, bool]]:
+    """Every opening *text* names, as (book name, is a named line rather than a family)."""
+    lowered = (text or "").lower().replace("ё", "е").replace("’", "'")
+    names = [(name, True) for rx, name in _NAMED_RE if rx.search(lowered)]
+    seen = {n for n, _ in names}
+    names += [(name, False) for rx, name in _FAMILIES_RE if rx.search(lowered) and name not in seen]
+    return names
+
+
 def named_opening(text: str) -> Optional[str]:
     """The book name of the opening *text* talks about, or None.
 

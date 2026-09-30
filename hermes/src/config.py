@@ -260,6 +260,20 @@ COACH_REVIEW_WAIT_MS = int(os.environ.get("COACH_REVIEW_WAIT_MS", "6000"))
 #   COACH_OPENING_PRESTEP — kill switch (default ON).
 COACH_OPENING_PRESTEP = _env_flag("COACH_OPENING_PRESTEP", True)
 
+# Answer check (2026-09-30): each finished sentence of a text answer is checked
+# on the board before it is shown (src/answer_check.py) — a piece moving or
+# attacking against its pattern, a move no piece can make, moves given for the
+# wrong opening. A wrong sentence is not shown; the rest of the answer is
+# rewritten from there by one tool-free call told what was wrong.
+#   COACH_ANSWER_CHECK      — kill switch (default ON): off streams as before.
+#   COACH_ANSWER_FIX        — rewrite after a wrong sentence (default ON); off
+#                             drops the wrong sentences only.
+#   COACH_ANSWER_FIX_MAX_TOKENS / COACH_ANSWER_FIX_TIMEOUT_S — the rewrite call.
+COACH_ANSWER_CHECK = _env_flag("COACH_ANSWER_CHECK", True)
+COACH_ANSWER_FIX = _env_flag("COACH_ANSWER_FIX", True)
+COACH_ANSWER_FIX_MAX_TOKENS = int(os.environ.get("COACH_ANSWER_FIX_MAX_TOKENS", "400"))
+COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", "12"))
+
 # Load the framework, the engines and the ECO book when the server starts, not
 # on the first students' questions (1-2 s slower after every restart).
 COACH_WARMUP = _env_flag("COACH_WARMUP", True)

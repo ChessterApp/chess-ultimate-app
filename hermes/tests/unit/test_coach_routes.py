@@ -403,6 +403,9 @@ class TestCoachChat:
         session = session_store.get("ctx-note-s1", "test-user-123")
         assert [m.content for m in session.messages if m.role == "user"] == ["почему это ошибка?"]
 
+    # Token-level streaming mechanics: with the answer check on, text goes out
+    # per checked sentence instead (tests/unit/test_answer_check.py).
+    @patch("src.server.config.COACH_ANSWER_CHECK", False)
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
     def test_chat_streams_real_tokens_via_callback(self, mock_profile, mock_agent):

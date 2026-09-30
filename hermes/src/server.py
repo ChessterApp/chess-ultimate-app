@@ -1605,6 +1605,25 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         markup = MarkupFilter()
         streamed_chars = 0
 
+        # The answer check (src/answer_check.py): the positions a written move may
+        # belong to (the board, the opening line, the game, what tools put on the
+        # board), a gate that holds each sentence until it is checked, and one
+        # rewrite of the rest of the answer after a wrong sentence.
+        from src.answer_check import CheckContext, SentenceGate, fix_messages
+
+        check_ctx = CheckContext.from_fens(
+            [session.board_state, body.fen],
+            [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
+            + [b["line"] for b in (opening_plan.branches if opening_plan else [])],
+            question=body.message,
+        )
+        gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
+        fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
+        fix_markup = MarkupFilter()
+        fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
+               "reply": None, "started": None, "first_ms": None, "emitted": False}
+        turn_msg = {"message": None}
+
         # ── Two-stage answer ──────────────────────────────────────────────
         # A tool-free one-sentence reaction streams first while the agent is
         # still calling the engine; the answer follows after a blank line in
@@ -1694,6 +1713,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             actions = tool_board_actions(result)
             if actions:
                 loop.call_soon_threadsafe(queue.put_nowait, ("board_actions", actions))
+            # What the tool put on the board (a topic example, a puzzle, a game)
+            # is a position the answer may talk about.
+            try:
+                check_ctx.add_text(result if isinstance(result, str) else json.dumps(result))
+                for action in actions or []:
+                    if isinstance(action, dict):
+                        check_ctx.add(action.get("fen"))
+                        if action.get("pgn"):
+                            check_ctx.add_line(action["pgn"])
+            except Exception:  # noqa: BLE001 — the check must never break a turn
+                logger.debug("answer check context update failed", exc_info=True)
             started = tool_starts.pop(tool_call_id, None)
             duration_ms = int((time.monotonic() - started) * 1000) if started else None
             ok, error_code, payload = _tool_call_payload(tool_name, args, result)
@@ -1734,12 +1764,34 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
                 message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
+                turn_msg["message"] = message
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
+
+        def _run_fix(shown: str, wrong: str, issues: list):
+            """The rest of the answer after a wrong sentence: one tool-free call."""
+            reply = None
+            try:
+                from src.quick_reply import stream_completion
+
+                reply = stream_completion(
+                    model=model,
+                    api_key=os.environ.get("OPENROUTER_API_KEY", ""),
+                    messages=fix_messages(turn_msg["message"] or augmented_message, shown, wrong, issues,
+                                          reply_language_note(body.message, body.locale)),
+                    on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
+                    timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,
+                    max_tokens=config.COACH_ANSWER_FIX_MAX_TOKENS,
+                    temperature=0.4,
+                )
+            except Exception:  # noqa: BLE001 — without the rewrite the wrong part is just left out
+                logger.debug("answer fix crashed", exc_info=True)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, ("fix_done", reply))
 
         turn_started = time.monotonic()
         quick_future = loop.run_in_executor(None, _run_quick) if two_stage else None
@@ -1777,6 +1829,49 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             quick["finished"] = True
             return frames
 
+        def _answer_frames(text: str) -> list:
+            """Frames for answer text that passed the check (the stream as before)."""
+            nonlocal streamed_chars
+            if not text:
+                return []
+            if "answer_shown" not in stages:
+                _mark("answer_shown")
+            partial_parts.append(text)
+            answer_parts.append(text)
+            streamed_chars += len(text)
+            frames = []
+            if quick["finished"]:
+                text = _answer_delta(text)
+                if text:
+                    frames.append(_sse({"delta": text}))
+            elif not quick["shown"]:
+                # The answer got here first — abandon the reaction.
+                quick["abort"] = True
+                frames.extend(_finish_quick())
+                frames.append(_sse({"delta": text}))
+            else:
+                held_answer.append(text)
+            return frames
+
+        def _sentence_frames(pairs, source: str) -> list:
+            """Checked sentences → frames. A wrong sentence of the model's answer is
+            not shown and starts the rewrite (which replaces the rest of the draft);
+            a wrong sentence of the rewrite is left out."""
+            frames = []
+            for sentence, issues in pairs:
+                if source == "agent" and (fix["running"] or fix["done"]):
+                    continue  # the rewrite stands in for the rest of the draft
+                if issues:
+                    logger.info("answer check: %s | %s", "; ".join(issues), sentence.strip()[:200])
+                    if source == "agent" and config.COACH_ANSWER_FIX:
+                        fix.update(running=True, sentence=sentence, issues=issues, started=time.monotonic())
+                        loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues)
+                    else:
+                        fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
+                    continue
+                frames.extend(_answer_frames(sentence))
+            return frames
+
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
@@ -1786,10 +1881,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             yield _board_frame([{"type": "load_pgn", "pgn": opening_plan.pgn}])
 
         try:
-            while not (main_done and quick["finished"]):
+            while not (main_done and quick["finished"] and not fix["running"]):
                 item = await queue.get()
                 if item is sentinel:
                     main_done = True
+                    # The end of the draft: an unfinished "[[" was not a mark, and
+                    # the last sentence gets its check too.
+                    tail = markup.flush()
+                    for frame in _sentence_frames((gate.feed(tail) if tail else []) + gate.flush(), "agent"):
+                        yield frame
                     if not quick["finished"] and not quick["shown"]:
                         # Answer complete, reaction never started: drop it.
                         quick["abort"] = True
@@ -1819,6 +1919,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not streamed_any:
                         _mark("answer_first")
                     streamed_any = True
+                    if fix["running"] or fix["done"]:
+                        continue  # the draft after a wrong sentence is replaced
                     # Inline [[arrows: …]] / [[squares: …]] marks become board
                     # actions now and never reach the text (src/board_markup.py).
                     payload, mark_actions = markup.feed(payload)
@@ -1826,21 +1928,30 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         yield _board_frame([action])
                     if not payload:
                         continue
-                    partial_parts.append(payload)
-                    answer_parts.append(payload)
-                    streamed_chars += len(payload)
-                    if quick["finished"]:
-                        payload = _answer_delta(payload)
-                        if payload:
-                            yield _sse({"delta": payload})
-                    elif not quick["shown"]:
-                        # The answer got here first — abandon the reaction.
-                        quick["abort"] = True
-                        for frame in _finish_quick():
-                            yield frame
-                        yield _sse({"delta": payload})
-                    else:
-                        held_answer.append(payload)
+                    # Each sentence goes out once it is complete and checked.
+                    for frame in _sentence_frames(gate.feed(payload), "agent"):
+                        yield frame
+                elif kind == "fix":
+                    if not fix["running"] or not payload:
+                        continue
+                    if not fix["emitted"]:
+                        fix["emitted"] = True
+                        fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
+                        shown = "".join(answer_parts)
+                        if shown and not shown[-1].isspace():
+                            payload = " " + payload
+                    payload, mark_actions = fix_markup.feed(payload)
+                    for action in mark_actions:
+                        yield _board_frame([action])
+                    for frame in _sentence_frames(fix_gate.feed(payload), "fix"):
+                        yield frame
+                elif kind == "fix_done":
+                    fix["reply"] = payload
+                    tail = fix_markup.flush()
+                    for frame in _sentence_frames((fix_gate.feed(tail) if tail else []) + fix_gate.flush(), "fix"):
+                        yield frame
+                    fix["running"] = False
+                    fix["done"] = True
                 elif kind == "tool_call":
                     yield _sse({"tool_call": payload})
                 elif kind == "tool_result":
@@ -1851,14 +1962,6 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
-            # An unfinished "[[" at the very end was not a mark after all.
-            tail = markup.flush()
-            if tail:
-                partial_parts.append(tail)
-                answer_parts.append(tail)
-                tail = _answer_delta(tail)
-                if tail:
-                    yield _sse({"delta": tail})
             if streamed_any and getattr(agent, "_coach_stream_cut", False) is True and error_exc is None:
                 cut_note = "\n\n" + _STREAM_CUT_TEXT.get((body.locale or "ru").lower(), _STREAM_CUT_TEXT["ru"])
                 partial_parts.append(cut_note)
@@ -1933,6 +2036,36 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                           quick_reply.completion_tokens, "text", turn_id, 0),
                     daemon=True,
                 ).start()
+
+        # The answer check: what was stopped and how the rest was written.
+        fix_reply = fix["reply"]
+        answer_check = {
+            "fixed": bool(fix["sentence"]),
+            "issues": fix["issues"],
+            "sentence": (fix["sentence"] or "").strip()[:300] or None,
+            "fix_first_ms": fix["first_ms"],
+            "fix_model": _reply_model(fix_reply) if fix_reply is not None else None,
+            "fix_error": getattr(fix_reply, "error", None) if fix_reply is not None else None,
+            "dropped": fix["dropped"],
+        }
+        if answer_check["fixed"] or answer_check["dropped"]:
+            log_event(
+                "answer_check",
+                severity="warn",
+                surface="text",
+                user_id=user_id,
+                session_id=session.id,
+                turn_id=turn_id,
+                model=model,
+                payload=answer_check,
+            )
+        if fix_reply is not None and (fix_reply.prompt_tokens or fix_reply.completion_tokens):
+            threading.Thread(
+                target=_do_record_usage,
+                args=(user_id, session.id, _reply_model(fix_reply) or model, fix_reply.prompt_tokens,
+                      fix_reply.completion_tokens, "text", turn_id, 0),
+                daemon=True,
+            ).start()
 
         # A provider failure returned AS TEXT is an error, not an answer.
         provider_error_text = result_text if _looks_like_provider_error(result_text) else None
@@ -2052,6 +2185,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "review": dict(review_state),
                 "stages_ms": dict(stages),
                 "hedge": _hedge_state(agent),
+                "answer_check": answer_check,
+                "opening": opening_plan.name if opening_plan else None,
                 "quick": {
                     "model": _reply_model(quick_reply) or quick_model_id, "shown": bool(quick_text),
                     "first_token_ms": getattr(quick_reply, "first_token_ms", None),
@@ -2079,6 +2214,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "engine_note": dict(engine_state),
                 "review": dict(review_state),
                 "hedge": _hedge_state(agent),
+                "answer_check": answer_check,
                 "stages_ms": {**stages, "engine_ready": engine_state.get("ms"),
                               "review_ready": review_state.get("ms"),
                               "total": int((time.monotonic() - request_started) * 1000)},

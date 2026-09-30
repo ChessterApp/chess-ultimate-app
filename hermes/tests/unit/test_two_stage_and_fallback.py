@@ -107,6 +107,9 @@ class TestTwoStage:
     def setup_method(self):
         self.client = TestClient(app)
 
+    # Delta-level ordering of the two stages: with the answer check on, answer
+    # text goes out per checked sentence (tests/unit/test_answer_check.py).
+    @patch("src.server.config.COACH_ANSWER_CHECK", False)
     @patch("src.server.log_event")
     @patch("src.server.load_user_profile")
     @patch("src.server._create_agent")
