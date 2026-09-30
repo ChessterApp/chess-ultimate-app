@@ -401,3 +401,37 @@ def test_course_without_slug_has_no_broken_url():
     assert out["courses"][0]["url"] is None and out["courses"][0]["slug"] is None
     assert out["continue_with"]["url"] is None
     assert "None" not in json.dumps(out)
+
+
+def test_transient_failure_does_not_downgrade_the_select_for_good():
+    """One failed full select right after a restart must not leave every later call on
+    the base columns (production 2026-09-30: courses without slugs → «/learn/None»)."""
+    calls = []
+    state = {"fail_once": True}
+
+    def ex(table, params, url=None, key=None):
+        calls.append((table, params["select"]))
+        if table == "courses":
+            if state["fail_once"] and "slug" in params["select"]:
+                state["fail_once"] = False
+                return None, "ReadTimeout: timed out"
+            if params["select"] == lp.COURSE_SELECT_MIN:
+                return [{"id": "c1", "title": "Основы шахмат", "level": "beginner", "order_index": 1}], None
+            return [{"id": "c1", "slug": "chess-basics", "title": "Основы шахмат", "title_ru": "Основы шахмат",
+                     "level": "beginner", "order_index": 1}], None
+        if table == "modules":
+            return [{"id": "m1", "course_id": "c1", "title": "Pieces", "order_index": 1}], None
+        if table == "lessons":
+            return [{"id": "l1", "slug": "the-king", "module_id": "m1", "title": "The King", "lesson_type": "theory",
+                     "order_index": 1}], None
+        if table == "user_progress":
+            return [], None
+        raise AssertionError(table)
+
+    with patch("src.tools.learning_path._supabase_query_ex", ex):
+        first = get_learning_path("u1", locale="ru")
+        lp.clear_programme_cache()
+        second = get_learning_path("u1", locale="ru")
+    assert first["courses"][0]["slug"] is None          # this call: base columns
+    assert second["courses"][0]["slug"] == "chess-basics"  # next call: the full select again
+    assert [s for t, s in calls if t == "courses"] == [lp.COURSE_SELECT, lp.COURSE_SELECT_MIN, lp.COURSE_SELECT]

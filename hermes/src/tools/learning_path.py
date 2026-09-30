@@ -168,8 +168,13 @@ def _query_adaptive(table: str, select: str, select_min: str, url: str, key: str
     if select_min and select_min != current:
         rows, why_min = _supabase_query_ex(table, {"select": select_min, **extra}, url=url, key=key)
         if rows is not None:
-            with _select_lock:
-                _working_select[(table, select)] = select_min
+            # The base columns worked, but the reason the fuller select failed was
+            # not a named column — a hiccup, a timeout. Not remembered: the next
+            # call tries the full select again (production 2026-09-30 served
+            # courses without their slugs for the life of the process after one
+            # such failure right after the restart).
+            logger.warning("%s: full select failed for a reason other than the schema (%s); "
+                           "base columns this time", table, why)
             return rows, None
         why = why_min or why
     return None, why
@@ -259,6 +264,9 @@ def clear_programme_cache() -> None:
     with _programme_lock:
         _programme_cache["value"] = None
         _programme_cache["at"] = 0.0
+        _programme_cache["why"] = None
+    with _select_lock:
+        _working_select.clear()
 
 
 def iter_lessons(programme: dict):
