@@ -6,12 +6,20 @@ a GET /api/coach/analytics endpoint for admin dashboard.
 
 import logging
 import os
+import queue
 import time
 import threading
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from typing import Optional
 
 import httpx
+
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -30,9 +38,11 @@ class AnalyticsTracker:
     """In-memory analytics tracker with Supabase persistence."""
 
     def __init__(self):
-        self._events: list[AnalyticsEvent] = []
+        self._events: deque = deque(maxlen=5000)  # in-memory summary only; the rows go to Supabase
         self._session_starts: dict[str, float] = {}
         self._lock = threading.Lock()
+        self._queue: "queue.Queue[AnalyticsEvent] | None" = None
+        self._writer: threading.Thread | None = None
 
     def track_tool_invocation(self, user_id: str, tool_name: str, session_id: str = "") -> None:
         """Record a tool invocation event."""
@@ -130,14 +140,46 @@ class AnalyticsTracker:
         }
 
     def _persist(self, event: AnalyticsEvent) -> None:
-        """Persist event to Supabase (fire-and-forget)."""
+        """Queue the event for the writer thread (never blocks the caller).
+
+        It used to POST to Supabase inline — on the event loop, for every chat
+        turn, 150–500 ms from the production host, holding every other student's
+        turn meanwhile (2026-09-30). One daemon thread now drains a queue; when
+        the queue is full the event is dropped, not waited for.
+        """
+        url = os.environ.get("SUPABASE_URL", "")
+        key = os.environ.get("SUPABASE_SERVICE_KEY", "")
+        if not url or not key:
+            return
+        with self._lock:
+            if self._writer is None:
+                self._queue = queue.Queue(maxsize=1000)
+                self._writer = threading.Thread(target=self._drain, name="analytics-writer", daemon=True)
+                self._writer.start()
+        try:
+            self._queue.put_nowait(event)
+        except queue.Full:
+            logger.debug("analytics queue full; event dropped")
+
+    def _drain(self) -> None:
+        while True:
+            event = self._queue.get()
+            try:
+                self._write(event)
+            except Exception:  # noqa: BLE001 — never let the writer die
+                logger.debug("analytics write failed", exc_info=True)
+            finally:
+                self._queue.task_done()
+
+    def _write(self, event: AnalyticsEvent) -> None:
+        """POST one event to Supabase."""
         url = os.environ.get("SUPABASE_URL", "")
         key = os.environ.get("SUPABASE_SERVICE_KEY", "")
         if not url or not key:
             return
 
         try:
-            httpx.post(
+            _sb().post(
                 f"{url}/rest/v1/analytics_events",
                 json={
                     "user_id": event.user_id,

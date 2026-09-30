@@ -9,6 +9,13 @@ import os
 from typing import Optional
 
 import httpx
+
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -16,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 class UserProfile(BaseModel):
     user_id: str
+    # True when Supabase could not be read: the defaults below are a guess and
+    # must not be cached (src/server.py _get_voice_profile).
+    load_failed: bool = Field(default=False, exclude=True)
     rating: int = 1200
     goals: list[str] = Field(default_factory=list)
     preferred_openings: list[str] = Field(default_factory=list)
@@ -50,7 +60,7 @@ def load_user_profile(
         return UserProfile(user_id=user_id)
 
     try:
-        resp = httpx.get(
+        resp = _sb().get(
             f"{url}/rest/v1/user_profiles",
             params={"user_id": f"eq.{user_id}", "select": "*"},
             headers={
@@ -63,7 +73,9 @@ def load_user_profile(
         rows = resp.json()
     except Exception:
         logger.exception("Failed to load user profile for %s", user_id)
-        return UserProfile(user_id=user_id)
+        profile = UserProfile(user_id=user_id)
+        profile.load_failed = True  # the caller must not cache this one
+        return profile
 
     if not rows:
         return UserProfile(user_id=user_id)
@@ -102,7 +114,7 @@ def save_user_profile(
     }
 
     try:
-        resp = httpx.post(
+        resp = _sb().post(
             f"{url}/rest/v1/user_profiles",
             json=row,
             headers={

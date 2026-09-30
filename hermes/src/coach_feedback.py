@@ -17,6 +17,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 logger = logging.getLogger("hermes.coach_feedback")
 
 TIMEOUT = 10
@@ -72,7 +79,7 @@ def upsert_feedback(
     headers = _headers(key)
     headers["Prefer"] = "resolution=merge-duplicates"
     try:
-        httpx.post(
+        _sb().post(
             f"{url}/rest/v1/coach_feedback",
             params={"on_conflict": "user_id,turn_id"},
             json=row,
@@ -97,7 +104,7 @@ def delete_feedback(user_id: str, turn_id: str) -> bool:
     if not (url and key):
         return False
     try:
-        httpx.delete(
+        _sb().delete(
             f"{url}/rest/v1/coach_feedback",
             params={"user_id": f"eq.{user_id}", "turn_id": f"eq.{turn_id}"},
             headers=_headers(key),

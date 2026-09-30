@@ -16,6 +16,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 from tools.registry import registry
 
 from src.identity import resolve_user_id
@@ -56,7 +63,7 @@ def _supabase_query_ex(
     }
 
     try:
-        resp = httpx.get(
+        resp = _sb().get(
             f"{base}/rest/v1/{table}",
             params=params,
             headers=headers,

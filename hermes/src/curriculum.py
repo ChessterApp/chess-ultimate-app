@@ -41,6 +41,13 @@ from typing import Optional
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 logger = logging.getLogger(__name__)
 
 # ── Scoring constants (Design rule 4: deterministic, documented) ─────────
@@ -370,7 +377,7 @@ def list_users(since: Optional[str], limit: int = 1000) -> list[str]:
     if since:
         params["created_at"] = f"gte.{since}"
     try:
-        resp = httpx.get(f"{url}/rest/v1/coach_game_insights", params=params,
+        resp = _sb().get(f"{url}/rest/v1/coach_game_insights", params=params,
                          headers=_headers(key), timeout=_HTTP_TIMEOUT)
         resp.raise_for_status()
         rows = resp.json()
@@ -401,7 +408,7 @@ def fetch_insights(user_id: str, since: Optional[str], limit: int = 500) -> list
     if since:
         params["created_at"] = f"gte.{since}"
     try:
-        resp = httpx.get(f"{url}/rest/v1/coach_game_insights", params=params,
+        resp = _sb().get(f"{url}/rest/v1/coach_game_insights", params=params,
                          headers=_headers(key), timeout=_HTTP_TIMEOUT)
         resp.raise_for_status()
         rows = resp.json()
@@ -421,7 +428,7 @@ def fetch_attempts(user_id: str, since: Optional[str], limit: int = 2000) -> lis
         return []
     params = {"user_id": f"eq.{user_id}", "select": "*", "limit": str(limit)}
     try:
-        resp = httpx.get(f"{url}/rest/v1/puzzle_attempts", params=params,
+        resp = _sb().get(f"{url}/rest/v1/puzzle_attempts", params=params,
                          headers=_headers(key), timeout=_HTTP_TIMEOUT)
         resp.raise_for_status()
         rows = resp.json()
@@ -449,7 +456,7 @@ def upsert_curriculum(user_id: str, focus: list[dict], computed_from: dict,
     row = {"user_id": user_id, "focus": focus, "computed_from": computed_from,
            "valid_until": valid_until}
     try:
-        httpx.post(
+        _sb().post(
             f"{url}/rest/v1/coach_curriculum",
             params={"on_conflict": "user_id"},
             json=row,
@@ -468,7 +475,7 @@ def write_audit(user_id: str, focus: list[dict], computed_from: dict) -> bool:
     if not url or not key:
         return False
     try:
-        httpx.post(
+        _sb().post(
             f"{url}/rest/v1/coach_curriculum_audit",
             json={"user_id": user_id, "focus": focus, "computed_from": computed_from},
             headers=_headers(key, write=True),
@@ -504,7 +511,7 @@ def load_current_curriculum(user_id: str) -> list[dict]:
     if not url or not key or not user_id:
         return []
     try:
-        resp = httpx.get(
+        resp = _sb().get(
             f"{url}/rest/v1/coach_curriculum",
             params={"user_id": f"eq.{user_id}", "select": "focus", "limit": "1"},
             headers=_headers(key),

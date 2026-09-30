@@ -253,6 +253,11 @@ COACH_ENGINE_NOTE_MOVETIME_MS = int(os.environ.get("COACH_ENGINE_NOTE_MOVETIME_M
 COACH_REVIEW_PRESTEP = _env_flag("COACH_REVIEW_PRESTEP", True)
 COACH_REVIEW_WAIT_MS = int(os.environ.get("COACH_REVIEW_WAIT_MS", "6000"))
 
+# Threads of the event loop's default executor (2026-09-30): every turn holds
+# one for the agent call and one for the reaction; the default (cpu+4) queued
+# the next students' session/profile steps invisibly.
+COACH_EXECUTOR_THREADS = int(os.environ.get("COACH_EXECUTOR_THREADS", "32"))
+
 # Opening pre-step (2026-09-30): a message that names an opening («как играть
 # против жареной печени») gets the ECO-book line on the board and in the turn —
 # the line, the book's alternatives (the defences) and facts of its final

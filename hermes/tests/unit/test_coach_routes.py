@@ -387,6 +387,8 @@ class TestCoachChat:
         mock_agent.return_value = agent_instance
 
         note = '[Review context] classified as "blunder"; grounded in the engine evaluation.'
+        # An id the server does not know gets a fresh one now; this test's session exists.
+        session_store.create(user_id="test-user-123", session_id="ctx-note-s1")
         resp = self.client.post(
             "/api/coach/chat",
             headers=USER_HEADERS,
@@ -569,7 +571,8 @@ class TestCoachChat:
         assert resp.status_code == 200
         _parse_sse(resp.text)
 
-        system_prompt = mock_agent.call_args.kwargs["system_prompt"]
+        # The agent is built before the prompt exists and gets it as an attribute.
+        system_prompt = agent_instance.ephemeral_system_prompt
         sent = agent_instance.chat.call_args.args[0]
         assert fen not in system_prompt
         assert "## Current Date" not in system_prompt

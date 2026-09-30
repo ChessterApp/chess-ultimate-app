@@ -137,6 +137,8 @@ def _fetch_ccp_analysis(fen: str) -> Optional[str]:
 
         from src.config import MASTRA_CCP_URL, MASTRA_CCP_TIMEOUT
 
+        if not MASTRA_CCP_URL:
+            return None
         try:
             resp = httpx.post(
                 MASTRA_CCP_URL, json={"fen": fen}, timeout=MASTRA_CCP_TIMEOUT

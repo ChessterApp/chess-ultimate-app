@@ -1,5 +1,10 @@
+import os
 import sqlite3
 from unittest.mock import MagicMock, patch
+
+# Tests patch ``httpx.get`` and friends in the modules that talk to Supabase;
+# the shared connection pool (src/supabase_http.py) would bypass those patches.
+os.environ.setdefault("SUPABASE_HTTP_POOL", "0")
 
 import chess
 import pytest

@@ -11,6 +11,13 @@ import time
 from typing import Optional
 
 import httpx
+
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -162,7 +169,7 @@ class CostMonitor:
             payload["cached_tokens"] = record.cached_tokens
 
         try:
-            resp = httpx.post(
+            resp = _sb().post(
                 f"{url}/rest/v1/token_usage",
                 json=payload,
                 headers={

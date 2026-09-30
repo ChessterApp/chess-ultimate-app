@@ -230,6 +230,12 @@ async def lifespan(app: FastAPI):
     app.state.config = _config
     app.state.model_config = _model_config
     app.state.soul_content = _soul_content
+    # Every turn holds one executor thread for the whole agent call (5–40 s)
+    # and one for the reaction; the default pool (cpu+4, 6–8 on the host)
+    # queued the session/profile steps of the next students invisibly.
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=config.COACH_EXECUTOR_THREADS, thread_name_prefix="coach")
+    )
     if config.COACH_WARMUP:
         # In the background: the server takes requests at once.
         asyncio.get_running_loop().run_in_executor(None, _warm_up)
@@ -376,6 +382,19 @@ def _model_gets_prompt_cache(model: str) -> bool:
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
+def _skip_compression_check(agent_cls) -> None:
+    """The framework's construction-time check of the compression model's context
+    window downloads the models.dev registry (5 MB, ~1–2 s) once an hour — and,
+    when that host is unreachable, on EVERY agent construction with a 15 s
+    timeout (a failed fetch sets no TTL). The coach builds a fresh agent per
+    turn and hands it one message, so context compression never runs: the
+    check is a warning about a path the coach does not take."""
+    if getattr(agent_cls, "_coach_compression_check_skipped", False):
+        return
+    agent_cls._check_compression_model_feasibility = lambda self: None
+    agent_cls._coach_compression_check_skipped = True
+
+
 def _create_agent(
     model: str,
     system_prompt: str,
@@ -398,6 +417,7 @@ def _create_agent(
     """
     from run_agent import AIAgent
 
+    _skip_compression_check(AIAgent)
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
     agent_kwargs = dict(
         model=model,
@@ -1382,10 +1402,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # Analytics
     analytics_tracker.track_chat(user_id, body.session_id or "")
 
-    session_id = body.session_id or str(uuid.uuid4())
-    session = await asyncio.to_thread(session_store.get, session_id, user_id)
+    # The profile depends on the user alone: its (rare) Supabase read starts
+    # now and overlaps the session and opening steps below.
+    profile_task = asyncio.create_task(asyncio.to_thread(_get_voice_profile, user_id))
+
+    # A new chat sends no session id: the session is created here, without a
+    # database lookup for an id that cannot exist yet (one roundtrip saved on
+    # the first message of every chat). An id that belongs to someone else, or
+    # to nobody, gets a fresh one too — as the voice path does — instead of an
+    # upsert over the other user's row.
+    session = None
+    if body.session_id:
+        session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
     if session is None:
-        session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
+        session = await asyncio.to_thread(session_store.create, user_id=user_id)
+    session_id = session.id
     _mark("session")
 
     # Hygiene: normalize inbound free-text (no-op unless COACH_NORMALIZE_INPUT).
@@ -1471,7 +1502,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         )
     engine_state = {"used": False, "ms": None, "timed_out": False}
 
-    profile = await asyncio.to_thread(_get_voice_profile, user_id)
+    # The agent does not depend on the prompt (it only stores it), so it is
+    # built while the profile arrives and the prompt is assembled.
+    fallback_model = _turn_fallback_model(model)
+    agent_task = asyncio.create_task(asyncio.to_thread(
+        _create_agent, model=model, system_prompt="", session_id=session_id,
+        user_query=body.message, fallback_model=fallback_model,
+    ))
+    profile = await profile_task
     _mark("profile")
     # Static persona/tool guidance stays in the system prompt (cacheable);
     # date, profile, memory and board state travel in the user message.
@@ -1509,11 +1547,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     else:
         augmented_message = current_message
 
-    fallback_model = _turn_fallback_model(model)
-    agent = await asyncio.to_thread(_create_agent, 
-        model=model, system_prompt=system_prompt, session_id=session_id,
-        user_query=body.message, fallback_model=fallback_model,
-    )
+    agent = await agent_task
+    agent.ephemeral_system_prompt = system_prompt
     _mark("agent")
 
     log_event(
@@ -1877,9 +1912,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
         if opening_plan and opening_plan.load:
-            # So does the opening the student asked about (applied to the
-            # session already; this frame shows it).
-            yield _board_frame([{"type": "load_pgn", "pgn": opening_plan.pgn}])
+            # So does the opening the student asked about — applied to the
+            # session board already (before the engine note); this frame only
+            # shows it, without a second replay and a second pair of writes.
+            yield _sse({"board_actions": [{"type": "load_pgn", "pgn": opening_plan.pgn,
+                                           "board_id": active_board.id}]})
 
         try:
             while not (main_done and quick["finished"] and not fix["running"]):
@@ -2587,27 +2624,61 @@ class VoiceHeartbeatRequest(BaseModel):
 # same profile. The prompt itself is rebuilt every call (cheap, in-memory) and
 # the mint rate limit is enforced BEFORE the cache lookup — so caching never lets
 # an extra session spawn through.
-_VOICE_PROFILE_TTL = 300  # seconds (5 min)
+_VOICE_PROFILE_TTL = 300  # seconds (5 min): after that the copy is refreshed in the background
+_VOICE_PROFILE_MAX_AGE = 3600  # seconds: older than this it is reloaded on the path
 _voice_profile_cache: dict[str, tuple[float, UserProfile]] = {}
 _voice_profile_lock = threading.Lock()
+_voice_profile_refreshing: set = set()
 
 
 def _get_voice_profile(user_id: str) -> UserProfile:
-    """Return the user's profile, cached for ~5 min to spare a Supabase hit.
+    """Return the user's profile, cached to spare a Supabase hit.
 
     The text turn uses it too (2026-09-29): every chat turn loaded the profile
     from Supabase on the event loop, freezing every other student's stream for
     the round trip. Callers in async handlers run it in a thread.
+
+    A copy older than the TTL is handed out at once and refreshed in the
+    background (a roundtrip to Supabase from the production host is 250–500
+    ms; it used to land on one turn of every student every 5 minutes); only a
+    copy older than an hour, or none, is loaded on the path. A load that
+    failed is not cached: the next turn tries again.
     """
     now = time.monotonic()
     with _voice_profile_lock:
         entry = _voice_profile_cache.get(user_id)
-        if entry and entry[0] > now:
-            return entry[1]
+    if entry:
+        loaded_at, profile = entry
+        age = now - loaded_at
+        if age < _VOICE_PROFILE_TTL:
+            return profile
+        if age < _VOICE_PROFILE_MAX_AGE:
+            _refresh_profile_in_background(user_id)
+            return profile
     profile = load_user_profile(user_id)
-    with _voice_profile_lock:
-        _voice_profile_cache[user_id] = (now + _VOICE_PROFILE_TTL, profile)
+    if not getattr(profile, "load_failed", False):
+        with _voice_profile_lock:
+            _voice_profile_cache[user_id] = (now, profile)
     return profile
+
+
+def _refresh_profile_in_background(user_id: str) -> None:
+    with _voice_profile_lock:
+        if user_id in _voice_profile_refreshing:
+            return
+        _voice_profile_refreshing.add(user_id)
+
+    def _refresh():
+        try:
+            profile = load_user_profile(user_id)
+            if not getattr(profile, "load_failed", False):
+                with _voice_profile_lock:
+                    _voice_profile_cache[user_id] = (time.monotonic(), profile)
+        finally:
+            with _voice_profile_lock:
+                _voice_profile_refreshing.discard(user_id)
+
+    threading.Thread(target=_refresh, name="profile-refresh", daemon=True).start()
 
 
 def clear_voice_profile_cache() -> None:
@@ -2689,7 +2760,9 @@ def _session_summary(s) -> dict:
 async def coach_list_sessions(request: Request):
     """List all coaching sessions for a user, newest activity first."""
     user_id = _get_user_id(request)
-    sessions = session_store.list(user_id)
+    # Off the event loop: a cold list loads every session of the user from
+    # Supabase (13 sessions = dozens of roundtrips) and froze every stream.
+    sessions = await asyncio.to_thread(session_store.list, user_id)
     summaries = [_session_summary(s) for s in sessions]
     summaries.sort(key=lambda x: x["updated_at"], reverse=True)
     return summaries
@@ -2734,9 +2807,10 @@ async def coach_delete_session(session_id: str, request: Request):
 # ── Boards (tabs) of a session ────────────────────────────────────────
 
 
-def _get_session_or_404(session_id: str, request: Request):
+async def _get_session_or_404(session_id: str, request: Request):
     user_id = _get_user_id(request)
-    session = session_store.get(session_id, user_id)
+    # A session not in memory is loaded from Supabase — in a thread.
+    session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
@@ -2744,7 +2818,7 @@ def _get_session_or_404(session_id: str, request: Request):
 
 @app.get("/api/coach/sessions/{session_id}/boards")
 async def coach_list_boards(session_id: str, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     session.ensure_board()
     return {"active_board_id": session.active_board_id,
             "boards": [b.to_public() for b in session.boards]}
@@ -2752,7 +2826,7 @@ async def coach_list_boards(session_id: str, request: Request):
 
 @app.post("/api/coach/sessions/{session_id}/boards")
 async def coach_create_board(session_id: str, body: CoachBoardCreateRequest, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     try:
         board = session.add_board(
             activate=body.activate, kind=body.kind, title=body.title or "", pgn=body.pgn or "",
@@ -2765,7 +2839,7 @@ async def coach_create_board(session_id: str, body: CoachBoardCreateRequest, req
 
 @app.patch("/api/coach/sessions/{session_id}/boards/{board_id}")
 async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpdateRequest, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = session.get_board(board_id)
     if board is None:
         raise HTTPException(status_code=404, detail="Board not found")
@@ -2805,7 +2879,7 @@ async def coach_update_board(session_id: str, board_id: str, body: CoachBoardUpd
 
 @app.delete("/api/coach/sessions/{session_id}/boards/{board_id}")
 async def coach_delete_board(session_id: str, board_id: str, request: Request):
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     if not session.remove_board(board_id):
         raise HTTPException(status_code=404, detail="Board not found")
     return {"deleted": board_id, "active_board_id": session.active_board_id}
@@ -2896,7 +2970,7 @@ async def coach_game_start(session_id: str, body: CoachGameStartRequest, request
     """Start a game against the coach on a new, active board of kind ``game``."""
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     loop = asyncio.get_event_loop()
     try:
         _, payload = await loop.run_in_executor(
@@ -2914,7 +2988,7 @@ async def coach_game_move(session_id: str, board_id: str, body: CoachGameMoveReq
     """The student's move: verdict + the engine's reply, or the game's end."""
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     loop = asyncio.get_event_loop()
     try:
@@ -2930,7 +3004,7 @@ async def coach_game_move(session_id: str, board_id: str, body: CoachGameMoveReq
 async def coach_game_resign(session_id: str, board_id: str, request: Request):
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     try:
         return game_mode.resign(session, board)
@@ -2942,7 +3016,7 @@ async def coach_game_resign(session_id: str, board_id: str, request: Request):
 async def coach_game_takeback(session_id: str, board_id: str, request: Request):
     from src import game_mode
 
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     try:
         return game_mode.takeback(session, board)
@@ -2959,7 +3033,7 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     from src.quick_reply import stream_completion
 
     user_id = _get_user_id(request)
-    session = _get_session_or_404(session_id, request)
+    session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     messages = game_mode.comment_prompt(board, body.locale, body.event)
     model = quick_model()

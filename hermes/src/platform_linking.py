@@ -6,6 +6,13 @@ import os
 
 import httpx
 
+from src import supabase_http as _supabase_http
+
+
+def _sb():
+    """The pooled Supabase client (src/supabase_http.py), or this module's httpx."""
+    return _supabase_http.client() or httpx
+
 from src.tools.player_profiles import get_player_profile
 from tools.registry import registry
 
@@ -32,7 +39,7 @@ def _get_chess_profile(user_id: str, url: str = None, key: str = None) -> dict |
     if not base or not api_key:
         return None
 
-    resp = httpx.get(
+    resp = _sb().get(
         f"{base}/rest/v1/user_chess_profiles",
         params={"user_id": f"eq.{user_id}", "select": "*"},
         headers=_supabase_headers(api_key),
@@ -54,7 +61,7 @@ def _upsert_chess_profile(user_id: str, data: dict, url: str = None, key: str = 
     headers["Prefer"] = "resolution=merge-duplicates"
 
     row = {"user_id": user_id, **data}
-    httpx.post(
+    _sb().post(
         f"{base}/rest/v1/user_chess_profiles",
         json=row,
         headers=headers,
