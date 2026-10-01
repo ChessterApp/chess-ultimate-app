@@ -126,6 +126,9 @@ const VOICE_CORE_TOOLS = new Set<string>([
   'list_topics',
   'get_lesson',
   'get_learning_path',
+  // An opening by name (жареная печень, детский мат, сицилианка): the book
+  // line, its defences, facts — the site calls it itself from the hook too.
+  'lookup_opening',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or

@@ -25,9 +25,31 @@ export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'err
 // get_topic and described a pin that was not on the board.
 export const CONCEPT_QUESTION_RE =
   /(что\s+так(ое|ая|ой|ие)|объясни|расскажи\s+(мне\s+)?(про|о|об)\b|покажи\s+(мне\s+)?(пример|как)|пример\S*\s+\S+|что\s+значит|как\s+(играть|использовать|работает)|деген\s+не|түсіндір|мысал|what\s+is|what's\s+an?\b|explain|show\s+me\s+(an?\s+)?example|example\s+of)/i;
+// Words that may name an opening («жареная печень», «детский мат», «против
+// сицилианки», «в лондонскую»): the site asks Hermes' opening book (the same
+// one the text coach gets before every answer) and, when it knows the name,
+// puts the line on the board and tells the model — the voice coach on 3.1
+// otherwise explains an opening it does not know from memory. The book
+// answers «not found» cheaply, so the test is deliberately loose.
+export const OPENING_HINT_RE =
+  /(дебют|гамбит|защит|печен|(?:^|[^а-яё])мат(?:а|у|ом|е)?(?![а-яё])|систем|парти[яию]|атак|вариант|контратак|ловушк|сицилиан|испанск|итальянск|французск|каро|скандинав|славянск|индийск|нимцович|грюнфельд|английск|рети|пирц|алехин|петров|шотланд|венск|бенони|голландск|каталон|лондон|дракон|найдорф|берлин|траксл|полерио|эванс|легал|блэкберн|opening|gambit|defen[cs]e|attack|mate(?![a-z])|system|sicilian|spanish|ruy|italian|french|caro|scandinavian|slav|indian|london|dragon|najdorf|berlin|traxler|fried|liver|scholar|fool)/i;
 // Wait this long after the last transcribed fragment: the student has finished
 // the question, and the coach (≈1.5 s after speech ends) has not answered yet.
 export const CONCEPT_LOOKUP_DELAY_MS = 400;
+
+/** The note the model gets with an opening the site looked up for the student. */
+export function openingNote(result: {
+  found?: boolean;
+  name?: string;
+  eco?: string;
+  line?: string;
+  loaded?: boolean;
+  about_the_board?: boolean;
+  note?: string;
+}): string | null {
+  if (!result.found || !result.note) return null;
+  return `[Opening] ${result.note}`.replace(/\s+/g, ' ').trim();
+}
 
 /** The note the model gets with a knowledge-base example the site put on the board. */
 export function topicNote(result: {
@@ -811,13 +833,51 @@ export default function useGeminiLive(
   const conceptDoneRef = useRef(false);
   const conceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const lookUpOpening = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>) => {
+    try {
+      const res = await fetch('/api/coach/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: 'lookup_opening',
+          args: { question: text, fen: optionsRef.current.getFen?.() },
+          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+        }),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json().catch(() => null)) as
+        | { result?: Parameters<typeof openingNote>[0]; board_actions?: unknown[] }
+        | null;
+      const note = data?.result ? openingNote(data.result) : null;
+      if (!note) return false;
+      if (sessionRef.current !== session) return false;
+      try {
+        optionsRef.current.onToolResult?.('lookup_opening', data);
+      } catch {
+        /* UI callback errors must not break the session */
+      }
+      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+      return true;
+    } catch {
+      return false; /* unavailable — the coach can still call lookup_opening itself */
+    }
+  }, []);
+
   const lookUpConcept = useCallback(async (text: string) => {
-    if (conceptDoneRef.current || !CONCEPT_QUESTION_RE.test(text) || text.trim().split(/\s+/).length < 2) {
+    if (conceptDoneRef.current || text.trim().split(/\s+/).length < 2) return;
+    const session = sessionRef.current;
+    if (!session) return;
+    // An opening named in the words wins over a concept («что такое жареная
+    // печень» is the Fried Liver, not the knowledge base's «печень»).
+    if (OPENING_HINT_RE.test(text)) {
+      conceptDoneRef.current = true;
+      if (await lookUpOpening(text, session)) return;
+      if (!CONCEPT_QUESTION_RE.test(text)) return;
+    } else if (!CONCEPT_QUESTION_RE.test(text)) {
       return;
     }
     conceptDoneRef.current = true;
-    const session = sessionRef.current;
-    if (!session) return;
     try {
       const res = await fetch('/api/coach/tool', {
         method: 'POST',
@@ -846,7 +906,7 @@ export default function useGeminiLive(
     } catch {
       /* unavailable — the coach can still call get_topic itself */
     }
-  }, []);
+  }, [lookUpOpening]);
   const closeUtterance = useCallback((role: 'user' | 'model') => {
     if (!openUtterancesRef.current[role]) return;
     openUtterancesRef.current[role] = false;
