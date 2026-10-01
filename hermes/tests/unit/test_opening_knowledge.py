@@ -140,3 +140,39 @@ class TestTurn:
 
         session = session_store.get(sid, "opening-user")
         assert session.board_state.startswith("r1bqkb1r/ppp2Npp/2n5/3np3/2B5")
+
+
+@pytest.mark.unit
+class TestQuestionsAboutTheBoard:
+    """A tester (01.10) played a few moves and asked to steer into another opening:
+    the server put that opening's line on the board and his position was gone."""
+
+    PGN = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5"
+
+    def _fen(self):
+        board = chess.Board()
+        for san in _split_moves(self.PGN):
+            board.push_san(san)
+        return board.fen()
+
+    @pytest.mark.parametrize("question", [
+        "как из этой позиции перейти в защиту двух коней?",
+        "хочу перевести игру в лондонскую систему",
+        "можно отсюда получить дракона?",
+        "how do I transpose into the Two Knights from this position?",
+    ])
+    def test_board_is_kept_and_compared(self, question):
+        plan = plan_opening(question, self._fen(), self.PGN)
+        assert plan is not None and not plan.load and plan.relative
+        assert "LEFT AS IT IS" in plan.block and "Moves on the board" in plan.block
+
+    def test_the_divergence_is_named(self):
+        plan = plan_opening("как из этой позиции перейти в защиту двух коней?", self._fen(), self.PGN)
+        assert "left the line at 3...Bc5 (the line has 3...Nf6 there)" in plan.block
+
+    def test_a_general_question_still_loads_the_line(self):
+        assert plan_opening("что такое защита двух коней?", self._fen(), self.PGN).load
+
+    def test_from_the_start_position_the_line_is_loaded(self):
+        plan = plan_opening("как из этой позиции перейти в защиту двух коней?", chess.STARTING_FEN)
+        assert plan.load and not plan.relative

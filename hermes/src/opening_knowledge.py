@@ -59,6 +59,7 @@ class OpeningPlan:
     load: bool                    # the server puts the line on the board
     block: str                    # the turn-context block for the model
     branches: list = field(default_factory=list)
+    relative: bool = False        # the question is about the board, the opening is a reference
 
 
 def _move_label(ply: int, san: str) -> str:
@@ -124,9 +125,58 @@ def _facts(board: chess.Board) -> list[str]:
 # «как играть против…», «как защищаться», «how to avoid»: the student meets the line.
 _AGAINST_RE = re.compile(r"против|защит|избеж|отвеча|against|avoid|defen|meet|counter", re.IGNORECASE)
 
+# The question is about the position on the board, with the opening as a
+# destination or a comparison — «как из этой позиции перейти в защиту двух
+# коней», «хочу перевести игру в лондонскую», «похоже на дракона?». A tester
+# (01.10) played a few moves and asked to steer into another opening: the
+# server put that opening's line on the board from move one and his position
+# was gone. The board is left alone for these; the model gets the line and
+# how it compares with what was played.
+_RELATIVE_RE = re.compile(
+    r"из\s+(?:этой|текущей|моей|данной|такой)\s+позици|с\s+этой\s+позици|отсюда|перейти|перевести|перевод|"
+    r"транспо|транспониро|в\s+эту\s+позици|текущ\w*\s+позици|сейчас\s+на\s+доске|на\s+доске\s+сейчас|"
+    r"похож[аеио]?\s+(?:ли\s+)?(?:это\s+)?на|это\s+(?:уже\s+)?(?:он[аи]?|тот|та)\b|получилась|получается|"
+    r"from\s+(?:this|the\s+current|my)\s+position|transpos|steer\s+(?:into|to|towards)|get\s+(?:into|to)\s+(?:the|a)\s|"
+    r"is\s+this\s+(?:the|a)\b|does\s+this\s+look\s+like",
+    re.IGNORECASE)
+
+
+def asks_about_the_board(message: str) -> bool:
+    return bool(_RELATIVE_RE.search((message or "").replace("ё", "е")))
+
+
+def _compare_with_line(line_pgn: str, board_pgn: Optional[str], board_fen: Optional[str]) -> str:
+    """How the board relates to the line, in words the model can rely on."""
+    line = _split_moves(line_pgn)
+    if board_pgn:
+        game = _split_moves(board_pgn)
+        k = 0
+        while k < len(line) and k < len(game) and line[k].rstrip("+#") == game[k].rstrip("+#"):
+            k += 1
+        played = " ".join(_move_label(i, m) for i, m in enumerate(game)) or "(no moves)"
+        if k == len(line):
+            return (f"Moves on the board: {played}. The line was played in full; the board is {len(game) - k} "
+                    f"plies beyond it.")
+        if k == len(game):
+            return (f"Moves on the board: {played}. They follow the line so far; the line continues "
+                    f"{_move_label(k, line[k])}.")
+        return (f"Moves on the board: {played}. The board left the line at {_move_label(k, game[k])} "
+                f"(the line has {_move_label(k, line[k])} there). Moves already played cannot be taken back: "
+                f"say whether the line's structure is still reachable from the board, and how, or that it is not.")
+    if board_fen:
+        try:
+            board = chess.Board(board_fen)
+        except ValueError:
+            return ""
+        if board.fullmove_number <= 1 and board.turn == chess.WHITE:
+            return "The board shows the starting position."
+        return (f"The board (no move list): {board_fen}. Compare the pieces with the line's final position and "
+                f"say what differs and whether the line's structure is still reachable.")
+    return ""
+
 
 def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, facts: list[str],
-                message: str = "") -> str:
+                message: str = "", relative: Optional[str] = None) -> str:
     ru = RU_NAMED.get(name) or RU_FAMILY.get(name.split(":")[0].strip())
     title = f"{eco} {name}" + (f" — по-русски: {ru}" if ru else "")
     lines = [
@@ -137,6 +187,11 @@ def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, fac
     if loaded:
         lines.append("The server has ALREADY put this line on the student's board (the final position is "
                      "shown; the student can step through the moves). Do not load or set it again.")
+    elif relative:
+        lines.append("The student asks about the position ON THE BOARD in relation to this opening (how to "
+                     "get there from it, whether it is the same, what differs). The board was LEFT AS IT IS — "
+                     "do not load the line and do not replace the position; the line below is a reference. "
+                     + (relative or ""))
     else:
         lines.append("The student's board already stands in this opening; it was left as it is.")
     if facts:
@@ -182,7 +237,10 @@ def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, fac
         "to choose and why. Any move you name must come from these lines, the engine block or a "
         "tool result; do not invent moves, squares or attacks. Say which side the student plays "
         "if the question says it («чёрными», «против …» means the other side's opening). "
-        "The position the board showed before is not what the student asked about."
+        + ("Answer from the board as it stands: which moves of the line are still possible, which are "
+           "not, and what the student can do from here."
+           if relative else
+           "The position the board showed before is not what the student asked about.")
     )
     return "\n".join(lines)
 
@@ -204,13 +262,26 @@ def plan_opening(message: str, board_fen: Optional[str] = None,
         final = _board_after(pgn)
     except ValueError:
         return None
-    load = not _board_in_opening(pgn, board_fen, board_pgn)
+    in_opening = _board_in_opening(pgn, board_fen, board_pgn)
+    relative = None
+    if not in_opening and asks_about_the_board(message) and not _is_start(board_fen):
+        relative = _compare_with_line(pgn, board_pgn, board_fen)
+    load = not in_opening and relative is None
     branches = book.branches(full_name, pgn)
-    block = build_block(full_name, eco, pgn, branches, load, _facts(final), message)
+    block = build_block(full_name, eco, pgn, branches, load, _facts(final), message, relative)
     return OpeningPlan(
         name=full_name, eco=eco, pgn=pgn, final_fen=final.fen(), load=load,
-        block=block, branches=branches,
+        block=block, branches=branches, relative=relative is not None,
     )
+
+
+def _is_start(fen: Optional[str]) -> bool:
+    if not fen:
+        return True
+    try:
+        return _key(chess.Board(fen)) == _key(chess.Board())
+    except ValueError:
+        return True
 
 
 def mentions_opening(message: str) -> bool:

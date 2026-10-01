@@ -1616,7 +1616,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     bestofn_message = f"{bestofn_message}\n\n{opening_plan.block}"
                 if note:
                     bestofn_message = (f"{bestofn_message}\n\n"
-                                       f"{engine_note_block(note['note'], opening=bool(opening_plan))}")
+                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}")
                 bestofn_message = f"{bestofn_message}\n\n{reply_language_note(body.message, body.locale)}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
@@ -1795,7 +1795,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if opening_plan:
                     message = f"{message}\n\n{opening_plan.block}"
                 if note:
-                    message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan))}"
+                    message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"

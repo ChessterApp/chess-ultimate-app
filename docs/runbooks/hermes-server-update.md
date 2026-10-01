@@ -32,6 +32,10 @@
 
 Новое в версии 30.09-3 (если сервер уже на 30.09-2 — обновлённом 30.09 в 11:45 UTC, — меняется только это;
 код только `hermes/src/`, миграций и переменных нет, достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 12в):
+- **Вопрос «как из этой позиции перейти в другой дебют» больше не сбрасывает доску.** Тестировщик (01.10)
+  сыграл несколько ходов и попросил перевести игру в другой дебют — сервер ставил линию того дебюта с
+  первого хода, его позиция пропадала. Теперь при вопросе про текущую позицию («из этой», «перейти»,
+  «перевести», «отсюда») доска остаётся, а тренер получает сравнение доски с линией (где разошлись).
 - **Мысли модели больше не попадают в ответ.** На проде на вопрос «планы белых в испанской партии» тренер
   выдал ученику свои рассуждения («Студент спрашивает… Нужно ответить по-русски… Стоит ли вызывать
   get_topic?»). Такое предложение теперь не показывается, остаток ответа дописывается заново.
@@ -428,6 +432,13 @@ curl -s -X POST localhost:8642/api/coach/tool/get_learning_path -H 'Content-Type
 #     ожидание: JSON с курсами (courses…), НЕ "error"; если error — в pm2 logs строка «Supabase rejected the query on …» с причиной
 # 12б. замер стадий: на трёх обычных ходах session < 10 мс, agent ≈ prompt
 pm2 logs hermes-chess --lines 200 --nostream | grep 'turn timings' | tail -3
+# 12г. «из этой позиции перейти в…» не трогает доску: в кадрах НЕ должно быть load_pgn
+BID=$(curl -s localhost:8642/api/coach/sessions/$SID/boards -H 'X-User-Id: deploy-check' | python3 -c 'import sys,json; print(json.load(sys.stdin)["active_board_id"])')
+curl -s -o /dev/null -X PATCH localhost:8642/api/coach/sessions/$SID/boards/$BID -H 'X-User-Id: deploy-check' -H 'Content-Type: application/json' -d '{"pgn":"1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5"}'
+curl -sN --max-time 120 -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
+  -d '{"message":"как из этой позиции перейти в защиту двух коней?","fen":"r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4","session_id":"'"$SID"'","board_id":"'"$BID"'"}' \
+  -o transfer.sse -w 'переход: %{time_total} с\n'
+grep -c '"load_pgn"' transfer.sse   # ожидание: 0
 # 12в. мысли модели не в ответе: в тексте не должно быть слов «Студент спрашивает», «Нужно ответить», «get_topic», «из блока»
 curl -sN --max-time 120 -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' \
   -H 'X-User-Id: deploy-check' -d '{"message":"Какие планы у белых в испанской партии?","locale":"ru","session_id":"'"$SID"'"}' \
