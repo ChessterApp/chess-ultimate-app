@@ -251,3 +251,25 @@ class TestRewriteOverlap:
         })
         text = "".join(json.loads(l[6:]).get("delta", "") for l in resp.text.splitlines() if l.startswith("data: "))
         assert text == "Take on d5 with exd5, and Black recaptures with the queen."
+
+
+@pytest.mark.unit
+class TestVoiceCheckEndpoint:
+    """The voice coach's spoken sentences go through the same check after the fact."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    def test_wrong_sentence_reports_issues(self):
+        resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-check"}, json={
+            "text": "Конь с f3 прыгает на d5 и бьёт ферзя.", "fen": PIANISSIMO,
+        })
+        assert resp.status_code == 200
+        assert resp.json()["issues"] == ["a knight cannot move from f3 to d5"]
+
+    def test_right_sentence_is_clean(self):
+        resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-check"}, json={
+            "text": "Слон c4 держит f7 на прицеле, и если чёрные сыграют h6, то Ng5 становится угрозой.",
+            "fen": PIANISSIMO, "question": "почему слон на c4 опасен?",
+        })
+        assert resp.json() == {"issues": []}

@@ -32,3 +32,25 @@ describe('voice lookups: what the site asks Hermes about on its own', () => {
     expect(topicNote({ title: 'Связка' })).toBeNull();
   });
 });
+
+import { SPEECH_CHECKABLE_RE, SPEECH_SENTENCE_END_RE, correctionNote } from '../useGeminiLive';
+
+describe('voice check: what the coach said, read back when wrong', () => {
+  it('only sentences with chess content are checked', () => {
+    expect(SPEECH_CHECKABLE_RE.test('Конь с f3 прыгает на d5.')).toBe(true);
+    expect(SPEECH_CHECKABLE_RE.test('Отличный вопрос, давай разберём.')).toBe(false);
+  });
+
+  it('sentences end at . ! ? followed by a space', () => {
+    const m = SPEECH_SENTENCE_END_RE.exec('Смотри на f7. Конь');
+    expect(m && m.index).toBe(12);
+  });
+
+  it('the correction note names the sentence and why it is wrong; nothing wrong → no note', () => {
+    expect(correctionNote([])).toBeNull();
+    const note = correctionNote([{ text: 'Конь с f3 прыгает на d5.', issues: ['a knight cannot move from f3 to d5'] }]);
+    expect(note).toContain('[Check]');
+    expect(note).toContain('«Конь с f3 прыгает на d5.» — a knight cannot move from f3 to d5');
+    expect(note).toMatch(/Correct yourself now/);
+  });
+});

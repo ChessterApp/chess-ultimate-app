@@ -37,6 +37,28 @@ export const OPENING_HINT_RE =
 // the question, and the coach (≈1.5 s after speech ends) has not answered yet.
 export const CONCEPT_LOOKUP_DELAY_MS = 400;
 
+// What the coach said is checked on the board sentence by sentence (the same
+// check the text coach's answers pass before they are shown — a spoken
+// sentence has been heard by the time its transcription arrives). A wrong one
+// is read back to the model after its turn, and it corrects itself aloud.
+export const SPEECH_SENTENCE_END_RE = /[.!?…](?:\s|$)/;
+// Only sentences with chess content are worth a round trip.
+export const SPEECH_CHECKABLE_RE = /[a-h][1-8]|\d|кон[ьяю]|слон|лад[ьё]|ферз|корол|пешк|knight|bishop|rook|queen|king|pawn/i;
+export const SPEECH_CHECK_MAX_PER_TURN = 2;
+
+/** The note that makes the coach correct a sentence that was wrong on the board. */
+export function correctionNote(sentences: { text: string; issues: string[] }[]): string | null {
+  if (!sentences.length) return null;
+  const items = sentences
+    .map((s) => `«${s.text.trim()}» — ${s.issues.join('; ')}`)
+    .join(' ');
+  return (
+    `[Check] What you just said was checked on the board and is wrong: ${items}. ` +
+    `Correct yourself now in one or two short sentences, in the student's language, ` +
+    `naming only moves and attacks that are true on the board; do not mention a check or a mistake report.`
+  ).replace(/\s+/g, ' ').trim();
+}
+
 /** The note the model gets with an opening the site looked up for the student. */
 export function openingNote(result: {
   found?: boolean;
@@ -833,6 +855,39 @@ export default function useGeminiLive(
   const conceptDoneRef = useRef(false);
   const conceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // The coach's current sentence (output transcription fragments joined), the
+  // wrong ones of this turn, and how many checks were sent this turn.
+  const modelSentenceRef = useRef('');
+  const wrongSentencesRef = useRef<{ text: string; issues: string[] }[]>([]);
+  const speechChecksRef = useRef(0);
+  const speechCheckPendingRef = useRef<Promise<void>[]>([]);
+
+  const checkSpokenSentence = useCallback(async (sentence: string, session: NonNullable<typeof sessionRef.current>) => {
+    if (!SPEECH_CHECKABLE_RE.test(sentence) || sentence.trim().split(/\s+/).length < 4) return;
+    if (speechChecksRef.current >= SPEECH_CHECK_MAX_PER_TURN) return;
+    speechChecksRef.current += 1;
+    try {
+      const res = await fetch('/api/coach/voice/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          text: sentence,
+          fen: optionsRef.current.getFen?.(),
+          question: userUtteranceRef.current || undefined,
+        }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as { issues?: string[] } | null;
+      if (sessionRef.current !== session) return;
+      if (Array.isArray(data?.issues) && data.issues.length) {
+        wrongSentencesRef.current.push({ text: sentence, issues: data.issues });
+      }
+    } catch {
+      /* unavailable (an older Hermes answers 404) — the coach is simply not corrected */
+    }
+  }, []);
+
   const lookUpOpening = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>) => {
     try {
       const res = await fetch('/api/coach/tool', {
@@ -981,15 +1036,46 @@ export default function useGeminiLive(
           final,
           turnId: turnIdRef.current ?? undefined,
         });
+        // Each finished sentence of the coach goes to the board check.
+        modelSentenceRef.current += sc.outputTranscription.text;
+        const session = sessionRef.current;
+        let m: RegExpExecArray | null;
+        while (session && (m = SPEECH_SENTENCE_END_RE.exec(modelSentenceRef.current))) {
+          const sentence = modelSentenceRef.current.slice(0, m.index + 1);
+          modelSentenceRef.current = modelSentenceRef.current.slice(m.index + m[0].length);
+          speechCheckPendingRef.current.push(checkSpokenSentence(sentence, session));
+        }
       }
 
       if (sc.interrupted) {
         flushPlayback();
         closeUtterance('model');
+        modelSentenceRef.current = '';
+        wrongSentencesRef.current = [];
+        speechChecksRef.current = 0;
       }
       if (sc.turnComplete) {
         closeUtterance('user');
         closeUtterance('model');
+        // The turn is over: whatever was wrong is read back, and the coach
+        // corrects itself — a new short turn, after the answer, never cutting it.
+        const session = sessionRef.current;
+        const pending = speechCheckPendingRef.current;
+        speechCheckPendingRef.current = [];
+        modelSentenceRef.current = '';
+        speechChecksRef.current = 0;
+        void Promise.all(pending).then(() => {
+          const wrong = wrongSentencesRef.current;
+          wrongSentencesRef.current = [];
+          const note = correctionNote(wrong);
+          if (!note || !session || sessionRef.current !== session) return;
+          try {
+            optionsRef.current.onToolResult?.('voice_check', { result: { corrected: wrong } });
+          } catch {
+            /* UI callback errors must not break the session */
+          }
+          session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: true });
+        });
       }
 
       const parts = sc.modelTurn?.parts;
@@ -1002,7 +1088,7 @@ export default function useGeminiLive(
         }
       }
     },
-    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept],
+    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, checkSpokenSentence],
   );
 
   const fail = useCallback(

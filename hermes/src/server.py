@@ -2646,6 +2646,13 @@ class VoiceEngineNoteRequest(BaseModel):
     fen: str
 
 
+class VoiceCheckRequest(BaseModel):
+    text: str                      # what the coach just said (its output transcription)
+    fen: Optional[str] = None      # the board at the time
+    pgn: Optional[str] = None      # the moves on the board, if a game is loaded
+    question: Optional[str] = None  # the student's words (moves it quoted are not claims)
+
+
 class VoiceHeartbeatRequest(BaseModel):
     user_id: str
     session_id: str
@@ -2772,6 +2779,28 @@ async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request
     if note is None:
         raise HTTPException(status_code=422, detail="position cannot be analysed")
     return note
+
+
+@app.post("/api/coach/voice/check")
+async def coach_voice_check(body: VoiceCheckRequest, request: Request):
+    """Check a sentence the voice coach said against the board (src/answer_check.py).
+
+    The text coach's answers are checked before the student sees them; a
+    spoken sentence has been heard by the time its transcription arrives, so
+    the browser sends it here and, when it is wrong on the board, tells the
+    model to correct itself aloud. Returns {"issues": [...]} — empty when
+    nothing checkable is wrong.
+    """
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    from src.answer_check import CheckContext, check_sentence
+
+    def _check() -> list:
+        ctx = CheckContext.from_fens([body.fen], [body.pgn] if body.pgn else [], question=body.question or "")
+        return check_sentence(body.text[:1000], ctx)
+
+    issues = await asyncio.to_thread(_check)
+    return {"issues": issues}
 
 
 def _session_summary(s) -> dict:
