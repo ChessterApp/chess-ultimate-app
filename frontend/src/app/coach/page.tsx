@@ -977,6 +977,7 @@ export default function CoachPage() {
           <CoachChat
             ref={chatRef}
             currentFen={chatFen}
+            currentPgn={board.pgn}
             sessionId={sessionId}
             boardId={activeBoardId && !activeBoardId.startsWith('local-') ? activeBoardId : null}
             restoreHistory

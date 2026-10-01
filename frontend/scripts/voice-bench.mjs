@@ -73,6 +73,7 @@ function parseArgs(argv) {
     saveAudio: '',
     promptSuffix: '',
     engineNote: 'off', // on: feed the [Engine] line before the question, like the browser does
+    engineDirective: 'on', // off: the bare [Engine] line (before 01.10)
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -417,7 +418,10 @@ async function runCase(ai, args, tools, c, pcm) {
     rec.engine_note_ms = Math.round(now() - t0);
     if (status === 200 && body.note) {
       rec.engine_note = body.note;
-      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: body.note }] }], turnComplete: false });
+      // The same directive the browser appends (useGeminiLive): --engine-directive off to compare.
+      const directive = args.engineDirective === 'off' ? '' :
+        ' This IS the analysis of the current position: answer from it — do not call analyze_position for this FEN.';
+      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: body.note + directive }] }], turnComplete: false });
     }
   }
 

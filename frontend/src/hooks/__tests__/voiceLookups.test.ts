@@ -54,3 +54,35 @@ describe('voice check: what the coach said, read back when wrong', () => {
     expect(note).toMatch(/Correct yourself now/);
   });
 });
+
+import { PUZZLE_REQUEST_RE, PUZZLE_THEME_RE, REVIEW_REQUEST_RE, REVIEW_SIDE_RE, puzzleNote, reviewNote } from '../useGeminiLive';
+
+describe('voice shortcuts: puzzle and review fetched by the site', () => {
+  it('a puzzle request is recognised, with its theme', () => {
+    for (const text of ['дай задачу на вилку', 'давай решим задачу', 'give me a puzzle on pins', 'хочу ещё одну задачу']) {
+      expect(PUZZLE_REQUEST_RE.test(text), text).toBe(true);
+    }
+    expect(PUZZLE_THEME_RE.exec('дай задачу на вилку')?.[1]).toBe('вилку');
+    expect(PUZZLE_THEME_RE.exec('давай решим задачу')).toBeNull();
+    expect(PUZZLE_REQUEST_RE.test('какая тут задача у белых?')).toBe(false);
+  });
+
+  it('the puzzle note names the side, keeps the solution private', () => {
+    const note = puzzleNote({ theme: 'fork', puzzles: [{ fen: '8/8/8/8/8/8/8/8 b - - 0 1', solution: ['Nc2+', 'Kd1'], rating: 1200 }] });
+    expect(note).toContain('[Puzzle]');
+    expect(note).toContain('Black to move');
+    expect(note).toContain('Solution (private');
+    expect(puzzleNote({ puzzles: [] })).toBeNull();
+  });
+
+  it('a review request is recognised, with the side', () => {
+    for (const text of ['разбери мою партию', 'где я ошибся?', 'review my game', 'проанализируй эту партию, я играл чёрными']) {
+      expect(REVIEW_REQUEST_RE.test(text), text).toBe(true);
+    }
+    expect(REVIEW_REQUEST_RE.test('что мне здесь играть?')).toBe(false);
+    const m = REVIEW_SIDE_RE.exec('я играл чёрными');
+    expect(m && !!m[1]).toBe(true);
+    expect(reviewNote({ note: '## Critical moments\n- 16...Bh5' })).toBe('[Review] ## Critical moments\n- 16...Bh5');
+    expect(reviewNote({})).toBeNull();
+  });
+});

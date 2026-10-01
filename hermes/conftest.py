@@ -101,6 +101,11 @@ def _no_two_stage_by_default(monkeypatch):
     # Same for the turn's engine line: a real Stockfish run per route test with a
     # FEN. Its tests switch it on and patch the engine.
     monkeypatch.setattr(_config, "COACH_ENGINE_NOTE", False)
+    # A test that reached the (local) Mastra CCP endpoint and timed out would
+    # back the fetch off for 10 minutes and fail the CCP tests after it.
+    from src import prompt_builder as _pb
+
+    monkeypatch.setattr(_pb, "_ccp_skip_until", 0.0)
     # Text turns read the profile through a 5-minute cache now: a profile a test
     # patched in must not leak into the next test.
     try:

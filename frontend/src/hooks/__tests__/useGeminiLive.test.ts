@@ -131,6 +131,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The engine line carries a directive for the model (see the hook).
+const ENGINE_DIRECTIVE = ' This IS the analysis of the current position: answer from it — do not call analyze_position for this FEN.';
+
 describe('useGeminiLive', () => {
   it('reports isSupported=false when AudioWorkletNode is missing', async () => {
     vi.stubGlobal('AudioWorkletNode', undefined);
@@ -469,14 +472,14 @@ describe('useGeminiLive', () => {
       await result.current.connect();
     });
     await waitFor(() =>
-      expect(g.session.sendClientContent).toHaveBeenCalledWith(noteTurn('[Engine] INIT_FEN — Best: d4.')),
+      expect(g.session.sendClientContent).toHaveBeenCalledWith(noteTurn('[Engine] INIT_FEN — Best: d4.' + ENGINE_DIRECTIVE)),
     );
 
     await act(async () => {
       result.current.sendBoardUpdate('NEW_FEN');
     });
     await waitFor(() =>
-      expect(g.session.sendClientContent).toHaveBeenCalledWith(noteTurn('[Engine] NEW_FEN — Best: d4.')),
+      expect(g.session.sendClientContent).toHaveBeenCalledWith(noteTurn('[Engine] NEW_FEN — Best: d4.' + ENGINE_DIRECTIVE)),
     );
     // The same position again is not re-sent (no second engine request).
     const noteCalls = () =>

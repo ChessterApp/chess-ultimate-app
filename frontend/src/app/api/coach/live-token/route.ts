@@ -129,6 +129,8 @@ const VOICE_CORE_TOOLS = new Set<string>([
   // An opening by name (жареная печень, детский мат, сицилианка): the book
   // line, its defences, facts — the site calls it itself from the hook too.
   'lookup_opening',
+  // A game review by voice: the critical moments, as the text coach gets them.
+  'review_game',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or

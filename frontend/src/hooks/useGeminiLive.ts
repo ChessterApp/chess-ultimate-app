@@ -36,6 +36,8 @@ export const OPENING_HINT_RE =
 // Wait this long after the last transcribed fragment: the student has finished
 // the question, and the coach (≈1.5 s after speech ends) has not answered yet.
 export const CONCEPT_LOOKUP_DELAY_MS = 400;
+// A failed voice start is tried once more after this pause.
+export const START_RETRY_DELAY_MS = 700;
 
 // What the coach said is checked on the board sentence by sentence (the same
 // check the text coach's answers pass before they are shown — a spoken
@@ -57,6 +59,50 @@ export function correctionNote(sentences: { text: string; issues: string[] }[]):
     `Correct yourself now in one or two short sentences, in the student's language, ` +
     `naming only moves and attacks that are true on the board; do not mention a check or a mistake report.`
   ).replace(/\s+/g, ' ').trim();
+}
+
+// «Дай задачу на вилку», «реши задачу», «give me a puzzle»: the site fetches a
+// verified puzzle itself (3.1 Live sometimes promised one and called nothing),
+// puts it on the board and tells the model — solution included, privately, so
+// it can judge the student's answer.
+export const PUZZLE_REQUEST_RE =
+  /(?:(?:дай|давай|хочу|можно|реши[мт]?|покажи|подбери|найди)\s+(?:мне\s+)?(?:ещ[её]\s+)?(?:одну\s+)?(?:задач|головолом|упражнен)|задач[уи]\s+на|есеп\s+бер|тапсырма|(?:give|show|find)\s+me\s+(?:a\s+|another\s+)?puzzle|(?:a\s+)?puzzle\s+(?:on|about|for)|solve\s+a\s+puzzle|let'?s\s+solve)/i;
+// The theme named after «на» / «on»: «задачу на вилку» → «вилку».
+export const PUZZLE_THEME_RE = /(?:задач[уи]|упражнени[ея]|puzzle)\s+(?:на|про|по|on|about|for)\s+([^,.!?]+)/i;
+
+/** The note the model gets with a puzzle the site put on the board. */
+export function puzzleNote(result: {
+  theme?: string | null;
+  rating?: number | null;
+  puzzles?: { fen?: string; solution?: string[] | string; rating?: number; themes?: string[] }[];
+  on_board?: string;
+}): string | null {
+  const first = result.puzzles?.[0];
+  if (!first?.fen) return null;
+  const side = first.fen.split(' ')[1] === 'b' ? 'Black' : 'White';
+  const solution = Array.isArray(first.solution) ? first.solution.join(' ') : first.solution ?? '';
+  return (
+    `[Puzzle] A verified puzzle is now on the student's board: FEN ${first.fen}, ${side} to move` +
+    `${result.theme ? `, theme ${result.theme}` : ''}${first.rating ? `, rating ${first.rating}` : ''}. ` +
+    `Solution (private, never read it out unless the student gives up): ${solution}. ` +
+    `Say whose move it is and what to look for, then let the student try; judge their answer against the solution. ` +
+    `Do not call get_puzzle again for this request.`
+  ).replace(/\s+/g, ' ').trim();
+}
+
+// «Разбери мою партию», «где я ошибся», «review my game»: when a game is on
+// the board the site finds its critical moments itself (2–3 s, within the
+// coach's «let me look») and hands them to the model — the text coach gets
+// the same block before it answers.
+export const REVIEW_REQUEST_RE =
+  /(разбер[иё][а-яё]*|разбор|проанализир[а-яё]*\s+(?:мою\s+|эту\s+)?парти|где\s+я\s+ошиб|мои\s+ошибк|что\s+я\s+сделал\s+не\s+так|ойынымды\s+талда|review\s+(?:my\s+|the\s+|this\s+)?game|analy[sz]e\s+(?:my\s+|the\s+|this\s+)?game|where\s+did\s+i\s+go\s+wrong|my\s+mistakes)/i;
+export const REVIEW_SIDE_RE = /(ч[её]рными|за\s+ч[её]рных|as\s+black|with\s+black)|(белыми|за\s+белых|as\s+white|with\s+white)/i;
+export const REVIEW_MIN_PLIES = 10;
+
+/** The note the model gets with the critical moments of the game on the board. */
+export function reviewNote(result: { note?: string; moments?: unknown[] }): string | null {
+  if (!result.note) return null;
+  return `[Review] ${result.note}`.replace(/[ \t]+/g, ' ').trim();
 }
 
 /** The note the model gets with an opening the site looked up for the student. */
@@ -90,6 +136,8 @@ export function topicNote(result: {
 
 export interface UseGeminiLiveOptions {
   getFen?: () => string;
+  /** The moves on the board (PGN), when a game is loaded — for a review by voice. */
+  getPgn?: () => string | null | undefined;
   /** Current coach session id, so the minted token carries the shared conversation memory. */
   getSessionId?: () => string | null | undefined;
   onTranscript?: (t: {
@@ -888,6 +936,53 @@ export default function useGeminiLive(
     }
   }, []);
 
+  // One voice tool call the site makes on the student's behalf; the result's
+  // board actions reach the board and the note reaches the model.
+  const siteToolCall = useCallback(async (
+    name: string,
+    args: Record<string, unknown>,
+    session: NonNullable<typeof sessionRef.current>,
+    makeNote: (result: never) => string | null,
+  ): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/coach/tool', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, args, session_id: optionsRef.current.getSessionId?.() ?? undefined }),
+      });
+      if (!res.ok) return false;
+      const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
+      if (!data?.result || data.error) return false;
+      const note = makeNote(data.result as never);
+      if (!note) return false;
+      if (sessionRef.current !== session) return false;
+      try {
+        optionsRef.current.onToolResult?.(name, data);
+      } catch {
+        /* UI callback errors must not break the session */
+      }
+      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+      return true;
+    } catch {
+      return false; /* unavailable (an older Hermes) — the coach can still call the tool itself */
+    }
+  }, []);
+
+  const lookUpPuzzle = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>) => {
+    const theme = PUZZLE_THEME_RE.exec(text)?.[1]?.trim();
+    if (theme && (await siteToolCall('get_puzzle', { theme, count: 1 }, session, puzzleNote))) return true;
+    return siteToolCall('get_puzzle', { count: 1 }, session, puzzleNote);
+  }, [siteToolCall]);
+
+  const lookUpReview = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>) => {
+    const pgn = optionsRef.current.getPgn?.();
+    if (!pgn || pgn.replace(/\d+\.(\.\.)?/g, ' ').trim().split(/\s+/).length < REVIEW_MIN_PLIES) return false;
+    const m = REVIEW_SIDE_RE.exec(text);
+    const side = m ? (m[1] ? 'black' : 'white') : undefined;
+    return siteToolCall('review_game', { pgn, side }, session, reviewNote);
+  }, [siteToolCall]);
+
   const lookUpOpening = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>) => {
     try {
       const res = await fetch('/api/coach/tool', {
@@ -923,6 +1018,16 @@ export default function useGeminiLive(
     if (conceptDoneRef.current || text.trim().split(/\s+/).length < 2) return;
     const session = sessionRef.current;
     if (!session) return;
+    // A puzzle or a review asked for: the site fetches it; the coach only talks.
+    if (PUZZLE_REQUEST_RE.test(text)) {
+      conceptDoneRef.current = true;
+      void lookUpPuzzle(text, session);
+      return;
+    }
+    if (REVIEW_REQUEST_RE.test(text)) {
+      conceptDoneRef.current = true;
+      if (await lookUpReview(text, session)) return;
+    }
     // An opening named in the words wins over a concept («что такое жареная
     // печень» is the Fried Liver, not the knowledge base's «печень»).
     if (OPENING_HINT_RE.test(text)) {
@@ -961,7 +1066,7 @@ export default function useGeminiLive(
     } catch {
       /* unavailable — the coach can still call get_topic itself */
     }
-  }, [lookUpOpening]);
+  }, [lookUpOpening, lookUpPuzzle, lookUpReview]);
   const closeUtterance = useCallback((role: 'user' | 'model') => {
     if (!openUtterancesRef.current[role]) return;
     openUtterancesRef.current[role] = false;
@@ -1248,8 +1353,12 @@ export default function useGeminiLive(
         // Drop a note for a position the board has already left.
         if (typeof note !== 'string' || !note || boardFenRef.current !== fen) return;
         if (sessionRef.current !== session) return;
+        // 3.1 Live called analyze_position for a position it had this line for
+        // (+1.5 s before the first word on «what should I play»); the line says
+        // so itself now, where the model reads it.
+        const directive = ' This IS the analysis of the current position: answer from it — do not call analyze_position for this FEN.';
         session.sendClientContent({
-          turns: [{ role: 'user', parts: [{ text: note }] }],
+          turns: [{ role: 'user', parts: [{ text: note + directive }] }],
           turnComplete: false,
         });
       })
@@ -1531,23 +1640,42 @@ export default function useGeminiLive(
     bookedSecondsRef.current = 0;
     setRemainingSeconds(null);
 
+    const isQuota = (err: unknown) =>
+      err instanceof Error && (err as Error & { code?: string }).code === 'voice_quota_exhausted';
     try {
       await openConnection();
     } catch (err) {
       // Quota exhausted at mint: end gracefully with the "minutes used up"
       // message instead of a generic connection error.
-      if (
-        err instanceof Error &&
-        (err as Error & { code?: string }).code === 'voice_quota_exhausted'
-      ) {
+      if (isQuota(err)) {
         endForQuotaRef.current();
         return;
       }
+      // A token mint or a connect that failed once (a transient 5xx, a dropped
+      // socket) is tried once more before the student sees an error — the text
+      // coach has a fallback model for the same reason.
+      if (!userStoppedRef.current) {
+        await new Promise((r) => setTimeout(r, START_RETRY_DELAY_MS));
+        if (!userStoppedRef.current) {
+          try {
+            cleanup({ keepMedia: true });
+            setStatus('connecting');
+            await openConnection();
+            return;
+          } catch (err2) {
+            if (isQuota(err2)) {
+              endForQuotaRef.current();
+              return;
+            }
+            err = err2;
+          }
+        }
+      }
       // If the mic was granted but connect failed, fail() -> cleanup() stops the
       // held tracks so no mic indicator lingers.
-      fail(describeError(err, 'Failed to start live coach'));
+      fail(describeError(err, 'Голосовой тренер сейчас недоступен — продолжайте текстом, я отвечу здесь.'));
     }
-  }, [setStatus, openConnection, fail]);
+  }, [setStatus, openConnection, fail, cleanup]);
 
   const disconnect = useCallback(
     (reason: SessionEndReason = 'user_stop') => {

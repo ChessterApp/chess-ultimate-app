@@ -1,0 +1,5 @@
+{"id": "ru-best", "kind": "engine", "text": "Какой здесь лучший ход?", "voice": "Milena", "locale": "ru", "expect_lang": "ru", "fen": "r1bqkbnr/pp1ppppp/2n5/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3", "expect_tools": ["analyze_position"]}
+{"id": "ru-plan", "kind": "engine", "text": "Что мне здесь играть? Объясни план.", "voice": "Milena", "locale": "ru", "expect_lang": "ru", "fen": "4rrk1/pp3ppp/2p5/8/8/2P5/PP3PPP/3RR1K1 w - - 0 1", "expect_tools": ["analyze_position"]}
+{"id": "ru-endgame", "kind": "engine", "text": "Как выиграть этот эндшпиль?", "voice": "Milena", "locale": "ru", "expect_lang": "ru", "fen": "8/8/4k3/8/8/4K3/4P3/8 w - - 0 1", "expect_tools": ["analyze_position", "get_topic"]}
+{"id": "kz-best", "kind": "engine", "text": "Мұнда қай жүріс ең жақсы?", "voice": "Aru", "locale": "kz", "expect_lang": "kz", "fen": "r1bqkbnr/pp1ppppp/2n5/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3", "expect_tools": ["analyze_position"]}
+{"id": "en-best", "kind": "engine", "text": "What is the best move here?", "voice": "Samantha", "locale": "en", "expect_lang": "en", "fen": "4rrk1/pp3ppp/2p5/8/8/2P5/PP3PPP/3RR1K1 w - - 0 1", "expect_tools": ["analyze_position"]}

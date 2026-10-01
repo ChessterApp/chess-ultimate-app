@@ -20,6 +20,8 @@ import { handleRestrictedResponse } from '@/lib/access-fetch';
 
 interface CoachChatProps {
   currentFen: string;
+  /** The moves on the board, when a game is loaded (a review by voice uses them). */
+  currentPgn?: string;
   sessionId: string | null;
   /** The board (tab) the student is looking at; sent as board_id on every turn. */
   boardId?: string | null;
@@ -101,6 +103,7 @@ function dataUrlToBase64(dataUrl: string): string {
 const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat(
   {
     currentFen,
+    currentPgn,
     sessionId,
     boardId,
     restoreHistory = false,
@@ -159,6 +162,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   const currentFenRef = useRef(currentFen);
   currentFenRef.current = currentFen;
   const getFen = useCallback(() => currentFenRef.current, []);
+  const currentPgnRef = useRef(currentPgn);
+  currentPgnRef.current = currentPgn;
+  const getPgn = useCallback(() => currentPgnRef.current, []);
 
   // Shared conversation memory: text and voice must use the SAME Hermes session
   // id. Track the active id in a ref so voice callbacks read it synchronously,
@@ -304,6 +310,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     remainingSeconds: voiceRemainingSeconds,
   } = useGeminiLive({
     getFen,
+    getPgn,
     getSessionId,
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
