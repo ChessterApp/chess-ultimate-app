@@ -38,6 +38,8 @@ export const OPENING_HINT_RE =
 export const CONCEPT_LOOKUP_DELAY_MS = 400;
 // A failed voice start is tried once more after this pause.
 export const START_RETRY_DELAY_MS = 700;
+// Tools the site calls itself from the student's words (see lookUpConcept).
+export const SITE_FETCHED_TOOLS = new Set(['get_topic', 'lookup_opening', 'get_puzzle', 'review_game']);
 
 // What the coach said is checked on the board sentence by sentence (the same
 // check the text coach's answers pass before they are shown — a spoken
@@ -785,6 +787,17 @@ export default function useGeminiLive(
           }
         }, TOOL_CALL_TIMEOUT_MS);
         try {
+          // The site already made this call for the student's words: the model
+          // gets the same result — the board keeps what the student was told about.
+          const siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
+          if (siteResult) {
+            clearTimeout(timeout);
+            return {
+              id: fc.id,
+              name: fc.name,
+              response: { result: (siteResult as { result?: unknown }).result ?? siteResult },
+            };
+          }
           const res = await fetch('/api/coach/tool', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -936,6 +949,13 @@ export default function useGeminiLive(
     }
   }, []);
 
+  // What the site fetched for the current utterance, by tool name: when the
+  // model then calls the same tool itself (it often decides to at the same
+  // moment), it gets this result instead of a second fetch — otherwise the
+  // puzzle on the board and the puzzle in the model's note were two different
+  // puzzles (production, 01.10).
+  const siteResultsRef = useRef<Map<string, unknown>>(new Map());
+
   // One voice tool call the site makes on the student's behalf; the result's
   // board actions reach the board and the note reaches the model.
   const siteToolCall = useCallback(async (
@@ -957,6 +977,7 @@ export default function useGeminiLive(
       const note = makeNote(data.result as never);
       if (!note) return false;
       if (sessionRef.current !== session) return false;
+      siteResultsRef.current.set(name, data);
       try {
         optionsRef.current.onToolResult?.(name, data);
       } catch {
@@ -1057,6 +1078,7 @@ export default function useGeminiLive(
       // No match or an ambiguous one: leave the concept to the coach's own tools.
       if (!note || !Array.isArray(data?.board_actions) || data.board_actions.length === 0) return;
       if (sessionRef.current !== session) return;
+      siteResultsRef.current.set('get_topic', data);
       try {
         optionsRef.current.onToolResult?.('get_topic', data);
       } catch {
@@ -1118,6 +1140,7 @@ export default function useGeminiLive(
         if (!openUtterancesRef.current.user) {
           userUtteranceRef.current = '';
           conceptDoneRef.current = false;
+          siteResultsRef.current.clear();
         }
         userUtteranceRef.current += sc.inputTranscription.text;
         const utterance = userUtteranceRef.current;
