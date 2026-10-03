@@ -29,11 +29,12 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
   const competency = typeof body?.competency === 'string' ? body.competency : null;
+  const mode = body?.mode === 'review' ? 'review' : 'assessment';
   if (!competency) {
     return NextResponse.json({ error: 'competency required' }, { status: 400 });
   }
 
-  const result = await createAssignment(r.ownerUserId, competency);
+  const result = await createAssignment(r.ownerUserId, competency, mode);
   if (result.status === 'no_tasks') {
     return NextResponse.json({ error: 'no_tasks' }, { status: 404 });
   }

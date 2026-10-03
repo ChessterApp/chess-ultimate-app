@@ -2833,6 +2833,31 @@
       "nameRequired": "Please enter a name.",
       "notReady": "Keep practicing — your egg isn't ready to hatch yet.",
       "failed": "Something went wrong. Please try again."
+    },
+    "watchtower": {
+      "title": "The Watchtower",
+      "progress": "{done} of {total} challenges done",
+      "play": "Play",
+      "replay": "Replay",
+      "submit": "Check",
+      "clear": "Clear",
+      "correct": "Correct!",
+      "incorrect": "Not quite — try again.",
+      "back": "Back to the chapter",
+      "chapterComplete": "Watchtower complete!",
+      "chapterReward": "You earned {xp} XP and {coins} coins!"
+    },
+    "review": {
+      "title": "Reviews",
+      "subtitle": "A quick refresher keeps your skills sharp.",
+      "submit": "Check",
+      "clear": "Clear",
+      "correct": "Nice — remembered!",
+      "incorrect": "Not quite — try again.",
+      "back": "Back to reviews",
+      "allCaught": "All caught up — no reviews due right now.",
+      "rung": "Step {rung}",
+      "start": "Review"
     }
   }
 }

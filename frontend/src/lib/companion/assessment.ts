@@ -19,8 +19,14 @@ import { applyMove } from '@/lib/live-game/validate';
 // Task shape (the server-only task_definition row, subset used by the rules)
 // ---------------------------------------------------------------------------
 
-/** A validator kind. `move` replays via chess.js; `setup` compares placement. */
-export type ValidatorKind = 'move' | 'setup';
+/**
+ * A validator kind.
+ *  - `move`   replays a UCI move via chess.js and matches the accepted set.
+ *  - `setup`  compares a piece-placement field (board-assembly tasks).
+ *  - `squares` matches a SET of squares (attackers / defenders / undefended —
+ *             the Watchtower set-membership nodes, spec §7.3).
+ */
+export type ValidatorKind = 'move' | 'setup' | 'squares';
 
 export interface TaskDefinition {
   id: string;
@@ -43,10 +49,12 @@ export interface TaskHint {
   kk: string;
 }
 
-/** Move tasks accept a set of UCI moves; setup tasks match a placement field. */
+/** Move tasks accept a set of UCI moves; setup tasks match a placement field;
+ * squares tasks match an (unordered) set of squares. */
 export interface TaskSolution {
   moves?: string[];
   placement?: string;
+  squares?: string[];
 }
 
 /** The submission a client may send (shape depends on the validator). */
@@ -54,6 +62,7 @@ export interface Submission {
   uci?: string;
   placement?: string;
   fen?: string;
+  squares?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +139,19 @@ function placementField(s: string): string {
   return (s ?? '').trim().split(/\s+/)[0] ?? '';
 }
 
+/** Normalize a set of squares: lowercased, de-duplicated, sorted (order-free). */
+function normalizeSquares(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const set = new Set<string>();
+  for (const s of raw) {
+    if (typeof s === 'string') {
+      const sq = s.trim().toLowerCase();
+      if (/^[a-h][1-8]$/.test(sq)) set.add(sq);
+    }
+  }
+  return [...set].sort();
+}
+
 /**
  * Judge a submission against a task's solution. Pure + deterministic:
  *  - `move`:  the UCI must be LEGAL from the task FEN (chess.js) AND in the
@@ -144,6 +166,15 @@ export function judgeSubmission(task: TaskDefinition, submission: Submission): J
     if (!want) return { correct: false, reason: 'malformed' };
     if (!got) return { correct: false, reason: 'malformed' };
     return { correct: got === want, reason: got === want ? undefined : 'wrong' };
+  }
+
+  if (task.validator === 'squares') {
+    const want = normalizeSquares(task.solution?.squares);
+    const got = normalizeSquares(submission?.squares);
+    if (!want.length) return { correct: false, reason: 'malformed' };
+    if (!got.length) return { correct: false, reason: 'malformed' };
+    const same = want.length === got.length && want.every((s, i) => s === got[i]);
+    return same ? { correct: true } : { correct: false, reason: 'wrong' };
   }
 
   // Default: move validator.
@@ -244,4 +275,14 @@ export function rewardForCompetencyPass(policy: RewardPolicy): RewardEntry {
 /** The one-time hatch reward (Phase 3). */
 export function rewardForHatch(policy: RewardPolicy): RewardEntry {
   return policy.hatch;
+}
+
+/** The reward for an independently-completed due review (Phase 4). */
+export function rewardForDueReview(policy: RewardPolicy): RewardEntry {
+  return policy.due_review;
+}
+
+/** The reward for a first full chapter completion (Phase 4). */
+export function rewardForChapter(policy: RewardPolicy): RewardEntry {
+  return policy.chapter_first;
 }

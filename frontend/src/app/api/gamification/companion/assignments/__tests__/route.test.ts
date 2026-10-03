@@ -87,6 +87,18 @@ describe('POST /api/gamification/companion/assignments', () => {
     const body = await res.json();
     expect(body.assignment_id).toBe('asg-9');
     expect(JSON.stringify(body)).not.toContain('solution');
-    expect(createAssignment).toHaveBeenCalledWith('user_1', 'H_ROOK');
+    expect(createAssignment).toHaveBeenCalledWith('user_1', 'H_ROOK', 'assessment');
+  });
+
+  it('forwards mode:"review" so reviews reuse the assessment pool', async () => {
+    mock(resolveStudent).mockResolvedValue(LINKED);
+    mock(isCompanionEnabledForOrg).mockResolvedValue(true);
+    mock(createAssignment).mockResolvedValue({
+      status: 'ok',
+      task: { assignment_id: 'asg-r', competency: 'H_ROOK', family: 'f', fen: 'x', prompt: { en: 'a', ru: 'b', kk: 'c' }, validator: 'move', hints_total: 0 },
+    });
+    const { POST } = await import('../route');
+    await POST(req({ competency: 'H_ROOK', mode: 'review' }));
+    expect(createAssignment).toHaveBeenCalledWith('user_1', 'H_ROOK', 'review');
   });
 });

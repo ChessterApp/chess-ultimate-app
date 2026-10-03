@@ -55,7 +55,10 @@ export type CreateAssignmentResult =
 export async function createAssignment(
   ownerUserId: string,
   competency: string,
+  mode: 'assessment' | 'review' = 'assessment',
 ): Promise<CreateAssignmentResult> {
+  // Reviews reuse the assessment task pool — a review is a fresh, unassisted
+  // attempt at an assessment-mode task for a due competency (spec §6.3, W06).
   const { data: taskRows } = await supabaseAdmin
     .from('task_definition')
     .select(TASK_COLS)
@@ -87,7 +90,7 @@ export async function createAssignment(
       owner_user_id: ownerUserId,
       task_id: task.id,
       competency_code: competency,
-      mode: 'assessment',
+      mode,
       status: 'issued',
     })
     .select('id')

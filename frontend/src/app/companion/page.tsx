@@ -10,6 +10,8 @@ import EggChooser from '@/components/companion/EggChooser';
 import CompetencyRing, { type RingCompetency } from '@/components/companion/CompetencyRing';
 import CompanionAnimation from '@/components/companion/CompanionAnimation';
 import FoxReveal, { type HatchOutcome } from '@/components/companion/FoxReveal';
+import WatchtowerPanel from '@/components/companion/WatchtowerPanel';
+import DueReviewPanel from '@/components/companion/DueReviewPanel';
 
 interface CompanionView {
   companion: { species: string | null; name: string | null; stage: string; hatched_at: string | null } | null;
@@ -160,6 +162,14 @@ function CompanionInner() {
         hatchProgress={data!.hatch_progress}
         hatchReady={data!.hatch_ready}
       />
+
+      {/* Post-hatch: the Watchtower chapter + pull-based review surface (Phase 4). */}
+      {hatched && (
+        <>
+          <WatchtowerPanel />
+          <DueReviewPanel />
+        </>
+      )}
 
       {reveal && (
         <FoxReveal

@@ -76,6 +76,29 @@ const REQUIRED_KEYS = [
   'hatch.nameRequired',
   'hatch.notReady',
   'hatch.failed',
+  // Phase 4 — Watchtower chapter strings.
+  'watchtower.title',
+  'watchtower.progress',
+  'watchtower.play',
+  'watchtower.replay',
+  'watchtower.submit',
+  'watchtower.clear',
+  'watchtower.correct',
+  'watchtower.incorrect',
+  'watchtower.back',
+  'watchtower.chapterComplete',
+  'watchtower.chapterReward',
+  // Phase 4 — due-review strings.
+  'review.title',
+  'review.subtitle',
+  'review.submit',
+  'review.clear',
+  'review.correct',
+  'review.incorrect',
+  'review.back',
+  'review.allCaught',
+  'review.rung',
+  'review.start',
 ];
 
 describe('companion namespace i18n', () => {
