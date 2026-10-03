@@ -184,7 +184,7 @@ def _with_supabase(members, subs):
 
 @pytest.fixture(autouse=True)
 def mock_jwt():
-    with patch('utils.auth.jwt.decode', return_value={'sub': USER_ID}):
+    with patch('utils.auth._decode_clerk_token', return_value={'sub': USER_ID}):
         yield
 
 

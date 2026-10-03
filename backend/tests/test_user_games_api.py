@@ -139,7 +139,7 @@ def auth_headers():
 def mock_jwt():
     """Mock JWT decode to always return our test user.
     This is needed because @verify_clerk_token is applied at import time."""
-    with patch('utils.auth.jwt.decode', return_value={'sub': USER_ID}):
+    with patch('utils.auth._decode_clerk_token', return_value={'sub': USER_ID}):
         yield
 
 

@@ -10,6 +10,7 @@ openai
 anthropic
 supabase
 pyjwt  # For Clerk JWT verification
+cryptography  # RS256 signature verification for Clerk JWTs
 
 # ETL pipeline dependencies (Phase 2)
 # weaviate-client

@@ -177,14 +177,14 @@ def auth_headers():
 @pytest.fixture(autouse=True)
 def mock_jwt():
     """Mock JWT decode to always return our test user."""
-    with patch('utils.auth.jwt.decode', return_value={'sub': USER_ID}):
+    with patch('utils.auth._decode_clerk_token', return_value={'sub': USER_ID}):
         yield
 
 
 @pytest.fixture
 def mock_jwt_admin():
     """Mock JWT decode to return admin user."""
-    return patch('utils.auth.jwt.decode', return_value={'sub': ADMIN_USER_ID})
+    return patch('utils.auth._decode_clerk_token', return_value={'sub': ADMIN_USER_ID})
 
 
 # ─── LIST TOURNAMENTS ────────────────────────────────────────────────────────

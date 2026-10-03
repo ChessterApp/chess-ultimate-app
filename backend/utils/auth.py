@@ -7,6 +7,7 @@ from functools import wraps
 from datetime import datetime, timezone
 from flask import request, jsonify
 import jwt
+from jwt import PyJWKClient
 import logging
 import os
 import time
@@ -16,17 +17,50 @@ logger = logging.getLogger(__name__)
 
 CLERK_SECRET_KEY = os.getenv("CLERK_SECRET_KEY")
 
-# Clerk JWKS URL for RSA public key verification
-# Note: This is a simplified version. Production should cache JWKS.
-CLERK_JWKS_URL = "https://stunning-arachnid-84.clerk.accounts.dev/.well-known/jwks.json"
+# Clerk JWKS endpoint for RS256 signature verification. The production frontend
+# API domain is configured via CLERK_JWKS_URL; the hardcoded dev instance is a
+# fallback so local development works without extra env setup.
+CLERK_JWKS_URL = os.getenv(
+    "CLERK_JWKS_URL",
+    "https://stunning-arachnid-84.clerk.accounts.dev/.well-known/jwks.json",
+)
+
+# Clock-skew tolerance when validating exp/nbf.
+_JWT_LEEWAY_SECONDS = 30
+
+# Lazily-constructed PyJWKClient. Built on first use (not at import) so importing
+# this module never performs network IO; the client caches signing keys itself.
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client() -> PyJWKClient:
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(CLERK_JWKS_URL)
+    return _jwks_client
 
 
 def _decode_clerk_token(token: str) -> dict:
     """
-    Decode a Clerk JWT and return the claim payload.
-    Verification is currently disabled (development mode); see TODO above.
+    Decode and cryptographically verify a Clerk JWT, returning the claims.
+
+    Verifies the RS256 signature against Clerk's JWKS (keys fetched and cached
+    by the PyJWKClient) plus `exp`/`nbf` with a small leeway. `aud` is not
+    verified because Clerk session tokens do not set it by default.
+
+    Raises:
+        jwt.ExpiredSignatureError / jwt.InvalidTokenError on invalid tokens.
+        jwt.PyJWKClientError if the JWKS endpoint cannot be reached or the
+        signing key is not found.
     """
-    return jwt.decode(token, options={"verify_signature": False})
+    signing_key = _get_jwks_client().get_signing_key_from_jwt(token)
+    return jwt.decode(
+        token,
+        signing_key.key,
+        algorithms=["RS256"],
+        leeway=_JWT_LEEWAY_SECONDS,
+        options={"verify_signature": True, "verify_aud": False},
+    )
 
 
 def verify_clerk_token(f):
@@ -55,8 +89,7 @@ def verify_clerk_token(f):
             return jsonify({"error": "No token provided"}), 401
 
         try:
-            # Decode JWT without verification (for development)
-            # TODO: In production, verify signature using Clerk's JWKS
+            # Cryptographically verify the Clerk JWT signature via JWKS.
             decoded = _decode_clerk_token(token)
 
             # Extract user ID from Clerk token
@@ -73,9 +106,13 @@ def verify_clerk_token(f):
 
         except jwt.ExpiredSignatureError:
             return jsonify({"error": "Token expired"}), 401
+        except jwt.PyJWKClientError as e:
+            logger.error("Clerk JWKS fetch failed: %s", e)
+            return jsonify({"error": "Authentication service unavailable"}), 503
         except jwt.InvalidTokenError as e:
             return jsonify({"error": f"Invalid token: {str(e)}"}), 401
         except Exception as e:
+            logger.error("Authentication error: %s", e)
             return jsonify({"error": f"Authentication error: {str(e)}"}), 500
 
     return decorated
@@ -205,6 +242,9 @@ def require_super_admin(f):
             claims = _decode_clerk_token(token)
         except jwt.ExpiredSignatureError:
             return jsonify({'error': 'Token expired'}), 401
+        except jwt.PyJWKClientError as e:
+            logger.error("Clerk JWKS fetch failed: %s", e)
+            return jsonify({'error': 'Authentication service unavailable'}), 503
         except jwt.InvalidTokenError as e:
             return jsonify({'error': f'Invalid token: {str(e)}'}), 401
 
