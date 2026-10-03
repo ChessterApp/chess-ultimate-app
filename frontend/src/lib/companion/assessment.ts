@@ -201,6 +201,8 @@ export interface RewardPolicy {
   due_review: RewardEntry;
   post_game_review: RewardEntry;
   chapter_first: RewardEntry;
+  /** Hatch grant — the Hatchery region completes at hatch (Phase 3, spec §6.2). */
+  hatch: RewardEntry;
 }
 
 /** Seed/fallback only (spec §6.2). Runtime reads companion_reward_policy. */
@@ -210,6 +212,7 @@ export const DEFAULT_REWARD_POLICY: RewardPolicy = {
   due_review: { xp: 15, coins: 5 },
   post_game_review: { xp: 15, coins: 5 },
   chapter_first: { xp: 50, coins: 20 },
+  hatch: { xp: 50, coins: 20 },
 };
 
 function entry(raw: unknown, fallback: RewardEntry): RewardEntry {
@@ -229,10 +232,16 @@ export function normalizeRewardPolicy(raw: unknown): RewardPolicy {
     due_review: entry(c.due_review, DEFAULT_REWARD_POLICY.due_review),
     post_game_review: entry(c.post_game_review, DEFAULT_REWARD_POLICY.post_game_review),
     chapter_first: entry(c.chapter_first, DEFAULT_REWARD_POLICY.chapter_first),
+    hatch: entry(c.hatch, DEFAULT_REWARD_POLICY.hatch),
   };
 }
 
 /** The reward for a first independent competency pass (the only Phase 2 grant). */
 export function rewardForCompetencyPass(policy: RewardPolicy): RewardEntry {
   return policy.competency_pass_first;
+}
+
+/** The one-time hatch reward (Phase 3). */
+export function rewardForHatch(policy: RewardPolicy): RewardEntry {
+  return policy.hatch;
 }

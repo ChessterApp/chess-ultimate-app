@@ -38,6 +38,33 @@ export function isValidEggVariant(id: unknown): id is string {
   return typeof id === 'string' && EGG_VARIANTS.some((v) => v.id === id);
 }
 
+/**
+ * The species the slice hatches into when the egg was never explicitly chosen
+ * (surprise mode). Only the fox is rigged in the vertical slice (one polished
+ * animal, spec §1.6); a chosen egg keeps its own species at hatch.
+ */
+export const HATCH_SPECIES_DEFAULT = 'fox';
+
+// ---------------------------------------------------------------------------
+// Companion name — sanitized server-side at hatch (never trust raw client text)
+// ---------------------------------------------------------------------------
+
+/** Max visible length of a companion name (kid-friendly, DB `name` is TEXT). */
+export const COMPANION_NAME_MAX = 24;
+
+/**
+ * Validate + sanitize a kid-entered companion name (Phase 3 hatch). Strips
+ * control characters, collapses internal whitespace, trims the ends, and caps
+ * the length. Returns the cleaned name, or `null` when nothing printable remains
+ * (the route rejects that with 400). Pure + deterministic — unit-tested.
+ */
+export function sanitizeCompanionName(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const cleaned = raw.replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  if (cleaned.length === 0) return null;
+  return cleaned.slice(0, COMPANION_NAME_MAX);
+}
+
 export function eggVariant(id: string | null | undefined): EggVariant | null {
   if (!id) return null;
   return EGG_VARIANTS.find((v) => v.id === id) ?? null;

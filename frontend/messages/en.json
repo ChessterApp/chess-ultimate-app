@@ -2815,6 +2815,24 @@
       "reward": "You earned {xp} XP and {coins} coins!",
       "demonstrated": "You've mastered this one!",
       "nextTask": "Next challenge"
+    },
+    "hatch": {
+      "cta": "Hatch your companion!",
+      "nameLabel": "Name your companion",
+      "namePlaceholder": "Pick a name",
+      "subtitle": "Your fox is ready to meet you!",
+      "confirm": "Hatch!",
+      "hatching": "Hatching…",
+      "skip": "Skip",
+      "replay": "Replay the hatch",
+      "title": "Meet {name}!",
+      "reward": "You earned {xp} XP and {coins} coins!",
+      "starter": "You unlocked a starter accessory!",
+      "continue": "Continue",
+      "foxAlt": "{name} the fox",
+      "nameRequired": "Please enter a name.",
+      "notReady": "Keep practicing — your egg isn't ready to hatch yet.",
+      "failed": "Something went wrong. Please try again."
     }
   }
 }

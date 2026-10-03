@@ -7,6 +7,7 @@ import {
   normalizeRewardPolicy,
   pickAssessmentTask,
   rewardForCompetencyPass,
+  rewardForHatch,
   stableStringify,
   toPublicTask,
 } from '../assessment';
@@ -166,5 +167,16 @@ describe('reward policy (data, not code)', () => {
     expect(normalizeRewardPolicy({ competency_pass_first: { xp: 'x' } }).competency_pass_first).toEqual(
       { xp: 30, coins: 10 },
     );
+  });
+
+  it('exposes the Phase 3 hatch reward (spec §6.2 region completion)', () => {
+    expect(rewardForHatch(DEFAULT_REWARD_POLICY)).toEqual({ xp: 50, coins: 20 });
+  });
+
+  it('merges a stored hatch reward over the default, keeping it in data', () => {
+    const merged = normalizeRewardPolicy({ hatch: { xp: 80, coins: 40 } });
+    expect(rewardForHatch(merged)).toEqual({ xp: 80, coins: 40 });
+    // An absent hatch key falls back to the documented default.
+    expect(rewardForHatch(normalizeRewardPolicy({}))).toEqual({ xp: 50, coins: 20 });
   });
 });

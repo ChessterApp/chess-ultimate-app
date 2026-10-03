@@ -9,15 +9,19 @@
  */
 import 'server-only';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { isCompanionEnabled } from '@/lib/gamification/companion-rules';
+import { companionIdempotencyKey, isCompanionEnabled } from '@/lib/gamification/companion-rules';
 import {
   type CompanionStage,
   type CompetencyProgress,
+  HATCH_SPECIES_DEFAULT,
+  MASTERY_TARGET_CORRECT,
   buildCompetencyRing,
   hatchProgress,
   isHatchReady,
   isValidEggVariant,
 } from './state';
+import { rewardForHatch } from './assessment';
+import { loadRewardPolicy } from './assessment-service';
 
 /**
  * Server-authoritative flag: is the companion feature switched on for this org?
@@ -153,4 +157,66 @@ export async function chooseEgg(ownerUserId: string, species: string): Promise<C
 
   if (error || !data) throw error ?? new Error('chooseEgg: upsert returned no row');
   return { status: 'ok', companion: data as CompanionRow };
+}
+
+// ---------------------------------------------------------------------------
+// hatchCompanion — the atomic, idempotent hatch (Phase 3). Delegates ALL
+// persistence + readiness re-check + reward/entitlement/event to the
+// hatch_companion RPC (one transaction). Readiness is re-verified server-side
+// from authoritative evidence; the client's hatch_ready flag is never trusted.
+// Hatching is a REWARD, never coin-gated (R1).
+// ---------------------------------------------------------------------------
+
+export type HatchResult =
+  | {
+      status: 'ok' | 'already_hatched';
+      companion: CompanionRow;
+      reward_granted: boolean;
+      xp: number;
+      coins: number;
+      starter_granted: boolean;
+    }
+  | { status: 'not_ready'; demonstrated: number; required: number };
+
+export async function hatchCompanion(params: {
+  ownerUserId: string;
+  orgId: string;
+  studentId: string;
+  /** Already sanitized by the route (sanitizeCompanionName). */
+  name: string;
+}): Promise<HatchResult> {
+  const { ownerUserId, orgId, studentId, name } = params;
+
+  const reward = rewardForHatch(await loadRewardPolicy());
+  const rewardKey = companionIdempotencyKey('hatch', ownerUserId, 'v1');
+
+  const { data, error } = await supabaseAdmin.rpc('hatch_companion', {
+    p_owner: ownerUserId,
+    p_org: orgId,
+    p_student: studentId,
+    p_name: name,
+    p_species_default: HATCH_SPECIES_DEFAULT,
+    p_mastery_target: MASTERY_TARGET_CORRECT,
+    p_reward_xp: reward.xp,
+    p_reward_coins: reward.coins,
+    p_reward_key: rewardKey,
+  });
+  if (error) throw new Error(error.message);
+
+  const r = (data ?? {}) as Record<string, unknown>;
+  if (r.status === 'not_ready') {
+    return {
+      status: 'not_ready',
+      demonstrated: Number(r.demonstrated ?? 0),
+      required: Number(r.required ?? 0),
+    };
+  }
+  return {
+    status: (r.status as 'ok' | 'already_hatched') ?? 'ok',
+    companion: (r.companion as CompanionRow) ?? null,
+    reward_granted: !!r.reward_granted,
+    xp: Number(r.xp ?? 0),
+    coins: Number(r.coins ?? 0),
+    starter_granted: !!r.starter_granted,
+  };
 }

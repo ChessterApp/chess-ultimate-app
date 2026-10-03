@@ -59,6 +59,23 @@ const REQUIRED_KEYS = [
   'assessment.reward',
   'assessment.demonstrated',
   'assessment.nextTask',
+  // Phase 3 — hatch + fox reveal strings.
+  'hatch.cta',
+  'hatch.nameLabel',
+  'hatch.namePlaceholder',
+  'hatch.subtitle',
+  'hatch.confirm',
+  'hatch.hatching',
+  'hatch.skip',
+  'hatch.replay',
+  'hatch.title',
+  'hatch.reward',
+  'hatch.starter',
+  'hatch.continue',
+  'hatch.foxAlt',
+  'hatch.nameRequired',
+  'hatch.notReady',
+  'hatch.failed',
 ];
 
 describe('companion namespace i18n', () => {

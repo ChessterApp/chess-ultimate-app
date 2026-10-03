@@ -35,7 +35,7 @@ const TASK_COLS =
 // Reward policy (data, not code) — read the versioned row, fall back to the
 // documented default only if the seed row is missing (mirrors economy config).
 // ---------------------------------------------------------------------------
-async function loadRewardPolicy() {
+export async function loadRewardPolicy() {
   const { data } = await supabaseAdmin
     .from('companion_reward_policy')
     .select('config')
