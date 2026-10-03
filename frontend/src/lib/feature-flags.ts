@@ -42,3 +42,13 @@ export const OFFLINE_MODE =
  */
 export const ONLINE_PLAY_ENABLED =
   process.env.NEXT_PUBLIC_ONLINE_PLAY_ENABLED === 'true';
+
+/**
+ * Companion (gamification). UI mount kill-switch for the companion surface —
+ * dark by default until the feature ships. This only gates whether companion
+ * UI mounts; the SERVER-authoritative switch is `companions_enabled` inside
+ * gamification_settings.config, checked via isCompanionEnabled() in
+ * src/lib/gamification/companion-rules.ts.
+ */
+export const COMPANION_ENABLED =
+  process.env.NEXT_PUBLIC_COMPANION_ENABLED === 'true';
