@@ -37,6 +37,7 @@ const redirectMock = vi.fn((url: string) => {
 });
 vi.mock('next/navigation', () => ({
   redirect: (url: string) => redirectMock(url),
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 const authStore: { current: { userId: string | null }; throws: boolean } = {

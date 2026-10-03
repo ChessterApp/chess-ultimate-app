@@ -38,8 +38,8 @@ describe('coach namespace i18n', () => {
   });
 
   it('does not leave ru / kz values identical to English (untranslated)', () => {
-    // ECO is a language-neutral code and is intentionally identical.
-    const allowedIdentical = new Set(['tableEco']);
+    // ECO is a language-neutral code; Lichess and Chess.com are brand names — intentionally identical.
+    const allowedIdentical = new Set(['tableEco', 'sourceLichess', 'sourceChesscom']);
     for (const [key, enValue] of Object.entries(en.coach)) {
       if (allowedIdentical.has(key)) continue;
       const ruValue = (ru.coach as Record<string, string>)[key];

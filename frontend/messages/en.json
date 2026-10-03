@@ -2783,5 +2783,29 @@
       "nextLevel": "Level {level}: {title}",
       "backToLearn": "Back to Learn"
     }
+  },
+  "companion": {
+    "title": "Your Companion",
+    "subtitle": "Help your egg grow by mastering the basics.",
+    "notLinkedTitle": "Link your Chess Empire account",
+    "notLinkedBody": "Your companion will appear here once your account is linked.",
+    "eggAlt": "A {name} egg",
+    "eggs": {
+      "fox": "Fox",
+      "owl": "Owl",
+      "turtle": "Turtle",
+      "dragon": "Dragon"
+    },
+    "chooseEgg": {
+      "title": "Choose your egg",
+      "subtitle": "Pick an egg to begin your journey.",
+      "saving": "Saving…"
+    },
+    "ring": {
+      "title": "Hatching progress",
+      "count": "{done} of {total} mastered",
+      "hatchReady": "Your egg is ready to hatch!",
+      "keepGoing": "Keep practicing to hatch your companion."
+    }
   }
 }

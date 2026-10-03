@@ -10,7 +10,7 @@ import { loadOrgFromHeaders } from '@/lib/org-from-headers';
 import { getMembershipState } from '@/lib/chess-empire-member';
 
 export type ResolvedStudent =
-  | { ok: true; orgId: string; studentId: string }
+  | { ok: true; orgId: string; studentId: string; ownerUserId: string }
   | { ok: false; status: 401 | 400 | 403; error: string };
 
 export async function resolveStudent(): Promise<ResolvedStudent> {
@@ -24,5 +24,8 @@ export async function resolveStudent(): Promise<ResolvedStudent> {
   if (membership.state !== 'verified' || !membership.studentId) {
     return { ok: false, status: 403, error: 'not_linked' };
   }
-  return { ok: true, orgId: org.id, studentId: membership.studentId };
+  // `ownerUserId` is the caller's Clerk id — the subject key for the owner-keyed
+  // companion tables (plan A3). Other gamification routes ignore it and use the
+  // (orgId, studentId) ledger keying.
+  return { ok: true, orgId: org.id, studentId: membership.studentId, ownerUserId: userId };
 }

@@ -44,6 +44,7 @@ vi.mock('@/components/LanguageSwitcher', () => ({
 
 vi.mock('@/contexts/OrganizationContext', () => ({
   useBranding: () => ({ name: 'Chesster', logoUrl: null, primaryColor: '#1a73e8' }),
+  useOrganization: () => ({ org: null }),
 }));
 
 vi.mock('@/lib/engine/maiaSingleton', () => ({
