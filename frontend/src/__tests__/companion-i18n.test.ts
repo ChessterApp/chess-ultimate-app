@@ -51,6 +51,14 @@ const REQUIRED_KEYS = [
   'ring.count',
   'ring.hatchReady',
   'ring.keepGoing',
+  // Phase 2 — assessment pipeline strings.
+  'assessment.correct',
+  'assessment.incorrect',
+  'assessment.hintButton',
+  'assessment.hintUsed',
+  'assessment.reward',
+  'assessment.demonstrated',
+  'assessment.nextTask',
 ];
 
 describe('companion namespace i18n', () => {

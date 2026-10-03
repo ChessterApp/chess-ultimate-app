@@ -2806,6 +2806,15 @@
       "count": "{done} of {total} mastered",
       "hatchReady": "Your egg is ready to hatch!",
       "keepGoing": "Keep practicing to hatch your companion."
+    },
+    "assessment": {
+      "correct": "Correct!",
+      "incorrect": "Not quite — let's try again.",
+      "hintButton": "Need a hint?",
+      "hintUsed": "Hint used — this one counts as practice.",
+      "reward": "You earned {xp} XP and {coins} coins!",
+      "demonstrated": "You've mastered this one!",
+      "nextTask": "Next challenge"
     }
   }
 }
