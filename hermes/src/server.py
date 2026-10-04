@@ -2798,6 +2798,12 @@ class VoiceCheckRequest(BaseModel):
     question: Optional[str] = None  # the student's words (moves it quoted are not claims)
 
 
+class VoiceIdeaRequest(BaseModel):
+    text: str                      # the student's words (input transcription)
+    fen: str                       # the board at the time
+    live_game: Optional[bool] = False
+
+
 class VoiceHeartbeatRequest(BaseModel):
     user_id: str
     session_id: str
@@ -2953,10 +2959,59 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     def _check() -> list:
         ctx = CheckContext.from_fens([body.fen], [body.pgn] if body.pgn else [], question=body.question or "")
-        return check_sentence(body.text[:1000], ctx)
+        issues = check_sentence(body.text[:1000], ctx)
+        if issues or not body.fen or not config.COACH_MOVE_VERIFY:
+            return issues
+        # The coach's recommendation («сыграй Rg1») against the engine, as in the
+        # text coach (src/hypothetical.verify_recommendation); the engine's own
+        # move is kept out — the voice coach may be in a game, and it hints.
+        from src.answer_check import proposed_move
+        from src.hypothetical import verify_recommendation
+
+        found = proposed_move(body.text[:1000], ctx)
+        if not found:
+            return issues
+        why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
+                                    config.COACH_MOVE_VERIFY_CP, reveal_best=False)
+        return [why] if why else issues
 
     issues = await asyncio.to_thread(_check)
     return {"issues": issues}
+
+
+@app.post("/api/coach/voice/idea")
+async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
+    """The student's idea in a voice session: the move they named, played on the
+    board and judged by the engine (src/hypothetical.py), as one «[Idea] …»
+    line the browser feeds into Gemini Live before the coach answers — the
+    voice twin of the text coach's block. {"note": null} when the words name
+    no move; same per-user limiter as the other voice calls.
+    """
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    from src.prompt_builder import question_moves, voice_idea_note
+
+    def _idea() -> dict:
+        moves = question_moves(body.text[:600], body.fen)
+        if not moves:
+            return {"note": None, "moves": [], "fens": []}
+        legal = [q for q in moves if q.get("legal")]
+        hypo = None
+        if legal and config.COACH_HYPOTHETICAL_NOTE:
+            from src.hypothetical import hypothetical_notes
+
+            hypo = hypothetical_notes(body.fen, legal, config.COACH_HYPOTHETICAL_MOVETIME_MS, not body.live_game)
+        return {
+            "note": voice_idea_note(moves, hypo, bool(body.live_game)),
+            "moves": [{"san": q["san"], "legal": q["legal"], "verdict": q["verdict"]} for q in moves],
+            "fens": [q["after_fen"] for q in legal if q.get("after_fen")],
+        }
+
+    try:
+        return await asyncio.to_thread(_idea)
+    except Exception:  # noqa: BLE001 — no line this time; the coach can still call the engine
+        logger.debug("voice idea failed", exc_info=True)
+        return {"note": None, "moves": [], "fens": []}
 
 
 def _session_summary(s) -> dict:

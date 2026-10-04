@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONCEPT_QUESTION_RE, OPENING_HINT_RE, openingNote, topicNote } from '../useGeminiLive';
+import { CONCEPT_QUESTION_RE, IDEA_MOVE_RE, OPENING_HINT_RE, openingNote, topicNote } from '../useGeminiLive';
 
 describe('voice lookups: what the site asks Hermes about on its own', () => {
   it('an opening named in the words is looked up (slang included)', () => {
@@ -98,5 +98,23 @@ describe('voice shortcuts: puzzle and review fetched by the site', () => {
     expect(m && !!m[1]).toBe(true);
     expect(reviewNote({ note: '## Critical moments\n- 16...Bh5' })).toBe('[Review] ## Critical moments\n- 16...Bh5');
     expect(reviewNote({})).toBeNull();
+  });
+});
+
+
+describe('IDEA_MOVE_RE — a move in the student\'s words', () => {
+  it('matches notation and words for a move', () => {
+    for (const text of [
+      'а если Rg1?', 'а что если поставить ладью на g1', 'ладьёй взять на h4', 'взять ферзя конём',
+      'коня с f3 на d5', 'what if I put the rook on g1', 'take the queen with the knight', 'knight to d5',
+      'а если Лg1', 'может Nxe5?',
+    ]) {
+      expect(IDEA_MOVE_RE.test(text), text).toBe(true);
+    }
+  });
+  it('leaves other talk alone', () => {
+    for (const text of ['что мне делать?', 'что такое связка', 'привет', 'кто впереди по материалу', 'what should I play here']) {
+      expect(IDEA_MOVE_RE.test(text), text).toBe(false);
+    }
   });
 });

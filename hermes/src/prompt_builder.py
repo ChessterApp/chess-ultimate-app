@@ -920,6 +920,30 @@ def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[li
     return "\n".join(lines)
 
 
+def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) -> Optional[str]:
+    """The «[Idea] …» line for the live voice session: the move the student
+    named, played on the board and judged by the engine (src/hypothetical.py),
+    in the shape of the other voice lines ([Engine], [Topic], [Check])."""
+    if not moves:
+        return None
+    named = []
+    for item in moves[:4]:
+        words = f" («{item['words']}»)" if item.get("source") == "prose" and item.get("words") else ""
+        named.append(f"{item['san']}{words} — {item['verdict']}")
+    parts = ["[Idea] The student names a move: " + "; ".join(named) + "."]
+    if hypo and hypo.get("note"):
+        lines = [ln.lstrip("- ").strip() for ln in hypo["note"].splitlines() if ln.strip()]
+        parts.append("Played on the board and analysed by Stockfish: " + " ".join(lines))
+    parts.append(
+        "Judge the idea from these facts, in the student's language, without calling analyze_position "
+        "or check_moves for these moves; never claim an attack, a capture, a check or a defence that is "
+        "not listed here, and never read out numbers."
+    )
+    if live_game:
+        parts.append("This is a live game: do not name a better move instead — say what happens after the idea.")
+    return " ".join(parts)
+
+
 def hypothetical_block(note: str, live_game: bool = False) -> str:
     """The student's idea played on the board and looked at by the engine
     (src/hypothetical.py), as a turn-context block."""
@@ -1089,9 +1113,16 @@ VOICE_TOOL_LAYER = (
     "tool call, and explain WHY from those facts — never name an attack, a defence or a "
     "threat that is not in them. Otherwise, or for any other position, call "
     "analyze_position.\n"
+    "- A move the student names («а если Rg1?», «поставлю ладью на g1»): the system adds "
+    "a line starting with \"[Idea]\" — that move played on the board and analysed: whether it "
+    "is legal, what the piece really attacks from its new square, whether it can be taken, the "
+    "opponent's best reply and how the evaluation changed. Judge the idea from that line, never "
+    "from your head: «the rook on g1 attacks the queen on h4» is a claim about that position, "
+    "and the line already says what the rook attacks.\n"
     "- Any move you name that did not come from the engine: verify it with "
     "check_moves first; if it is illegal, pick a legal move from the returned "
-    "list — never speak an illegal move.\n"
+    "list — never speak an illegal move. A move you recommend is checked by the engine after "
+    "you say it; if it loses, you will be told and must correct yourself.\n"
     "- A concept (a tactic, a pawn structure, an endgame technique, an opening "
     "idea): get_topic — it puts a verified example on the board itself (the "
     "site's lesson when there is one); describe exactly that position, and when "

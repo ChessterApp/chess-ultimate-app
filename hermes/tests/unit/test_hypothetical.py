@@ -324,3 +324,86 @@ def test_a_sound_recommendation_streams(monkeypatch):
     _, frames = _turn(monkeypatch, answer, "что мне играть?", H4, COACH_ANSWER_FIX=False)
     text = "".join(f.get("delta", "") for f in frames)
     assert "Nxh4" in text and "выигрывает" in text
+
+
+class TestVoiceIdea:
+    """The voice twin: the student's spoken idea, played on the board (2026-10-04)."""
+
+    def setup_method(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(server.app)
+        self.headers = {"X-User-Id": "voice-idea"}
+
+    def test_the_idea_line_carries_the_engines_facts(self, monkeypatch):
+        board = chess.Board(H4)
+        after = board.copy(stack=False)
+        after.push_san("Rg1")
+        monkeypatch.setattr(config, "COACH_HYPOTHETICAL_NOTE", True)
+        monkeypatch.setattr("src.hypothetical.analyze_timed",
+                            _fake_analysis({H4: (8.6, "f3h4"), after.fen(): ("mate 1", "h4f2")}))
+        resp = self.client.post("/api/coach/voice/idea", headers=self.headers,
+                                json={"text": "а что если поставить ладью на g1?", "fen": H4})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["moves"] == [{"san": "Rg1", "legal": True, "verdict": "legal"}]
+        assert data["fens"] == [after.fen()]
+        note = data["note"]
+        assert note.startswith("[Idea] The student names a move: Rg1 («ладью на g1») — legal.")
+        assert "the rook on g1 attacks nothing" in note and "best reply: Qxf2#" in note
+        assert "The engine prefers Nxh4 instead." in note
+        assert "never claim an attack" in note and "live game" not in note
+
+    def test_a_live_game_keeps_the_better_move_out(self, monkeypatch):
+        board = chess.Board(H4)
+        after = board.copy(stack=False)
+        after.push_san("Rg1")
+        monkeypatch.setattr(config, "COACH_HYPOTHETICAL_NOTE", True)
+        monkeypatch.setattr("src.hypothetical.analyze_timed",
+                            _fake_analysis({H4: (8.6, "f3h4"), after.fen(): ("mate 1", "h4f2")}))
+        note = self.client.post("/api/coach/voice/idea", headers=self.headers,
+                                json={"text": "what if I put the rook on g1?", "fen": H4, "live_game": True}).json()["note"]
+        assert "engine prefers" not in note and "This is a live game" in note
+
+    def test_an_illegal_idea_is_explained_without_the_engine(self, monkeypatch):
+        monkeypatch.setattr("src.hypothetical.analyze_timed", lambda *a, **k: pytest.fail("no analysis for an illegal move"))
+        data = self.client.post("/api/coach/voice/idea", headers=self.headers,
+                                json={"text": "а ладьёй взять на h4?", "fen": H4}).json()
+        assert data["moves"][0]["legal"] is False and data["fens"] == []
+        assert "Rxh4 («ладьей взять на h4») — NOT legal — the pawn on h2 is in the way of the rook on h1" in data["note"]
+
+    def test_words_without_a_move_give_no_line(self):
+        data = self.client.post("/api/coach/voice/idea", headers=self.headers,
+                                json={"text": "что мне тут делать?", "fen": H4}).json()
+        assert data == {"note": None, "moves": [], "fens": []}
+
+
+class TestVoiceCheckVerifiesTheRecommendation:
+    def setup_method(self):
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(server.app)
+
+    def test_a_recommended_blunder_is_an_issue(self, monkeypatch):
+        board = chess.Board(H4)
+        after = board.copy(stack=False)
+        after.push_san("Rg1")
+        monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
+        monkeypatch.setattr("src.hypothetical.analyze_timed",
+                            _fake_analysis({H4: (8.6, "f3h4"), after.fen(): ("mate 1", "h4f2")}))
+        resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-verify"},
+                                json={"text": "Сыграй Rg1 — ладья уходит из-под удара.", "fen": H4})
+        issues = resp.json()["issues"]
+        assert len(issues) == 1 and issues[0].startswith("Rg1 is a blunder on this board (engine): it walks into a forced mate — Rg1 Qxf2#")
+        assert "engine's move" not in issues[0]  # the voice coach may be in a game: it hints
+
+    def test_a_sound_recommendation_is_clean(self, monkeypatch):
+        board = chess.Board(H4)
+        after = board.copy(stack=False)
+        after.push_san("Nxh4")
+        monkeypatch.setattr(config, "COACH_MOVE_VERIFY", True)
+        monkeypatch.setattr("src.hypothetical.analyze_timed",
+                            _fake_analysis({H4: (8.6, "f3h4"), after.fen(): (-8.8, "g8f6")}))
+        resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-verify"},
+                                json={"text": "Бери ферзя: Nxh4, он не защищён.", "fen": H4})
+        assert resp.json() == {"issues": []}
