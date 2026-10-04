@@ -42,7 +42,61 @@ export const ANALYTICS_EVENTS = {
   // wasn't ready yet (Maia served from the server fallback, or Stockfish still
   // initializing). Should be rare; a spike means readiness/persistence regressed.
   PLAY_ENGINE_WAIT: 'play_engine_wait',
+
+  // Companion (spec §13) — fired only from the flag-gated companion surfaces.
+  // Props carry stable IDs + version + cohort; NEVER PII or raw chess text
+  // (names/FENs/solutions are stripped by stripPii below).
+  COMPANION_EGG_RECEIVED: 'egg_received',
+  COMPANION_COMPETENCY_ATTEMPTED: 'competency_attempted',
+  COMPANION_COMPETENCY_PASSED: 'competency_passed',
+  COMPANION_HATCH_ELIGIBLE: 'hatch_eligible',
+  COMPANION_HATCHED: 'companion_hatched',
+  COMPANION_NAMED: 'companion_named',
+  COMPANION_QUEST_STARTED: 'quest_started',
+  COMPANION_QUEST_COMPLETED: 'quest_completed',
+  COMPANION_REVIEW_COMPLETED: 'review_completed',
+  COMPANION_MASTERY_UPDATED: 'mastery_updated',
+  COMPANION_REWARD_GRANTED: 'reward_granted',
+  COMPANION_WEEKLY_GOAL_UPDATED: 'weekly_goal_updated',
 } as const;
+
+/**
+ * Prop keys that could carry PII or raw chess text (spec §13: "Avoid
+ * unnecessary personal text in analytics"). These are stripped from EVERY
+ * tracked event by construction — companion names, FEN/PGN/moves, solutions,
+ * prompts, and identifiers never reach PostHog. Keep names/IDs that are stable
+ * and non-identifying (competency codes, quest ids, versions) out of this list.
+ */
+export const PII_DENYLIST: readonly string[] = [
+  'name',
+  'companion_name',
+  'email',
+  'fen',
+  'pgn',
+  'san',
+  'uci',
+  'move',
+  'moves',
+  'squares',
+  'placement',
+  'solution',
+  'prompt',
+  'hint',
+  'text',
+] as const;
+
+/** Drop any PII/raw-chess-text keys from a tracked-event prop bag. */
+export function stripPii(
+  props?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!props) return props;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(props)) {
+    if (PII_DENYLIST.includes(k.toLowerCase())) continue;
+    out[k] = v;
+  }
+  return out;
+}
 
 export type AnalyticsEvent =
   (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
@@ -59,7 +113,7 @@ export function track(event: AnalyticsEvent, props?: Record<string, unknown>): v
   }).posthog;
   if (!ph) return;
   try {
-    ph.capture(event, props);
+    ph.capture(event, stripPii(props));
   } catch {
     // swallow — analytics never breaks the call site
   }

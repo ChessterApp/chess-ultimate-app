@@ -2858,6 +2858,21 @@
       "allCaught": "All caught up — no reviews due right now.",
       "rung": "Step {rung}",
       "start": "Review"
+    },
+    "goal": {
+      "title": "Weekly goal",
+      "targetLabel": "Days/week",
+      "progress": "{done} of {target} days this week",
+      "met": "Goal reached — awesome week!",
+      "keepGoing": "Any day you practice counts. Missing a week is totally fine."
+    },
+    "quest": {
+      "title": "Quests",
+      "start": "Start",
+      "active": "In progress",
+      "completed": "Completed",
+      "progress": "{done} of {total} done",
+      "reward": "You earned {xp} XP and {coins} coins!"
     }
   }
 }

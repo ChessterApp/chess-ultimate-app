@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { Submission } from '@/lib/companion/assessment';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 import WatchtowerBoard from './WatchtowerBoard';
 
 interface DueItem {
@@ -21,6 +22,7 @@ interface DueItem {
 }
 interface ActiveTask {
   assignment_id: string;
+  competency: string;
   fen: string;
   validator: string;
   prompt: { en: string; ru: string; kk: string };
@@ -86,6 +88,24 @@ export default function DueReviewPanel() {
       const body = await res.json().catch(() => ({}));
       if (res.ok && body?.correct) {
         setFeedback('correct');
+        track(ANALYTICS_EVENTS.COMPANION_REVIEW_COMPLETED, {
+          competency: active.competency,
+          cohort: 'chess-empire',
+        });
+        track(ANALYTICS_EVENTS.COMPANION_MASTERY_UPDATED, {
+          competency: active.competency,
+          interval_days: Number(body.interval_days ?? 0),
+          cohort: 'chess-empire',
+        });
+        if (body?.reward_granted) {
+          track(ANALYTICS_EVENTS.COMPANION_REWARD_GRANTED, {
+            source: 'due_review',
+            competency: active.competency,
+            xp: Number(body.xp ?? 0),
+            coins: Number(body.coins ?? 0),
+            cohort: 'chess-empire',
+          });
+        }
         await load();
         setActive(null);
       } else {

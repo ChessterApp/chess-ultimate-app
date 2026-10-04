@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import type { Submission } from '@/lib/companion/assessment';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 import { CelebrationOverlay } from '@/components/gamification/CelebrationOverlay';
 import WatchtowerBoard from './WatchtowerBoard';
 
@@ -69,9 +70,23 @@ export default function WatchtowerPanel() {
         body: JSON.stringify({ node: active.node, submission }),
       });
       const body = await res.json().catch(() => ({}));
+      track(ANALYTICS_EVENTS.COMPANION_COMPETENCY_ATTEMPTED, {
+        node: active.node,
+        cohort: 'chess-empire',
+      });
       if (res.ok && body?.correct) {
         setFeedback('correct');
+        track(ANALYTICS_EVENTS.COMPANION_COMPETENCY_PASSED, {
+          node: active.node,
+          cohort: 'chess-empire',
+        });
         if (body?.chapter_complete && body?.reward_granted) {
+          track(ANALYTICS_EVENTS.COMPANION_REWARD_GRANTED, {
+            source: 'chapter',
+            xp: Number(body.xp ?? 0),
+            coins: Number(body.coins ?? 0),
+            cohort: 'chess-empire',
+          });
           setCelebrate({ xp: Number(body.xp ?? 0), coins: Number(body.coins ?? 0) });
         }
         await load();

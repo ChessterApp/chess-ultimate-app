@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { COMPANION_NAME_MAX } from '@/lib/companion/state';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 import CompanionAnimation from './CompanionAnimation';
 
 /** What the parent's hatch POST resolves to (drives the reveal + reward display). */
@@ -61,6 +62,18 @@ export default function FoxReveal({ mode, initialName, onHatch, onClose }: FoxRe
       if (!res.ok) {
         setError(res.error === 'not_ready' ? t('hatch.notReady') : t('hatch.failed'));
         return;
+      }
+      // Analytics (spec §13) — no PII: the name itself is never sent, only that
+      // a companion was named + hatched, with the reward outcome.
+      track(ANALYTICS_EVENTS.COMPANION_NAMED, { named: true, cohort: 'chess-empire' });
+      track(ANALYTICS_EVENTS.COMPANION_HATCHED, { cohort: 'chess-empire' });
+      if (res.reward_granted) {
+        track(ANALYTICS_EVENTS.COMPANION_REWARD_GRANTED, {
+          source: 'hatch',
+          xp: res.xp ?? 0,
+          coins: res.coins ?? 0,
+          cohort: 'chess-empire',
+        });
       }
       setOutcome(res);
       setCommittedName(res.name || trimmed);

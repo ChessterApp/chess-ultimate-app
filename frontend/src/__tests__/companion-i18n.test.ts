@@ -99,6 +99,19 @@ const REQUIRED_KEYS = [
   'review.allCaught',
   'review.rung',
   'review.start',
+  // Phase 5 — weekly-goal strings.
+  'goal.title',
+  'goal.targetLabel',
+  'goal.progress',
+  'goal.met',
+  'goal.keepGoing',
+  // Phase 5 — quest strip strings.
+  'quest.title',
+  'quest.start',
+  'quest.active',
+  'quest.completed',
+  'quest.progress',
+  'quest.reward',
 ];
 
 describe('companion namespace i18n', () => {

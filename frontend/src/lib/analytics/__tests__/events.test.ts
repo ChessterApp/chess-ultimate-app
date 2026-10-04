@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ANALYTICS_EVENTS, track } from '../events';
+import { ANALYTICS_EVENTS, PII_DENYLIST, stripPii, track } from '../events';
 
 describe('ANALYTICS_EVENTS', () => {
   it('exposes wizard events with snake_case names', () => {
@@ -25,6 +25,58 @@ describe('ANALYTICS_EVENTS', () => {
       expect(v.length).toBeGreaterThan(0);
       expect(v).toMatch(/^[a-z][a-z0-9_]*$/);
     }
+  });
+
+  it('registers every companion event (spec §13)', () => {
+    const COMPANION = [
+      'egg_received',
+      'competency_attempted',
+      'competency_passed',
+      'hatch_eligible',
+      'companion_hatched',
+      'companion_named',
+      'quest_started',
+      'quest_completed',
+      'review_completed',
+      'mastery_updated',
+      'reward_granted',
+      'weekly_goal_updated',
+    ];
+    const registered = new Set(Object.values(ANALYTICS_EVENTS));
+    for (const e of COMPANION) {
+      expect(registered.has(e), `companion event "${e}" must be registered`).toBe(true);
+    }
+  });
+});
+
+describe('stripPii()', () => {
+  it('drops PII / raw-chess-text keys from tracked props', () => {
+    const scrubbed = stripPii({
+      name: 'Rufus',
+      fen: '4k3/8/8/8/8/8/8/4K3 w - - 0 1',
+      uci: 'e2e4',
+      solution: 'd1d5',
+      prompt: 'Capture the rook',
+      competency: 'H_ROOK',
+      quest_id: 'watchtower',
+      version: 1,
+      cohort: 'chess-empire',
+    });
+    // Nothing on the denylist survives…
+    for (const k of PII_DENYLIST) {
+      expect(scrubbed).not.toHaveProperty(k);
+    }
+    // …but stable, non-identifying analytics keys are preserved.
+    expect(scrubbed).toMatchObject({
+      competency: 'H_ROOK',
+      quest_id: 'watchtower',
+      version: 1,
+      cohort: 'chess-empire',
+    });
+  });
+
+  it('passes undefined through untouched', () => {
+    expect(stripPii(undefined)).toBeUndefined();
   });
 });
 

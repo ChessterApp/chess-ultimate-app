@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { notFound } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { COMPANION_ENABLED } from '@/lib/feature-flags';
+import { ANALYTICS_EVENTS, track } from '@/lib/analytics/events';
 import LoadingScreen from '@/components/LoadingScreen';
 import EggAnimation from '@/components/companion/EggAnimation';
 import EggChooser from '@/components/companion/EggChooser';
@@ -12,6 +13,8 @@ import CompanionAnimation from '@/components/companion/CompanionAnimation';
 import FoxReveal, { type HatchOutcome } from '@/components/companion/FoxReveal';
 import WatchtowerPanel from '@/components/companion/WatchtowerPanel';
 import DueReviewPanel from '@/components/companion/DueReviewPanel';
+import WeeklyGoalPanel from '@/components/companion/WeeklyGoalPanel';
+import QuestStrip from '@/components/companion/QuestStrip';
 
 interface CompanionView {
   companion: { species: string | null; name: string | null; stage: string; hatched_at: string | null } | null;
@@ -34,6 +37,8 @@ function CompanionInner() {
   const [busy, setBusy] = useState<string | null>(null);
   const [gone, setGone] = useState(false);
   const [reveal, setReveal] = useState<'hatch' | 'replay' | null>(null);
+  // Fire hatch_eligible at most once per mount (spec §13).
+  const eligibleFired = useRef(false);
 
   const load = useCallback(async () => {
     const res = await fetch('/api/gamification/companion');
@@ -49,7 +54,14 @@ function CompanionInner() {
       setLoading(false);
       return;
     }
-    if (res.ok) setData(await res.json());
+    if (res.ok) {
+      const view = (await res.json()) as CompanionView;
+      setData(view);
+      if (view.hatch_ready && view.companion?.stage !== 'hatched' && !eligibleFired.current) {
+        eligibleFired.current = true;
+        track(ANALYTICS_EVENTS.COMPANION_HATCH_ELIGIBLE, { cohort: 'chess-empire' });
+      }
+    }
     setLoading(false);
   }, []);
 
@@ -65,7 +77,10 @@ function CompanionInner() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ species }),
       });
-      if (res.ok) await load();
+      if (res.ok) {
+        track(ANALYTICS_EVENTS.COMPANION_EGG_RECEIVED, { species, cohort: 'chess-empire' });
+        await load();
+      }
     } finally {
       setBusy(null);
     }
@@ -163,9 +178,13 @@ function CompanionInner() {
         hatchReady={data!.hatch_ready}
       />
 
-      {/* Post-hatch: the Watchtower chapter + pull-based review surface (Phase 4). */}
+      {/* Weekly practice-days goal (replaces the daily-streak flame here, R2). */}
+      <WeeklyGoalPanel />
+
+      {/* Post-hatch: Watchtower chapter + pull-based review + quest strip. */}
       {hatched && (
         <>
+          <QuestStrip />
           <WatchtowerPanel />
           <DueReviewPanel />
         </>
