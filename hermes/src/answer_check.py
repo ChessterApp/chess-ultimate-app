@@ -960,6 +960,9 @@ def _hanging_kind(verb: str) -> str:
     return "hanging"
 
 
+_EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|apart\s+from|but\s+(?:the|your|my|a))(?![а-яa-z])", re.IGNORECASE)
+
+
 def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []  # no real position of the turn to judge by
@@ -973,6 +976,8 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         ctx._object = sq_name
         verb = m["v"] or m["v2"] or m["v3"]
         kind = _hanging_kind(verb)
+        if kind == "undefended" and _EXCEPT.match(text, m.end()):
+            continue  # «никто не защищает, кроме ферзя», "nothing defends f2 except the king": a defender is named
         if kind != "undefended" and _NEGATION.search(text[: m.start(verb and ("v" if m["v"] else "v2" if m["v2"] else "v3"))]):
             continue  # «не висит», "is not hanging"
         if _is_hypothetical(text, original, m.start()):
@@ -1427,13 +1432,60 @@ _NOT_ATTACKED = re.compile(
     _B2 + r"(?:(?:никто|ничто|ничего|nothing|nobody|no\s+one|no\s+piece)\s+(?:не\s+|is\s+|isn't\s+|currently\s+)?"
     r"(?:атакует|бь[её]т|нападает|угрожает|attacks|attacking|hits|hitting|threatens|threatening|targets|targeting)\s+"
     r"(?:на\s+)?(?:(?:тво\w+|ваш\w+|мо\w+|ч[её]рн\w+|бел\w+|the|your|my)\s+)?"
-    rf"(?:(?:{_PIECE_ANY})\s+(?:на\s+|on\s+)?)?(?:(?P<a>{SQ})|(?P<it1>it|её|ее|его))(?![0-9a-zа-я])"
+    rf"(?:(?P<p1>{_PIECE_ANY})\s+(?:на\s+|on\s+)?)?(?:(?P<a>{SQ})|(?P<it1>it|её|ее|его))(?![0-9a-zа-я])"
     r"(?!\s*(?:a\s+second\s+time|twice|again|any\s*more|ещ[её]\s+раз|второй\s+раз|дважды|больше|кроме|except|but)(?![а-яa-z]))"
-    rf"|(?:(?:{_PIECE_ANY})\s+(?:на\s+|on\s+)?(?P<b>{SQ})|(?P<b2>{SQ})[- ](?:pawn|knight|bishop|rook|queen|king)|(?P<it2>it|она|он))(?![0-9])"
+    rf"|(?:(?P<p2>{_PIECE_ANY})\s+(?:на\s+|on\s+)?(?P<b>{SQ})|(?P<b2>{SQ})[- ](?P<p3>pawn|knight|bishop|rook|queen|king)|(?P<it2>it|она|он))(?![0-9])"
     r"\s+(?:сейчас\s+|пока\s+|уже\s+|is\s+|'s\s+|are\s+|now\s+|currently\s+|still\s+|совсем\s+|совершенно\s+|полностью\s+|perfectly\s+|completely\s+)*"
     r"(?P<neg>не\s+(?:атакован\w*|под\s+(?:боем|ударом|угрозой))|никем\s+не\s+атакован\w*|"
     r"(?:is\s+)?not\s+(?:attacked|under\s+attack|under\s+threat|threatened)|isn't\s+(?:attacked|under\s+attack|threatened))"
     r"(?![а-яa-z])(?!\s*(?:by|from|от|со\s+стороны)(?![а-яa-z])))", re.IGNORECASE)
+
+
+# «никто не защищает a4», "nothing defends a4", "nothing of yours defends the rook":
+# a claim that the square has no defender (production, 2026-10-04: "Right now
+# nothing defends a4" with the pawn on b3 defending it).
+_NOT_DEFENDED = re.compile(
+    _B2 + r"(?:никто|ничто|ничего|nothing|nobody|no\s+one|no\s+piece)(?:\s+of\s+(?:yours|mine|theirs|white'?s|black'?s))?"
+    r"\s+(?:не\s+|is\s+|isn't\s+|currently\s+|really\s+)?"
+    r"(?:защищает|прикрывает|держит|охраняет|defends|defending|protects|protecting|guards|guarding|covers|covering)\s+"
+    r"(?:на\s+)?(?:(?:тво\w+|ваш\w+|мо\w+|ч[её]рн\w+|бел\w+|the|your|my|that|this)\s+)?"
+    rf"(?:(?P<p1>{_PIECE_ANY})\s+(?:на\s+|on\s+)?)?(?:(?P<a>{SQ})|(?P<it>it|её|ее|его))(?![0-9a-zа-я])"
+    r"(?!\s*,?\s*(?:a\s+second\s+time|twice|again|any\s*more|ещ[её]\s+раз|второй\s+раз|дважды|больше|кроме|помимо|except|but|other\s+than|apart\s+from)(?![а-яa-z]))"
+    # «пешку a4 никто не защищает»: the object first
+    rf"|(?P<p2>{_PIECE_ANY})\s+(?:на\s+)?(?P<b>{SQ})(?![0-9])\s+(?:сейчас\s+|пока\s+|уже\s+|теперь\s+)?(?:никто|ничто|ничего)\s+не\s+"
+    r"(?:защищает|прикрывает|держит|охраняет)(?![а-я])(?!\s*,?\s*(?:кроме|помимо|больше)(?![а-я]))",
+    re.IGNORECASE)
+
+
+def _same_kind(word: Optional[str], piece: chess.Piece) -> bool:
+    """No piece named, or the named kind is what stands on the square."""
+    if not word:
+        return True
+    kind = _piece_type(word.lower())
+    return kind is None or kind == piece.piece_type
+
+
+def _not_defended_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    issues = []
+    for m in _NOT_DEFENDED.finditer(text):
+        if _is_hypothetical(text, original, m.start()):
+            continue
+        sq_name = m["a"] or m["b"] or (_pronoun_square(text, m.start("it"), ctx) if m["it"] else None)
+        if not sq_name or (m["it"] and sq_name not in _SQ_RE.findall(text)):
+            continue  # "nobody guards it" about a square the sentence never names (the question's Rxd6): not judged
+        sq = chess.parse_square(sq_name)
+        piece = ctx.current.piece_at(sq)
+        if piece is None or not _same_kind(m["p1"] or m["p2"], piece):
+            continue  # "the rook on d6" with a pawn on d6: about another position (after Rxd6)
+        defenders = ctx.current.attackers(piece.color, sq)
+        if not defenders:
+            continue
+        ctx._object = sq_name
+        who = ", ".join(_piece_name_at(ctx.current, d) for d in defenders)
+        issues.append(f"the {_NAMES[piece.piece_type]} on {sq_name} IS defended — by {who}")
+    return issues
 
 
 def _not_attacked_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
@@ -1446,11 +1498,11 @@ def _not_attacked_issues(text: str, original: str, ctx: CheckContext) -> list[st
         sq_name = m["a"] or m["b"] or m["b2"]
         if not sq_name:
             sq_name = _pronoun_square(text, m.start("it1") if m["it1"] else m.start(), ctx)
-            if not sq_name:
-                continue
+            if not sq_name or sq_name not in _SQ_RE.findall(text):
+                continue  # the pronoun's square must be named in this sentence
         sq = chess.parse_square(sq_name)
         piece = ctx.current.piece_at(sq)
-        if piece is None:
+        if piece is None or not _same_kind(m["p1"] or m["p2"] or m["p3"], piece):
             continue
         attackers = ctx.current.attackers(not piece.color, sq)
         if not attackers:
@@ -1543,7 +1595,8 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _material_issues(text, original, ctx) + _presence_issues(text, original, ctx)
             + _instrument_issues(text, original, ctx) + _object_first_issues(text, original, ctx)
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
-            + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx))
+            + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
+            + _not_defended_issues(text, original, ctx))
 
 
 # A sentence in the wrong language: the model answered a Russian question in

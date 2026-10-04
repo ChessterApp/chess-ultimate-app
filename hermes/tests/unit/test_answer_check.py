@@ -648,3 +648,28 @@ class TestNotAttacked:
     def test_right_or_unjudged(self, sentence):
         ctx = CheckContext.from_fens([self.T], question="Is my pawn on a4 hanging?", student_color=chess.WHITE)
         assert check_sentence(sentence, ctx) == [], sentence
+
+
+class TestNotDefended:
+    """"Right now nothing defends a4" with the pawn on b3 defending it (production, 2026-10-04)."""
+
+    T = "2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1"
+
+    @pytest.mark.parametrize("sentence, expect", [
+        ("Right now nothing defends a4, so if Black plays ...Nxa4 the pawn drops.", "the pawn on a4 IS defended — by the pawn on b3"),
+        ("Пешку a4 никто не защищает.", "the pawn on a4 IS defended"),
+        ("Nothing of yours defends the rook on d5.", "the rook on d5 IS defended — by the pawn on e4"),
+    ])
+    def test_caught(self, sentence, expect):
+        ctx = CheckContext.from_fens([self.T], question="Is my pawn on a4 hanging?", student_color=chess.WHITE)
+        issues = check_sentence(sentence, ctx)
+        assert any(expect in i for i in issues), (sentence, issues)
+
+    @pytest.mark.parametrize("sentence", [
+        "Nothing defends the rook on d6 after Rxd6.",  # hypothetical
+        "Ладью d6 никто не защищает, кроме ферзя.",
+        "Nothing defends f2 except the king.",
+    ])
+    def test_unjudged(self, sentence):
+        ctx = CheckContext.from_fens([self.T], question="", student_color=chess.WHITE)
+        assert check_sentence(sentence, ctx) == [], sentence
