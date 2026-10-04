@@ -14,6 +14,7 @@ import {
   readWelcomeOnboardingUrl,
 } from '@/lib/invite-storage'
 import { computeSignupGuard } from '@/lib/signup-guard'
+import { readPendingAnswers, type PendingOnboardingAnswers } from '@/lib/onboarding/pendingAnswers'
 
 interface InvitePreview {
   firstName: string | null
@@ -128,6 +129,22 @@ export default function SignUpPage() {
       // Storage disabled (private mode / blocked) — the webhook path still runs.
     }
   }, [hasValidInvite, inviteJwt])
+
+  // Carry the anonymous onboarding answers into Clerk `unsafeMetadata` as a
+  // backup to the localStorage copy, so the /onboarding/complete claim page can
+  // recover them even if localStorage was cleared. Read client-only (storage is
+  // unavailable during SSR) to avoid a hydration mismatch.
+  const [pendingAnswers, setPendingAnswers] = useState<PendingOnboardingAnswers | null>(null)
+  useEffect(() => {
+    // Storage is unavailable during SSR, so this must run client-only in an effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPendingAnswers(readPendingAnswers())
+  }, [])
+  const unsafeMetadata = {
+    ...(hasValidInvite && inviteJwt ? { inviteJwt } : {}),
+    ...(pendingAnswers ? { onboardingAnswers: pendingAnswers } : {}),
+  }
+  const hasUnsafeMetadata = Object.keys(unsafeMetadata).length > 0
 
   const heading = isWhiteLabel
     ? `${t('auth.signUpTitle')} · ${branding.name}`
@@ -505,7 +522,7 @@ export default function SignUpPage() {
         )}
 
         <SignUp
-          {...(hasValidInvite && inviteJwt ? { unsafeMetadata: { inviteJwt } } : {})}
+          {...(hasUnsafeMetadata ? { unsafeMetadata } : {})}
           appearance={{
             layout: {
               socialButtonsPlacement: 'bottom',

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Image from "next/image";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useLocale } from "next-intl";
@@ -10,6 +11,14 @@ import { useGameData } from "@/lib/onboarding/GameDataContext";
 import { getMostPlayedOpenings } from "@/lib/onboarding/gameFetcher";
 import { translateOpeningName } from "@/lib/openings/openingNamesI18n";
 import { usePhaseHistory } from "@/hooks/usePhaseHistory";
+import { deriveTier, type PuzzleTheme } from "@/lib/onboarding/deriveTier";
+import { writePendingAnswers } from "@/lib/onboarding/pendingAnswers";
+
+// Client-only: chessground touches the DOM at load, so defer it past SSR.
+const AnimatedChessBoard = dynamic(
+  () => import("@/components/chess/AnimatedChessBoard"),
+  { ssr: false },
+);
 
 const TOTAL_STEPS = 16;
 
@@ -197,6 +206,16 @@ export default function OnboardingPage() {
     history.back();
   }, [phase, step, history]);
 
+  // Final CTA: a hard signup gate. Persist the answers so the post-signup
+  // /onboarding/complete claim page can attach them, then hand off to Clerk
+  // sign-up with a redirect_url so the new account lands on the claim page.
+  // The invite (?invite=) flow is untouched — it never sets redirect_url.
+  const handleStartPlan = useCallback(() => {
+    writePendingAnswers(answers);
+    const redirect = encodeURIComponent("/onboarding/complete");
+    router.push(`/sign-up?redirect_url=${redirect}`);
+  }, [answers, router]);
+
   const isEntering = phase === "entering";
   const slideClass =
     phase === "exiting"
@@ -263,11 +282,11 @@ export default function OnboardingPage() {
           {step === 9 && <StepPracticeTime t={t} onSelect={(v: string) => { setAnswers(a => ({ ...a, practiceTime: v })); goNext(); }} />}
           {step === 10 && <StepGoal t={t} answers={answers} onSelect={(v: string) => { setAnswers(a => ({ ...a, goal: v })); goNext(); }} />}
           {step === 11 && <StepTimeline t={t} onSelect={(v: string) => { setAnswers(a => ({ ...a, timeline: v })); goNext(); }} />}
-          {step === 12 && <StepPuzzle t={t} onNext={goNext} />}
+          {step === 12 && <StepPuzzle t={t} answers={answers} onNext={goNext} />}
           {step === 13 && <StepSkillProfile t={t} answers={answers} onNext={goNext} />}
           {step === 14 && <StepBuildingPlan t={t} answers={answers} onComplete={goNext} isFetchingGames={isLoading} />}
           {step === 15 && <StepOpeningDNAGate t={t} answers={answers} isLoading={isLoading} onNext={goNext} />}
-          {step === 16 && <StepCustomPlan t={t} answers={answers} onNext={goNext} />}
+          {step === 16 && <StepCustomPlan t={t} answers={answers} onStart={handleStartPlan} />}
           {step === 17 && <StepPaywall1 t={t} onNext={goNext} />}
           {step === 18 && <StepPaywall2 t={t} onNext={goNext} />}
           {step === 19 && <StepPaywall t={t} router={router} />}
@@ -672,18 +691,115 @@ function StepTimeline({ t, onSelect }: { t: any; onSelect: (v: string) => void }
   );
 }
 
-function StepPuzzle({ t, onNext }: { t: any; onNext: () => void }) {
+// Chessgubbins theme + rating window for the derived puzzle tier. The beginner
+// tier has no lesson-DB route yet, so it falls back to an easy mate-in-1 at a
+// low rating window (documented fallback per the onboarding-persist spec).
+// TODO(onboarding): serve beginners a curated level-1 lesson_puzzles puzzle.
+function puzzleQuery(theme: PuzzleTheme, answers: any): { theme: string; from: number; to: number } {
+  if (theme === "beginner") return { theme: "mateIn1", from: 0, to: 800 };
+  const online = Number(answers?.onlineRating) || 0;
+  const eff = online > 0 ? online : answers?.noRating ? null : Number(answers?.eloRating) || 800;
+  if (eff == null) {
+    // "no rating" but an advanced/intermediate experience — keep a mid window.
+    return { theme, from: 800, to: 1600 };
+  }
+  return { theme, from: Math.max(0, eff - 400), to: eff + 400 };
+}
+
+function StepPuzzle({ t, answers, onNext }: { t: any; answers: any; onNext: () => void }) {
+  const { puzzleTheme } = deriveTier(answers);
+  const [status, setStatus] = useState<"loading" | "ready" | "solved" | "error">("loading");
+  const [fen, setFen] = useState<string | null>(null);
+  const [solutionLine, setSolutionLine] = useState<string[]>([]);
+  const [orientation, setOrientation] = useState<"white" | "black">("white");
+
+  useEffect(() => {
+    let cancelled = false;
+    const { theme, from, to } = puzzleQuery(puzzleTheme, answers);
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/puzzle?themes=${encodeURIComponent(theme)}&ratingFrom=${from}&ratingTo=${to}`,
+        );
+        const json = await res.json();
+        const data = json?.data;
+        const moves: string[] = String(data?.moves || "").trim().split(/\s+/).filter(Boolean);
+        if (!json?.success || !data?.FEN || moves.length === 0) throw new Error("bad puzzle");
+        if (cancelled) return;
+        setFen(data.FEN);
+        setSolutionLine(moves);
+        setOrientation(data.FEN.split(" ")[1] === "b" ? "black" : "white");
+        setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Derived once on mount from the funnel answers; no re-fetch on re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div className="flex-1 flex flex-col gap-6 justify-center items-center">
-      <h2 className="text-2xl font-bold text-white text-center">{t("puzzle.title")}</h2>
-      <div className="bg-white rounded-2xl p-10 shadow-md w-full flex flex-col items-center gap-4">
-        <span className="text-6xl">🎯</span>
-        <p className="text-gray-500 font-medium">{t("puzzle.comingSoon")}</p>
-        <button onClick={onNext} className="text-purple-600 text-sm underline">{t("puzzle.skip")}</button>
+    <div className="flex-1 flex flex-col gap-5 justify-center items-center">
+      <div className="text-center">
+        <h2 className="text-2xl font-bold text-white">{t("puzzle.title")}</h2>
+        <p className="text-white/60 text-sm mt-1">{t("puzzle.subtitle")}</p>
       </div>
-      <button onClick={onNext} className="bg-white text-purple-700 font-bold text-lg py-4 px-10 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform">
-        {t("continue")}
-      </button>
+
+      {status === "loading" && (
+        <div className="bg-white rounded-2xl p-10 shadow-md w-full flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+          <p className="text-gray-500 font-medium">{t("puzzle.loading")}</p>
+        </div>
+      )}
+
+      {status === "error" && (
+        <div className="bg-white rounded-2xl p-8 shadow-md w-full flex flex-col items-center gap-4 text-center">
+          <span className="text-5xl">♟️</span>
+          <p className="text-gray-500 font-medium">{t("puzzle.error")}</p>
+          <button
+            onClick={onNext}
+            className="bg-purple-600 text-white font-bold py-3 px-8 rounded-full shadow hover:scale-105 active:scale-95 transition-transform"
+          >
+            {t("continue")}
+          </button>
+        </div>
+      )}
+
+      {(status === "ready" || status === "solved") && fen && (
+        <div className="bg-white rounded-2xl p-4 shadow-md w-full flex flex-col items-center gap-4">
+          <AnimatedChessBoard
+            fen={fen}
+            solutionLine={solutionLine}
+            orientation={orientation}
+            onCorrectMove={() => setStatus("solved")}
+            showHints
+            enableAnimations
+          />
+          {status === "solved" ? (
+            <p className="text-green-600 font-bold text-center">✅ {t("puzzle.solved")}</p>
+          ) : (
+            <p className="text-gray-400 text-sm text-center">{t("puzzle.hint")}</p>
+          )}
+        </div>
+      )}
+
+      {status === "solved" && (
+        <button
+          onClick={onNext}
+          className="bg-white text-purple-700 font-bold text-lg py-4 px-10 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform"
+        >
+          {t("continue")}
+        </button>
+      )}
+
+      {(status === "ready" || status === "loading") && (
+        <button onClick={onNext} className="text-white/70 text-sm underline hover:text-white">
+          {t("puzzle.skip")}
+        </button>
+      )}
     </div>
   );
 }
@@ -1019,7 +1135,10 @@ function StepBuildingPlan({ t, answers, onComplete, isFetchingGames = false }: {
   );
 }
 
-function StepCustomPlan({ t, answers, onNext }: { t: any; answers: any; onNext: () => void }) {
+/* Hallmark · redesign (step 16 free-account gate): honest free framing on the
+ * existing plan card, roman headers, single accent CTA, micro-trust line, and a
+ * secondary sign-in link. No invented metrics beyond the pre-existing copy. */
+function StepCustomPlan({ t, answers, onStart }: { t: any; answers: any; onStart: () => void }) {
   const gameData = (answers as any).gameData || null;
   const stats = gameData?.stats;
   const focusAreas: string[] = answers.focusAreas || [];
@@ -1114,9 +1233,23 @@ function StepCustomPlan({ t, answers, onNext }: { t: any; answers: any; onNext: 
         ))}
       </div>
       <p className="text-center text-white/80 text-sm">{improvementMessage}</p>
-      <button onClick={onNext} className="bg-green-500 text-white font-bold text-lg py-4 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform">
-        {t("customPlan.startButton")}
-      </button>
+
+      {/* Free-account gate: free framing + micro-trust + sign-in fallback. */}
+      <div className="flex flex-col gap-2.5 pt-1">
+        <button
+          onClick={onStart}
+          className="bg-green-500 text-white font-bold text-lg py-4 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform"
+        >
+          {t("customPlan.startFree")}
+        </button>
+        <p className="text-center text-white/70 text-xs">{t("customPlan.freeNoCard")}</p>
+        <p className="text-center text-white/80 text-sm">
+          {t("customPlan.haveAccount")}{" "}
+          <a href="/sign-in" className="text-white font-semibold underline hover:text-white/90">
+            {t("customPlan.signIn")}
+          </a>
+        </p>
+      </div>
     </div>
   );
 }

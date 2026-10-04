@@ -1164,6 +1164,10 @@
   },
   "onboarding": {
     "continue": "Continue",
+    "complete": {
+      "title": "Setting up your account…",
+      "subtitle": "Personalizing your training plan."
+    },
     "welcome": {
       "title": "Your Personal Chess Coach",
       "subtitle": "Join 10,000+ chess learners worldwide",
@@ -1261,7 +1265,11 @@
     },
     "puzzle": {
       "title": "Let's test your skills!",
-      "comingSoon": "Puzzle coming soon",
+      "subtitle": "Solve this to calibrate your plan",
+      "loading": "Loading your puzzle…",
+      "solved": "Nice! You solved it.",
+      "hint": "Make the best move on the board",
+      "error": "Couldn't load a puzzle — let's keep going.",
       "skip": "Skip for now"
     },
     "openingDNA": {
@@ -1330,7 +1338,10 @@
       "endgameEssentials": "Endgame Essentials",
       "strategicThinking": "Strategic Thinking",
       "calculation": "Calculation & Visualization",
-      "startButton": "Start My Plan"
+      "startFree": "Create your free account to start",
+      "freeNoCard": "Free. No card needed.",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in"
     },
     "paywall1": {
       "title": "We want you to try {appName} for free",
