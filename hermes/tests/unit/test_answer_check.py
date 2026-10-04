@@ -562,3 +562,55 @@ def test_a_short_claim_free_start_waits_for_its_sentence():
     gate = SentenceGate(_ctx(ROOK_G1_W))
     assert gate.feed("Хороший вопрос, и ответ на него простой: ладья ") == [
         ("Хороший вопрос, и ответ на него простой: ", [], "Хороший вопрос, и ответ на него простой: ")]
+
+
+class TestHypotheticalPhrasings:
+    """The client's example of 2026-10-01 («поставь ладью на g1 — она нападает
+    на ферзя h4») in the phrasings that still passed the checker on 2026-10-04:
+    the piece named without a square after a written move, the attacker named
+    by kind only, a capture written through a piece of one's own."""
+
+    H4 = "r1b1k1nr/pppp1ppp/2n5/2b1p3/4P2q/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 0 5"  # black queen h4, white Nf3, Nc3, Bf1
+
+    def _ctx(self, question="что если поставить ладью на g1?"):
+        return CheckContext.from_fens([self.H4], question=question, student_color=chess.WHITE)
+
+    @pytest.mark.parametrize("sentence, expect", [
+        ("Если сыграть Rg1, ладья нападает на ферзя h4.", "a rook on g1 does not attack h4"),
+        ("Если сыграть Rg1, ладья нападает на ферзя.", "a rook on g1 does not attack h4"),  # the one black queen
+        ("Rg1 — и ладья нападает на ферзя h4.", "a rook on g1 does not attack h4"),
+        ("If you play Rg1, the rook attacks the queen on h4.", "a rook on g1 does not attack h4"),
+        ("После Rg1 ферзь h4 под ударом ладьи.", "no rook attacks h4"),
+        ("After Rg1 the queen on h4 is under attack from the rook.", "no rook attacks h4"),
+        ("Пешка f7 под ударом слона.", "no bishop attacks f7"),
+        ("Если сыграть Nd5, конь нападает на слона c5.", "a knight on d5 does not attack c5"),
+        ("Возьми ферзя ладьёй: Rxh4.", "Rxh4 is not possible here: the pawn on h2 is in the way of the rook on h1"),
+        ("Rxh4 и ферзь потерян.", "Rxh4 is not possible here"),
+    ])
+    def test_caught(self, sentence, expect):
+        issues = check_sentence(sentence, self._ctx())
+        assert any(expect in i for i in issues), (sentence, issues)
+
+    @pytest.mark.parametrize("sentence", [
+        "Ферзь h4 атакован конём.",  # Nf3 does hit h4
+        "Ферзь h4 под ударом коня f3.",
+        "Пешка e5 атакована конём.",
+        "Сыграй Nd5 — конь атакует пешку c7.",
+        "После Nd5 конь на d5 бьёт c7 и f6.",
+        "If you play Nd5, the knight attacks the pawn on c7.",
+        "Rxh4 после h3 не проходит.",  # the move is being refuted
+        "А если Rxh4? Нет: пешка h2 мешает.",
+        "Ладья и слон бьют по h4.",  # two pieces: not one piece's claim
+        "Ладья может пойти на g1, а ферзь — на e2.",
+        "Ход Rg1 создаёт угрозу ферзю h4.",  # «создаёт угрозу Кf6» names a move, not a square: not judged
+        "После Kxf7 белые бьют ферзём с шахом — Qf3+ — и король обязан идти на e6.",  # «ферзём» is the instrument
+        "Пешка f7 держит удар только королём.",
+        "А вот Qxg7 — хода нет: на f6 стоит чёрная пешка, она просто закрывает ферзю дорогу.",
+    ])
+    def test_right_or_unjudged_sentences_pass(self, sentence):
+        assert check_sentence(sentence, self._ctx()) == [], sentence
+
+    def test_the_students_own_move_is_not_judged_as_the_coachs(self):
+        ctx = self._ctx(question="а если Rxh4?")
+        assert check_sentence("Rxh4 здесь невозможен — пешка h2 стоит на пути.", ctx) == []
+        assert check_sentence("Rxh4 не сыграть.", ctx) == []

@@ -1,0 +1,250 @@
+"""The student's idea, played on the board and looked at by the engine.
+
+«А если я поставлю ладью на g1?» used to be answered from the model's head: the
+coach wrote that the rook attacks the queen on h4 (it does not, 2026-10-01) or
+that a capture through its own pawn wins material. Now each move the student
+names is played on the board the moment the message arrives, Stockfish looks
+at the position after it for a few hundred milliseconds, and the model gets
+the facts — the evaluation against the position before, the opponent's best
+reply, what the moved piece really attacks and whether it is safe — before it
+writes a word. The positions after the moves also join the boards the answer
+is checked against.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Optional
+
+import chess
+
+from src.position_facts import VALUES, static_facts
+from src.tools.stockfish import analyze_timed
+
+logger = logging.getLogger(__name__)
+
+MAX_MOVES = 3
+MIN_DEPTH = 10
+MATE_PAWNS = 100.0
+# Thresholds in pawns, from the mover's side: how much the idea gives away
+# against the position before it.
+BLUNDER = 3.0
+MISTAKE = 1.5
+INACCURACY = 0.7
+
+
+def _white_pawns(line: Optional[dict], turn: chess.Color) -> Optional[float]:
+    """A line's score in pawns from White's side; mates as ±MATE_PAWNS."""
+    if not line:
+        return None
+    sign = 1 if turn == chess.WHITE else -1
+    if line.get("mate_in") is not None:
+        return MATE_PAWNS * sign * (1 if line["mate_in"] > 0 else -1)
+    return float(line.get("score") or 0.0) * sign
+
+
+def _fmt(pawns: Optional[float]) -> str:
+    """'+1.2 for White', 'a forced mate for Black'."""
+    if pawns is None:
+        return "unknown"
+    if abs(pawns) >= MATE_PAWNS - 0.5:
+        return "a forced mate for " + ("White" if pawns > 0 else "Black")
+    return f"{pawns:+.1f} for White"
+
+
+def _san_line(board: chess.Board, pv: str, plies: int = 4) -> list[str]:
+    b = board.copy(stack=False)
+    out = []
+    for uci in (pv or "").split()[:plies]:
+        try:
+            mv = chess.Move.from_uci(uci)
+        except ValueError:
+            break
+        if mv not in b.legal_moves:
+            break
+        out.append(b.san(mv))
+        b.push(mv)
+    return out
+
+
+def _piece(board: chess.Board, sq: int) -> str:
+    p = board.piece_at(sq)
+    return f"the {'white' if p.color else 'black'} {chess.piece_name(p.piece_type)} on {chess.square_name(sq)}"
+
+
+def moved_piece_facts(board: chess.Board, after: chess.Board, move: chess.Move) -> list[str]:
+    """What the moved piece attacks from its new square, and whether it is safe there."""
+    mover = board.turn
+    dest = move.to_square
+    name = f"the {chess.piece_name(after.piece_type_at(dest))} on {chess.square_name(dest)}"
+    facts = []
+    if after.is_check():
+        facts.append(f"{name} gives check")
+    targets = [s for s in after.attacks(dest)
+               if (p := after.piece_at(s)) is not None and p.color != mover and p.piece_type != chess.KING]
+    if targets:
+        facts.append(f"{name} attacks " + ", ".join(_piece(after, s) for s in sorted(targets, key=lambda s: -VALUES[after.piece_type_at(s)])))
+    else:
+        facts.append(f"{name} attacks nothing")
+    attackers = after.attackers(not mover, dest)
+    defenders = after.attackers(mover, dest)
+    if attackers:
+        who = ", ".join(_piece(after, s) for s in attackers)
+        cheaper = min(VALUES[after.piece_type_at(a)] for a in attackers) < VALUES[after.piece_type_at(dest)]
+        if not defenders:
+            facts.append(f"{name} can be taken by {who} and nothing defends it")
+        elif cheaper:
+            facts.append(f"{name} can be taken by a cheaper piece: {who}")
+        else:
+            facts.append(f"{name} is attacked by {who} and defended by " + ", ".join(_piece(after, s) for s in defenders))
+    else:
+        facts.append(f"{name} is not attacked")
+    return facts
+
+
+def _verdict(loss: Optional[float], after_pawns: Optional[float], mover: chess.Color) -> str:
+    if loss is None:
+        return ""
+    if after_pawns is not None and abs(after_pawns) >= MATE_PAWNS - 0.5:
+        winner = chess.WHITE if after_pawns > 0 else chess.BLACK
+        return "it walks into a forced mate" if winner != mover else "it keeps the forced win"
+    if loss >= BLUNDER:
+        return f"a blunder — it gives away about {loss:.1f} pawns' worth against the position before the move"
+    if loss >= MISTAKE:
+        return f"a serious mistake — about {loss:.1f} pawns worse than the position before the move"
+    if loss >= INACCURACY:
+        return f"an inaccuracy — about {loss:.1f} pawns worse than before; there is clearly better"
+    return "a sound move — it keeps the evaluation"
+
+
+def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
+                       reveal_best: bool = True) -> Optional[dict]:
+    """Engine facts for the legal *moves* (items with a ``move``) from *fen*.
+
+    Returns {"note": text for the turn context, "fens": positions after the
+    moves, "items": per-move data} or None when nothing could be analysed.
+    Never raises: a failed analysis leaves that move with board facts only.
+    """
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return None
+    legal = [m for m in moves if m.get("move") is not None][:MAX_MOVES]
+    if not legal or not board.is_valid():
+        return None
+    try:
+        base = analyze_timed(fen, movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        base_line = (base.get("lines") or [None])[0] if "error" not in base else None
+    except Exception:  # noqa: BLE001 — the facts below do not need it
+        logger.debug("hypothetical: base analysis failed", exc_info=True)
+        base_line = None
+    before = _white_pawns(base_line, board.turn)
+    best_san = _san_line(board, base_line.get("pv", ""), 1) if base_line else []
+
+    lines, fens, items = [], [], []
+    mover = board.turn
+    for item in legal:
+        move = item["move"]
+        if isinstance(move, str):
+            try:
+                move = chess.Move.from_uci(move)
+            except ValueError:
+                continue
+        if move not in board.legal_moves:
+            continue
+        san = board.san(move)
+        after = board.copy(stack=False)
+        after.push(move)
+        fens.append(after.fen())
+        side = "White" if mover == chess.WHITE else "Black"
+        words = f" («{item['words']}»)" if item.get("words") and item.get("source") == "prose" else ""
+        if after.is_checkmate():
+            lines.append(f"- {san}{words} ({side}): checkmate — the game ends.")
+            items.append({"san": san, "mate": True})
+            continue
+        if after.is_stalemate() or after.is_insufficient_material():
+            lines.append(f"- {san}{words} ({side}): the game is drawn at once (stalemate or no material).")
+            items.append({"san": san, "draw": True})
+            continue
+        facts = moved_piece_facts(board, after, move)
+        after_pawns, reply, reply_line = None, None, []
+        try:
+            res = analyze_timed(after.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+            line = (res.get("lines") or [None])[0] if "error" not in res else None
+            if line:
+                after_pawns = _white_pawns(line, after.turn)
+                reply_line = _san_line(after, line.get("pv", ""), 4)
+                reply = reply_line[0] if reply_line else None
+        except Exception:  # noqa: BLE001
+            logger.debug("hypothetical: analysis after %s failed", san, exc_info=True)
+        loss = None
+        if before is not None and after_pawns is not None:
+            loss = (before - after_pawns) if mover == chess.WHITE else (after_pawns - before)
+        verdict = _verdict(loss, after_pawns, mover)
+        parts = [f"- {san}{words} ({side}'s move)."]
+        if after_pawns is not None:
+            parts.append(f"Evaluation after it: {_fmt(after_pawns)} (before the move: {_fmt(before)}) — {verdict}.")
+        if reply:
+            parts.append(f"The opponent's best reply: {reply}" + (f" (line {' '.join(reply_line)})" if len(reply_line) > 1 else "") + ".")
+        hanging = [f for f in static_facts(after) if "not defended" in f or "cheaper" in f][:2]
+        parts.append("Facts after the move: " + "; ".join(facts + hanging) + ".")
+        if reveal_best and best_san and best_san[0] != san and loss is not None and loss >= INACCURACY:
+            parts.append(f"The engine prefers {best_san[0]} instead.")
+        lines.append(" ".join(parts))
+        items.append({"san": san, "after": after.fen(), "before": before, "eval": after_pawns, "loss": loss,
+                      "reply": reply, "facts": facts})
+    if not lines:
+        return None
+    return {"note": "\n".join(lines), "fens": fens, "items": items}
+
+
+def verify_recommendation(board: chess.Board, move: chess.Move, san: str, movetime_ms: int = 300,
+                          threshold_cp: int = 150, reveal_best: bool = True) -> Optional[str]:
+    """Why the move the coach recommends is wrong on *board*, by the engine.
+
+    None when the move holds the evaluation (gives away less than
+    *threshold_cp*), mates, or the engine cannot say. The text names the
+    reply, the evaluation against the position before, and what the moved
+    piece really does — the rewrite is written from it. *reveal_best* off (a
+    live game) keeps the engine's own move out of it.
+    """
+    try:
+        if move not in board.legal_moves:
+            return None
+        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        base_line = (base.get("lines") or [None])[0] if "error" not in base else None
+        if not base_line:
+            return None
+        before = _white_pawns(base_line, board.turn)
+        best = _san_line(board, base_line.get("pv", ""), 1)
+        if best and best[0] == san:
+            return None
+        after = board.copy(stack=False)
+        after.push(move)
+        if after.is_game_over():
+            return None
+        res = analyze_timed(after.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        line = (res.get("lines") or [None])[0] if "error" not in res else None
+        if not line:
+            return None
+        after_pawns = _white_pawns(line, after.turn)
+        if before is None or after_pawns is None:
+            return None
+        loss = (before - after_pawns) if board.turn == chess.WHITE else (after_pawns - before)
+        if loss * 100 < threshold_cp:
+            return None
+        reply = _san_line(after, line.get("pv", ""), 3)
+        facts = moved_piece_facts(board, after, move)
+        mated = abs(after_pawns) >= MATE_PAWNS - 0.5 and (after_pawns > 0) != (board.turn == chess.WHITE)
+        if mated:
+            why = f"{san} is a blunder on this board (engine): it walks into a forced mate — {san} {' '.join(reply)}"
+        else:
+            why = (f"{san} is a mistake on this board (engine): after {san} {' '.join(reply)} the evaluation is "
+                   f"{_fmt(after_pawns)} against {_fmt(before)} before the move — about {loss:.1f} pawns given away")
+        why += "; " + "; ".join(facts[:2])
+        if reveal_best and best:
+            why += f". The engine's move here is {best[0]}"
+        return why
+    except Exception:  # noqa: BLE001 — a failed check never blocks the answer
+        logger.debug("verify_recommendation failed", exc_info=True)
+        return None

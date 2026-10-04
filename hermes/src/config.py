@@ -279,6 +279,29 @@ COACH_ANSWER_FIX = _env_flag("COACH_ANSWER_FIX", True)
 COACH_ANSWER_FIX_MAX_TOKENS = int(os.environ.get("COACH_ANSWER_FIX_MAX_TOKENS", "400"))
 COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", "12"))
 
+# The student's idea on the board (2026-10-04): a move named in the message
+# («а если Rg1?», «поставить ладью на g1») is played on the board the moment it
+# arrives and Stockfish looks at the position after it; the facts go into the
+# turn context before the model writes. The coach's own recommendation
+# («сыграй Rg1») is checked by the engine before the sentence is shown — a move
+# that gives away COACH_MOVE_VERIFY_CP centipawns or more is rewritten like a
+# wrong claim. Both are the fix for the client's hallucinations in hypothetical
+# lines (2026-10-01): the model reasoned about positions nobody had looked at.
+#   COACH_HYPOTHETICAL_NOTE         — kill switch (default ON).
+#   COACH_HYPOTHETICAL_MOVETIME_MS  — the engine's time per position (default 300 ms;
+#                                     up to 3 moves, one thread, beside the engine line).
+#   COACH_MOVE_VERIFY               — kill switch for the recommendation check (default ON).
+#   COACH_MOVE_VERIFY_MOVETIME_MS   — its engine time (default 300 ms; the current
+#                                     position usually comes from the engine line's cache).
+#   COACH_MOVE_VERIFY_CP            — the loss that makes a recommendation wrong (default 150).
+#   COACH_MOVE_VERIFY_PER_TURN      — recommendations checked per answer (default 2).
+COACH_HYPOTHETICAL_NOTE = _env_flag("COACH_HYPOTHETICAL_NOTE", True)
+COACH_HYPOTHETICAL_MOVETIME_MS = int(os.environ.get("COACH_HYPOTHETICAL_MOVETIME_MS", "300"))
+COACH_MOVE_VERIFY = _env_flag("COACH_MOVE_VERIFY", True)
+COACH_MOVE_VERIFY_MOVETIME_MS = int(os.environ.get("COACH_MOVE_VERIFY_MOVETIME_MS", "300"))
+COACH_MOVE_VERIFY_CP = int(os.environ.get("COACH_MOVE_VERIFY_CP", "150"))
+COACH_MOVE_VERIFY_PER_TURN = int(os.environ.get("COACH_MOVE_VERIFY_PER_TURN", "2"))
+
 # Load the framework, the engines and the ECO book when the server starts, not
 # on the first students' questions (1-2 s slower after every restart).
 COACH_WARMUP = _env_flag("COACH_WARMUP", True)

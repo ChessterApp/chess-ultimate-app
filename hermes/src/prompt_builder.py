@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "16"  # 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "17"  # 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -847,36 +847,98 @@ def reply_language_note(message: str, locale: Optional[str] = None, history=()) 
     return language_note(*conversation_language([message, *history], locale))
 
 
-def moves_in_question_block(message: str, fen: Optional[str]) -> str:
-    """The moves the student named, checked on the board before the model
-    answers: «Могу ли я сыграть Rg1? А Qxg7?» came back "both are legal" with
-    Qxg7 blocked by the f6 pawn (stand, 2026-10-04). Decided by python-chess,
-    not by the model; "" when the message names no move or there is no board."""
+def question_moves(message: str, fen: Optional[str]) -> list[dict]:
+    """The moves the student names — in notation («Rg1», «Лd8») or in words
+    («поставить ладью на g1», "take on h4 with the rook") — each with its
+    verdict on the board: ``san``, ``verdict``, ``legal``, ``move`` (a
+    chess.Move when legal), ``after_fen``, ``source`` ('san' or 'prose'),
+    ``words``. [] when the message names no move or there is no board."""
     if not fen or not message:
-        return ""
+        return []
     import chess
 
     from src.answer_check import _MOVE, _to_san
+    from src.move_words import prose_moves
 
     try:
         board = chess.Board(fen)
     except ValueError:
-        return ""
+        return []
+    if not board.is_valid():
+        return []
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(san: str, source: str, words: str = "", note: Optional[str] = None, move=None) -> None:
+        if move is None:
+            try:
+                move = board.parse_san(san)
+            except ValueError:
+                move = None
+        key = move.uci() if move is not None else san
+        if key in seen:
+            return
+        seen.add(key)
+        verdict = note or _move_verdict(board, san)
+        item = {"san": board.san(move) if move is not None else san, "verdict": verdict, "legal": move is not None,
+                "move": move, "after_fen": None, "source": source, "words": words}
+        if move is not None:
+            after = board.copy(stack=False)
+            after.push(move)
+            item["after_fen"] = after.fen()
+        out.append(item)
+
     converted, _ = _to_san(message)
-    seen: list[str] = []
     for m in _MOVE.finditer(converted):
         san = m["san"]
         if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"]:
             continue  # a bare square («e4») is not a move the student names
-        if san not in seen:
-            seen.append(san)
-    if not seen:
+        _add(san, "san")
+    for pm in prose_moves(message, board):
+        _add(pm["san"], "prose", pm["words"], pm["note"], pm["move"])
+    return out
+
+
+def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[list] = None) -> str:
+    """The moves the student named, checked on the board before the model
+    answers: «Могу ли я сыграть Rg1? А Qxg7?» came back "both are legal" with
+    Qxg7 blocked by the f6 pawn (stand, 2026-10-04). Decided by python-chess,
+    not by the model; "" when the message names no move or there is no board."""
+    if moves is None:
+        moves = question_moves(message, fen)
+    if not moves:
         return ""
+    import chess
+
+    board = chess.Board(fen)
     lines = ["## Moves named in the question (checked on the board, side to move "
              f"{'White' if board.turn else 'Black'})"]
-    for san in seen[:6]:
-        lines.append(f"- {san}: {_move_verdict(board, san)}")
+    for item in moves[:6]:
+        words = f" («{item['words']}»)" if item.get("source") == "prose" and item.get("words") else ""
+        lines.append(f"- {item['san']}{words}: {item['verdict']}")
     return "\n".join(lines)
+
+
+def hypothetical_block(note: str, live_game: bool = False) -> str:
+    """The student's idea played on the board and looked at by the engine
+    (src/hypothetical.py), as a turn-context block."""
+    tail = (
+        "This is a live game: do not name a better move for the student instead — say what "
+        "happens after their idea and let them look again."
+        if live_game else
+        "If the idea is a mistake, say what to play instead only from the engine analysis of "
+        "the board above (or ask the engine); never from memory."
+    )
+    return (
+        "## The student's idea, played on the board (engine)\n"
+        f"{note}\n"
+        "Stockfish played each move the student named and analysed the position after it; "
+        "the facts are verified on that position. Judge the idea from them, in your own "
+        "coaching words — what the moved piece really attacks and whether it is safe, what "
+        "the opponent's best reply is and what it does — no engine name, no numbers. Never "
+        "claim an attack, a threat, a capture or a defence that is not in these facts: "
+        f"«ладья на g1 нападает на ферзя h4» is a claim about this position, check it here first. {tail}"
+    )
 
 
 def _move_verdict(board, san: str) -> str:

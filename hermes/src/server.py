@@ -60,6 +60,7 @@ from src.prompt_builder import (
     build_system_prompt,
     build_voice_prompt,
     engine_note_block,
+    hypothetical_block,
     conversation_language,
     language_note,
     review_block,
@@ -1521,6 +1522,30 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
         )
     engine_state = {"used": False, "ms": None, "timed_out": False}
+    # The student's idea on the board (src/hypothetical.py): the moves the
+    # message names («а если Rg1?», «поставить ладью на g1») are played and
+    # looked at by the engine now, beside the engine line — in a live game too,
+    # since the student asks about their own move there.
+    named_moves: list = []
+    hypo_future = None
+    hypo_state = {"used": False, "ms": None, "timed_out": False, "moves": 0}
+    if session.board_state:
+        try:
+            from src.prompt_builder import question_moves
+
+            named_moves = question_moves(body.message, session.board_state)
+            legal_named = [q for q in named_moves if q.get("legal")]
+            hypo_state["moves"] = len(legal_named)
+            if legal_named and config.COACH_HYPOTHETICAL_NOTE:
+                from src.hypothetical import hypothetical_notes
+
+                hypo_future = _engine_pool.submit(
+                    hypothetical_notes, session.board_state, legal_named,
+                    config.COACH_HYPOTHETICAL_MOVETIME_MS, not live_game,
+                )
+        except Exception:  # noqa: BLE001 — the idea block is best-effort
+            logger.debug("question moves failed", exc_info=True)
+            named_moves = []
 
     # The agent does not depend on the prompt (it only stores it), so it is
     # built while the profile arrives and the prompt is assembled.
@@ -1564,7 +1589,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     try:
         from src.prompt_builder import moves_in_question_block
 
-        moves_note = moves_in_question_block(body.message, session.board_state)
+        moves_note = moves_in_question_block(body.message, session.board_state, named_moves or None)
         if moves_note:
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
     except Exception:  # noqa: BLE001 — never block a turn on this
@@ -1674,7 +1699,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # belong to (the board, the opening line, the game, what tools put on the
         # board), a gate that holds each sentence until it is checked, and one
         # rewrite of the rest of the answer after a wrong sentence.
-        from src.answer_check import CheckContext, SentenceGate, fix_messages, strip_leaks
+        from src.answer_check import CheckContext, SentenceGate, fix_messages, proposed_move, strip_leaks
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -1683,7 +1708,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if live_game:
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
         check_ctx = CheckContext.from_fens(
-            [session.board_state, body.fen] + [b.fen for b in session.boards],
+            [session.board_state, body.fen] + [b.fen for b in session.boards]
+            + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
             [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
             + [b["line"] for b in (opening_plan.branches if opening_plan else [])]
             + [b.pgn for b in session.boards if b.pgn and b.id != active_board.id],
@@ -1694,6 +1720,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter()
+        # The coach's recommendation («сыграй Rg1») is checked by the engine
+        # before the sentence is shown (src/hypothetical.verify_recommendation).
+        verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
+                        "checked": 0, "caught": 0, "ms": 0}
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
                "shown_prefix": "", "head": ""}
@@ -1835,6 +1865,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{opening_plan.block}"
                 if note:
                     message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
+                hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
+                if hypo:
+                    message = f"{message}\n\n{hypothetical_block(hypo['note'], live_game=bool(live_game))}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
@@ -1959,6 +1992,38 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 frames.extend(_answer_frames(text))
             return frames
 
+        async def _verified(pairs):
+            """A sentence that recommends a move waits for the engine's word on
+            it (a few hundred ms, off the event loop); a move that gives away
+            material or the game is treated like a wrong claim — not shown,
+            the rest rewritten from the engine's facts."""
+            if verify_state["left"] <= 0 or check_ctx.current is None:
+                return pairs
+            out = []
+            for text, issues, sentence in pairs:
+                if not issues and verify_state["left"] > 0:
+                    found = proposed_move(sentence, check_ctx)
+                    if found:
+                        from src.hypothetical import verify_recommendation
+
+                        verify_state["left"] -= 1
+                        verify_state["checked"] += 1
+                        started_v = time.monotonic()
+                        try:
+                            issue = await loop.run_in_executor(
+                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
+                                config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, not live_game,
+                            )
+                        except Exception:  # noqa: BLE001 — the check is best-effort
+                            logger.debug("move verification failed", exc_info=True)
+                            issue = None
+                        verify_state["ms"] += int((time.monotonic() - started_v) * 1000)
+                        if issue:
+                            verify_state["caught"] += 1
+                            issues = [issue]
+                out.append((text, issues, sentence))
+            return out
+
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
@@ -1977,7 +2042,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     # The end of the draft: an unfinished "[[" was not a mark, and
                     # the last sentence gets its check too.
                     tail = markup.flush()
-                    for frame in _sentence_frames((gate.feed(tail) if tail else []) + gate.flush(), "agent"):
+                    for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "agent"):
                         yield frame
                     if not quick["finished"] and not quick["shown"]:
                         # Answer complete, reaction never started: drop it.
@@ -2018,7 +2083,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not payload:
                         continue
                     # Each sentence goes out once it is complete and checked.
-                    for frame in _sentence_frames(gate.feed(payload), "agent"):
+                    for frame in _sentence_frames(await _verified(gate.feed(payload)), "agent"):
                         yield frame
                 elif kind == "fix":
                     if not fix["running"] or not payload:
@@ -2062,7 +2127,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     payload, mark_actions = fix_markup.feed(payload)
                     for action in mark_actions:
                         yield _board_frame([action])
-                    for frame in _sentence_frames(fix_gate.feed(payload), "fix"):
+                    for frame in _sentence_frames(await _verified(fix_gate.feed(payload)), "fix"):
                         yield frame
                 elif kind == "fix_done":
                     fix["reply"] = payload
@@ -2073,10 +2138,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         head, mark_actions = fix_markup.feed(head)
                         for action in mark_actions:
                             yield _board_frame([action])
-                        for frame in _sentence_frames(fix_gate.feed(head), "fix"):
+                        for frame in _sentence_frames(await _verified(fix_gate.feed(head)), "fix"):
                             yield frame
                     tail = fix_markup.flush()
-                    for frame in _sentence_frames((fix_gate.feed(tail) if tail else []) + fix_gate.flush(), "fix"):
+                    for frame in _sentence_frames(await _verified((fix_gate.feed(tail) if tail else []) + fix_gate.flush()), "fix"):
                         yield frame
                     fix["running"] = False
                     fix["done"] = True
@@ -2309,7 +2374,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
-                "engine_note": dict(engine_state),
+                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state),
                 "review": dict(review_state),
                 "stages_ms": dict(stages),
                 "hedge": _hedge_state(agent),
@@ -2339,7 +2404,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "finish_reason": finish_reason,
                 "routed_model": model,
                 "quick_shown": bool(quick_text),
-                "engine_note": dict(engine_state),
+                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state),
                 "review": dict(review_state),
                 "hedge": _hedge_state(agent),
                 "answer_check": answer_check,
