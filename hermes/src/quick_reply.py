@@ -70,10 +70,21 @@ _SMALL_TALK = (
 
 
 def is_small_talk(message: str) -> bool:
+    """A greeting, thanks or goodbye and nothing else. «ok and a skewer?» is a
+    question that happens to open with "ok" — it went down this path and came
+    back in English past the language gate (live flows, 2026-10-04)."""
     text = re.sub(r"[^\w\s]", " ", (message or "").lower()).strip()
-    if len(text.split()) > 4:
+    words = text.split()
+    if len(words) > 4:
         return False
-    return any(text == w or text.startswith(w + " ") for w in _SMALL_TALK)
+    if text in _SMALL_TALK:
+        return True  # «Как дела?» is a greeting, question mark and all
+    if "?" in (message or ""):
+        return False
+    for w in _SMALL_TALK:
+        if text.startswith(w + " ") and len(words) - len(w.split()) <= 2:
+            return True  # «спасибо большое», "thanks a lot" — not «ok and a skewer»
+    return False
 
 
 def wants_reaction(message: str, has_position: bool) -> bool:

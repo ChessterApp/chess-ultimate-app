@@ -1322,6 +1322,15 @@ async def _bestofn_event_stream(
     yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
 
 
+# What the student sees when the whole small-talk reply came in the wrong language.
+_SMALL_TALK_FALLBACK = {
+    "ru": "Хорошо. Чем займёмся дальше?",
+    "kk": "Жарайды. Әрі қарай не істейміз?",
+    "kz": "Жарайды. Әрі қарай не істейміз?",
+    "en": "Alright. What shall we do next?",
+}
+
+
 async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_version: str):
     """A greeting, thanks or goodbye: one fast tool-free reply (the quick model)
     instead of the agent turn. The agent took 3–7 s to say hello, and with the
@@ -1353,6 +1362,12 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
+    # The language is judged here too: the quick model answered a Russian
+    # session in English on the stand (2026-10-04). A greeting is one or two
+    # short sentences, so the reply is collected whole (a second at most) and
+    # judged once — a wrong-language reply is replaced by one short line.
+    from src.answer_check import language_issue, looks_wrong_script
+
     started = time.monotonic()
     future = loop.run_in_executor(None, _run)
     parts: list[str] = []
@@ -1361,9 +1376,16 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
         if item is sentinel:
             break
         parts.append(item)
-        yield _sse({"delta": item})
     reply = await future
     text = "".join(parts).strip()
+    if text and config.COACH_ANSWER_CHECK:
+        wrong = language_issue(text, talk_language) or (
+            "wrong script" if looks_wrong_script(text, talk_language) else None)
+        if wrong:
+            logger.info("answer check: %s | %s", wrong, text[:200])
+            text = _SMALL_TALK_FALLBACK.get(talk_language, _SMALL_TALK_FALLBACK["ru"])
+    if text:
+        yield _sse({"delta": text})
     latency_ms = int((time.monotonic() - started) * 1000)
     if not text:
         log_event("llm_error", severity="warn", surface="text", user_id=user_id, session_id=session.id,

@@ -131,3 +131,17 @@ def test_greetings_and_asides_get_no_reaction():
     for hello in ("Привет", "hi!", "Сәлем!", "Спасибо большое", "Как дела?", "Добрый день"):
         assert not wants_reaction(hello, True), hello
     assert wants_reaction("Привет, какой здесь лучший ход?", True)
+
+
+@pytest.mark.unit
+def test_a_question_is_never_small_talk():
+    """«ok and a skewer?» opened with "ok" and went down the small-talk path (live
+    flows, 2026-10-04): a question, or an opener with a tail, is a real turn."""
+    from src.quick_reply import is_small_talk
+
+    assert is_small_talk("ok") and is_small_talk("Привет!") and is_small_talk("спасибо большое")
+    assert is_small_talk("thanks a lot!") and is_small_talk("привет, как дела")
+    assert not is_small_talk("ok and a skewer?")
+    assert not is_small_talk("ok and a skewer")
+    assert not is_small_talk("ok, и что дальше?")
+    assert not is_small_talk("Привет! Что такое вилка?")

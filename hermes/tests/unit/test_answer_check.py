@@ -614,3 +614,37 @@ class TestHypotheticalPhrasings:
         ctx = self._ctx(question="а если Rxh4?")
         assert check_sentence("Rxh4 здесь невозможен — пешка h2 стоит на пути.", ctx) == []
         assert check_sentence("Rxh4 не сыграть.", ctx) == []
+
+
+class TestNotAttacked:
+    """«ничто не атакует», "nothing is attacking it", «не под боем» (live bench
+    2026-10-04: "Your a4 pawn is fine — nothing is attacking it" with the knight
+    on c5 hitting it)."""
+
+    T = "2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1"
+
+    @pytest.mark.parametrize("sentence, expect", [
+        ("Your a4 pawn is fine — nothing is attacking it.", "the pawn on a4 IS attacked — by the knight on c5"),
+        ("Пешка a4 не под боем.", "the pawn on a4 IS attacked"),
+        ("The knight on c5 is not attacked.", "the knight on c5 IS attacked — by the queen on c3, the rook on d5"),
+        ("Nothing attacks e4.", "the pawn on e4 IS attacked"),
+        ("Ничто не атакует твою пешку e4.", "the pawn on e4 IS attacked"),
+    ])
+    def test_caught(self, sentence, expect):
+        ctx = CheckContext.from_fens([self.T], question="Is my pawn on a4 hanging?", student_color=chess.WHITE)
+        issues = check_sentence(sentence, ctx)
+        assert any(expect in i for i in issues), (sentence, issues)
+
+    @pytest.mark.parametrize("sentence", [
+        "Твоя ладья d5 в безопасности.",  # «в безопасности» / "safe" can mean defended: not judged
+        "Is it safe? Yes — nothing can hit it easily.",  # f7 in the Italian: attacked but defended
+        "It's not a real threat yet (nothing attacks f7 a second time).",
+        "The pawn on a4 is not attacked by the queen.",  # a named attacker is another claim
+        "Пешку a4 никто не атакует, кроме коня.",
+        "После Rg1 пешка a4 не под боем.",  # hypothetical
+        "Ничто не угрожает твоему королю на g2.",  # true
+        "Your king on g2 is safe.",
+    ])
+    def test_right_or_unjudged(self, sentence):
+        ctx = CheckContext.from_fens([self.T], question="Is my pawn on a4 hanging?", student_color=chess.WHITE)
+        assert check_sentence(sentence, ctx) == [], sentence
