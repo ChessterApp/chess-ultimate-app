@@ -634,15 +634,15 @@ class TestCoachChat:
         resp = self.client.post(
             "/api/coach/chat",
             headers=USER_HEADERS,
-            json={"message": "Hello"},
+            json={"message": "Что мне играть?"},
         )
         # The stream itself opens successfully; the failure is an SSE error frame.
         assert resp.status_code == 200
         events = _parse_sse(resp.text)
         error_events = [e for e in events if "error" in e]
         assert error_events
-        # The student sees a calm sentence in their language; the exception
-        # text stays in the llm_error event and the diagnostic.
+        # The student sees a calm sentence in the language of the conversation
+        # (they wrote Russian); the exception text stays in the llm_error event.
         assert error_events[0]["error"].startswith("Тренер сейчас недоступен")
         assert "model unavailable" not in error_events[0]["error"]
         # No trailing done event when the agent fails.
@@ -779,6 +779,38 @@ class TestVoicePromptEndpoint:
         # Spoken-style + FEN present in the single-source prompt.
         assert "Speaking Style (voice mode)" in body["system_prompt"]
         assert "8/8/8/8/8/8/8/K6k w - - 0 1" in body["system_prompt"]
+
+    @patch("src.server.load_user_profile")
+    def test_the_prompt_starts_in_the_language_the_session_asked_for(self, mock_load):
+        """A language asked for in the chat (in text or aloud — voice transcripts
+        are stored as user messages) holds when voice starts (2026-10-01)."""
+        from src.sessions import session_store
+
+        mock_load.return_value = UserProfile(user_id="test-user-123")
+        session = session_store.create(user_id="test-user-123")
+        session.add_message("user", "говори по-русски, пожалуйста", source="voice")
+        resp = self.client.post(
+            "/api/coach/voice/prompt", headers=USER_HEADERS,
+            json={"locale": "en", "session_id": session.id},
+        )
+        assert resp.status_code == 200
+        prompt = resp.json()["system_prompt"]
+        assert "The interface language is English" in prompt
+        assert "The student has asked you to speak Russian: speak Russian from your first word" in prompt
+        # Written in a language, not asked: the voice starts in it.
+        session.messages.clear()
+        session.add_message("user", "What should I play here?")
+        prompt = self.client.post(
+            "/api/coach/voice/prompt", headers=USER_HEADERS,
+            json={"locale": "ru", "session_id": session.id},
+        ).json()["system_prompt"]
+        assert "The conversation so far has been in English: start in English." in prompt
+        # Another user's session, or none: the interface rule alone.
+        prompt = self.client.post(
+            "/api/coach/voice/prompt", headers=USER_HEADERS,
+            json={"locale": "ru", "session_id": "no-such-session"},
+        ).json()["system_prompt"]
+        assert "asked you to speak" not in prompt and "conversation so far" not in prompt
 
     @patch("src.server.load_user_profile")
     def test_profile_cached_across_calls(self, mock_load):

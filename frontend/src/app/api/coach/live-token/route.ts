@@ -204,6 +204,9 @@ async function fetchVoiceContext(
     locale?: string;
     toolsAvailable: boolean;
     tier: SubscriptionTier;
+    // The chat session the voice continues: the language it already speaks
+    // (asked for in text or aloud, or written in) holds for the spoken coach.
+    sessionId?: string | null;
   },
 ): Promise<VoiceContext | null> {
   try {
@@ -218,6 +221,7 @@ async function fetchVoiceContext(
         fen: opts.fen,
         locale: opts.locale,
         tools_available: opts.toolsAvailable,
+        session_id: opts.sessionId ?? undefined,
       }),
       signal: AbortSignal.timeout(5000),
     });
@@ -476,7 +480,7 @@ export async function POST(request: Request) {
   // outage yields the hardcoded prompt / no recap / no tools / fail-open quota
   // but still mints the session.
   const [voiceContext, recapMessages, rawTools, quota] = await Promise.all([
-    fetchVoiceContext(userId, { fen, locale, toolsAvailable: true, tier }),
+    fetchVoiceContext(userId, { fen, locale, toolsAvailable: true, tier, sessionId }),
     sessionId ? fetchRecapMessages(sessionId, userId) : Promise.resolve([]),
     fetchToolDeclarations(),
     fetchVoiceQuota(userId, tier),

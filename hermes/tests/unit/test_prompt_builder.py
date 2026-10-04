@@ -434,3 +434,203 @@ class TestBuildVoicePrompt:
             MOCK_SOUL, board_fen="8/8/8/8/8/8/8/K6k w - - 0 1"
         )
         assert "detailed_board_analysis" not in prompt
+
+
+# ── The language the student asks for (2026-10-01) ─────────────────────────
+#
+# The tester asked the coach, in the middle of a game, to speak Russian; the
+# chat answered in the language of each message and the move comments in the
+# interface language, so the request was "refused". A request now holds for
+# the session and every surface (answer, reaction, comments) uses one choice.
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("message, code", [
+    ("говори по-русски", "ru"), ("Говори по русски пожалуйста", "ru"), ("отвечай на русском", "ru"),
+    ("давай на русском", "ru"), ("можно по-русски?", "ru"), ("перейди на русский", "ru"),
+    ("только по-русски, пожалуйста", "ru"), ("смени язык на русский", "ru"), ("язык: русский", "ru"),
+    ("speak Russian", "ru"), ("please answer in Russian", "ru"), ("Russian please", "ru"),
+    ("switch to Russian", "ru"), ("Can you speak Russian?", "ru"), ("I prefer Russian", "ru"),
+    ("орысша сөйле", "ru"), ("no, speak Russian", "ru"),
+    ("давай по-английски", "en"), ("answer in English", "en"), ("переходи на английский", "en"),
+    ("ағылшынша жауап бер", "en"), ("Please don't speak English, speak Russian", "ru"),
+    ("хватит по-английски, говори по-русски", "ru"),
+    ("қазақша сөйле", "kk"), ("говори по-казахски", "kk"), ("answer in Kazakh please", "kk"),
+    ("қазақша жауап беріңізші", "kk"),
+])
+def test_a_request_for_a_language_is_recognised(message, code):
+    from src.prompt_builder import language_request
+
+    assert language_request(message) == code
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("message", [
+    # a language named for a word or a translation, not for a switch
+    "как по-английски будет вилка?", "как это называется по-русски?", "How do you say fork in Russian?",
+    "What's the Russian word for fork?", "what does вилка mean in English?", "переведи на русский",
+    # an opening, a player
+    "расскажи про английское начало", "explain the English Opening", "русский шахматист Карпов",
+    # negated
+    "не говори по-английски", "don't speak English", "не надо по-английски", "not in English please",
+    "no English please", "stop speaking English", "никогда не отвечай по-английски",
+    # no language named
+    "I still don't get it. So if instead of b3 I played Rg1?", "Что играть дальше?", "Nf3?", "ты понимаешь по-русски?",
+])
+def test_a_mention_of_a_language_is_not_a_request(message):
+    from src.prompt_builder import language_request
+
+    assert language_request(message) is None
+
+
+@pytest.mark.unit
+def test_the_session_language_is_what_was_asked_else_written_else_the_interface():
+    from src.prompt_builder import conversation_language, language_note, reply_language_note
+
+    # Newest first. A request anywhere in the session wins, however the later messages are written.
+    assert conversation_language(["Nf3?", "What should I play?", "говори по-русски"], "en") == ("ru", "asked")
+    assert conversation_language(["Что играть?", "answer in English please"], "ru") == ("en", "asked")
+    # The most recent request wins over an older one.
+    assert conversation_language(["давай по-английски", "говори по-русски"], "ru") == ("en", "asked")
+    # Without a request: the language the student writes in — a move carries none,
+    # so the latest message with a language decides, not the interface.
+    assert conversation_language(["What should I play?"], "ru") == ("en", "message")
+    assert conversation_language(["Nf3?", "What should I play?"], "ru") == ("en", "message")
+    assert conversation_language(["Осы жерде не жүру керек?"], "ru") == ("kk", "message")
+    # Nothing written in a language: the interface locale.
+    assert conversation_language(["Nf3?"], "kz") == ("kz", "interface")
+    assert conversation_language([], "en") == ("en", "interface")
+    assert conversation_language([], None) == ("ru", "interface")
+    # The note the turn ends with says why, so the model does not "correct" it.
+    assert reply_language_note("ok", "en", ["говори по-русски"]).startswith(
+        "[Reply language: write your whole answer in Russian — the language the student asked for")
+    assert "the language of the student's message" in reply_language_note("What now?", "ru")
+    assert "the student's interface language" in language_note("kz", "interface")
+    assert language_note("ru", "interface").endswith("Never switch to another language.]")
+    assert language_note("kz", "interface").endswith("]")  # the Kazakh note carries the chess terms after the rule
+
+
+@pytest.mark.unit
+def test_the_language_rule_tells_the_model_to_honour_a_request():
+    from src import prompt_builder
+
+    rule = prompt_builder.language_rule("ru")
+    assert "The interface language is Russian" in rule
+    assert "asks you to speak a particular language" in rule
+    assert prompt_builder.LOCALE_TO_LANGUAGE["kk"] == "Kazakh"
+
+
+@pytest.mark.unit
+def test_the_voice_prompt_carries_the_session_language():
+    from src import prompt_builder
+
+    base = prompt_builder.build_voice_prompt("SOUL", locale="en")
+    asked = prompt_builder.build_voice_prompt("SOUL", locale="en", language=("ru", "asked"))
+    written = prompt_builder.build_voice_prompt("SOUL", locale="en", language=("kk", "message"))
+    interface = prompt_builder.build_voice_prompt("SOUL", locale="en", language=("en", "interface"))
+    assert asked.startswith(prompt_builder.language_rule("en") + " The student has asked you to speak Russian")
+    assert "until they ask otherwise" in asked
+    assert "The conversation so far has been in Kazakh: start in Kazakh." in written
+    assert interface == base
+    assert prompt_builder.spoken_language_note("en", "interface") == ""
+
+
+# ── More ways to ask, languages the coach does not speak, scripts (2026-10-02) ──
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("message, code", [
+    ("вернись на русский", "ru"), ("обратно на русский", "ru"), ("вернёмся к русскому", "ru"),
+    ("а теперь казахский", "kk"), ("по-русски!", "ru"), ("RU please", "ru"), ("рус", "ru"), ("eng", "en"),
+    ("english only from now on", "en"), ("Давай дальше по-английски, мне надо практиковаться", "en"),
+    # a question in the same message does not cancel the request (stand, 2026-10-04)
+    ("Please answer in Russian: what is a skewer?", "ru"), ("Отвечай по-английски: что такое связка?", "en"),
+    ("Can you explain in Russian what a pin is?", "ru"),
+])
+def test_more_ways_to_ask_for_a_language(message, code):
+    from src.prompt_builder import language_request
+
+    assert language_request(message) == code
+
+
+@pytest.mark.unit
+def test_a_language_the_coach_does_not_speak_is_noticed_not_followed():
+    from src.prompt_builder import conversation_language, language_note, language_request, other_language_request, \
+        spoken_language_note
+
+    assert language_request("говори по-немецки") is None
+    assert other_language_request("говори по-немецки") == "German"
+    assert other_language_request("speak Spanish please") == "Spanish"
+    assert other_language_request("как по-немецки будет вилка?") is None
+    assert other_language_request("не говори по-немецки") is None
+    assert conversation_language(["говори по-немецки"], "ru") == ("ru", "unsupported:German")
+    assert conversation_language(["speak German please", "что играть?"], "ru") == ("en", "unsupported:German")
+    # Only the message of this turn: an old request does not repeat the apology.
+    assert conversation_language(["Nf3?", "speak German"], "ru") == ("en", "message")
+    note = language_note("ru", "unsupported:German")
+    assert "asked you to speak German, which you do not speak" in note and "write the whole answer in Russian" in note
+    assert "German" in spoken_language_note("ru", "unsupported:German")
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("message, code", [
+    ("Explain Сицилианская защита please", "en"),   # English with a Russian name in it
+    ("what is 'вилка' in chess?", "en"),
+    ("Что мне играть против Sicilian?", "ru"),
+    ("спасибо, thanks!", "ru"),                      # a tie goes to the first word
+    ("Мен не ойнауым керек?", "kk"),                 # Kazakh spelt with Russian letters only
+    ("Осында не істеу керек?", "kk"),
+    ("Ok", None), ("👍", None), ("Nf3?", None), ("1. e4 e5 2. Nf3 Nc6", None),
+])
+def test_the_script_of_a_message(message, code):
+    from src.prompt_builder import _script_language
+
+    assert _script_language(message) == code
+
+
+@pytest.mark.unit
+def test_the_prompt_sends_the_student_to_the_sites_lesson():
+    from src import prompt_builder
+
+    prompt = prompt_builder.build_system_prompt(soul_content="SOUL", locale="ru")
+    text = prompt if isinstance(prompt, str) else prompt[0]
+    assert "the site's own lessons are the student's programme and come FIRST" in text
+    assert "END the answer by inviting the student to go through that lesson" in text
+    voice = prompt_builder.build_voice_prompt("SOUL", locale="ru")
+    assert "send the student to that lesson's tasks at the end" in voice
+
+
+@pytest.mark.unit
+def test_moves_named_in_the_question_are_checked_before_the_answer():
+    from src.prompt_builder import moves_in_question_block
+
+    fen = "2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1"
+    block = moves_in_question_block("Могу ли я сыграть Rg1 сейчас? А Qxg7? А Лd8?", fen)
+    assert block.startswith("## Moves named in the question")
+    assert "- Rg1: legal" in block
+    assert "- Qxg7: NOT legal — the pawn on f6 is in the way of the queen on c3" in block
+    assert "- Rd8: NOT legal — the pawn on d6 is in the way of the rook on d5" in block
+    assert moves_in_question_block("Что мне играть?", fen) == ""
+    assert moves_in_question_block("Можно Nxa4?", fen) .endswith("NOT legal for the side to move; it is a move for Black")
+    assert "- Rxd6: legal" in moves_in_question_block("Rxd6 — это мат?", fen)
+    assert moves_in_question_block("e4", fen) == ""  # a bare square is not a move
+
+
+@pytest.mark.unit
+def test_kazakh_answers_carry_the_chess_terms():
+    """The bishop came out as «пияз» (an onion) on the stand, 2026-10-04."""
+    from src import prompt_builder
+    from src.quick_reply import build_quick_messages, build_small_talk_messages
+
+    assert "bishop — піл (слон), never «пияз»" in prompt_builder.KAZAKH_TERMS
+    assert "піл" in prompt_builder.language_note("kk", "asked")
+    assert prompt_builder.language_note("kk", "asked").endswith("]")
+    assert "піл" in prompt_builder.language_note("kz", "interface")
+    assert "піл" not in prompt_builder.language_note("ru", "message")
+    assert "піл" in prompt_builder.language_note("kk", "unsupported:German")
+    assert "піл" in prompt_builder.build_voice_prompt("SOUL", locale="kz")
+    assert "піл" in prompt_builder.build_voice_prompt("SOUL", locale="en", language=("kk", "asked"))
+    assert "піл" not in prompt_builder.build_voice_prompt("SOUL", locale="en")
+    assert "піл" in build_quick_messages("x", "kk", None)[0]["content"]
+    assert "піл" not in build_quick_messages("x", "ru", None)[0]["content"]
+    assert "піл" in build_small_talk_messages("сәлем", "kz")[0]["content"]

@@ -277,6 +277,53 @@ def test_the_language_line_closes_the_turn_sent_to_the_model(monkeypatch):
     assert "write your whole answer in Russian" in captured["message"]
 
 
+@pytest.mark.unit
+def test_a_language_asked_for_earlier_in_the_session_holds_for_the_turn_and_the_reaction(monkeypatch):
+    """The tester (2026-10-01) told the coach to speak Russian and the next
+    English-written question came back in English: the language of each message
+    won. A request now holds for the session — the answer and the reaction."""
+    from fastapi.testclient import TestClient
+
+    from src.quick_reply import QuickReply
+    from src.sessions import session_store
+    from src.user_profile import UserProfile
+
+    session = session_store.create(user_id="lang-user-2")
+    session.add_message("user", "говори по-русски, пожалуйста")
+    session.add_message("assistant", "Хорошо, продолжаем по-русски.")
+    captured = {}
+    agent = MagicMock()
+    agent.tools = []
+    agent._api_call_count = 1
+    agent.max_iterations = 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+
+    def _chat(message, stream_callback=None):
+        captured["message"] = message
+        stream_callback("Играй e4.")
+        return "Играй e4."
+
+    agent.chat.side_effect = _chat
+
+    def _quick(*, messages=None, on_delta=None, **kw):
+        captured["quick_system"] = messages[0]["content"]
+        return QuickReply(text="Сейчас посмотрю.")
+
+    monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id="lang-user-2")), \
+            patch("src.quick_reply.stream_completion", _quick), \
+            patch("src.server.log_event"):
+        resp = TestClient(server.app).post(
+            "/api/coach/chat", headers={"X-User-Id": "lang-user-2"},
+            json={"message": "So if instead of b3 I played Rg1, would I just be down a pawn?",
+                  "session_id": session.id, "locale": "en"},
+        )
+    assert resp.status_code == 200
+    assert "write your whole answer in Russian — the language the student asked for" in captured["message"]
+    assert "in Russian — whatever language the student's message is in" in captured.get("quick_system", "in Russian — whatever language the student's message is in")
+
+
 # ── Game review pre-step (2026-09-29) ─────────────────────────────────────
 
 @pytest.mark.unit
@@ -302,3 +349,189 @@ def test_the_review_block_lists_the_moments_with_the_better_move():
          "eval_after": 4.85, "best_move": "Be6", "best_line": "Be6 h3 Bxb3", "fen_before": "x"}]})
     assert "ALREADY loaded on the student's board" in block
     assert "- 16...Bh5 (black, blunder): +0.01 → +4.85. Better: Be6 (line Be6 h3 Bxb3)" in block
+
+
+# ── Every board of the session counts; arrows a piece cannot draw are dropped (2026-10-02) ──
+
+def _stream_chat(monkeypatch, answer: str, session, message: str, locale: str = "ru"):
+    """Post one chat turn with a mocked agent that streams *answer*; returns the SSE frames."""
+    from fastapi.testclient import TestClient
+
+    from src.user_profile import UserProfile
+
+    agent = MagicMock()
+    agent.tools = []
+    agent._api_call_count = 1
+    agent.max_iterations = 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+
+    def _chat(msg, stream_callback=None):
+        for i in range(0, len(answer), 7):
+            stream_callback(answer[i:i + 7])
+        return answer
+
+    agent.chat.side_effect = _chat
+    monkeypatch.setattr(config, "COACH_TWO_STAGE", False)
+    monkeypatch.setattr(config, "COACH_ANSWER_CHECK", True)
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE", False)
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id=session.user_id)), \
+            patch("src.server.log_event"):
+        resp = TestClient(server.app).post(
+            "/api/coach/chat", headers={"X-User-Id": session.user_id},
+            json={"message": message, "session_id": session.id, "locale": locale},
+        )
+    assert resp.status_code == 200
+    return [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
+
+
+@pytest.mark.unit
+def test_a_capture_on_the_second_board_is_not_cut_as_impossible(monkeypatch):
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="boards-user")
+    first = session.ensure_board()
+    session.set_board_state("2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1", board_id=first.id)
+    second = session.add_board(activate=False, kind="study", fen="r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3")
+    assert session.active_board_id == first.id and second.id != first.id
+    frames = _stream_chat(monkeypatch, "На второй доске бери 3.Nxe5 — пешка e5 висит.", session, "а на второй доске?")
+    text = "".join(f.get("delta", "") for f in frames)
+    assert "3.Nxe5" in text
+
+
+@pytest.mark.unit
+def test_an_arrow_the_piece_cannot_draw_never_reaches_the_board(monkeypatch):
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="arrows-user")
+    board = session.ensure_board()
+    session.set_board_state("2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1", board_id=board.id)
+    frames = _stream_chat(monkeypatch, "Смотри: [[arrows: e1h4 green, e1g1 blue, c5a4 red]] ладья идёт на g1.", session, "что делать?")
+    arrows = [a for f in frames for act in f.get("board_actions", []) if act.get("type") == "draw_arrows"
+              for a in act["arrows"]]
+    assert [(a["from"], a["to"]) for a in arrows] == [("e1", "g1"), ("c5", "a4")]
+
+
+@pytest.mark.unit
+def test_an_answer_in_the_wrong_language_is_rewritten(monkeypatch):
+    from src.quick_reply import QuickReply
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="lang-gate-user")
+
+    def _fix(*, messages=None, on_delta=None, **kw):
+        on_delta("Играй e4, центр твой.")
+        return QuickReply(text="Играй e4, центр твой.")
+
+    with patch("src.quick_reply.stream_completion", _fix):
+        frames = _stream_chat(monkeypatch, "The knight on f3 is well placed and the centre is yours for now. Play e4.",
+                              session, "Что мне играть?", locale="ru")
+    text = "".join(f.get("delta", "") for f in frames)
+    assert "well placed" not in text
+    assert "Играй e4" in text
+
+
+@pytest.mark.unit
+def test_a_wrong_language_answer_without_board_words_is_still_stopped(monkeypatch):
+    """The live run (2026-10-04): after «вернись на русский» the coach answered
+    "ok and a skewer?" in English and the gate let it through — no piece or
+    square in those sentences, so their claim-free start streamed unchecked,
+    and so did the English rewrite. Now the language is judged first."""
+    from src.quick_reply import QuickReply
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="lang-gate-user-2")
+    session.add_message("user", "вернись на русский. а что такое вилка?")
+    rewrites = []
+
+    def _fix(*, messages=None, on_delta=None, **kw):
+        out = "Сквозной удар — это связка наоборот: бьёшь по ценной фигуре, она уходит, а за ней остаётся фигура подешевле."
+        rewrites.append(out)
+        on_delta(out)
+        return QuickReply(text=out)
+
+    with patch("src.quick_reply.stream_completion", _fix):
+        frames = _stream_chat(monkeypatch, "I'll set up a classic skewer so we can look at it together. "
+                              "A skewer is like a pin turned around: you attack a valuable piece and the one behind it is lost.",
+                              session, "ok and a skewer?", locale="ru")
+    text = "".join(f.get("delta", "") for f in frames)
+    assert "classic skewer" not in text and "pin turned around" not in text
+    assert "Сквозной удар" in text and rewrites
+
+    # An English rewrite is left out too, not shown.
+    session2 = session_store.create(user_id="lang-gate-user-3")
+    session2.add_message("user", "вернись на русский")
+
+    def _fix_en(*, messages=None, on_delta=None, **kw):
+        out = "Here is the rest of the answer in English, still not Russian at all."
+        on_delta(out)
+        return QuickReply(text=out)
+
+    with patch("src.quick_reply.stream_completion", _fix_en):
+        frames = _stream_chat(monkeypatch, "I'll set up a classic skewer so we can look at it together. Then we continue.",
+                              session2, "ok and a skewer?", locale="ru")
+    text = "".join(f.get("delta", "") for f in frames)
+    assert "classic skewer" not in text and "still not Russian" not in text
+
+
+@pytest.mark.unit
+def test_the_turn_carries_the_legality_of_the_moves_asked_about(monkeypatch):
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="moves-user")
+    board = session.ensure_board()
+    session.set_board_state("2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1", board_id=board.id)
+    captured = {}
+    agent = MagicMock()
+    agent.tools = []
+    agent._api_call_count = 1
+    agent.max_iterations = 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+
+    def _chat(message, stream_callback=None):
+        captured["message"] = message
+        stream_callback("Rg1 можно, Qxg7 нельзя.")
+        return "Rg1 можно, Qxg7 нельзя."
+
+    agent.chat.side_effect = _chat
+    monkeypatch.setattr(config, "COACH_TWO_STAGE", False)
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE", False)
+    from fastapi.testclient import TestClient
+
+    from src.user_profile import UserProfile
+
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id="moves-user")), \
+            patch("src.server.log_event"):
+        resp = TestClient(server.app).post(
+            "/api/coach/chat", headers={"X-User-Id": "moves-user"},
+            json={"message": "Могу ли я сыграть Rg1 сейчас? А Qxg7?", "session_id": session.id, "locale": "ru"},
+        )
+    assert resp.status_code == 200
+    assert "## Moves named in the question" in captured["message"]
+    assert "Qxg7: NOT legal — the pawn on f6 is in the way" in captured["message"]
+
+
+@pytest.mark.unit
+def test_a_rewrite_that_restates_the_shown_start_with_one_word_changed_is_trimmed(monkeypatch):
+    """Stand, 2026-10-04: «Самое упорное здесь — отвести» had gone out, the sentence
+    was withheld, and the rewrite began «Самое упорное здесь — увести ладью…» —
+    the student saw the start twice."""
+    from src.quick_reply import QuickReply
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="prefix-user")
+    board = session.ensure_board()
+    session.set_board_state("2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1", board_id=board.id)
+
+    def _fix(*, messages=None, on_delta=None, **kw):
+        out = "Самое упорное здесь — увести ладью с d5 на f5: она бьёт по f6."
+        on_delta(out)
+        return QuickReply(text=out)
+
+    with patch("src.quick_reply.stream_completion", _fix):
+        frames = _stream_chat(monkeypatch, "Самое упорное здесь — отвести ладью d5 на a5: ладья на a5 бьёт h4 и b7.",
+                              session, "что делать?", locale="ru")
+    text = "".join(f.get("delta", "") for f in frames)
+    assert text.count("Самое упорное здесь") == 1, text
+    assert "отвести ладью с d5 на f5" in text

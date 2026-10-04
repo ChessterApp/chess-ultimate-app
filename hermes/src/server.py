@@ -13,6 +13,8 @@ import threading
 import time
 import uuid
 import asyncio
+
+import chess
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -58,7 +60,8 @@ from src.prompt_builder import (
     build_system_prompt,
     build_voice_prompt,
     engine_note_block,
-    reply_language_note,
+    conversation_language,
+    language_note,
     review_block,
     get_prompt_version,
 )
@@ -93,7 +96,7 @@ from src.voice_metrics import (
 )
 from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
-from src.board_markup import MarkupFilter, strip_markup
+from src.board_markup import MarkupFilter, strip_markup, prune_arrows
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -719,6 +722,17 @@ _STUDENT_ERROR_TEXT = {
 }
 
 
+def _session_language(session, locale: Optional[str]) -> tuple[str, str]:
+    """The language the coach answers this session in, and why (see
+    prompt_builder.conversation_language): the one the student asked for in any
+    message of the session, else the one they write in, else the interface
+    locale. One choice for the chat answer, the reaction and the game's move
+    comments — the tester (2026-10-01) asked the coach to speak Russian and
+    the comments stayed in the interface language."""
+    texts = [m.content for m in reversed(session.messages) if m.role == "user"]
+    return conversation_language(texts, locale)
+
+
 def _student_error_text(locale: Optional[str]) -> str:
     """What the student sees when the turn fails: never the provider's text."""
     return _STUDENT_ERROR_TEXT.get((locale or "ru").lower(), _STUDENT_ERROR_TEXT["ru"])
@@ -1317,7 +1331,8 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
     loop = asyncio.get_event_loop()
     model = quick_model()
     history = [(m.role, m.content) for m in session.messages[:-1]]
-    messages = build_small_talk_messages(body.message, body.locale, history)
+    talk_language = _session_language(session, body.locale)[0]
+    messages = build_small_talk_messages(body.message, talk_language, history)
     log_event("turn_start", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
               model=model, payload={"small_talk": True, "prompt_version": prompt_version,
                                     "message_length": len(body.message)})
@@ -1353,7 +1368,7 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
         log_event("llm_error", severity="warn", surface="text", user_id=user_id, session_id=session.id,
                   turn_id=turn_id, model=model, ok=False,
                   error_code=str(getattr(reply, "error", "") or "empty")[:80], payload={"path": "small_talk"})
-        yield _sse({"error": _student_error_text(body.locale)})
+        yield _sse({"error": _student_error_text(talk_language)})
         return
     prompt_tokens = getattr(reply, "prompt_tokens", 0) or 0
     completion_tokens = getattr(reply, "completion_tokens", 0) or 0
@@ -1452,6 +1467,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     from src.quick_reply import is_small_talk
 
     live_game = active_board.kind == "game" and bool(active_board.game_state)
+    # The language of everything said this turn — the reaction, the answer, the
+    # rewrite after a wrong sentence: what the student asked for in this session,
+    # else the language of their message, else the interface locale.
+    turn_language, turn_language_why = _session_language(session, body.locale)
+    lang_note = language_note(turn_language, turn_language_why)
     if config.COACH_TWO_STAGE and not body.context_note and not live_game and is_small_talk(body.message):
         return StreamingResponse(
             _small_talk_stream(body, session, user_id, turn_id, prompt_version),
@@ -1539,6 +1559,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 turn_context = f"{turn_context}\n\n{game_note}" if turn_context else game_note
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    # Moves the student named («могу ли я сыграть Qxg7?»): their legality is a
+    # fact of the board, decided here, not left to the model.
+    try:
+        from src.prompt_builder import moves_in_question_block
+
+        moves_note = moves_in_question_block(body.message, session.board_state)
+        if moves_note:
+            turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
+    except Exception:  # noqa: BLE001 — never block a turn on this
+        logger.debug("moves-in-question block failed", exc_info=True)
     current_message = attach_turn_context(current_message, turn_context)
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
@@ -1617,7 +1647,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if note:
                     bestofn_message = (f"{bestofn_message}\n\n"
                                        f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}")
-                bestofn_message = f"{bestofn_message}\n\n{reply_language_note(body.message, body.locale)}"
+                bestofn_message = f"{bestofn_message}\n\n{lang_note}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
                     session_id=session_id, session=session, body=body,
@@ -1646,12 +1676,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # rewrite of the rest of the answer after a wrong sentence.
         from src.answer_check import CheckContext, SentenceGate, fix_messages, strip_leaks
 
+        # Every board of the session counts (a capture named for the second
+        # board was cut as impossible on the first, 2026-10-02), and in a game
+        # the student's colour decides whose «твой конь» is.
+        student_color = None
+        if live_game:
+            student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
         check_ctx = CheckContext.from_fens(
-            [session.board_state, body.fen],
+            [session.board_state, body.fen] + [b.fen for b in session.boards],
             [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
-            + [b["line"] for b in (opening_plan.branches if opening_plan else [])],
+            + [b["line"] for b in (opening_plan.branches if opening_plan else [])]
+            + [b.pgn for b in session.boards if b.pgn and b.id != active_board.id],
             question=body.message,
+            student_color=student_color,
         )
+        check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter()
@@ -1716,7 +1755,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     model=quick_model_id,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
                     message=body.message,
-                    locale=body.locale,
+                    locale=turn_language,
                     board_fen=session.board_state if body.fen else None,
                     on_delta=_on_quick_delta,
                     timeout_s=max(0.5, config.COACH_QUICK_BUDGET_MS / 1000.0),
@@ -1799,7 +1838,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
-                message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
+                message = f"{message}\n\n{lang_note}"
                 turn_msg["message"] = message
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
@@ -1818,7 +1857,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     model=model,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
                     messages=fix_messages(turn_msg["message"] or augmented_message, shown, wrong, issues,
-                                          reply_language_note(body.message, body.locale)),
+                                          lang_note),
                     on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
                     timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,
                     max_tokens=config.COACH_ANSWER_FIX_MAX_TOKENS,
@@ -1839,7 +1878,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         def _board_frame(actions: list) -> str:
             """Apply *actions* to the session's board record (so the position survives
-            a reload) and frame them, each tagged with the board (tab) it hit."""
+            a reload) and frame them, each tagged with the board (tab) it hit.
+            Arrows a piece on the board cannot draw are dropped (board_markup.prune_arrows)."""
+            actions = [a for a in (prune_arrows(a, session.board_state) for a in actions) if a]
+            if not actions:
+                return ""
             try:
                 for action in actions:
                     if isinstance(action, dict):
@@ -1993,6 +2036,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             payload = payload.lstrip()[len(prefix):]
                             if not payload:
                                 continue
+                        elif prefix:
+                            # «Самое упорное здесь — отвести» shown, the rewrite opens
+                            # «Самое упорное здесь — увести ладью…» (stand, 2026-10-04):
+                            # the same start with the last word changed is dropped whole.
+                            pw, hw = prefix.split(), payload.lstrip().split()
+                            common = 0
+                            for a, b in zip(pw, hw):
+                                if a.lower().strip(",.;:—–-«»\"") != b.lower().strip(",.;:—–-«»\""):
+                                    break
+                                common += 1
+                            if common >= max(2, (len(pw) * 3 + 4) // 5):
+                                payload = " ".join(hw[len(pw):])
+                                if not payload:
+                                    continue
                         fix["emitted"] = True
                         fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
                         shown = "".join(answer_parts)
@@ -2034,7 +2091,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 elif kind == "error":
                     error_exc = payload
             if streamed_any and getattr(agent, "_coach_stream_cut", False) is True and error_exc is None:
-                cut_note = "\n\n" + _STREAM_CUT_TEXT.get((body.locale or "ru").lower(), _STREAM_CUT_TEXT["ru"])
+                cut_note = "\n\n" + _STREAM_CUT_TEXT.get(turn_language, _STREAM_CUT_TEXT["ru"])
                 partial_parts.append(cut_note)
                 answer_parts.append(cut_note)
                 yield _sse({"delta": cut_note})
@@ -2172,7 +2229,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             )
             # The student gets one calm sentence in their language; the
             # provider's text stays in the logs.
-            yield _sse({"error": _student_error_text(body.locale)})
+            yield _sse({"error": _student_error_text(turn_language)})
             return
 
         # Iteration cap / empty-response warnings (best-effort attribute reads).
@@ -2640,6 +2697,7 @@ class VoicePromptRequest(BaseModel):
     fen: Optional[str] = None
     locale: Optional[str] = None
     tools_available: bool = True
+    session_id: Optional[str] = None   # the chat session the voice continues: its language holds
 
 
 class VoiceEngineNoteRequest(BaseModel):
@@ -2751,6 +2809,16 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
 
     profile = await asyncio.to_thread(_get_voice_profile, user_id)
     profile_context = profile.to_prompt_context()
+    # The language the session already speaks (asked for in text or aloud, or
+    # written in): the spoken coach starts in it instead of the interface one.
+    language = None
+    if body.session_id:
+        try:
+            session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
+            if session is not None:
+                language = _session_language(session, body.locale)
+        except Exception:  # noqa: BLE001 — the mint must never wait on this
+            logger.debug("voice prompt: session language failed", exc_info=True)
     # Memory blocks may hit Supabase — keep them off the event loop.
     system_prompt = await asyncio.to_thread(
         build_voice_prompt,
@@ -2759,6 +2827,7 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
         board_fen=body.fen,
         locale=body.locale,
         tools_available=body.tools_available,
+        language=language,
     )
     return {"system_prompt": system_prompt, "profile_context": profile_context}
 
@@ -3097,7 +3166,8 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     user_id = _get_user_id(request)
     session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
-    messages = game_mode.comment_prompt(board, body.locale, body.event)
+    comment_language = _session_language(session, body.locale)[0]
+    messages = game_mode.comment_prompt(board, comment_language, body.event)
     model = quick_model()
     loop = asyncio.get_event_loop()
 
@@ -3133,7 +3203,7 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
             log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
                       model=model, ok=False, error_code=str(reply.error)[:80],
                       payload={"path": "game/comment"})
-            yield _sse({"error": _student_error_text(body.locale)})
+            yield _sse({"error": _student_error_text(comment_language)})
             return
         if reply is not None and (reply.prompt_tokens or reply.completion_tokens):
             threading.Thread(

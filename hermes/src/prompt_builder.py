@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "14"  # 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "16"  # 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -177,6 +177,7 @@ def maybe_sync_ratings(user_id: str) -> None:
 LOCALE_TO_LANGUAGE = {
     "ru": "Russian",
     "kz": "Kazakh",
+    "kk": "Kazakh",
     "en": "English",
 }
 
@@ -195,8 +196,10 @@ def language_rule(locale: str) -> str:
         "message — Russian, Kazakh or English — even when it differs from the "
         f"interface language. The interface language is {interface}: use it when "
         'a message shows no language of its own (just a move, a FEN, "ok") and '
-        "for the first thing you say. Never mix languages in one reply and never "
-        "switch to a language the student did not use."
+        "for the first thing you say. When the student asks you to speak a particular "
+        "language — in whatever language they ask — switch to it and stay in it until "
+        "they ask otherwise. Never mix languages in one reply and never switch to a "
+        "language the student did not use or ask for."
     )
 
 
@@ -415,7 +418,11 @@ def build_system_prompt(
         "example: say what is on the board as the FEN shows it, draw the plan with arrows, "
         "then OFFER a puzzle — set it up (get_puzzle(theme=…)) only when the student asks, "
         "never in the same answer, or the board jumps away from the example you are "
-        "explaining. list_topics shows the whole map when "
+        "explaining. When get_topic lists `site_lessons`, the site's own lessons are the "
+        "student's programme and come FIRST: teach from the lesson's task on the board, name "
+        "the lesson and its course exactly as returned, and END the answer by inviting the "
+        "student to go through that lesson and solve its tasks, with its url — before any "
+        "example of the base or any get_puzzle. list_topics shows the whole map when "
         "the student asks what they could learn. Never invent example positions.\n\n"
         "### analyze_position\n"
         "Use Stockfish for position evaluation. When the turn context has an \"Engine "
@@ -556,31 +563,364 @@ _KAZAKH_LETTERS = frozenset("әғқңөұүһіӘҒҚҢӨҰҮҺІ")
 _NOTATION_TOKEN = re.compile(r"^(?:[KQRBNOkqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O(?:-O)?|0-0(?:-0)?)$")
 
 
-def reply_language(message: str, locale: Optional[str] = None) -> str:
-    """The language to answer *message* in: its own script, else the interface locale."""
+# Kazakh words spelt with Russian letters only («Мен не ойнауым керек?» has no
+# ә/қ/ң): two of them make a Kazakh message.
+_KAZAKH_WORDS = frozenset(
+    "мен сен керек және болады болды болса емес ойнау ойнаймын ойнадым ойнайды ойнаса неге иә енді кейін деген "
+    "дейді менің сенің маған саған осында сондықтан жасау жасаймын алу алады беру береді жүр жүру жүрем жүрді "
+    "кім қай нені несі болу бар екен барма жеңу жеңді жеңемін ұтты".split())
+
+
+def _script_language(message: str) -> Optional[str]:
+    """The language *message* is written in, by its script — or None when it
+    carries no language of its own (a move, a FEN, "ok").
+
+    Words are counted, not letters: "Explain Сицилианская защита please" is
+    English with a Russian name in it. A tie goes to the first word."""
     text = message or ""
     if any(ch in _KAZAKH_LETTERS for ch in text):
-        return "Kazakh"
-    cyrillic = sum(1 for ch in text if "а" <= ch.lower() <= "я" or ch.lower() == "ё")
-    latin_words = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9+#=x-]*", text) if not _NOTATION_TOKEN.match(w)]
+        return "kk"
+    cyr_words = re.findall(r"[А-Яа-яЁё][А-Яа-яЁё-]*", text)
+    if sum(1 for w in cyr_words if w.lower().replace("ё", "е") in _KAZAKH_WORDS) >= 2:
+        return "kk"
+    latin_words = [w for w in re.findall(r"[A-Za-z][A-Za-z0-9+#=x'-]*", text) if not _NOTATION_TOKEN.match(w)]
     latin = sum(len(w) for w in latin_words if len(w) >= 2)
-    if cyrillic and cyrillic >= latin:
-        return "Russian"
-    if latin >= 4:
-        return "English"
-    return LOCALE_TO_LANGUAGE.get((locale or "ru").lower(), "Russian") if (locale or "ru").lower() != "kk" else "Kazakh"
+    n_cyr = sum(1 for w in cyr_words if len(w) >= 2)
+    n_lat = sum(1 for w in latin_words if len(w) >= 2)
+    if not n_cyr and not cyr_words:
+        return "en" if latin >= 4 else None
+    if n_cyr > n_lat:
+        return "ru"
+    if n_lat > n_cyr:
+        return "en" if latin >= 4 else "ru"
+    first = re.search(r"[A-Za-zА-Яа-яЁё]", text)
+    if first and "A" <= first.group(0).upper() <= "Z" and latin >= 4:
+        return "en"
+    return "ru"
 
 
-def reply_language_note(message: str, locale: Optional[str] = None) -> str:
+def _locale_code(locale: Optional[str]) -> str:
+    code = (locale or "ru").lower()
+    return code if code in LOCALE_TO_LANGUAGE else "ru"
+
+
+# ── An explicit request for a language ────────────────────────────────────
+#
+# «Говори по-русски», "answer in English please", «қазақша сөйле»: the student
+# names a language next to a word that asks for it. «Как по-английски будет
+# вилка?» names a language too, but asks for a word, not a switch — such
+# phrases are excluded; so is a negated one («не по-английски», "don't speak
+# English"). The last language named and asked for wins.
+_LANGUAGE_WORDS = [
+    ("ru", r"по[\s-]?русски|на\s+русск(?:ом|ий)|к\s+русскому|русск(?:ий|им)\s+язык\w*|язык\w*\s*[:—–-]?\s*русск\w+|"
+           r"russian|орысша"),
+    ("en", r"по[\s-]?английски|на\s+английск(?:ом|ий)|к\s+английскому|английск(?:ий|им)\s+язык\w*|"
+           r"язык\w*\s*[:—–-]?\s*английск\w+|english(?!\s+(?:opening|attack|defen))|ағылшынша"),
+    ("kk", r"по[\s-]?казахски|на\s+казахск(?:ом|ий)|к\s+казахскому|казахск(?:ий|им)\s+язык\w*|"
+           r"язык\w*\s*[:—–-]?\s*казахск\w+|kazakh|қазақша|казахша"),
+]
+# A whole message that is only a language: «по-русски!», "RU please", «рус», "eng".
+_SHORT_LANGUAGE = {
+    "ru": {"ru", "rus", "рус", "русский", "russian", "по-русски", "по русски", "на русском"},
+    "en": {"en", "eng", "англ", "английский", "english", "по-английски", "на английском"},
+    "kk": {"kk", "kz", "kaz", "каз", "қаз", "казахский", "kazakh", "қазақша", "казахша", "по-казахски", "на казахском"},
+}
+_SHORT_FILLER = {"please", "пожалуйста", "давай", "давайте", "only", "только", "now", "теперь", "язык", "language",
+                 "на", "по", "in", "pls", "плз", "ок", "ok", "а", "и", "ну", "так", "and", "so", "then", "дальше"}
+# Languages the coach does not speak: the request is noticed, not followed.
+_OTHER_LANGUAGES = [
+    ("German", r"по[\s-]?немецки|на\s+немецк\w+|немецк\w+\s+язык\w*|german|deutsch"),
+    ("French", r"по[\s-]?французски|на\s+французск\w+|french|français"),
+    ("Spanish", r"по[\s-]?испански|на\s+испанск\w+|spanish|español"),
+    ("Italian", r"по[\s-]?итальянски|на\s+итальянск\w+|italian"),
+    ("Chinese", r"по[\s-]?китайски|на\s+китайск\w+|chinese"),
+    ("Turkish", r"по[\s-]?турецки|на\s+турецк\w+|turkish"),
+    ("Ukrainian", r"по[\s-]?украински|на\s+украинск\w+|ukrainian"),
+    ("Uzbek", r"по[\s-]?узбекски|на\s+узбекск\w+|uzbek"),
+    ("Kyrgyz", r"по[\s-]?кыргызски|по[\s-]?киргизски|на\s+к[ыи]ргызск\w+|kyrgyz"),
+    ("Tatar", r"по[\s-]?татарски|на\s+татарск\w+|tatar"),
+    ("Arabic", r"по[\s-]?арабски|на\s+арабск\w+|arabic"),
+    ("Japanese", r"по[\s-]?японски|на\s+японск\w+|japanese"),
+    ("Korean", r"по[\s-]?корейски|на\s+корейск\w+|korean"),
+    ("Polish", r"по[\s-]?польски|на\s+польск\w+|polish"),
+    ("Portuguese", r"по[\s-]?португальски|на\s+португальск\w+|portuguese"),
+    ("Hindi", r"на\s+хинди|hindi"),
+]
+_OTHER_LANGUAGE = [(name, re.compile(rf"(?<![а-яa-zәғқңөұүһі])(?:{pat})(?![а-яa-zәғқңөұүһі])", re.IGNORECASE))
+                   for name, pat in _OTHER_LANGUAGES]
+_LANGUAGE_WORD = [(code, re.compile(rf"(?<![а-яa-zәғқңөұүһі])(?:{pat})(?![а-яa-zәғқңөұүһі])", re.IGNORECASE))
+                  for code, pat in _LANGUAGE_WORDS]
+_B = r"(?<![а-яa-zәғқңөұүһі])"
+_E = r"(?![а-яa-zәғқңөұүһі])"
+_ASK_WORDS = (
+    # Russian: speak / answer / write / switch / let's / may I / only / please …
+    r"говори(?:те)?|отвечай(?:те)?|пиши(?:те)?|разговаривай(?:те)?|общайся|общайтесь|"
+    r"объясняй(?:те)?|объясни(?:те)?|комментируй(?:те)?|рассказывай(?:те)?|"
+    r"перейди(?:те)?|переходи(?:те)?|перейд[её]м|перейти|переключи(?:сь|тесь|ться)?|переключаемся|"
+    r"вернись|вернитесь|верн[её]мся|вернуться|обратно|снова|опять|теперь|дальше|продолжаем|переходим|перехожу|"
+    r"продолжай(?:те)?|продолжим|давай(?:те)?|можно|можешь|можете|мог(?:ла|ли)?\s+бы|"
+    r"только|пожалуйста|лучше|хочу|хотелось\s+бы|предпочитаю|"
+    r"смени(?:те)?|поменяй(?:те)?|измени(?:те)?|выбери(?:те)?|поставь(?:те)?|установи(?:те)?|"
+    r"говорить|отвечать|писать|общаться|разговаривать|объяснять|язык\w*|"
+    # English
+    r"speak|talk|answer|reply|respond|write|switch|continue|explain|comment|communicate|"
+    r"use|chat|go\s+on|carry\s+on|let'?s|please|can\s+you|could\s+you|would\s+you|only|"
+    r"prefer|want|rather|stick\s+to|keep|stay|language|back\s+to|again|now|from\s+now\s+on|"
+    # Kazakh
+    r"сөйле(?:ңіз|ші|ңізші)?|жауап\s+бер(?:іңіз|ші|іңізші)?|жаз(?:ыңыз|шы|ыңызшы)?|"
+    r"түсіндір(?:іңіз|ші)?|айт(?:ыңыз|шы)?|өтінемін|өтініш|болсын|ауыс\w*|көш\w*|жалғастыр\w*|тіл\w*"
+)
+_ASKS = re.compile(_B + "(?:" + _ASK_WORDS + ")" + _E, re.IGNORECASE)
+# A language named to ask for a word or a translation, not for a switch: the
+# construct must be tied to the language word («как по-английски будет вилка»,
+# "how do you say fork in Russian", "the Russian word for"), not anywhere in
+# the window — "Please answer in Russian: what is a skewer?" asks for Russian.
+_NOT_A_SWITCH = re.compile(
+    r"(?:(?:как|что\s+значит|что\s+означает|называ\w*|будет|перев\w*|сказать|звучит|означа\w*|значит|слово|термин)"
+    r"[^.?!]{0,30}?(?:по[\s-]?(?:русски|английски|казахски)|на\s+(?:русск|английск|казахск)\w+)"
+    r"|(?:по[\s-]?(?:русски|английски|казахски))\s+(?:будет|называ\w*|значит|звучит|это)"
+    r"|(?:how\s+do\s+you\s+say|how\s+to\s+say|what\s+is|what'?s|what\s+does|called|translat\w*|means?|word\s+for|term\s+for)"
+    r"[^.?!]{0,40}?\bin\s+(?:russian|english|kazakh)"
+    r"|(?:russian|english|kazakh)\s+(?:word|term|name|translation|equivalent)\b)", re.IGNORECASE)
+# «не говори по-английски», "don't speak English", «не по-английски», "not in
+# English": a negation right before the language word (one word may sit between).
+_NEGATED_BEFORE = re.compile(
+    _B + r"(?:не|нет|ни|перестань(?:те)?|хватит|прекрати(?:те)?|никогда|don'?t|do\s+not|stop|never|not|no|quit)"
+    r"\s+(?:[\wәғқңөұүһі'-]+\s+)?$", re.IGNORECASE)
+_WINDOW = 45
+
+
+def _short_language(text: str) -> Optional[str]:
+    """«по-русски!», "RU please", «рус»: a message that is nothing but a language."""
+    words = [w for w in re.split(r"[\s,.!?;:()«»\"']+", text.lower().replace("ё", "е")) if w]
+    if not words or len(words) > 3:
+        return None
+    found = None
+    for w in words:
+        code = next((c for c, names in _SHORT_LANGUAGE.items() if w in names), None)
+        if code:
+            found = code
+        elif w not in _SHORT_FILLER:
+            return None
+    return found
+
+
+def other_language_request(message: str) -> Optional[str]:
+    """The name of a language the coach does not speak, when *message* asks for it."""
+    text = (message or "")[:4000]
+    for name, rx in _OTHER_LANGUAGE:
+        for m in rx.finditer(text):
+            window = text[max(0, m.start() - _WINDOW): m.end() + _WINDOW]
+            if _ASKS.search(window) and not _NOT_A_SWITCH.search(window) \
+                    and not _NEGATED_BEFORE.search(text[max(0, m.start() - 30): m.start()]):
+                return name
+    return None
+
+
+def language_request(message: str) -> Optional[str]:
+    """The language the student asks the coach to speak in *message*
+    ('ru', 'en', 'kk'), or None when the message asks for none."""
+    text = (message or "")[:4000]
+    short = _short_language(text)
+    if short:
+        return short
+    found = None
+    for code, rx in _LANGUAGE_WORD:
+        for m in rx.finditer(text):
+            window = text[max(0, m.start() - _WINDOW): m.end() + _WINDOW]
+            if not _ASKS.search(window) or _NOT_A_SWITCH.search(window):
+                continue
+            if _NEGATED_BEFORE.search(text[max(0, m.start() - 30): m.start()]):
+                continue
+            if found is None or m.start() > found[0]:
+                found = (m.start(), code)
+    return found[1] if found else None
+
+
+def conversation_language(user_messages, locale: Optional[str] = None) -> tuple[str, str]:
+    """The language the coach answers in next, and why.
+
+    *user_messages* are the student's messages, newest first (for a chat turn,
+    the current one first). Returns a locale code and one of: "asked" — the
+    student asked for this language (the most recent request holds until the
+    next one); "message" — the language of their latest message that has one;
+    "interface" — the interface language, as nothing else decides. The move
+    comments of a game, which answer no message, use the same choice.
+    """
+    newest_script = None
+    other = None
+    for i, text in enumerate(user_messages):
+        asked = language_request(text)
+        if asked:
+            return asked, "asked"
+        if i == 0:
+            other = other_language_request(text)
+        if newest_script is None:
+            newest_script = _script_language(text)
+    if other:
+        # A language the coach does not speak, asked for just now: the answer
+        # says so and goes on in the language that would have been used.
+        return (newest_script or _locale_code(locale)), f"unsupported:{other}"
+    if newest_script:
+        return newest_script, "message"
+    return _locale_code(locale), "interface"
+
+
+def reply_language(message: str, locale: Optional[str] = None) -> str:
+    """The language to answer *message* in: the one it asks for, its own script, else the interface locale."""
+    return LOCALE_TO_LANGUAGE[conversation_language([message], locale)[0]]
+
+
+# Kazakh chess terms the coach must use (stand, 2026-10-04: the bishop came out
+# as «пияз», an onion). The accepted Russian loanword is given in brackets where
+# students use it too; the preferred Kazakh word comes first.
+KAZAKH_TERMS = (
+    "Kazakh chess terms — use exactly these: king — патша (король); queen — уәзір (ферзь); rook — тура (ладья); "
+    "bishop — піл (слон), never «пияз»; knight — ат (конь); pawn — сарбаз (пешка); check — шах; checkmate — мат; "
+    "stalemate — пат; castling — рокировка; move — жүріс; capture — алу/жеу; attack — шабуыл; defend — қорғау; "
+    "fork — айыр (вилка); pin — байлау (связка); discovered check — ашық шах; double check — қос шах; "
+    "White/Black — ақтар/қаралар; centre — орталық; kingside/queenside — патша қанаты/уәзір қанаты; "
+    "board — тақта; file/rank/diagonal — тік/көлденең/диагональ; opening/middlegame/endgame — дебют/миттельшпиль/эндшпиль."
+)
+
+
+def kazakh_terms_note(code: Optional[str]) -> str:
+    """The terms line when the answer is in Kazakh, else ""."""
+    return KAZAKH_TERMS if (code or "").lower() in ("kk", "kz") else ""
+
+
+_LANGUAGE_WHY = {
+    "asked": "the language the student asked for; keep it until they ask otherwise",
+    "message": "the language of the student's message",
+    "interface": "the student's interface language",
+}
+
+
+def language_note(code: str, why: str = "message") -> str:
+    """The last line of a text turn for a language already chosen (see reply_language_note);
+    in Kazakh it carries the chess terms too."""
+    note = _language_note_core(code, why)
+    terms = kazakh_terms_note(code)
+    return note[:-1] + f" {terms}]" if terms else note
+
+
+def _language_note_core(code: str, why: str = "message") -> str:
+    language = LOCALE_TO_LANGUAGE.get(code, "Russian")
+    if why.startswith("unsupported:"):
+        other = why.split(":", 1)[1]
+        return (f"[Reply language: the student asked you to speak {other}, which you do not speak — say so in one "
+                f"short sentence (you speak Russian, Kazakh and English) and write the whole answer in {language}. "
+                f"Never switch to another language.]")
+    return (f"[Reply language: write your whole answer in {language} — {_LANGUAGE_WHY.get(why, _LANGUAGE_WHY['message'])}. "
+            f"Never switch to another language.]")
+
+
+def spoken_language_note(code: str, why: str) -> str:
+    """One sentence for the voice prompt: the language this session is in.
+
+    The spoken coach gets no per-turn note; at the token mint it learns what
+    the session already decided (prompt_builder.conversation_language) — a
+    language the student asked for, in text or aloud, or the one they have
+    been using. "" when only the interface locale decides (the rule covers it).
+    """
+    language = LOCALE_TO_LANGUAGE.get(code, "Russian")
+    if why.startswith("unsupported:"):
+        return (f"The student asked for {why.split(':', 1)[1]}, which you do not speak: say so once, briefly, "
+                f"and speak {language}.")
+    if why == "asked":
+        return (f"The student has asked you to speak {language}: speak {language} from your first word, "
+                f"whatever language they use now, until they ask otherwise.")
+    if why == "message":
+        return f"The conversation so far has been in {language}: start in {language}."
+    return ""
+
+
+def reply_language_note(message: str, locale: Optional[str] = None, history=()) -> str:
     """The last line of every text turn: the language of this answer.
 
     The language rule leads a long system prompt; after the history, the turn
     context and tool results DeepSeek once answered a Russian question in
     Chinese (2026-09-29). A reminder at the very end of the turn holds.
+    *history*: the student's earlier messages, newest first — a language they
+    asked for earlier in the session still holds.
     """
-    language = reply_language(message, locale)
-    return (f"[Reply language: write your whole answer in {language} — the language of the "
-            f"student's message. Never switch to another language.]")
+    return language_note(*conversation_language([message, *history], locale))
+
+
+def moves_in_question_block(message: str, fen: Optional[str]) -> str:
+    """The moves the student named, checked on the board before the model
+    answers: «Могу ли я сыграть Rg1? А Qxg7?» came back "both are legal" with
+    Qxg7 blocked by the f6 pawn (stand, 2026-10-04). Decided by python-chess,
+    not by the model; "" when the message names no move or there is no board."""
+    if not fen or not message:
+        return ""
+    import chess
+
+    from src.answer_check import _MOVE, _to_san
+
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return ""
+    converted, _ = _to_san(message)
+    seen: list[str] = []
+    for m in _MOVE.finditer(converted):
+        san = m["san"]
+        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"]:
+            continue  # a bare square («e4») is not a move the student names
+        if san not in seen:
+            seen.append(san)
+    if not seen:
+        return ""
+    lines = ["## Moves named in the question (checked on the board, side to move "
+             f"{'White' if board.turn else 'Black'})"]
+    for san in seen[:6]:
+        lines.append(f"- {san}: {_move_verdict(board, san)}")
+    return "\n".join(lines)
+
+
+def _move_verdict(board, san: str) -> str:
+    import chess
+
+    try:
+        move = board.parse_san(san)
+        return "legal" + (" — gives check" if board.gives_check(move) else "")
+    except chess.AmbiguousMoveError:
+        return "ambiguous — more than one piece can make it"
+    except ValueError:
+        pass
+    other = board.copy(stack=False)
+    other.turn = not board.turn
+    try:
+        other.parse_san(san)
+        return f"NOT legal for the side to move; it is a move for {'White' if other.turn else 'Black'}"
+    except ValueError:
+        pass
+    # Why not: the piece exists but the way is blocked, or no such piece reaches the square.
+    if san.startswith("O-O"):
+        return "NOT legal — castling is not available here"
+    piece_letter = san[0] if san[0] in "KQRBN" else "P"
+    ptype = chess.PIECE_SYMBOLS.index(piece_letter.lower())
+    import re as _re
+
+    dest_name = _re.findall(r"[a-h][1-8]", san)[-1]
+    dest = chess.parse_square(dest_name)
+    from src.answer_check import _geometry_move
+
+    for sq in board.pieces(ptype, board.turn):
+        if _geometry_move(ptype, sq, dest) and ptype != chess.KNIGHT:
+            between = chess.SquareSet.between(sq, dest)
+            blocker = next((b for b in between if board.piece_at(b) is not None), None)
+            if blocker is not None:
+                bp = board.piece_at(blocker)
+                return (f"NOT legal — the {chess.piece_name(bp.piece_type)} on {chess.square_name(blocker)} "
+                        f"is in the way of the {chess.piece_name(ptype)} on {chess.square_name(sq)}")
+    target = board.piece_at(dest)
+    if target is not None and target.color == board.turn:
+        return f"NOT legal — your own {chess.piece_name(target.piece_type)} stands on {dest_name}"
+    if board.is_check():
+        return "NOT legal — the king is in check and this move does not answer it"
+    return f"NOT legal — no {chess.piece_name(ptype)} of the side to move can reach {dest_name}"
 
 
 def review_block(result: dict) -> str:
@@ -691,7 +1031,8 @@ VOICE_TOOL_LAYER = (
     "list — never speak an illegal move.\n"
     "- A concept (a tactic, a pawn structure, an endgame technique, an opening "
     "idea): get_topic — it puts a verified example on the board itself (the "
-    "site's lesson when there is one); describe exactly that position.\n"
+    "site's lesson when there is one); describe exactly that position, and when "
+    "it names a site lesson, send the student to that lesson's tasks at the end.\n"
     "- Puzzles: get_puzzle (theme + the student's rating) — it puts the puzzle "
     "on the board itself; never invent a puzzle.\n"
     "- Openings: identify_opening for the name, get_opening_stats for what is "
@@ -723,6 +1064,7 @@ def build_voice_prompt(
     board_fen: Optional[str] = None,
     locale: Optional[str] = None,
     tools_available: bool = True,
+    language: Optional[tuple[str, str]] = None,
 ) -> str:
     """Build the spoken system prompt for the Gemini Live voice coach.
 
@@ -739,15 +1081,22 @@ def build_voice_prompt(
         board_fen: Optional current FEN to anchor the conversation.
         locale: Optional UI locale code ('ru', 'kz', 'en').
         tools_available: Include the spoken tool-use directives (default True).
+        language: The session's (language code, why) from conversation_language —
+            what the student asked for, or has been writing in — so the spoken
+            coach starts in it (see spoken_language_note).
 
     Returns:
         Complete spoken system prompt string.
     """
     sections = []
 
-    # Same mandatory language directive the text prompt leads with.
+    # Same mandatory language directive the text prompt leads with, then what
+    # this session already decided.
     if locale:
-        sections.append(language_rule(locale))
+        rule = language_rule(locale)
+        note = spoken_language_note(*language) if language else ""
+        terms = kazakh_terms_note(language[0] if language else locale)
+        sections.append(" ".join(part for part in (rule, note, terms) if part))
 
     # Persona core (shared with text) + spoken delivery overrides.
     sections.append(soul_content.rstrip())

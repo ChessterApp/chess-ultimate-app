@@ -124,10 +124,37 @@ export function openingNote(result: {
 /** The note the model gets with a knowledge-base example the site put on the board. */
 export function topicNote(result: {
   title?: string;
-  example?: { title?: string; fen?: string; note?: string; side_to_move?: string };
+  example?: {
+    title?: string;
+    fen?: string;
+    note?: string;
+    side_to_move?: string;
+    // From the site's own lesson (get_topic, 2026-10-03): the student's programme comes first.
+    source?: string;
+    course?: string;
+    url?: string;
+    tasks?: number;
+    solution?: string[];
+    kind?: string;
+  };
 }): string | null {
   const ex = result.example;
   if (!ex?.fen) return null;
+  if (ex.source === 'site_lesson') {
+    const where = `the site's lesson «${ex.title ?? ''}»${ex.course ? ` (course «${ex.course}»)` : ''}`;
+    const what = ex.kind === 'task' ? 'the first task' : 'the exercise';
+    const tasks = ex.tasks && ex.tasks > 1 ? `, which has ${ex.tasks} tasks` : '';
+    const solution = ex.solution && ex.solution.length > 0 ? ex.solution.join(' ') : '';
+    return (
+      `[Topic] On the student's board is ${what} of ${where}${tasks}, set as a puzzle ` +
+      `(FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}). ` +
+      (solution ? `Its solution is ${solution} — do not reveal it unless the student asks or fails twice. ` : '') +
+      `Explain «${result.title ?? ''}» with this very position, then invite the student to solve it, and at the end ` +
+      `send them to the whole lesson, naming the lesson and course exactly as here` +
+      (ex.url ? ` (address ${ex.url})` : '') +
+      `. Describe no other example and do not call get_topic for it again.`
+    ).replace(/\s+/g, ' ').trim();
+  }
   return (
     `[Topic] The knowledge-base example for «${result.title ?? ''}» is now on the student's board: ` +
     `${ex.title ?? ''} (FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}). ` +

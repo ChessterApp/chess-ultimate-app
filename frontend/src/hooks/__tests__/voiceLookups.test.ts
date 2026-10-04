@@ -30,6 +30,20 @@ describe('voice lookups: what the site asks Hermes about on its own', () => {
   it('the topic note still describes the example on the board', () => {
     expect(topicNote({ title: 'Связка', example: { fen: '8/8/8/8/8/8/8/8 w - - 0 1', title: 'пример' } })).toContain('[Topic]');
     expect(topicNote({ title: 'Связка' })).toBeNull();
+    // The site's own lesson: the task is a puzzle, the solution stays hidden, the lesson is where to go.
+    const lesson = topicNote({
+      title: 'Связка',
+      example: {
+        source: 'site_lesson', kind: 'task', title: 'Связка', course: 'Основы шахмат', tasks: 12,
+        fen: '8/8/7p/5K1k/7r/7R/6P1/8 w - - 0 1', side_to_move: 'White', solution: ['g4#'],
+        url: 'https://chesster.io/learn/chess-basics/pin',
+      },
+    })!;
+    expect(lesson).toContain("the first task of the site's lesson «Связка» (course «Основы шахмат»), which has 12 tasks");
+    expect(lesson).toContain('Its solution is g4# — do not reveal it');
+    expect(lesson).toContain('send them to the whole lesson');
+    expect(lesson).toContain('https://chesster.io/learn/chess-basics/pin');
+    expect(lesson).not.toContain('knowledge-base example');
   });
 });
 

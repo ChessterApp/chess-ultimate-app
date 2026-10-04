@@ -39,9 +39,8 @@ QUICK_SYSTEM_PROMPT = (
     "You are Chesster, a friendly chess coach sitting next to the student. The "
     "student has just asked something; the precise, engine-checked answer is "
     "being prepared and will follow your line. Your job is ONLY the first spoken "
-    "reaction: one short sentence, at most 20 words, in the language of the "
-    "student's message (Russian, Kazakh or English). Use {language} only when the "
-    "message shows no language of its own (just a move, a FEN, \"ok\").\n"
+    "reaction: one short sentence, at most 20 words, in {language} — whatever "
+    "language the student's message is in.\n"
     "Acknowledge what the student asked and say what you are about to check or "
     "look at — the line, the opening, the game, the database, the lessons, or the "
     "position. Mention the position ONLY when the question is about the position on "
@@ -112,8 +111,8 @@ class QuickReply:
 SMALL_TALK_PROMPT = (
     "You are Chesster, a friendly chess coach sitting next to the student. The student's "
     "message is small talk — a greeting, thanks, a goodbye or \"how are you\". Reply in one or "
-    "two short, warm sentences in the language of their message (Russian, Kazakh or English; "
-    "{language} if you cannot tell). After a greeting, offer what you can do together: look at "
+    "two short, warm sentences in {language} — whatever language their message is in. "
+    "After a greeting, offer what you can do together: look at "
     "the position on their board, a puzzle, an idea to learn, a game against you. After thanks, "
     "say you are glad and offer a next step that fits the conversation. No moves, no "
     "evaluations, no markdown, at most one emoji."
@@ -126,9 +125,16 @@ def build_small_talk_messages(
     message: str, locale: Optional[str], history: Optional[list[tuple[str, str]]] = None,
 ) -> list[dict]:
     """The whole answer to small talk: the persona line, the last few turns for
-    context (so "спасибо" after a lesson can suggest a fitting puzzle), the message."""
+    context (so "спасибо" after a lesson can suggest a fitting puzzle), the message.
+
+    *locale* is the language of the answer, already chosen by the server
+    (prompt_builder.conversation_language: what the student asked for, else the
+    language they write in, else the interface language)."""
+    from src.prompt_builder import kazakh_terms_note
+
     language = _LANGUAGE.get((locale or "").lower(), "the student's language")
-    out = [{"role": "system", "content": SMALL_TALK_PROMPT.format(language=language)}]
+    terms = kazakh_terms_note(locale)
+    out = [{"role": "system", "content": SMALL_TALK_PROMPT.format(language=language) + (f"\n{terms}" if terms else "")}]
     for role, content in (history or [])[-SMALL_TALK_HISTORY_TURNS:]:
         if role in ("user", "assistant") and content:
             out.append({"role": role, "content": content[:SMALL_TALK_HISTORY_CHARS]})
@@ -142,9 +148,15 @@ def build_quick_messages(message: str, locale: Optional[str], board_fen: Optiona
     The student's message is passed as-is (already cleaned by the server); the
     board FEN is mentioned only as a hint that a position is on the board so the
     coach can say "looking at the position" — the model is not asked to read it.
+    *locale* is the language of the reaction, chosen by the server (see
+    build_small_talk_messages) — the small model guessed it from the message and
+    reacted in Russian to an English question (production, 2026-10-01).
     """
+    from src.prompt_builder import kazakh_terms_note
+
     language = _LANGUAGE.get((locale or "").lower(), "the student's language")
-    system = QUICK_SYSTEM_PROMPT.format(language=language)
+    terms = kazakh_terms_note(locale)
+    system = QUICK_SYSTEM_PROMPT.format(language=language) + (f"\n{terms}" if terms else "")
     user = message.strip()
     if board_fen:
         # The coach page sends its board with every message, so this is only a

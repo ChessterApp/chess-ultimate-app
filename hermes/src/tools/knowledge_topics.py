@@ -74,8 +74,10 @@ def _related_lessons(topic: dict, user_id: Optional[str], locale: Optional[str])
     if not stems:
         return []
     try:
-        from src.tools.learning_path import SITE_URL, _loc, fetch_programme, fetch_progress
+        from src.tools.learning_path import _loc, fetch_programme, fetch_progress
         from src.tools.training_recommender import match_lessons
+
+        from src.tools.learning_path import _lesson_view
 
         programme = fetch_programme()
         if not programme:
@@ -83,11 +85,17 @@ def _related_lessons(topic: dict, user_id: Optional[str], locale: Optional[str])
         progress = (fetch_progress(user_id) or {}) if user_id else {}
         out = []
         for c, m, l in match_lessons(programme, stems, progress, limit=MAX_RELATED_LESSONS):
-            out.append({
-                "title": _loc(l, "title", locale), "course": _loc(c, "title", locale),
-                "slug": l.get("slug"), "url": f"{SITE_URL}/learn/{c.get('slug')}/{l.get('slug')}",
-                "status": (progress.get(l["id"]) or {}).get("status") or "not_started",
-            })
+            # The same view as get_learning_path: the site keeps no slug in the
+            # rows (production: every lesson came back as «/learn/None/None» and
+            # the example was looked up by title, 2026-10-03), the address is
+            # derived from the English title as the site itself does.
+            view = _lesson_view(c, m, l, progress, locale)
+            view["course"] = _loc(c, "title", locale)
+            view["module"] = _loc(m, "title", locale)
+            view.pop("type", None)
+            if not view.get("url"):
+                view.pop("url", None)
+            out.append(view)
         return out
     except Exception:  # noqa: BLE001 — the programme is a bonus, never a blocker
         logger.debug("related lessons lookup failed", exc_info=True)
@@ -124,8 +132,10 @@ def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: O
     except Exception:  # noqa: BLE001
         return None
     for brief in lessons[:MAX_EXAMPLE_LESSONS]:
+        # By id: a title («Связка») fits several lessons and came back ambiguous.
+        key = brief.get("lesson_id") or brief.get("slug") or brief.get("title") or ""
         try:
-            full = get_lesson(brief.get("slug") or brief.get("title") or "", user_id=user_id, locale=locale)
+            full = get_lesson(key, user_id=user_id, locale=locale, show=False)
         except Exception:  # noqa: BLE001
             logger.debug("lesson fetch for the topic example failed", exc_info=True)
             continue
@@ -134,17 +144,24 @@ def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: O
         candidates = []
         ex = full.get("exercise") or {}
         if ex.get("fen"):
-            candidates.append((ex["fen"], (ex.get("solution") or [None])[0], ex.get("hint") or ""))
+            candidates.append((ex["fen"], ex.get("solution") or [], ex.get("hint") or "", "exercise"))
         for pz in full.get("puzzles") or []:
-            candidates.append((pz.get("fen"), (pz.get("solution") or [None])[0], pz.get("hint") or ""))
-        for fen, key_move, note in candidates:
+            candidates.append((pz.get("fen"), pz.get("solution") or [], pz.get("hint") or "", "task"))
+        tasks = len([c for c in candidates if _legal_fen(c[0])])
+        for fen, solution, note, kind in candidates:
             if _legal_fen(fen):
+                course = full.get("course") or {}
                 return {
                     "source": "site_lesson",
                     "title": full.get("title"),
+                    "course": course.get("title") if isinstance(course, dict) else course,
+                    "lesson_id": full.get("lesson_id"),
                     "url": full.get("url"),
                     "fen": fen,
-                    "key_move": key_move,
+                    "key_move": (solution or [None])[0],
+                    "solution": list(solution),
+                    "kind": kind,
+                    "tasks": tasks,
                     "note": note or (full.get("content") or "")[:300],
                 }
     return None
@@ -235,6 +252,10 @@ def _plan_arrows(fen: str, plan: str) -> list[dict]:
 
 
 def _example_actions(example: dict) -> list[dict]:
+    if example.get("source") == "site_lesson" and example.get("solution"):
+        # A task of the site's lesson goes on as a puzzle the student solves
+        # there — an arrow for the key move would give the answer away.
+        return [{"type": "set_puzzle", "fen": example["fen"], "solution": example["solution"]}]
     actions = [{"type": "set_fen", "fen": example["fen"]}]
     arrow = _arrow(example["fen"], example.get("key_move"))
     # The base's own arrows first (the idea of the position), then the key move,
@@ -300,14 +321,32 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
             side = "White" if chess.Board(example["fen"]).turn == chess.WHITE else "Black"
             out["example"] = {**example, "side_to_move": side}
             out["board_actions"] = _example_actions(example)
-            out["board_hint"] = (
-                "The example is ALREADY on the student's board (with an arrow for its key move when "
-                "it has one). "
-                "Explain exactly that position — read the pieces from its FEN, use its note. "
-                "Do not set up any other example yourself and do not replace this one in the same "
-                "answer: OFFER a puzzle (get_puzzle(theme=<puzzle_themes>)) and put it on the board "
-                "only when the student asks for it."
-            )
+            if example.get("source") == "site_lesson":
+                # The customer's own programme: the lesson is the authority, and
+                # the answer ends by sending the student to it (2026-10-03).
+                where = f"the site's lesson «{example.get('title')}»"
+                if example.get("course"):
+                    where += f" (course «{example.get('course')}»)"
+                tasks = example.get("tasks") or 0
+                link = f" Its address: {example['url']}." if example.get("url") else ""
+                out["board_hint"] = (
+                    f"The position on the student's board is {'the first task' if example.get('kind') == 'task' else 'the exercise'} "
+                    f"of {where}{f', which has {tasks} tasks' if tasks > 1 else ''}, set as a puzzle the student can "
+                    f"solve right there ({side} to move; the solution is {' '.join(example.get('solution') or []) or 'not given'} — "
+                    "do NOT reveal it unless the student asks or fails twice). Explain the concept with this very "
+                    "position — read the pieces from its FEN — and END the answer by inviting the student to go "
+                    f"through the whole lesson and solve its tasks, naming the lesson and course exactly as here.{link} "
+                    "Do not set up any other example in the same answer; offer get_puzzle only after the lesson's tasks."
+                )
+            else:
+                out["board_hint"] = (
+                    "The example is ALREADY on the student's board (with an arrow for its key move when "
+                    "it has one). "
+                    "Explain exactly that position — read the pieces from its FEN, use its note. "
+                    "Do not set up any other example yourself and do not replace this one in the same "
+                    "answer: OFFER a puzzle (get_puzzle(theme=<puzzle_themes>)) and put it on the board "
+                    "only when the student asks for it."
+                )
     if "board_hint" not in out:
         out["board_hint"] = ("No example position for this topic: explain it on the student's current board "
                              "or offer a puzzle with get_puzzle(theme=<puzzle_themes>) — never invent a position.")
