@@ -395,7 +395,7 @@ function StepPlatform({ t, onSelect }: { t: any; onSelect: (v: "chessdotcom" | "
 
 function StepUsername({ t, answers, setAnswers, onNext }: { t: any; answers: any; setAnswers: any; onNext: () => void }) {
   const [username, setUsername] = useState(answers.platformUsername || "");
-  const [status, setStatus] = useState<"idle" | "checking" | "found" | "notfound">("idle");
+  const [status, setStatus] = useState<"idle" | "checking" | "found" | "notfound" | "error">("idle");
   const [foundRating, setFoundRating] = useState<number | null>(null);
   const [ratingType, setRatingType] = useState<string>("");
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
@@ -407,58 +407,29 @@ function StepUsername({ t, answers, setAnswers, onNext }: { t: any; answers: any
     setStatus("checking");
     setFoundRating(null);
     try {
-      if (answers.platform === "lichess") {
-        const res = await fetch(`https://lichess.org/api/user/${name}`);
-        if (res.ok) {
-          const data = await res.json();
-          const lichessEntries: [string, number][] = [
-                ["Rapid", data?.perfs?.rapid?.rating],
-                ["Blitz", data?.perfs?.blitz?.rating],
-                ["Bullet", data?.perfs?.bullet?.rating],
-                ["Classical", data?.perfs?.classical?.rating],
-                ["Correspondence", data?.perfs?.correspondence?.rating],
-              ].filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > 0);
-              const best = lichessEntries.sort((a, b) => b[1] - a[1])[0];
-              const rating = best ? best[1] : 0;
-          setFoundRating(rating);
-          setRatingType(best ? best[0] : "");
-          setStatus("found");
-          setAnswers((a: any) => ({ ...a, platformUsername: name, onlineRating: rating, startFetch: true }));
-        } else {
-          setStatus("notfound");
-        }
+      // Verify via same-origin proxy — direct api.chess.com / lichess.org calls
+      // are blocked by CSP and Chess.com's bot protection. The proxy also lets
+      // us tell a genuine "not found" apart from a transient network failure.
+      const res = await fetch(
+        `/api/onboarding/verify-player?platform=${encodeURIComponent(answers.platform)}&username=${encodeURIComponent(name)}`
+      );
+      if (!res.ok) {
+        // 502/5xx => upstream or network problem, not a real "not found".
+        setStatus("error");
+        return;
+      }
+      const data = await res.json();
+      if (data?.found) {
+        const rating = typeof data.rating === "number" ? data.rating : 0;
+        setFoundRating(rating);
+        setRatingType(data.ratingType || "");
+        setStatus("found");
+        setAnswers((a: any) => ({ ...a, platformUsername: name, onlineRating: rating, startFetch: true }));
       } else {
-        const res = await fetch(`https://api.chess.com/pub/player/${name.toLowerCase()}`);
-        if (res.ok) {
-          // Fetch stats for rating
-          try {
-            const statsRes = await fetch(`https://api.chess.com/pub/player/${name.toLowerCase()}/stats`);
-            if (statsRes.ok) {
-              const stats = await statsRes.json();
-              const chessEntries: [string, number][] = [
-                ["Rapid", stats?.chess_rapid?.last?.rating],
-                ["Blitz", stats?.chess_blitz?.last?.rating],
-                ["Bullet", stats?.chess_bullet?.last?.rating],
-                ["Daily", stats?.chess_daily?.last?.rating],
-              ].filter((e): e is [string, number] => typeof e[1] === "number" && e[1] > 0);
-              const best = chessEntries.sort((a, b) => b[1] - a[1])[0];
-              const rating = best ? best[1] : 0;
-              setFoundRating(rating);
-              setRatingType(best ? best[0] : "");
-              setAnswers((a: any) => ({ ...a, platformUsername: name, onlineRating: rating, startFetch: true }));
-            } else {
-              setAnswers((a: any) => ({ ...a, platformUsername: name, startFetch: true }));
-            }
-          } catch {
-            setAnswers((a: any) => ({ ...a, platformUsername: name, startFetch: true }));
-          }
-          setStatus("found");
-        } else {
-          setStatus("notfound");
-        }
+        setStatus("notfound");
       }
     } catch {
-      setStatus("notfound");
+      setStatus("error");
     }
   }, [answers.platform, setAnswers]);
 
@@ -495,6 +466,9 @@ function StepUsername({ t, answers, setAnswers, onNext }: { t: any; answers: any
         )}
         {status === "notfound" && (
           <p className="text-red-500 text-sm font-medium">{t("username.notFound")}</p>
+        )}
+        {status === "error" && (
+          <p className="text-amber-600 text-sm font-medium">{t("username.error")}</p>
         )}
       </div>
       <button

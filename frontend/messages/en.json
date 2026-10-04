@@ -1389,6 +1389,7 @@
       "checking": "Checking...",
       "found": "Found you!",
       "notFound": "Username not found",
+      "error": "Couldn't check right now — try again",
       "rating": "Rating: {rating}",
       "continue": "Continue"
     }
