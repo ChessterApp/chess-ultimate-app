@@ -106,6 +106,106 @@ def complete_onboarding():
     return jsonify({'status': 'completed'}), 200
 
 
+# Fallback course-level count when the Supabase lookup fails — mirrors the
+# number of Chesster course levels that exist today. starting_level is clamped
+# to [1, num_levels], so a conservative fallback never over-unlocks.
+_DEFAULT_NUM_LEVELS = 8
+
+
+def _count_course_levels(supabase) -> int:
+    """Current number of course levels (rows in `courses`). Falls back to a safe
+    constant and logs on any failure — never raises."""
+    try:
+        result = supabase.table('courses').select('id').execute()
+        rows = getattr(result, 'data', None) or []
+        return len(rows) or _DEFAULT_NUM_LEVELS
+    except Exception as exc:
+        logger.warning('course-level count failed, using fallback %s: %s',
+                       _DEFAULT_NUM_LEVELS, exc)
+        return _DEFAULT_NUM_LEVELS
+
+
+@onboarding_bp.route('/profile', methods=['POST'])
+def save_onboarding_profile():
+    """Consumer onboarding: upsert the funnel answers for the calling user and
+    compute skill_tier + starting_level server-side.
+
+    Distinct from the school-wizard save/resume routes above. Body = the answers
+    object (camelCase from the funnel). Returns {skill_tier, starting_level}.
+    """
+    from services.onboarding_tier import derive_tier_and_level
+
+    user_id, err = _require_clerk_user()
+    if err:
+        return err
+
+    answers = request.get_json(silent=True) or {}
+    if not isinstance(answers, dict):
+        return jsonify({'error': 'body must be an object'}), 400
+
+    supabase = _get_supabase()
+    num_levels = _count_course_levels(supabase)
+    derived = derive_tier_and_level(answers, num_levels)
+
+    def _pick(*keys):
+        for key in keys:
+            value = answers.get(key)
+            if value is not None:
+                return value
+        return None
+
+    focus_areas = _pick('focusAreas', 'focus_areas')
+    if focus_areas is not None and not isinstance(focus_areas, list):
+        focus_areas = None
+
+    row = {
+        'clerk_user_id': user_id,
+        'attribution': _pick('attribution'),
+        'experience': _pick('experience'),
+        'platform': _pick('platform'),
+        'platform_username': _pick('platformUsername', 'platform_username'),
+        'online_rating': _pick('onlineRating', 'online_rating'),
+        'elo_rating': _pick('eloRating', 'elo_rating'),
+        'no_rating': _pick('noRating', 'no_rating'),
+        'focus_areas': focus_areas,
+        'challenge': _pick('challenge'),
+        'practice_time': _pick('practiceTime', 'practice_time'),
+        'goal': _pick('goal'),
+        'timeline': _pick('timeline'),
+        'skill_tier': derived['skill_tier'],
+        'starting_level': derived['starting_level'],
+        'onboarding_complete': True,
+        'updated_at': datetime.now(timezone.utc).isoformat(),
+    }
+
+    supabase.table('user_onboarding').upsert(
+        row, on_conflict='clerk_user_id'
+    ).execute()
+
+    return jsonify(derived), 200
+
+
+@onboarding_bp.route('/profile', methods=['GET'])
+def get_onboarding_profile():
+    """Return the caller's user_onboarding row, or {profile: null}."""
+    user_id, err = _require_clerk_user()
+    if err:
+        return err
+
+    supabase = _get_supabase()
+    result = (
+        supabase.table('user_onboarding')
+        .select('*')
+        .eq('clerk_user_id', user_id)
+        .maybe_single()
+        .execute()
+    )
+    if not result or not getattr(result, 'data', None):
+        return jsonify({'profile': None}), 200
+
+    return jsonify({'profile': result.data}), 200
+
+
 _SLUG_RE = __import__('re').compile(r'^[a-z0-9]([a-z0-9-]{1,28}[a-z0-9])?$')
 
 
