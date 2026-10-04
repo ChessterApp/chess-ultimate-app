@@ -29,6 +29,7 @@ from src.identity import resolve_user_id
 logger = logging.getLogger(__name__)
 
 MAX_RELATED_LESSONS = 4
+EXPLANATION_EXCERPT = 1800  # of the lesson's own text, with the example
 # Lessons fetched in full while looking for one with a position to show.
 MAX_EXAMPLE_LESSONS = 2
 
@@ -141,6 +142,26 @@ def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: O
             continue
         if "error" in full or full.get("ambiguous"):
             continue
+        course = full.get("course") or {}
+        tasks_total = (1 if (full.get("exercise") or {}).get("fen") else 0) + len(full.get("puzzles") or [])
+        # The lesson's own explanatory diagram first (the programme's text goes
+        # with it); its tasks are for the end of the answer.
+        for d in full.get("diagrams") or []:
+            if _legal_fen(d.get("fen")):
+                return {
+                    "source": "site_lesson",
+                    "kind": "diagram",
+                    "title": full.get("title"),
+                    "course": course.get("title") if isinstance(course, dict) else course,
+                    "lesson_id": full.get("lesson_id"),
+                    "url": full.get("url"),
+                    "fen": d["fen"],
+                    "key_move": None,
+                    "solution": [],
+                    "tasks": tasks_total,
+                    "note": d.get("context") or "",
+                    "explanation": (full.get("lesson_text") or "")[:EXPLANATION_EXCERPT],
+                }
         candidates = []
         ex = full.get("exercise") or {}
         if ex.get("fen"):
@@ -329,6 +350,18 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
                     where += f" (course «{example.get('course')}»)"
                 tasks = example.get("tasks") or 0
                 link = f" Its address: {example['url']}." if example.get("url") else ""
+                if example.get("kind") == "diagram":
+                    shows = f": «{example['note']}»" if example.get("note") else ""
+                    out["board_hint"] = (
+                        f"The position on the student's board is an explanatory diagram of {where}"
+                        f"{f', which has {tasks} tasks' if tasks else ''} ({side} to move){shows}. The lesson's own "
+                        "text is in `example.explanation` — teach in ITS words, in the student's language, reading "
+                        "the pieces from the FEN and saying what the diagram shows. Then END the answer by inviting "
+                        "the student to go through the whole lesson and solve its tasks, naming the lesson and course "
+                        f"exactly as here.{link} Do not set up any other example in the same answer; offer get_puzzle "
+                        "only after the lesson's tasks."
+                    )
+                    return out
                 out["board_hint"] = (
                     f"The position on the student's board is {'the first task' if example.get('kind') == 'task' else 'the exercise'} "
                     f"of {where}{f', which has {tasks} tasks' if tasks > 1 else ''}, set as a puzzle the student can "

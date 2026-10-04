@@ -261,6 +261,33 @@ def test_get_topic_prefers_the_sites_own_lesson(topics, monkeypatch):
 
 
 @pytest.mark.unit
+def test_get_topic_teaches_from_the_lessons_own_diagram_and_text(topics, monkeypatch):
+    import src.tools.learning_path as lp
+    import src.tools.knowledge_topics as kt
+
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [
+        {"lesson_id": "l-fork", "slug": "knight-fork", "title": "Вилка конём", "course": "Тактика"}])
+    monkeypatch.setattr(lp, "get_lesson", lambda key, **kw: {
+        "lesson_id": "l-fork", "title": "Вилка конём", "course": {"slug": "tactics-101", "title": "Тактика"},
+        "url": "https://chesster.io/learn/tactics-101/knight-fork",
+        "lesson_text": "Двойной удар – нападение одной фигурой на две фигуры противника.",
+        "diagrams": [{"fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "context": "Конь нападает на две фигуры"}],
+        "puzzles": [{"n": 1, "fen": "7k/6rp/4R3/4B2K/8/8/8/8 w - - 0 1", "solution": ["Re8#"], "hint": ""}],
+    })
+    out = get_topic("fork", locale="ru", topics=topics)
+    ex = out["example"]
+    assert ex["source"] == "site_lesson" and ex["kind"] == "diagram" and ex["tasks"] == 1
+    assert ex["fen"] == "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1" and ex["solution"] == []
+    assert ex["explanation"].startswith("Двойной удар – нападение")
+    # A diagram goes on as a position to explain, not as a puzzle.
+    assert out["board_actions"][0] == {"type": "set_fen", "fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1"}
+    hint = out["board_hint"]
+    assert "an explanatory diagram of the site's lesson «Вилка конём» (course «Тактика»), which has 1 tasks" in hint
+    assert "«Конь нападает на две фигуры»" in hint and "teach in ITS words" in hint
+    assert "END the answer by inviting the student" in hint and "/knight-fork" in hint
+
+
+@pytest.mark.unit
 def test_get_topic_skips_an_illegal_lesson_position(topics, monkeypatch):
     import src.tools.learning_path as lp
     import src.tools.knowledge_topics as kt

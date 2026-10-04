@@ -136,14 +136,29 @@ export function topicNote(result: {
     tasks?: number;
     solution?: string[];
     kind?: string;
+    // The lesson's own text from the programme (steps 1–3), with its diagram.
+    explanation?: string;
   };
 }): string | null {
   const ex = result.example;
   if (!ex?.fen) return null;
   if (ex.source === 'site_lesson') {
     const where = `the site's lesson «${ex.title ?? ''}»${ex.course ? ` (course «${ex.course}»)` : ''}`;
-    const what = ex.kind === 'task' ? 'the first task' : 'the exercise';
     const tasks = ex.tasks && ex.tasks > 1 ? `, which has ${ex.tasks} tasks` : '';
+    if (ex.kind === 'diagram') {
+      const says = ex.explanation ? ` The lesson says: ${ex.explanation.slice(0, 700)}` : '';
+      return (
+        `[Topic] On the student's board is an explanatory diagram of ${where}${tasks} ` +
+        `(FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}).` +
+        (ex.note ? ` It shows: ${ex.note}.` : '') +
+        says +
+        ` Explain «${result.title ?? ''}» in the lesson's own words with this very position, and at the end ` +
+        `send the student to the whole lesson and its tasks, naming the lesson and course exactly as here` +
+        (ex.url ? ` (address ${ex.url})` : '') +
+        `. Describe no other example and do not call get_topic for it again.`
+      ).replace(/\s+/g, ' ').trim();
+    }
+    const what = ex.kind === 'task' ? 'the first task' : 'the exercise';
     const solution = ex.solution && ex.solution.length > 0 ? ex.solution.join(' ') : '';
     return (
       `[Topic] On the student's board is ${what} of ${where}${tasks}, set as a puzzle ` +

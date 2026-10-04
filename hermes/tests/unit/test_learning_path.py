@@ -195,6 +195,41 @@ class TestGetLesson:
         assert out["puzzles"][1]["solution"] == ["Ra8+"]
         assert out["puzzles"][0]["hint"] == "Central knight"
 
+    def test_the_programmes_text_and_diagram_join_the_lesson(self, monkeypatch):
+        # The site's lesson «knight-fork» (id l3) is matched to a book lesson.
+        import src.lesson_texts as lt
+
+        record = {"course_slug": "tactics-101", "module_title": "Двойные удары", "docx_step": 2, "docx_lesson": "3",
+                  "docx_title": "Двойной удар",
+                  "site_lessons": [{"lesson_id": "l3", "title": "Вилка конём", "slug": "knight-fork"}],
+                  "text_ru": "Двойной удар – нападение одной фигурой на две.\n[Диаграмма s2_l3_theory_01.png: 6k1/8/8/3N4/8/8/8/6K1 w - - 0 1]",
+                  "diagrams": [{"fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "valid": True, "context": "Конь нападает на две фигуры"}]}
+        monkeypatch.setattr(lt, "_records", lambda: (record,))
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
+            out = get_lesson("knight-fork", locale="ru", show=True)
+        assert out["content"].startswith("Конь нападает на две фигуры сразу.\n\n## Текст урока (программа «Ступени», ступень 2, урок 3 «Двойной удар»)")
+        assert "[Диаграмма: 6k1/8/8/3N4/8/8/8/6K1 w - - 0 1]" in out["content"]
+        assert out["lesson_text"].startswith("Двойной удар – нападение")
+        assert out["diagrams"] == [{"fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "context": "Конь нападает на две фигуры"}]
+        # The lesson has an exercise: it stays on the board as the puzzle; the diagram is for the text.
+        assert out["board_actions"][0]["type"] == "set_puzzle"
+
+    def test_a_lesson_without_an_exercise_shows_its_diagram_first(self, monkeypatch):
+        import src.lesson_texts as lt
+
+        record = {"course_slug": "tactics-101", "module_title": "Двойные удары", "docx_step": 2, "docx_lesson": "3",
+                  "docx_title": "Двойной удар", "site_lessons": [{"lesson_id": "l3", "title": "Вилка конём"}],
+                  "text_ru": "Двойной удар – нападение одной фигурой на две.",
+                  "diagrams": [{"fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "valid": True, "context": "Конь нападает на две фигуры"}]}
+        monkeypatch.setattr(lt, "_records", lambda: (record,))
+        no_exercise = {**LESSON_L3_FULL, "exercise_fen": None, "solution_line": None, "solution_move": None,
+                       "exercise_solution": None}
+        with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query(lesson_full=no_exercise))):
+            out = get_lesson("knight-fork", locale="ru", show=True)
+        assert "exercise" not in out and out["puzzles"]
+        assert out["board_actions"] == [{"type": "set_fen", "fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1"}]
+        assert "explanatory diagram is ALREADY on the board (Конь нападает на две фигуры)" in out["board_hint"]
+
     def test_show_puts_the_exercise_on_the_board(self):
         with patch("src.tools.learning_path._supabase_query_ex", _ex(_fake_query())):
             shown = get_lesson("knight-fork", locale="ru", show=True)
