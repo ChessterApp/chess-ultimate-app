@@ -585,6 +585,60 @@ def _attack_issues(text: str, original: Optional[str] = None, ctx: Optional["Che
     return issues
 
 
+# «после Rg1 ладья перейдёт на g3», "after Rg1 the rook is ready to swing to g3":
+# the piece a written move just placed is said to go on to a square. Judged
+# narrowly (production, 2026-10-05: the rook on g1 «swings to g3» through the
+# king on g2): not a move of that piece at all, or its own KING in the way —
+# a pawn or a piece in the way may be a plan to move it first, and is let be.
+_PLAN_MOVE = []
+for _ptype, _pat in _RU_SUBJECTS:
+    if _ptype == chess.PAWN:
+        continue
+    _PLAN_MOVE.append((_ptype, re.compile(
+        _W + "(?:" + _pat + ")" + _E + r"(?P<mid>(?:\s+(?!на\s|к\s)[а-яa-z]+){0,4}?)\s+"
+        r"(?:перейд[её]т|перейти|пойд[её]т|пойти|встанет|встать|ид[её]т|идти|прыгнет|прыгнуть|отойд[её]т|отойти|"
+        r"уйд[её]т|уйти|перевести|переведи|переводится|готова?\s+(?:перейти|пойти|встать|прыгнуть))"
+        rf"\s+(?:на|к)\s+(?P<to>{SQ})(?![0-9])", re.IGNORECASE)))
+for _ptype, _pat in _EN_PIECES:
+    if _ptype == chess.PAWN:
+        continue
+    _PLAN_MOVE.append((_ptype, re.compile(
+        _W + "(?:" + _pat + ")" + _E + r"(?P<mid>(?:\s+(?!to\s|on\s|onto\s)[a-z]+){0,4}?)\s+"
+        r"(?:swings?|goes?|moves?|jumps?|comes?|lands?|drops?|slides?|hops?|heads?|can\s+go|will\s+go|is\s+ready\s+to\s+(?:swing|go|move|jump))"
+        rf"\s+(?:over\s+|back\s+)?(?:to|on|onto)\s+(?P<to>{SQ})(?![0-9])", re.IGNORECASE)))
+
+
+def _plan_move_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    issues = []
+    converted, _ = _to_san(original)
+    for ptype, rx in _PLAN_MOVE:
+        for m in rx.finditer(converted):
+            if _SQ_RE.search((m["mid"] or "").lower()) or _PIECE_WORD.search((m["mid"] or "").lower()):
+                continue
+            frm = _move_before(converted, m.start(), ptype)
+            if frm is None:
+                continue
+            a, b = chess.parse_square(frm), chess.parse_square(m["to"])
+            if a == b or ptype in (chess.KNIGHT, chess.KING):
+                continue  # «Nbd2–f1–g3 — конь идёт на g3», «5...Na5 instead of 5...Nxd5 — your knight goes to a5»: the written move is not this knight's
+            if not _geometry_move(ptype, a, b):
+                issues.append(f"a {_NAMES[ptype]} on {frm} cannot go to {m['to']}")
+                continue
+            standing = [bd for bd in ctx.boards if not ctx.is_given(bd)
+                        and (pc := bd.piece_at(a)) is not None and pc.piece_type == ptype]
+            if not standing:
+                continue
+            for bd in standing:
+                own = bd.piece_at(a).color
+                blockers = [sq for sq in chess.SquareSet.between(a, b) if bd.piece_at(sq) is not None]
+                king = next((sq for sq in blockers if (pc := bd.piece_at(sq)).piece_type == chess.KING and pc.color == own), None)
+                if king is not None and all(bd.piece_at(sq) is not None for sq in [king]):
+                    issues.append(f"a {_NAMES[ptype]} on {frm} cannot go to {m['to']}: its own king on "
+                                  f"{chess.square_name(king)} is in the way")
+                    break
+    return issues
+
+
 def _move_before(converted: str, upto: int, ptype: int) -> Optional[str]:
     """The destination of the last move of a *ptype* piece written before *upto*
     («Rg1», «1.e4», «...Nf6»); None when no such move is written."""
@@ -1748,7 +1802,7 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
     san_issues = _san_issues(text, ctx)
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
-              + _opening_issues(text) + _fact_issues(lowered, text, ctx))
+              + _opening_issues(text) + _fact_issues(lowered, text, ctx) + _plan_move_issues(lowered, text, ctx))
     squares = _SQ_RE.findall(lowered)
     if ctx._object:
         ctx.topic = ctx._object

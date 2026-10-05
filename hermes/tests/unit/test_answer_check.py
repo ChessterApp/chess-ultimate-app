@@ -701,3 +701,34 @@ class TestGateHoldsMaterialClaims:
         msgs = fix_messages("turn", "shown", "wrong", ["material: White has an extra 1 rook"], "lang",
                             "The student plays Black (the side to move on the board): «ты» means Black; White is the opponent.")
         assert "The student plays Black" in msgs[1]["content"]
+
+
+class TestPlanThroughOwnKing:
+    """"After Rg1 … the rook is ready to swing to g3 or g4" with the king on g2
+    (production, 2026-10-05). Only the own king in the way, or a square the piece
+    cannot reach at all, is judged — a pawn or a piece in the way may move first."""
+
+    T = "2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/2Q2P1P/1PP2PK1/4R3 w - - 0 1"
+
+    @pytest.mark.parametrize("sentence, expect", [
+        ("After Rg1 the knight grabbing a4 costs Black time, and the rook is ready to swing to g3 or g4 to hit the queen.",
+         "a rook on g1 cannot go to g3: its own king on g2 is in the way"),
+        ("После Rg1 ладья перейдёт на g3 и нападёт на ферзя.", "a rook on g1 cannot go to g3: its own king on g2 is in the way"),
+        ("После Rg1 ладья пойдёт на h2.", "a rook on g1 cannot go to h2"),
+    ])
+    def test_caught(self, sentence, expect):
+        ctx = CheckContext.from_fens([self.T], question="что делать?", student_color=chess.WHITE)
+        issues = check_sentence(sentence, ctx)
+        assert any(expect in i for i in issues), (sentence, issues)
+
+    @pytest.mark.parametrize("sentence", [
+        "После Rf1 ладья перейдёт на f2.",  # a pawn on f2 of one's own: a plan to move it first — not judged
+        "После Rd1 ладья пойдёт на d7.",  # d5 rook (own piece, not the king) in the way: let be
+        "Ладья перейдёт на g3.",  # no written move binds the rook: not judged
+        "After Rg1 the knight goes to e6.",  # knights are never judged here: the written move may be another knight's
+        "Play 5...Na5 instead of 5...Nxd5 — your knight goes to a5 hitting the bishop.",
+    ])
+    def test_unjudged(self, sentence):
+        ctx = CheckContext.from_fens([self.T], question="что делать?", student_color=chess.WHITE)
+        issues = [i for i in check_sentence(sentence, ctx) if "cannot go to" in i]
+        assert issues == [], (sentence, issues)
