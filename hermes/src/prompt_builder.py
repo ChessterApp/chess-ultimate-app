@@ -974,6 +974,18 @@ def board_facts_block(fen: Optional[str]) -> str:
     )
 
 
+def live_game_block(note: str) -> str:
+    """The engine's look at a live game — evaluation and the opponent's threat, no best move."""
+    return (
+        "## Engine facts for the game (no best move for the student)\n"
+        f"{note}\n"
+        "Stockfish looked at this position: the evaluation is from White's side, the threat is verified. "
+        "Say who stands better in words only — no numbers, no engine name — and warn about the threat "
+        "when it matters. Do not name the best move for the student unless they insist twice: hint, as "
+        "the game rules say. Never claim an attack, a threat or a defence that is not in the facts."
+    )
+
+
 def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) -> Optional[str]:
     """The «[Idea] …» line for the live voice session: the move the student
     named, played on the board and judged by the engine (src/hypothetical.py),

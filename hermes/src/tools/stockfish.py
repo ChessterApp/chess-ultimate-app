@@ -105,6 +105,16 @@ def analyze_position(
     if not _validate_fen(fen):
         return {"error": f"Invalid FEN: {fen}"}
 
+    # The site's own engine server (engine.chesster.io) when ENGINE_API_URL is set:
+    # no Stockfish process on the coach host, its cache and pool instead. Any
+    # failure falls back to the local engine, so the turn never waits in vain.
+    if ENGINE_API_URL:
+        try:
+            remote = _analyze_remote(fen, depth, multipv, movetime_ms)
+            if remote and remote.get("lines"):
+                return remote
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("engine server %s failed (%s); using the local engine", ENGINE_API_URL, exc)
     with _running_lock:
         global _running
         _running += 1
@@ -113,6 +123,60 @@ def analyze_position(
     finally:
         with _running_lock:
             _running -= 1
+
+
+ENGINE_API_URL = os.environ.get("ENGINE_API_URL", "").strip().rstrip("/")
+ENGINE_API_TOKEN = os.environ.get("ENGINE_API_TOKEN", "").strip()
+ENGINE_API_MAX_MULTIPV = 4
+ENGINE_API_MAX_MOVETIME_S = 2.0
+
+
+def _analyze_remote(fen: str, depth: int, multipv: int, movetime_ms: int | None) -> dict | None:
+    """POST /analyze on the engine server, in the shape analyze_position returns.
+
+    The server answers from White's side with SAN lines; here the score is for
+    the side to move and the pv is UCI, as the local parser gives them.
+    """
+    import httpx
+    import chess
+
+    body: dict = {"fen": fen, "multipv": max(1, min(int(multipv or 1), ENGINE_API_MAX_MULTIPV))}
+    if movetime_ms:
+        body["movetime"] = min(movetime_ms / 1000.0, ENGINE_API_MAX_MOVETIME_S)
+    else:
+        body["depth"] = max(1, min(int(depth or DEFAULT_DEPTH), 30))
+    wait = (body.get("movetime") or 4.0) + 3.0
+    headers = {"X-Engine-Token": ENGINE_API_TOKEN} if ENGINE_API_TOKEN else {}
+    resp = httpx.post(f"{ENGINE_API_URL}/analyze", json=body, headers=headers, timeout=wait)
+    resp.raise_for_status()
+    data = resp.json() or {}
+    board = chess.Board(fen)
+    sign = 1 if board.turn == chess.WHITE else -1
+    raw_lines = data.get("lines") or [data]
+    lines = []
+    for i, ln in enumerate(raw_lines[: body["multipv"]]):
+        ev = ln.get("evaluation") or data.get("evaluation") or {}
+        b = board.copy(stack=False)
+        uci = []
+        for san in ln.get("pv") or []:
+            try:
+                mv = b.parse_san(san)
+            except ValueError:
+                break
+            uci.append(mv.uci())
+            b.push(mv)
+        if not uci and ln.get("bestMove"):
+            uci = [ln["bestMove"]]
+        entry = {"multipv": i + 1, "depth": ln.get("depth") or data.get("depth"), "pv": " ".join(uci)}
+        value = ev.get("value", 0) or 0
+        if ev.get("type") == "mate":
+            mate = int(value) * sign
+            entry["mate_in"] = mate
+            entry["score"] = 10000 * (1 if mate > 0 else -1)
+        else:
+            entry["score"] = float(value) / 100.0 * sign
+        lines.append(entry)
+    return {"lines": lines, "depth": data.get("depth"), "remote": True} if lines else None
 
 
 _running = 0

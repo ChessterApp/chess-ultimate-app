@@ -488,3 +488,97 @@ def test_a_live_game_turn_carries_the_boards_facts(monkeypatch):
     assert "## Live game" in captured["message"]
     assert "## Facts of the board (verified on the position, no engine)" in captured["message"]
     assert "the black pawn e5 is attacked by the white queen h5 and defended by the black knight c6" in captured["message"]
+
+
+class TestLineAndLiveLook:
+    CLIENT = "rnbqkbnr/pp2pp1p/6p1/2p3NQ/4p3/8/PPPP1PPP/RNB1KB1R w KQkq - 0 5"
+
+    def test_a_line_that_ends_badly_is_named(self, monkeypatch):
+        from src.hypothetical import verify_line
+
+        board = chess.Board(self.CLIENT)
+        end = board.copy(stack=False)
+        for san in ("Nxf7", "Kxf7", "Qxc5"):
+            end.push_san(san)
+        monkeypatch.setattr("src.hypothetical.analyze_timed",
+                            _fake_analysis({self.CLIENT: (-0.9, "f1b5"), end.fen(): (5.9, "b8c6")}))  # Black to move: +5.9 for Black
+        why = verify_line(board, ["Nf7", "Kxf7", "Qxc5"], threshold_cp=150)
+        assert why.startswith("the line Nxf7 Kxf7 Qxc5 ends at -5.9 for White against -0.9 for White before it — about 5.0 pawns worse for White")
+        assert verify_line(board, ["Nf7"], threshold_cp=150) is None  # one move is not a line
+        assert verify_line(board, ["Qq9", "Kxf7"], threshold_cp=150) is None
+
+    def test_a_sound_move_with_a_bad_line_after_it(self, monkeypatch):
+        from src.hypothetical import verify_recommendation
+
+        board = chess.Board(self.CLIENT)
+        after = board.copy(stack=False)
+        after.push_san("Bb5+")
+        end = board.copy(stack=False)
+        for san in ("Bb5+", "Nc6", "Nxh7"):
+            end.push_san(san)
+        monkeypatch.setattr("src.hypothetical.analyze_timed", _fake_analysis({
+            self.CLIENT: (-0.9, "f1b5"), after.fen(): (0.9, "b8c6"), end.fen(): (6.0, "g6h5")}))
+        move = board.parse_san("Bb5+")
+        assert verify_recommendation(board, move, "Bb5+") is None
+        why = verify_recommendation(board, move, "Bb5+", line=["Bb5+", "Nc6", "Nxh7"])
+        assert why and "ends at -6.0 for White" in why
+
+    def test_the_live_look_has_the_evaluation_and_the_threat_but_no_best_move(self, monkeypatch):
+        from src.hypothetical import live_game_note
+
+        board = chess.Board(self.CLIENT)
+        null = board.copy(stack=False)
+        null.push(chess.Move.null())
+        monkeypatch.setattr("src.hypothetical.analyze_timed",
+                            _fake_analysis({self.CLIENT: (-0.9, "f1b5"), null.fen(): (8.0, "g6h5")}))
+        note = live_game_note(self.CLIENT)
+        assert note["eval"] == -0.9
+        assert note["threat"].startswith("gxh5 — taking the white queen h5")
+        assert "- Evaluation: -0.9 for White." in note["note"] and "Black threatens gxh5" in note["note"]
+        assert "Bb5" not in note["note"]
+
+
+@pytest.mark.unit
+def test_a_live_game_turn_gets_the_engines_look_without_the_best_move(monkeypatch):
+    from src import game_mode
+    from src.game_mode import play_move, start_game
+    from src.sessions import session_store
+    from src.user_profile import UserProfile
+
+    replies = ["e5", "Nc6"]
+    monkeypatch.setattr(game_mode, "_engine_move", lambda fen, elo: chess.Board(fen).parse_san(replies.pop(0)).uci())
+    monkeypatch.setattr(game_mode, "_evaluate", lambda fen, pov: (0, None))
+    monkeypatch.setattr("src.hypothetical.live_game_note",
+                        lambda fen, movetime_ms=300: {"eval": 0.4, "threat": None, "note": "- Evaluation: +0.4 for White."})
+    session = session_store.create(user_id="look-user")
+    board, _ = start_game(session, "white", 1500)
+    play_move(session, board, "e4")
+    play_move(session, board, "Qh5")
+    agent = MagicMock()
+    agent.tools = []
+    agent._api_call_count = 1
+    agent.max_iterations = 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+    captured = {}
+
+    def _chat(msg, stream_callback=None):
+        captured["message"] = msg
+        stream_callback("У тебя чуть лучше: ферзь уже в игре.")
+        return "У тебя чуть лучше: ферзь уже в игре."
+
+    agent.chat.side_effect = _chat
+    monkeypatch.setattr(config, "COACH_TWO_STAGE", False)
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE", True)
+    from fastapi.testclient import TestClient
+
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id="look-user")), \
+            patch("src.server.log_event"):
+        resp = TestClient(server.app).post("/api/coach/chat", headers={"X-User-Id": "look-user"},
+                                           json={"message": "кто лучше?", "session_id": session.id, "locale": "ru"})
+    assert resp.status_code == 200
+    assert "## Engine facts for the game (no best move for the student)" in captured["message"]
+    assert "- Evaluation: +0.4 for White." in captured["message"]
+    assert "## Engine analysis of the board" not in captured["message"]  # the full engine line stays out of a game
+    text = "".join(json.loads(l[6:]).get("delta", "") for l in resp.text.splitlines() if l.startswith("data: "))
+    assert "чуть лучше" in text  # +0.4 for the student (White): the claim stands

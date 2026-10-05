@@ -641,6 +641,19 @@ def _served_model(agent, routed_model: str) -> str:
 _engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note")
 
 
+def _parse_white_eval(text) -> Optional[float]:
+    """'+0.35' → 0.35; 'mate in 3 for Black' → -100; None when there is no line."""
+    if not text:
+        return None
+    t = str(text).strip()
+    if t.startswith("mate"):
+        return 100.0 if t.endswith("White") else -100.0
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
 def _student_side_note(ctx) -> str:
     """Whose side «ты» is, for the rewrite: the student's colour in a game, else
     the side to move (production, 2026-10-05: the rewrite told a student playing
@@ -1562,6 +1575,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan) and session.board_state
             and not live_game and review_future is None):
         engine_future = _engine_pool.submit(engine_note, session.board_state, movetime_ms=note_movetime)
+    # A live game: the evaluation and the opponent's threat (no best move) — the
+    # coach hints, but it must know what hangs and what is coming (2026-10-05).
+    live_future = None
+    live_state = {"used": False, "ms": None, "timed_out": False}
+    if config.COACH_ENGINE_NOTE and live_game and session.board_state:
+        from src.hypothetical import live_game_note
+
+        live_future = _engine_pool.submit(live_game_note, session.board_state, max(200, note_movetime // 2))
     engine_state = {"used": False, "ms": None, "timed_out": False, "load": load, "movetime_ms": note_movetime}
     # The student's idea on the board (src/hypothetical.py): the moves the
     # message names («а если Rg1?», «поставить ладью на g1») are played and
@@ -1912,6 +1933,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{opening_plan.block}"
                 if note:
                     message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
+                if note:
+                    check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
+                live = _await_engine_note(live_future, engine_started, live_state)
+                if live and live.get("note"):
+                    from src.prompt_builder import live_game_block
+
+                    message = f"{message}\n\n{live_game_block(live['note'])}"
+                    check_ctx.engine_eval = live.get("eval")
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
                     message = f"{message}\n\n{hypothetical_block(hypo['note'], live_game=bool(live_game))}"
@@ -2051,6 +2080,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if not issues and verify_state["left"] > 0:
                     found = proposed_move(sentence, check_ctx)
                     if found:
+                        from src.answer_check import written_line_after
                         from src.hypothetical import verify_recommendation
 
                         verify_state["left"] -= 1
@@ -2060,6 +2090,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             issue = await loop.run_in_executor(
                                 _engine_pool, verify_recommendation, found[0], found[1], found[2],
                                 config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, not live_game,
+                                written_line_after(sentence, found[2]),
                             )
                         except Exception:  # noqa: BLE001 — the check is best-effort
                             logger.debug("move verification failed", exc_info=True)
@@ -2421,7 +2452,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
-                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state),
+                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state), "live_look": dict(live_state),
                 "review": dict(review_state),
                 "stages_ms": dict(stages),
                 "hedge": _hedge_state(agent),
@@ -2451,7 +2482,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "finish_reason": finish_reason,
                 "routed_model": model,
                 "quick_shown": bool(quick_text),
-                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state),
+                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state), "live_look": dict(live_state),
                 "review": dict(review_state),
                 "hedge": _hedge_state(agent),
                 "answer_check": answer_check,

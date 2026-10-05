@@ -733,3 +733,51 @@ class TestPlanThroughOwnKing:
         ctx = CheckContext.from_fens([self.T], question="что делать?", student_color=chess.WHITE)
         issues = [i for i in check_sentence(sentence, ctx) if "cannot go to" in i]
         assert issues == [], (sentence, issues)
+
+
+class TestEvalClaims:
+    """«у белых лучше», «позиция равная», «ты выигрываешь» against the engine's
+    evaluation of the turn (2026-10-05)."""
+
+    T = "2r2rk1/2p3p1/pp1p1p2/2nR4/P3P2q/1PQ2P1P/2P2PK1/4R3 w - - 0 1"
+
+    def _ctx(self, ev, student=chess.WHITE):
+        ctx = CheckContext.from_fens([self.T], question="кто лучше?", student_color=student)
+        ctx.engine_eval = ev
+        return ctx
+
+    @pytest.mark.parametrize("sentence, ev, expect", [
+        ("У белых лучше.", -2.0, "White is worse, not better"),
+        ("Перевес у белых.", -2.0, "White is worse, not better"),
+        ("Позиция примерно равная.", -3.0, "not equal"),
+        ("The position is balanced.", 2.5, "not equal"),
+        ("Ты выигрываешь.", 0.3, "White is not winning"),
+        ("Black is winning here.", 0.5, "Black is not winning"),
+        ("У чёрных хуже.", -1.5, "Black is better, not worse"),
+        ("Ты проигрываешь.", 0.2, "White is not lost"),
+    ])
+    def test_caught(self, sentence, ev, expect):
+        issues = check_sentence(sentence, self._ctx(ev))
+        assert any(expect in i for i in issues), (sentence, issues)
+
+    @pytest.mark.parametrize("sentence, ev", [
+        ("У чёрных перевес.", -1.5),
+        ("У белых не лучше.", -2.0),
+        ("Позиция равная.", 0.3),
+        ("После Rg1 у белых лучше.", -2.0),  # a hypothetical
+        ("Ты выигрываешь.", 2.0),
+        ("White is slightly better.", 0.4),  # too close to call either way
+    ])
+    def test_right_or_unjudged(self, sentence, ev):
+        assert check_sentence(sentence, self._ctx(ev)) == [], sentence
+
+    def test_without_an_evaluation_nothing_is_judged(self):
+        ctx = CheckContext.from_fens([self.T], question="кто лучше?", student_color=chess.WHITE)
+        assert check_sentence("У белых лучше.", ctx) == []
+
+    def test_written_line_after_a_move(self):
+        from src.answer_check import written_line_after
+
+        assert written_line_after("После Nf7 Kxf7 Qxc5 у тебя перевес.", "Nxf7") == ["Nf7", "Kxf7", "Qxc5"]
+        assert written_line_after("Сыграй 1.Nf7 Kxf7 2.Qxc5 — и перевес.", "Nf7") == ["Nf7", "Kxf7", "Qxc5"]
+        assert written_line_after("Сыграй Nf7 — конь бьёт ладью.", "Nf7") == []

@@ -198,8 +198,74 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
     return {"note": "\n".join(lines), "fens": fens, "items": items}
 
 
+def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, threshold_cp: int = 150) -> Optional[str]:
+    """Why a written line («после Nf7 Kxf7 Qxc5 у тебя перевес») ends badly for
+    the side that starts it: the evaluation at its end against the position
+    before, by the engine. None when it holds, or the line cannot be played."""
+    try:
+        end = board.copy(stack=False)
+        played = []
+        for san in line:
+            try:
+                mv = end.parse_san(san)
+            except ValueError:
+                break
+            played.append(end.san(mv))
+            end.push(mv)
+        if len(played) < 2 or end.is_game_over():
+            return None
+        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        res = analyze_timed(end.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        b_line = (base.get("lines") or [None])[0] if "error" not in base else None
+        e_line = (res.get("lines") or [None])[0] if "error" not in res else None
+        if not b_line or not e_line:
+            return None
+        before = _white_pawns(b_line, board.turn)
+        after = _white_pawns(e_line, end.turn)
+        if before is None or after is None:
+            return None
+        loss = (before - after) if board.turn == chess.WHITE else (after - before)
+        if loss * 100 < threshold_cp:
+            return None
+        side = "White" if board.turn else "Black"
+        return (f"the line {' '.join(played)} ends at {_fmt(after)} against {_fmt(before)} before it — about "
+                f"{loss:.1f} pawns worse for {side} (engine)")
+    except Exception:  # noqa: BLE001
+        logger.debug("verify_line failed", exc_info=True)
+        return None
+
+
+def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
+    """The engine's look at a live game for the coach — the evaluation and the
+    opponent's threat only, never the best move (the coach hints; production,
+    2026-10-05: the queen on h5 hung to g6 and the coach proposed a knight fork)."""
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return None
+    if not board.is_valid() or board.is_game_over():
+        return None
+    try:
+        from src.position_facts import THREAT_MOVETIME_MS, _score, _threat
+
+        res = analyze_timed(fen, movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        line = (res.get("lines") or [None])[0] if "error" not in res else None
+        if not line:
+            return None
+        white = _white_pawns(line, board.turn)
+        threat = _threat(board, _score(line), lambda f: analyze_timed(f, THREAT_MOVETIME_MS, multipv=1, min_depth=10))
+        side, other = ("White", "Black") if board.turn else ("Black", "White")
+        parts = [f"- Evaluation: {_fmt(white)}."]
+        if threat:
+            parts.append(f"- {other} threatens {threat} if {side} ignores it.")
+        return {"eval": white, "threat": threat, "note": "\n".join(parts)}
+    except Exception:  # noqa: BLE001
+        logger.debug("live_game_note failed", exc_info=True)
+        return None
+
+
 def verify_recommendation(board: chess.Board, move: chess.Move, san: str, movetime_ms: int = 300,
-                          threshold_cp: int = 150, reveal_best: bool = True) -> Optional[str]:
+                          threshold_cp: int = 150, reveal_best: bool = True, line: Optional[list] = None) -> Optional[str]:
     """Why the move the coach recommends is wrong on *board*, by the engine.
 
     None when the move holds the evaluation (gives away less than
@@ -208,6 +274,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
     piece really does — the rewrite is written from it. *reveal_best* off (a
     live game) keeps the engine's own move out of it.
     """
+    line_moves = list(line or [])
     try:
         if move not in board.legal_moves:
             return None
@@ -218,7 +285,7 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
         before = _white_pawns(base_line, board.turn)
         best = _san_line(board, base_line.get("pv", ""), 1)
         if best and best[0] == san:
-            return None
+            return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
         after = board.copy(stack=False)
         after.push(move)
         if after.is_game_over():
@@ -232,7 +299,8 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
             return None
         loss = (before - after_pawns) if board.turn == chess.WHITE else (after_pawns - before)
         if loss * 100 < threshold_cp:
-            return None
+            # The move itself holds; a written line after it may still end badly.
+            return verify_line(board, line_moves, movetime_ms, threshold_cp) if line_moves else None
         reply = _san_line(after, line.get("pv", ""), 3)
         facts = moved_piece_facts(board, after, move)
         mated = abs(after_pawns) >= MATE_PAWNS - 0.5 and (after_pawns > 0) != (board.turn == chess.WHITE)

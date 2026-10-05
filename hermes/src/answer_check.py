@@ -271,6 +271,10 @@ class CheckContext:
     student_color: Optional[bool] = None
     # The language the answer must be in ('ru', 'kk', 'kz', 'en'), when known.
     language: Optional[str] = None
+    # The engine's evaluation of the position on the screen, in pawns from
+    # White's side (±100 a forced mate), when the turn has one: «у белых лучше»
+    # against −2.0 is not shown (2026-10-05).
+    engine_eval: Optional[float] = None
     # The square the previous sentence was about («a4 isn't hanging. It's
     # attacked by…»): what "it" means when a sentence opens with it. The
     # object the sentence's claims were about, else its first square.
@@ -1257,6 +1261,64 @@ def _imbalance(board: chess.Board) -> str:
     return "; ".join(parts)
 
 
+# «у белых лучше», «перевес у чёрных», «ты выигрываешь», «позиция равная», "White is
+# winning", "the position is balanced": a verdict the engine contradicts (2026-10-05).
+_EVAL_WORDS = (r"(?P<w>лучше|хуже|перевес\w*|преимуществ\w*|выигрыва\w+|выигран\w*|выиграл\w*|проигрыва\w+|проигран\w*|"
+               r"проиграл\w*|better|worse|winning|won|lost|losing|ahead|behind|crushing|dominating)")
+_EVAL_CLAIMS = [
+    re.compile(_B2 + rf"(?:у\s+)?{_SIDE}\s+(?:(?!не\s|not\s)[а-яa-z']+\s+){{0,3}}?{_EVAL_WORDS}(?![а-яa-z])", re.IGNORECASE),
+    re.compile(_B2 + rf"(?P<w>перевес\w*|преимуществ\w*|advantage)\s+(?:сейчас\s+|явно\s+|уже\s+|clearly\s+)?"
+               rf"(?:у|на\s+стороне|is\s+with|belongs\s+to|is)\s+{_SIDE}(?![а-яa-z])", re.IGNORECASE),
+    re.compile(_B2 + r"(?:позици\w+|position|game)\s+(?:is\s+|сейчас\s+|пока\s+|примерно\s+|roughly\s+|about\s+|basically\s+|"
+               r"still\s+|в\s+целом\s+|here\s+){0,3}(?P<eq>равн\w+|равенств\w*|сбалансирован\w+|equal|balanced|level|even)(?![а-яa-z])",
+               re.IGNORECASE),
+]
+
+
+def _fmt_eval(ev: float) -> str:
+    if abs(ev) >= 99.5:
+        return "a forced mate for " + ("White" if ev > 0 else "Black")
+    return f"{ev:+.1f} for White"
+
+
+def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    if ctx.engine_eval is None or ctx.current is None:
+        return []
+    ev = ctx.engine_eval
+    issues = []
+    for rx in _EVAL_CLAIMS:
+        for m in rx.finditer(text):
+            if _is_hypothetical(text, original, m.start()):
+                continue
+            gd = m.groupdict()
+            key = "eq" if gd.get("eq") else "w"
+            if _NEGATION.search(text[max(0, m.start() - 20): m.start(key)]):
+                continue  # «не лучше», "not winning"
+            if gd.get("eq"):
+                if abs(ev) >= 1.5:
+                    issues.append(f"the engine evaluates the position at {_fmt_eval(ev)} — not equal")
+                continue
+            color = _side_color(m["side"], ctx, text[: m.start()])
+            if color is None:
+                continue
+            e = ev if color == chess.WHITE else -ev
+            name = "White" if color == chess.WHITE else "Black"
+            w = gd["w"].lower().replace("ё", "е")
+            if w.startswith(("лучше", "перевес", "преимуществ", "better", "ahead", "advantage")):
+                if e <= -0.6:
+                    issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is worse, not better")
+            elif w.startswith(("хуже", "worse", "behind")):
+                if e >= 0.6:
+                    issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is better, not worse")
+            elif w.startswith(("выигр", "winning", "won", "crushing", "dominating")):
+                if e < 1.0:
+                    issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is not winning")
+            elif w.startswith(("проигр", "lost", "losing")):
+                if e > -1.0:
+                    issues.append(f"the engine evaluates the position at {_fmt_eval(ev)}: {name} is not lost")
+    return issues
+
+
 _FUTURE_FILL = re.compile(r"останеш|останет|останут|будеш|будет|будут|окажеш|окажет|окажут|получиш|получит|"
                           r"will|would|'ll|end\s+up|going\s+to|get\s+left", re.IGNORECASE)
 
@@ -1656,7 +1718,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _instrument_issues(text, original, ctx) + _object_first_issues(text, original, ctx)
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
-            + _not_defended_issues(text, original, ctx))
+            + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx))
 
 
 # A sentence in the wrong language: the model answered a Russian question in
@@ -1748,6 +1810,27 @@ _PRAISE = re.compile(
     r"бь[её]т|бьют|напада|атаку|выигрыва|забира|вилк|с\s+темпом|с\s+шахом|(?<![а-я])мат(?![а-я])|сильн|отличн|хорош|лучш|решает|"
     r"forks?|attacks?|hits|wins|picks\s+up|with\s+tempo|with\s+check|(?<![a-z])mates?(?![a-z])|strong|great|excellent|good",
     re.IGNORECASE)
+
+
+def written_line_after(sentence: str, san: str) -> list[str]:
+    """The moves written right after *san* in *sentence* («после Nf7 Kxf7 Qxc5 …»
+    → ['Nxf7', 'Kxf7', 'Qxc5']), the first being *san* itself; [] when it stands alone."""
+    converted, _ = _to_san(sentence or "")
+    key = san.replace("x", "").rstrip("+#")
+    moves = list(_MOVE.finditer(converted))
+    for i, m in enumerate(moves):
+        if m["san"].replace("x", "") != key:
+            continue
+        line = [m["san"] + (m["check"] or "")]
+        last_end = m.end()
+        for nxt in moves[i + 1:]:
+            gap = converted[last_end: nxt.start()]
+            if not re.fullmatch(r"[\s,]*(?:\d{1,3}\s?\.{1,3}\s*)?", gap):
+                break
+            line.append(nxt["san"] + (nxt["check"] or ""))
+            last_end = nxt.end()
+        return line if len(line) > 1 else []
+    return []
 
 
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
