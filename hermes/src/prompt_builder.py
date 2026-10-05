@@ -916,7 +916,19 @@ def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[li
              f"{'White' if board.turn else 'Black'})"]
     for item in moves[:6]:
         words = f" («{item['words']}»)" if item.get("source") == "prose" and item.get("words") else ""
-        lines.append(f"- {item['san']}{words}: {item['verdict']}")
+        line = f"- {item['san']}{words}: {item['verdict']}"
+        if item.get("move") is not None:
+            # What the piece does from its new square — python-chess, no engine, so
+            # it is here even when the engine's look at the idea misses its wait.
+            try:
+                from src.hypothetical import moved_piece_facts
+
+                after = board.copy(stack=False)
+                after.push(item["move"])
+                line += " — after it: " + "; ".join(moved_piece_facts(board, after, item["move"]))
+            except Exception:  # noqa: BLE001
+                pass
+        lines.append(line)
     return "\n".join(lines)
 
 

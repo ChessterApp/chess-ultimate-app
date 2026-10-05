@@ -1552,12 +1552,17 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             logger.debug("opening pre-step failed", exc_info=True)
             opening_plan = None
     _mark("opening")
+    # Under load (several students' engines at work) the searches are shorter, so
+    # the lines are ready within the wait instead of missing it altogether.
+    from src.tools.stockfish import engines_running
+
+    load = engines_running()
+    note_movetime = config.COACH_ENGINE_NOTE_MOVETIME_MS if load < 2 else max(400, config.COACH_ENGINE_NOTE_MOVETIME_MS // 3)
+    idea_movetime = config.COACH_HYPOTHETICAL_MOVETIME_MS if load < 2 else max(150, config.COACH_HYPOTHETICAL_MOVETIME_MS // 2)
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan) and session.board_state
             and not live_game and review_future is None):
-        engine_future = _engine_pool.submit(
-            engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
-        )
-    engine_state = {"used": False, "ms": None, "timed_out": False}
+        engine_future = _engine_pool.submit(engine_note, session.board_state, movetime_ms=note_movetime)
+    engine_state = {"used": False, "ms": None, "timed_out": False, "load": load, "movetime_ms": note_movetime}
     # The student's idea on the board (src/hypothetical.py): the moves the
     # message names («а если Rg1?», «поставить ладью на g1») are played and
     # looked at by the engine now, beside the engine line — in a live game too,
@@ -1576,8 +1581,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 from src.hypothetical import hypothetical_notes
 
                 hypo_future = _engine_pool.submit(
-                    hypothetical_notes, session.board_state, legal_named,
-                    config.COACH_HYPOTHETICAL_MOVETIME_MS, not live_game,
+                    hypothetical_notes, session.board_state, legal_named, idea_movetime, not live_game,
                 )
         except Exception:  # noqa: BLE001 — the idea block is best-effort
             logger.debug("question moves failed", exc_info=True)
@@ -2544,6 +2548,11 @@ class LessonChatRequest(BaseModel):
     history: list[dict] = Field(default_factory=list)
     locale: str = "ru"
     puzzle_context: Optional[PuzzleContext] = None
+    # Which lesson of the site this is (2026-10-05): the programme's own text and
+    # diagrams for it ship with Hermes (src/lesson_texts.py) and join the prompt.
+    lesson_id: Optional[str] = None
+    course_slug: Optional[str] = None
+    lesson_slug: Optional[str] = None
 
 
 # Cap how many puzzles we render into the prompt to keep it a sane size.
@@ -2648,11 +2657,20 @@ def _build_puzzle_context_section(pc: "PuzzleContext") -> str:
     return "\n".join(lines)
 
 
+_LESSON_LANG = {"ru": "Russian", "kk": "Kazakh", "kz": "Kazakh", "en": "English"}
+_LESSON_FALLBACK = {
+    "ru": "Давай сверимся с доской: скажи, какой ход или позицию ты имеешь в виду, и я разберу именно её.",
+    "kk": "Тақтаны қайта қарайық: қай жүрісті немесе позицияны айтып тұрсың, соны талдап берейін.",
+    "en": "Let's check the board together: tell me which move or position you mean and I'll go through that one.",
+}
+
+
 def _build_lesson_system_prompt(
     lesson_title: str,
     lesson_content: str,
     locale: str,
     puzzle_context: "Optional[PuzzleContext]" = None,
+    book: Optional[dict] = None,
 ) -> str:
     """Tutor persona for the lesson chat: a friendly, encouraging chess tutor
     grounded in this specific lesson, answering in the student's language. When
@@ -2665,7 +2683,21 @@ def _build_lesson_system_prompt(
         "and gently steer them back if they drift off-topic.\n\n"
         f"**Lesson: {lesson_title}**\n\n"
         f"{lesson_content}\n\n"
-        f"Always reply in the student's language (locale: {locale})."
+        f"Always reply in the student's language (locale: {locale}"
+        f"{' — ' + _LESSON_LANG[locale.lower()] if (locale or '').lower() in _LESSON_LANG else ''})."
+    )
+    if book and book.get("text"):
+        prompt += (
+            f"\n\n**The lesson's own text (the programme «Ступени», step {book.get('step')}, lesson "
+            f"{book.get('lesson')} «{book.get('title')}»)** — teach in its words:\n{book['text']}"
+        )
+        if book.get("diagrams"):
+            prompt += "\n\nExplanatory diagrams of the lesson (FEN — what they show):\n" + "\n".join(
+                f"- {d['fen']}" + (f" — {d['context']}" if d.get("context") else "") for d in book["diagrams"][:4])
+    prompt += (
+        "\n\nName only moves, squares, attacks and defences that are true on the positions given here "
+        "(the lesson's puzzles, the student's current board, the diagrams); never invent a position or "
+        "a line. What you say about a position is checked on the board before the student sees it."
     )
     if puzzle_context is not None:
         prompt += _build_puzzle_context_section(puzzle_context)
@@ -2735,16 +2767,51 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     analytics_tracker.track_chat(user_id, "")
 
     model = _resolve_model(None, body.message)
+    book = None
+    try:
+        from src.lesson_texts import lesson_text
+
+        book = lesson_text(lesson_id=body.lesson_id, course_slug=body.course_slug, lesson_title=body.lesson_title)
+    except Exception:  # noqa: BLE001 — the book is a bonus on top of the site's lesson
+        logger.debug("lesson text lookup failed", exc_info=True)
     system_prompt = _build_lesson_system_prompt(
-        body.lesson_title, body.lesson_content, body.locale, body.puzzle_context
+        body.lesson_title, body.lesson_content, body.locale, body.puzzle_context, book
     )
     logger.info("Lesson tutor routed model: %s for message: %s", model, body.message[:80])
 
     loop = asyncio.get_event_loop()
+    # The tutor's sentences are checked on the lesson's positions like the coach's
+    # (2026-10-05: this chat had run past every check): a wrong one is not shown.
+    from src.answer_check import CheckContext, SentenceGate
+
+    pc = body.puzzle_context
+    fens = []
+    if pc is not None:
+        fens += [pc.current_board_fen, pc.current_puzzle.fen if pc.current_puzzle else None]
+        fens += [p.fen for p in pc.puzzles]
+    if book:
+        fens += [d["fen"] for d in book.get("diagrams") or []]
+    check_ctx = CheckContext.from_fens([f for f in fens if f], question=body.message)
+    lang = (body.locale or "").lower()
+    check_ctx.language = {"kz": "kk"}.get(lang, lang) if lang in _LESSON_LANG else None
+    gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
 
     async def event_stream():
         queue: asyncio.Queue = asyncio.Queue()
         sentinel = object()
+        shown: list[str] = []
+        dropped: list[dict] = []
+
+        def _frames(pairs):
+            frames = []
+            for piece, issues, sentence in pairs:
+                if issues:
+                    logger.info("answer check (lesson tutor): %s | %s", "; ".join(issues), sentence.strip()[:200])
+                    dropped.append({"sentence": sentence.strip()[:300], "issues": issues})
+                    continue
+                shown.append(piece)
+                frames.append(_sse({"delta": piece}))
+            return frames
 
         def _run():
             usage_out: dict = {}
@@ -2770,10 +2837,20 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
                     break
                 kind, payload = item
                 if kind == "delta":
-                    yield _sse({"delta": payload})
+                    for frame in _frames(gate.feed(payload)):
+                        yield frame
                 elif kind == "error":
                     error_exc = payload
             await future
+            for frame in _frames(gate.flush()):
+                yield frame
+            if not shown and dropped and error_exc is None:
+                fallback = _LESSON_FALLBACK.get({"kz": "kk"}.get(lang, lang), _LESSON_FALLBACK["ru"])
+                shown.append(fallback)
+                yield _sse({"delta": fallback})
+            if dropped:
+                log_event("answer_check", surface="lesson", user_id=user_id, model=model,
+                          payload={"path": "lesson/chat", "dropped": dropped[:3]})
         except (asyncio.CancelledError, GeneratorExit):
             raise
 

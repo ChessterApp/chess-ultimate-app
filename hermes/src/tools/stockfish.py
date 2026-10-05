@@ -105,6 +105,29 @@ def analyze_position(
     if not _validate_fen(fen):
         return {"error": f"Invalid FEN: {fen}"}
 
+    with _running_lock:
+        global _running
+        _running += 1
+    try:
+        return _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms)
+    finally:
+        with _running_lock:
+            _running -= 1
+
+
+_running = 0
+_running_lock = __import__("threading").Lock()
+
+
+def engines_running() -> int:
+    """Stockfish processes at work right now — the turn shortens its searches
+    when several students ask at once (local stand, 8 turns at once, 2026-10-05:
+    every engine line missed its 2.5 s wait and the answers went out without facts)."""
+    with _running_lock:
+        return _running
+
+
+def _analyze_position(fen, depth, multipv, stockfish_path, timeout, movetime_ms) -> dict:
     try:
         proc = subprocess.Popen(
             [stockfish_path],

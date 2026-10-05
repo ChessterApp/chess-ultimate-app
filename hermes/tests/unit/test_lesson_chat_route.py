@@ -66,8 +66,8 @@ class TestLessonChat:
             json={"message": "What is a pin?", "lesson_title": "Pins"},
         )
         events = _parse_sse(resp.text)
-        # Each chunk arrives as its own delta frame.
-        assert [e["delta"] for e in events if "delta" in e] == chunks
+        # The text arrives whole; since 2026-10-05 a sentence is held until it is
+        # complete and checked on the board, so the chunking may differ.
         assert _deltas(events) == "".join(chunks)
         # Final frame is the done sentinel.
         assert events[-1] == {"done": True}
@@ -163,3 +163,72 @@ class TestLessonChat:
         error_frames = [e for e in events if "error" in e]
         assert len(error_frames) == 1
         assert not any("done" in e for e in events)
+
+
+@pytest.mark.unit
+class TestLessonTutorGrounding:
+    """The lesson-page tutor had run past every check (2026-10-05): now it gets the
+    programme's own text for the lesson, its sentences are checked on the lesson's
+    positions, and its language is the student's."""
+
+    KING_LESSON = "9f0f557c-c5c2-4df7-8725-94bd1e61e715"  # «Король» in «Основы шахмат» on the site
+    PIN_FEN = "8/2k5/8/8/2b5/8/2Q4K/8 w - - 0 1"  # the lesson's pin diagram: Qc2 pins Bc4 to Kc7
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @patch("src.server._lesson_chat_stream")
+    def test_the_books_text_joins_the_prompt_by_lesson_id(self, mock_stream):
+        mock_stream.return_value = iter(["Король ходит на одно поле."])
+        self.client.post("/api/lesson/chat", headers=USER_HEADERS, json={
+            "message": "как ходит король?", "lesson_title": "Король", "lesson_content": "# Король\n\n## Видео урок\nhttps://youtu.be/x",
+            "lesson_id": self.KING_LESSON, "course_slug": "chess-basics", "locale": "ru",
+        })
+        system_prompt = mock_stream.call_args.args[1]
+        assert "The lesson's own text (the programme «Ступени», step 1, lesson 1 «Шахматная Доска»)" in system_prompt
+        assert "Король – главная фигура" in system_prompt
+        assert "checked on the board before the student sees it" in system_prompt
+        assert "locale: ru — Russian" in system_prompt
+
+    @patch("src.server._lesson_chat_stream")
+    def test_the_books_text_by_course_and_title_when_the_id_is_unknown(self, mock_stream):
+        mock_stream.return_value = iter(["ok"])
+        self.client.post("/api/lesson/chat", headers=USER_HEADERS, json={
+            "message": "что такое связка?", "lesson_title": "Связка", "lesson_content": "", "course_slug": "chess-basics",
+            "lesson_id": "no-such-id", "locale": "ru",
+        })
+        system_prompt = mock_stream.call_args.args[1]
+        assert "нападение на фигуру противника" in system_prompt
+        assert f"- {self.PIN_FEN}" in system_prompt  # the lesson's diagram
+
+    @patch("src.server._lesson_chat_stream")
+    def test_a_wrong_sentence_about_the_students_board_is_not_shown(self, mock_stream, monkeypatch):
+        from src import config
+
+        monkeypatch.setattr(config, "COACH_ANSWER_CHECK", True)
+        mock_stream.return_value = iter(["Смотри: ферзь на c2 связывает слона c4. ", "А слон c4 бьёт ферзя c2 с шахом. ",
+                                         "Король на c7 не может уйти с диагонали."])
+        with patch("src.server.log_event"):
+            resp = self.client.post("/api/lesson/chat", headers=USER_HEADERS, json={
+                "message": "почему слон не может ходить?", "lesson_title": "Связка", "locale": "ru",
+                "puzzle_context": {"mode": "single", "current_board_fen": self.PIN_FEN},
+            })
+        text = _deltas(_parse_sse(resp.text))
+        assert "ферзь на c2 связывает слона c4" in text
+        assert "с шахом" not in text  # a bishop on c4 does not give check to h2 — not shown
+        assert "Король на c7" in text
+
+    @patch("src.server._lesson_chat_stream")
+    def test_a_reply_in_the_wrong_language_becomes_the_fallback_line(self, mock_stream, monkeypatch):
+        from src import config
+
+        monkeypatch.setattr(config, "COACH_ANSWER_CHECK", True)
+        mock_stream.return_value = iter(["The bishop on c4 is pinned by the queen on c2 and cannot move away from the diagonal."])
+        with patch("src.server.log_event"):
+            resp = self.client.post("/api/lesson/chat", headers=USER_HEADERS, json={
+                "message": "почему слон не может ходить?", "lesson_title": "Связка", "locale": "ru",
+                "puzzle_context": {"mode": "single", "current_board_fen": self.PIN_FEN},
+            })
+        events = _parse_sse(resp.text)
+        assert _deltas(events) == "Давай сверимся с доской: скажи, какой ход или позицию ты имеешь в виду, и я разберу именно её."
+        assert events[-1] == {"done": True}
