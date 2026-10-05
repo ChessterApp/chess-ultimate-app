@@ -229,6 +229,10 @@ export async function POST(
             message: userMessage,
             lesson_title: lessonTitle,
             lesson_content: lessonContent,
+            // Which lesson this is: Hermes adds the programme's own text and diagrams for it (2026-10-05).
+            lesson_id: lessonId ?? undefined,
+            course_slug: courseSlug,
+            lesson_slug: lessonSlug,
             history,
             locale,
             ...(puzzleContext ? { puzzle_context: puzzleContext } : {}),
