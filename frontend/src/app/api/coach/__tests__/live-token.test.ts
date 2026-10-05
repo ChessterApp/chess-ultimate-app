@@ -690,6 +690,26 @@ describe('POST /api/coach/live-token', () => {
     expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).locale).toBe('kk');
   });
 
+  it('forwards the session id to the Hermes voice prompt so its language holds', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        return { ok: true, status: 200, json: async () => ({ system_prompt: 'P', profile_context: '' }) };
+      }
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    });
+    global.fetch = fetchMock as any;
+
+    const { POST } = await import('../live-token/route');
+    await POST(makeRequest({ session_id: 'sess_lang' }));
+
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
+    expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).session_id).toBe('sess_lang');
+  });
+
   it('an explicit body locale wins over the cookie', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';

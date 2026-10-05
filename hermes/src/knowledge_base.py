@@ -122,11 +122,22 @@ def _normalise_position(pos: dict, topic_slug: str, index: int) -> Optional[dict
     return out
 
 
+def _as_text(v) -> str:
+    """One list item as text. YAML reads «- Развязка: отойти с шахом…» as a
+    one-key mapping; the model was getting "{'Развязка': '…'}" (43 such ideas
+    across the base, 2026-10-04)."""
+    if isinstance(v, dict):
+        return "; ".join(f"{str(k).strip()}: {_as_text(x)}" for k, x in v.items() if str(k).strip())
+    if isinstance(v, (list, tuple)):
+        return ", ".join(t for t in (_as_text(x) for x in v) if t)
+    return str(v).strip() if v is not None else ""
+
+
 def _as_str_list(value) -> list[str]:
     if isinstance(value, str):
         return [value.strip()] if value.strip() else []
     if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
+        return [t for t in (_as_text(v) for v in value) if t]
     return []
 
 

@@ -367,7 +367,8 @@ def game_context(board_rec: Board) -> str:
 
 COMMENT_SYSTEM = (
     "You are Chesster, a chess coach playing a training game against your student. "
-    "Speak in {language}, in the second person, like a coach sitting beside the board. "
+    "Write in {language} and in no other language (the facts below are in English — do not "
+    "copy their language), in the second person, like a coach sitting beside the board. "
     "Reply with at most {max_sentences} short sentences, no markdown, no lists, no move numbers "
     "you are not given. Never invent moves: mention only the moves and the better move listed in "
     "the facts. Do not reveal your own plan for the next move."
@@ -386,10 +387,18 @@ COMMENT_RULES = {
 
 
 def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move") -> list[dict]:
-    """Messages for the tool-free comment call after a student's move or at the end."""
+    """Messages for the tool-free comment call after a student's move or at the end.
+
+    *locale* is the language of the comment: the server passes the session's
+    conversation language (prompt_builder.conversation_language) — the language
+    the student asked for, else the one they write in, else the interface
+    language — so the comments follow the chat, not only the UI setting."""
     state = board_rec.game_state or {}
     board = _replay(state.get("moves", []))
+    from src.prompt_builder import kazakh_terms_note
+
     language = _LANG.get((locale or "ru").lower(), "the student's language")
+    terms = kazakh_terms_note(locale)
     finished = state.get("status") == "finished" or event == "end"
     last = (state.get("annotations") or [{}])[-1] if state.get("annotations") else {}
     verdict = "finished" if finished else (last.get("verdict") or "ok")
@@ -416,6 +425,6 @@ def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move")
     facts.append(f"FEN: {board.fen()}")
     return [
         {"role": "system", "content": COMMENT_SYSTEM.format(language=language, max_sentences=max_sentences)
-                                       + "\n" + COMMENT_RULES[verdict]},
+                                       + "\n" + COMMENT_RULES[verdict] + (f"\n{terms}" if terms else "")},
         {"role": "user", "content": "\n".join(facts)},
     ]

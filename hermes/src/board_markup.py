@@ -18,6 +18,8 @@ Voice keeps board_control: a spoken answer cannot carry marks.
 import re
 from typing import Optional
 
+import chess
+
 _COLORS = ("green", "red", "blue", "yellow")
 _MARK = re.compile(r"\[\[\s*(.*?)\s*\]\]", re.DOTALL)
 _KIND = re.compile(r"(arrows?|squares?|highlights?)\b\s*:?\s*", re.IGNORECASE)
@@ -181,3 +183,55 @@ def strip_markup(text: str) -> tuple[str, list[dict]]:
     f = MarkupFilter()
     clean, actions = f.feed(text)
     return clean + f.flush(), actions
+
+
+def _arrow_fits(piece: chess.Piece, a: int, b: int) -> bool:
+    """Can *piece* on a go to b at all (an empty board)? Pawns: one or two
+    squares ahead or one diagonal step, their own way."""
+    if a == b:
+        return False
+    dx = chess.square_file(b) - chess.square_file(a)
+    dy = chess.square_rank(b) - chess.square_rank(a)
+    adx, ady = abs(dx), abs(dy)
+    pt = piece.piece_type
+    if pt == chess.KNIGHT:
+        return {adx, ady} == {1, 2}
+    if pt == chess.BISHOP:
+        return adx == ady
+    if pt == chess.ROOK:
+        return adx == 0 or ady == 0
+    if pt == chess.QUEEN:
+        return adx == ady or adx == 0 or ady == 0
+    if pt == chess.KING:
+        return max(adx, ady) == 1 or (ady == 0 and adx == 2)
+    forward = 1 if piece.color == chess.WHITE else -1
+    return (dx == 0 and dy * forward in (1, 2)) or (adx == 1 and dy * forward == 1)
+
+
+def prune_arrows(action: dict, fen: Optional[str]) -> dict:
+    """*action* with the arrows a piece on the board cannot draw removed.
+
+    The game tester (2026-10-01) got an arrow g1→h4 for a rook: the sentence
+    with the claim is checked and withheld, the arrow in it had already gone
+    to the board. An arrow from a square with a piece on it must follow that
+    piece's way of moving; an arrow from an empty square (a line of play) is
+    kept. Returns {} when nothing is left to draw.
+    """
+    if not isinstance(action, dict) or action.get("type") != "draw_arrows" or not fen:
+        return action
+    try:
+        board = chess.Board(fen)
+    except ValueError:
+        return action
+    kept = []
+    for arrow in action.get("arrows") or []:
+        try:
+            a, b = chess.parse_square(str(arrow.get("from"))), chess.parse_square(str(arrow.get("to")))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        piece = board.piece_at(a)
+        if piece is None or _arrow_fits(piece, a, b):
+            kept.append(arrow)
+    if not kept:
+        return {}
+    return {**action, "arrows": kept}

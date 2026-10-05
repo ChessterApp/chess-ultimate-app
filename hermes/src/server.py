@@ -13,6 +13,8 @@ import threading
 import time
 import uuid
 import asyncio
+
+import chess
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -58,7 +60,9 @@ from src.prompt_builder import (
     build_system_prompt,
     build_voice_prompt,
     engine_note_block,
-    reply_language_note,
+    hypothetical_block,
+    conversation_language,
+    language_note,
     review_block,
     get_prompt_version,
 )
@@ -93,7 +97,7 @@ from src.voice_metrics import (
 )
 from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
-from src.board_markup import MarkupFilter, strip_markup
+from src.board_markup import MarkupFilter, strip_markup, prune_arrows
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
 os.environ.setdefault("HERMES_HOME", str(PROFILE_DIR))
@@ -719,6 +723,17 @@ _STUDENT_ERROR_TEXT = {
 }
 
 
+def _session_language(session, locale: Optional[str]) -> tuple[str, str]:
+    """The language the coach answers this session in, and why (see
+    prompt_builder.conversation_language): the one the student asked for in any
+    message of the session, else the one they write in, else the interface
+    locale. One choice for the chat answer, the reaction and the game's move
+    comments — the tester (2026-10-01) asked the coach to speak Russian and
+    the comments stayed in the interface language."""
+    texts = [m.content for m in reversed(session.messages) if m.role == "user"]
+    return conversation_language(texts, locale)
+
+
 def _student_error_text(locale: Optional[str]) -> str:
     """What the student sees when the turn fails: never the provider's text."""
     return _STUDENT_ERROR_TEXT.get((locale or "ru").lower(), _STUDENT_ERROR_TEXT["ru"])
@@ -1307,6 +1322,15 @@ async def _bestofn_event_stream(
     yield _sse({"done": True, "session_id": session.id, "turn_id": turn_id})
 
 
+# What the student sees when the whole small-talk reply came in the wrong language.
+_SMALL_TALK_FALLBACK = {
+    "ru": "Хорошо. Чем займёмся дальше?",
+    "kk": "Жарайды. Әрі қарай не істейміз?",
+    "kz": "Жарайды. Әрі қарай не істейміз?",
+    "en": "Alright. What shall we do next?",
+}
+
+
 async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_version: str):
     """A greeting, thanks or goodbye: one fast tool-free reply (the quick model)
     instead of the agent turn. The agent took 3–7 s to say hello, and with the
@@ -1317,7 +1341,8 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
     loop = asyncio.get_event_loop()
     model = quick_model()
     history = [(m.role, m.content) for m in session.messages[:-1]]
-    messages = build_small_talk_messages(body.message, body.locale, history)
+    talk_language = _session_language(session, body.locale)[0]
+    messages = build_small_talk_messages(body.message, talk_language, history)
     log_event("turn_start", surface="text", user_id=user_id, session_id=session.id, turn_id=turn_id,
               model=model, payload={"small_talk": True, "prompt_version": prompt_version,
                                     "message_length": len(body.message)})
@@ -1337,6 +1362,12 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
         finally:
             loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
+    # The language is judged here too: the quick model answered a Russian
+    # session in English on the stand (2026-10-04). A greeting is one or two
+    # short sentences, so the reply is collected whole (a second at most) and
+    # judged once — a wrong-language reply is replaced by one short line.
+    from src.answer_check import language_issue, looks_wrong_script
+
     started = time.monotonic()
     future = loop.run_in_executor(None, _run)
     parts: list[str] = []
@@ -1345,15 +1376,22 @@ async def _small_talk_stream(body, session, user_id: str, turn_id: str, prompt_v
         if item is sentinel:
             break
         parts.append(item)
-        yield _sse({"delta": item})
     reply = await future
     text = "".join(parts).strip()
+    if text and config.COACH_ANSWER_CHECK:
+        wrong = language_issue(text, talk_language) or (
+            "wrong script" if looks_wrong_script(text, talk_language) else None)
+        if wrong:
+            logger.info("answer check: %s | %s", wrong, text[:200])
+            text = _SMALL_TALK_FALLBACK.get(talk_language, _SMALL_TALK_FALLBACK["ru"])
+    if text:
+        yield _sse({"delta": text})
     latency_ms = int((time.monotonic() - started) * 1000)
     if not text:
         log_event("llm_error", severity="warn", surface="text", user_id=user_id, session_id=session.id,
                   turn_id=turn_id, model=model, ok=False,
                   error_code=str(getattr(reply, "error", "") or "empty")[:80], payload={"path": "small_talk"})
-        yield _sse({"error": _student_error_text(body.locale)})
+        yield _sse({"error": _student_error_text(talk_language)})
         return
     prompt_tokens = getattr(reply, "prompt_tokens", 0) or 0
     completion_tokens = getattr(reply, "completion_tokens", 0) or 0
@@ -1452,6 +1490,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     from src.quick_reply import is_small_talk
 
     live_game = active_board.kind == "game" and bool(active_board.game_state)
+    # The language of everything said this turn — the reaction, the answer, the
+    # rewrite after a wrong sentence: what the student asked for in this session,
+    # else the language of their message, else the interface locale.
+    turn_language, turn_language_why = _session_language(session, body.locale)
+    lang_note = language_note(turn_language, turn_language_why)
     if config.COACH_TWO_STAGE and not body.context_note and not live_game and is_small_talk(body.message):
         return StreamingResponse(
             _small_talk_stream(body, session, user_id, turn_id, prompt_version),
@@ -1501,6 +1544,30 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             engine_note, session.board_state, movetime_ms=config.COACH_ENGINE_NOTE_MOVETIME_MS
         )
     engine_state = {"used": False, "ms": None, "timed_out": False}
+    # The student's idea on the board (src/hypothetical.py): the moves the
+    # message names («а если Rg1?», «поставить ладью на g1») are played and
+    # looked at by the engine now, beside the engine line — in a live game too,
+    # since the student asks about their own move there.
+    named_moves: list = []
+    hypo_future = None
+    hypo_state = {"used": False, "ms": None, "timed_out": False, "moves": 0}
+    if session.board_state:
+        try:
+            from src.prompt_builder import question_moves
+
+            named_moves = question_moves(body.message, session.board_state)
+            legal_named = [q for q in named_moves if q.get("legal")]
+            hypo_state["moves"] = len(legal_named)
+            if legal_named and config.COACH_HYPOTHETICAL_NOTE:
+                from src.hypothetical import hypothetical_notes
+
+                hypo_future = _engine_pool.submit(
+                    hypothetical_notes, session.board_state, legal_named,
+                    config.COACH_HYPOTHETICAL_MOVETIME_MS, not live_game,
+                )
+        except Exception:  # noqa: BLE001 — the idea block is best-effort
+            logger.debug("question moves failed", exc_info=True)
+            named_moves = []
 
     # The agent does not depend on the prompt (it only stores it), so it is
     # built while the profile arrives and the prompt is assembled.
@@ -1539,6 +1606,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 turn_context = f"{turn_context}\n\n{game_note}" if turn_context else game_note
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    # Moves the student named («могу ли я сыграть Qxg7?»): their legality is a
+    # fact of the board, decided here, not left to the model.
+    try:
+        from src.prompt_builder import moves_in_question_block
+
+        moves_note = moves_in_question_block(body.message, session.board_state, named_moves or None)
+        if moves_note:
+            turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
+    except Exception:  # noqa: BLE001 — never block a turn on this
+        logger.debug("moves-in-question block failed", exc_info=True)
     current_message = attach_turn_context(current_message, turn_context)
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
@@ -1617,7 +1694,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if note:
                     bestofn_message = (f"{bestofn_message}\n\n"
                                        f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}")
-                bestofn_message = f"{bestofn_message}\n\n{reply_language_note(body.message, body.locale)}"
+                bestofn_message = f"{bestofn_message}\n\n{lang_note}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
                     session_id=session_id, session=session, body=body,
@@ -1644,17 +1721,31 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # belong to (the board, the opening line, the game, what tools put on the
         # board), a gate that holds each sentence until it is checked, and one
         # rewrite of the rest of the answer after a wrong sentence.
-        from src.answer_check import CheckContext, SentenceGate, fix_messages, strip_leaks
+        from src.answer_check import CheckContext, SentenceGate, fix_messages, proposed_move, strip_leaks
 
+        # Every board of the session counts (a capture named for the second
+        # board was cut as impossible on the first, 2026-10-02), and in a game
+        # the student's colour decides whose «твой конь» is.
+        student_color = None
+        if live_game:
+            student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
         check_ctx = CheckContext.from_fens(
-            [session.board_state, body.fen],
+            [session.board_state, body.fen] + [b.fen for b in session.boards]
+            + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
             [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
-            + [b["line"] for b in (opening_plan.branches if opening_plan else [])],
+            + [b["line"] for b in (opening_plan.branches if opening_plan else [])]
+            + [b.pgn for b in session.boards if b.pgn and b.id != active_board.id],
             question=body.message,
+            student_color=student_color,
         )
+        check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter()
+        # The coach's recommendation («сыграй Rg1») is checked by the engine
+        # before the sentence is shown (src/hypothetical.verify_recommendation).
+        verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
+                        "checked": 0, "caught": 0, "ms": 0}
         fix = {"running": False, "done": False, "sentence": None, "issues": [], "dropped": [],
                "reply": None, "started": None, "first_ms": None, "emitted": False,
                "shown_prefix": "", "head": ""}
@@ -1716,7 +1807,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     model=quick_model_id,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
                     message=body.message,
-                    locale=body.locale,
+                    locale=turn_language,
                     board_fen=session.board_state if body.fen else None,
                     on_delta=_on_quick_delta,
                     timeout_s=max(0.5, config.COACH_QUICK_BUDGET_MS / 1000.0),
@@ -1796,10 +1887,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{opening_plan.block}"
                 if note:
                     message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
+                hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
+                if hypo:
+                    message = f"{message}\n\n{hypothetical_block(hypo['note'], live_game=bool(live_game))}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
-                message = f"{message}\n\n{reply_language_note(body.message, body.locale)}"
+                message = f"{message}\n\n{lang_note}"
                 turn_msg["message"] = message
                 result = agent.chat(message, stream_callback=_on_delta)
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
@@ -1818,7 +1912,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     model=model,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
                     messages=fix_messages(turn_msg["message"] or augmented_message, shown, wrong, issues,
-                                          reply_language_note(body.message, body.locale)),
+                                          lang_note),
                     on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
                     timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,
                     max_tokens=config.COACH_ANSWER_FIX_MAX_TOKENS,
@@ -1839,7 +1933,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         def _board_frame(actions: list) -> str:
             """Apply *actions* to the session's board record (so the position survives
-            a reload) and frame them, each tagged with the board (tab) it hit."""
+            a reload) and frame them, each tagged with the board (tab) it hit.
+            Arrows a piece on the board cannot draw are dropped (board_markup.prune_arrows)."""
+            actions = [a for a in (prune_arrows(a, session.board_state) for a in actions) if a]
+            if not actions:
+                return ""
             try:
                 for action in actions:
                     if isinstance(action, dict):
@@ -1916,6 +2014,38 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 frames.extend(_answer_frames(text))
             return frames
 
+        async def _verified(pairs):
+            """A sentence that recommends a move waits for the engine's word on
+            it (a few hundred ms, off the event loop); a move that gives away
+            material or the game is treated like a wrong claim — not shown,
+            the rest rewritten from the engine's facts."""
+            if verify_state["left"] <= 0 or check_ctx.current is None:
+                return pairs
+            out = []
+            for text, issues, sentence in pairs:
+                if not issues and verify_state["left"] > 0:
+                    found = proposed_move(sentence, check_ctx)
+                    if found:
+                        from src.hypothetical import verify_recommendation
+
+                        verify_state["left"] -= 1
+                        verify_state["checked"] += 1
+                        started_v = time.monotonic()
+                        try:
+                            issue = await loop.run_in_executor(
+                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
+                                config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, not live_game,
+                            )
+                        except Exception:  # noqa: BLE001 — the check is best-effort
+                            logger.debug("move verification failed", exc_info=True)
+                            issue = None
+                        verify_state["ms"] += int((time.monotonic() - started_v) * 1000)
+                        if issue:
+                            verify_state["caught"] += 1
+                            issues = [issue]
+                out.append((text, issues, sentence))
+            return out
+
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
@@ -1934,7 +2064,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     # The end of the draft: an unfinished "[[" was not a mark, and
                     # the last sentence gets its check too.
                     tail = markup.flush()
-                    for frame in _sentence_frames((gate.feed(tail) if tail else []) + gate.flush(), "agent"):
+                    for frame in _sentence_frames(await _verified((gate.feed(tail) if tail else []) + gate.flush()), "agent"):
                         yield frame
                     if not quick["finished"] and not quick["shown"]:
                         # Answer complete, reaction never started: drop it.
@@ -1975,7 +2105,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     if not payload:
                         continue
                     # Each sentence goes out once it is complete and checked.
-                    for frame in _sentence_frames(gate.feed(payload), "agent"):
+                    for frame in _sentence_frames(await _verified(gate.feed(payload)), "agent"):
                         yield frame
                 elif kind == "fix":
                     if not fix["running"] or not payload:
@@ -1993,6 +2123,20 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             payload = payload.lstrip()[len(prefix):]
                             if not payload:
                                 continue
+                        elif prefix:
+                            # «Самое упорное здесь — отвести» shown, the rewrite opens
+                            # «Самое упорное здесь — увести ладью…» (stand, 2026-10-04):
+                            # the same start with the last word changed is dropped whole.
+                            pw, hw = prefix.split(), payload.lstrip().split()
+                            common = 0
+                            for a, b in zip(pw, hw):
+                                if a.lower().strip(",.;:—–-«»\"") != b.lower().strip(",.;:—–-«»\""):
+                                    break
+                                common += 1
+                            if common >= max(2, (len(pw) * 3 + 4) // 5):
+                                payload = " ".join(hw[len(pw):])
+                                if not payload:
+                                    continue
                         fix["emitted"] = True
                         fix["first_ms"] = int((time.monotonic() - fix["started"]) * 1000)
                         shown = "".join(answer_parts)
@@ -2005,7 +2149,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     payload, mark_actions = fix_markup.feed(payload)
                     for action in mark_actions:
                         yield _board_frame([action])
-                    for frame in _sentence_frames(fix_gate.feed(payload), "fix"):
+                    for frame in _sentence_frames(await _verified(fix_gate.feed(payload)), "fix"):
                         yield frame
                 elif kind == "fix_done":
                     fix["reply"] = payload
@@ -2016,10 +2160,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         head, mark_actions = fix_markup.feed(head)
                         for action in mark_actions:
                             yield _board_frame([action])
-                        for frame in _sentence_frames(fix_gate.feed(head), "fix"):
+                        for frame in _sentence_frames(await _verified(fix_gate.feed(head)), "fix"):
                             yield frame
                     tail = fix_markup.flush()
-                    for frame in _sentence_frames((fix_gate.feed(tail) if tail else []) + fix_gate.flush(), "fix"):
+                    for frame in _sentence_frames(await _verified((fix_gate.feed(tail) if tail else []) + fix_gate.flush()), "fix"):
                         yield frame
                     fix["running"] = False
                     fix["done"] = True
@@ -2034,7 +2178,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 elif kind == "error":
                     error_exc = payload
             if streamed_any and getattr(agent, "_coach_stream_cut", False) is True and error_exc is None:
-                cut_note = "\n\n" + _STREAM_CUT_TEXT.get((body.locale or "ru").lower(), _STREAM_CUT_TEXT["ru"])
+                cut_note = "\n\n" + _STREAM_CUT_TEXT.get(turn_language, _STREAM_CUT_TEXT["ru"])
                 partial_parts.append(cut_note)
                 answer_parts.append(cut_note)
                 yield _sse({"delta": cut_note})
@@ -2172,7 +2316,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             )
             # The student gets one calm sentence in their language; the
             # provider's text stays in the logs.
-            yield _sse({"error": _student_error_text(body.locale)})
+            yield _sse({"error": _student_error_text(turn_language)})
             return
 
         # Iteration cap / empty-response warnings (best-effort attribute reads).
@@ -2252,7 +2396,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "cached_tokens": _safe_int(getattr(agent, "session_cache_read_tokens", 0)) or 0,
                 "latency_ms": latency_ms, "iterations": iterations, "finish_reason": finish_reason,
                 "tools_selected": _selected_tool_names(agent),
-                "engine_note": dict(engine_state),
+                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state),
                 "review": dict(review_state),
                 "stages_ms": dict(stages),
                 "hedge": _hedge_state(agent),
@@ -2282,7 +2426,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 "finish_reason": finish_reason,
                 "routed_model": model,
                 "quick_shown": bool(quick_text),
-                "engine_note": dict(engine_state),
+                "engine_note": dict(engine_state), "hypothetical": dict(hypo_state), "move_verify": dict(verify_state),
                 "review": dict(review_state),
                 "hedge": _hedge_state(agent),
                 "answer_check": answer_check,
@@ -2640,6 +2784,7 @@ class VoicePromptRequest(BaseModel):
     fen: Optional[str] = None
     locale: Optional[str] = None
     tools_available: bool = True
+    session_id: Optional[str] = None   # the chat session the voice continues: its language holds
 
 
 class VoiceEngineNoteRequest(BaseModel):
@@ -2651,6 +2796,12 @@ class VoiceCheckRequest(BaseModel):
     fen: Optional[str] = None      # the board at the time
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
     question: Optional[str] = None  # the student's words (moves it quoted are not claims)
+
+
+class VoiceIdeaRequest(BaseModel):
+    text: str                      # the student's words (input transcription)
+    fen: str                       # the board at the time
+    live_game: Optional[bool] = False
 
 
 class VoiceHeartbeatRequest(BaseModel):
@@ -2751,6 +2902,16 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
 
     profile = await asyncio.to_thread(_get_voice_profile, user_id)
     profile_context = profile.to_prompt_context()
+    # The language the session already speaks (asked for in text or aloud, or
+    # written in): the spoken coach starts in it instead of the interface one.
+    language = None
+    if body.session_id:
+        try:
+            session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
+            if session is not None:
+                language = _session_language(session, body.locale)
+        except Exception:  # noqa: BLE001 — the mint must never wait on this
+            logger.debug("voice prompt: session language failed", exc_info=True)
     # Memory blocks may hit Supabase — keep them off the event loop.
     system_prompt = await asyncio.to_thread(
         build_voice_prompt,
@@ -2759,6 +2920,7 @@ async def coach_voice_prompt(body: VoicePromptRequest, request: Request):
         board_fen=body.fen,
         locale=body.locale,
         tools_available=body.tools_available,
+        language=language,
     )
     return {"system_prompt": system_prompt, "profile_context": profile_context}
 
@@ -2797,10 +2959,59 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     def _check() -> list:
         ctx = CheckContext.from_fens([body.fen], [body.pgn] if body.pgn else [], question=body.question or "")
-        return check_sentence(body.text[:1000], ctx)
+        issues = check_sentence(body.text[:1000], ctx)
+        if issues or not body.fen or not config.COACH_MOVE_VERIFY:
+            return issues
+        # The coach's recommendation («сыграй Rg1») against the engine, as in the
+        # text coach (src/hypothetical.verify_recommendation); the engine's own
+        # move is kept out — the voice coach may be in a game, and it hints.
+        from src.answer_check import proposed_move
+        from src.hypothetical import verify_recommendation
+
+        found = proposed_move(body.text[:1000], ctx)
+        if not found:
+            return issues
+        why = verify_recommendation(found[0], found[1], found[2], config.COACH_MOVE_VERIFY_MOVETIME_MS,
+                                    config.COACH_MOVE_VERIFY_CP, reveal_best=False)
+        return [why] if why else issues
 
     issues = await asyncio.to_thread(_check)
     return {"issues": issues}
+
+
+@app.post("/api/coach/voice/idea")
+async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
+    """The student's idea in a voice session: the move they named, played on the
+    board and judged by the engine (src/hypothetical.py), as one «[Idea] …»
+    line the browser feeds into Gemini Live before the coach answers — the
+    voice twin of the text coach's block. {"note": null} when the words name
+    no move; same per-user limiter as the other voice calls.
+    """
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    from src.prompt_builder import question_moves, voice_idea_note
+
+    def _idea() -> dict:
+        moves = question_moves(body.text[:600], body.fen)
+        if not moves:
+            return {"note": None, "moves": [], "fens": []}
+        legal = [q for q in moves if q.get("legal")]
+        hypo = None
+        if legal and config.COACH_HYPOTHETICAL_NOTE:
+            from src.hypothetical import hypothetical_notes
+
+            hypo = hypothetical_notes(body.fen, legal, config.COACH_HYPOTHETICAL_MOVETIME_MS, not body.live_game)
+        return {
+            "note": voice_idea_note(moves, hypo, bool(body.live_game)),
+            "moves": [{"san": q["san"], "legal": q["legal"], "verdict": q["verdict"]} for q in moves],
+            "fens": [q["after_fen"] for q in legal if q.get("after_fen")],
+        }
+
+    try:
+        return await asyncio.to_thread(_idea)
+    except Exception:  # noqa: BLE001 — no line this time; the coach can still call the engine
+        logger.debug("voice idea failed", exc_info=True)
+        return {"note": None, "moves": [], "fens": []}
 
 
 def _session_summary(s) -> dict:
@@ -3097,7 +3308,8 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     user_id = _get_user_id(request)
     session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
-    messages = game_mode.comment_prompt(board, body.locale, body.event)
+    comment_language = _session_language(session, body.locale)[0]
+    messages = game_mode.comment_prompt(board, comment_language, body.event)
     model = quick_model()
     loop = asyncio.get_event_loop()
 
@@ -3133,7 +3345,7 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
             log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
                       model=model, ok=False, error_code=str(reply.error)[:80],
                       payload={"path": "game/comment"})
-            yield _sse({"error": _student_error_text(body.locale)})
+            yield _sse({"error": _student_error_text(comment_language)})
             return
         if reply is not None and (reply.prompt_tokens or reply.completion_tokens):
             threading.Thread(

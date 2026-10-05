@@ -236,6 +236,12 @@ class TestPrompts:
         assert "The game is over" in end[0]["content"] and "Result: 0-1 (resign)" in end[1]["content"]
         assert "Student's mistakes: 1. h4 (blunder, better e4)" in end[1]["content"]
 
+    def test_comment_prompt_in_kazakh_carries_the_terms(self, engine):
+        board, _ = start_game(Session(user_id="u"), "white")
+        msgs = comment_prompt(board, "kk")
+        assert "Write in Kazakh" in msgs[0]["content"] and "піл (слон)" in msgs[0]["content"]
+        assert "піл" not in comment_prompt(board, "ru")[0]["content"]
+
     def test_comment_prompt_ok_move_is_short(self, engine):
         s = _session()
         board, _ = start_game(s, "white", 1500)
@@ -306,6 +312,40 @@ class TestEndpoints:
         assert frames[-1]["done"] is True and frames[-1]["board_id"] == board_id
         session = session_store.get(sid, "game-user")
         assert session.messages[-1].role == "assistant" and session.messages[-1].source == "game"
+
+    def test_comment_speaks_the_language_the_student_asked_for(self, engine):
+        """The tester (2026-10-01) asked the coach to speak Russian during a game
+        and the move comments stayed in the interface language."""
+        from src.quick_reply import QuickReply
+
+        sid = self._session_id()
+        board_id = self.client.post(f"/api/coach/sessions/{sid}/game", headers=USER, json={}).json()["board_id"]
+        engine.replies = ["e5"]
+        self.client.post(f"/api/coach/sessions/{sid}/game/{board_id}/move", headers=USER, json={"move": "e4"})
+        session_store.get(sid, "game-user").add_message("user", "speak Russian please")
+        seen = {}
+
+        def _fake(*, on_delta=None, messages=None, **kw):
+            seen["system"] = messages[0]["content"]
+            on_delta("Хороший ход.")
+            return QuickReply(text="Хороший ход.")
+
+        with patch("src.quick_reply.stream_completion", _fake), patch("src.server._do_record_usage"):
+            r = self.client.post(f"/api/coach/sessions/{sid}/game/{board_id}/comment", headers=USER,
+                                 json={"locale": "en"})
+        assert r.status_code == 200
+        assert seen["system"].startswith("You are Chesster")
+        assert "Write in Russian and in no other language" in seen["system"]
+        # Without a request the comments follow what the student writes, then the interface.
+        session_store.get(sid, "game-user").messages.clear()
+        session_store.get(sid, "game-user").add_message("user", "What should I play here?")
+        with patch("src.quick_reply.stream_completion", _fake), patch("src.server._do_record_usage"):
+            self.client.post(f"/api/coach/sessions/{sid}/game/{board_id}/comment", headers=USER, json={"locale": "kz"})
+        assert "Write in English and in no other language" in seen["system"]
+        session_store.get(sid, "game-user").messages.clear()
+        with patch("src.quick_reply.stream_completion", _fake), patch("src.server._do_record_usage"):
+            self.client.post(f"/api/coach/sessions/{sid}/game/{board_id}/comment", headers=USER, json={"locale": "kz"})
+        assert "Write in Kazakh and in no other language" in seen["system"]
 
     def test_comment_failure_is_a_calm_error(self, engine):
         from src.quick_reply import QuickReply

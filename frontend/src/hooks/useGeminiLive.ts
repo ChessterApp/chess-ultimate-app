@@ -38,6 +38,15 @@ export const OPENING_HINT_RE =
 export const CONCEPT_LOOKUP_DELAY_MS = 400;
 // A failed voice start is tried once more after this pause.
 export const START_RETRY_DELAY_MS = 700;
+// A move in the student's words («а если Rg1?», «поставлю ладью на g1», «взять
+// ферзя конём», "what if I put the rook on g1"): the site plays it on the board
+// and asks Stockfish about the position after it, and the model gets the
+// "[Idea]" line before it answers — the voice twin of the text coach's block.
+// On production (01.10) the voice coach, like the text one, said the rook on g1
+// attacks the queen on h4 from its head. Cheap gate only: Hermes does the real parsing.
+export const IDEA_MOVE_RE =
+  /(?:^|[^A-Za-z])[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?![0-9])|(?:^|[^А-Яа-я])[КСЛФ]x?[a-h][1-8](?![0-9])|(?:ладь|кон[яеё]|слон|ферз|корол|пешк|rook|knight|bishop|queen|king|pawn)[а-яёa-z]*\s+(?:с\s+[a-h][1-8]\s+|from\s+[a-h][1-8]\s+)?(?:на|в|to|on|onto)\s+[a-h][1-8]|(?:взять|бить|побить|съесть|забрать|срубить|take|capture|grab)\s+(?:на\s+|on\s+)?(?:[a-h][1-8]|ферзя|коня|слона|ладью|короля|пешку|the\s+(?:queen|rook|knight|bishop|king|pawn))|(?:ладь|кон|слон|ферз|корол|пешк)[а-яё]*\s+(?:взять|бить|побить|съесть|забрать)/i;  // JS \w is Latin only
+export const IDEA_LOOKUP_DELAY_MS = 350;
 // Tools the site calls itself from the student's words (see lookUpConcept).
 export const SITE_FETCHED_TOOLS = new Set(['get_topic', 'lookup_opening', 'get_puzzle', 'review_game']);
 
@@ -124,10 +133,52 @@ export function openingNote(result: {
 /** The note the model gets with a knowledge-base example the site put on the board. */
 export function topicNote(result: {
   title?: string;
-  example?: { title?: string; fen?: string; note?: string; side_to_move?: string };
+  example?: {
+    title?: string;
+    fen?: string;
+    note?: string;
+    side_to_move?: string;
+    // From the site's own lesson (get_topic, 2026-10-03): the student's programme comes first.
+    source?: string;
+    course?: string;
+    url?: string;
+    tasks?: number;
+    solution?: string[];
+    kind?: string;
+    // The lesson's own text from the programme (steps 1–3), with its diagram.
+    explanation?: string;
+  };
 }): string | null {
   const ex = result.example;
   if (!ex?.fen) return null;
+  if (ex.source === 'site_lesson') {
+    const where = `the site's lesson «${ex.title ?? ''}»${ex.course ? ` (course «${ex.course}»)` : ''}`;
+    const tasks = ex.tasks && ex.tasks > 1 ? `, which has ${ex.tasks} tasks` : '';
+    if (ex.kind === 'diagram') {
+      const says = ex.explanation ? ` The lesson says: ${ex.explanation.slice(0, 700)}` : '';
+      return (
+        `[Topic] On the student's board is an explanatory diagram of ${where}${tasks} ` +
+        `(FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}).` +
+        (ex.note ? ` It shows: ${ex.note}.` : '') +
+        says +
+        ` Explain «${result.title ?? ''}» in the lesson's own words with this very position, and at the end ` +
+        `send the student to the whole lesson and its tasks, naming the lesson and course exactly as here` +
+        (ex.url ? ` (address ${ex.url})` : '') +
+        `. Describe no other example and do not call get_topic for it again.`
+      ).replace(/\s+/g, ' ').trim();
+    }
+    const what = ex.kind === 'task' ? 'the first task' : 'the exercise';
+    const solution = ex.solution && ex.solution.length > 0 ? ex.solution.join(' ') : '';
+    return (
+      `[Topic] On the student's board is ${what} of ${where}${tasks}, set as a puzzle ` +
+      `(FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}). ` +
+      (solution ? `Its solution is ${solution} — do not reveal it unless the student asks or fails twice. ` : '') +
+      `Explain «${result.title ?? ''}» with this very position, then invite the student to solve it, and at the end ` +
+      `send them to the whole lesson, naming the lesson and course exactly as here` +
+      (ex.url ? ` (address ${ex.url})` : '') +
+      `. Describe no other example and do not call get_topic for it again.`
+    ).replace(/\s+/g, ' ').trim();
+  }
   return (
     `[Topic] The knowledge-base example for «${result.title ?? ''}» is now on the student's board: ` +
     `${ex.title ?? ''} (FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}). ` +
@@ -915,6 +966,9 @@ export default function useGeminiLive(
   const userUtteranceRef = useRef('');
   const conceptDoneRef = useRef(false);
   const conceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The student's idea (a move in their words) already sent for this utterance — see IDEA_MOVE_RE.
+  const ideaSentRef = useRef('');
+  const ideaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // The coach's current sentence (output transcription fragments joined), the
   // wrong ones of this turn, and how many checks were sent this turn.
@@ -1089,6 +1143,38 @@ export default function useGeminiLive(
       /* unavailable — the coach can still call get_topic itself */
     }
   }, [lookUpOpening, lookUpPuzzle, lookUpReview]);
+  // The student names a move: play it on the board at Hermes, let Stockfish look
+  // at the position after it, and hand the model the "[Idea]" line — before it
+  // answers from its head (text coach: src/hypothetical.py, same facts).
+  const lookUpIdea = useCallback(async (text: string) => {
+    const session = sessionRef.current;
+    if (!session || !IDEA_MOVE_RE.test(text) || ideaSentRef.current === text) return;
+    const fen = optionsRef.current.getFen?.();
+    if (!fen) return;
+    ideaSentRef.current = text;
+    try {
+      const res = await fetch('/api/coach/voice/idea', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text, fen }),
+      });
+      if (!res.ok) return;
+      const data = (await res.json().catch(() => null)) as { note?: unknown; moves?: unknown[] } | null;
+      const note = data?.note;
+      if (typeof note !== 'string' || !note) return;
+      if (sessionRef.current !== session || optionsRef.current.getFen?.() !== fen) return;
+      try {
+        optionsRef.current.onToolResult?.('voice_idea', data);
+      } catch {
+        /* UI callback errors must not break the session */
+      }
+      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+    } catch {
+      /* unavailable (an older Hermes answers 404) — the coach answers without the line */
+    }
+  }, []);
+
   const closeUtterance = useCallback((role: 'user' | 'model') => {
     if (!openUtterancesRef.current[role]) return;
     openUtterancesRef.current[role] = false;
@@ -1140,12 +1226,17 @@ export default function useGeminiLive(
         if (!openUtterancesRef.current.user) {
           userUtteranceRef.current = '';
           conceptDoneRef.current = false;
+          ideaSentRef.current = '';
           siteResultsRef.current.clear();
         }
         userUtteranceRef.current += sc.inputTranscription.text;
         const utterance = userUtteranceRef.current;
         if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
         conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);
+        if (IDEA_MOVE_RE.test(utterance)) {
+          if (ideaTimerRef.current) clearTimeout(ideaTimerRef.current);
+          ideaTimerRef.current = setTimeout(() => void lookUpIdea(utterance), IDEA_LOOKUP_DELAY_MS);
+        }
         openUtterancesRef.current.user = !final;
         optionsRef.current.onTranscript?.({
           role: 'user',
@@ -1216,7 +1307,7 @@ export default function useGeminiLive(
         }
       }
     },
-    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, checkSpokenSentence],
+    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, lookUpIdea, checkSpokenSentence],
   );
 
   const fail = useCallback(

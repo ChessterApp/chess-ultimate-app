@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONCEPT_QUESTION_RE, OPENING_HINT_RE, openingNote, topicNote } from '../useGeminiLive';
+import { CONCEPT_QUESTION_RE, IDEA_MOVE_RE, OPENING_HINT_RE, openingNote, topicNote } from '../useGeminiLive';
 
 describe('voice lookups: what the site asks Hermes about on its own', () => {
   it('an opening named in the words is looked up (slang included)', () => {
@@ -30,6 +30,20 @@ describe('voice lookups: what the site asks Hermes about on its own', () => {
   it('the topic note still describes the example on the board', () => {
     expect(topicNote({ title: 'Связка', example: { fen: '8/8/8/8/8/8/8/8 w - - 0 1', title: 'пример' } })).toContain('[Topic]');
     expect(topicNote({ title: 'Связка' })).toBeNull();
+    // The site's own lesson: the task is a puzzle, the solution stays hidden, the lesson is where to go.
+    const lesson = topicNote({
+      title: 'Связка',
+      example: {
+        source: 'site_lesson', kind: 'task', title: 'Связка', course: 'Основы шахмат', tasks: 12,
+        fen: '8/8/7p/5K1k/7r/7R/6P1/8 w - - 0 1', side_to_move: 'White', solution: ['g4#'],
+        url: 'https://chesster.io/learn/chess-basics/pin',
+      },
+    })!;
+    expect(lesson).toContain("the first task of the site's lesson «Связка» (course «Основы шахмат»), which has 12 tasks");
+    expect(lesson).toContain('Its solution is g4# — do not reveal it');
+    expect(lesson).toContain('send them to the whole lesson');
+    expect(lesson).toContain('https://chesster.io/learn/chess-basics/pin');
+    expect(lesson).not.toContain('knowledge-base example');
   });
 });
 
@@ -84,5 +98,23 @@ describe('voice shortcuts: puzzle and review fetched by the site', () => {
     expect(m && !!m[1]).toBe(true);
     expect(reviewNote({ note: '## Critical moments\n- 16...Bh5' })).toBe('[Review] ## Critical moments\n- 16...Bh5');
     expect(reviewNote({})).toBeNull();
+  });
+});
+
+
+describe('IDEA_MOVE_RE — a move in the student\'s words', () => {
+  it('matches notation and words for a move', () => {
+    for (const text of [
+      'а если Rg1?', 'а что если поставить ладью на g1', 'ладьёй взять на h4', 'взять ферзя конём',
+      'коня с f3 на d5', 'what if I put the rook on g1', 'take the queen with the knight', 'knight to d5',
+      'а если Лg1', 'может Nxe5?',
+    ]) {
+      expect(IDEA_MOVE_RE.test(text), text).toBe(true);
+    }
+  });
+  it('leaves other talk alone', () => {
+    for (const text of ['что мне делать?', 'что такое связка', 'привет', 'кто впереди по материалу', 'what should I play here']) {
+      expect(IDEA_MOVE_RE.test(text), text).toBe(false);
+    }
   });
 });

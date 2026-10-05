@@ -456,6 +456,21 @@ class TestSmallTalk:
 
     @patch("src.server.log_event")
     @patch("src.server._create_agent")
+    def test_small_talk_in_the_wrong_language_is_replaced(self, mock_agent, mock_log, monkeypatch):
+        """The quick model answered a Russian session in English (stand, 2026-10-04):
+        the language gate holds here too, and a reply lost whole becomes one short line."""
+        monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
+        monkeypatch.setattr(config, "COACH_ANSWER_CHECK", True)
+        fake = self._fake_completion("You're welcome! What shall we look at next on the board today?")
+        with patch("src.quick_reply.stream_completion", fake):
+            resp = self.client.post("/api/coach/chat", headers=USER, json={"message": "спасибо", "locale": "ru"})
+        frames = _frames(resp.text)
+        mock_agent.assert_not_called()
+        assert _deltas(frames) == "Хорошо. Чем займёмся дальше?"
+        assert frames[-1]["done"] is True
+
+    @patch("src.server.log_event")
+    @patch("src.server._create_agent")
     def test_greeting_skips_the_agent(self, mock_agent, mock_log, monkeypatch):
         monkeypatch.setattr(config, "COACH_TWO_STAGE", True)
         fake = self._fake_completion()

@@ -576,6 +576,21 @@ def get_lesson(
         status = (progress.get(row["id"]) or {}).get("status") or "not_started"
 
     content = _loc(row, "content", locale)
+    # The programme's own words (src/lesson_texts.py): the site's lesson is a
+    # title, a video and tasks; the explanation and the diagrams come from the
+    # client's course books, matched to this lesson (2026-10-04).
+    own = None
+    try:
+        from src.lesson_texts import lesson_text
+
+        own = lesson_text(lesson_id=row["id"], course_slug=_slug(course),
+                          module_title=_loc(module, "title", "ru"), lesson_title=_loc(row, "title", "ru"))
+    except Exception:  # noqa: BLE001 — the text is a bonus on top of the site's lesson
+        logger.debug("lesson text lookup failed", exc_info=True)
+    if own and own.get("text"):
+        heading = (f"## Текст урока (программа «Ступени», ступень {own.get('step')}, "
+                   f"урок {own.get('lesson')} «{own.get('title')}»)")
+        content = ((content.strip() + "\n\n") if content and content.strip() else "") + heading + "\n" + own["text"]
     out = {
         "lesson_id": row["id"],
         "slug": _slug(row) or None,
@@ -589,6 +604,10 @@ def get_lesson(
     }
     if status:
         out["student_status"] = status
+    if own and own.get("text"):
+        out["lesson_text"] = own["text"]
+        if own.get("diagrams"):
+            out["diagrams"] = own["diagrams"]
 
     fen = row.get("exercise_fen")
     if fen:
@@ -624,11 +643,22 @@ def get_lesson(
         out["puzzles_hint"] = ("To put a puzzle on the student's board call board_control with "
                                "action_type=set_puzzle, fen=<fen> and solution=<solution>.")
     if show:
+        diagram = (out.get("diagrams") or [None])[0]
         shown = out.get("board_puzzle") or next(
             ({"fen": p["fen"], "solution": p["solution"]} for p in out.get("puzzles") or [] if p.get("fen")),
             None,
         )
-        if shown:
+        if diagram and not out.get("board_puzzle"):
+            # A lesson is taught from its own diagram first; the tasks come after.
+            out["board_actions"] = [{"type": "set_fen", "fen": diagram["fen"]}]
+            out["board_hint"] = (
+                "The lesson's own explanatory diagram is ALREADY on the board"
+                + (f" ({diagram['context']})" if diagram.get("context") else "")
+                + ". Explain the lesson from its text (`lesson_text`), in the student's language, reading the "
+                "pieces from the FEN; then offer its tasks — put one on the board with board_control "
+                "set_puzzle from `puzzles` when the student is ready."
+            )
+        elif shown:
             out["board_actions"] = [{"type": "set_puzzle", "fen": shown["fen"], "solution": shown["solution"]}]
             out["board_hint"] = "The lesson's exercise is ALREADY on the board as a puzzle; guide the student through it."
     return out
@@ -658,9 +688,10 @@ LEARNING_PATH_SCHEMA = {
 LESSON_SCHEMA = {
     "name": "get_lesson",
     "description": (
-        "Read one lesson of the site's programme: its text, exercise (FEN + solution), "
-        "puzzles (FEN + solution + hint) and link — and PUT ITS EXERCISE ON THE BOARD as a "
-        "puzzle itself (else its first puzzle). Use it to teach or explain a lesson and to show "
+        "Read one lesson of the site's programme: its text (the programme's own explanation), "
+        "exercise (FEN + solution), puzzles (FEN + solution + hint) and link — and PUT ITS "
+        "DIAGRAM OR EXERCISE ON THE BOARD itself (the lesson's explanatory diagram when it has one, "
+        "else the exercise as a puzzle, else its first puzzle). Use it to teach or explain a lesson and to show "
         "the site's own example of a topic. show=false only to check what a lesson covers "
         "without touching the board. Identify the lesson by slug, id or part of its title."
     ),

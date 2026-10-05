@@ -193,16 +193,20 @@ def test_get_topic_lessons_fail_open(topics, monkeypatch):
 def test_get_topic_links_site_lessons(topics, monkeypatch):
     import src.tools.learning_path as lp
 
-    programme = {"courses": [{"id": "c", "slug": "tactics-101", "title": "Tactics", "title_ru": "Тактика",
+    # As on the site: no slug in the rows, English titles the address is derived from
+    # (production returned «/learn/None/None» for every lesson, 2026-10-03).
+    programme = {"courses": [{"id": "c", "title": "Tactics 101", "title_ru": "Тактика",
                               "modules": [{"id": "m", "title": "Forks", "title_ru": "Вилки",
-                                           "lessons": [{"id": "l", "slug": "knight-fork", "title": "Knight fork",
+                                           "lessons": [{"id": "l", "title": "Knight fork",
                                                         "title_ru": "Вилка конём"}]}]}]}
     monkeypatch.setattr(lp, "fetch_programme", lambda *a, **k: programme)
     monkeypatch.setattr(lp, "fetch_progress", lambda *a, **k: {"l": {"status": "completed"}})
     out = get_topic("fork", locale="ru", user_id="u1", topics=topics)
-    assert out["site_lessons"][0]["slug"] == "knight-fork"
-    assert out["site_lessons"][0]["status"] == "completed"
-    assert out["site_lessons"][0]["url"].endswith("/learn/tactics-101/knight-fork")
+    first = out["site_lessons"][0]
+    assert first["slug"] == "knight-fork" and first["lesson_id"] == "l"
+    assert first["title"] == "Вилка конём" and first["course"] == "Тактика" and first["module"] == "Вилки"
+    assert first["status"] == "completed"
+    assert first["url"].endswith("/learn/tactics-101/knight-fork")
 
 
 # ── The example get_topic puts on the board (2026-09-25: invented "pin") ──
@@ -226,16 +230,61 @@ def test_get_topic_prefers_the_sites_own_lesson(topics, monkeypatch):
     import src.tools.knowledge_topics as kt
 
     lesson_fen = "6k1/5ppp/8/8/8/8/5PPP/3N2K1 w - - 0 1"
-    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [{"slug": "knight-fork", "title": "Вилка конём"}])
-    monkeypatch.setattr(lp, "get_lesson", lambda *a, **k: {
-        "title": "Вилка конём", "url": "https://chesster.io/learn/tactics-101/knight-fork",
-        "exercise": {"fen": lesson_fen, "solution": ["Ne3"], "hint": "Ищите прыжок коня"},
+    seen = {}
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [
+        {"lesson_id": "l-fork", "slug": "knight-fork", "title": "Вилка конём", "course": "Тактика"}])
+
+    def _lesson(key, **kw):
+        seen["key"] = key
+        seen["show"] = kw.get("show")
+        return {
+            "lesson_id": "l-fork", "title": "Вилка конём", "course": {"slug": "tactics-101", "title": "Тактика"},
+            "url": "https://chesster.io/learn/tactics-101/knight-fork",
+            "exercise": {"fen": lesson_fen, "solution": ["Ne3"], "hint": "Ищите прыжок коня"},
+            "puzzles": [{"n": 1, "fen": "7k/6rp/4R3/4B2K/8/8/8/8 w - - 0 1", "solution": ["Re8#"], "hint": ""}],
+        }
+
+    monkeypatch.setattr(lp, "get_lesson", _lesson)
+    out = get_topic("fork", locale="ru", topics=topics)
+    # Looked up by id (a title fits several lessons), without touching the board itself.
+    assert seen == {"key": "l-fork", "show": False}
+    ex = out["example"]
+    assert ex["source"] == "site_lesson" and ex["url"].endswith("/knight-fork")
+    assert ex["course"] == "Тактика" and ex["tasks"] == 2 and ex["kind"] == "exercise" and ex["solution"] == ["Ne3"]
+    # A task of the site's lesson goes on as a puzzle, with no arrow giving the answer away.
+    assert out["board_actions"] == [{"type": "set_puzzle", "fen": lesson_fen, "solution": ["Ne3"]}]
+    hint = out["board_hint"]
+    assert "the site's lesson «Вилка конём» (course «Тактика»)" in hint and "2 tasks" in hint
+    assert "END the answer by inviting the student to go through the whole lesson" in hint
+    assert "https://chesster.io/learn/tactics-101/knight-fork" in hint
+    assert "do NOT reveal it" in hint and "Ne3" in hint
+
+
+@pytest.mark.unit
+def test_get_topic_teaches_from_the_lessons_own_diagram_and_text(topics, monkeypatch):
+    import src.tools.learning_path as lp
+    import src.tools.knowledge_topics as kt
+
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [
+        {"lesson_id": "l-fork", "slug": "knight-fork", "title": "Вилка конём", "course": "Тактика"}])
+    monkeypatch.setattr(lp, "get_lesson", lambda key, **kw: {
+        "lesson_id": "l-fork", "title": "Вилка конём", "course": {"slug": "tactics-101", "title": "Тактика"},
+        "url": "https://chesster.io/learn/tactics-101/knight-fork",
+        "lesson_text": "Двойной удар – нападение одной фигурой на две фигуры противника.",
+        "diagrams": [{"fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "context": "Конь нападает на две фигуры"}],
+        "puzzles": [{"n": 1, "fen": "7k/6rp/4R3/4B2K/8/8/8/8 w - - 0 1", "solution": ["Re8#"], "hint": ""}],
     })
     out = get_topic("fork", locale="ru", topics=topics)
-    assert out["example"]["source"] == "site_lesson"
-    assert out["example"]["url"].endswith("/knight-fork")
-    assert out["board_actions"][0] == {"type": "set_fen", "fen": lesson_fen}
-    assert out["board_actions"][1]["arrows"] == [{"from": "d1", "to": "e3", "brush": "green"}]
+    ex = out["example"]
+    assert ex["source"] == "site_lesson" and ex["kind"] == "diagram" and ex["tasks"] == 1
+    assert ex["fen"] == "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1" and ex["solution"] == []
+    assert ex["explanation"].startswith("Двойной удар – нападение")
+    # A diagram goes on as a position to explain, not as a puzzle.
+    assert out["board_actions"][0] == {"type": "set_fen", "fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1"}
+    hint = out["board_hint"]
+    assert "an explanatory diagram of the site's lesson «Вилка конём» (course «Тактика»), which has 1 tasks" in hint
+    assert "«Конь нападает на две фигуры»" in hint and "teach in ITS words" in hint
+    assert "END the answer by inviting the student" in hint and "/knight-fork" in hint
 
 
 @pytest.mark.unit
@@ -246,6 +295,22 @@ def test_get_topic_skips_an_illegal_lesson_position(topics, monkeypatch):
     monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [{"slug": "broken"}])
     monkeypatch.setattr(lp, "get_lesson", lambda *a, **k: {"title": "x", "exercise": {"fen": "not a fen"}})
     out = get_topic("lucena", topics=topics)
+    assert out["example"]["source"] == "knowledge_base"
+    assert out["board_actions"][0]["type"] == "set_fen"
+    assert "OFFER a puzzle" in out["board_hint"]
+
+
+@pytest.mark.unit
+def test_an_ambiguous_lesson_lookup_falls_back_to_the_base(topics, monkeypatch):
+    """What production did on 2026-10-03: «Связка» matched five lessons, the
+    lookup by title came back ambiguous, and the base's generic position was
+    shown instead of the lesson's task."""
+    import src.tools.learning_path as lp
+    import src.tools.knowledge_topics as kt
+
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [{"title": "Связка"}])
+    monkeypatch.setattr(lp, "get_lesson", lambda *a, **k: {"ambiguous": True, "lessons": []})
+    out = get_topic("pin", topics=topics)
     assert out["example"]["source"] == "knowledge_base"
 
 
@@ -311,3 +376,16 @@ def test_most_shown_examples_come_with_arrows(topics):
     shown = [_example_actions(ex) for ex in (_example_from_base(t) for t in records) if ex]
     with_arrows = sum(1 for acts in shown if _arrows(acts))
     assert with_arrows >= 35, (with_arrows, len(shown))
+
+
+@pytest.mark.unit
+def test_ideas_written_as_yaml_mappings_read_as_text(topics):
+    """«- Развязка: отойти с шахом…» is a mapping to YAML; the coach must get a sentence."""
+    from src.knowledge_base import _as_str_list
+
+    assert _as_str_list([{"Развязка": "отойти с шахом"}, "просто строка", {"A": ["x", "y"]}]) == [
+        "Развязка: отойти с шахом", "просто строка", "A: x, y"]
+    for t in (topics.values() if isinstance(topics, dict) else topics):
+        for f in ("key_ideas_ru", "typical_mistakes_ru"):
+            for item in t.get(f) or []:
+                assert isinstance(item, str) and not item.startswith("{"), (t["slug"], item)
