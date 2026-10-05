@@ -897,6 +897,19 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
         _add(san, "san")
     for pm in prose_moves(message, board):
         _add(pm["san"], "prose", pm["words"], pm["note"], pm["move"])
+    # «Конь на f7 с вилкой — хорошая идея?»: a piece and a square with no verb is
+    # a move in the student's words when such a move is legal (the coach's
+    # answer is never read this loosely — there «конь на f7» names a piece).
+    from src.move_words import _ptype, resolve
+
+    for m in re.finditer(r"(?<![а-яa-z])(?P<piece>конь|ладья|слон|ферзь|король|пешка|knight|rook|bishop|queen|king|pawn)"
+                         r"\s+(?:на|to|on|onto)\s+(?P<sq>[a-h][1-8])(?![0-9])", message.lower().replace("ё", "е")):
+        ptype = _ptype(m["piece"])
+        if ptype is None:
+            continue
+        san, move, _note = resolve(board, ptype, chess.parse_square(m["sq"]))
+        if move is not None:
+            _add(san, "prose", m.group(0), None, move)
     return out
 
 
@@ -930,6 +943,35 @@ def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[li
                 pass
         lines.append(line)
     return "\n".join(lines)
+
+
+def board_facts_block(fen: Optional[str]) -> str:
+    """What hangs, what is attacked, what is pinned on the board — verified by
+    python-chess, no engine, no best move. For a live game, where the engine
+    line is withheld so the coach hints rather than tells (production,
+    2026-10-05: the coach proposed Nf7 with the queen on h5 hanging to g6)."""
+    if not fen:
+        return ""
+    try:
+        import chess
+
+        from src.position_facts import static_facts
+
+        board = chess.Board(fen)
+        if not board.is_valid():
+            return ""
+        facts = static_facts(board)
+    except Exception:  # noqa: BLE001
+        return ""
+    if not facts:
+        return ""
+    return (
+        "## Facts of the board (verified on the position, no engine)\n"
+        + "\n".join(f"- {f}" for f in facts)
+        + "\nAny move you mention must respect these: a piece listed as attacked and not defended is "
+        "lost unless the move saves it; never propose a move that leaves your own queen or a piece "
+        "hanging, and never claim an attack or a defence that is not here or on the board."
+    )
 
 
 def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) -> Optional[str]:

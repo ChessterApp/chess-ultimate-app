@@ -34,6 +34,9 @@ class TestMovesInWords:
         ("knight to d5 and bishop to c4?", ["Nd5", "Bc4"]),
         ("rook takes the queen", []),  # no rook reaches h4: not a legal move
         ("что мне делать?", []),
+        ("конь прыгнет на d5", ["Nd5"]),  # the client's coach, 2026-10-05: «конь сначала прыгнет на f7»
+        ("а если ладья сначала идёт на g1?", ["Rg1"]),
+        ("the knight jumps to d5", ["Nd5"]),
     ])
     def test_phrases_become_moves(self, text, expect):
         board = chess.Board(H4)
@@ -57,6 +60,14 @@ class TestMovesInWords:
 
 
 class TestQuestionMoves:
+    CLIENT = "rnbqkbnr/pp2pp1p/6p1/2p3NQ/4p3/8/PPPP1PPP/RNB1KB1R w KQkq - 0 5"  # Qh5 attacked by g6, Ng5 (2026-10-05)
+
+    def test_the_clients_question_is_one_move(self):
+        moves = question_moves("Советуешь съесть пешку на h7 конём?", self.CLIENT)
+        assert [(m["san"], m["legal"]) for m in moves] == [("Nxh7", True)]
+        assert [m["san"] for m in question_moves("Конь на f7 с вилкой — хорошая идея?", self.CLIENT)] == ["Nxf7"]
+        assert [m["san"] for m in question_moves("А ферзь на h5 сейчас в безопасности?", self.CLIENT)] == []  # the queen is there: no move
+
     def test_notation_and_words_in_one_block(self):
         block = moves_in_question_block("что если поставить ладью на g1? а взять ферзя конём? или Rg1?", H4)
         assert block.startswith("## Moves named in the question")
@@ -167,6 +178,7 @@ class TestProposedMove:
         ("Здесь напрашивается Nd5.", "Nd5"),
         ("My advice: Nd5, and the knight dominates.", "Nd5"),
         ("Nxh4 is the best move here.", "Nxh4"),
+        ("Если сыграть Rg1, ладья нападает на ферзя h4.", "Rg1"),  # a praised hypothetical is advice (2026-10-05)
     ])
     def test_a_recommendation_is_found(self, sentence, expect):
         ctx = CheckContext.from_fens([H4], question="что делать?")
@@ -176,7 +188,6 @@ class TestProposedMove:
     @pytest.mark.parametrize("sentence", [
         "Не стоит играть Rg1.",
         "Rg1 сыграть нельзя — пешка мешает.",
-        "Если сыграть Rg1, ладья нападает на ферзя h4.",  # a hypothetical, not advice
         "Можно заметить, что после Rg1 ладья стоит плохо.",
         "Отличная позиция, можно спокойно развиваться.",
         "Ход Rg1 — ошибка: ладья ничего не атакует.",  # named, judged bad: not a recommendation
@@ -184,6 +195,26 @@ class TestProposedMove:
     ])
     def test_no_recommendation(self, sentence):
         ctx = CheckContext.from_fens([H4], question="что делать?")
+        assert proposed_move(sentence, ctx) is None, sentence
+
+    @pytest.mark.parametrize("sentence, expect", [
+        ("А вот если конь сначала прыгнет на f7 — — он бьёт и ладью, и ферзя одновременно.", "Nxf7"),
+        ("Nf7 forks the queen and the rook.", "Nxf7"),
+        ("Сильнее Nf7: конь нападает на ферзя и ладью.", "Nxf7"),
+    ])
+    def test_a_praised_idea_is_advice(self, sentence, expect):
+        # The client's coach (2026-10-05) proposed Nf7 with the queen on h5 hanging — in words, after «если».
+        ctx = CheckContext.from_fens([TestQuestionMoves.CLIENT], question="Советуешь съесть пешку на h7 конём?")
+        found = proposed_move(sentence, ctx)
+        assert found is not None and found[2] == expect, (sentence, found)
+
+    @pytest.mark.parametrize("sentence", [
+        "Смотри: ладья держит h7, и после Nxh7 Rxh7 ты остаёшься без фигуры.",
+        "Нет, не советую — брать на h7 сейчас плохо, потому что ладья на h8 её защищает.",
+        "Если конь прыгнет на f7, он будет под боем короля.",
+    ])
+    def test_a_move_shown_as_bad_is_not_advice(self, sentence):
+        ctx = CheckContext.from_fens([TestQuestionMoves.CLIENT], question="Советуешь съесть пешку на h7 конём?")
         assert proposed_move(sentence, ctx) is None, sentence
 
     def test_a_square_named_after_a_piece_is_not_a_pawn_move(self):
@@ -410,3 +441,50 @@ class TestVoiceCheckVerifiesTheRecommendation:
         resp = self.client.post("/api/coach/voice/check", headers={"X-User-Id": "voice-verify"},
                                 json={"text": "Бери ферзя: Nxh4, он не защищён.", "fen": H4})
         assert resp.json() == {"issues": []}
+
+
+
+@pytest.mark.unit
+def test_a_live_game_turn_carries_the_boards_facts(monkeypatch):
+    """The engine line is withheld in a game (the coach hints); the board's facts
+    are not (production, 2026-10-05: Nf7 proposed with the queen on h5 hanging)."""
+    from src import game_mode
+    from src.game_mode import play_move, start_game
+    from src.prompt_builder import board_facts_block
+    from src.sessions import session_store
+    from src.user_profile import UserProfile
+
+    assert "the white queen h5 is attacked by the black pawn g6 and not defended" in board_facts_block(TestQuestionMoves.CLIENT)
+    replies = ["e5", "Nc6"]
+    monkeypatch.setattr(game_mode, "_engine_move", lambda fen, elo: chess.Board(fen).parse_san(replies.pop(0)).uci())
+    monkeypatch.setattr(game_mode, "_evaluate", lambda fen, pov: (0, None))
+    session = session_store.create(user_id="facts-user")
+    board, _ = start_game(session, "white", 1500)
+    play_move(session, board, "e4")  # 1.e4 e5
+    play_move(session, board, "Qh5")  # 2.Qh5 Nc6 — now things are attacked
+    agent = MagicMock()
+    agent.tools = []
+    agent._api_call_count = 1
+    agent.max_iterations = 5
+    agent.session_prompt_tokens = agent.session_completion_tokens = 0
+    captured = {}
+
+    def _chat(msg, stream_callback=None):
+        captured["message"] = msg
+        stream_callback("Посмотри на центр.")
+        return "Посмотри на центр."
+
+    agent.chat.side_effect = _chat
+    monkeypatch.setattr(config, "COACH_TWO_STAGE", False)
+    monkeypatch.setattr(config, "COACH_ENGINE_NOTE", False)
+    from fastapi.testclient import TestClient
+
+    with patch("src.server._create_agent", return_value=agent), \
+            patch("src.server.load_user_profile", return_value=UserProfile(user_id="facts-user")), \
+            patch("src.server.log_event"):
+        resp = TestClient(server.app).post("/api/coach/chat", headers={"X-User-Id": "facts-user"},
+                                           json={"message": "что мне тут делать?", "session_id": session.id, "locale": "ru"})
+    assert resp.status_code == 200
+    assert "## Live game" in captured["message"]
+    assert "## Facts of the board (verified on the position, no engine)" in captured["message"]
+    assert "the black pawn e5 is attacked by the white queen h5 and defended by the black knight c6" in captured["message"]

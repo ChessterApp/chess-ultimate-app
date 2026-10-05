@@ -725,6 +725,7 @@ class TestPlanThroughOwnKing:
         "После Rf1 ладья перейдёт на f2.",  # a pawn on f2 of one's own: a plan to move it first — not judged
         "После Rd1 ладья пойдёт на d7.",  # d5 rook (own piece, not the king) in the way: let be
         "Ладья перейдёт на g3.",  # no written move binds the rook: not judged
+        "Нет, конь на f7 — плохая идея: там его съест король, и ты останешься без фигуры.",  # a future, not the material now
         "After Rg1 the knight goes to e6.",  # knights are never judged here: the written move may be another knight's
         "Play 5...Na5 instead of 5...Nxd5 — your knight goes to a5 hitting the bishop.",
     ])

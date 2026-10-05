@@ -37,13 +37,26 @@ _PATTERNS = [
     re.compile(_B + _RU_TAKE + rf"\s+(?:на\s+)?(?P<to>{SQ})(?![0-9])\s+" + _RU_PIECE + _E),
     # «ладьёй взять на h4», «конём бью e5»
     re.compile(_B + _RU_PIECE + r"\s+" + _RU_TAKE + rf"\s+(?:на\s+)?(?P<to>{SQ})(?![0-9])"),
+    # «съесть пешку на h7 конём», «взять коня на f6 слоном» (the client's question, 2026-10-05)
+    re.compile(_B + _RU_TAKE + r"\s+(?:ч[её]рн\w+\s+|бел\w+\s+|его\s+|их\s+)?(?:ферзя|коня|слона|ладью|короля|пешку)\s+(?:на\s+)?"
+               rf"(?P<to>{SQ})(?![0-9])\s+" + _RU_PIECE + _E),
     # «взять ферзя ладьёй», «забрать коня слоном»
     re.compile(_B + _RU_TAKE + r"\s+(?:ч[её]рн\w+\s+|бел\w+\s+|его\s+|их\s+|вражеск\w+\s+)?" + _RU_TARGET + r"\s+" + _RU_PIECE + _E),
+    # «конь прыгнет на f7», «ладья сначала идёт на g3», «слон отходит на c4»
+    re.compile(_B + r"(?P<piece>ладья|конь|слон|ферзь|король|пешка)" + _E + r"(?:\s+(?!на\s|в\s)[а-яё]+){0,2}?\s+"
+               r"(?:прыгает|прыгнет|прыгн[её]т|ид[её]т|пойд[её]т|вста[её]т|встанет|переходит|перейд[её]т|ходит|сходит|отходит|"
+               r"отойд[её]т|уходит|уйд[её]т|выходит|выйдет|б[её]р[её]т|возьм[её]т|забирает|забер[её]т|бь[её]т|съест|попада[её]т|"
+               r"попад[её]т|нападает|напад[её]т)"
+               rf"\s+(?:на|в)\s+(?:пол[ея]\s+)?(?P<to>{SQ})(?![0-9])"),
     # «ладьёй взять ферзя»
     re.compile(_B + _RU_PIECE + r"\s+" + _RU_TAKE + r"\s+(?:ч[её]рн\w+\s+|бел\w+\s+|его\s+|их\s+)?" + _RU_TARGET + _E),
     # "put the rook on g1", "move the knight to d5", "rook to g1"
     re.compile(_B + rf"(?:{_EN_PUT}\s+)?(?:the\s+|my\s+|your\s+|a\s+)?" + _EN_PIECE
                + rf"\s+(?:(?:from\s+|on\s+)?(?P<frm>{SQ})\s+)?(?:to|on|onto)\s+(?P<to>{SQ})(?![0-9])"),
+    # "the knight jumps to f7", "the rook then swings to g3", "the bishop retreats to c4"
+    re.compile(_B + r"(?:the\s+|my\s+|your\s+)?" + _EN_PIECE + r"(?:\s+(?!to\s|on\s|onto\s)[a-z]+){0,2}?\s+"
+               r"(?:jumps?|goes|moves|comes|lands|hops|swings|drops|retreats|steps|heads|takes|captures|hits|attacks)"
+               rf"\s+(?:over\s+|back\s+)?(?:to|on|onto)\s+(?P<to>{SQ})(?![0-9])"),
     # "take on h4 with the rook", "capture h4 with the rook"
     re.compile(_B + _EN_TAKE + rf"\s+(?:on\s+)?(?P<to>{SQ})(?![0-9])\s+with\s+(?:the\s+|my\s+|your\s+)?" + _EN_PIECE + _E),
     # "rook takes h4", "rook takes on h4"
@@ -78,8 +91,12 @@ def prose_moves(text: str, board: chess.Board) -> list[dict]:
     low = (text or "").replace("ё", "е").replace("Ё", "Е").lower()
     out: list[dict] = []
     seen: set[str] = set()
-    for rx in _PATTERNS:
+    taken: list[tuple[int, int]] = []  # spans already read as a move: «пешку на h7» inside «съесть пешку на h7 конём»
+    ordered = sorted(_PATTERNS, key=lambda rx: 0 if "target" in rx.groupindex or "TAKE" in rx.pattern or "взять" in rx.pattern else 1)
+    for rx in ordered:
         for m in rx.finditer(low):
+            if any(m.start() < e and m.end() > b for b, e in taken):
+                continue
             ptype = _ptype(m["piece"])
             if ptype is None:
                 continue
@@ -93,7 +110,8 @@ def prose_moves(text: str, board: chess.Board) -> list[dict]:
                     label = f"{_LETTER[ptype]}x{_NAMES.get(ttype, '?')}"
                     note = (f"there is no {'black' if board.turn else 'white'} {_NAMES.get(ttype, 'piece')} to take"
                             if not squares else f"more than one {_NAMES.get(ttype, 'piece')} could be meant")
-                    _add(out, seen, label, None, note, m.group(0))
+                    _add(out, seen, label, None, note, m.group(0), m.start())
+                    taken.append((m.start(), m.end()))
                     continue
                 to_name = chess.square_name(squares[0])
             to = chess.parse_square(to_name)
@@ -101,16 +119,19 @@ def prose_moves(text: str, board: chess.Board) -> list[dict]:
             capture = bool(target) or rx.pattern.find("TAKE") >= 0 or any(
                 w in rx.pattern for w in ("взять", "take"))
             san, move, note = resolve(board, ptype, to, from_sq=from_sq, capture=capture)
-            _add(out, seen, san, move, note, m.group(0))
+            _add(out, seen, san, move, note, m.group(0), m.start())
+            taken.append((m.start(), m.end()))
+    out.sort(key=lambda item: item["at"])  # in order of appearance, whichever pattern read them
     return out
 
 
-def _add(out: list, seen: set, san: str, move: Optional[chess.Move], note: Optional[str], words: str) -> None:
+def _add(out: list, seen: set, san: str, move: Optional[chess.Move], note: Optional[str], words: str,
+         at: int = 0) -> None:
     key = move.uci() if move is not None else san
     if key in seen:
         return
     seen.add(key)
-    out.append({"san": san, "move": move, "note": note, "words": words.strip()})
+    out.append({"san": san, "move": move, "note": note, "words": words.strip(), "at": at})
 
 
 def resolve(board: chess.Board, ptype: int, to: int, from_sq: Optional[int] = None,

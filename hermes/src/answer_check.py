@@ -1257,6 +1257,10 @@ def _imbalance(board: chess.Board) -> str:
     return "; ".join(parts)
 
 
+_FUTURE_FILL = re.compile(r"останеш|останет|останут|будеш|будет|будут|окажеш|окажет|окажут|получиш|получит|"
+                          r"will|would|'ll|end\s+up|going\s+to|get\s+left", re.IGNORECASE)
+
+
 def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []
@@ -1265,6 +1269,8 @@ def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         for m in rx.finditer(text):
             if _is_hypothetical(text, original, m.start()):
                 continue
+            if _FUTURE_FILL.search(text[m.start("side"): m.start("dir")]):
+                continue  # «ты останешься без фигуры»: what will be, not what is (replay, 2026-10-05)
             color = _side_color(m["side"], ctx, text[: m.start()])
             if color is None:
                 continue
@@ -1735,6 +1741,15 @@ _PRAISED = re.compile(
     r"единственн\w+|над[её]жн\w+|best|strongest|right|correct|good|excellent|only|natural)\b", re.IGNORECASE)
 
 
+# «а вот если конь прыгнет на f7 — он бьёт и ладью, и ферзя», "Nf7 forks the queen
+# and the rook": a move shown with what it wins is the coach's advice, whatever
+# the grammar (production, 2026-10-05: Nxf7 hung the queen on h5 to the g6 pawn).
+_PRAISE = re.compile(
+    r"бь[её]т|бьют|напада|атаку|выигрыва|забира|вилк|с\s+темпом|с\s+шахом|(?<![а-я])мат(?![а-я])|сильн|отличн|хорош|лучш|решает|"
+    r"forks?|attacks?|hits|wins|picks\s+up|with\s+tempo|with\s+check|(?<![a-z])mates?(?![a-z])|strong|great|excellent|good",
+    re.IGNORECASE)
+
+
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     """The move the coach recommends to the side to move on the board on the
     screen: (board, move, san), or None. In notation («Rg1», «Лg1») or in words
@@ -1783,6 +1798,36 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
         try:
             move = ctx.current.parse_san(san + (mv["check"] or ""))
         except ValueError:
+            continue
+        return ctx.current, move, ctx.current.san(move)
+    # A move with what it wins after it, in notation or in words («если конь прыгнет
+    # на f7 — он бьёт ладью и ферзя»): the coach's idea, checked like advice.
+    candidates = []
+    for mv in _MOVE.finditer(converted):
+        san = mv["san"]
+        if san[0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in san:
+            candidates.append((mv.end(), san + (mv["check"] or ""), None))
+    try:
+        from src.move_words import prose_moves
+
+        for pm in prose_moves(text, ctx.current):
+            if pm["move"] is not None:
+                at = text.lower().replace("ё", "е").find(pm["words"].lower())
+                candidates.append((at + len(pm["words"]) if at >= 0 else 0, pm["san"], pm["move"]))
+    except Exception:  # noqa: BLE001
+        logger.debug("prose move parse failed", exc_info=True)
+    for end, san, move in sorted(candidates, key=lambda c: c[0]):
+        tail = text[end: end + 90]
+        cut = re.search(r"[.;!?\n]|\s(?:но|а\s+не|однако|but|however)(?![а-яa-z])", tail)
+        tail = tail[: cut.start()] if cut else tail
+        if not _PRAISE.search(tail) or _NEGATED_WORD.search(tail[: _PRAISE.search(tail).start()]):
+            continue
+        if move is None:
+            try:
+                move = ctx.current.parse_san(san)
+            except ValueError:
+                continue
+        if san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted} and not _PRAISE.search(tail):
             continue
         return ctx.current, move, ctx.current.san(move)
     return None

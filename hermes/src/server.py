@@ -1622,6 +1622,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             game_note = game_context(active_board)
             if game_note:
                 turn_context = f"{turn_context}\n\n{game_note}" if turn_context else game_note
+                # The engine line is withheld in a game (the coach hints); the
+                # board's own facts are not — what hangs is a fact, not a hint.
+                from src.prompt_builder import board_facts_block
+
+                facts_note = board_facts_block(session.board_state)
+                if facts_note:
+                    turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
     # Moves the student named («могу ли я сыграть Qxg7?»): their legality is a
