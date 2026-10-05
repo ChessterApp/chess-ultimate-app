@@ -1036,6 +1036,8 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         kind = _hanging_kind(verb)
         if kind == "undefended" and _EXCEPT.match(text, m.end()):
             continue  # «никто не защищает, кроме ферзя», "nothing defends f2 except the king": a defender is named
+        if kind == "hanging" and re.match(r"\s+(?:в\s+воздухе|in\s+the\s+air|без\s+дела)", text[m.end():]):
+            continue  # «ладья висит в воздухе и ничего не делает»: idle, not en prise (replay, 2026-10-05)
         if kind != "undefended" and _NEGATION.search(text[: m.start(verb and ("v" if m["v"] else "v2" if m["v2"] else "v3"))]):
             continue  # «не висит», "is not hanging"
         if _is_hypothetical(text, original, m.start()):

@@ -637,6 +637,7 @@ class TestNotAttacked:
 
     @pytest.mark.parametrize("sentence", [
         "Твоя ладья d5 в безопасности.",  # «в безопасности» / "safe" can mean defended: not judged
+        "Ладья на d5 висит в воздухе и толком ничего не делает.",  # idle, not en prise
         "Is it safe? Yes — nothing can hit it easily.",  # f7 in the Italian: attacked but defended
         "It's not a real threat yet (nothing attacks f7 a second time).",
         "The pawn on a4 is not attacked by the queen.",  # a named attacker is another claim
