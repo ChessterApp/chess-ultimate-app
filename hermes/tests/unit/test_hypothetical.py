@@ -163,6 +163,9 @@ class TestProposedMove:
         ("Лучше 1.Nd5, с угрозой Nxc7+.", "Nd5"),
         ("Лучше Nd5, чем Rg1.", "Nd5"),
         ("Ход Nd5 — как раз самый сильный: конь идёт в центр.", "Nd5"),
+        ("Типичный ладейный эндшпиль. Мой совет: **Nd5**.", "Nd5"),  # production, 2026-10-05: «Мой совет: Rd6» lost a rook unchecked
+        ("Здесь напрашивается Nd5.", "Nd5"),
+        ("My advice: Nd5, and the knight dominates.", "Nd5"),
         ("Nxh4 is the best move here.", "Nxh4"),
     ])
     def test_a_recommendation_is_found(self, sentence, expect):

@@ -673,3 +673,31 @@ class TestNotDefended:
     def test_unjudged(self, sentence):
         ctx = CheckContext.from_fens([self.T], question="", student_color=chess.WHITE)
         assert check_sentence(sentence, ctx) == [], sentence
+
+
+class TestGateHoldsMaterialClaims:
+    """«Да, ты выигрываешь — у тебя лишняя ладья…» to a student playing Black with no
+    rook (production, 2026-10-05): the start went out before the check. A material
+    or result word now starts the held part, like a piece or a square."""
+
+    T3 = "6k1/5ppp/8/8/8/8/5PPP/3R2K1 b - - 0 1"
+
+    def test_nothing_of_the_wrong_sentence_is_shown(self):
+        ctx = CheckContext.from_fens([self.T3], question="Я тут выигрываю, правда?")
+        gate = SentenceGate(ctx)
+        text = "Да, ты выигрываешь — у тебя лишняя ладья против трёх пешек — этого достаточно для победы. План простой."
+        out = []
+        for i in range(0, len(text), 6):
+            out += gate.feed(text[i:i + 6])
+        out += gate.flush()
+        shown = "".join(t for t, issues, _ in out if not issues)
+        assert "выигрываешь" not in shown and "лишняя" not in shown
+        assert any("material:" in i for _, issues, _ in out for i in issues)
+        assert shown.strip().endswith("План простой.")  # «Да, » up to the comma may go out, as designed
+
+    def test_the_rewrite_is_told_whose_side_the_student_is(self):
+        from src.answer_check import fix_messages
+
+        msgs = fix_messages("turn", "shown", "wrong", ["material: White has an extra 1 rook"], "lang",
+                            "The student plays Black (the side to move on the board): «ты» means Black; White is the opponent.")
+        assert "The student plays Black" in msgs[1]["content"]

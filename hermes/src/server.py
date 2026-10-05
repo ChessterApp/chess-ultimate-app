@@ -641,6 +641,20 @@ def _served_model(agent, routed_model: str) -> str:
 _engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note")
 
 
+def _student_side_note(ctx) -> str:
+    """Whose side «ты» is, for the rewrite: the student's colour in a game, else
+    the side to move (production, 2026-10-05: the rewrite told a student playing
+    Black «у тебя лишняя ладья» about White's rook)."""
+    side = getattr(ctx, "student_color", None)
+    if side is None and getattr(ctx, "current", None) is not None:
+        side = ctx.current.turn
+    if side is None:
+        return ""
+    name, other = ("White", "Black") if side else ("Black", "White")
+    return (f"The student plays {name} (the side to move on the board): «ты», «твой», \"you\", \"your\" mean {name}; "
+            f"{other} is the opponent.")
+
+
 def _await_engine_note(future, started: float, state: dict) -> Optional[dict]:
     """The turn's engine line, waiting at most COACH_ENGINE_NOTE_WAIT_MS from *started*.
 
@@ -1912,7 +1926,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     model=model,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
                     messages=fix_messages(turn_msg["message"] or augmented_message, shown, wrong, issues,
-                                          lang_note),
+                                          lang_note, _student_side_note(check_ctx)),
                     on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
                     timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,
                     max_tokens=config.COACH_ANSWER_FIX_MAX_TOKENS,

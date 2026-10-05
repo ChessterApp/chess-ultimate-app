@@ -1657,6 +1657,8 @@ _PROPOSES = re.compile(
     r"отвести|отведи(?:те)?|увести|уведи(?:те)?|перевести|переведи(?:те)?|разменять|разменяй(?:те)?|"
     r"самое\s+(?:упорное|точное|сильное|над[её]жное|простое|естественное)|единственн\w+\s+(?:ход|шанс|защита|спасение)|"
     r"самый\s+\w+\s+ход|ход\s+(?:здесь|тут|сейчас)\s*[—–:-]|"
+    r"(?:мой|наш)\s+совет\s*[—–:-]?|совет\w*\s*[—–:]|рекомендаци\w+\s*[—–:]|напрашивается|просится|"
+    r"my\s+(?:advice|suggestion|pick|choice)\s*[—–:-]?|i\s+suggest|i'?d\s+suggest|i'?d\s+recommend|the\s+move\s+to\s+play|go\s+with|"
     r"верный\s+ход|правильный\s+ход|идея\s*[—–:-]|план\s*[—–:-]|решение\s*[—–:-]|"
     r"play|try|go\s+for|put|place|take|grab|capture|best\s+is|the\s+best\s+(?:move|is)|i'?d\s+(?:play|go|put|take)|"
     r"i\s+would\s+(?:play|go|put|take)|you\s+(?:should|could|can|want\s+to|need\s+to|have\s+to)|consider|"
@@ -1790,7 +1792,11 @@ def is_meta(text: str) -> bool:
 # Where a chess claim can begin: a piece word, a square, a move number, a
 # figurine, castling. Text before that in a sentence claims nothing checkable.
 _CLAIM_START = re.compile(
-    r"[a-h][1-8]|\d|[♔-♟]|O-O|" + _W + r"(?:" + "|".join(p for _, p in _RU_PIECES + _EN_PIECES) + r")" + _E,
+    r"[a-h][1-8]|\d|[♔-♟]|O-O|" + _W + r"(?:" + "|".join(p for _, p in _RU_PIECES + _EN_PIECES) + r")" + _E
+    # material and the result are claims too: «ты выигрываешь — у тебя лишняя ладья» (production, 2026-10-05:
+    # the start went out before the check found the rook was the opponent's)
+    + r"|" + _W + r"(?:лишн\w*|без|впереди|материал\w*|выигрыва\w*|проигрыва\w*|выиграл\w*|проиграл\w*|мат\b|"
+    r"extra|material|winning|losing|ahead|behind|up\s+an?\b|down\s+an?\b|mate)" + _E,
     re.IGNORECASE)
 
 
@@ -1918,7 +1924,8 @@ def _split_sentences(buf: str) -> tuple[list[str], str]:
     return out, buf[start:]
 
 
-def fix_messages(turn_message: str, shown: str, wrong: str, issues: list[str], language_note: str) -> list[dict]:
+def fix_messages(turn_message: str, shown: str, wrong: str, issues: list[str], language_note: str,
+                 student_note: str = "") -> list[dict]:
     """The one tool-free call that writes the rest of an answer after a wrong sentence.
 
     It gets what the coach's turn got (the question, the board, the engine and
@@ -1943,8 +1950,9 @@ def fix_messages(turn_message: str, shown: str, wrong: str, issues: list[str], l
         f"## Already shown to the student\n{shown.strip() or '(nothing yet — write the whole answer)'}\n\n"
         f"## The sentence of the draft that is WRONG (its start may already be shown; the rest was not)\n"
         f"{wrong.strip()}\n"
-        f"Why it is wrong (checked on the board): {'; '.join(issues)}.\n\n"
-        f"{language_note}\nContinue the reply now."
+        f"Why it is wrong (checked on the board): {'; '.join(issues)}.\n"
+        + (f"{student_note}\n" if student_note else "") +
+        f"\n{language_note}\nContinue the reply now."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
