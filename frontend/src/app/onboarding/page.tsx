@@ -1221,7 +1221,6 @@ function StepCustomPlan({ t, answers, onStart }: { t: any; answers: any; onStart
       <div className="space-y-3">
         {weeks.map((w, i) => (
           <div key={i} className="bg-white rounded-2xl shadow-md overflow-hidden flex">
-            <div className="w-1.5 bg-purple-600" />
             <div className="p-4 flex items-center gap-3">
               <span className="text-2xl">{w.emoji}</span>
               <div>
