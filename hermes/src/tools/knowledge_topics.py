@@ -288,6 +288,84 @@ def _example_actions(example: dict) -> list[dict]:
     return actions
 
 
+def _site_lesson_hint(example: dict, side: str) -> str:
+    where = f"the site's lesson «{example.get('title')}»"
+    if example.get("course"):
+        where += f" (course «{example.get('course')}»)"
+    tasks = example.get("tasks") or 0
+    link = f" Its address: {example['url']}." if example.get("url") else ""
+    if example.get("kind") == "diagram":
+        shows = f": «{example['note']}»" if example.get("note") else ""
+        return (
+            f"The position on the student's board is an explanatory diagram of {where}"
+            f"{f', which has {tasks} tasks' if tasks else ''} ({side} to move){shows}. The lesson's own "
+            "text is in `example.explanation` — teach in ITS words, in the student's language, reading "
+            "the pieces from the FEN and saying what the diagram shows. Then END the answer by inviting "
+            "the student to go through the whole lesson and solve its tasks, naming the lesson and course "
+            f"exactly as here.{link} Do not set up any other example in the same answer; offer get_puzzle "
+            "only after the lesson's tasks."
+        )
+    return (
+        f"The position on the student's board is {'the first task' if example.get('kind') == 'task' else 'the exercise'} "
+        f"of {where}{f', which has {tasks} tasks' if tasks > 1 else ''}, set as a puzzle the student can "
+        f"solve right there ({side} to move; the solution is {' '.join(example.get('solution') or []) or 'not given'} — "
+        "do NOT reveal it unless the student asks or fails twice). Explain the concept with this very "
+        "position — read the pieces from its FEN — and END the answer by inviting the student to go "
+        f"through the whole lesson and solve its tasks, naming the lesson and course exactly as here.{link} "
+        "Do not set up any other example in the same answer; offer get_puzzle only after the lesson's tasks."
+    )
+
+
+def _site_programme_topic(topic: str, user_id: Optional[str], locale: Optional[str], show: bool) -> Optional[dict]:
+    """A topic the base does not know, taught from the site's programme: its
+    lessons and sets of tasks whose titles match the words («мат в 3 хода» →
+    the «Мат в 3 хода» sets), the first task on the board. None when the site
+    has nothing either (fail-open)."""
+    try:
+        from src.tools.learning_path import _lesson_view, _loc, fetch_programme, fetch_progress, find_lessons
+
+        programme = fetch_programme()
+        if not programme:
+            return None
+        hits = find_lessons(programme, topic)[:MAX_RELATED_LESSONS]
+        if not hits:
+            return None
+        progress = (fetch_progress(user_id) or {}) if user_id else {}
+        lessons = []
+        for c, m, l in hits:
+            view = _lesson_view(c, m, l, progress, locale)
+            view["course"] = _loc(c, "title", locale)
+            view["module"] = _loc(m, "title", locale)
+            view.pop("type", None)
+            if not view.get("url"):
+                view.pop("url", None)
+            lessons.append(view)
+        first = lessons[0]
+        out = {
+            "slug": None,
+            "source": "site_programme",
+            "title": first["title"],
+            "summary": (f"The knowledge base has no topic for this, but the site's programme teaches it: "
+                        f"«{first['course']} / {first['module']} / {first['title']}»"
+                        + (f" and {len(lessons) - 1} more" if len(lessons) > 1 else "") + "."),
+            "site_lessons": lessons,
+        }
+        if show:
+            example = _example_from_lessons(lessons, user_id, locale)
+            if example:
+                side = "White" if chess.Board(example["fen"]).turn == chess.WHITE else "Black"
+                out["example"] = {**example, "side_to_move": side}
+                out["board_actions"] = _example_actions(example)
+                out["board_hint"] = _site_lesson_hint(example, side)
+        if "board_hint" not in out:
+            out["board_hint"] = ("No position to show: name the site's lesson(s) above with their addresses and "
+                                 "explain the idea in words — never invent a position.")
+        return out
+    except Exception:  # noqa: BLE001 — the programme is a bonus, never a blocker
+        logger.debug("site programme topic lookup failed", exc_info=True)
+        return None
+
+
 def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] = None,
               topics: Optional[dict] = None, with_lessons: bool = True, show: bool = True) -> dict:
     topics = topics if topics is not None else kb.load_topics()
@@ -295,8 +373,12 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         return {"error": "The knowledge base is empty on this server (hermes/content/topics)."}
     matches = kb.find_topics(topic, topics)
     if not matches:
-        # The whole map in one go: with only "call list_topics" the model guessed
-        # names — five get_topic calls for "the Italian game" (bench 2026-09-28).
+        # The site's own programme first («мат в 3 хода», «завлечение» have sets of
+        # tasks on the site and no topic in the base, 2026-10-05); the whole map of
+        # the base otherwise — with only "call list_topics" the model guessed names.
+        from_site = _site_programme_topic(topic, user_id, locale, show) if with_lessons else None
+        if from_site:
+            return from_site
         return {
             "error": f"No topic matches {topic!r}.",
             "topics": [{"slug": slug, "title": kb.title(t, locale)} for slug, t in topics.items()],
@@ -345,32 +427,7 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
             if example.get("source") == "site_lesson":
                 # The customer's own programme: the lesson is the authority, and
                 # the answer ends by sending the student to it (2026-10-03).
-                where = f"the site's lesson «{example.get('title')}»"
-                if example.get("course"):
-                    where += f" (course «{example.get('course')}»)"
-                tasks = example.get("tasks") or 0
-                link = f" Its address: {example['url']}." if example.get("url") else ""
-                if example.get("kind") == "diagram":
-                    shows = f": «{example['note']}»" if example.get("note") else ""
-                    out["board_hint"] = (
-                        f"The position on the student's board is an explanatory diagram of {where}"
-                        f"{f', which has {tasks} tasks' if tasks else ''} ({side} to move){shows}. The lesson's own "
-                        "text is in `example.explanation` — teach in ITS words, in the student's language, reading "
-                        "the pieces from the FEN and saying what the diagram shows. Then END the answer by inviting "
-                        "the student to go through the whole lesson and solve its tasks, naming the lesson and course "
-                        f"exactly as here.{link} Do not set up any other example in the same answer; offer get_puzzle "
-                        "only after the lesson's tasks."
-                    )
-                    return out
-                out["board_hint"] = (
-                    f"The position on the student's board is {'the first task' if example.get('kind') == 'task' else 'the exercise'} "
-                    f"of {where}{f', which has {tasks} tasks' if tasks > 1 else ''}, set as a puzzle the student can "
-                    f"solve right there ({side} to move; the solution is {' '.join(example.get('solution') or []) or 'not given'} — "
-                    "do NOT reveal it unless the student asks or fails twice). Explain the concept with this very "
-                    "position — read the pieces from its FEN — and END the answer by inviting the student to go "
-                    f"through the whole lesson and solve its tasks, naming the lesson and course exactly as here.{link} "
-                    "Do not set up any other example in the same answer; offer get_puzzle only after the lesson's tasks."
-                )
+                out["board_hint"] = _site_lesson_hint(example, side)
             else:
                 out["board_hint"] = (
                     "The example is ALREADY on the student's board (with an arrow for its key move when "

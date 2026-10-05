@@ -144,3 +144,42 @@ def test_get_puzzle_is_registered():
     assert "get_puzzle" in get_registered_tools()
     out = json.loads(__import__("src.tools.puzzles", fromlist=["_handle_get_puzzle"])._handle_get_puzzle({"theme": "opening"}))
     assert out["puzzles"][0]["puzzle_id"] == "open01"
+
+
+@pytest.mark.unit
+def test_a_puzzle_on_a_theme_comes_from_the_sites_own_set_first(monkeypatch):
+    """«Дай задачу на связку» (2026-10-05): the site's «Связка — Набор 1» before Lichess,
+    with the set's address; exclude_ids moves on to the next task; Lichess when the
+    site has no set for the theme."""
+    import src.tools.learning_path as lp
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_PUZZLES_FROM_SITE", True)
+    programme = {"courses": [{"id": "c", "title": "Pins and Endgames", "title_ru": "Связки и Эндшпили", "slug": "pins-endgames",
+                              "modules": [{"id": "m", "title": "Pin exercises", "title_ru": "Упражнения на связки",
+                                           "lessons": [{"id": "set1", "title": "Pin — Set 1", "title_ru": "Связка — Набор 1",
+                                                        "slug": "pin-tactics-set-1", "lesson_type": "exercise"}]}]}]}
+    monkeypatch.setattr(lp, "fetch_programme", lambda *a, **k: programme)
+    monkeypatch.setattr(lp, "fetch_progress", lambda *a, **k: {})
+    monkeypatch.setattr(lp, "get_lesson", lambda key, **kw: {
+        "lesson_id": "set1", "title": "Связка — Набор 1", "course": {"slug": "pins-endgames", "title": "Связки и Эндшпили"},
+        "url": "https://chesster.io/learn/pins-endgames/pin-tactics-set-1",
+        "puzzles": [{"n": 1, "fen": "1r4k1/1r1q1pp1/7p/pb1p4/8/4P1P1/QR3P1P/1R3BK1 w - - 0 1", "solution": ["Rxb5"], "hint": ""},
+                    {"n": 2, "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", "solution": ["Rd8#"], "hint": ""}],
+    })
+    out = get_puzzle(theme="связка", user_id="u1")
+    assert out["source"] == "site_lesson" and out["on_board"] == "site:set1:1"
+    assert out["puzzles"][0]["lesson"] == "Связка — Набор 1" and out["puzzles"][0]["of"] == 2
+    (action,) = out["board_actions"]
+    assert action["type"] == "set_puzzle" and action["fen"].startswith("1r4k1") and action["solution"] == ["Rxb5"]
+    assert "task 1 of 2 of the site's set «Связка — Набор 1» (course «Связки и Эндшпили»)" in out["how_to_show"]
+    assert "https://chesster.io/learn/pins-endgames/pin-tactics-set-1" in out["how_to_show"]
+    # the next task of the set
+    nxt = get_puzzle(theme="связка", user_id="u1", exclude_ids=["site:set1:1"])
+    assert nxt["on_board"] == "site:set1:2" and nxt["board_actions"][0]["solution"] == ["Rd8#"]
+    # no set on the site for the theme: Lichess as before (the test db has mateIn1)
+    lichess = get_puzzle(theme="мат в 1", rating=800)
+    assert lichess.get("source") != "site_lesson" and lichess["puzzles"][0]["puzzle_id"] == "mate01"
+    # the switch
+    monkeypatch.setattr(config, "COACH_PUZZLES_FROM_SITE", False)
+    assert get_puzzle(theme="связка", user_id="u1").get("source") != "site_lesson"

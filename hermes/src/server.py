@@ -3326,6 +3326,17 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     messages = game_mode.comment_prompt(board, comment_language, body.event)
     model = quick_model()
     loop = asyncio.get_event_loop()
+    # The comment is checked on the board like a chat answer (2026-10-05; the
+    # client's complaint came from this mode): a wrong sentence is not shown — a
+    # comment is two sentences, a rewrite would double its time — and a comment
+    # lost whole becomes the plain facts of the move (game_mode.fallback_comment).
+    from src.answer_check import CheckContext, SentenceGate
+
+    state = board.game_state or {}
+    student = chess.WHITE if state.get("student_color") == "white" else chess.BLACK
+    check_ctx = CheckContext.from_fens([board.fen], [board.pgn] if board.pgn else [], student_color=student)
+    check_ctx.language = comment_language
+    gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
 
     async def event_stream():
         queue: asyncio.Queue = asyncio.Queue()
@@ -3345,6 +3356,20 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
             finally:
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
+        shown: list[str] = []
+        dropped: list[dict] = []
+
+        def _frames(pairs):
+            frames = []
+            for piece, issues, sentence in pairs:
+                if issues:
+                    logger.info("answer check (game comment): %s | %s", "; ".join(issues), sentence.strip()[:200])
+                    dropped.append({"sentence": sentence.strip()[:300], "issues": issues})
+                    continue
+                shown.append(piece)
+                frames.append(_sse({"delta": piece}))
+            return frames
+
         future = loop.run_in_executor(None, _run)
         parts: list[str] = []
         while True:
@@ -3352,9 +3377,18 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
             if item is sentinel:
                 break
             parts.append(item)
-            yield _sse({"delta": item})
+            for frame in _frames(gate.feed(item)):
+                yield frame
+        for frame in _frames(gate.flush()):
+            yield frame
         reply = await future
-        text = "".join(parts).strip()
+        text = "".join(shown).strip()
+        if not text and dropped:
+            text = game_mode.fallback_comment(board, comment_language, body.event)
+            yield _sse({"delta": text})
+        if dropped:
+            log_event("answer_check", surface="game", user_id=user_id, session_id=session.id, model=model,
+                      payload={"path": "game/comment", "dropped": dropped[:3], "fallback": not shown})
         if reply is not None and reply.error and not text:
             log_event("llm_error", severity="warn", surface="game", user_id=user_id, session_id=session.id,
                       model=model, ok=False, error_code=str(reply.error)[:80],

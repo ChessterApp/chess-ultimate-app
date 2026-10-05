@@ -386,6 +386,36 @@ COMMENT_RULES = {
 }
 
 
+_FALLBACK = {
+    "ru": {"blunder": "Ход {san} — грубая ошибка, он отдаёт слишком много.", "mistake": "Ход {san} — ошибка.",
+           "inaccuracy": "Ход {san} — неточность.", "ok": "Ход {san} — нормальный ход, продолжаем.",
+           "finished": "Партия окончена: {result}.", "better": " Сильнее было {best}."},
+    "kk": {"blunder": "{san} жүрісі — өрескел қате, ол тым көп береді.", "mistake": "{san} жүрісі — қате.",
+           "inaccuracy": "{san} жүрісі — дәл емес.", "ok": "{san} — қалыпты жүріс, жалғастырамыз.",
+           "finished": "Партия аяқталды: {result}.", "better": " {best} күштірек болар еді."},
+    "en": {"blunder": "{san} is a blunder — it gives up too much.", "mistake": "{san} is a mistake.",
+           "inaccuracy": "{san} is an inaccuracy.", "ok": "{san} is a fine move, let's go on.",
+           "finished": "The game is over: {result}.", "better": " {best} was stronger."},
+}
+
+
+def fallback_comment(board_rec: Board, locale: Optional[str], event: str = "move") -> str:
+    """The plain facts of the move when the model's comment was dropped whole by
+    the answer check (2026-10-05): the verdict and the better move, nothing else."""
+    state = board_rec.game_state or {}
+    lang = (locale or "ru").lower()
+    words = _FALLBACK.get("kk" if lang in ("kk", "kz") else lang, _FALLBACK["ru"])
+    finished = state.get("status") == "finished" or event == "end"
+    if finished:
+        return words["finished"].format(result=state.get("result") or "")
+    last = (state.get("annotations") or [{}])[-1] if state.get("annotations") else {}
+    verdict = last.get("verdict") or "ok"
+    text = words.get(verdict, words["ok"]).format(san=last.get("san") or "")
+    if last.get("best") and verdict in ("blunder", "mistake", "inaccuracy"):
+        text += words["better"].format(best=last["best"])
+    return text.strip()
+
+
 def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move") -> list[dict]:
     """Messages for the tool-free comment call after a student's move or at the end.
 

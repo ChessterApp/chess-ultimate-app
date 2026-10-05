@@ -389,3 +389,32 @@ def test_ideas_written_as_yaml_mappings_read_as_text(topics):
         for f in ("key_ideas_ru", "typical_mistakes_ru"):
             for item in t.get(f) or []:
                 assert isinstance(item, str) and not item.startswith("{"), (t["slug"], item)
+
+
+@pytest.mark.unit
+def test_a_topic_the_base_lacks_is_taught_from_the_sites_programme(topics, monkeypatch):
+    """«Мат в 3 хода» has no topic in the base but 37 sets of tasks on the site (2026-10-05):
+    the sets come back as the topic, the first task on the board."""
+    import src.tools.learning_path as lp
+
+    programme = {"courses": [{"id": "c", "title": "Mate in 3", "title_ru": "Мат в 3 хода", "slug": "mate-in-3-moves",
+                              "modules": [{"id": "m", "title": "Mate in 3", "title_ru": "Мат в 3 хода",
+                                           "lessons": [{"id": "s1", "title": "Mate in 3 — Set 1", "title_ru": "Мат в 3 хода — Набор 1",
+                                                        "slug": "mate-in-3-set-1", "lesson_type": "exercise"}]}]}]}
+    monkeypatch.setattr(lp, "fetch_programme", lambda *a, **k: programme)
+    monkeypatch.setattr(lp, "fetch_progress", lambda *a, **k: {})
+    monkeypatch.setattr(lp, "get_lesson", lambda key, **kw: {
+        "lesson_id": "s1", "title": "Мат в 3 хода — Набор 1", "course": {"slug": "mate-in-3-moves", "title": "Мат в 3 хода"},
+        "url": "https://chesster.io/learn/mate-in-3-moves/mate-in-3-set-1",
+        "puzzles": [{"n": 1, "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", "solution": ["Rd8#"], "hint": ""}],
+    })
+    out = get_topic("мат в 3 хода", locale="ru", user_id="u1", topics=topics)
+    assert "error" not in out and out["source"] == "site_programme"
+    assert out["site_lessons"][0]["title"] == "Мат в 3 хода — Набор 1" and out["site_lessons"][0]["course"] == "Мат в 3 хода"
+    assert out["example"]["source"] == "site_lesson" and out["example"]["kind"] == "task"
+    assert out["board_actions"] == [{"type": "set_puzzle", "fen": "6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1", "solution": ["Rd8#"]}]
+    assert "the site's lesson «Мат в 3 хода — Набор 1» (course «Мат в 3 хода»)" in out["board_hint"]
+    # nothing on the site either: the old answer, the map of the base
+    monkeypatch.setattr(lp, "fetch_programme", lambda *a, **k: programme)
+    out = get_topic("квантовая хромодинамика", locale="ru", user_id="u1", topics=topics)
+    assert "error" in out and out["topics"]
