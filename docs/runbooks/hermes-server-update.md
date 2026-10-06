@@ -451,11 +451,14 @@ grep -q '_small_talk_stream' chess-ultimate-app/hermes/src/server.py \
   && test -f chess-ultimate-app/hermes/src/opening_knowledge.py \
   && test -f chess-ultimate-app/hermes/src/answer_check.py \
   && grep -q 'META_ISSUE' chess-ultimate-app/hermes/src/answer_check.py \
-  && echo "ускорение в main есть" || echo "НЕТ ускорения"
+  && test -f chess-ultimate-app/hermes/src/board_rules.py \
+  && test -f chess-ultimate-app/hermes/src/answer_check_rules.py \
+  && grep -q 'PHOTO_FEN_ATTEMPTS' chess-ultimate-app/backend/api/photo_to_fen.py \
+  && echo "версия 06.10-2 в main есть" || echo "НЕТ версии 06.10-2"
 ```
 
-Если «НЕТ ускорения»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
-того, кто прислал эту инструкцию, влить ветку `feat/coach-opening-knowledge`. Ничего не обновляй.
+Если «НЕТ версии 06.10-2»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
+того, кто прислал эту инструкцию, влить ветку `fix/coach-blind-spots`. Ничего не обновляй.
 
 ## Шаг 2. Резервная копия
 
