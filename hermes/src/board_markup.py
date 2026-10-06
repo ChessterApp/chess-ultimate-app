@@ -86,6 +86,17 @@ class MarkupFilter:
         """Write the held move when the text after the mark shows it stood for the words."""
         if self._sub is None:
             return
+        if self._sub == "":
+            # The move was already in the words: only a second dash after the cut
+            # mark is dropped («с шахом — [[…]] — и …», 2026-10-06).
+            nxt = upcoming.lstrip(" ")
+            if not nxt and not final:
+                return
+            self._sub = None
+            if nxt.startswith(("—", "–")):
+                cut = len(upcoming) - len(nxt) + 1
+                self._pending = self._pending[cut:] if self._pending.startswith(upcoming[:cut]) else self._pending
+            return
         nxt = upcoming.lstrip(" ")
         if not nxt and not final:
             return  # decide when the next text comes
@@ -174,6 +185,8 @@ class MarkupFilter:
                 continue
             self._settle_sub(out, pre)
             words = self._words_for(parsed, pre)
+            if not words and parsed and re.search(r"[—–]\s*$", self._tail + pre):
+                words = ""  # a dash before the cut mark: a second one after it is dropped
             if pre.endswith(" "):
                 self._emit(out, pre[:-1])
                 self._gap = "held"
@@ -183,7 +196,7 @@ class MarkupFilter:
                     self._gap = "emitted" if self._last in (" ", "\n") else None
             if parsed:
                 actions.append(parsed)
-            if words:
+            if words is not None:
                 self._sub = words
                 self._settle_sub(out, self._pending)
         return "".join(out), actions
