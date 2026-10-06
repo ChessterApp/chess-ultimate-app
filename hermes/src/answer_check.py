@@ -275,6 +275,13 @@ class CheckContext:
     # White's side (±100 a forced mate), when the turn has one: «у белых лучше»
     # against −2.0 is not shown (2026-10-05).
     engine_eval: Optional[float] = None
+    # The endgame tablebase's verdict for that position ('draw', 'White wins',
+    # 'Black wins'), and the engine's forced mate (moves, + for the side to
+    # move) — src/answer_check_rules.py judges «это выигрыш», «мат в два» by them.
+    tablebase: Optional[str] = None
+    engine_mate: Optional[int] = None
+    # The student's message: «можно мне рокироваться?» makes «нет, нельзя» a claim about this board.
+    question: str = ""
     # The square the previous sentence was about («a4 isn't hanging. It's
     # attacked by…»): what "it" means when a sentence opens with it. The
     # object the sentence's claims were about, else its first square.
@@ -289,6 +296,7 @@ class CheckContext:
                   question: str = "", student_color: Optional[bool] = None) -> "CheckContext":
         ctx = cls()
         ctx.student_color = student_color
+        ctx.question = (question or "").replace("ё", "е").lower()
         ctx.add(chess.STARTING_FEN)
         for fen in fens:
             ctx.add(fen)
@@ -1939,8 +1947,11 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
     san_issues = _san_issues(text, ctx)
+    from src.answer_check_rules import rules_issues
+
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
-              + _opening_issues(text) + _fact_issues(lowered, text, ctx) + _plan_move_issues(lowered, text, ctx))
+              + _opening_issues(text) + _fact_issues(lowered, text, ctx) + _plan_move_issues(lowered, text, ctx)
+              + rules_issues(lowered, ctx))
     squares = _SQ_RE.findall(lowered)
     if ctx._object:
         ctx.topic = ctx._object
@@ -1969,6 +1980,9 @@ _META_RE = re.compile(
     r"упоминать|назвать|использовать|сказать про|дать)"
     r"|(?<![а-яa-z])(?:из|в|по)\s+блок[аеу]?(?![а-я])|(?<![а-яa-z])блок\s+(?:движка|дебюта|фактов|уже)"
     r"|(?<![а-яa-z])(?:инструкци[яию]|правило:|факт[ыа]\s+из|только факты|engine[- ]verified|не проверено)"
+    # «Инструмент подобрал мне не тот материал» (production, 2026-10-06): the tools are not the student's business.
+    r"|(?<![а-яa-z])инструмент\w*\s+(?:мне\s+)?(?:подобрал|вернул|выдал|дал|показал|не\s+наш[её]л|ошиб\w*|сломал\w*|"
+    r"недоступ\w*|не\s+сработал|не\s+работает)|\bthe\s+tool\s+(?:returned|gave|picked|failed|didn'?t)"
     r"|(?<![а-яa-z])(?:the student (?:asks|wants|is asking)|i (?:should|need to|must|'ll) (?:answer|reply|mention|"
     r"call|use|avoid|stick)|according to the (?:block|instructions|facts)|from the (?:engine|opening) block)",
     re.IGNORECASE)
@@ -2016,6 +2030,15 @@ class SentenceGate:
         self.enabled = enabled
         self._buf = ""
         self._released = ""  # the start of the current sentence, already out
+        # The last sentence shown: DeepSeek sometimes writes a sentence twice in a
+        # row («Хороший вопрос — давай проверим… Хороший вопрос — давай проверим…»,
+        # production 2026-10-06); the repeat is dropped.
+        self._prev = ""
+
+    @staticmethod
+    def _same(a: str, b: str) -> bool:
+        norm = lambda x: re.sub(r"\s+", " ", x).strip().lower()  # noqa: E731
+        return bool(norm(a)) and norm(a) == norm(b)
 
     def feed(self, text: str) -> list[tuple[str, list[str], str]]:
         if not self.enabled:
@@ -2029,6 +2052,10 @@ class SentenceGate:
         for sentence in sentences:
             full = self._released + sentence
             self._released = ""
+            if len(full.strip()) >= 12 and self._same(full, self._prev):
+                continue  # the model repeated its last sentence word for word
+            if full.strip():
+                self._prev = full
             out.append((sentence, check_sentence(full, self.ctx), full))
         # The language is judged before anything of an unfinished sentence goes
         # out: a sentence in the wrong language has no piece or square in it,
@@ -2050,6 +2077,9 @@ class SentenceGate:
         # the sentence so far reads like the coach's planning: that is held
         # whole and checked (a released «Студент спрашивает» cannot be recalled).
         safe = "" if is_meta(self._released + self._buf) else self._safe_prefix(self._buf)
+        start_so_far = re.sub(r"\s+", " ", self._released + safe).strip().lower()
+        if safe and len(start_so_far) >= 6 and re.sub(r"\s+", " ", self._prev).strip().lower().startswith(start_so_far):
+            safe = ""  # it may be the last sentence again: held until it is whole
         if safe and len(self._released) + len(safe) < MIN_RELEASED_CHARS \
                 and not re.search(r"[:,;—–-]\s*$", self._released + safe):
             safe = ""  # «А вот твоя » would dangle after a cut; «Смотри сюда: » reads on into any rewrite
@@ -2160,7 +2190,8 @@ _LEAKS = re.compile(
     rf"|<\s*/?\s*{_DSML}[^>]*>"                                                        # any other DSML tag
     r"|(?:<[^>\n]{0,40})?\b[\w-]{0,40}\"\s*string=\"(?:true|false)\"\s*>[A-Za-z0-9_.:/-]{0,60}"
     r"(?:<\s*/[^>\n]{0,40}>)?"                                                         # a cut-off fragment
-    r"|<\s*/?\s*(?:function_calls|invoke|parameter)\b[^>\n]{0,80}>", re.IGNORECASE)
+    r"|<\s*/?\s*(?:function_calls|invoke|parameter)\b[^>\n]{0,80}>"
+    r"|(?m:^[ \t]*(?:parameter\s+)?name=\"[^\n]{0,60}$)", re.IGNORECASE)                    # a stray « name="» line
 
 
 def strip_leaks(text: str) -> str:

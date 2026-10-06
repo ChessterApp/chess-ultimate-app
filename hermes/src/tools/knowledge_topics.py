@@ -103,6 +103,29 @@ def _related_lessons(topic: dict, user_id: Optional[str], locale: Optional[str])
         return []
 
 
+def _lessons_for_words(query: str, user_id: Optional[str], locale: Optional[str]) -> list[dict]:
+    """Site lessons whose module, lesson or course title is what the student named."""
+    hits, strength = _site_matches(query)
+    if not hits or strength not in ("module", "lesson", "course"):
+        return []
+    try:
+        from src.tools.learning_path import _lesson_view, _loc, fetch_progress
+
+        progress = (fetch_progress(user_id) or {}) if user_id else {}
+        out = []
+        for c, m, l in hits[:MAX_RELATED_LESSONS]:
+            view = _lesson_view(c, m, l, progress, locale)
+            view["course"] = _loc(c, "title", locale)
+            view["module"] = _loc(m, "title", locale)
+            view.pop("type", None)
+            if not view.get("url"):
+                view.pop("url", None)
+            out.append(view)
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def _legal_fen(fen: Optional[str]) -> bool:
     try:
         return bool(fen) and chess.Board(fen).is_valid()
@@ -316,6 +339,29 @@ def _site_lesson_hint(example: dict, side: str) -> str:
     )
 
 
+def _site_matches(topic: str) -> tuple[list, str]:
+    """(lessons, strength) of the site's programme for *topic* (fail-open)."""
+    try:
+        from src.tools.learning_path import fetch_programme, programme_matches
+
+        programme = fetch_programme()
+        if not programme:
+            return [], ""
+        return programme_matches(programme, topic)
+    except Exception:  # noqa: BLE001
+        logger.debug("programme match failed", exc_info=True)
+        return [], ""
+
+
+def _kb_match_is_strong(t: dict, query: str) -> bool:
+    """The base topic was found by its name, not by a shared word («ловля фигуры» → «активность фигур»)."""
+    q = re.sub(r"\s+", " ", (query or "").strip().lower())
+    if q == t["slug"] or q in t.get("aliases", []) or q in t["lichess_themes"]:
+        return True
+    names = [t["title_ru"].lower(), t["title_en"].lower(), t["title_kk"].lower()] + list(t.get("aliases", []))
+    return any(q and (q in x or x in q) for x in names if x and len(x) >= 4)
+
+
 def _site_programme_topic(topic: str, user_id: Optional[str], locale: Optional[str], show: bool) -> Optional[dict]:
     """A topic the base does not know, taught from the site's programme: its
     lessons and sets of tasks whose titles match the words («мат в 3 хода» →
@@ -327,7 +373,19 @@ def _site_programme_topic(topic: str, user_id: Optional[str], locale: Optional[s
         programme = fetch_programme()
         if not programme:
             return None
-        hits = find_lessons(programme, topic)[:MAX_RELATED_LESSONS]
+        from src.tools.learning_path import programme_matches
+
+        hits, _strength = programme_matches(programme, topic)
+        if not hits:
+            # A lesson title sharing one word with the question is not its topic
+            # («испанская партия» → «Как проиграть партию вторым ходом»): every word counts.
+            from src.tools.learning_path import _LESSON_STOPWORDS, _norm, _stem_match
+
+            words = [w for w in _norm(topic).split() if w not in _LESSON_STOPWORDS]
+            hits = [(c, m, l) for c, m, l in find_lessons(programme, topic)
+                    if words and all(any(_stem_match(w, t) for t in _norm(" ".join(
+                        str(l.get(f) or "") for f in ("title", "title_ru"))).split()) for w in words)]
+        hits = hits[:MAX_RELATED_LESSONS]
         if not hits:
             return None
         progress = (fetch_progress(user_id) or {}) if user_id else {}
@@ -372,6 +430,16 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
     if not topics:
         return {"error": "The knowledge base is empty on this server (hermes/content/topics)."}
     matches = kb.find_topics(topic, topics)
+    # The site's programme names its topics itself: a module or a set titled as
+    # the student said beats a base topic found by one shared word, and an
+    # ambiguous base match (2026-10-06 sweep of the programme).
+    if with_lessons and matches:
+        site_hits, strength = _site_matches(topic)
+        weak = len(matches) > 1 and matches[0]["slug"] != (topic or "").strip().lower() or not _kb_match_is_strong(matches[0], topic)
+        if site_hits and strength in ("module", "lesson", "course") and weak:
+            from_site = _site_programme_topic(topic, user_id, locale, show)
+            if from_site:
+                return from_site
     if not matches:
         # The site's own programme first («мат в 3 хода», «завлечение» have sets of
         # tasks on the site and no topic in the base, 2026-10-05); the whole map of
@@ -414,7 +482,9 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         "model_games": t["model_games"],
         "related_topics": t["related"],
     }
-    lessons = _related_lessons(t, user_id, locale) if with_lessons else []
+    lessons = _lessons_for_words(topic, user_id, locale) if with_lessons else []
+    if with_lessons and not lessons:
+        lessons = _related_lessons(t, user_id, locale)
     if lessons:
         out["site_lessons"] = lessons
     if show:

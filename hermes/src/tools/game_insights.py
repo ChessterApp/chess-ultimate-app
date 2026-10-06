@@ -79,6 +79,10 @@ def _handle_get_game_insights(args: dict, **kwargs) -> str:
         opening=args.get("opening"),
         limit=args.get("limit", DEFAULT_LIMIT),
     )
+    if result == []:
+        from src.tools.weakness_tracker import NO_GAMES_NOTE
+
+        return json.dumps({"insights": [], "note": NO_GAMES_NOTE.replace("their weaknesses", "their games")}, indent=2)
     return json.dumps(result, indent=2)
 
 

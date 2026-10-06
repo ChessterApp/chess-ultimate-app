@@ -77,7 +77,7 @@
     - Выходить королём без подготовленного моста и получать вечный шах.
     - Ставить ладью на пятую или шестую горизонталь — мост не строится.
   lichess_themes: [rookEndgame, endgame]
-  lesson_stems: [лусен, мост, lucena, bridge, ладейн]
+  lesson_stems: [лусен, построение моста, lucena, building a bridge, ладейный эндшпиль, ладья и пешка]
   positions:
     - title_ru: Позиция Лусены
       fen: "1K6/1P1k4/8/8/8/8/r7/2R5 w - - 0 1"
@@ -105,7 +105,7 @@
     - Шаховать сбоку раньше времени и пустить короля вперёд.
     - Уходить королём от пешки в сторону.
   lichess_themes: [rookEndgame, endgame, defensiveMove]
-  lesson_stems: [филидор, philidor, третьей горизонтал, ладейн]
+  lesson_stems: [филидор, philidor, защита по третьей, ладейный эндшпиль, ладья и пешка]
   positions:
     - title_ru: Защита Филидора
       fen: "4k3/R7/1r6/3K4/4P3/8/8/8 b - - 0 1"
@@ -187,7 +187,7 @@
     - Разменивать всё до слона и ладейной пешки, не проверив цвет.
     - Слабейшей стороне идти королём к пешке вместо угла.
   lichess_themes: [bishopEndgame, endgame]
-  lesson_stems: [не тот слон, ладейн пешк, wrong bishop, слон]
+  lesson_stems: [не тот слон, ладейная пешка, ладейной пешк, wrong bishop]
   positions:
     - title_ru: Не тот слон — ничья
       fen: "7k/8/8/6KP/8/3B4/8/8 w - - 0 1"

@@ -1,0 +1,2561 @@
+{
+ "courses": [
+  {
+   "id": "chess-basics",
+   "slug": "chess-basics",
+   "title": "Основы шахмат",
+   "title_ru": "Основы шахмат",
+   "order_index": 0,
+   "modules": [
+    {
+     "id": "chess-basics-m0",
+     "course_id": "chess-basics",
+     "title": "Основы шахмат",
+     "title_ru": "Основы шахмат",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "9f0f557c-c5c2-4df7-8725-94bd1e61e715",
+       "slug": "the-king",
+       "title": "Король",
+       "title_ru": "Король",
+       "module_id": "chess-basics-m0",
+       "order_index": 0,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "35daa474-d7d6-416c-8330-4755d8638773",
+       "slug": "the-king-practice",
+       "title": "Король — Практика",
+       "title_ru": "Король — Практика",
+       "module_id": "chess-basics-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "7f878d78-43d3-4e60-b3e7-f26e6205f68a",
+       "slug": "the-king-move-right",
+       "title": "Король — Ход вправо",
+       "title_ru": "Король — Ход вправо",
+       "module_id": "chess-basics-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "081c469e-6324-464a-bc66-f4d35b349d11",
+       "slug": "the-king-move-up",
+       "title": "Король - Ход вперёд",
+       "title_ru": "Король - Ход вперёд",
+       "module_id": "chess-basics-m0",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "2254cc3e-7fef-47bc-a9b1-246ba3489fc1",
+       "slug": "the-rook",
+       "title": "Ладья",
+       "title_ru": "Ладья",
+       "module_id": "chess-basics-m0",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "f1fb53b1-adfe-4cfa-b89e-565cdd0353b0",
+       "slug": "the-bishop",
+       "title": "Слон",
+       "title_ru": "Слон",
+       "module_id": "chess-basics-m0",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "a8b01341-1787-4deb-a2a2-105ab095aa43",
+       "slug": "the-queen",
+       "title": "Ферзь",
+       "title_ru": "Ферзь",
+       "module_id": "chess-basics-m0",
+       "order_index": 6,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "24a137cc-94bd-41b4-9ed7-9cd7daa30f77",
+       "slug": "the-knight",
+       "title": "Конь",
+       "title_ru": "Конь",
+       "module_id": "chess-basics-m0",
+       "order_index": 7,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "10753c88-3330-43cf-8ec1-d46d64a423dd",
+       "slug": "the-pawn",
+       "title": "Пешка",
+       "title_ru": "Пешка",
+       "module_id": "chess-basics-m0",
+       "order_index": 8,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m1",
+     "course_id": "chess-basics",
+     "title": "Шах и Мат",
+     "title_ru": "Шах и Мат",
+     "order_index": 1,
+     "lessons": [
+      {
+       "id": "75d7d3ff-bfeb-4f90-bd7b-51e6fcfb97cf",
+       "slug": "check",
+       "title": "Шах",
+       "title_ru": "Шах",
+       "module_id": "chess-basics-m1",
+       "order_index": 0,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "a703ca8b-c85b-41c8-b5dc-72705559581f",
+       "slug": "checkmate",
+       "title": "Мат",
+       "title_ru": "Мат",
+       "module_id": "chess-basics-m1",
+       "order_index": 1,
+       "lesson_type": "theory"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m2",
+     "course_id": "chess-basics",
+     "title": "Шахматная нотация",
+     "title_ru": "Шахматная нотация",
+     "order_index": 2,
+     "lessons": [
+      {
+       "id": "5bbd7db6-1262-44f7-bd6d-8e52a47fede4",
+       "slug": "chess-notation",
+       "title": "Шахматная нотация",
+       "title_ru": "Шахматная нотация",
+       "module_id": "chess-basics-m2",
+       "order_index": 0,
+       "lesson_type": "theory"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m3",
+     "course_id": "chess-basics",
+     "title": "Рокировка",
+     "title_ru": "Рокировка",
+     "order_index": 3,
+     "lessons": [
+      {
+       "id": "d76aa222-cc67-4576-b707-1ef57c3a5367",
+       "slug": "what-is-castling",
+       "title": "Что такое рокировка",
+       "title_ru": "Что такое рокировка",
+       "module_id": "chess-basics-m3",
+       "order_index": 0,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "91812918-2ec7-4df6-8ff4-bda996a218e4",
+       "slug": "why-castle",
+       "title": "Зачем делать рокировку?",
+       "title_ru": "Зачем делать рокировку?",
+       "module_id": "chess-basics-m3",
+       "order_index": 1,
+       "lesson_type": "theory"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m4",
+     "course_id": "chess-basics",
+     "title": "Ничья",
+     "title_ru": "Ничья",
+     "order_index": 4,
+     "lessons": [
+      {
+       "id": "fb151a8c-3ff2-4fae-bac0-7d9074e89e20",
+       "slug": "draw-by-insufficient-material",
+       "title": "Ничья из-за недостатка материала",
+       "title_ru": "Ничья из-за недостатка материала",
+       "module_id": "chess-basics-m4",
+       "order_index": 0,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "64e2b80d-98ad-4411-8df9-b2c2a93aec22",
+       "slug": "perpetual-check",
+       "title": "Вечный шах",
+       "title_ru": "Вечный шах",
+       "module_id": "chess-basics-m4",
+       "order_index": 1,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "67d3a3e2-dd2d-4bd0-ba52-97f885fe0975",
+       "slug": "stalemate",
+       "title": "Пат",
+       "title_ru": "Пат",
+       "module_id": "chess-basics-m4",
+       "order_index": 2,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "b0395b95-e8ed-407e-bc50-5f55289cd4b1",
+       "slug": "threefold-repetition",
+       "title": "Троекратное повторение позиции",
+       "title_ru": "Троекратное повторение позиции",
+       "module_id": "chess-basics-m4",
+       "order_index": 3,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "2c496486-523b-41a8-a867-b07195bd6f4b",
+       "slug": "draw-by-agreement",
+       "title": "Ничья по согласию",
+       "title_ru": "Ничья по согласию",
+       "module_id": "chess-basics-m4",
+       "order_index": 4,
+       "lesson_type": "theory"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m5",
+     "course_id": "chess-basics",
+     "title": "Сравнительная сила фигур",
+     "title_ru": "Сравнительная сила фигур",
+     "order_index": 5,
+     "lessons": [
+      {
+       "id": "4b1db11b-720a-43fc-b9b3-93e6e95c0aa2",
+       "slug": "piece-value",
+       "title": "Стоимость фигур",
+       "title_ru": "Стоимость фигур",
+       "module_id": "chess-basics-m5",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m6",
+     "course_id": "chess-basics",
+     "title": "Мат тяжелыми фигурами",
+     "title_ru": "Мат тяжелыми фигурами",
+     "order_index": 6,
+     "lessons": [
+      {
+       "id": "07c03306-7cec-4a66-9cbd-16c74956621c",
+       "slug": "heavy-piece-checkmates",
+       "title": "Мат тяжелыми фигурами",
+       "title_ru": "Мат тяжелыми фигурами",
+       "module_id": "chess-basics-m6",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m7",
+     "course_id": "chess-basics",
+     "title": "Связка",
+     "title_ru": "Связка",
+     "order_index": 7,
+     "lessons": [
+      {
+       "id": "3805e631-ea5b-4a91-ad45-845ab6d6165a",
+       "slug": "pin",
+       "title": "Связка",
+       "title_ru": "Связка",
+       "module_id": "chess-basics-m7",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "0ad6fbb3-afa2-4490-a512-12c3f28cc383",
+       "slug": "pin-continued",
+       "title": "Связка. Продолжение",
+       "title_ru": "Связка. Продолжение",
+       "module_id": "chess-basics-m7",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m8",
+     "course_id": "chess-basics",
+     "title": "Открытый и двойной шах",
+     "title_ru": "Открытый и двойной шах",
+     "order_index": 8,
+     "lessons": [
+      {
+       "id": "3bf70b80-59a6-4b88-9a3f-8f379dae9985",
+       "slug": "discovered-check",
+       "title": "Открытый шах",
+       "title_ru": "Открытый шах",
+       "module_id": "chess-basics-m8",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "aecdb09f-57af-4bcb-a86c-4ebf6621db95",
+       "slug": "discovered-check-continued",
+       "title": "Открытый шах. Продолжение",
+       "title_ru": "Открытый шах. Продолжение",
+       "module_id": "chess-basics-m8",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b10df71a-7745-4af6-a802-95869d1d50e7",
+       "slug": "discovered-check-example",
+       "title": "Открытый шах. Пример.",
+       "title_ru": "Открытый шах. Пример.",
+       "module_id": "chess-basics-m8",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "46e8363b-db20-4854-8505-1aa93c7fedeb",
+       "slug": "double-check",
+       "title": "Двойной шах",
+       "title_ru": "Двойной шах",
+       "module_id": "chess-basics-m8",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m9",
+     "course_id": "chess-basics",
+     "title": "Дебют",
+     "title_ru": "Дебют",
+     "order_index": 9,
+     "lessons": [
+      {
+       "id": "17fd4541-50b9-4463-a19b-d3c72ffe0bd3",
+       "slug": "what-is-the-opening",
+       "title": "Что такое дебют?",
+       "title_ru": "Что такое дебют?",
+       "module_id": "chess-basics-m9",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "760e3860-f743-4274-879d-0a0e8c438a3b",
+       "slug": "opening-rules-pawn-center-control",
+       "title": "Правила дебюта: Пешечный захват центра",
+       "title_ru": "Правила дебюта: Пешечный захват центра",
+       "module_id": "chess-basics-m9",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8b8bc3ea-9d02-4bba-b573-6b46f0682b5b",
+       "slug": "opening-rules-piece-development",
+       "title": "Правила дебюта: Развитие фигур",
+       "title_ru": "Правила дебюта: Развитие фигур",
+       "module_id": "chess-basics-m9",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "74b4c05c-b0e9-429d-ab5c-a7adbc1b1f5d",
+       "slug": "opening-rules-castling",
+       "title": "Правила дебюта: Рокировка",
+       "title_ru": "Правила дебюта: Рокировка",
+       "module_id": "chess-basics-m9",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "53492208-b3cd-4445-b4d2-829967e2e551",
+       "slug": "center-and-flanks",
+       "title": "Центр и фланги",
+       "title_ru": "Центр и фланги",
+       "module_id": "chess-basics-m9",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "9ecb4a78-1305-4c73-8380-30515f036b18",
+       "slug": "opening-rules-common-mistakes",
+       "title": "Правила дебюта: Типичные ошибки",
+       "title_ru": "Правила дебюта: Типичные ошибки",
+       "module_id": "chess-basics-m9",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "6c2ada21-b8bb-4d0b-a413-3c3c8689a7a6",
+       "slug": "scholars-mate",
+       "title": "Детский мат",
+       "title_ru": "Детский мат",
+       "module_id": "chess-basics-m9",
+       "order_index": 6,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "32b728f5-e584-4c0c-8aa5-d5e0a1872e3c",
+       "slug": "scholars-mate-refutation",
+       "title": "Детский мат - опровержение.",
+       "title_ru": "Детский мат - опровержение.",
+       "module_id": "chess-basics-m9",
+       "order_index": 7,
+       "lesson_type": "theory"
+      }
+     ]
+    },
+    {
+     "id": "chess-basics-m10",
+     "course_id": "chess-basics",
+     "title": "Эндшпиль",
+     "title_ru": "Эндшпиль",
+     "order_index": 10,
+     "lessons": [
+      {
+       "id": "1f7083b7-65ef-43c6-b32c-0e895f601cf1",
+       "slug": "basic-principles",
+       "title": "Основные принципы",
+       "title_ru": "Основные принципы",
+       "module_id": "chess-basics-m10",
+       "order_index": 0,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "fa402cbd-ff4f-4c35-a385-b850ed5e785f",
+       "slug": "converting-material-advantage",
+       "title": "Реализация материального перевеса",
+       "title_ru": "Реализация материального перевеса",
+       "module_id": "chess-basics-m10",
+       "order_index": 1,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "9a28ef07-e1f1-4f9b-af32-e1b154be3b17",
+       "slug": "pawn-promotion-path-to-victory",
+       "title": "Превращение пешки - путь к победе",
+       "title_ru": "Превращение пешки - путь к победе",
+       "module_id": "chess-basics-m10",
+       "order_index": 2,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "a4a15863-4e08-4aa2-b3b5-d6894d743c8c",
+       "slug": "king-and-rook-pawn-vs-king",
+       "title": "Король и крайняя пешка против короля",
+       "title_ru": "Король и крайняя пешка против короля",
+       "module_id": "chess-basics-m10",
+       "order_index": 3,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "3d12dd50-0a1c-4e38-b2c8-cc09fd99eba3",
+       "slug": "king-and-rook-pawn-continued",
+       "title": "Король и крайняя пешка. Продолжение",
+       "title_ru": "Король и крайняя пешка. Продолжение",
+       "module_id": "chess-basics-m10",
+       "order_index": 4,
+       "lesson_type": "theory"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "checkmate-patterns",
+   "slug": "checkmate-patterns",
+   "title": "Шахматные паттерны мата",
+   "title_ru": "Шахматные паттерны мата",
+   "order_index": 1,
+   "modules": [
+    {
+     "id": "checkmate-patterns-m0",
+     "course_id": "checkmate-patterns",
+     "title": "Ладейные маты",
+     "title_ru": "Ладейные маты",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "549f788e-3116-40fb-a06c-a1eb4ae17931",
+       "slug": "rook-checkmates",
+       "title": "Ладейные маты",
+       "title_ru": "Ладейные маты",
+       "module_id": "checkmate-patterns-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "checkmate-patterns-m1",
+     "course_id": "checkmate-patterns",
+     "title": "Слоновые маты",
+     "title_ru": "Слоновые маты",
+     "order_index": 1,
+     "lessons": [
+      {
+       "id": "e93aed54-26ac-4da8-8bc6-97af9e2ccbae",
+       "slug": "bishop-checkmates",
+       "title": "Шахматные маты слоном",
+       "title_ru": "Шахматные маты слоном",
+       "module_id": "checkmate-patterns-m1",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "checkmate-patterns-m2",
+     "course_id": "checkmate-patterns",
+     "title": "Мат конём",
+     "title_ru": "Мат конём",
+     "order_index": 2,
+     "lessons": [
+      {
+       "id": "bdef9167-b1eb-4dc4-94d3-2a17ad43e827",
+       "slug": "knight-checkmates",
+       "title": "Конь объявляет мат",
+       "title_ru": "Конь объявляет мат",
+       "module_id": "checkmate-patterns-m2",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "checkmate-patterns-m3",
+     "course_id": "checkmate-patterns",
+     "title": "Ферзь матует",
+     "title_ru": "Ферзь матует",
+     "order_index": 3,
+     "lessons": [
+      {
+       "id": "14ae519f-16cf-453b-9323-1a025396bc48",
+       "slug": "queen-checkmates",
+       "title": "Ферзь объявляет мат",
+       "title_ru": "Ферзь объявляет мат",
+       "module_id": "checkmate-patterns-m3",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "checkmate-patterns-m4",
+     "course_id": "checkmate-patterns",
+     "title": "Мат пешкой",
+     "title_ru": "Мат пешкой",
+     "order_index": 4,
+     "lessons": [
+      {
+       "id": "2d23fc6e-2ed0-4a23-a2d0-ff8b528ca30d",
+       "slug": "pawn-checkmates",
+       "title": "Мат пешкой",
+       "title_ru": "Мат пешкой",
+       "module_id": "checkmate-patterns-m4",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "chess-tactics",
+   "slug": "chess-tactics",
+   "title": "Шахматная тактика",
+   "title_ru": "Шахматная тактика",
+   "order_index": 2,
+   "modules": [
+    {
+     "id": "chess-tactics-m0",
+     "course_id": "chess-tactics",
+     "title": "Двойной удар",
+     "title_ru": "Двойной удар",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "0c480e23-f113-499b-8ebf-21584493016a",
+       "slug": "double-attack",
+       "title": "Двойной удар",
+       "title_ru": "Двойной удар",
+       "module_id": "chess-tactics-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "356ff417-8487-4293-9926-4daf82e455f6",
+       "slug": "double-attack-with-check",
+       "title": "Двойной удар с шахом",
+       "title_ru": "Двойной удар с шахом",
+       "module_id": "chess-tactics-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "1f03bae8-3839-4cd2-a565-ac09eec0e0c8",
+       "slug": "double-attack-threatening-checkmate",
+       "title": "Двойной удар с нападением на мат",
+       "title_ru": "Двойной удар с нападением на мат",
+       "module_id": "chess-tactics-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m1",
+     "course_id": "chess-tactics",
+     "title": "Открытое нападение",
+     "title_ru": "Открытое нападение",
+     "order_index": 1,
+     "lessons": [
+      {
+       "id": "435f0fb8-53ce-4289-af74-7d220a1768e8",
+       "slug": "discovered-attack",
+       "title": "Открытое нападение",
+       "title_ru": "Открытое нападение",
+       "module_id": "chess-tactics-m1",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "7f101bdc-a69d-49f4-acb9-13eba2185e03",
+       "slug": "discovered-attack-with-check",
+       "title": "Открытое нападение с шахом",
+       "title_ru": "Открытое нападение с шахом",
+       "module_id": "chess-tactics-m1",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c707fa97-52b6-4f90-bbf1-fd950d6095c5",
+       "slug": "discovered-check-with-attack",
+       "title": "Открытый шах с нападением",
+       "title_ru": "Открытый шах с нападением",
+       "module_id": "chess-tactics-m1",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m2",
+     "course_id": "chess-tactics",
+     "title": "Связка. Продолжение.",
+     "title_ru": "Связка. Продолжение.",
+     "order_index": 2,
+     "lessons": [
+      {
+       "id": "66550d26-7a93-4061-ba09-b8466f2f802a",
+       "slug": "winning-with-pin-method-1",
+       "title": "Выигрыш с помощью связки. Способ 1.",
+       "title_ru": "Выигрыш с помощью связки. Способ 1.",
+       "module_id": "chess-tactics-m2",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "03aafd1f-1b39-4dad-b1f5-c80b7e9951bd",
+       "slug": "winning-with-pin-method-2",
+       "title": "Выигрыш с помощью связки. Способ 2.",
+       "title_ru": "Выигрыш с помощью связки. Способ 2.",
+       "module_id": "chess-tactics-m2",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "2181a051-bb9d-422b-bf18-51791c1f9395",
+       "slug": "winning-with-pin-method-3",
+       "title": "Выигрыш с помощью связки. Способ 3.",
+       "title_ru": "Выигрыш с помощью связки. Способ 3.",
+       "module_id": "chess-tactics-m2",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8bc34f61-80b4-41e3-b52a-771b407d4411",
+       "slug": "winning-with-pin-pin-on-a-square",
+       "title": "Выигрыш с помощью связки. Связка на поле.",
+       "title_ru": "Выигрыш с помощью связки. Связка на поле.",
+       "module_id": "chess-tactics-m2",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m3",
+     "course_id": "chess-tactics",
+     "title": "Защита от связки",
+     "title_ru": "Защита от связки",
+     "order_index": 3,
+     "lessons": [
+      {
+       "id": "1a21d699-3c7d-494c-8fa4-6127784a4240",
+       "slug": "pin-on-king-defense-method-1",
+       "title": "Связка на короля. Защита - Способ 1.",
+       "title_ru": "Связка на короля. Защита - Способ 1.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "86c6262a-e943-4b77-81e8-4dc198064c5d",
+       "slug": "pin-on-king-defense-method-2",
+       "title": "Связка на короля. Защита - Способ 2.",
+       "title_ru": "Связка на короля. Защита - Способ 2.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "fc464408-b722-4691-90e3-300d2609d349",
+       "slug": "pin-on-king-defense-method-3",
+       "title": "Связка на короля. Защита - Способ 3.",
+       "title_ru": "Связка на короля. Защита - Способ 3.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c074640a-b832-44f7-a6b3-584aa4035148",
+       "slug": "pin-on-valuable-piece-defense-method-1",
+       "title": "Связка на ценную фигуру. Защита - Способ 1.",
+       "title_ru": "Связка на ценную фигуру. Защита - Способ 1.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "946bd281-a54b-45cb-9f57-2f3a78895284",
+       "slug": "pin-on-valuable-piece-defense-method-2",
+       "title": "Связка на ценную фигуру. Защита - Способ 2.",
+       "title_ru": "Связка на ценную фигуру. Защита - Способ 2.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b348d8d1-66a0-4f54-b4d1-22499c6b804b",
+       "slug": "pin-on-valuable-piece-defense-method-3",
+       "title": "Связка на ценную фигуру. Защита - Способ 3.",
+       "title_ru": "Связка на ценную фигуру. Защита - Способ 3.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8cd961a6-646a-46d5-9f4e-5b9a9d3fcfa2",
+       "slug": "pin-on-valuable-piece-defense-method-4",
+       "title": "Связка на ценную фигуру. Защита - Способ 4.",
+       "title_ru": "Связка на ценную фигуру. Защита - Способ 4.",
+       "module_id": "chess-tactics-m3",
+       "order_index": 6,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m4",
+     "course_id": "chess-tactics",
+     "title": "Ловля фигуры",
+     "title_ru": "Ловля фигуры",
+     "order_index": 4,
+     "lessons": [
+      {
+       "id": "bfa50d64-df04-484f-8789-589110ff2e49",
+       "slug": "trapping-a-piece-example-1",
+       "title": "Ловля фигуры - пример 1.",
+       "title_ru": "Ловля фигуры - пример 1.",
+       "module_id": "chess-tactics-m4",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "a55858b8-31ad-4f3d-b9de-12114f69aa89",
+       "slug": "trapping-a-piece-example-2",
+       "title": "Ловля фигуры - пример 2.",
+       "title_ru": "Ловля фигуры - пример 2.",
+       "module_id": "chess-tactics-m4",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m5",
+     "course_id": "chess-tactics",
+     "title": "Рентген",
+     "title_ru": "Рентген",
+     "order_index": 5,
+     "lessons": [
+      {
+       "id": "4bf6ae90-7bbc-4be1-8615-0bf5e39824d5",
+       "slug": "x-ray-example-1",
+       "title": "Рентген. Пример 1.",
+       "title_ru": "Рентген. Пример 1.",
+       "module_id": "chess-tactics-m5",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c5e7a4be-566b-4b38-839d-a55cb7684810",
+       "slug": "x-ray-example-2",
+       "title": "Рентген. Пример 2.",
+       "title_ru": "Рентген. Пример 2.",
+       "module_id": "chess-tactics-m5",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m6",
+     "course_id": "chess-tactics",
+     "title": "Уроки защиты",
+     "title_ru": "Уроки защиты",
+     "order_index": 6,
+     "lessons": [
+      {
+       "id": "4f43d178-3af0-4a49-9313-04ed4a7950ad",
+       "slug": "defense-lessons-introduction",
+       "title": "Уроки защиты. Введение",
+       "title_ru": "Уроки защиты. Введение",
+       "module_id": "chess-tactics-m6",
+       "order_index": 0,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "6bd5c72f-c54f-4cca-9813-fe8aff04f7c0",
+       "slug": "defense-against-double-attack-example-1",
+       "title": "Защита от двойного удара. Пример 1.",
+       "title_ru": "Защита от двойного удара. Пример 1.",
+       "module_id": "chess-tactics-m6",
+       "order_index": 1,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "c1045661-c88c-435e-b9fd-6bfffb164531",
+       "slug": "defense-against-double-attack-example-2",
+       "title": "Защита от двойного удара. Пример 2.",
+       "title_ru": "Защита от двойного удара. Пример 2.",
+       "module_id": "chess-tactics-m6",
+       "order_index": 2,
+       "lesson_type": "theory"
+      },
+      {
+       "id": "c4fd3713-f5ef-412b-bd92-8c2d93b2965b",
+       "slug": "defense-against-checkmate",
+       "title": "Защита от мата",
+       "title_ru": "Защита от мата",
+       "module_id": "chess-tactics-m6",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "df3f3746-5795-42bb-936c-e60d52c8604d",
+       "slug": "intermediate-check",
+       "title": "Промежуточный шах",
+       "title_ru": "Промежуточный шах",
+       "module_id": "chess-tactics-m6",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "3994aad2-c848-4dde-89dc-61fca792beb0",
+       "slug": "defense-against-x-ray",
+       "title": "Защита от рентгена",
+       "title_ru": "Защита от рентгена",
+       "module_id": "chess-tactics-m6",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m7",
+     "course_id": "chess-tactics",
+     "title": "Польза ходов",
+     "title_ru": "Польза ходов",
+     "order_index": 7,
+     "lessons": [
+      {
+       "id": "4c6767f0-87d7-4950-81da-538f43d9f2b5",
+       "slug": "what-are-useful-moves",
+       "title": "Что такое полезные ходы",
+       "title_ru": "Что такое полезные ходы",
+       "module_id": "chess-tactics-m7",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "bd179f81-7550-4a56-8749-7c03e28575d1",
+       "slug": "identifying-useful-moves",
+       "title": "Определение полезных ходов",
+       "title_ru": "Определение полезных ходов",
+       "module_id": "chess-tactics-m7",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m8",
+     "course_id": "chess-tactics",
+     "title": "Мат с помощью двойного шаха",
+     "title_ru": "Мат с помощью двойного шаха",
+     "order_index": 8,
+     "lessons": [
+      {
+       "id": "5edbbb0d-e20b-49f6-82ca-500daacf9ffd",
+       "slug": "checkmate-with-double-check-example-1",
+       "title": "Мат с помощью двойного шаха. Пример 1.",
+       "title_ru": "Мат с помощью двойного шаха. Пример 1.",
+       "module_id": "chess-tactics-m8",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c580b4b5-826a-4cc7-88bf-3e613092b1e0",
+       "slug": "checkmate-with-double-check-example-2",
+       "title": "Урок 25. Мат с помощью двойного шаха. Пример 2.",
+       "title_ru": "Урок 25. Мат с помощью двойного шаха. Пример 2.",
+       "module_id": "chess-tactics-m8",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m9",
+     "course_id": "chess-tactics",
+     "title": "Комбинация",
+     "title_ru": "Комбинация",
+     "order_index": 9,
+     "lessons": [
+      {
+       "id": "909ba371-1966-448c-8e60-5a2a083bf9d8",
+       "slug": "combination-checkmate",
+       "title": "Урок 26. Комбинация. Мат.",
+       "title_ru": "Урок 26. Комбинация. Мат.",
+       "module_id": "chess-tactics-m9",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "7db8c8d4-295e-4274-9b42-6097ab2072a8",
+       "slug": "combination-winning-material",
+       "title": "Урок 26. Комбинация. Выигрыш материала.",
+       "title_ru": "Урок 26. Комбинация. Выигрыш материала.",
+       "module_id": "chess-tactics-m9",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m10",
+     "course_id": "chess-tactics",
+     "title": "Король с ладьей против короля",
+     "title_ru": "Король с ладьей против короля",
+     "order_index": 10,
+     "lessons": [
+      {
+       "id": "3348bc92-532b-4e33-a32b-fbdff53ea9d8",
+       "slug": "checkmate-with-rook-and-king",
+       "title": "Мат ладьей и королем.",
+       "title_ru": "Мат ладьей и королем.",
+       "module_id": "chess-tactics-m10",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m11",
+     "course_id": "chess-tactics",
+     "title": "Вкусная пешка",
+     "title_ru": "Вкусная пешка",
+     "order_index": 11,
+     "lessons": [
+      {
+       "id": "a9d1f62e-b963-480d-b949-d033981bee7b",
+       "slug": "the-poisoned-pawn",
+       "title": "Вкусная пешка",
+       "title_ru": "Вкусная пешка",
+       "module_id": "chess-tactics-m11",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m12",
+     "course_id": "chess-tactics",
+     "title": "Зеркальная партия",
+     "title_ru": "Зеркальная партия",
+     "order_index": 12,
+     "lessons": [
+      {
+       "id": "55c2dea9-9ded-429e-a321-3562ba5f27b9",
+       "slug": "winning-against-mirror-play",
+       "title": "Как быстро выиграть если черные повторяют ходы",
+       "title_ru": "Как быстро выиграть если черные повторяют ходы",
+       "module_id": "chess-tactics-m12",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "chess-tactics-m13",
+     "course_id": "chess-tactics",
+     "title": "Ошибка в дебюте!",
+     "title_ru": "Ошибка в дебюте!",
+     "order_index": 13,
+     "lessons": [
+      {
+       "id": "a7308cf8-3c84-46c6-aedb-600a91f5d951",
+       "slug": "how-to-lose-a-game-in-two-moves",
+       "title": "Как проиграть партию вторым ходом",
+       "title_ru": "Как проиграть партию вторым ходом",
+       "module_id": "chess-tactics-m13",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "advanced-tactics",
+   "slug": "advanced-tactics",
+   "title": "Продвинутая тактика",
+   "title_ru": "Продвинутая тактика",
+   "order_index": 3,
+   "modules": [
+    {
+     "id": "advanced-tactics-m0",
+     "course_id": "advanced-tactics",
+     "title": "Виды ничьи",
+     "title_ru": "Виды ничьи",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "6fffde33-a2ad-4a39-812e-20dac466286b",
+       "slug": "how-does-a-draw-happen",
+       "title": "Как получается ничья?",
+       "title_ru": "Как получается ничья?",
+       "module_id": "advanced-tactics-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "9f73e106-14d0-463f-af20-191531a343ca",
+       "slug": "draw-due-to-insufficient-material",
+       "title": "Ничья из-за недостатка материала",
+       "title_ru": "Ничья из-за недостатка материала",
+       "module_id": "advanced-tactics-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "0c7dfb0e-6515-40b0-bdfc-6e687ee2211e",
+       "slug": "stalemate",
+       "title": "Пат",
+       "title_ru": "Пат",
+       "module_id": "advanced-tactics-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m1",
+     "course_id": "advanced-tactics",
+     "title": "Отвлечение",
+     "title_ru": "Отвлечение",
+     "order_index": 1,
+     "lessons": [
+      {
+       "id": "ac116b9c-7513-4785-ae15-d3c08cb49f36",
+       "slug": "deflection-example-1",
+       "title": "Пример 1",
+       "title_ru": "Пример 1",
+       "module_id": "advanced-tactics-m1",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "11a4d1f1-c8c9-4308-a484-30560aa576f8",
+       "slug": "deflection-example-2",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m1",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m2",
+     "course_id": "advanced-tactics",
+     "title": "Завлечение",
+     "title_ru": "Завлечение",
+     "order_index": 2,
+     "lessons": [
+      {
+       "id": "7459b89e-32f7-4bcf-b3d5-2e1aa157bfda",
+       "slug": "decoy-example-1",
+       "title": "Пример 1",
+       "title_ru": "Пример 1",
+       "module_id": "advanced-tactics-m2",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "e5269d8b-c288-4785-aad3-158b2dbc79bf",
+       "slug": "decoy-example-2",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m2",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m3",
+     "course_id": "advanced-tactics",
+     "title": "Блокировка",
+     "title_ru": "Блокировка",
+     "order_index": 3,
+     "lessons": [
+      {
+       "id": "bd43ce02-376c-4446-88c5-7e554d91c3ec",
+       "slug": "how-to-use-blockade",
+       "title": "Как использовать блокировку",
+       "title_ru": "Как использовать блокировку",
+       "module_id": "advanced-tactics-m3",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m4",
+     "course_id": "advanced-tactics",
+     "title": "Уничтожение защиты",
+     "title_ru": "Уничтожение защиты",
+     "order_index": 4,
+     "lessons": [
+      {
+       "id": "5ab0c9fd-a234-4d07-adac-f8a6c1121c43",
+       "slug": "removing-the-defender-example-1",
+       "title": "Пример 1.",
+       "title_ru": "Пример 1.",
+       "module_id": "advanced-tactics-m4",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "048af6fc-4860-4248-af7e-b76fab3f07b1",
+       "slug": "removing-the-defender-example-2",
+       "title": "Пример 2.",
+       "title_ru": "Пример 2.",
+       "module_id": "advanced-tactics-m4",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m5",
+     "course_id": "advanced-tactics",
+     "title": "Разрушение прикрытия короля",
+     "title_ru": "Разрушение прикрытия короля",
+     "order_index": 5,
+     "lessons": [
+      {
+       "id": "bece9b27-b7e3-4a3d-b902-cc3b2541517a",
+       "slug": "destroying-kings-shelter-example-1",
+       "title": "Пример 1.",
+       "title_ru": "Пример 1.",
+       "module_id": "advanced-tactics-m5",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "f4cf0192-dd78-4b1a-ab4f-13702f81d2f1",
+       "slug": "destroying-kings-shelter-example-2",
+       "title": "Пример 2.",
+       "title_ru": "Пример 2.",
+       "module_id": "advanced-tactics-m5",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m6",
+     "course_id": "advanced-tactics",
+     "title": "Освобождение поля или линии",
+     "title_ru": "Освобождение поля или линии",
+     "order_index": 6,
+     "lessons": [
+      {
+       "id": "f1e4d003-0182-42ac-a181-0552ad3c685b",
+       "slug": "clearance-example-1",
+       "title": "Пример 1",
+       "title_ru": "Пример 1",
+       "module_id": "advanced-tactics-m6",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "e8d4c1dc-4079-4847-a172-93b4c9a90e05",
+       "slug": "clearance-example-2",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m6",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m7",
+     "course_id": "advanced-tactics",
+     "title": "Перекрытие",
+     "title_ru": "Перекрытие",
+     "order_index": 7,
+     "lessons": [
+      {
+       "id": "e1ec18b7-5b92-4052-bb69-e4b3724cd26b",
+       "slug": "interference-example-1",
+       "title": "Пример 1",
+       "title_ru": "Пример 1",
+       "module_id": "advanced-tactics-m7",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "05d6face-fa33-4259-a9e1-30678e1dda20",
+       "slug": "interference-example-2",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m7",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m8",
+     "course_id": "advanced-tactics",
+     "title": "Взятие на проходе",
+     "title_ru": "Взятие на проходе",
+     "order_index": 8,
+     "lessons": [
+      {
+       "id": "226ef3b4-f759-470d-81ae-590d1c50cf5e",
+       "slug": "en-passant",
+       "title": "Взятие на проходе",
+       "title_ru": "Взятие на проходе",
+       "module_id": "advanced-tactics-m8",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m9",
+     "course_id": "advanced-tactics",
+     "title": "Промежуточный ход",
+     "title_ru": "Промежуточный ход",
+     "order_index": 9,
+     "lessons": [
+      {
+       "id": "e7203d2c-a3dd-466f-a874-2f702410c726",
+       "slug": "intermediate-move",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m9",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m10",
+     "course_id": "advanced-tactics",
+     "title": "Пункт f7 в шахматах",
+     "title_ru": "Пункт f7 в шахматах",
+     "order_index": 10,
+     "lessons": [
+      {
+       "id": "a41d6455-b1aa-402a-a389-cb1c406de49b",
+       "slug": "the-f7-square-opening-analysis",
+       "title": "Разбор дебюта",
+       "title_ru": "Разбор дебюта",
+       "module_id": "advanced-tactics-m10",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m11",
+     "course_id": "advanced-tactics",
+     "title": "Тесты",
+     "title_ru": "Тесты",
+     "order_index": 11,
+     "lessons": [
+      {
+       "id": "dba43b96-d2fb-496b-b14e-405e68c12df6",
+       "slug": "test-1",
+       "title": "Пример 1",
+       "title_ru": "Пример 1",
+       "module_id": "advanced-tactics-m11",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "6d6a7c88-ba6b-4256-8b67-b92e96e2579d",
+       "slug": "test-2",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m11",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b8410b52-adb4-412b-aff5-482174e1386e",
+       "slug": "test-3",
+       "title": "Пример 3",
+       "title_ru": "Пример 3",
+       "module_id": "advanced-tactics-m11",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "14aa4cfd-99ac-4513-adb6-8201ae908701",
+       "slug": "test-4",
+       "title": "Пример 4",
+       "title_ru": "Пример 4",
+       "module_id": "advanced-tactics-m11",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "34ed9d3f-0ac3-40fe-9494-ec601c77d525",
+       "slug": "test-5",
+       "title": "Пример 5",
+       "title_ru": "Пример 5",
+       "module_id": "advanced-tactics-m11",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m12",
+     "course_id": "advanced-tactics",
+     "title": "Центр",
+     "title_ru": "Центр",
+     "order_index": 12,
+     "lessons": [
+      {
+       "id": "22c452e2-8e06-4f8c-8585-92d215af99fd",
+       "slug": "center-control-example-1",
+       "title": "Пример 1",
+       "title_ru": "Пример 1",
+       "module_id": "advanced-tactics-m12",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "72065f3e-a667-45dd-af76-408ea41acef2",
+       "slug": "center-control-example-2",
+       "title": "Пример 2",
+       "title_ru": "Пример 2",
+       "module_id": "advanced-tactics-m12",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      }
+     ]
+    },
+    {
+     "id": "advanced-tactics-m13",
+     "course_id": "advanced-tactics",
+     "title": "Быстрейшее развитие в дебюте",
+     "title_ru": "Быстрейшее развитие в дебюте",
+     "order_index": 13,
+     "lessons": [
+      {
+       "id": "e7299594-f288-46a3-ace8-522e829cab6e",
+       "slug": "danger-of-pawn-grabbing",
+       "title": "Опасность пешкоедства",
+       "title_ru": "Опасность пешкоедства",
+       "module_id": "advanced-tactics-m13",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "mate-in-3-moves",
+   "slug": "mate-in-3-moves",
+   "title": "Мат в 3 хода",
+   "title_ru": "Мат в 3 хода",
+   "order_index": 4,
+   "modules": [
+    {
+     "id": "mate-in-3-moves-m0",
+     "course_id": "mate-in-3-moves",
+     "title": "Мат в 3 хода",
+     "title_ru": "Мат в 3 хода",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "95efe974-12bd-451f-a969-ac1858af2179",
+       "slug": "mate-in-3-set-1",
+       "title": "Мат в 3 хода — Набор 1",
+       "title_ru": "Мат в 3 хода — Набор 1",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "2068c0a8-bdcc-4ec6-a9a5-2a287f1f6bc7",
+       "slug": "mate-in-3-set-2",
+       "title": "Мат в 3 хода — Набор 2",
+       "title_ru": "Мат в 3 хода — Набор 2",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "339bd8f0-3eed-483b-93d9-54fe4917ceac",
+       "slug": "mate-in-3-set-3",
+       "title": "Мат в 3 хода — Набор 3",
+       "title_ru": "Мат в 3 хода — Набор 3",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d6b05c13-3dd5-449a-a33e-5dfb494df176",
+       "slug": "mate-in-3-set-4",
+       "title": "Мат в 3 хода — Набор 4",
+       "title_ru": "Мат в 3 хода — Набор 4",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "71565ba2-7ada-419c-a631-03d31d44e4f5",
+       "slug": "mate-in-3-set-5",
+       "title": "Мат в 3 хода — Набор 5",
+       "title_ru": "Мат в 3 хода — Набор 5",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "85072ce1-8708-439c-a536-da7fe8343601",
+       "slug": "mate-in-3-set-6",
+       "title": "Мат в 3 хода — Набор 6",
+       "title_ru": "Мат в 3 хода — Набор 6",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "19ac809a-7b4b-46d9-8608-987988c63cb0",
+       "slug": "mate-in-3-set-7",
+       "title": "Мат в 3 хода — Набор 7",
+       "title_ru": "Мат в 3 хода — Набор 7",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 6,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "481ebe4c-9662-4fe5-bd98-61a151532d6f",
+       "slug": "mate-in-3-set-8",
+       "title": "Мат в 3 хода — Набор 8",
+       "title_ru": "Мат в 3 хода — Набор 8",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 7,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "77f8c23a-d9b8-4236-90e6-e960dce72277",
+       "slug": "mate-in-3-set-9",
+       "title": "Мат в 3 хода — Набор 9",
+       "title_ru": "Мат в 3 хода — Набор 9",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 8,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "dff32345-fb5a-4cc7-a913-bebda5e896f7",
+       "slug": "mate-in-3-set-10",
+       "title": "Мат в 3 хода — Набор 10",
+       "title_ru": "Мат в 3 хода — Набор 10",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 9,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b8baee8b-d7a5-4631-a245-ce8425127765",
+       "slug": "mate-in-3-set-11",
+       "title": "Мат в 3 хода — Набор 11",
+       "title_ru": "Мат в 3 хода — Набор 11",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 10,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "852193a0-9017-4a73-ac35-eb1e85075254",
+       "slug": "mate-in-3-set-12",
+       "title": "Мат в 3 хода — Набор 12",
+       "title_ru": "Мат в 3 хода — Набор 12",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 11,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8fa62de6-ea4a-472f-81cd-06105e650f8c",
+       "slug": "mate-in-3-set-13",
+       "title": "Мат в 3 хода — Набор 13",
+       "title_ru": "Мат в 3 хода — Набор 13",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 12,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "9ad8c4ce-b32e-4d87-aea8-9bdc0792e131",
+       "slug": "mate-in-3-set-14",
+       "title": "Мат в 3 хода — Набор 14",
+       "title_ru": "Мат в 3 хода — Набор 14",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 13,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "682f757c-fe5b-4db2-aed8-bbd333df25af",
+       "slug": "mate-in-3-set-15",
+       "title": "Мат в 3 хода — Набор 15",
+       "title_ru": "Мат в 3 хода — Набор 15",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 14,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c4f0af6c-7feb-4129-80e7-7567ac09e63d",
+       "slug": "mate-in-3-set-16",
+       "title": "Мат в 3 хода — Набор 16",
+       "title_ru": "Мат в 3 хода — Набор 16",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 15,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "6be6c23d-595d-4d4b-a1e7-717131cafde2",
+       "slug": "mate-in-3-set-17",
+       "title": "Мат в 3 хода — Набор 17",
+       "title_ru": "Мат в 3 хода — Набор 17",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 16,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "ffed37c0-9e63-47af-8a85-761054958255",
+       "slug": "mate-in-3-set-18",
+       "title": "Мат в 3 хода — Набор 18",
+       "title_ru": "Мат в 3 хода — Набор 18",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 17,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "6e587e2c-7281-4c24-8884-578e6fd80a98",
+       "slug": "mate-in-3-set-19",
+       "title": "Мат в 3 хода — Набор 19",
+       "title_ru": "Мат в 3 хода — Набор 19",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 18,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "4dd1c416-765c-48cc-ace0-a83210b076b6",
+       "slug": "mate-in-3-set-20",
+       "title": "Мат в 3 хода — Набор 20",
+       "title_ru": "Мат в 3 хода — Набор 20",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 19,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "21e2ee2c-65a0-4ff2-9b36-457be58e5d27",
+       "slug": "mate-in-3-set-21",
+       "title": "Мат в 3 хода — Набор 21",
+       "title_ru": "Мат в 3 хода — Набор 21",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 20,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8e6a8bc4-0bf8-4ca0-a904-e4cd8092fad7",
+       "slug": "mate-in-3-set-22",
+       "title": "Мат в 3 хода — Набор 22",
+       "title_ru": "Мат в 3 хода — Набор 22",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 21,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "5e474c63-b566-4844-9b29-749d2f7a3ee9",
+       "slug": "mate-in-3-set-23",
+       "title": "Мат в 3 хода — Набор 23",
+       "title_ru": "Мат в 3 хода — Набор 23",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 22,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "cf941fd5-d066-421e-b80e-5d618310be3e",
+       "slug": "mate-in-3-set-24",
+       "title": "Мат в 3 хода — Набор 24",
+       "title_ru": "Мат в 3 хода — Набор 24",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 23,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "54091798-59a9-4743-ba79-401d45f25826",
+       "slug": "mate-in-3-set-25",
+       "title": "Мат в 3 хода — Набор 25",
+       "title_ru": "Мат в 3 хода — Набор 25",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 24,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "446bf335-3943-459a-bf36-59453c3f008b",
+       "slug": "mate-in-3-set-26",
+       "title": "Мат в 3 хода — Набор 26",
+       "title_ru": "Мат в 3 хода — Набор 26",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 25,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d5afdd0a-84fe-4f67-85cc-8460caeeab42",
+       "slug": "mate-in-3-set-27",
+       "title": "Мат в 3 хода — Набор 27",
+       "title_ru": "Мат в 3 хода — Набор 27",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 26,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d7e5850d-8158-4774-a517-c6dd76acaf9d",
+       "slug": "mate-in-3-set-28",
+       "title": "Мат в 3 хода — Набор 28",
+       "title_ru": "Мат в 3 хода — Набор 28",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 27,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "a6953faa-0ee3-4a9b-a286-176bfaaa624f",
+       "slug": "mate-in-3-set-29",
+       "title": "Мат в 3 хода — Набор 29",
+       "title_ru": "Мат в 3 хода — Набор 29",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 28,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "88096dad-20f8-4833-847f-6811ef5a871b",
+       "slug": "mate-in-3-set-30",
+       "title": "Мат в 3 хода — Набор 30",
+       "title_ru": "Мат в 3 хода — Набор 30",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 29,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8db23adf-98fd-4e8c-b482-8d4373ffeefc",
+       "slug": "mate-in-3-set-31",
+       "title": "Мат в 3 хода — Набор 31",
+       "title_ru": "Мат в 3 хода — Набор 31",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 30,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "4a338563-b2c7-49d8-bae9-7eebd0ccc41d",
+       "slug": "mate-in-3-set-32",
+       "title": "Мат в 3 хода — Набор 32",
+       "title_ru": "Мат в 3 хода — Набор 32",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 31,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "ce8dba4b-0267-4cb7-958b-a77276e1f2a8",
+       "slug": "mate-in-3-set-33",
+       "title": "Мат в 3 хода — Набор 33",
+       "title_ru": "Мат в 3 хода — Набор 33",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 32,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "ff572a18-64e9-446b-b7f0-2da5529682a5",
+       "slug": "mate-in-3-set-34",
+       "title": "Мат в 3 хода — Набор 34",
+       "title_ru": "Мат в 3 хода — Набор 34",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 33,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "5f7d5e69-2d8e-4341-a0ab-d64698eeffb2",
+       "slug": "mate-in-3-set-35",
+       "title": "Мат в 3 хода — Набор 35",
+       "title_ru": "Мат в 3 хода — Набор 35",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 34,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "4bedbf4b-3462-497c-9fbb-9556367d3709",
+       "slug": "mate-in-3-set-36",
+       "title": "Мат в 3 хода — Набор 36",
+       "title_ru": "Мат в 3 хода — Набор 36",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 35,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "3043a023-19fb-4824-9154-2a83b9ed253a",
+       "slug": "mate-in-3-set-37",
+       "title": "Мат в 3 хода — Набор 37",
+       "title_ru": "Мат в 3 хода — Набор 37",
+       "module_id": "mate-in-3-moves-m0",
+       "order_index": 36,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "winning-the-queen",
+   "slug": "winning-the-queen",
+   "title": "Выигрыш ферзя",
+   "title_ru": "Выигрыш ферзя",
+   "order_index": 5,
+   "modules": [
+    {
+     "id": "winning-the-queen-m0",
+     "course_id": "winning-the-queen",
+     "title": "Выигрыш ферзя",
+     "title_ru": "Выигрыш ферзя",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "96f60b29-4167-4ce0-96b5-40cf163c4913",
+       "slug": "winning-the-queen-set-1",
+       "title": "Выигрыш ферзя — Набор 1",
+       "title_ru": "Выигрыш ферзя — Набор 1",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8982372c-2537-4b71-84e9-a92b5f6093d9",
+       "slug": "winning-the-queen-set-2",
+       "title": "Выигрыш ферзя — Набор 2",
+       "title_ru": "Выигрыш ферзя — Набор 2",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d2bcd688-805b-41b3-aa2a-b190aac8e961",
+       "slug": "winning-the-queen-set-3",
+       "title": "Выигрыш ферзя — Набор 3",
+       "title_ru": "Выигрыш ферзя — Набор 3",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c10070f6-d26f-43b8-9b82-1fd66c18e78c",
+       "slug": "winning-the-queen-set-4",
+       "title": "Выигрыш ферзя — Набор 4",
+       "title_ru": "Выигрыш ферзя — Набор 4",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "4708a109-1250-489e-aee9-f989e02291db",
+       "slug": "winning-the-queen-set-5",
+       "title": "Выигрыш ферзя — Набор 5",
+       "title_ru": "Выигрыш ферзя — Набор 5",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8f9dc010-954c-40b7-a794-85d287f54c08",
+       "slug": "winning-the-queen-set-6",
+       "title": "Выигрыш ферзя — Набор 6",
+       "title_ru": "Выигрыш ферзя — Набор 6",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "aef44afb-f56b-4337-851c-606d1620d76c",
+       "slug": "winning-the-queen-set-7",
+       "title": "Выигрыш ферзя — Набор 7",
+       "title_ru": "Выигрыш ферзя — Набор 7",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 6,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "3ff7845b-be78-4431-881f-851a9179cb9d",
+       "slug": "winning-the-queen-set-8",
+       "title": "Выигрыш ферзя — Набор 8",
+       "title_ru": "Выигрыш ферзя — Набор 8",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 7,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "fe6952a6-8675-4c05-b729-b99c992e16b9",
+       "slug": "winning-the-queen-set-9",
+       "title": "Выигрыш ферзя — Набор 9",
+       "title_ru": "Выигрыш ферзя — Набор 9",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 8,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b09fe22e-364d-4a91-a40f-4e83c8c3ff97",
+       "slug": "winning-the-queen-set-10",
+       "title": "Выигрыш ферзя — Набор 10",
+       "title_ru": "Выигрыш ферзя — Набор 10",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 9,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "df9cba62-f65b-4434-92e7-11ec2da02b2e",
+       "slug": "winning-the-queen-set-11",
+       "title": "Выигрыш ферзя — Набор 11",
+       "title_ru": "Выигрыш ферзя — Набор 11",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 10,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "018072ce-23c4-4d9f-811f-9c204af70680",
+       "slug": "winning-the-queen-set-12",
+       "title": "Выигрыш ферзя — Набор 12",
+       "title_ru": "Выигрыш ферзя — Набор 12",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 11,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8e97f1b6-1874-4c44-b498-beef186eadcd",
+       "slug": "winning-the-queen-set-13",
+       "title": "Выигрыш ферзя — Набор 13",
+       "title_ru": "Выигрыш ферзя — Набор 13",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 12,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c86844cf-252e-426f-8f1d-604ba8425c80",
+       "slug": "winning-the-queen-set-14",
+       "title": "Выигрыш ферзя — Набор 14",
+       "title_ru": "Выигрыш ферзя — Набор 14",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 13,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b4c40485-536c-4105-93e8-8f32e78bca98",
+       "slug": "winning-the-bishop-set-15",
+       "title": "Выигрыш слона — Набор 15",
+       "title_ru": "Выигрыш слона — Набор 15",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 14,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "bf887d53-5152-4478-8e33-ae56290cb8ab",
+       "slug": "winning-the-bishop-set-16",
+       "title": "Выигрыш слона — Набор 16",
+       "title_ru": "Выигрыш слона — Набор 16",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 15,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "539bf830-30ff-4716-b9e1-2dc741eaaeec",
+       "slug": "winning-the-bishop-set-17",
+       "title": "Выигрыш слона — Набор 17",
+       "title_ru": "Выигрыш слона — Набор 17",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 16,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "9a15e64f-5b0a-4ac7-aab2-2eeb30b6d9ab",
+       "slug": "winning-the-bishop-set-18",
+       "title": "Выигрыш слона — Набор 18",
+       "title_ru": "Выигрыш слона — Набор 18",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 17,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "cb8e4bb9-0509-4233-9be1-5e187529aabe",
+       "slug": "winning-the-bishop-set-19",
+       "title": "Выигрыш слона — Набор 19",
+       "title_ru": "Выигрыш слона — Набор 19",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 18,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d0394b6a-6245-4208-a56e-55fe7af07fc2",
+       "slug": "winning-the-bishop-set-20",
+       "title": "Выигрыш слона — Набор 20",
+       "title_ru": "Выигрыш слона — Набор 20",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 19,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "652b0a81-0078-40eb-a8b8-8a5167afc651",
+       "slug": "winning-the-bishop-set-21",
+       "title": "Выигрыш слона — Набор 21",
+       "title_ru": "Выигрыш слона — Набор 21",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 20,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "3808122f-95fe-4219-8304-be8229991605",
+       "slug": "winning-the-bishop-set-22",
+       "title": "Выигрыш слона — Набор 22",
+       "title_ru": "Выигрыш слона — Набор 22",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 21,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "604929ef-e5a7-4265-9804-c86eae684c76",
+       "slug": "mixed-tactics-test-set-23",
+       "title": "Тест — Набор 23",
+       "title_ru": "Тест — Набор 23",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 22,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "47cc6527-fd3b-4cb8-afde-a21effcf28e1",
+       "slug": "mixed-tactics-test-set-24",
+       "title": "Тест — Набор 24",
+       "title_ru": "Тест — Набор 24",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 23,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c0a9e996-7795-467b-b1e0-b97f06b8e210",
+       "slug": "mixed-tactics-test-set-25",
+       "title": "Тест — Набор 25",
+       "title_ru": "Тест — Набор 25",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 24,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "91d66c0c-81d9-4da7-87aa-6c412393396b",
+       "slug": "mixed-tactics-test-set-26",
+       "title": "Тест — Набор 26",
+       "title_ru": "Тест — Набор 26",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 25,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "03356515-e149-40e2-837c-862069ffd3d3",
+       "slug": "mixed-tactics-test-set-27",
+       "title": "Тест — Набор 27",
+       "title_ru": "Тест — Набор 27",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 26,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "dd9ab0bc-1af2-484c-8650-344d73055300",
+       "slug": "mixed-tactics-test-set-28",
+       "title": "Тест — Набор 28",
+       "title_ru": "Тест — Набор 28",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 27,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8886ad63-f7b6-49d1-90f0-b331d832bb99",
+       "slug": "mixed-tactics-test-set-29",
+       "title": "Тест — Набор 29",
+       "title_ru": "Тест — Набор 29",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 28,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "dc3b1b5b-0b0b-42c3-83f8-de5a79b603be",
+       "slug": "mixed-tactics-test-set-30",
+       "title": "Тест — Набор 30",
+       "title_ru": "Тест — Набор 30",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 29,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "ec7a440c-93fa-4a72-900f-628b30d6140f",
+       "slug": "mixed-tactics-test-2-set-31",
+       "title": "Тест 2 — Набор 31",
+       "title_ru": "Тест 2 — Набор 31",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 30,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "3ba331a3-d391-4031-8a23-69dc04553469",
+       "slug": "mixed-tactics-test-2-set-32",
+       "title": "Тест 2 — Набор 32",
+       "title_ru": "Тест 2 — Набор 32",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 31,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "04d62258-b1f6-4602-bb1a-3aa7eb442482",
+       "slug": "mixed-tactics-test-2-set-33",
+       "title": "Тест 2 — Набор 33",
+       "title_ru": "Тест 2 — Набор 33",
+       "module_id": "winning-the-queen-m0",
+       "order_index": 32,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "pins-endgames",
+   "slug": "pins-endgames",
+   "title": "Связки и Эндшпили",
+   "title_ru": "Связки и Эндшпили",
+   "order_index": 6,
+   "modules": [
+    {
+     "id": "pins-endgames-m0",
+     "course_id": "pins-endgames",
+     "title": "Упражнения на связки и эндшпили",
+     "title_ru": "Упражнения на связки и эндшпили",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "1228f0a5-290f-4db8-b430-88859881f28a",
+       "slug": "pin-tactics-set-1",
+       "title": "Связка — Набор 1",
+       "title_ru": "Связка — Набор 1",
+       "module_id": "pins-endgames-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "6f7f980f-f727-4805-8165-baa10a50767f",
+       "slug": "pin-tactics-set-2",
+       "title": "Связка — Набор 2",
+       "title_ru": "Связка — Набор 2",
+       "module_id": "pins-endgames-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "bb15c0b7-50d7-4bec-b51d-15ad5e740509",
+       "slug": "pin-tactics-set-3",
+       "title": "Связка — Набор 3",
+       "title_ru": "Связка — Набор 3",
+       "module_id": "pins-endgames-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "ad8a4a4c-3063-45f2-a4e6-c6683f5b35a0",
+       "slug": "pin-tactics-set-4",
+       "title": "Связка — Набор 4",
+       "title_ru": "Связка — Набор 4",
+       "module_id": "pins-endgames-m0",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "1c25f867-dcce-416f-ace4-82e4b6296010",
+       "slug": "pin-tactics-set-5",
+       "title": "Связка — Набор 5",
+       "title_ru": "Связка — Набор 5",
+       "module_id": "pins-endgames-m0",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "7b8a3179-2be6-440a-9421-b7ccbf2b3782",
+       "slug": "endgame-set-6",
+       "title": "Эндшпиль — Набор 6",
+       "title_ru": "Эндшпиль — Набор 6",
+       "module_id": "pins-endgames-m0",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b50e6969-fae8-4c88-9356-55256b41c049",
+       "slug": "endgame-set-7",
+       "title": "Эндшпиль — Набор 7",
+       "title_ru": "Эндшпиль — Набор 7",
+       "module_id": "pins-endgames-m0",
+       "order_index": 6,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "26fcd0a5-ba8e-49f8-a387-a825abb5802c",
+       "slug": "endgame-set-8",
+       "title": "Эндшпиль — Набор 8",
+       "title_ru": "Эндшпиль — Набор 8",
+       "module_id": "pins-endgames-m0",
+       "order_index": 7,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "eebe4941-62a5-4a31-b732-b95a702a47db",
+       "slug": "endgame-set-9",
+       "title": "Эндшпиль — Набор 9",
+       "title_ru": "Эндшпиль — Набор 9",
+       "module_id": "pins-endgames-m0",
+       "order_index": 8,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "11dfcb9c-4c61-4429-af85-7a11bf7ef5c6",
+       "slug": "pin-tactics-set-10",
+       "title": "Связка — Набор 10",
+       "title_ru": "Связка — Набор 10",
+       "module_id": "pins-endgames-m0",
+       "order_index": 9,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "69fcbcb8-9537-41ad-b50e-7b1140dcae65",
+       "slug": "endgame-set-11",
+       "title": "Эндшпиль — Набор 11",
+       "title_ru": "Эндшпиль — Набор 11",
+       "module_id": "pins-endgames-m0",
+       "order_index": 10,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "2f63c535-4f34-42b1-9895-3d0b6b92f715",
+       "slug": "endgame-set-12",
+       "title": "Эндшпиль — Набор 12",
+       "title_ru": "Эндшпиль — Набор 12",
+       "module_id": "pins-endgames-m0",
+       "order_index": 11,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "22d4e894-7ae7-4911-aaee-8aff8962523e",
+       "slug": "double-attack-set-13",
+       "title": "Двойной удар — Набор 13",
+       "title_ru": "Двойной удар — Набор 13",
+       "module_id": "pins-endgames-m0",
+       "order_index": 12,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "22f78bf7-8a85-4cf0-867f-cf4362356984",
+       "slug": "endgame-set-14",
+       "title": "Эндшпиль — Набор 14",
+       "title_ru": "Эндшпиль — Набор 14",
+       "module_id": "pins-endgames-m0",
+       "order_index": 13,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "50269874-40ec-4847-80fe-9db9295223c3",
+       "slug": "endgame-set-15",
+       "title": "Эндшпиль — Набор 15",
+       "title_ru": "Эндшпиль — Набор 15",
+       "module_id": "pins-endgames-m0",
+       "order_index": 14,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "9cc34526-7cac-49b5-a1d6-e7b5d24fb29e",
+       "slug": "double-attack-set-16",
+       "title": "Двойной удар — Набор 16",
+       "title_ru": "Двойной удар — Набор 16",
+       "module_id": "pins-endgames-m0",
+       "order_index": 15,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "9d2068b1-cb0f-42ec-a7b2-f8e305465f32",
+       "slug": "double-attack-set-17",
+       "title": "Двойной удар — Набор 17",
+       "title_ru": "Двойной удар — Набор 17",
+       "module_id": "pins-endgames-m0",
+       "order_index": 16,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "5e1b8c06-b036-4874-b40f-d64c76125845",
+       "slug": "double-attack-set-18",
+       "title": "Двойной удар — Набор 18",
+       "title_ru": "Двойной удар — Набор 18",
+       "module_id": "pins-endgames-m0",
+       "order_index": 17,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d1fd00ee-292d-4783-9d3b-78dcefec234a",
+       "slug": "double-attack-set-19",
+       "title": "Двойной удар — Набор 19",
+       "title_ru": "Двойной удар — Набор 19",
+       "module_id": "pins-endgames-m0",
+       "order_index": 18,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "22313ad2-2e88-41f3-b413-7378e9598d16",
+       "slug": "double-attack-set-20",
+       "title": "Двойной удар — Набор 20",
+       "title_ru": "Двойной удар — Набор 20",
+       "module_id": "pins-endgames-m0",
+       "order_index": 19,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "13a4e799-f4b6-4328-b825-577856fc4252",
+       "slug": "endgame-set-21",
+       "title": "Эндшпиль — Набор 21",
+       "title_ru": "Эндшпиль — Набор 21",
+       "module_id": "pins-endgames-m0",
+       "order_index": 20,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8cfd0984-65d4-4a0e-98a2-22bac82071c5",
+       "slug": "endgame-set-22",
+       "title": "Эндшпиль — Набор 22",
+       "title_ru": "Эндшпиль — Набор 22",
+       "module_id": "pins-endgames-m0",
+       "order_index": 21,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "a0c33fe6-1a44-4e8c-a048-193bfa3c1903",
+       "slug": "endgame-set-23",
+       "title": "Эндшпиль — Набор 23",
+       "title_ru": "Эндшпиль — Набор 23",
+       "module_id": "pins-endgames-m0",
+       "order_index": 22,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "de8736c2-e912-4820-855c-b28971feda91",
+       "slug": "double-attack-set-24",
+       "title": "Двойной удар — Набор 24",
+       "title_ru": "Двойной удар — Набор 24",
+       "module_id": "pins-endgames-m0",
+       "order_index": 23,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "f0389d10-888f-42a6-87a2-780c1527315a",
+       "slug": "double-attack-set-25",
+       "title": "Двойной удар — Набор 25",
+       "title_ru": "Двойной удар — Набор 25",
+       "module_id": "pins-endgames-m0",
+       "order_index": 24,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "1b930d54-6f48-4334-abc3-d6acd27744be",
+       "slug": "endgame-set-26",
+       "title": "Эндшпиль — Набор 26",
+       "title_ru": "Эндшпиль — Набор 26",
+       "module_id": "pins-endgames-m0",
+       "order_index": 25,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c0078312-831a-4d4a-b496-13b62b1a875f",
+       "slug": "endgame-set-27",
+       "title": "Эндшпиль — Набор 27",
+       "title_ru": "Эндшпиль — Набор 27",
+       "module_id": "pins-endgames-m0",
+       "order_index": 26,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "4dc0657e-8530-4aba-aa53-a31993d73878",
+       "slug": "endgame-set-28",
+       "title": "Эндшпиль — Набор 28",
+       "title_ru": "Эндшпиль — Набор 28",
+       "module_id": "pins-endgames-m0",
+       "order_index": 27,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "6dd0edd6-1f12-45e1-8bdf-3f994520b939",
+       "slug": "endgame-set-29",
+       "title": "Эндшпиль — Набор 29",
+       "title_ru": "Эндшпиль — Набор 29",
+       "module_id": "pins-endgames-m0",
+       "order_index": 28,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "27bce683-f51d-40d0-bea7-ee04d6490a78",
+       "slug": "deflection-set-30",
+       "title": "Отвлечение — Набор 30",
+       "title_ru": "Отвлечение — Набор 30",
+       "module_id": "pins-endgames-m0",
+       "order_index": 29,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "b915015f-4960-40cc-935f-e0c823828b8c",
+       "slug": "deflection-set-31",
+       "title": "Отвлечение — Набор 31",
+       "title_ru": "Отвлечение — Набор 31",
+       "module_id": "pins-endgames-m0",
+       "order_index": 30,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "a4a0490a-1ffc-44c1-82df-cb23689a8eb1",
+       "slug": "deflection-set-32",
+       "title": "Отвлечение — Набор 32",
+       "title_ru": "Отвлечение — Набор 32",
+       "module_id": "pins-endgames-m0",
+       "order_index": 31,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "41406268-0088-415a-a880-7658b9c59a49",
+       "slug": "endgame-set-33",
+       "title": "Эндшпиль — Набор 33",
+       "title_ru": "Эндшпиль — Набор 33",
+       "module_id": "pins-endgames-m0",
+       "order_index": 32,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "e86d7996-8519-48a9-811c-4fa64474c0b8",
+       "slug": "deflection-set-34",
+       "title": "Отвлечение — Набор 34",
+       "title_ru": "Отвлечение — Набор 34",
+       "module_id": "pins-endgames-m0",
+       "order_index": 33,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "d1c44ea3-0add-48cf-ad58-361726de95e4",
+       "slug": "endgame-set-35",
+       "title": "Эндшпиль — Набор 35",
+       "title_ru": "Эндшпиль — Набор 35",
+       "module_id": "pins-endgames-m0",
+       "order_index": 34,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8f5ea38d-d340-4bc7-aadd-00263f5ce384",
+       "slug": "endgame-set-36",
+       "title": "Эндшпиль — Набор 36",
+       "title_ru": "Эндшпиль — Набор 36",
+       "module_id": "pins-endgames-m0",
+       "order_index": 35,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "deflection-luring",
+   "slug": "deflection-luring",
+   "title": "Отвлечение и завлечение",
+   "title_ru": "Отвлечение и завлечение",
+   "order_index": 7,
+   "modules": [
+    {
+     "id": "deflection-luring-m0",
+     "course_id": "deflection-luring",
+     "title": "Упражнения на отвлечение и завлечение",
+     "title_ru": "Упражнения на отвлечение и завлечение",
+     "order_index": 0,
+     "lessons": [
+      {
+       "id": "421fe26d-e732-4ed9-9797-0043882fffea",
+       "slug": "deflection-set-1",
+       "title": "Отвлечение — Набор 1",
+       "title_ru": "Отвлечение — Набор 1",
+       "module_id": "deflection-luring-m0",
+       "order_index": 0,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "ff2d8f68-8527-435f-96e0-f456be648e56",
+       "slug": "deflection-set-2",
+       "title": "Отвлечение — Набор 2",
+       "title_ru": "Отвлечение — Набор 2",
+       "module_id": "deflection-luring-m0",
+       "order_index": 1,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c879e54a-c325-4d85-b28a-f17916d75ce0",
+       "slug": "deflection-set-3",
+       "title": "Отвлечение — Набор 3",
+       "title_ru": "Отвлечение — Набор 3",
+       "module_id": "deflection-luring-m0",
+       "order_index": 2,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "7bf193d3-9ffa-4e37-ac79-e6bf9dda732c",
+       "slug": "deflection-set-4",
+       "title": "Отвлечение — Набор 4",
+       "title_ru": "Отвлечение — Набор 4",
+       "module_id": "deflection-luring-m0",
+       "order_index": 3,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "c16ac2bc-a3d1-499e-8772-605cd9341be8",
+       "slug": "luring-set-5",
+       "title": "Завлечение — Набор 5",
+       "title_ru": "Завлечение — Набор 5",
+       "module_id": "deflection-luring-m0",
+       "order_index": 4,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "8c5210cc-2186-42a3-b21a-e918bbeff856",
+       "slug": "luring-set-6",
+       "title": "Завлечение — Набор 6",
+       "title_ru": "Завлечение — Набор 6",
+       "module_id": "deflection-luring-m0",
+       "order_index": 5,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "0ccacc78-6951-4a4f-b25c-6a6d0b89b79c",
+       "slug": "luring-set-7",
+       "title": "Завлечение — Набор 7",
+       "title_ru": "Завлечение — Набор 7",
+       "module_id": "deflection-luring-m0",
+       "order_index": 6,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "96ed5c7b-e104-4ea1-9288-a34c8300be39",
+       "slug": "luring-set-8",
+       "title": "Завлечение — Набор 8",
+       "title_ru": "Завлечение — Набор 8",
+       "module_id": "deflection-luring-m0",
+       "order_index": 7,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "bcd1fda9-1339-402e-8c77-4eac4c25a723",
+       "slug": "luring-set-9",
+       "title": "Завлечение — Набор 9",
+       "title_ru": "Завлечение — Набор 9",
+       "module_id": "deflection-luring-m0",
+       "order_index": 8,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "71471414-b4ca-475e-893b-2a278066b732",
+       "slug": "luring-set-10",
+       "title": "Завлечение — Набор 10",
+       "title_ru": "Завлечение — Набор 10",
+       "module_id": "deflection-luring-m0",
+       "order_index": 9,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "1b1afb20-a638-457f-a461-d5e7f13010ef",
+       "slug": "mixed-luring-destroying-defense-set-11",
+       "title": "Смешанные (завлечение + уничтожение защиты) — Набор 11",
+       "title_ru": "Смешанные (завлечение + уничтожение защиты) — Набор 11",
+       "module_id": "deflection-luring-m0",
+       "order_index": 10,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "82c37ed8-8546-4663-af23-30dd7bb379d0",
+       "slug": "mixed-destroying-defense-x-ray-set-12",
+       "title": "Смешанные (уничтожение защиты + рентген) — Набор 12",
+       "title_ru": "Смешанные (уничтожение защиты + рентген) — Набор 12",
+       "module_id": "deflection-luring-m0",
+       "order_index": 11,
+       "lesson_type": "exercise"
+      },
+      {
+       "id": "0cb69878-9bee-4ebd-9847-01820426f103",
+       "slug": "mixed-x-ray-checkmate-set-13",
+       "title": "Смешанные (рентген + мат) — Набор 13",
+       "title_ru": "Смешанные (рентген + мат) — Набор 13",
+       "module_id": "deflection-luring-m0",
+       "order_index": 12,
+       "lesson_type": "exercise"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "_source": "chesster.io get_learning_path, 2026-10-06"
+}

@@ -45,7 +45,7 @@ export const START_RETRY_DELAY_MS = 700;
 // On production (01.10) the voice coach, like the text one, said the rook on g1
 // attacks the queen on h4 from its head. Cheap gate only: Hermes does the real parsing.
 export const IDEA_MOVE_RE =
-  /(?:^|[^A-Za-z])[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?![0-9])|(?:^|[^А-Яа-я])[КСЛФ]x?[a-h][1-8](?![0-9])|(?:ладь|кон[яеё]|слон|ферз|корол|пешк|rook|knight|bishop|queen|king|pawn)[а-яёa-z]*\s+(?:с\s+[a-h][1-8]\s+|from\s+[a-h][1-8]\s+)?(?:на|в|to|on|onto)\s+[a-h][1-8]|(?:взять|бить|побить|съесть|забрать|срубить|take|capture|grab)\s+(?:на\s+|on\s+)?(?:[a-h][1-8]|ферзя|коня|слона|ладью|короля|пешку|the\s+(?:queen|rook|knight|bishop|king|pawn))|(?:ладь|кон|слон|ферз|корол|пешк)[а-яё]*\s+(?:взять|бить|побить|съесть|забрать)/i;  // JS \w is Latin only
+  /(?:^|[^A-Za-z])[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?![0-9])|(?:^|[^А-Яа-я])[КСЛФ]x?[a-h][1-8](?![0-9])|(?:ладь|кон[яеё]|слон|ферз|корол|пешк|rook|knight|bishop|queen|king|pawn)[а-яёa-z]*\s+(?:с\s+[a-h][1-8]\s+|from\s+[a-h][1-8]\s+)?(?:на|в|to|on|onto)\s+[a-h][1-8]|(?:взять|бить|побить|съесть|забрать|срубить|take|capture|grab)\s+(?:на\s+|on\s+)?(?:[a-h][1-8]|ферзя|коня|слона|ладью|короля|пешку|the\s+(?:queen|rook|knight|bishop|king|pawn))|(?:ладь|кон|слон|ферз|корол|пешк)[а-яё]*\s+(?:взять|бить|побить|съесть|забрать)|рокир|castl|(?:^|[^0-9A-Za-z-])[0O]-[0O](?![0-9])|(?:если|пойд[её]т|двин[а-яё]*|сыгра[а-яё]*|пешк[а-яё]*|what\s+about|how\s+about|\bif|\bplay|\bpush)[\s,:—-]+(?:[а-яёa-z]+\s+){0,2}[a-h][1-8](?![0-9])/i;  // JS \w is Latin only
 export const IDEA_LOOKUP_DELAY_MS = 350;
 // Tools the site calls itself from the student's words (see lookUpConcept).
 export const SITE_FETCHED_TOOLS = new Set(['get_topic', 'lookup_opening', 'get_puzzle', 'review_game']);

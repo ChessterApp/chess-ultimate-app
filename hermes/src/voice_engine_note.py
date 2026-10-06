@@ -96,6 +96,17 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     if over:
         return {"fen": fen, "note": over, "best": None, "lines": []}
 
+    # The endgame tablebase (≤ 7 pieces) is exact where Stockfish without
+    # tables shows +1.13 for a dead draw (production, 2026-10-06).
+    tb = None
+    try:
+        from src.board_rules import tablebase, tablebase_white_result
+
+        tb_raw = tablebase(board)
+        tb = tablebase_white_result(board, tb_raw) if tb_raw else None
+    except Exception:  # noqa: BLE001 — a bonus on top of the engine
+        tb = None
+
     with_facts = os.environ.get("COACH_ENGINE_FACTS", "1").strip().lower() not in ("0", "false", "no", "off")
     passed_fen = _passed_fen(board) if with_facts else None
     prefetch = _threat_pool.submit(_threat_analysis, passed_fen) if passed_fen else None
@@ -132,7 +143,9 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
-    return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts}
+    mate_in = result["lines"][0].get("mate_in")
+    return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts,
+            "tablebase": tb, "mate_in": mate_in}
 
 
 def _opening(fen: str) -> Optional[str]:
@@ -161,6 +174,16 @@ def _facts(board: chess.Board, top: dict, prefetch) -> list[str]:
         score = top.get("score") or 0.0
         if top.get("mate_in") is not None:
             score = 10000.0 if top["mate_in"] > 0 else -10000.0
-        return static_facts(board) + dynamic_facts(board, best_uci, float(score), _threat_analysis)
+        return _rules(board) + static_facts(board) + dynamic_facts(board, best_uci, float(score), _threat_analysis)
     except Exception:  # noqa: BLE001 — the facts are a bonus on top of the moves
-        return static_facts(board) if board.is_valid() else []
+        return (_rules(board) + static_facts(board)) if board.is_valid() else []
+
+
+def _rules(board: chess.Board) -> list[str]:
+    """Castling, en passant, the tablebase, textbook endings, pawn structure (src/board_rules.py)."""
+    try:
+        from src.board_rules import rule_facts
+
+        return rule_facts(board)
+    except Exception:  # noqa: BLE001
+        return []

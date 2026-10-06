@@ -108,12 +108,16 @@ describe('IDEA_MOVE_RE — a move in the student\'s words', () => {
       'а если Rg1?', 'а что если поставить ладью на g1', 'ладьёй взять на h4', 'взять ферзя конём',
       'коня с f3 на d5', 'what if I put the rook on g1', 'take the queen with the knight', 'knight to d5',
       'а если Лg1', 'может Nxe5?',
+      // 2026-10-06: castling and a bare pawn move reach the engine too
+      'можно мне рокироваться?', 'а если 0-0?', 'can I castle kingside?', 'а если b3?', 'если пешка пойдёт b3',
+      'what about b3?',
     ]) {
       expect(IDEA_MOVE_RE.test(text), text).toBe(true);
     }
   });
   it('leaves other talk alone', () => {
-    for (const text of ['что мне делать?', 'что такое связка', 'привет', 'кто впереди по материалу', 'what should I play here']) {
+    for (const text of ['что мне делать?', 'что такое связка', 'привет', 'кто впереди по материалу', 'what should I play here',
+      'счёт 1-0 в мою пользу', 'на поле e4 стоит пешка?']) {
       expect(IDEA_MOVE_RE.test(text), text).toBe(false);
     }
   });

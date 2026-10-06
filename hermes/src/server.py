@@ -1257,7 +1257,7 @@ async def _bestofn_event_stream(
     # and so could the framework's stream notices.
     for notice in _FRAMEWORK_STREAM_NOTICES:
         response_text = re.sub(re.escape(notice) + r"[^\n]*", "", response_text)
-    response_text, mark_actions = strip_markup(response_text)
+    response_text, mark_actions = strip_markup(response_text, getattr(session, 'board_state', None))
     response_text = response_text.strip() or response_text
     if mark_actions:
         board = session.ensure_board()
@@ -1591,18 +1591,36 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     named_moves: list = []
     hypo_future = None
     hypo_state = {"used": False, "ms": None, "timed_out": False, "moves": 0}
-    if session.board_state:
+    # «А если бы на 8-м ходу я взял на g5?» — an earlier moment of the game on
+    # the board: the idea is played there, not on the final position
+    # (src/past_move.py; production, 2026-10-06).
+    past = None
+    idea_fen = session.board_state
+    if session.board_state and active_board.pgn and not live_game:
+        try:
+            from src.past_move import past_position
+
+            past = past_position(body.message, active_board.pgn)
+            if past:
+                idea_fen = past["fen"]
+        except Exception:  # noqa: BLE001
+            logger.debug("past move lookup failed", exc_info=True)
+            past = None
+    if idea_fen:
         try:
             from src.prompt_builder import question_moves
 
-            named_moves = question_moves(body.message, session.board_state)
+            named_moves = question_moves(body.message, idea_fen)
+            if past:
+                played = past["played"].rstrip("+#")
+                named_moves = [q for q in named_moves if q["san"].rstrip("+#") != played]  # the game's own move
             legal_named = [q for q in named_moves if q.get("legal")]
             hypo_state["moves"] = len(legal_named)
             if legal_named and config.COACH_HYPOTHETICAL_NOTE:
                 from src.hypothetical import hypothetical_notes
 
                 hypo_future = _engine_pool.submit(
-                    hypothetical_notes, session.board_state, legal_named, idea_movetime, not live_game,
+                    hypothetical_notes, idea_fen, legal_named, idea_movetime, not live_game,
                 )
         except Exception:  # noqa: BLE001 — the idea block is best-effort
             logger.debug("question moves failed", exc_info=True)
@@ -1657,7 +1675,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     try:
         from src.prompt_builder import moves_in_question_block
 
-        moves_note = moves_in_question_block(body.message, session.board_state, named_moves or None)
+        moves_note = moves_in_question_block(body.message, idea_fen, named_moves if past else (named_moves or None),
+                                             where=past["label"] if past else None)
         if moves_note:
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
     except Exception:  # noqa: BLE001 — never block a turn on this
@@ -1760,7 +1779,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         tool_starts: dict = {}
         partial_parts: list[str] = []
         answer_parts: list[str] = []  # the answer stage's deltas, as streamed
-        markup = MarkupFilter()
+        markup = MarkupFilter(session.board_state)  # an arrow mark standing for the move is written out
         streamed_chars = 0
 
         # The answer check (src/answer_check.py): the positions a written move may
@@ -1776,7 +1795,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if live_game:
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
         check_ctx = CheckContext.from_fens(
-            [session.board_state, body.fen] + [b.fen for b in session.boards]
+            [session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
             [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
             + [b["line"] for b in (opening_plan.branches if opening_plan else [])]
@@ -1787,7 +1806,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
-        fix_markup = MarkupFilter()
+        fix_markup = MarkupFilter(session.board_state)
         # The coach's recommendation («сыграй Rg1») is checked by the engine
         # before the sentence is shown (src/hypothetical.verify_recommendation).
         verify_state = {"left": config.COACH_MOVE_VERIFY_PER_TURN if config.COACH_MOVE_VERIFY else 0,
@@ -1935,6 +1954,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
                 if note:
                     check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
+                    # The tablebase is exact where the engine is not (a +1.13 dead draw).
+                    tb = note.get("tablebase")
+                    if tb:
+                        check_ctx.engine_eval = 0.0 if tb == "draw" else (20.0 if tb.startswith("White") else -20.0)
+                        check_ctx.tablebase = tb
+                    check_ctx.engine_mate = note.get("mate_in")
                 live = _await_engine_note(live_future, engine_started, live_state)
                 if live and live.get("note"):
                     from src.prompt_builder import live_game_block
@@ -1943,7 +1968,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     check_ctx.engine_eval = live.get("eval")
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
-                    message = f"{message}\n\n{hypothetical_block(hypo['note'], live_game=bool(live_game))}"
+                    message = (f"{message}\n\n"
+                               f"{hypothetical_block(hypo['note'], live_game=bool(live_game), where=past['label'] if past else None)}")
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
@@ -2411,7 +2437,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # turn), fall back to emitting the completed text as a single delta so the
         # concatenated deltas always reconstruct the full assistant message.
         if not streamed_any:
-            answer_text, mark_actions = strip_markup(answer_text)
+            answer_text, mark_actions = strip_markup(answer_text, session.board_state)
             for action in mark_actions:
                 yield _board_frame([action])
             yield _sse({"delta": answer_text})
@@ -3088,6 +3114,19 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     def _check() -> list:
         ctx = CheckContext.from_fens([body.fen], [body.pgn] if body.pgn else [], question=body.question or "")
+        # An ending of ≤ 7 pieces: the tablebase result judges «это выигрыш» /
+        # «ничья» (src/answer_check_rules.py) — the voice coach called a dead
+        # draw a win on 2026-10-06.
+        if ctx.current is not None:
+            try:
+                from src.board_rules import tablebase, tablebase_white_result
+
+                tb = tablebase(ctx.current)
+                if tb:
+                    ctx.tablebase = tablebase_white_result(ctx.current, tb)
+                    ctx.engine_eval = 0.0 if ctx.tablebase == "draw" else (20.0 if ctx.tablebase.startswith("White") else -20.0)
+            except Exception:  # noqa: BLE001
+                pass
         issues = check_sentence(body.text[:1000], ctx)
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues

@@ -36,6 +36,10 @@ _ARROW = re.compile(
     re.IGNORECASE,
 )
 _SQUARE = re.compile(r"\b([a-h][1-8])\b", re.IGNORECASE)
+# Words after which the next thing is a move: «лучший ход [[…]]», «сыграй [[…]]», «начни с шаха [[…]]».
+_EXPECTS_MOVE = re.compile(
+    r"(?<![а-яa-z])(?:ход|ходом|ходы|сыграй|сыграть|играй|играть|сделай|начни\s+с\s+шаха|начни\s+с|шах|шахом|"
+    r"ответ|ответь|отвечай|продолжение|продолжай|move|moves|play|playing|plays|reply|answer|with|is)$", re.IGNORECASE)
 # An opened "[[" that has not closed within this many characters is not a mark.
 MAX_MARK_CHARS = 400
 
@@ -43,11 +47,18 @@ MAX_MARK_CHARS = 400
 class MarkupFilter:
     """Streaming filter for one answer: ``feed`` text deltas, get clean text and board actions."""
 
-    def __init__(self) -> None:
+    def __init__(self, fen: Optional[str] = None) -> None:
         self._pending = ""
         self._arrows: list[dict] = []
         self._squares: list[str] = []
         self._last = ""  # last character let through
+        # The board the answer is about: an arrow mark standing where the move's
+        # words should be («Начни с шаха — [[arrows: c1d1]].») is written out as
+        # the move (production, 2026-10-06: «Начни с шаха —.», «Правильный первый
+        # ход — » — the move was cut with the mark).
+        self._fen = fen
+        self._tail = ""  # the last characters let through, to see whether the move is already named
+        self._sub: Optional[str] = None  # the move to write if the next text shows the mark was the words
         # After a cut mark: "held" — the space before it was kept back and goes
         # back only if a word follows; "emitted" — that space already went out,
         # so a space right after the mark is dropped.
@@ -67,13 +78,61 @@ class MarkupFilter:
         self._gap = None
         out.append(text)
         self._last = text[-1]
+        self._tail = (self._tail + text)[-60:]
+
+    def _settle_sub(self, out: list[str], upcoming: str, final: bool = False) -> None:
+        """Write the held move when the text after the mark shows it stood for the words."""
+        if self._sub is None:
+            return
+        nxt = upcoming.lstrip(" ")
+        if not nxt and not final:
+            return  # decide when the next text comes
+        if final or nxt[0] in ".,;!?)\n" or nxt.startswith(("—", "–")):
+            gap = self._gap
+            self._gap = None
+            self._emit(out, (" " if gap == "held" or self._last not in (" ", "\n", "(") else "") + self._sub)
+            if nxt and nxt[0] not in ".,;!?)\n" and not upcoming.startswith(" "):
+                self._gap = "held"
+        self._sub = None
+
+    def _words_for(self, parsed: dict, before: str) -> Optional[str]:
+        """The move an arrow mark names, when the words before it leave the move out."""
+        if not parsed or parsed.get("type") != "draw_arrows" or not parsed.get("arrows"):
+            return None
+        stripped = (self._tail + before).rstrip()
+        if not stripped or stripped[-1] in ".!?\n":
+            return None
+        # Only where a move is expected: after a dash or a colon, or a word that
+        # asks for one — not a decoration after «на доске сейчас эта позиция».
+        if not (stripped[-1] in "—–-:," or _EXPECTS_MOVE.search(stripped)):
+            return None
+        arrow = parsed["arrows"][-1]
+        a, b = arrow["from"], arrow["to"]
+        tail = (self._tail + before)[-40:].lower()
+        if b in tail:
+            return None  # «Играй Nf3 [[arrows: g1f3]].» — the move is already in the words
+        san = None
+        if self._fen:
+            try:
+                board = chess.Board(self._fen)
+                move = chess.Move(chess.parse_square(a), chess.parse_square(b))
+                if board.piece_type_at(move.from_square) == chess.PAWN and chess.square_rank(move.to_square) in (0, 7):
+                    move.promotion = chess.QUEEN
+                if move in board.legal_moves:
+                    san = board.san(move)
+            except (ValueError, IndexError):
+                san = None
+        return san or f"{a}–{b}"
 
     def feed(self, text: str) -> tuple[str, list[dict]]:
         self._pending += text
         out: list[str] = []
         actions: list[dict] = []
+        self._settle_sub(out, self._pending)
         while True:
             start = self._pending.find("[[")
+            if start < 0 and self._sub is not None and not self._pending.strip(" "):
+                break  # spaces after a mark that may stand for the move: wait for what follows
             if start < 0:
                 # A trailing "[" (and the space before it) may open a mark in the next delta.
                 keep = 0
@@ -111,6 +170,8 @@ class MarkupFilter:
             if parsed is None:
                 self._emit(out, pre + mark)  # some other [[...]]: leave it in the text
                 continue
+            self._settle_sub(out, pre)
+            words = self._words_for(parsed, pre)
             if pre.endswith(" "):
                 self._emit(out, pre[:-1])
                 self._gap = "held"
@@ -120,11 +181,15 @@ class MarkupFilter:
                     self._gap = "emitted" if self._last in (" ", "\n") else None
             if parsed:
                 actions.append(parsed)
+            if words:
+                self._sub = words
+                self._settle_sub(out, self._pending)
         return "".join(out), actions
 
     def flush(self) -> str:
         """The text still held back (an unfinished mark) — as plain text."""
         out: list[str] = []
+        self._settle_sub(out, self._pending, final=not self._pending)
         self._emit(out, self._pending)
         self._pending = ""
         return "".join(out)
@@ -178,9 +243,9 @@ class MarkupFilter:
         return {"type": "highlight_squares", "squares": list(self._squares), "color": color}
 
 
-def strip_markup(text: str) -> tuple[str, list[dict]]:
+def strip_markup(text: str, fen: Optional[str] = None) -> tuple[str, list[dict]]:
     """Whole-text version of the filter (for an answer that was not streamed)."""
-    f = MarkupFilter()
+    f = MarkupFilter(fen)
     clean, actions = f.feed(text)
     return clean + f.flush(), actions
 

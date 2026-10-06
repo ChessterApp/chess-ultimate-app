@@ -215,6 +215,9 @@ def weakness_tracker(
             "games_analyzed": 0,
             "weaknesses": [],
             "strengths": [],
+            # Production, 2026-10-06: with nothing here the coach still listed
+            # «weaknesses from the profile» — the topics of earlier chats.
+            "note": NO_GAMES_NOTE,
         }
 
     analysis = _analyze_game_patterns(games, user_id)
@@ -232,6 +235,13 @@ def weakness_tracker(
         "games_analyzed": len(games),
         **analysis,
     }
+
+
+NO_GAMES_NOTE = (
+    "No games of this student are saved, so there is no data on their weaknesses. Say so plainly and "
+    "offer to import their games (Lichess or Chess.com nickname) or to review a game they paste. Do not "
+    "name weaknesses from earlier conversations, memory or guesswork as if they came from their games."
+)
 
 
 def _handle_weakness_tracker(args: dict, **kwargs) -> str:

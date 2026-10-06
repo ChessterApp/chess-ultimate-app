@@ -39,7 +39,7 @@ _PATTERNS = [
     re.compile(_B + _RU_PIECE + r"\s+" + _RU_TAKE + rf"\s+(?:на\s+)?(?P<to>{SQ})(?![0-9])"),
     # «съесть пешку на h7 конём», «взять коня на f6 слоном» (the client's question, 2026-10-05)
     re.compile(_B + _RU_TAKE + r"\s+(?:ч[её]рн\w+\s+|бел\w+\s+|его\s+|их\s+)?(?:ферзя|коня|слона|ладью|короля|пешку)\s+(?:на\s+)?"
-               rf"(?P<to>{SQ})(?![0-9])\s+" + _RU_PIECE + _E),
+               rf"(?P<to>{SQ})(?![0-9])\s+(?:сво\w+\s+|мо\w+\s+)?" + _RU_PIECE + rf"(?:\s+(?P<frm2>{SQ}))?" + _E),
     # «взять ферзя ладьёй», «забрать коня слоном»
     re.compile(_B + _RU_TAKE + r"\s+(?:ч[её]рн\w+\s+|бел\w+\s+|его\s+|их\s+|вражеск\w+\s+)?" + _RU_TARGET + r"\s+" + _RU_PIECE + _E),
     # «конь прыгнет на f7», «ладья сначала идёт на g3», «слон отходит на c4»
@@ -115,6 +115,7 @@ def prose_moves(text: str, board: chess.Board) -> list[dict]:
                     continue
                 to_name = chess.square_name(squares[0])
             to = chess.parse_square(to_name)
+            frm = frm or groups.get("frm2")
             from_sq = chess.parse_square(frm) if frm else None
             capture = bool(target) or rx.pattern.find("TAKE") >= 0 or any(
                 w in rx.pattern for w in ("взять", "take"))
@@ -147,6 +148,16 @@ def resolve(board: chess.Board, ptype: int, to: int, from_sq: Optional[int] = No
         and (from_sq is None or mv.from_square == from_sq)
         and (mv.promotion in (None, chess.QUEEN))
     ]
+    # «побить пешку d5 пешкой e5» right after d7-d5: the capture is en passant,
+    # onto d6 (production, 2026-10-06: «нет, не можешь… есть exd6!»).
+    if not candidates and ptype == chess.PAWN and board.ep_square is not None:
+        victim = board.ep_square + (-8 if board.turn == chess.WHITE else 8)
+        if to == victim:
+            candidates = [mv for mv in board.legal_moves if board.is_en_passant(mv)
+                          and (from_sq is None or mv.from_square == from_sq)]
+            if len(candidates) == 1:
+                return board.san(candidates[0]), candidates[0], "legal — en passant (the pawn lands on " \
+                    + chess.square_name(board.ep_square) + "; only on this move)"
     if len(candidates) == 1:
         return board.san(candidates[0]), candidates[0], None
     letter = _LETTER[ptype]

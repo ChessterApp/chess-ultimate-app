@@ -889,12 +889,24 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
             item["after_fen"] = after.fen()
         out.append(item)
 
-    converted, _ = _to_san(message)
+    # «0-0» / «0-0-0» written with zeros is castling too.
+    message_z = re.sub(r"(?<![0-9A-Za-z-])0-0-0(?![0-9-])", "O-O-O", message)
+    message_z = re.sub(r"(?<![0-9A-Za-z-])0-0(?![0-9-])", "O-O", message_z)
+    converted, _ = _to_san(message_z)
     for m in _MOVE.finditer(converted):
         san = m["san"]
         if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"]:
-            continue  # a bare square («e4») is not a move the student names
+            # A bare square («e4») is not a move the student names — unless it is
+            # a pawn move asked about: «А если b3?», «если пешка пойдёт b3»
+            # (production, 2026-10-06: 6.b3? b5 trapped the bishop, and the
+            # coach never looked at the move).
+            if not _bare_pawn_move(converted, m, board):
+                continue
         _add(san, "san")
+    # Castling in words: «можно мне рокироваться?», "can I castle?", «қысқа рокировка».
+    for wing in _castling_named(message_z):
+        if wing not in {i["san"] for i in out}:
+            _add(wing, "words", wing)
     for pm in prose_moves(message, board):
         _add(pm["san"], "prose", pm["words"], pm["note"], pm["move"])
     # «Конь на f7 с вилкой — хорошая идея?»: a piece and a square with no verb is
@@ -913,7 +925,54 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     return out
 
 
-def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[list] = None) -> str:
+_BARE_PAWN_CUE = re.compile(
+    r"(?:если|а\s+если|сыгра\w*|пойд[её]т|пойти|пойду|двин\w*|продвин\w*|ход\w*|пешк\w*|пешечн\w*|"
+    r"или|либо|лучше|better|what\s+about|how\s+about|if|or|play|push|pawn|егер|әлде|жүр\w*)[\s,:—-]+(?:[а-яёa-z]+[\s,:—-]+){0,3}$",
+    re.IGNORECASE)
+_NOT_PAWN_PIECE = re.compile(
+    r"(?:конь|коня|конём|коне?м|слон\w*|ладь\w*|ферз\w*|корол\w*|knight|bishop|rook|queen|king|піл|ат|тура|уәзір|патша)"
+    r"[^.?!]{0,20}$", re.IGNORECASE)
+
+
+def _bare_pawn_move(converted: str, m, board) -> bool:
+    """A bare square in the question is a pawn move when it is asked about and
+    exactly one pawn of the side to move can go there."""
+    import chess
+
+    sq = chess.parse_square(m["san"][:2])
+    pawn_moves = [mv for mv in board.legal_moves
+                  if mv.to_square == sq and board.piece_type_at(mv.from_square) == chess.PAWN
+                  and mv.promotion in (None, chess.QUEEN)]
+    if len(pawn_moves) != 1:
+        return False
+    before = converted[max(0, m.start() - 40):m.start()]
+    if _NOT_PAWN_PIECE.search(before) and not re.search(r"пешк|pawn", before, re.IGNORECASE):
+        return False  # «конь пойдёт на b3»: the prose reading names the knight
+    if re.search(r"(?:на|в|поле|клетк\w*|to|on|square)\s+$", before, re.IGNORECASE) and not re.search(
+            r"пешк\w*[^.?!]{0,25}$|pawn[^.?!]{0,25}$", before, re.IGNORECASE):
+        return False  # «отступить на b3» — a square, not a pawn move
+    words = re.findall(r"[а-яёa-z0-9]+", converted.lower())
+    return len(words) <= 4 or bool(_BARE_PAWN_CUE.search(before))
+
+
+_CASTLING_WORDS = re.compile(
+    r"(?<![а-яa-z])(?:рокир\w*|castl\w*)(?![а-яa-z])", re.IGNORECASE)
+
+
+def _castling_named(message: str) -> list[str]:
+    """«рокироваться», «короткую рокировку», "castle queenside": the wings asked about."""
+    if not _CASTLING_WORDS.search(message or ""):
+        return []
+    low = message.lower()
+    if re.search(r"длинн\w*|ферзев\w*|queenside|long|ұзын", low):
+        return ["O-O-O"]
+    if re.search(r"коротк\w*|королевск\w*|kingside|short|қысқа", low):
+        return ["O-O"]
+    return ["O-O", "O-O-O"]
+
+
+def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[list] = None,
+                            where: Optional[str] = None) -> str:
     """The moves the student named, checked on the board before the model
     answers: «Могу ли я сыграть Rg1? А Qxg7?» came back "both are legal" with
     Qxg7 blocked by the f6 pawn (stand, 2026-10-04). Decided by python-chess,
@@ -925,8 +984,13 @@ def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[li
     import chess
 
     board = chess.Board(fen)
-    lines = ["## Moves named in the question (checked on the board, side to move "
-             f"{'White' if board.turn else 'Black'})"]
+    if where:
+        # An earlier moment of the game on the board (src/past_move.py).
+        lines = [f"## Moves named in the question — checked in the game on the board at {where}, "
+                 f"NOT on the final position. Answer about that moment: {fen}"]
+    else:
+        lines = ["## Moves named in the question (checked on the board, side to move "
+                 f"{'White' if board.turn else 'Black'})"]
     for item in moves[:6]:
         words = f" («{item['words']}»)" if item.get("source") == "prose" and item.get("words") else ""
         line = f"- {item['san']}{words}: {item['verdict']}"
@@ -961,6 +1025,12 @@ def board_facts_block(fen: Optional[str]) -> str:
         if not board.is_valid():
             return ""
         facts = static_facts(board)
+        try:
+            from src.board_rules import rule_facts
+
+            facts = rule_facts(board) + facts
+        except Exception:  # noqa: BLE001
+            pass
     except Exception:  # noqa: BLE001
         return ""
     if not facts:
@@ -1010,7 +1080,7 @@ def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) 
     return " ".join(parts)
 
 
-def hypothetical_block(note: str, live_game: bool = False) -> str:
+def hypothetical_block(note: str, live_game: bool = False, where: Optional[str] = None) -> str:
     """The student's idea played on the board and looked at by the engine
     (src/hypothetical.py), as a turn-context block."""
     tail = (
@@ -1020,8 +1090,10 @@ def hypothetical_block(note: str, live_game: bool = False) -> str:
         "If the idea is a mistake, say what to play instead only from the engine analysis of "
         "the board above (or ask the engine); never from memory."
     )
+    head = ("## The student's idea, played on the board (engine)\n" if not where else
+            f"## The student's idea, played in the game at {where} (engine) — not on the final position\n")
     return (
-        "## The student's idea, played on the board (engine)\n"
+        head +
         f"{note}\n"
         "Stockfish played each move the student named and analysed the position after it; "
         "the facts are verified on that position. Judge the idea from them, in your own "
@@ -1042,6 +1114,16 @@ def _move_verdict(board, san: str) -> str:
         return "ambiguous — more than one piece can make it"
     except ValueError:
         pass
+    if san.startswith("O-O"):
+        # Castling of the side to move, with the reason it is forbidden (not
+        # "a move for Black": the other side's castling is beside the point).
+        try:
+            from src.board_rules import castling_status
+
+            why = castling_status(board)["O-O-O" if san.startswith("O-O-O") else "O-O"][1]
+            return f"NOT legal — {why}" if why else "NOT legal — castling is not available here"
+        except Exception:  # noqa: BLE001
+            return "NOT legal — castling is not available here"
     other = board.copy(stack=False)
     other.turn = not board.turn
     try:
@@ -1051,6 +1133,14 @@ def _move_verdict(board, san: str) -> str:
         pass
     # Why not: the piece exists but the way is blocked, or no such piece reaches the square.
     if san.startswith("O-O"):
+        try:
+            from src.board_rules import castling_status
+
+            why = castling_status(board)["O-O-O" if san.startswith("O-O-O") else "O-O"][1]
+            if why:
+                return f"NOT legal — {why}"
+        except Exception:  # noqa: BLE001
+            pass
         return "NOT legal — castling is not available here"
     piece_letter = san[0] if san[0] in "KQRBN" else "P"
     ptype = chess.PIECE_SYMBOLS.index(piece_letter.lower())

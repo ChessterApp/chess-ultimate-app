@@ -186,6 +186,9 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
             parts.append(f"Evaluation after it: {_fmt(after_pawns)} (before the move: {_fmt(before)}) — {verdict}.")
         if reply:
             parts.append(f"The opponent's best reply: {reply}" + (f" (line {' '.join(reply_line)})" if len(reply_line) > 1 else "") + ".")
+            why = _reply_point(after, reply)
+            if why:
+                parts.append(why)
         hanging = [f for f in static_facts(after) if "not defended" in f or "cheaper" in f][:2]
         parts.append("Facts after the move: " + "; ".join(facts + hanging) + ".")
         if reveal_best and best_san and best_san[0] != san and loss is not None and loss >= INACCURACY:
@@ -196,6 +199,61 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
     if not lines:
         return None
     return {"note": "\n".join(lines), "fens": fens, "items": items}
+
+
+_VALUE = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
+
+
+def _safe_squares(board: chess.Board, sq: chess.Square) -> list[str]:
+    """Where the piece on *sq* (its side to move) can go without being lost."""
+    piece = board.piece_at(sq)
+    out = []
+    for mv in board.legal_moves:
+        if mv.from_square != sq:
+            continue
+        b = board.copy(stack=False)
+        b.push(mv)
+        attackers = b.attackers(not piece.color, mv.to_square)
+        if not attackers:
+            out.append(chess.square_name(mv.to_square))
+            continue
+        cheapest = min(_VALUE[b.piece_type_at(a)] or 100 for a in attackers)
+        defended = bool(b.attackers(piece.color, mv.to_square))
+        if defended and cheapest >= _VALUE[piece.piece_type]:
+            out.append(chess.square_name(mv.to_square))
+    return out
+
+
+def _reply_point(after: chess.Board, reply_san: str) -> Optional[str]:
+    """What the opponent's best reply does, when it is concrete: a fork, an
+    attack on a piece that has no safe square left (a trapped piece — 6.b3? b5
+    and the bishop a4 cannot retreat, production 2026-10-06)."""
+    try:
+        move = after.parse_san(reply_san)
+    except ValueError:
+        return None
+    from src.position_facts import describe_move
+
+    described = describe_move(after, move)
+    b = after.copy(stack=False)
+    b.push(move)
+    victim_side = b.turn
+    trapped = []
+    for sq in b.attacks(move.to_square):
+        piece = b.piece_at(sq)
+        if piece is None or piece.color != victim_side or piece.piece_type in (chess.PAWN, chess.KING):
+            continue
+        if _VALUE[piece.piece_type] <= _VALUE[b.piece_type_at(move.to_square)] and b.attackers(victim_side, sq):
+            continue  # attacked by an equal or bigger piece and defended: not lost
+        if not _safe_squares(b, sq):
+            trapped.append(f"the {'white' if piece.color else 'black'} {chess.piece_name(piece.piece_type)} "
+                           f"on {chess.square_name(sq)}")
+    bits = []
+    if " — " in described:
+        bits.append(f"{reply_san} means {described.split(' — ', 1)[1]}")
+    if trapped:
+        bits.append(", ".join(trapped) + " is TRAPPED after it — no safe square to go to, so it is lost")
+    return ("Why: " + "; ".join(bits) + ".") if bits else None
 
 
 def verify_line(board: chess.Board, line: list[str], movetime_ms: int = 300, threshold_cp: int = 150) -> Optional[str]:

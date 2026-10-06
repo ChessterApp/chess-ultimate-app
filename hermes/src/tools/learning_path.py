@@ -489,6 +489,57 @@ def find_lessons(programme: dict, needle: str) -> list[tuple]:
     return exact + contains + [(c, m, l) for _, c, m, l in overlap]
 
 
+def programme_matches(programme: dict, query: str, limit: int = 8) -> tuple[list[tuple], str]:
+    """Lessons of the site's programme for a topic named in the student's words,
+    and how strongly they match: 'module' (the query is a module's title, or
+    one is part of the other), 'lesson' (part of a lesson title), 'course'
+    (part of a course title — the sets of tasks), 'words' (every word of the
+    query in a module title), '' (nothing).
+
+    The production sweep of the programme (2026-10-06) found 16 of 48 module
+    topics with no lesson link — «Разрушение прикрытия короля» has lessons
+    titled «Пример 1», «Ладейные маты» was taken for a base topic without
+    lessons — and «Ловля фигуры» linked to «Стоимость фигур».
+    """
+    q = _norm(query)
+    q = re.sub(r"^(?:что\s+такое|объясни|расскажи\s+про|тема|тему)\s+", "", q).strip()
+    if len(q) < 3:
+        return [], ""
+    q_tokens = [t for t in q.split() if t not in _LESSON_STOPWORDS]
+
+    def lessons_of(module_hits):
+        out = []
+        for c, m in module_hits:
+            out.extend((c, m, l) for l in m.get("lessons", []))
+        return out[:limit]
+
+    exact, part, words = [], [], []
+    for c in programme.get("courses", []):
+        for m in c.get("modules", []):
+            titles = {_norm(m.get(f) or "") for f in ("title", "title_ru") if m.get(f)}
+            if q in titles:
+                exact.append((c, m))
+            elif any((q in t or (len(t) >= 5 and t in q)) for t in titles):
+                part.append((c, m))
+            elif q_tokens and any(all(any(_stem_match(tok, w) for w in t.split()) for tok in q_tokens) for t in titles):
+                words.append((c, m))
+    if exact:
+        return lessons_of(exact), "module"
+    if part:
+        return lessons_of(part), "module"
+    lesson_hits = [(c, m, l) for c, m, l in iter_lessons(programme)
+                   if any(q in _norm(l.get(f) or "") for f in ("title", "title_ru"))]
+    if lesson_hits:
+        return lesson_hits[:limit], "lesson"
+    course_hits = [c for c in programme.get("courses", [])
+                   if any(q in _norm(c.get(f) or "") for f in ("title", "title_ru"))]
+    if course_hits:
+        return lessons_of([(c, m) for c in course_hits for m in c.get("modules", [])]), "course"
+    if words:
+        return lessons_of(words), "words"
+    return [], ""
+
+
 def _uci_to_san(fen: Optional[str], uci: Optional[str]) -> Optional[str]:
     if not fen or not uci:
         return None
