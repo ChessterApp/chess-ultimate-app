@@ -381,3 +381,26 @@ def test_no_false_alarm_on_whose_piece(fen, sentence):
 ])
 def test_square_colours(sentence, caught):
     assert bool(check_sentence(sentence, CheckContext.from_fens([WRONG_BISHOP]))) is caught
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("Нет, рокироваться нельзя, если твоя ладья находится под боем.", True),
+    ("Да, рокироваться можно, если только ваша ладья не находится под боем прямо сейчас.", True),
+    ("По правилам, рокироваться можно, даже если ладья под боем.", False),
+    ("Рокироваться нельзя, если король под шахом или проходит через битое поле.", False),
+])
+def test_the_castling_rule_with_an_attacked_rook(sentence, caught):
+    issues = check_sentence(sentence, CheckContext.from_fens([chess.STARTING_FEN], question="Можно ли рокироваться, если моя ладья под боем?"))
+    assert bool(issues) is caught
+    if caught:
+        assert "allowed when the rook is attacked" in issues[0]  # the rule, not this board
+
+
+def test_direct_answer_layer_switch(monkeypatch):
+    from src import config
+    from src import prompt_builder as pb
+
+    monkeypatch.setattr(config, "COACH_DIRECT_ANSWERS", True)
+    assert "FIRST sentence answers it" in pb.direct_answer_layer()
+    monkeypatch.setattr(config, "COACH_DIRECT_ANSWERS", False)
+    assert pb.direct_answer_layer() == ""

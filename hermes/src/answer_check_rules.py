@@ -119,8 +119,11 @@ def _castling_issues(text: str, ctx) -> list[str]:
     claims.sort()
     question = getattr(ctx, "question", "") or ""
     question_about_castling = bool(re.search(_CASTLE_WORD, question, re.IGNORECASE))
+    qm = re.search(_CASTLE_WORD, question, re.IGNORECASE)
+    if qm and _GENERAL.search(question[qm.end():]):
+        return []  # «можно ли рокироваться, если ладья под боем?» — a rule, not this board (voice, 2026-10-06)
     if _GENERAL.search(question) and not _NOW.search(text):
-        return []  # «можно ли рок[иеі]роваться, если ладья под боем?» — a rule, answered in general
+        return []
     if not (_about_board(text) or (question_about_castling and not _GENERAL.search(text))):
         return []
     # The side named next to the claim («белые не могут рокироваться»), not anywhere
@@ -529,11 +532,35 @@ def _colour_issues(text: str) -> list[str]:
     return issues
 
 
+# ── The castling rule itself ────────────────────────────────────────────────
+
+_ROOK_ATTACKED = r"ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
+
+
+def _castling_rule_issues(text: str) -> list[str]:
+    """«Нельзя рокироваться, если ладья под боем» — a false rule: only the king's squares matter
+    (the voice coach said it on 2026-10-06)."""
+    if not re.search(_CASTLE_WORD, text, re.IGNORECASE) or not re.search(_ROOK_ATTACKED + r"|rook\s+is\s+(?:not\s+)?(?:attacked|under\s+attack)", text, re.IGNORECASE):
+        return []
+    forbids = re.search(
+        r"(?:нельзя|невозможн\w*|не\s+можешь|не\s+может|не\s+получится|запрещ\w*|can'?t|cannot|not\s+allowed)"
+        r"[^.;!?]{0,60}?(?:если|когда|if|when)[^.;!?]{0,20}?(?:тво\w+\s+|ваш\w+\s+|мо\w+\s+)?" + _ROOK_ATTACKED +
+        r"|" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|не\s+можешь|не\s+получится|запрещ)"
+        r"|если\s+(?:только\s+)?(?:тво\w+\s+|ваш\w+\s+)?ладь\w*\s+не\s+(?:находится\s+|стоит\s+)?под\s+(?:бо|удар)"
+        r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)",
+        text, re.IGNORECASE)
+    if forbids and not re.search(r"(?<![а-яё])даже(?![а-яё])|\beven\s+if", text, re.IGNORECASE):
+        return ["castling is allowed when the rook is attacked: only the king may not be in check, pass "
+                "through or land on an attacked square"]
+    return []
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
-                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered))
+                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
+                + _castling_rule_issues(lowered))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []
