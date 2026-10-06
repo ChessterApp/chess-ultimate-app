@@ -10,7 +10,9 @@
  */
 import type { NextApiRequest } from 'next';
 import { getAuth } from '@clerk/nextjs/server';
-import { rateLimit } from '@/lib/in-memory-rate-limit';
+// Not '@/lib/in-memory-rate-limit': that module carries `import 'server-only'`,
+// which throws in the Pages Router routes that use this file (see rate-limit-core.ts).
+import { rateLimit } from '@/lib/rate-limit-core';
 
 export interface VisionLimits {
   /** Requests per window for a signed-in user. */

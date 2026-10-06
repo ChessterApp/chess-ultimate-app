@@ -2,9 +2,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@clerk/nextjs/server', () => ({ getAuth: vi.fn() }));
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getAuth } from '@clerk/nextjs/server';
-import { _resetRateLimitForTests } from '@/lib/in-memory-rate-limit';
+import { _resetRateLimitForTests } from '@/lib/rate-limit-core';
 import { checkVisionRateLimit, clientIp } from '@/lib/vision-rate-limit';
+
+// The photo and scoresheet proxies are Pages Router routes: anything they load
+// must not import 'server-only' (it throws there — every request was a 500
+// from 2026-09-21 to 2026-10-06). Vitest aliases the package, so only the
+// sources can tell.
+describe('vision proxies load without server-only', () => {
+  const src = (p: string) => readFileSync(join(__dirname, '..', '..', p), 'utf8');
+  it.each([
+    'lib/vision-rate-limit.ts',
+    'lib/rate-limit-core.ts',
+    'pages/api/convert-image.ts',
+    'pages/api/convert-scoresheet.ts',
+  ])('%s', (file) => {
+    const text = src(file);
+    expect(text).not.toMatch(/^\s*import\s+['"]server-only['"]/m);
+    expect(text).not.toMatch(/^\s*import[^\n]*from\s+['"]@\/lib\/in-memory-rate-limit['"]/m);
+  });
+});
 
 const req = (headers: Record<string, string> = {}) =>
   ({ headers, socket: { remoteAddress: '10.0.0.1' } }) as any;

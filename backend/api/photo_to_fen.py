@@ -21,6 +21,63 @@ PHOTO_FEN_MODEL = os.getenv("PHOTO_FEN_MODEL", "google/gemini-3.8-flash")
 photo_fen_bp = Blueprint('photo_fen', __name__, url_prefix='/api')
 
 
+# Gemini 3 Flash thinks for 4–16k tokens on a board photo by default (28–131 s
+# on 2026-10-06); "minimal" reads the same position in 14–21 s. Empty → the
+# model's default.
+PHOTO_FEN_REASONING = os.getenv("PHOTO_FEN_REASONING", "minimal").strip()
+
+PHOTO_FEN_PROMPT = (
+    "Read the chess position in this image and write it as FEN.\n"
+    "- Use the coordinates printed around the board, if any, to tell which side is at the bottom. "
+    "If Black is at the bottom (rank 1 at the top, file h on the left), still write the FEN the usual "
+    "way: rank 8 first, from file a to file h.\n"
+    "- Side to move: write w or b only if the image shows it — a highlighted last move (then the other "
+    "side is to move), a caption such as \"White to move\" / \"Ход белых\", a turn indicator or a clock. "
+    "Otherwise write ?.\n"
+    "Output exactly one line: <piece placement> <w|b|?>. Nothing else."
+)
+
+_PLACEMENT = re.compile(r"((?:[rnbqkpRNBQKP1-8]+/){7}[rnbqkpRNBQKP1-8]+)(?:\s+([wb?]))?")
+
+
+def position_from_reply(text: str):
+    """(fen, turn_known) from the vision model's reply, or None.
+
+    The model gives the placement and, when the image shows it, the side to
+    move. A photo never shows castling rights or en passant: castling is
+    granted where king and rook stand on their home squares, en passant never.
+    Without a visible side to move White moves (turn_known False) — unless
+    only Black can be to move (White's king in check).
+    """
+    m = _PLACEMENT.search(text or "")
+    if not m:
+        return None
+    placement, side = m.group(1), (m.group(2) or "?")
+    try:
+        import chess
+    except ImportError:  # pragma: no cover — python-chess is in requirements.txt
+        turn = side if side in "wb" else "w"
+        return f"{placement} {turn} - - 0 1", side in "wb"
+
+    def build(turn: str):
+        try:
+            board = chess.Board(f"{placement} {turn} KQkq - 0 1")
+        except ValueError:
+            return None
+        board.castling_rights = board.clean_castling_rights()
+        return board if board.is_valid() else None
+
+    known = side in "wb"
+    first = side if known else "w"
+    board = build(first)
+    if board is None:
+        other = build("b" if first == "w" else "w")
+        if other is None:
+            return None
+        board, known = other, True  # only one side can be to move
+    return board.fen(), known
+
+
 @photo_fen_bp.route('/convert-image', methods=['POST'])
 def convert_image_to_fen():
     """
@@ -53,7 +110,7 @@ def convert_image_to_fen():
                 "content": [
                     {
                         "type": "text",
-                        "text": "Analyze this chessboard image and output the FEN string. Only output the FEN string, nothing else. Make sure to correctly identify all pieces and their positions."
+                        "text": PHOTO_FEN_PROMPT
                     },
                     {
                         "type": "image_url",
@@ -76,9 +133,10 @@ def convert_image_to_fen():
             },
             json={
                 "model": PHOTO_FEN_MODEL,
-                "messages": prompt
+                "messages": prompt,
+                **({"reasoning": {"effort": PHOTO_FEN_REASONING}} if PHOTO_FEN_REASONING else {}),
             },
-            timeout=30
+            timeout=60
         )
 
         response_data = response.json()
@@ -97,16 +155,11 @@ def convert_image_to_fen():
             fen_response = response_data['choices'][0]['message']['content'].strip()
             logger.info(f"Raw FEN response from model: {fen_response}")
 
-            # Validate FEN format - should have at least 4 space-separated parts
-            if len(fen_response.split(' ')) >= 4:
-                logger.info(f"Returning FEN: {fen_response}")
-                return jsonify({'fen': fen_response})
-
-            # Try to extract FEN if model was verbose
-            fen_pattern = r'([rnbqkpRNBQKP1-8]+\/){7}[rnbqkpRNBQKP1-8]+\s+[bw]\s+[KQkq-]+\s+[a-h1-8-]+\s+\d+\s+\d+'
-            match = re.search(fen_pattern, fen_response)
-            if match:
-                return jsonify({'fen': match.group(0)})
+            parsed = position_from_reply(fen_response)
+            if parsed:
+                fen, turn_known = parsed
+                logger.info(f"Returning FEN: {fen} (turn known: {turn_known})")
+                return jsonify({'fen': fen, 'turn_known': turn_known})
 
             # If still no valid FEN, return error with response
             logger.warning(f"Invalid FEN response: {fen_response}")

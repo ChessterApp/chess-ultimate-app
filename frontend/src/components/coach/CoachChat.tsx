@@ -18,6 +18,36 @@ import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
 
+/** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
+export function sideToMoveCommand(text: string): 'w' | 'b' | null {
+  const t = text.trim().toLowerCase().replace(/ё/g, 'е').replace(/[.!]+$/, '');
+  if (/^(?:теперь\s+|сейчас\s+|нет,?\s+)?(?:ход\s+черных|черные\s+ходят|ходят\s+черные|за\s+черных)$|^(?:it'?s\s+)?black\s+to\s+(?:move|play)$|^black'?s\s+(?:move|turn)$|^қаралар(?:дың)?\s+жүрісі$/.test(t)) return 'b';
+  if (/^(?:теперь\s+|сейчас\s+|нет,?\s+)?(?:ход\s+белых|белые\s+ходят|ходят\s+белые|за\s+белых)$|^(?:it'?s\s+)?white\s+to\s+(?:move|play)$|^white'?s\s+(?:move|turn)$|^ақтар(?:дың)?\s+жүрісі$/.test(t)) return 'w';
+  return null;
+}
+
+/** The same position with *side* to move, or null when that is not a legal position. */
+export function withSideToMove(fen: string, side: 'w' | 'b'): string | null {
+  const parts = fen.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  parts[1] = side;
+  if (parts.length >= 4) parts[3] = '-'; // no en passant after a switch
+  const next = parts.join(' ');
+  try {
+    const chess = new Chess(next);
+    // The side that just moved may not stand in check (chess.js does not refuse it).
+    const other = side === 'w' ? 'b' : 'w';
+    for (const row of chess.board()) {
+      for (const sq of row) {
+        if (sq && sq.type === 'k' && sq.color === other && chess.isAttacked(sq.square, side)) return null;
+      }
+    }
+    return next;
+  } catch {
+    return null;
+  }
+}
+
 interface CoachChatProps {
   currentFen: string;
   /** The moves on the board, when a game is loaded (a review by voice uses them). */
@@ -483,6 +513,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   const [photoMode, setPhotoMode] = useState<'position' | 'scoresheet' | null>(null);
   const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
+  // A photo does not show whose move it is: the board gets White to move and the
+  // next short «ход чёрных» / "black to move" switches it instead of going to the
+  // coach (2026-10-06 — the model used to guess the side, half the time wrongly).
+  const photoTurnPendingRef = useRef(false);
 
   const pickPhoto = useCallback((mode: 'position' | 'scoresheet') => {
     setPhotoMode(mode);
@@ -509,13 +543,18 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ image: base64 }),
           });
-          const data = (await res.json().catch(() => ({}))) as { fen?: string; error?: string };
+          const data = (await res.json().catch(() => ({}))) as { fen?: string; turn_known?: boolean; error?: string };
           if (!res.ok || !data.fen) {
             replaceLocalLine(lineId, t('photoFailed', { reason: data.error || `HTTP ${res.status}` }));
             return;
           }
           onBoardActions([{ type: 'set_fen', fen: data.fen }]);
-          replaceLocalLine(lineId, t('loadedFromPhoto'));
+          if (data.turn_known === false) {
+            photoTurnPendingRef.current = true;
+            replaceLocalLine(lineId, t('loadedFromPhotoTurnUnknown'));
+          } else {
+            replaceLocalLine(lineId, t('loadedFromPhoto'));
+          }
         } else {
           const res = await fetch('/api/convert-scoresheet', {
             method: 'POST',
@@ -544,6 +583,25 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     const source = typeof overrideText === 'string' ? overrideText : input;
     const trimmed = source.trim();
     if (!trimmed || isStreaming) return;
+
+    // «ход чёрных» right after a photo with no visible turn: switch the side to
+    // move on the board, locally — not a question for the coach.
+    if (photoTurnPendingRef.current) {
+      const side = sideToMoveCommand(trimmed);
+      photoTurnPendingRef.current = false;
+      if (side) {
+        const flipped = withSideToMove(currentFenRef.current, side);
+        if (typeof overrideText !== 'string') setInput('');
+        addLocalLine(trimmed);
+        if (flipped) {
+          onBoardActions([{ type: 'set_fen', fen: flipped }]);
+          addLocalLine(t(side === 'w' ? 'whiteToMoveSet' : 'blackToMoveSet'));
+        } else {
+          addLocalLine(t('sideToMoveImpossible'));
+        }
+        return;
+      }
+    }
 
     const userMessage: CoachMessage = {
       id: crypto.randomUUID(),
@@ -703,7 +761,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       setToolActive(null);
       abortRef.current = null;
     }
-  }, [input, isStreaming, currentFen, sessionId, boardId, onBoardActions, onSessionCreated, onActiveBoardChanged, t, contextNote]);
+  }, [input, isStreaming, currentFen, sessionId, boardId, onBoardActions, onSessionCreated, onActiveBoardChanged, t, contextNote, addLocalLine]);
 
   // A streamed assistant message that did not come from the student's question
   // (the coach's remark during a game). Same SSE frames as the chat: `delta`s

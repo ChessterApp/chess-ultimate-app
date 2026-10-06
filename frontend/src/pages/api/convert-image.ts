@@ -3,6 +3,8 @@ import { checkVisionRateLimit, CONVERT_IMAGE_LIMITS } from '@/lib/vision-rate-li
 
 interface ConvertImageResponse {
   fen?: string;
+  /** False when the photo does not show whose move it is (White is set then). */
+  turn_known?: boolean;
   error?: string;
   raw_response?: string;
 }
@@ -13,6 +15,9 @@ export const config = {
       sizeLimit: '10mb', // Allow larger images
     },
   },
+  // The vision call takes 7–22 s (minimal reasoning; up to 60 s with the
+  // model's default) — longer than a default function budget.
+  maxDuration: 60,
 };
 
 export default async function handler(
@@ -64,7 +69,8 @@ export default async function handler(
     }
 
     return res.status(200).json({
-      fen: data.fen
+      fen: data.fen,
+      ...(typeof data.turn_known === 'boolean' ? { turn_known: data.turn_known } : {}),
     });
 
   } catch (error) {
