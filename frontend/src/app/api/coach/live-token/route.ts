@@ -68,7 +68,9 @@ no bullet points, no long monologues. Talk the way a coach sitting beside the bo
 the current position, react to their ideas, and nudge them toward good plans without just handing over the move.
 Be direct and encouraging — believe in them, but don't let them off easy. Praise sound reasoning and gently redirect
 mistakes. You can refer to squares, pieces, threats, and simple plans out loud. Never break character or say things
-like "as a chess AI". When you are unsure what they see, ask a short question rather than lecturing.`;
+like "as a chess AI". When you are unsure what they see, ask a short question rather than lecturing.
+When the player asks you something directly (is there a mate, is it winning, which move, can I castle), your
+first sentence answers it — yes or no and the move or the reason; a question back may follow, never replace it.`;
 
 // Mirrors the CRITICAL LANGUAGE RULE Hermes puts first in build_voice_prompt()
 // (language_rule in prompt_builder.py), for the fallback prompt used when
@@ -91,6 +93,33 @@ English — even when it differs from the interface language. The interface lang
 the first thing you say and when the player's words show no language of their own. Never mix languages in one reply.
 
 `;
+}
+
+// Speech recognition hints (AudioTranscriptionConfig). Without them Live heard
+// spoken Kazakh as Uzbek in Latin letters («Hozir qisqa roliklar…») and «позиция
+// Лусены» as «позиция у стены» (voice bench, 2026-10-06); with the three
+// languages and the chess words it wrote «Қазір қысқа рокіровка…».
+// COACH_LIVE_TRANSCRIPTION_HINTS=0 turns this off.
+const TRANSCRIPTION_LANGS: Record<string, string[]> = {
+  ru: ['ru-RU', 'kk-KZ', 'en-US'],
+  kz: ['kk-KZ', 'ru-RU', 'en-US'],
+  kk: ['kk-KZ', 'ru-RU', 'en-US'],
+  en: ['en-US', 'ru-RU', 'kk-KZ'],
+};
+export const CHESS_VOCABULARY = [
+  'рокировка', 'взятие на проходе', 'пат', 'мат', 'шах', 'ферзь', 'ладья', 'слон', 'конь', 'пешка',
+  'позиция Лусены', 'Лусена', 'позиция Филидора', 'Филидор', 'жареная печень', 'сицилианская защита',
+  'дебют', 'эндшпиль', 'связка', 'вилка', 'отвлечение', 'завлечение',
+  'рокировка жасау', 'уәзір', 'тура', 'піл', 'ат', 'сарбаз', 'патша',
+  'castling', 'en passant', 'stalemate', 'checkmate', 'Lucena', 'Philidor',
+];
+
+export function transcriptionConfig(locale: string): Record<string, unknown> {
+  if ((process.env.COACH_LIVE_TRANSCRIPTION_HINTS ?? '1').trim() === '0') return {};
+  return {
+    languageCodes: TRANSCRIPTION_LANGS[locale] ?? TRANSCRIPTION_LANGS.ru,
+    customVocabulary: CHESS_VOCABULARY,
+  };
 }
 
 // Appended when tools are available, so the voice coach uses them instead of guessing.
@@ -551,9 +580,11 @@ export async function POST(request: Request) {
       httpOptions: { apiVersion: 'v1alpha' },
     });
 
+    const transcription = transcriptionConfig(locale);
     const liveConfig: Record<string, unknown> = {
       responseModalities: [Modality.AUDIO],
       systemInstruction,
+      inputAudioTranscription: transcription,
       // Ask the server to issue resumption handles so the client can survive a
       // dropped connection (network blip / session time limit) and reconnect.
       sessionResumption: {},
@@ -594,6 +625,9 @@ export async function POST(request: Request) {
         expiresAt: expireTime,
         // Byte size of the assembled system prompt, for client latency telemetry.
         promptBytes: Buffer.byteLength(systemInstruction, 'utf8'),
+        // The same hints for the client's connect config (it sends its own
+        // inputAudioTranscription; the two must agree).
+        transcription,
         // Voice minutes left this month so the UI can display / count down from
         // it. null when the tier is unlimited or the quota lookup failed open.
         remainingSeconds: quota ? quota.remainingSeconds : null,

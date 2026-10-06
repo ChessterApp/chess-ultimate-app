@@ -81,6 +81,9 @@ function parseArgs(argv) {
     // get_topic / lookup_opening / get_puzzle → [Topic]/[Opening]/[Puzzle]; each spoken
     // sentence → voice/check, the wrong ones read back after the turn → [Check].
     hook: 'off',
+    // Speech recognition hints (AudioTranscriptionConfig): --input-langs kk-KZ,ru-RU, --vocab "Лусена,Филидор,рокировка"
+    inputLangs: '',
+    vocab: '',
     hookSrc: path.join(REPO, 'frontend/src/hooks/useGeminiLive.ts'), // the regexes, from this file
   };
   for (let i = 0; i < argv.length; i++) {
@@ -256,6 +259,19 @@ function puzzleNote(r) {
   return squash(`[Puzzle] A verified puzzle is now on the student's board: FEN ${first.fen}, ${side} to move${r.theme ? `, theme ${r.theme}` : ''}. ` +
     `Solution (private, never read it out unless the student gives up): ${solution}. Say whose move it is and what to look for, then let the student try; judge their answer against the solution. Do not call get_puzzle again for this request.`);
 }
+// Mirrors verdictNote in useGeminiLive.ts.
+const VERDICT_SAID_RE = {
+  stalemate: /пат(?![а-яё])|ничь|stalemate|\bdraw|тепе-тең|пат\s/i,
+  trapped: /пойма|ловушк|некуда\s+(?:уйти|отступ|деться)|запер|trapp|caught|no\s+(?:safe\s+)?square|ұста|тұзақ/i,
+  blunder: /ошиб|зев|потер|теря|отда[её]|грубая|плох|blunder|mistake|los[et]|hang|қате|жоғалт/i,
+};
+function verdictNote(verdict, said) {
+  if (!verdict?.kind || !verdict.headline) return null;
+  const re = VERDICT_SAID_RE[verdict.kind];
+  if (re && re.test(said)) return null;
+  return squash(`[Idea] You have not told the student the main point of their move: ${verdict.headline}. Say it now in one or two short sentences, in the student's language, plainly; do not mention a note or a check.`);
+}
+
 function correctionNote(wrong) {
   if (!wrong.length) return null;
   const items = wrong.map((s) => `«${s.text.trim()}» — ${s.issues.join('; ')}`).join(' ');
@@ -268,7 +284,10 @@ async function runCase(ai, args, tools, c, pcm) {
   const config = {
     responseModalities: [Modality.AUDIO],
     systemInstruction,
-    inputAudioTranscription: {},
+    inputAudioTranscription: {
+      ...(args.inputLangs ? { languageCodes: args.inputLangs.split(',') } : {}),
+      ...(args.vocab ? { customVocabulary: args.vocab.split(',') } : {}),
+    },
     outputAudioTranscription: {},
   };
   if (tools.length) config.tools = [{ functionDeclarations: tools }];
@@ -323,7 +342,7 @@ async function runCase(ai, args, tools, c, pcm) {
   // --hook on: the browser hook's state for this case.
   const H = args.hook === 'on' ? hookRegexes(args.hookSrc) : null;
   const hook = { utter: '', conceptDone: false, ideaSent: '', conceptTimer: null, ideaTimer: null, sentence: '',
-    checks: 0, pending: [], wrong: [], corrections: 0, awaitingCorrection: false };
+    checks: 0, pending: [], wrong: [], corrections: 0, awaitingCorrection: false, verdict: null, turnText: '' };
   rec.hook_notes = [];
   rec.checked = [];
   rec.correction_text = '';
@@ -362,7 +381,10 @@ async function runCase(ai, args, tools, c, pcm) {
     if (!H.idea?.test(text) || hook.ideaSent === text) return;
     hook.ideaSent = text;
     const r = await hookPost('/api/coach/voice/idea', { text, fen: c.fen });
-    if (typeof r?.note === 'string' && r.note) sendNote('Idea', r.note);
+    if (typeof r?.note === 'string' && r.note) {
+      sendNote('Idea', r.note);
+      hook.verdict = r.verdict && typeof r.verdict === 'object' ? r.verdict : null;
+    }
   };
   const checkSentence = async (sentence) => {
     if (!H.checkable.test(sentence) || sentence.trim().split(/\s+/).length < 4 || hook.checks >= H.checksPerTurn) return;
@@ -461,6 +483,7 @@ async function runCase(ai, args, tools, c, pcm) {
     }
     if (H && sc.outputTranscription?.text) {
       if (hook.awaitingCorrection) rec.correction_text += sc.outputTranscription.text;
+      else hook.turnText += sc.outputTranscription.text;
       hook.sentence += sc.outputTranscription.text;
       let m;
       while ((m = H.sentenceEnd.exec(hook.sentence))) {
@@ -529,13 +552,15 @@ async function runCase(ai, args, tools, c, pcm) {
         hook.checks = 0;
         hook.holding = true;
         await Promise.all(pending);
-        const note = correctionNote(hook.wrong);
+        const follow = verdictNote(hook.verdict, hook.turnText);
+        if (follow) { hook.verdict = null; rec.verdict_followup = true; }
+        const note = [correctionNote(hook.wrong), follow].filter(Boolean).join(' ') || null;
         hook.wrong = [];
         hook.holding = false;
         if (note && !done) {
           hook.awaitingCorrection = true;
           rec.corrected = true;
-          sendNote('Check', note, true);
+          sendNote(follow && !note.startsWith('[Check]') ? 'Verdict' : 'Check', note, true);
           return;
         }
       }

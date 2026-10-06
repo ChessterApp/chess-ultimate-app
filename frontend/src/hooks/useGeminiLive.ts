@@ -45,8 +45,27 @@ export const START_RETRY_DELAY_MS = 700;
 // On production (01.10) the voice coach, like the text one, said the rook on g1
 // attacks the queen on h4 from its head. Cheap gate only: Hermes does the real parsing.
 export const IDEA_MOVE_RE =
-  /(?:^|[^A-Za-z])[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?![0-9])|(?:^|[^А-Яа-я])[КСЛФ]x?[a-h][1-8](?![0-9])|(?:ладь|кон[яеё]|слон|ферз|корол|пешк|rook|knight|bishop|queen|king|pawn)[а-яёa-z]*\s+(?:с\s+[a-h][1-8]\s+|from\s+[a-h][1-8]\s+)?(?:на|в|to|on|onto)\s+[a-h][1-8]|(?:взять|бить|побить|съесть|забрать|срубить|take|capture|grab)\s+(?:на\s+|on\s+)?(?:[a-h][1-8]|ферзя|коня|слона|ладью|короля|пешку|the\s+(?:queen|rook|knight|bishop|king|pawn))|(?:ладь|кон|слон|ферз|корол|пешк)[а-яё]*\s+(?:взять|бить|побить|съесть|забрать)|рокир|castl|(?:^|[^0-9A-Za-z-])[0O]-[0O](?![0-9])|(?:если|пойд[её]т|двин[а-яё]*|сыгра[а-яё]*|пешк[а-яё]*|what\s+about|how\s+about|\bif|\bplay|\bpush)[\s,:—-]+(?:[а-яёa-z]+\s+){0,2}[a-h][1-8](?![0-9])/i;  // JS \w is Latin only
-export const IDEA_LOOKUP_DELAY_MS = 350;
+  /(?:^|[^A-Za-z])[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?![0-9])|(?:^|[^А-Яа-я])[КСЛФ]x?[a-h][1-8](?![0-9])|(?:ладь|кон[яеё]|слон|ферз|корол|пешк|rook|knight|bishop|queen|king|pawn)[а-яёa-z]*\s+(?:с\s+[a-h][1-8]\s+|from\s+[a-h][1-8]\s+)?(?:на|в|to|on|onto)\s+[a-h][1-8]|(?:взять|бить|побить|съесть|забрать|срубить|take|capture|grab)\s+(?:на\s+|on\s+)?(?:[a-h][1-8]|ферзя|коня|слона|ладью|короля|пешку|the\s+(?:queen|rook|knight|bishop|king|pawn))|(?:ладь|кон|слон|ферз|корол|пешк)[а-яё]*\s+(?:взять|бить|побить|съесть|забрать)|роки?[иеі]р|рок[еі]ровк|castl|(?:^|[^0-9A-Za-z-])[0O]-[0O](?![0-9])|(?:если|пойд[её]т|двин[а-яё]*|сыгра[а-яё]*|пешк[а-яё]*|what\s+about|how\s+about|\bif|\bplay|\bpush)[\s,:—-]+(?:[а-яёa-z]+\s+){0,2}[a-h][1-8](?![0-9])/i;  // JS \w is Latin only
+// Short: the [Idea] line came 0.3–0.8 s after the coach had started answering (voice bench, 2026-10-06).
+export const IDEA_LOOKUP_DELAY_MS = 150;
+
+/** Words that show the coach told the student the point of a bad idea. */
+export const VERDICT_SAID_RE: Record<string, RegExp> = {
+  stalemate: /пат(?![а-яё])|ничь|stalemate|\bdraw|тепе-тең|пат\s/i,
+  trapped: /пойма|ловушк|некуда\s+(?:уйти|отступ|деться)|запер|trapp|caught|no\s+(?:safe\s+)?square|ұста|тұзақ/i,
+  blunder: /ошиб|зев|потер|теря|отда[её]|грубая|плох|blunder|mistake|los[et]|hang|қате|жоғалт/i,
+};
+
+/** The note that makes the coach say the point it left out (a blunder, a trapped piece, stalemate). */
+export function verdictNote(verdict: { kind?: string; headline?: string } | null | undefined, said: string): string | null {
+  if (!verdict?.kind || !verdict.headline) return null;
+  const re = VERDICT_SAID_RE[verdict.kind];
+  if (re && re.test(said)) return null;
+  return (
+    `[Idea] You have not told the student the main point of their move: ${verdict.headline}. ` +
+    `Say it now in one or two short sentences, in the student's language, plainly; do not mention a note or a check.`
+  ).replace(/\s+/g, ' ').trim();
+}
 // Tools the site calls itself from the student's words (see lookUpConcept).
 export const SITE_FETCHED_TOOLS = new Set(['get_topic', 'lookup_opening', 'get_puzzle', 'review_game']);
 
@@ -969,6 +988,10 @@ export default function useGeminiLive(
   // The student's idea (a move in their words) already sent for this utterance — see IDEA_MOVE_RE.
   const ideaSentRef = useRef('');
   const ideaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The point of the student's idea the coach must say (from voice/idea), and what
+  // the coach has said since the student spoke — checked when the turn completes.
+  const ideaVerdictRef = useRef<{ kind?: string; headline?: string } | null>(null);
+  const modelTurnTextRef = useRef('');
 
   // The coach's current sentence (output transcription fragments joined), the
   // wrong ones of this turn, and how many checks were sent this turn.
@@ -1160,10 +1183,13 @@ export default function useGeminiLive(
         body: JSON.stringify({ text, fen }),
       });
       if (!res.ok) return;
-      const data = (await res.json().catch(() => null)) as { note?: unknown; moves?: unknown[] } | null;
+      const data = (await res.json().catch(() => null)) as
+        | { note?: unknown; moves?: unknown[]; verdict?: { kind?: string; headline?: string } | null }
+        | null;
       const note = data?.note;
       if (typeof note !== 'string' || !note) return;
       if (sessionRef.current !== session || optionsRef.current.getFen?.() !== fen) return;
+      ideaVerdictRef.current = data?.verdict && typeof data.verdict === 'object' ? data.verdict : null;
       try {
         optionsRef.current.onToolResult?.('voice_idea', data);
       } catch {
@@ -1227,6 +1253,8 @@ export default function useGeminiLive(
           userUtteranceRef.current = '';
           conceptDoneRef.current = false;
           ideaSentRef.current = '';
+          ideaVerdictRef.current = null;
+          modelTurnTextRef.current = '';
           siteResultsRef.current.clear();
         }
         userUtteranceRef.current += sc.inputTranscription.text;
@@ -1257,6 +1285,7 @@ export default function useGeminiLive(
         });
         // Each finished sentence of the coach goes to the board check.
         modelSentenceRef.current += sc.outputTranscription.text;
+        modelTurnTextRef.current += sc.outputTranscription.text;
         const session = sessionRef.current;
         let m: RegExpExecArray | null;
         while (session && (m = SPEECH_SENTENCE_END_RE.exec(modelSentenceRef.current))) {
@@ -1286,7 +1315,11 @@ export default function useGeminiLive(
         void Promise.all(pending).then(() => {
           const wrong = wrongSentencesRef.current;
           wrongSentencesRef.current = [];
-          const note = correctionNote(wrong);
+          // The point of a bad idea left unsaid (the [Idea] line often arrives after
+          // the coach has started talking) is said now, with any correction.
+          const followUp = verdictNote(ideaVerdictRef.current, modelTurnTextRef.current);
+          if (followUp) ideaVerdictRef.current = null;
+          const note = [correctionNote(wrong), followUp].filter(Boolean).join(' ') || null;
           if (!note || !session || sessionRef.current !== session) return;
           try {
             optionsRef.current.onToolResult?.('voice_check', { result: { corrected: wrong } });
@@ -1563,12 +1596,13 @@ export default function useGeminiLive(
         }
         throw new Error(`Live coach unavailable (${res.status})`);
       }
-      const { token, model, promptBytes, remainingSeconds: mintedRemaining } =
+      const { token, model, promptBytes, remainingSeconds: mintedRemaining, transcription } =
         (await res.json()) as {
           token?: string;
           model?: string;
           promptBytes?: number;
           remainingSeconds?: number | null;
+          transcription?: Record<string, unknown>;
         };
       const tokenMs = Math.round(performance.now() - tokenStart);
       if (!token || !model) {
@@ -1590,7 +1624,8 @@ export default function useGeminiLive(
 
       const config: Record<string, unknown> = {
         responseModalities: [Modality.AUDIO],
-        inputAudioTranscription: {},
+        // Language hints and chess words for speech recognition, as the token has them.
+        inputAudioTranscription: transcription && typeof transcription === 'object' ? transcription : {},
         outputAudioTranscription: {},
       };
       if (resumeHandle) {

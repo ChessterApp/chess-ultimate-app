@@ -216,6 +216,40 @@ describe('POST /api/coach/live-token', () => {
     expect(configFromMint().sessionResumption).toEqual({});
   });
 
+  it('gives speech recognition the languages and chess words, in the token and the response', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ tools: [] }) })) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen', locale: 'kz' }));
+
+    expect(response.status).toBe(200);
+    const minted = configFromMint().inputAudioTranscription;
+    expect(minted.languageCodes[0]).toBe('kk-KZ');
+    expect(minted.languageCodes).toEqual(expect.arrayContaining(['ru-RU', 'en-US']));
+    expect(minted.customVocabulary).toEqual(expect.arrayContaining(['позиция Лусены', 'рокировка']));
+    const body = await response.json();
+    expect(body.transcription).toEqual(minted);
+  });
+
+  it('COACH_LIVE_TRANSCRIPTION_HINTS=0 leaves recognition on auto-detect', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    process.env.COACH_LIVE_TRANSCRIPTION_HINTS = '0';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ tools: [] }) })) as any;
+    try {
+      const { POST } = await import('../live-token/route');
+      const response = await POST(makeRequest({ fen: 'somefen' }));
+      expect(response.status).toBe(200);
+      expect(configFromMint().inputAudioTranscription).toEqual({});
+    } finally {
+      delete process.env.COACH_LIVE_TRANSCRIPTION_HINTS;
+    }
+  });
+
   it('3.8 runs without hidden thinking, 3.1 keeps its default; COACH_LIVE_THINKING_BUDGET overrides', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';

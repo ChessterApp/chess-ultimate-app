@@ -668,6 +668,23 @@ def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Opti
     return None
 
 
+def _idea_verdict(hypo: Optional[dict]) -> Optional[dict]:
+    """{'kind': 'stalemate'|'trapped'|'blunder', 'headline'} for the student's idea when it
+    loses the game's point outright, else None."""
+    for item in (hypo or {}).get("items", []):
+        head = item.get("headline")
+        if not head:
+            continue
+        if item.get("draw") and "stalemate" in head:
+            return {"kind": "stalemate", "headline": head}
+        if "TRAPPED" in head:
+            return {"kind": "trapped", "headline": head}
+        loss = item.get("loss")
+        if loss is not None and loss >= 1.5:
+            return {"kind": "blunder", "headline": head}
+    return None
+
+
 def _spoken_language(text: Optional[str]) -> Optional[str]:
     """'ru' or 'kk' when the student's words are clearly Cyrillic, 'en' when clearly English, else None.
 
@@ -3224,11 +3241,15 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
         if legal and config.COACH_HYPOTHETICAL_NOTE:
             from src.hypothetical import hypothetical_notes
 
-            hypo = hypothetical_notes(body.fen, legal, config.COACH_HYPOTHETICAL_MOVETIME_MS, not body.live_game)
+            hypo = hypothetical_notes(body.fen, legal, config.COACH_VOICE_IDEA_MOVETIME_MS, not body.live_game)
         return {
             "note": voice_idea_note(moves, hypo, bool(body.live_game), language=_spoken_language(body.text)),
             "moves": [{"san": q["san"], "legal": q["legal"], "verdict": q["verdict"]} for q in moves],
             "fens": [q["after_fen"] for q in legal if q.get("after_fen")],
+            # The point the student must hear (a blunder, a trapped piece, stalemate):
+            # the browser checks the coach's answer for it and, when the line came too
+            # late to be used, has the coach say it after the turn (useGeminiLive).
+            "verdict": _idea_verdict(hypo),
         }
 
     try:

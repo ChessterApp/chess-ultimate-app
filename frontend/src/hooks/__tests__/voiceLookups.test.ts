@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CONCEPT_QUESTION_RE, IDEA_MOVE_RE, OPENING_HINT_RE, openingNote, topicNote } from '../useGeminiLive';
+import { CONCEPT_QUESTION_RE, IDEA_MOVE_RE, OPENING_HINT_RE, openingNote, topicNote, verdictNote } from '../useGeminiLive';
 
 describe('voice lookups: what the site asks Hermes about on its own', () => {
   it('an opening named in the words is looked up (slang included)', () => {
@@ -121,4 +121,26 @@ describe('IDEA_MOVE_RE — a move in the student\'s words', () => {
       expect(IDEA_MOVE_RE.test(text), text).toBe(false);
     }
   });
+});
+
+describe('verdictNote — the point of a bad idea the coach left out', () => {
+  const trapped = { kind: 'trapped', headline: 'b3 is a blunder — the white bishop on a4 is TRAPPED after it' };
+  it('asks the coach to say it when the answer missed it', () => {
+    const note = verdictNote(trapped, 'Ход b3 возможен, но давай посмотрим на Re1.');
+    expect(note).toContain('TRAPPED');
+    expect(note).toMatch(/^\[Idea\]/);
+  });
+  it('stays quiet when the coach said it', () => {
+    expect(verdictNote(trapped, 'После b5 слон a4 пойман, ему некуда отступить.')).toBeNull();
+    expect(verdictNote({ kind: 'stalemate', headline: 'Qb6 is stalemate' }, 'Это пат, ничья.')).toBeNull();
+  });
+  it('needs a verdict', () => {
+    expect(verdictNote(null, 'что угодно')).toBeNull();
+  });
+});
+
+it('castling as speech recognition spells it is an idea', () => {
+  for (const text of ['Қазір қысқа рокеровка жасай аламын ба?', 'Қазір қысқа рокіровка жасай аламын ба?']) {
+    expect(IDEA_MOVE_RE.test(text), text).toBe(true);
+  }
 });

@@ -13,7 +13,7 @@ claims the answer check let through because it read none of them:
   * en passant — «взять на проходе нельзя» when exd6 is legal.
 
 Each claim is judged only when it is about the board in front of the student:
-a rule stated in general («рокироваться можно, даже если ладья под боем») or a
+a rule stated in general («рок[иеі]роваться можно, даже если ладья под боем») or a
 hypothetical («если ты сыграешь…») is left alone.
 """
 
@@ -51,34 +51,34 @@ def _negated_before(text: str, start: int) -> bool:
 
 # ── Castling ────────────────────────────────────────────────────────────────
 
-_CASTLE_WORD = r"(?:рокир\w*|castl\w*|O-O(?:-O)?|0-0(?:-0)?)"
+_CASTLE_WORD = r"(?:рок[иеі]р\w*|castl\w*|O-O(?:-O)?|0-0(?:-0)?)"
 _CAN_CASTLE = [
     re.compile(_W + r"(?:можешь|можете|можно|получится|сможешь|сможете|разрешена|возможна|доступна|легальна|"
-               r"допустима|имеешь\s+право)\s+(?:[а-яё]+\s+){0,3}?" + r"(?:сделать\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рокир\w*",
+               r"допустима|имеешь\s+право)\s+(?:[а-яё]+\s+){0,3}?" + r"(?:сделать\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]р\w*",
                re.IGNORECASE),
-    re.compile(_W + r"рокировк\w*\s+(?:в\s+\w+\s+(?:сторону\s+)?)?(?:[а-яё]+\s+){0,2}?(?:возможна|разрешена|доступна|"
+    re.compile(_W + r"рок[иеі]ровк\w*\s+(?:в\s+\w+\s+(?:сторону\s+)?)?(?:[а-яё]+\s+){0,2}?(?:возможна|разрешена|доступна|"
                r"легальна|допустима|законна)" + _E, re.IGNORECASE),
     re.compile(r"\b(?:you|white|black)\s+(?:can|may|are\s+allowed\s+to)\s+(?:still\s+|now\s+)?castle\b"
                r"|\bcastling\s+(?:kingside\s+|queenside\s+|short\s+|long\s+)?is\s+(?:perfectly\s+|fully\s+|totally\s+|"
                r"completely\s+|still\s+)?(?:legal|possible|allowed|available)\b|\byes,?\s+(?:you\s+)?can\s+castle\b",
                re.IGNORECASE),
-    re.compile(r"рокировка\s+жасай\s+ала(?:сың|сыз|ды)|рокировка\s+жасауға\s+болады|рокировка\s+жасауыңа\s+болады",
+    re.compile(r"рок[иеі]ровка\s+жасай\s+ала(?:сың|сыз|ды)|рок[иеі]ровка\s+жасауға\s+болады|рок[иеі]ровка\s+жасауыңа\s+болады",
                re.IGNORECASE),
-    # «рокироваться сейчас можно», «рокировку делать можно»
-    re.compile(_W + r"рокир\w*\s+(?:(?!не\s)[а-яё]+\s+){0,2}?(?:можно|можешь|можете|получится|разрешено|разрешается)" + _E,
+    # «рок[иеі]роваться сейчас можно», «рок[иеі]ровку делать можно»
+    re.compile(_W + r"рок[иеі]р\w*\s+(?:(?!не\s)[а-яё]+\s+){0,2}?(?:можно|можешь|можете|получится|разрешено|разрешается)" + _E,
                re.IGNORECASE),
 ]
 _CANNOT_CASTLE = [
     re.compile(_W + r"(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+сможешь|невозможн\w*|запрещен\w*|"
-               r"не\s+разрешена|не\s+имеешь\s+права)\s+(?:[а-яё]+\s+){0,3}?(?:сделать\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рокир\w*",
+               r"не\s+разрешена|не\s+имеешь\s+права)\s+(?:[а-яё]+\s+){0,3}?(?:сделать\s+)?(?:коротк\w+\s+|длинн\w+\s+)?рок[иеі]р\w*",
                re.IGNORECASE),
-    re.compile(_W + r"рокировк\w*\s+(?:в\s+\w+\s+(?:сторону\s+)?)?(?:[а-яё]+\s+){0,2}?(?:невозможна|запрещена|нельзя|"
+    re.compile(_W + r"рок[иеі]ровк\w*\s+(?:в\s+\w+\s+(?:сторону\s+)?)?(?:[а-яё]+\s+){0,2}?(?:невозможна|запрещена|нельзя|"
                r"не\s+разрешена|недоступна|нелегальна)" + _E, re.IGNORECASE),
     re.compile(r"\b(?:you|white|black)?\s*(?:can'?t|cannot|can\s+not|may\s+not|are\s+not\s+allowed\s+to)\s+castle\b"
                r"|\bcastling\s+(?:kingside\s+|queenside\s+|short\s+|long\s+)?is\s+(?:not\s+(?:legal|possible|allowed|available)|"
                r"illegal|impossible)\b", re.IGNORECASE),
-    re.compile(r"рокировка\s+жасай\s+алмай\w*|рокировка\s+жасауға\s+болмайды", re.IGNORECASE),
-    re.compile(_W + r"рокир\w*\s+(?:[а-яё]+\s+){0,2}?(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+разрешено|"
+    re.compile(r"рок[иеі]ровка\s+жасай\s+алмай\w*|рок[иеі]ровка\s+жасауға\s+болмайды", re.IGNORECASE),
+    re.compile(_W + r"рок[иеі]р\w*\s+(?:[а-яё]+\s+){0,2}?(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|не\s+разрешено|"
                r"невозможно|запрещено)" + _E, re.IGNORECASE),
 ]
 
@@ -106,24 +106,27 @@ def _castling_issues(text: str, ctx) -> list[str]:
     claims = []
     for rx in _CANNOT_CASTLE:
         for m in rx.finditer(text):
-            claims.append((m.start(), False))
+            claims.append((m.start(), False, m.end()))
     for rx in _CAN_CASTLE:
         for m in rx.finditer(text):
             if _negated_before(text, m.start()):
                 continue
-            if any(abs(m.start() - s) < 4 and not can for s, can in claims):
+            if any(abs(m.start() - s) < 4 and not can for s, can, _ in claims):
                 continue
-            claims.append((m.start(), True))
+            claims.append((m.start(), True, m.end()))
     if not claims:
         return []
     claims.sort()
     question = getattr(ctx, "question", "") or ""
     question_about_castling = bool(re.search(_CASTLE_WORD, question, re.IGNORECASE))
     if _GENERAL.search(question) and not _NOW.search(text):
-        return []  # «можно ли рокироваться, если ладья под боем?» — a rule, answered in general
+        return []  # «можно ли рок[иеі]роваться, если ладья под боем?» — a rule, answered in general
     if not (_about_board(text) or (question_about_castling and not _GENERAL.search(text))):
         return []
-    color = _named_side(text)
+    # The side named next to the claim («белые не могут рокироваться»), not anywhere
+    # in the sentence («…нельзя, потому что слон чёрных на c4…» is about White).
+    first = claims[0]
+    color = _named_side(text[max(0, first[0] - 25):first[2]])
     if color is None:
         color = ctx.student_color if ctx.student_color is not None else board.turn
     st = castling_status(board, color)
@@ -131,7 +134,7 @@ def _castling_issues(text: str, ctx) -> list[str]:
     wings = [wing] if wing else ["O-O", "O-O-O"]
     side = "White" if color == chess.WHITE else "Black"
     issues = []
-    for _, can in claims[:1]:
+    for _, can, _end in claims[:1]:
         legal = [w for w in wings if st[w][0]]
         if can and not legal:
             why = "; ".join(f"{w}: {st[w][1]}" for w in wings)
@@ -473,7 +476,7 @@ def _king_issues(text: str, ctx) -> list[str]:
     for m in _IN_CHECK.finditer(text):
         before = text[:m.start()]
         if _GENERAL.search(before) or _negated_before(text, m.start()):
-            continue  # «рокировка невозможна, если король под шахом» — a rule
+            continue  # «рок[иеі]ровка невозможна, если король под шахом» — a rule
         side = (m.group("side") or m.group("side2") or "").lower()
         if side.startswith(("бел", "white")):
             color = chess.WHITE
@@ -499,7 +502,7 @@ _SQ_COLOUR = re.compile(
     rf"|\b(?P<sq2>[a-h][1-8])\s+is\s+an?\s+(?P<c2>light|dark|white|black)\s+square", re.IGNORECASE)
 _BISHOP_COLOUR = re.compile(
     _W + r"слон\w*\s+(?:на\s+)?(?P<sq>[a-h][1-8])\s+(?:—\s+|-\s+)?(?:это\s+|у\s+тебя\s+)?(?P<c>белопольн\w*|чернопольн\w*|ч[её]рнопольн\w*)"
-    r"|(?P<c2>белопольн\w*|чернопольн\w*|ч[её]рнопольн\w*)\s+слон\w*\s+(?:на\s+)?(?P<sq2>[a-h][1-8])"
+    r"|(?P<c2>белопольн\w*|чернопольн\w*|ч[её]рнопольн\w*)\s+слон\w*\s+(?:[а-яё]+\s+){0,2}?(?:на\s+|с\s+)?(?P<sq2>[a-h][1-8])"
     r"|\b(?:the\s+)?bishop\s+on\s+(?P<sq3>[a-h][1-8])\s+is\s+(?:a\s+)?(?P<c3>light|dark)[- ]squared", re.IGNORECASE)
 
 

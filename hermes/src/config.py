@@ -197,6 +197,10 @@ COACH_TOOL_SUBSET_TOPK = int(os.environ.get("COACH_TOOL_SUBSET_TOPK", "7"))
 # it to the persona (SOUL.md): answers of 400–1300 tokens with headings and
 # lists. COACH_ANSWER_STYLE=full brings the long answers back without a deploy.
 COACH_ANSWER_STYLE = os.environ.get("COACH_ANSWER_STYLE", "brief").strip().lower()
+# A direct question («есть мат в два?», «это выигрыш?», «какой первый ход?») gets the
+# answer first, a guiding question only after it (voice bench, 2026-10-06: «Да, ты
+# прав! Видишь какой-нибудь шах?» instead of the mate). 0 = the Socratic persona as before.
+COACH_DIRECT_ANSWERS = os.environ.get("COACH_DIRECT_ANSWERS", "1").strip().lower() not in ("0", "false", "no", "off")
 
 # A provider that goes silent mid-answer: the framework waited 120 s for the next
 # byte (HERMES_STREAM_READ_TIMEOUT) and 180 s for the next chunk
@@ -297,6 +301,9 @@ COACH_ANSWER_FIX_TIMEOUT_S = float(os.environ.get("COACH_ANSWER_FIX_TIMEOUT_S", 
 #   COACH_MOVE_VERIFY_PER_TURN      — recommendations checked per answer (default 2).
 COACH_HYPOTHETICAL_NOTE = _env_flag("COACH_HYPOTHETICAL_NOTE", True)
 COACH_HYPOTHETICAL_MOVETIME_MS = int(os.environ.get("COACH_HYPOTHETICAL_MOVETIME_MS", "300"))
+# The voice twin (/api/coach/voice/idea): the [Idea] line came 0.3–0.8 s after the
+# voice coach had started answering (voice bench, 2026-10-06), so it searches shorter.
+COACH_VOICE_IDEA_MOVETIME_MS = int(os.environ.get("COACH_VOICE_IDEA_MOVETIME_MS", "150"))
 COACH_MOVE_VERIFY = _env_flag("COACH_MOVE_VERIFY", True)
 COACH_MOVE_VERIFY_MOVETIME_MS = int(os.environ.get("COACH_MOVE_VERIFY_MOVETIME_MS", "300"))
 COACH_MOVE_VERIFY_CP = int(os.environ.get("COACH_MOVE_VERIFY_CP", "150"))

@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "17"  # 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "18"  # 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -37,7 +37,7 @@ _prompt_version_mtime: Optional[float] = None
 def _compute_prompt_version(soul_content: str) -> str:
     """First 10 hex chars of sha256(SOUL.md + template version constant)."""
     # The length rule changes the prompt without touching SOUL.md or the template.
-    style = "brief" if answer_style_layer() else ""
+    style = ("brief" if answer_style_layer() else "") + ("direct" if direct_answer_layer() else "")
     digest = hashlib.sha256(
         (soul_content + PROMPT_TEMPLATE_VERSION + style).encode("utf-8")
     ).hexdigest()
@@ -448,6 +448,9 @@ def build_system_prompt(
     brief = answer_style_layer()
     if brief:
         sections.append(brief)
+    direct = direct_answer_layer()
+    if direct:
+        sections.append(direct)
 
     # ── Volatile suffix ────────────────────────────────────────────────
     # Everything below changes turn-to-turn (or day-to-day) and therefore
@@ -541,6 +544,25 @@ BRIEF_ANSWER_LAYER = (
     "options, no recap at the end. When there is more worth saying, offer it in one "
     "short question instead of saying it. Longer only when the student asks for detail."
 )
+
+
+DIRECT_ANSWER_LAYER = (
+    "## A direct question gets a direct answer (MANDATORY, overrides «ask before telling»)\n"
+    "When the student asks you something directly — is there a mate in two, is this a win or a "
+    "draw, which move comes first, can I castle, is this move good, what is X — your FIRST "
+    "sentence answers it: yes or no, and the move or the reason. A question back to the student "
+    "may follow the answer to keep them thinking; it never replaces it. Guide with questions "
+    "only when the student is exploring without asking, and in two cases: a live game against "
+    "you (hints only, as the game rules say) and a puzzle the student is solving right now (a "
+    "hint first, the solution when they ask for it or give up)."
+)
+
+
+def direct_answer_layer() -> str:
+    """The direct-answer rule unless COACH_DIRECT_ANSWERS is off."""
+    from src.config import COACH_DIRECT_ANSWERS
+
+    return DIRECT_ANSWER_LAYER if COACH_DIRECT_ANSWERS else ""
 
 
 def answer_style_layer() -> str:
@@ -956,7 +978,7 @@ def _bare_pawn_move(converted: str, m, board) -> bool:
 
 
 _CASTLING_WORDS = re.compile(
-    r"(?<![а-яa-z])(?:рокир\w*|castl\w*)(?![а-яa-z])", re.IGNORECASE)
+    r"(?<![а-яa-z])(?:рок[иеі]р\w*|castl\w*)(?![а-яa-z])", re.IGNORECASE)  # «рокеровка», «рокіровка»: speech transcripts
 
 
 def _castling_named(message: str) -> list[str]:
@@ -1267,7 +1289,7 @@ VOICE_STYLE_LAYER = (
     "- Refer to squares, pieces, threats, and simple plans out loud (e.g. "
     "\"the knight on d5\", \"the pawn on e4\").\n"
     "- Ask a short question when you're unsure what the player sees, rather than "
-    "lecturing. Lead them to the idea instead of just handing over the move.\n"
+    "lecturing — but when they ask you something directly, answer it first.\n"
     "- Never break character or say things like \"as a chess AI\".\n"
     "- The [Engine] line and the tool results are your private notes: never say "
     "\"the engine says\" and never read out numbers like \"plus zero point four\" — "
@@ -1368,6 +1390,9 @@ def build_voice_prompt(
     # Persona core (shared with text) + spoken delivery overrides.
     sections.append(soul_content.rstrip())
     sections.append(VOICE_STYLE_LAYER)
+    direct = direct_answer_layer()
+    if direct:
+        sections.append(direct)
 
     # Student profile — same context text chat gets (Task 2 parity).
     if user_profile:
