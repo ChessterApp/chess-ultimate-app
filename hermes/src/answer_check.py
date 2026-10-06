@@ -1980,7 +1980,10 @@ _CLAIM_START = re.compile(
     # material and the result are claims too: «ты выигрываешь — у тебя лишняя ладья» (production, 2026-10-05:
     # the start went out before the check found the rook was the opponent's)
     + r"|" + _W + r"(?:лишн\w*|без|впереди|материал\w*|выигрыва\w*|проигрыва\w*|выиграл\w*|проиграл\w*|мат\b|"
-    r"extra|material|winning|losing|ahead|behind|up\s+an?\b|down\s+an?\b|mate)" + _E,
+    r"extra|material|winning|losing|ahead|behind|up\s+an?\b|down\s+an?\b|mate|"
+    # a side's name opens most claims about material and the result ("Black is a pawn up"):
+    # the words before it streamed, the rewrite restated them — «Right now Black is a No — …» (2026-10-06)
+    r"white|black|белые|белых|ч[её]рные|ч[её]рных)" + _E,
     re.IGNORECASE)
 
 

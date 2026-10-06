@@ -696,6 +696,17 @@ class TestGateHoldsMaterialClaims:
         assert any("material:" in i for _, issues, _ in out for i in issues)
         assert shown.strip().endswith("План простой.")  # «Да, » up to the comma may go out, as designed
 
+    def test_a_sides_name_starts_the_held_part(self):
+        ctx = CheckContext.from_fens([self.T3], question="Who is better?")
+        gate = SentenceGate(ctx)
+        text = "Right now Black is a pawn up, so after the trade you are still worse. Count again."
+        out = []
+        for i in range(0, len(text), 5):
+            out += gate.feed(text[i:i + 5])
+        out += gate.flush()
+        shown = "".join(t for t, issues, _ in out if not issues)
+        assert "Black is a" not in shown and any("material:" in i for _, issues, _ in out for i in issues)
+
     def test_the_rewrite_is_told_whose_side_the_student_is(self):
         from src.answer_check import fix_messages
 
