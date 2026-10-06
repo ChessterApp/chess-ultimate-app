@@ -43,6 +43,8 @@ const PROD_VOICE_TOOLS = new Set([
   'list_topics',
   'get_lesson',
   'get_learning_path',
+  'lookup_opening',
+  'review_game',
 ]);
 
 const IN_RATE = 16000;
@@ -74,6 +76,12 @@ function parseArgs(argv) {
     promptSuffix: '',
     engineNote: 'off', // on: feed the [Engine] line before the question, like the browser does
     engineDirective: 'on', // off: the bare [Engine] line (before 01.10)
+    // on: do what the browser hook does around the model (src/hooks/useGeminiLive.ts) —
+    // the student's idea → voice/idea → [Idea]; a concept, opening or puzzle named →
+    // get_topic / lookup_opening / get_puzzle → [Topic]/[Opening]/[Puzzle]; each spoken
+    // sentence → voice/check, the wrong ones read back after the turn → [Check].
+    hook: 'off',
+    hookSrc: path.join(REPO, 'frontend/src/hooks/useGeminiLive.ts'), // the regexes, from this file
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -194,6 +202,66 @@ async function runTool(args, fc, sessionId) {
   return { ok: true, response: { result: body.result ?? body } };
 }
 
+// ── the browser hook, emulated (--hook on) ───────────────────────────────────
+function hookRegexes(src) {
+  const text = fs.readFileSync(src, 'utf8');
+  const get = (name) => {
+    const m = new RegExp(`export const ${name} =\\s*\\n?\\s*\\/(.+)\\/([gimsuy]*);`).exec(text);
+    return m ? new RegExp(m[1], m[2]) : null;
+  };
+  const num = (name, dflt) => {
+    const m = new RegExp(`export const ${name} = (\\d+)`).exec(text);
+    return m ? Number(m[1]) : dflt;
+  };
+  return {
+    concept: get('CONCEPT_QUESTION_RE'), opening: get('OPENING_HINT_RE'), idea: get('IDEA_MOVE_RE'),
+    puzzle: get('PUZZLE_REQUEST_RE'), puzzleTheme: get('PUZZLE_THEME_RE'),
+    checkable: get('SPEECH_CHECKABLE_RE') ?? /[a-h][1-8]/i, sentenceEnd: get('SPEECH_SENTENCE_END_RE') ?? /[.!?…](?:\s|$)/,
+    checksPerTurn: num('SPEECH_CHECK_MAX_PER_TURN', 2), ideaDelay: num('IDEA_LOOKUP_DELAY_MS', 350),
+    conceptDelay: num('CONCEPT_LOOKUP_DELAY_MS', 400),
+  };
+}
+
+const squash = (s) => s.replace(/\s+/g, ' ').trim();
+
+function topicNote(result) {
+  const ex = result?.example;
+  if (!ex?.fen) return null;
+  const side = ex.side_to_move ? `, ${ex.side_to_move} to move` : '';
+  if (ex.source === 'site_lesson') {
+    const where = `the site's lesson «${ex.title ?? ''}»${ex.course ? ` (course «${ex.course}»)` : ''}`;
+    const tasks = ex.tasks && ex.tasks > 1 ? `, which has ${ex.tasks} tasks` : '';
+    if (ex.kind === 'diagram') {
+      return squash(`[Topic] On the student's board is an explanatory diagram of ${where}${tasks} (FEN ${ex.fen}${side}).` +
+        (ex.note ? ` It shows: ${ex.note}.` : '') + (ex.explanation ? ` The lesson says: ${ex.explanation.slice(0, 700)}` : '') +
+        ` Explain «${result.title ?? ''}» in the lesson's own words with this very position, and at the end send the student to the whole lesson and its tasks, naming the lesson and course exactly as here` +
+        (ex.url ? ` (address ${ex.url})` : '') + `. Describe no other example and do not call get_topic for it again.`);
+    }
+    const what = ex.kind === 'task' ? 'the first task' : 'the exercise';
+    const solution = ex.solution?.length ? ex.solution.join(' ') : '';
+    return squash(`[Topic] On the student's board is ${what} of ${where}${tasks}, set as a puzzle (FEN ${ex.fen}${side}). ` +
+      (solution ? `Its solution is ${solution} — do not reveal it unless the student asks or fails twice. ` : '') +
+      `Explain «${result.title ?? ''}» with this very position, then invite the student to solve it, and at the end send them to the whole lesson, naming the lesson and course exactly as here` +
+      (ex.url ? ` (address ${ex.url})` : '') + `. Describe no other example and do not call get_topic for it again.`);
+  }
+  return squash(`[Topic] The knowledge-base example for «${result.title ?? ''}» is now on the student's board: ${ex.title ?? ''} (FEN ${ex.fen}${side}). ` +
+    `${ex.note ?? ''} Explain exactly this position — describe no other example and do not call get_topic for it again.`);
+}
+const openingNote = (r) => (r?.found && r.note ? squash(`[Opening] ${r.note}`) : null);
+function puzzleNote(r) {
+  const first = r?.puzzles?.[0];
+  if (!first?.fen) return null;
+  const side = first.fen.split(' ')[1] === 'b' ? 'Black' : 'White';
+  const solution = Array.isArray(first.solution) ? first.solution.join(' ') : first.solution ?? '';
+  return squash(`[Puzzle] A verified puzzle is now on the student's board: FEN ${first.fen}, ${side} to move${r.theme ? `, theme ${r.theme}` : ''}. ` +
+    `Solution (private, never read it out unless the student gives up): ${solution}. Say whose move it is and what to look for, then let the student try; judge their answer against the solution. Do not call get_puzzle again for this request.`);
+}
+function correctionNote(wrong) {
+  if (!wrong.length) return null;
+  const items = wrong.map((s) => `«${s.text.trim()}» — ${s.issues.join('; ')}`).join(' ');
+  return squash(`[Check] What you just said was checked on the board and is wrong: ${items}. Correct yourself now in one or two short sentences, in the student's language, naming only moves and attacks that are true on the board; do not mention a check or a mistake report.`);
+}
+
 // ── one case ─────────────────────────────────────────────────────────────────
 async function runCase(ai, args, tools, c, pcm) {
   const systemInstruction = await fetchPrompt(args, c, tools.length > 0);
@@ -252,6 +320,58 @@ async function runCase(ai, args, tools, c, pcm) {
   const rel = (t) => (tSpeechEnd === null ? null : Math.round(t - tSpeechEnd));
   const now = () => performance.now();
   const sessionId = `bench-${c.id}-${Date.now()}`;
+  // --hook on: the browser hook's state for this case.
+  const H = args.hook === 'on' ? hookRegexes(args.hookSrc) : null;
+  const hook = { utter: '', conceptDone: false, ideaSent: '', conceptTimer: null, ideaTimer: null, sentence: '',
+    checks: 0, pending: [], wrong: [], corrections: 0, awaitingCorrection: false };
+  rec.hook_notes = [];
+  rec.checked = [];
+  rec.correction_text = '';
+  const hookPost = async (url, body) => {
+    const { status, body: b } = await hermesJson(`${args.hermes}${url}`, { method: 'POST', headers: benchHeaders(args), body: JSON.stringify(body) });
+    return status === 200 ? b : null;
+  };
+  const sendNote = (kind, note, turnComplete = false) => {
+    rec.hook_notes.push({ at: rel(now()), kind, note: note.slice(0, 600) });
+    try { session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete }); } catch { /* closed */ }
+  };
+  const lookUpConcept = async (text) => {
+    if (hook.conceptDone || text.trim().split(/\s+/).length < 2) return;
+    if (H.puzzle?.test(text)) {
+      hook.conceptDone = true;
+      const theme = H.puzzleTheme?.exec(text)?.[1]?.trim();
+      let r = theme ? await hookPost('/api/coach/tool/get_puzzle', { args: { theme, count: 1 }, session_id: sessionId }) : null;
+      if (!puzzleNote(r?.result)) r = await hookPost('/api/coach/tool/get_puzzle', { args: { count: 1 }, session_id: sessionId });
+      const note = puzzleNote(r?.result);
+      if (note) sendNote('Puzzle', note);
+      return;
+    }
+    if (H.opening?.test(text)) {
+      hook.conceptDone = true;
+      const r = await hookPost('/api/coach/tool/lookup_opening', { args: { question: text, fen: c.fen }, session_id: sessionId });
+      const note = openingNote(r?.result);
+      if (note) { sendNote('Opening', note); return; }
+      if (!H.concept?.test(text)) return;
+    } else if (!H.concept?.test(text)) return;
+    hook.conceptDone = true;
+    const r = await hookPost('/api/coach/tool/get_topic', { args: { topic: text }, session_id: sessionId });
+    const note = topicNote(r?.result);
+    if (note && Array.isArray(r?.board_actions) && r.board_actions.length) sendNote('Topic', note);
+  };
+  const lookUpIdea = async (text) => {
+    if (!H.idea?.test(text) || hook.ideaSent === text) return;
+    hook.ideaSent = text;
+    const r = await hookPost('/api/coach/voice/idea', { text, fen: c.fen });
+    if (typeof r?.note === 'string' && r.note) sendNote('Idea', r.note);
+  };
+  const checkSentence = async (sentence) => {
+    if (!H.checkable.test(sentence) || sentence.trim().split(/\s+/).length < 4 || hook.checks >= H.checksPerTurn) return;
+    hook.checks += 1;
+    const r = await hookPost('/api/coach/voice/check', { text: sentence, fen: c.fen, question: hook.utter || undefined });
+    const issues = Array.isArray(r?.issues) ? r.issues : [];
+    rec.checked.push({ sentence, issues });
+    if (issues.length) hook.wrong.push({ text: sentence, issues });
+  };
 
   // A tool turn is over only once the model has spoken AFTER the last tool
   // response and then completed: with NON_BLOCKING calls (gemini-3.8-live's
@@ -326,7 +446,29 @@ async function runCase(ai, args, tools, c, pcm) {
     if (msg.goAway) rec.events.push({ at: rel(t), type: 'go_away' });
     const sc = msg.serverContent;
     if (!sc) return;
-    if (sc.inputTranscription?.text) rec.user_text += sc.inputTranscription.text;
+    if (sc.inputTranscription?.text) {
+      rec.user_text += sc.inputTranscription.text;
+      if (H) {
+        hook.utter += sc.inputTranscription.text;
+        const utterance = hook.utter;
+        clearTimeout(hook.conceptTimer);
+        hook.conceptTimer = setTimeout(() => void lookUpConcept(utterance), H.conceptDelay);
+        if (H.idea?.test(utterance)) {
+          clearTimeout(hook.ideaTimer);
+          hook.ideaTimer = setTimeout(() => void lookUpIdea(utterance), H.ideaDelay);
+        }
+      }
+    }
+    if (H && sc.outputTranscription?.text) {
+      if (hook.awaitingCorrection) rec.correction_text += sc.outputTranscription.text;
+      hook.sentence += sc.outputTranscription.text;
+      let m;
+      while ((m = H.sentenceEnd.exec(hook.sentence))) {
+        const sentence = hook.sentence.slice(0, m.index + 1);
+        hook.sentence = hook.sentence.slice(m.index + m[0].length);
+        if (!hook.awaitingCorrection) hook.pending.push(checkSentence(sentence));
+      }
+    }
     if (sc.outputTranscription?.text) {
       if (rec.first_text_ms === undefined) rec.first_text_ms = rel(t);
       rec.model_text += sc.outputTranscription.text;
@@ -377,6 +519,26 @@ async function runCase(ai, args, tools, c, pcm) {
       segBreak = true;
       rec.events.push({ at: rel(t), type: 'turn_complete' });
       rec.complete_ms = rel(t);
+      if (H) {
+        // The hook reads the wrong sentences back after the turn; the coach corrects
+        // itself in a new short turn — the case ends when that one completes.
+        if (hook.awaitingCorrection) { hook.awaitingCorrection = false; finishIfIdle(); return; }
+        const pending = hook.pending;
+        hook.pending = [];
+        hook.sentence = '';
+        hook.checks = 0;
+        hook.holding = true;
+        await Promise.all(pending);
+        const note = correctionNote(hook.wrong);
+        hook.wrong = [];
+        hook.holding = false;
+        if (note && !done) {
+          hook.awaitingCorrection = true;
+          rec.corrected = true;
+          sendNote('Check', note, true);
+          return;
+        }
+      }
       finishIfIdle();
     }
   };
