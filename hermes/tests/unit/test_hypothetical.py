@@ -178,6 +178,8 @@ class TestProposedMove:
         ("Здесь напрашивается Nd5.", "Nd5"),
         ("My advice: Nd5, and the knight dominates.", "Nd5"),
         ("Nxh4 is the best move here.", "Nxh4"),
+        ("Самое надёжное — закрыть калитку пешкой: d4.", "d4"),  # production, 2026-10-06: «пешкой: g6» hung a rook unchecked
+        ("Push d4 and the centre is yours.", "d4"),
         ("Если сыграть Rg1, ладья нападает на ферзя h4.", "Rg1"),  # a praised hypothetical is advice (2026-10-05)
     ])
     def test_a_recommendation_is_found(self, sentence, expect):

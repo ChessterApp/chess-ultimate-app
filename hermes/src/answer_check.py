@@ -1835,6 +1835,13 @@ def written_line_after(sentence: str, san: str) -> list[str]:
     return []
 
 
+# «закрыть калитку пешкой: g6», «пешку на e4», "the pawn to e4", "push g6": a pawn told
+# to go to the square (production, 2026-10-06: «самое надёжное — пешкой: g6» hung the rook to Qxe5+)
+_PAWN_MOVE_WORDS = re.compile(
+    r"(?:пешк\w*\s*(?:на|в|[:—–-])\s*|пешкой\s+(?:на\s+)?|pawn\s+(?:to|on|onto)\s+|push(?:ing)?\s+(?:the\s+pawn\s+(?:to\s+)?)?|"
+    r"(?:толкн\w+|продвин\w+|двин\w+)\s+(?:пешку\s+)?(?:на\s+)?)$", re.IGNORECASE)  # not «пешка e5 висит»: that names a square
+
+
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     """The move the coach recommends to the side to move on the board on the
     screen: (board, move, san), or None. In notation («Rg1», «Лg1») or in words
@@ -1857,9 +1864,9 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
         for mv in _MOVE.finditer(converted):
             san = mv["san"]
             if san[0] not in "KQRBNO" and not mv["num"] and not mv["bdots"] and "x" not in san \
-                    and not re.search(r"(?:^|\s)(?:пешк\w+\s+на|pawn\s+to)\s+$", converted[: mv.start()]) \
+                    and not _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]) \
                     and not re.fullmatch(r"[\s—–:\-]*(?:здесь\s+|сейчас\s+|here\s+|now\s+)?", converted[: mv.start()]):
-                continue  # «e4» is a square («пешка e5 висит») unless it follows «пешку на», "pawn to", or is the move itself («лучше d4»)
+                continue  # «e4» is a square («пешка e5 висит») unless a pawn is told to go there («пешкой: g6», "pawn to e4») or it is the move itself («лучше d4»)
             try:
                 move = ctx.current.parse_san(san + (mv["check"] or ""))
             except ValueError:
@@ -1890,7 +1897,8 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
     candidates = []
     for mv in _MOVE.finditer(converted):
         san = mv["san"]
-        if san[0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in san:
+        if san[0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in san \
+                or _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]):
             candidates.append((mv.end(), san + (mv["check"] or ""), None))
     try:
         from src.move_words import prose_moves
