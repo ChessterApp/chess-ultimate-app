@@ -1954,6 +1954,9 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     if wrong_language:
         return [wrong_language]
     text = sentence.replace("ё", "е")
+    # Speech transcripts write files in Cyrillic lookalikes: «слон на е2», «пешка с4» (voice, 2026-10-06).
+    text = re.sub(r"(?<![а-яА-Яa-zA-Z])([асеАСЕ])(?=[1-8](?![0-9]))",
+                  lambda m: {"а": "a", "с": "c", "е": "e", "А": "a", "С": "c", "Е": "e"}[m.group(1)], text)
     lowered = text.lower()
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.

@@ -371,3 +371,13 @@ def test_spoken_language(text, lang):
 ])
 def test_no_false_alarm_on_whose_piece(fen, sentence):
     assert check_sentence(sentence, CheckContext.from_fens([fen])) == []
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("Видишь, какой нюанс — слон на е2 чернопольный, а поле превращения на h8 белое.", True),  # Cyrillic «е2»
+    ("Слон на e2 белопольный, а поле h8 чёрное.", False),
+    ("Поле h1 светлое.", False),
+    ("The bishop on e2 is dark-squared.", True),
+])
+def test_square_colours(sentence, caught):
+    assert bool(check_sentence(sentence, CheckContext.from_fens([WRONG_BISHOP]))) is caught

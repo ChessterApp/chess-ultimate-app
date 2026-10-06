@@ -488,11 +488,49 @@ def _king_issues(text: str, ctx) -> list[str]:
     return issues
 
 
+# ── Square colours ──────────────────────────────────────────────────────────
+
+# Forms that describe a square («поле h8 белое», «чёрного цвета»), not a side («белые хотят»).
+_LIGHT_WORDS = r"бел(?:ое|ая|ого\s+цвета)|светл(?:ое|ая|ого\s+цвета)|light|white"
+_DARK_WORDS = r"ч[её]рн(?:ое|ая|ого\s+цвета)|т[её]мн(?:ое|ая|ого\s+цвета)|dark|black"
+_SQ_COLOUR = re.compile(
+    _W + r"(?:поле|клетка|квадрат)\s+(?:превращения\s+)?(?:на\s+)?(?P<sq>[a-h][1-8])\s+(?:—\s+|-\s+)?(?:это\s+|у\s+нас\s+)?"
+    rf"(?P<c>{_LIGHT_WORDS}|{_DARK_WORDS})(?![а-яa-z])"
+    rf"|\b(?P<sq2>[a-h][1-8])\s+is\s+an?\s+(?P<c2>light|dark|white|black)\s+square", re.IGNORECASE)
+_BISHOP_COLOUR = re.compile(
+    _W + r"слон\w*\s+(?:на\s+)?(?P<sq>[a-h][1-8])\s+(?:—\s+|-\s+)?(?:это\s+|у\s+тебя\s+)?(?P<c>белопольн\w*|чернопольн\w*|ч[её]рнопольн\w*)"
+    r"|(?P<c2>белопольн\w*|чернопольн\w*|ч[её]рнопольн\w*)\s+слон\w*\s+(?:на\s+)?(?P<sq2>[a-h][1-8])"
+    r"|\b(?:the\s+)?bishop\s+on\s+(?P<sq3>[a-h][1-8])\s+is\s+(?:a\s+)?(?P<c3>light|dark)[- ]squared", re.IGNORECASE)
+
+
+def _is_light(sq: int) -> bool:
+    return (chess.square_file(sq) + chess.square_rank(sq)) % 2 == 1
+
+
+def _colour_issues(text: str) -> list[str]:
+    """«поле h8 белое», «слон на e2 чернопольный» — the colour of a square is a fact of the board itself."""
+    issues = []
+    for m in _SQ_COLOUR.finditer(text):
+        name = (m.group("sq") or m.group("sq2")).lower()
+        said_light = bool(re.match(_LIGHT_WORDS, (m.group("c") or m.group("c2")), re.IGNORECASE))
+        if _negated_before(text, m.start("c") if m.group("c") else m.start("c2")):
+            continue
+        if said_light != _is_light(chess.parse_square(name)):
+            issues.append(f"{name} is a {'light' if _is_light(chess.parse_square(name)) else 'dark'} square")
+    for m in _BISHOP_COLOUR.finditer(text):
+        name = (m.group("sq") or m.group("sq2") or m.group("sq3")).lower()
+        word = (m.group("c") or m.group("c2") or m.group("c3")).lower()
+        said_light = word.startswith(("бел", "light"))
+        if said_light != _is_light(chess.parse_square(name)):
+            issues.append(f"a bishop on {name} is {'light' if _is_light(chess.parse_square(name)) else 'dark'}-squared")
+    return issues
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
-                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx))
+                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []
