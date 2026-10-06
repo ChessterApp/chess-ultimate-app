@@ -57,3 +57,30 @@ def test_prose_around_the_fen_is_ignored():
 def test_garbage_is_none():
     assert position_from_reply("I cannot see a chessboard here.") is None
     assert position_from_reply("8/8/8/8/8/8/8/8 w") is None  # no kings
+
+
+def test_a_misread_reply_is_asked_again(monkeypatch):
+    """Two black kings (a white back rank read as black) is not a position: one more try."""
+    import api.photo_to_fen as pf
+    from flask import Flask
+
+    replies = iter([f"{PLACEMENT[:-8]}r2Q1rk1 ?", f"{PLACEMENT} ?"])
+
+    class Resp:
+        ok = True
+        status_code = 200
+
+        def __init__(self, text):
+            self._text = text
+
+        def json(self):
+            return {"choices": [{"message": {"content": self._text}}]}
+
+    calls = []
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test")
+    monkeypatch.setattr(pf.requests, "post", lambda *a, **k: calls.append(1) or Resp(next(replies)))
+    app = Flask(__name__)
+    app.register_blueprint(pf.photo_fen_bp)
+    res = app.test_client().post("/api/convert-image", json={"image": "aGVsbG8="})
+    assert res.status_code == 200 and len(calls) == 2
+    assert res.get_json()["fen"].startswith(PLACEMENT + " w")

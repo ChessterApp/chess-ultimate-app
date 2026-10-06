@@ -25,6 +25,7 @@ photo_fen_bp = Blueprint('photo_fen', __name__, url_prefix='/api')
 # on 2026-10-06); "minimal" reads the same position in 14–21 s. Empty → the
 # model's default.
 PHOTO_FEN_REASONING = os.getenv("PHOTO_FEN_REASONING", "minimal").strip()
+PHOTO_FEN_ATTEMPTS = max(1, int(os.getenv("PHOTO_FEN_ATTEMPTS", "2")))
 
 PHOTO_FEN_PROMPT = (
     "Read the chess position in this image and write it as FEN.\n"
@@ -122,55 +123,58 @@ def convert_image_to_fen():
             }
         ]
 
-        # Call OpenRouter API with vision model
-        response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {openrouter_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://chessempire.com",
-                "X-Title": "Chess Empire - Photo to FEN"
-            },
-            json={
-                "model": PHOTO_FEN_MODEL,
-                "messages": prompt,
-                **({"reasoning": {"effort": PHOTO_FEN_REASONING}} if PHOTO_FEN_REASONING else {}),
-            },
-            timeout=60
-        )
-
-        response_data = response.json()
-
-        # Log usage for monitoring and record it in the token_usage ledger
-        if response_data.get('usage'):
-            logger.info(f"Photo-to-FEN token usage: {response_data['usage']}")
-            record_openrouter_usage(
-                response_data,
-                model=PHOTO_FEN_MODEL,
-                surface="vision",
-                user_id=request.headers.get("X-User-Id"),
+        # A reply that is not a legal position (a misread piece: two kings of one
+        # colour) is asked once more — the model reads the same photo right most
+        # of the time (2026-10-06: 1 failure in 8 tries on one board).
+        fen_response = None
+        for attempt in range(PHOTO_FEN_ATTEMPTS):
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://chessempire.com",
+                    "X-Title": "Chess Empire - Photo to FEN"
+                },
+                json={
+                    "model": PHOTO_FEN_MODEL,
+                    "messages": prompt,
+                    **({"reasoning": {"effort": PHOTO_FEN_REASONING}} if PHOTO_FEN_REASONING else {}),
+                },
+                timeout=60
             )
 
-        if response.ok and response_data.get('choices'):
+            response_data = response.json()
+
+            # Log usage for monitoring and record it in the token_usage ledger
+            if response_data.get('usage'):
+                logger.info(f"Photo-to-FEN token usage: {response_data['usage']}")
+                record_openrouter_usage(
+                    response_data,
+                    model=PHOTO_FEN_MODEL,
+                    surface="vision",
+                    user_id=request.headers.get("X-User-Id"),
+                )
+
+            if not (response.ok and response_data.get('choices')):
+                error_msg = response_data.get('error', {}).get('message', 'Failed to analyze image')
+                logger.error(f"OpenRouter API error: {error_msg}")
+                return jsonify({'error': error_msg}), response.status_code or 500
+
             fen_response = response_data['choices'][0]['message']['content'].strip()
-            logger.info(f"Raw FEN response from model: {fen_response}")
+            logger.info(f"Raw FEN response from model (attempt {attempt + 1}): {fen_response}")
 
             parsed = position_from_reply(fen_response)
             if parsed:
                 fen, turn_known = parsed
                 logger.info(f"Returning FEN: {fen} (turn known: {turn_known})")
                 return jsonify({'fen': fen, 'turn_known': turn_known})
+            logger.warning(f"Invalid FEN response (attempt {attempt + 1}): {fen_response}")
 
-            # If still no valid FEN, return error with response
-            logger.warning(f"Invalid FEN response: {fen_response}")
-            return jsonify({
-                'error': 'Could not extract valid FEN from image analysis',
-                'raw_response': fen_response
-            }), 500
-        else:
-            error_msg = response_data.get('error', {}).get('message', 'Failed to analyze image')
-            logger.error(f"OpenRouter API error: {error_msg}")
-            return jsonify({'error': error_msg}), response.status_code or 500
+        return jsonify({
+            'error': 'Could not extract valid FEN from image analysis',
+            'raw_response': fen_response
+        }), 500
 
     except requests.Timeout:
         logger.error("OpenRouter API timeout")
