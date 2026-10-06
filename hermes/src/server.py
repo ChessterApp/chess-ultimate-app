@@ -641,6 +641,33 @@ def _served_model(agent, routed_model: str) -> str:
 _engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note")
 
 
+_POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
+# The student asks about the position in front of them…
+_ABOUT_POSITION = re.compile(
+    r"(?<![а-яa-z])(?:ход\w*|реши\w*|решени\w*|задач\w*|лучш\w*|играть|сыграть|сыграю|оцени\w*|позици\w*|"
+    r"здесь|тут|в\s+этой\s+позиции|move|moves|solve|solution|puzzle|best|play|position|here|жүріс\w*|есеп\w*|осы\s+жерде)"
+    r"(?![а-яa-z])", re.IGNORECASE)
+# …unless they ask for something new on the board (an example, a puzzle, a line).
+_WANTS_NEW_BOARD = re.compile(
+    r"(?<![а-яa-z])(?:покажи|пример\w*|что\s+такое|объясни\s+тем\w*|загрузи|поставь|расставь|дай\s+(?:мне\s+)?(?:ещё\s+|новую\s+)?задач\w*|"
+    r"другую\s+задач\w*|следующ\w+\s+задач\w*|show\s+me|example|load|set\s+up|give\s+me\s+a(?:nother)?\s+puzzle|"
+    r"what\s+is\s+an?\b)(?![а-яa-z])", re.IGNORECASE)
+
+
+def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> Optional[str]:
+    """The position to keep on the board this turn, or None."""
+    if not fen:
+        return None
+    if live_game:
+        return fen
+    if not has_fen:
+        return None
+    text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
+    if _ABOUT_POSITION.search(text) and not _WANTS_NEW_BOARD.search(text):
+        return fen
+    return None
+
+
 def _parse_white_eval(text) -> Optional[float]:
     """'+0.35' → 0.35; 'mate in 3 for Black' → -100; None when there is no line."""
     if not text:
@@ -1588,6 +1615,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # message names («а если Rg1?», «поставить ладью на g1») are played and
     # looked at by the engine now, beside the engine line — in a live game too,
     # since the student asks about their own move there.
+    # The student's position stays on the board this turn when they ask about it
+    # (or a game is on): get_topic / get_lesson / get_puzzle explain without
+    # replacing it (src/sessions.board_lock_for). Production, 2026-10-06: a
+    # lesson's puzzle was replaced by a topic example and the coach solved the
+    # example — «Qg4+» on a board where the queen could not reach g4.
+    session.lock_board(_board_lock_for_turn(body.message, bool(body.fen), live_game, session.board_state))
     named_moves: list = []
     hypo_future = None
     hypo_state = {"used": False, "ms": None, "timed_out": False, "moves": 0}
@@ -1903,6 +1936,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # of an answer used to reach the student only when the whole turn was
             # over, seconds after the text that talks about them.
             actions = tool_board_actions(result)
+            if actions and session.board_lock:
+                # The student's position stays: no tool replaces it this turn.
+                actions = [a for a in actions if not (isinstance(a, dict) and a.get("type") in _POSITION_ACTIONS)]
             if actions:
                 loop.call_soon_threadsafe(queue.put_nowait, ("board_actions", actions))
             # What the tool put on the board (a topic example, a puzzle, a game)
@@ -1980,6 +2016,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
             finally:
+                session.lock_board(None)  # the tools of later calls (voice, the next turn) are free again
                 loop.call_soon_threadsafe(queue.put_nowait, sentinel)
 
         def _run_fix(shown: str, wrong: str, issues: list):

@@ -773,12 +773,18 @@ def _handle_get_lesson(args: dict, **kwargs) -> str:
         user_id = resolve_user_id(args, kwargs)
     except Exception:
         user_id = None
+    from src.sessions import BOARD_KEPT_NOTE, board_lock_for
+
+    locked = board_lock_for(kwargs)
     result = get_lesson(
         lesson=str(args.get("lesson") or ""),
         user_id=user_id,
         locale=args.get("locale") or "ru",
-        show=args.get("show") is not False,
+        show=args.get("show") is not False and not locked,
     )
+    if locked and isinstance(result, dict):
+        result.pop("board_actions", None)
+        result["board_hint"] = BOARD_KEPT_NOTE
     return json.dumps(result, ensure_ascii=False)
 
 

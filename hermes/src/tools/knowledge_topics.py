@@ -569,8 +569,15 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
         user_id = resolve_user_id(args, kwargs) or None
     except Exception:
         user_id = None
-    return json.dumps(get_topic(str(args.get("topic") or ""), locale=args.get("locale") or "ru",
-                                user_id=user_id, show=args.get("show") is not False), ensure_ascii=False)
+    from src.sessions import BOARD_KEPT_NOTE, board_lock_for
+
+    locked = board_lock_for(kwargs)
+    result = get_topic(str(args.get("topic") or ""), locale=args.get("locale") or "ru",
+                       user_id=user_id, show=args.get("show") is not False and not locked)
+    if locked and isinstance(result, dict):
+        result.pop("board_actions", None)
+        result["board_hint"] = BOARD_KEPT_NOTE
+    return json.dumps(result, ensure_ascii=False)
 
 
 registry.register(

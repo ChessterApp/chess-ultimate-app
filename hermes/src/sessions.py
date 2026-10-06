@@ -39,6 +39,18 @@ class Session(BaseModel):
 
     # Optional write-through backend. Not part of the serialized model.
     _persistence: Optional[SessionPersistence] = PrivateAttr(default=None)
+    # The student's position this turn when it must stay on the board (they ask
+    # about it, or a game is on): tools then explain without replacing it — on
+    # production (2026-10-06) get_topic/get_lesson put an example over the
+    # student's puzzle and the coach solved the example. Not serialized.
+    _board_lock: Optional[str] = PrivateAttr(default=None)
+
+    def lock_board(self, fen: Optional[str]) -> None:
+        self._board_lock = fen
+
+    @property
+    def board_lock(self) -> Optional[str]:
+        return self._board_lock
 
     # ── boards ──────────────────────────────────────────────────────
     def ensure_board(self) -> Board:
@@ -282,3 +294,22 @@ class SessionStore:
 
 # Global session store instance
 session_store = SessionStore()
+
+
+BOARD_KEPT_NOTE = (
+    "The student's own position stays on the board this turn (they asked about it): nothing was put on the "
+    "board. Do not describe the example or lesson position as the board, and do not solve it instead — answer "
+    "about the student's position; name the lesson by its link if it helps."
+)
+
+
+def board_lock_for(kwargs: Optional[dict]) -> Optional[str]:
+    """The locked position of the coach session a tool runs in (kwargs ``session_id``), else None."""
+    session_id = (kwargs or {}).get("session_id")
+    if not session_id:
+        return None
+    try:
+        session = session_store.get(str(session_id))
+    except Exception:  # noqa: BLE001
+        return None
+    return getattr(session, "board_lock", None) if session is not None else None

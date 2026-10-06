@@ -274,3 +274,41 @@ def test_no_lesson_by_one_shared_word(monkeypatch):
     _programme_fixture(monkeypatch)
     assert not kt.get_topic("испанская партия", show=False).get("site_lessons")
     assert not kt.get_topic("Лусена", show=False).get("site_lessons")  # no «Стоимость фигур» via «мост»
+
+
+# ── The student's position stays on the board ──────────────────────────────
+
+@pytest.mark.parametrize("message,has_fen,live,locked", [
+    ("Задача из урока «Пример 5» (курс «Продвинутая тактика»). Какой здесь первый ход и почему?", True, False, True),
+    ("Как здесь выиграть? Объясни план.", True, False, True),
+    ("Какой здесь лучший ход?", True, False, True),
+    ("Покажи пример связки", True, False, False),
+    ("Что такое связка?", True, False, False),
+    ("Дай задачу на вилку", True, False, False),
+    ("Какой здесь лучший ход?", False, False, False),
+    ("Объясни связку", False, True, True),
+])
+def test_board_lock_rule(message, has_fen, live, locked):
+    from src.server import _board_lock_for_turn
+
+    assert bool(_board_lock_for_turn(message, has_fen, live, chess.STARTING_FEN)) is locked
+
+
+def test_locked_tools_keep_the_board(monkeypatch):
+    import json
+
+    from src.sessions import session_store
+    from src.tools import knowledge_topics as kt
+    from src.tools import learning_path as lp
+
+    _programme_fixture(monkeypatch)
+    monkeypatch.setattr(lp, "get_lesson", lambda **kw: {"title": "x", "board_actions": [{"type": "set_puzzle", "fen": "8/8/8/8/8/8/8/K6k w - - 0 1"}]})
+    session = session_store.create(user_id="lock-test")
+    session.lock_board(chess.STARTING_FEN)
+    out = json.loads(kt._handle_get_topic({"topic": "связка"}, session_id=session.id))
+    assert "board_actions" not in out and "stays on the board" in out["board_hint"]
+    out = json.loads(lp._handle_get_lesson({"lesson": "Связка"}, session_id=session.id))
+    assert "board_actions" not in out and "stays on the board" in out["board_hint"]
+    session.lock_board(None)
+    out = json.loads(kt._handle_get_topic({"topic": "связка"}, session_id=session.id))
+    assert "stays on the board" not in (out.get("board_hint") or "")

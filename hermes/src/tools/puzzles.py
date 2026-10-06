@@ -226,6 +226,11 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         user_id=user_id,
         locale=args.get("locale") or "ru",
     )
+    from src.sessions import BOARD_KEPT_NOTE, board_lock_for
+
+    if board_lock_for(kwargs) and isinstance(result, dict):
+        result.pop("board_actions", None)
+        result["board_hint"] = BOARD_KEPT_NOTE
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

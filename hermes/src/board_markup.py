@@ -38,8 +38,10 @@ _ARROW = re.compile(
 _SQUARE = re.compile(r"\b([a-h][1-8])\b", re.IGNORECASE)
 # Words after which the next thing is a move: «лучший ход [[…]]», «сыграй [[…]]», «начни с шаха [[…]]».
 _EXPECTS_MOVE = re.compile(
-    r"(?<![а-яa-z])(?:ход|ходом|ходы|сыграй|сыграть|играй|играть|сделай|начни\s+с\s+шаха|начни\s+с|шах|шахом|"
-    r"ответ|ответь|отвечай|продолжение|продолжай|move|moves|play|playing|plays|reply|answer|with|is)$", re.IGNORECASE)
+    r"(?<![а-яa-z])(?:ход|ходом|ходы|сыграй|сыграть|играй|играть|играешь|играем|играет|сделай|начни\s+с\s+шаха|"
+    r"(?:начни|начинаем|начнём|начнем|начинай|начать|начинается)\s+с|шах|шахом|"
+    r"ответ|ответь|отвечай|продолжение|продолжай|move|moves|play|playing|plays|reply|answer|with|is|"
+    r"start\s+with|begin\s+with|you\s+play)$", re.IGNORECASE)
 # An opened "[[" that has not closed within this many characters is not a mark.
 MAX_MARK_CHARS = 400
 
