@@ -162,9 +162,16 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
             lines.append(f"- {san}{words} ({side}): checkmate — the game ends.")
             items.append({"san": san, "mate": True})
             continue
-        if after.is_stalemate() or after.is_insufficient_material():
-            lines.append(f"- {san}{words} ({side}): the game is drawn at once (stalemate or no material).")
-            items.append({"san": san, "draw": True})
+        if after.is_stalemate():
+            other = "Black" if mover == chess.WHITE else "White"
+            lines.append(f"- {san}{words} ({side}): STALEMATE — {other} has no legal move and is not in check, so the "
+                         f"game is drawn at once. It is not mate: the king cannot go anywhere, every square around it is "
+                         f"covered. Tell the student plainly that this move throws the win away.")
+            items.append({"san": san, "draw": True, "headline": f"{san} is stalemate — an immediate draw"})
+            continue
+        if after.is_insufficient_material():
+            lines.append(f"- {san}{words} ({side}): the game is drawn at once (no material left to mate).")
+            items.append({"san": san, "draw": True, "headline": f"{san} leaves no material to mate — a draw"})
             continue
         facts = moved_piece_facts(board, after, move)
         after_pawns, reply, reply_line = None, None, []
@@ -184,6 +191,7 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
         parts = [f"- {san}{words} ({side}'s move)."]
         if after_pawns is not None:
             parts.append(f"Evaluation after it: {_fmt(after_pawns)} (before the move: {_fmt(before)}) — {verdict}.")
+        why = None
         if reply:
             parts.append(f"The opponent's best reply: {reply}" + (f" (line {' '.join(reply_line)})" if len(reply_line) > 1 else "") + ".")
             why = _reply_point(after, reply)
@@ -194,8 +202,15 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
         if reveal_best and best_san and best_san[0] != san and loss is not None and loss >= INACCURACY:
             parts.append(f"The engine prefers {best_san[0]} instead.")
         lines.append(" ".join(parts))
+        headline = None
+        if loss is not None and loss >= INACCURACY or (verdict and "blunder" in verdict):
+            headline = f"{san} is {verdict.split(' — ')[0] if verdict else 'a mistake'}"
+            if why and "TRAPPED" in why:
+                headline += " — " + why.split("; ")[-1].replace("Why: ", "").rstrip(".")
+            elif reply:
+                headline += f" — the reply {reply} punishes it"
         items.append({"san": san, "after": after.fen(), "before": before, "eval": after_pawns, "loss": loss,
-                      "reply": reply, "facts": facts})
+                      "reply": reply, "facts": facts, "headline": headline})
     if not lines:
         return None
     return {"note": "\n".join(lines), "fens": fens, "items": items}

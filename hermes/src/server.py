@@ -668,6 +668,22 @@ def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Opti
     return None
 
 
+def _spoken_language(text: Optional[str]) -> Optional[str]:
+    """'ru' or 'kk' when the student's words are clearly Cyrillic, 'en' when clearly English, else None.
+
+    Speech recognition sometimes writes spoken Kazakh as Uzbek in Latin letters
+    (voice bench, 2026-10-06): Latin text that is not plain English decides nothing."""
+    t = text or ""
+    cyr = len(re.findall(r"[а-яёәғқңөұүһі]", t, re.IGNORECASE))
+    lat = len(re.findall(r"[a-z]", re.sub(r"(?<![a-z])[a-h][1-8](?![0-9])", " ", t, flags=re.IGNORECASE), re.IGNORECASE))
+    if cyr >= 6 and cyr > 2 * lat:
+        return "kk" if re.search(r"[әғқңөұүһі]", t, re.IGNORECASE) else "ru"
+    english = len(re.findall(r"(?<![a-z])(?:the|is|can|i|my|what|how|it|to|a|now|here|this|move|should|castle|play)(?![a-z])", t, re.IGNORECASE))
+    if lat >= 6 and cyr == 0 and english >= 2:
+        return "en"
+    return None
+
+
 def _parse_white_eval(text) -> Optional[float]:
     """'+0.35' → 0.35; 'mate in 3 for Black' → -100; None when there is no line."""
     if not text:
@@ -3164,6 +3180,9 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                     ctx.engine_eval = 0.0 if ctx.tablebase == "draw" else (20.0 if ctx.tablebase.startswith("White") else -20.0)
             except Exception:  # noqa: BLE001
                 pass
+        spoken = _spoken_language(body.question)
+        if spoken in ("ru", "kk"):
+            ctx.language = spoken  # an answer in Latin letters to a Russian question is read back
         issues = check_sentence(body.text[:1000], ctx)
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
@@ -3207,7 +3226,7 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
 
             hypo = hypothetical_notes(body.fen, legal, config.COACH_HYPOTHETICAL_MOVETIME_MS, not body.live_game)
         return {
-            "note": voice_idea_note(moves, hypo, bool(body.live_game)),
+            "note": voice_idea_note(moves, hypo, bool(body.live_game), language=_spoken_language(body.text)),
             "moves": [{"san": q["san"], "legal": q["legal"], "verdict": q["verdict"]} for q in moves],
             "fens": [q["after_fen"] for q in legal if q.get("after_fen")],
         }

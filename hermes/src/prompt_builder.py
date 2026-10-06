@@ -960,8 +960,15 @@ _CASTLING_WORDS = re.compile(
 
 
 def _castling_named(message: str) -> list[str]:
-    """«рокироваться», «короткую рокировку», "castle queenside": the wings asked about."""
-    if not _CASTLING_WORDS.search(message or ""):
+    """«рокироваться», «короткую рокировку», "castle queenside": the wings asked about.
+
+    A rule asked in general — «можно ли рокироваться, если ладья под боем?», the
+    condition after the castling word — names no move (voice, 2026-10-06: the
+    [Idea] line then said castling is illegal on the starting board)."""
+    m = _CASTLING_WORDS.search(message or "")
+    if not m:
+        return []
+    if re.search(r"(?<![а-яa-z])(?:если|когда|пока|даже|if|when|unless|even|егер)(?![а-яa-z])", message[m.end():], re.IGNORECASE):
         return []
     low = message.lower()
     if re.search(r"длинн\w*|ферзев\w*|queenside|long|ұзын", low):
@@ -1056,7 +1063,8 @@ def live_game_block(note: str) -> str:
     )
 
 
-def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) -> Optional[str]:
+def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False,
+                    language: Optional[str] = None) -> Optional[str]:
     """The «[Idea] …» line for the live voice session: the move the student
     named, played on the board and judged by the engine (src/hypothetical.py),
     in the shape of the other voice lines ([Engine], [Topic], [Check])."""
@@ -1067,6 +1075,11 @@ def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) 
         words = f" («{item['words']}»)" if item.get("source") == "prose" and item.get("words") else ""
         named.append(f"{item['san']}{words} — {item['verdict']}")
     parts = ["[Idea] The student names a move: " + "; ".join(named) + "."]
+    # The verdict first: the voice model skimmed past «the bishop a4 is TRAPPED»
+    # and «stalemate» in the middle of the line (voice bench, 2026-10-06).
+    heads = [i["headline"] for i in (hypo or {}).get("items", []) if i.get("headline")]
+    if heads:
+        parts.append("VERDICT: " + "; ".join(heads) + ". Say this first, in your own words.")
     if hypo and hypo.get("note"):
         lines = [ln.lstrip("- ").strip() for ln in hypo["note"].splitlines() if ln.strip()]
         parts.append("Played on the board and analysed by Stockfish: " + " ".join(lines))
@@ -1077,6 +1090,10 @@ def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False) 
     )
     if live_game:
         parts.append("This is a live game: do not name a better move instead — say what happens after the idea.")
+    if language:
+        # The line is English; the voice coach once answered a Russian question in
+        # English right after it (voice bench, 2026-10-06).
+        parts.append(f"Answer in {LOCALE_TO_LANGUAGE.get(language, 'Russian')}, the language the student spoke.")
     return " ".join(parts)
 
 

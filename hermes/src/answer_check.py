@@ -282,6 +282,7 @@ class CheckContext:
     engine_mate: Optional[int] = None
     # The student's message: «можно мне рокироваться?» makes «нет, нельзя» a claim about this board.
     question: str = ""
+    question_raw: str = ""
     # The square the previous sentence was about («a4 isn't hanging. It's
     # attacked by…»): what "it" means when a sentence opens with it. The
     # object the sentence's claims were about, else its first square.
@@ -297,6 +298,7 @@ class CheckContext:
         ctx = cls()
         ctx.student_color = student_color
         ctx.question = (question or "").replace("ё", "е").lower()
+        ctx.question_raw = question or ""
         ctx.add(chess.STARTING_FEN)
         for fen in fens:
             ctx.add(fen)
@@ -1386,17 +1388,26 @@ def _presence_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if ptype is None:
             continue
         own = m["own"].lower().replace("ё", "е")
-        color = student if own.startswith(("тво", "ваш", "your")) else not student
+        # «наш король», "our rook": the coach talking with the student as "we" (voice, 2026-10-06).
+        color = student if own.startswith(("тво", "ваш", "your", "наш", "our")) else not student
+        if re.search(r"(?:пол[еяю]|клетк\w*)\s+(?:превращени\w+\s+)?$|promotion\s+square\s+(?:of\s+)?$", text[max(0, m.start() - 30):m.start()]):
+            continue  # «поле превращения твоей пешки на h8» names a square, not a pawn there
         sq = chess.parse_square(m["a"] or m["a2"])
         if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype and pc.color == color for b in ctx.boards):
             continue
         there = ctx.current.piece_at(sq)
         whose = "the student's" if color == student else "the coach's"
         sq_name = m["a"] or m["a2"]
+        # Say what IS there: a correction told only «no pawn of yours on d5» put
+        # «your knight on d5» in its place — the knight was the opponent's (voice, 2026-10-06).
+        side = f"the student is {'White' if student else 'Black'}"
         if there is not None and there.piece_type == ptype:
-            issues.append(f"the {_NAMES[ptype]} on {sq_name} is {'White' if there.color else 'Black'}'s, not {whose}")
+            issues.append(f"the {_NAMES[ptype]} on {sq_name} is {'White' if there.color else 'Black'}'s, not {whose} ({side})")
+        elif there is not None:
+            issues.append(f"there is no {_NAMES[ptype]} of {whose} on {sq_name}: the {'white' if there.color else 'black'} "
+                          f"{_NAMES[there.piece_type]} stands there ({side})")
         else:
-            issues.append(f"there is no {_NAMES[ptype]} of {whose} on {sq_name}")
+            issues.append(f"there is no {_NAMES[ptype]} of {whose} on {sq_name}: the square is empty ({side})")
     # No check of «конь на f7» without an owner: the coach names pieces of lines
     # it explains («удар конём на f7: конь на f7 бьёт ферзя d8») that are on no
     # board of the turn.

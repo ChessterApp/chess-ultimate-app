@@ -312,3 +312,62 @@ def test_locked_tools_keep_the_board(monkeypatch):
     session.lock_board(None)
     out = json.loads(kt._handle_get_topic({"topic": "связка"}, session_id=session.id))
     assert "stays on the board" not in (out.get("board_hint") or "")
+
+
+# ── Voice (2026-10-06 voice bench): the king, check, files, whose piece ────
+
+@pytest.mark.parametrize("fen,sentence,question", [
+    ("k7/8/3Q4/8/8/8/8/2K5 w - - 0 1", "Если ты пойдешь ферзем на b6, король может просто пойти на a7.",
+     "Хочу поставить ферзя на b6, чтобы запереть короля. Хорошо?"),
+    (NO_RIGHTS, "Сейчас рокировка невозможна, потому что твой король находится под шахом.", "Можно рокироваться?"),
+    (PASSED, "Смотри, полностью открытых вертикалей тут нет, но вертикали 'c' и 'e' наполовину свободны.", "Какие вертикали открыты?"),
+])
+def test_voice_claims_are_caught(fen, sentence, question):
+    assert check_sentence(sentence, CheckContext.from_fens([fen], question=question))
+
+
+@pytest.mark.parametrize("fen,sentence,question", [
+    ("k7/8/8/8/8/8/1Q6/2K5 b - - 0 1", "Король может пойти на a7.", "Куда пойдёт король?"),
+    (NO_RIGHTS, "Рокироваться нельзя, если король под шахом.", "Можно ли рокироваться под шахом?"),
+    ("4k3/8/8/8/8/8/8/4K2r w - - 0 1", "Твой король под шахом!", "Что делать?"),
+])
+def test_true_voice_claims_pass(fen, sentence, question):
+    assert check_sentence(sentence, CheckContext.from_fens([fen], question=question)) == []
+
+
+def test_whose_piece_issue_names_the_real_occupant():
+    issues = check_sentence("Зато ваша пешка на d5 под ударом.", CheckContext.from_fens([NOMATE], question="Тут есть мат?"))
+    assert issues and "the black knight stands there" in issues[0]
+
+
+def test_idea_note_leads_with_the_verdict(monkeypatch):
+    from src import prompt_builder as pb
+
+    moves = pb.question_moves("Хочу поставить ферзя на b6", "k7/8/3Q4/8/8/8/8/2K5 w - - 0 1")
+    hypo = {"note": "- Qb6 (White): STALEMATE", "items": [{"san": "Qb6", "headline": "Qb6 is stalemate — an immediate draw"}]}
+    note = pb.voice_idea_note(moves, hypo)
+    assert note.index("VERDICT: Qb6 is stalemate") < note.index("Played on the board")
+
+
+def test_a_general_castling_rule_names_no_move():
+    assert question_moves("Можно ли рокироваться, если моя ладья под боем?", chess.STARTING_FEN) == []
+    assert question_moves("Can I castle if my rook is attacked?", chess.STARTING_FEN) == []
+    assert [m["san"] for m in question_moves("А если рокироваться?", OK_CASTLE)] == ["O-O", "O-O-O"]
+
+
+@pytest.mark.parametrize("text,lang", [
+    ("А если пешка пойдёт на b3?", "ru"), ("Can I castle kingside now?", "en"),
+    ("Hozir qisqa roliklar yasay olamanmi?", None), ("Қазір қысқа рокировка жасай аламын ба?", "kk"),
+])
+def test_spoken_language(text, lang):
+    from src.server import _spoken_language
+
+    assert _spoken_language(text) == lang
+
+
+@pytest.mark.parametrize("fen,sentence", [
+    (WRONG_BISHOP, "Видишь, поле превращения твоей пешки на h8 чёрного цвета, а твой слон белопольный."),
+    (LUCENA, "Сейчас наш король на b8 и он мешает своей же пешке."),
+])
+def test_no_false_alarm_on_whose_piece(fen, sentence):
+    assert check_sentence(sentence, CheckContext.from_fens([fen])) == []

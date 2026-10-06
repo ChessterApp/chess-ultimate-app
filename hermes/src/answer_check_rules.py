@@ -263,9 +263,9 @@ def _mate_in_issues(text: str, ctx) -> list[str]:
 # ── Files and passed pawns ──────────────────────────────────────────────────
 
 _FILE_CLAIMS = [
-    re.compile(_W + r"(?:вертикал\w*|лини\w*)\s+\**(?P<f>[a-h])\**[\s,]+"
+    re.compile(_W + r"(?:вертикал\w*|лини\w*)\s+[\*'\"«]*(?P<f>[a-h])[\*'\"»]*[\s,]+"
                r"(?:(?!лини|вертикал|открыт|полуоткрыт|закрыт|file)[а-яёa-h0-9()*]+[\s,]+){0,9}?(?:—\s+|-\s+)?"
-               r"(?:(?:это\s+)?(?:сейчас\s+|уже\s+|полностью\s+)?)(?P<k>полуоткрыт\w*|открыт\w*|закрыт\w*)", re.IGNORECASE),
+               r"(?:(?:это\s+)?(?:сейчас\s+|уже\s+|полностью\s+)?)(?P<k>полуоткрыт\w*|наполовину\s+(?:свободн|открыт)\w*|открыт\w*|закрыт\w*)", re.IGNORECASE),
     re.compile(_W + r"(?P<k>полуоткрыт\w*|открыт\w*)\s+(?:вертикал\w*|лини\w*)\s+\**(?P<f>[a-h])\**" + _E, re.IGNORECASE),
     re.compile(r"\b(?:the\s+)?\**(?P<f>[a-h])\**-file\s+(?:is\s+)?(?:now\s+|fully\s+|still\s+)?(?P<k>half-open|semi-open|open|closed)\b",
                re.IGNORECASE),
@@ -295,7 +295,7 @@ def _file_issues(text: str, ctx) -> list[str]:
             k = m["k"].lower()
             actual = file_kind(board, f)
             name = m["f"].lower()
-            if k.startswith(("полуоткрыт", "half", "semi")):
+            if k.startswith(("полуоткрыт", "наполовину", "half", "semi")):
                 if actual in ("open", "closed"):
                     issues.append(f"the {name}-file is {actual}, not half-open")
                     continue
@@ -316,6 +316,13 @@ def _file_issues(text: str, ctx) -> list[str]:
             elif k.startswith(("закрыт", "closed")):
                 if actual != "closed":
                     issues.append(f"the {name}-file is {actual}, not closed")
+    # «Открытых вертикалей здесь нет», "there are no open files"
+    if re.search(r"(?:полностью\s+)?открыт\w*\s+(?:вертикал|лини)\w*\s+(?:здесь\s+|тут\s+|сейчас\s+)?нет|нет\s+(?:ни\s+одной\s+)?"
+                 r"(?:полностью\s+)?открыт\w*\s+(?:вертикал|лини)|no\s+(?:fully\s+)?open\s+files|there\s+are\s+no\s+open\s+files",
+                 text, re.IGNORECASE):
+        opened = [chess.FILE_NAMES[f] for f in range(8) if file_kind(board, f) == "open"]
+        if opened:
+            issues.append(f"there are open files here: {', '.join(opened)} (no pawns on them)")
     # «У белых нет пешки на линии d»
     for m in re.finditer(_W + r"у\s+(?P<s>бел\w+|ч[её]рн\w+)\s+нет\s+пешк\w*\s+на\s+(?:лини\w+|вертикал\w+)\s+\**(?P<f>[a-h])\**",
                          text, re.IGNORECASE):
@@ -390,11 +397,102 @@ def _en_passant_issues(text: str, ctx) -> list[str]:
     return []
 
 
+# ── The king: where it can go, whether it is in check ──────────────────────
+
+_KING_GOES = re.compile(
+    _W + r"корол\w*\s+(?:[а-яё]+\s+){0,2}?(?:может\s+|сможет\s+)?(?:просто\s+|спокойно\s+|сразу\s+)?"
+    r"(?:пойти|уйти|отойти|сходить|шагнуть|убежать|спрятаться|ходит|пойд[её]т|уйд[её]т|отойд[её]т|убежит|встать)\s+на\s+"
+    r"(?:поле\s+)?(?P<sq>[a-h][1-8])(?![0-9])"
+    r"|\bking\s+(?:can|could|will|would)?\s*(?:just\s+|simply\s+)?(?:go|goes|escape|escapes|step|steps|run|runs|move|moves)\s+"
+    r"(?:to|on)\s+(?P<sq2>[a-h][1-8])\b", re.IGNORECASE)
+_IN_CHECK = re.compile(
+    _W + r"(?:(?P<side>бел\w+|ч[её]рн\w+|тво\w+|ваш\w+)\s+)?корол\w*\s+(?:сейчас\s+|уже\s+)?(?:находится\s+|стоит\s+)?"
+    r"под\s+(?:шахом|ударом|атакой)"
+    r"|\b(?:the\s+)?(?P<side2>white|black|your)?\s*king\s+is\s+(?:now\s+)?(?:in\s+check|under\s+attack)"
+    r"|\byou\s+are\s+in\s+check", re.IGNORECASE)
+
+
+def _question_after_boards(ctx) -> list:
+    """Positions after the moves the student named (on the board in front of them)."""
+    cached = getattr(ctx, "_question_after", None)
+    if cached is not None:
+        return cached
+    out = []
+    try:
+        from src.prompt_builder import question_moves
+
+        if ctx.current is not None and getattr(ctx, "question_raw", ""):
+            for q in question_moves(ctx.question_raw, ctx.current.fen()):
+                if q.get("after_fen"):
+                    out.append((q["move"].to_square, chess.Board(q["after_fen"])))
+    except Exception:  # noqa: BLE001
+        out = []
+    try:
+        ctx._question_after = out
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def _king_can_go(board: chess.Board, sq: int) -> Optional[bool]:
+    """Can a king next to *sq* step there on its move? None when no king is next to it."""
+    verdicts = []
+    for color in (chess.WHITE, chess.BLACK):
+        k = board.king(color)
+        if k is None or chess.square_distance(k, sq) != 1:
+            continue
+        b = board.copy(stack=False)
+        b.turn = color
+        b.ep_square = None
+        verdicts.append(chess.Move(k, sq) in b.legal_moves)
+    return any(verdicts) if verdicts else None
+
+
+def _king_issues(text: str, ctx) -> list[str]:
+    board = ctx.current
+    if board is None:
+        return []
+    issues = []
+    for m in _KING_GOES.finditer(text):
+        if _negated_before(text, m.start()) or re.search(r"(?:не|not|can'?t|cannot)\s+(?:\w+\s+)?$",
+                                                         text[max(0, m.start("sq") if m.group("sq") else m.start("sq2")) - 30:
+                                                              m.start("sq") if m.group("sq") else m.start("sq2")]):
+            continue
+        name = (m.group("sq") or m.group("sq2")).lower()
+        sq = chess.parse_square(name)
+        # After the student's move when the sentence is about it («если ферзь на b6, король пойдёт на a7»).
+        boards = [b for dest, b in _question_after_boards(ctx) if chess.square_name(dest) in text[:m.start()]]
+        if not boards:
+            if _GENERAL.search(text[:m.start()]):
+                continue  # a hypothetical about some other move
+            boards = [board]
+        verdicts = [v for v in (_king_can_go(b, sq) for b in boards) if v is not None]
+        if verdicts and not any(verdicts):
+            issues.append(f"the king cannot go to {name} there — the square is attacked or taken"
+                          + (" (the position after the student's move is stalemate)" if any(b.is_stalemate() for b in boards) else ""))
+    for m in _IN_CHECK.finditer(text):
+        before = text[:m.start()]
+        if _GENERAL.search(before) or _negated_before(text, m.start()):
+            continue  # «рокировка невозможна, если король под шахом» — a rule
+        side = (m.group("side") or m.group("side2") or "").lower()
+        if side.startswith(("бел", "white")):
+            color = chess.WHITE
+        elif side.startswith(("черн", "чёрн", "black")):
+            color = chess.BLACK
+        else:
+            color = ctx.student_color if ctx.student_color is not None else board.turn
+        b = board.copy(stack=False)
+        b.turn = color
+        if not b.is_check():
+            issues.append(f"the {'white' if color else 'black'} king is not in check on this board")
+    return issues
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
-                + _en_passant_issues(lowered, ctx))
+                + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

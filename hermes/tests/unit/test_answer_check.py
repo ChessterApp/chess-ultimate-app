@@ -405,7 +405,7 @@ class TestFactsRight:
 
     def test_without_the_student_colour_whose_claims_are_judged_for_the_side_to_move(self):
         ctx = CheckContext.from_fens([ROOK_G1_W])
-        assert check_sentence("Твой конь на c5 хорошо стоит.", ctx) == ["the knight on c5 is Black's, not the student's"]
+        assert check_sentence("Твой конь на c5 хорошо стоит.", ctx) == ["the knight on c5 is Black's, not the student's (the student is White)"]
         assert check_sentence("Твоя ладья на d5 стоит отлично.", ctx) == []
         # «You» outside a game is the side to move (White here, a knight down for a pawn).
         assert check_sentence("You are a pawn down.", ctx) == [
