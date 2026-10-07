@@ -124,6 +124,11 @@ export function classifyPastedText(text: string): 'pgn' | 'fen' | 'url' | null {
   return null;
 }
 
+/** The voice coach's words without the tags of the page's notes to it ([Idea], [Check], …). */
+export function stripVoiceNoteTags(text: string): string {
+  return text.replace(/\[(?:Idea|Check|Engine|Topic|Opening|Puzzle)\]\s*/gi, '');
+}
+
 /** Strip the `data:image/…;base64,` prefix — the conversion routes want raw base64. */
 function dataUrlToBase64(dataUrl: string): string {
   const idx = dataUrl.indexOf(',');
@@ -237,11 +242,15 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       // An empty closing mark (the hook ends utterances at turn edges) with no
       // open bubble has nothing to finish.
       if (!tr.text && !currentId) return;
+      // The coach's words without a system tag it read out («[Idea] Ход b3…» reached
+      // the student's chat on production, 2026-10-07); the student's words as heard.
+      const shown = (s: string) => (tr.role === 'model' ? stripVoiceNoteTags(s) : s);
       if (currentId) {
         voiceTextRef.current[tr.role] += tr.text;
+        const content = shown(voiceTextRef.current[tr.role]);
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === currentId ? { ...m, content: m.content + tr.text } : m
+            m.id === currentId ? { ...m, content } : m
           )
         );
       } else {
@@ -253,13 +262,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         voiceTurnIdRef.current[tr.role] = tr.turnId ?? null;
         setMessages((prev) => [
           ...prev,
-          { id, role: mappedRole, content: tr.text, timestamp: new Date() },
+          { id, role: mappedRole, content: shown(tr.text), timestamp: new Date() },
         ]);
       }
       if (tr.final) {
         // Persist the finalized utterance into the shared Hermes session so the
         // text coach sees it too. Fire-and-forget: never disrupt the voice call.
-        const fullText = voiceTextRef.current[tr.role].trim();
+        const fullText = shown(voiceTextRef.current[tr.role]).trim();
         const sid = activeSessionIdRef.current;
         if (sid && fullText) {
           fetch(`/api/coach/sessions/${encodeURIComponent(sid)}/messages`, {

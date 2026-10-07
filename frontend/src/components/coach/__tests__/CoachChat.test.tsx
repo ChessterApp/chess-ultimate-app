@@ -174,6 +174,19 @@ describe('CoachChat voice mode', () => {
     expect(screen.getByText('Let me think.')).toBeTruthy();
   });
 
+  it("drops a system tag the voice coach read out, even split across chunks", () => {
+    renderChat();
+    act(() => {
+      live.options?.onTranscript?.({ role: 'model', text: '[Id', final: false });
+    });
+    act(() => {
+      live.options?.onTranscript?.({ role: 'model', text: 'ea] b3 is a mistake.', final: true });
+    });
+    // production, 2026-10-07: «[Idea] Ход b3…» reached the student's chat
+    expect(screen.getByText('b3 is a mistake.')).toBeTruthy();
+    expect(screen.queryByText(/\[Idea\]/)).toBeNull();
+  });
+
   it('surfaces the error message as the mic tooltip in the error state', () => {
     live.ret = makeReturn({ status: 'error', error: 'Mic blocked' });
     renderChat();
