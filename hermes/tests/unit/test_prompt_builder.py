@@ -530,7 +530,9 @@ def test_the_voice_prompt_carries_the_session_language():
     interface = prompt_builder.build_voice_prompt("SOUL", locale="en", language=("en", "interface"))
     assert asked.startswith(prompt_builder.language_rule("en") + " The student has asked you to speak Russian")
     assert "until they ask otherwise" in asked
-    assert "The conversation so far has been in Kazakh: start in Kazakh." in written
+    # Only used, not asked: the spoken question decides — a mention of Kazakh made the
+    # voice answer a Russian question in Kazakh (production 2026-10-07).
+    assert "The conversation so far has been in" not in written
     assert interface == base
     assert prompt_builder.spoken_language_note("en", "interface") == ""
 

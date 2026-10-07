@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # persona + template that produced it. Bump PROMPT_TEMPLATE_VERSION whenever the
 # in-code prompt scaffolding (tool instructions, structure) changes materially;
 # SOUL.md edits are picked up automatically via its mtime.
-PROMPT_TEMPLATE_VERSION = "18"  # 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
+PROMPT_TEMPLATE_VERSION = "19"  # 19: voice — no «the conversation has been in X» note, the spoken question decides its language (2026-10-07); 18: a direct question gets the answer first; rules of the position in the facts (2026-10-06); 17: the student's idea is played on the board and judged by the engine before the answer (2026-10-04); 16: the site's lesson comes first and the answer ends with its tasks (2026-10-03); 15: the language the student asks for holds for the session (2026-10-01); 14: an opening named in the message comes with its book line, alternatives and facts (2026-09-30); 13: get_puzzle puts the puzzle on the board itself (2026-09-30); 12: opening names only from the ECO book (2026-09-29); 11: talk about the side to move (2026-09-29); 10: the engine line carries verified facts — threats, hanging and pinned pieces (2026-09-29); 9: the engine block only for questions about the position (2026-09-29); 8: talk like a coach, not an engine report; brief by default (2026-09-28); 2: study-programme tools; 3: knowledge-base tools (2026-09-23); 4: examples only from lessons/base (2026-09-26); 5: engine line in the turn (2026-09-27); 6: arrows as inline marks (2026-09-27); 7: voice — every tool, question-language rule (2026-09-24, merged 2026-09-28)
 
 _prompt_version_lock = threading.Lock()
 _prompt_version_cache: Optional[str] = None
@@ -853,8 +853,10 @@ def spoken_language_note(code: str, why: str) -> str:
     if why == "asked":
         return (f"The student has asked you to speak {language}: speak {language} from your first word, "
                 f"whatever language they use now, until they ask otherwise.")
-    if why == "message":
-        return f"The conversation so far has been in {language}: start in {language}."
+    # The language the student merely used before is not passed on: any mention of it
+    # made Gemini Live answer a Russian question in Kazakh after a Kazakh session
+    # (production 2026-10-07; on the stand 7 of 7 with three wordings, 0 of 3 without) —
+    # the spoken question's own language decides, by the rule above.
     return ""
 
 

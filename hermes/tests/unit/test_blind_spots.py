@@ -404,3 +404,33 @@ def test_direct_answer_layer_switch(monkeypatch):
     assert "FIRST sentence answers it" in pb.direct_answer_layer()
     monkeypatch.setattr(config, "COACH_DIRECT_ANSWERS", False)
     assert pb.direct_answer_layer() == ""
+
+
+# ── Production voice, 2026-10-07 ───────────────────────────────────────────────
+QB6_BOARD = "k7/8/3Q4/8/8/8/8/2K5 w - - 0 1"
+
+
+@pytest.mark.parametrize("words,san", [
+    ("Хочу сыграть ферзь b6, чтобы запереть короля. Хорошо?", "Qb6"),  # what speech recognition wrote
+    ("а если ферзь b6?", "Qb6"),
+    ("давай ферзь на b6", "Qb6"),
+    ("ферзь b6 атакует короля?", None),  # no cue to play: a piece and a square
+    ("Если ферзь d6 уйдёт?", None),  # the queen already stands on d6
+])
+def test_spoken_piece_and_square(words, san):
+    found = [m["san"] for m in question_moves(words, QB6_BOARD) if m.get("legal")]
+    assert found == ([san] if san else [])
+
+
+@pytest.mark.parametrize("sentence,question,caught", [
+    # the true «Qb6 — пат» was «corrected» into a falsehood on production
+    ("Слушай, ферзь на b6 — звучит логично, но тогда королю некуда двигаться, получается пат, и это ничья.",
+     "Хочу сыграть ферзь b6, чтобы запереть короля. Хорошо?", False),
+    ("Тогда это ничья, пат.", "Хочу сыграть ферзь b6, чтобы запереть короля. Хорошо?", False),
+    ("Ферзь на b6 — это выигрыш.", "Хочу сыграть ферзь b6, чтобы запереть короля. Хорошо?", True),
+    ("Это ничья.", "Это ничья?", True),  # this board: White wins
+])
+def test_result_after_the_students_move(sentence, question, caught):
+    ctx = CheckContext.from_fens([QB6_BOARD], question=question)
+    ctx.tablebase, ctx.engine_eval = "White wins", 20.0
+    assert bool(check_sentence(sentence, ctx)) is caught

@@ -797,14 +797,14 @@ class TestVoicePromptEndpoint:
         prompt = resp.json()["system_prompt"]
         assert "The interface language is English" in prompt
         assert "The student has asked you to speak Russian: speak Russian from your first word" in prompt
-        # Written in a language, not asked: the voice starts in it.
+        # Written in a language, not asked: not passed on — the spoken question decides (2026-10-07).
         session.messages.clear()
         session.add_message("user", "What should I play here?")
         prompt = self.client.post(
             "/api/coach/voice/prompt", headers=USER_HEADERS,
             json={"locale": "ru", "session_id": session.id},
         ).json()["system_prompt"]
-        assert "The conversation so far has been in English: start in English." in prompt
+        assert "The conversation so far has been in" not in prompt
         # Another user's session, or none: the interface rule alone.
         prompt = self.client.post(
             "/api/coach/voice/prompt", headers=USER_HEADERS,

@@ -32,7 +32,16 @@ _EN_PUT = r"(?:put|place|move|bring|play|swing|drop|develop|retreat|shift|put\s+
 _B = r"(?<![а-яa-z])"
 _E = r"(?![а-яa-z])"
 
+# «сыграть ферзь b6», «а если ферзь b6?», «хочу конь f3»: speech recognition keeps the
+# nominative and often drops «на» (production voice, 2026-10-07 — the [Idea] note
+# and the check of «тогда пат» never saw Qb6). Only after a cue to play, and not when
+# that piece already stands there: «ферзь b6 атакует…» is a piece on b6.
+_SPOKEN = re.compile(
+    _B + r"(?:сыграть|сыграю|сыграем|сыграй|играть|играю|пойти|пойду|пойд[её]м|хочу|если|давай|ходом|ход)"
+    r"\s+(?:[а-яё]+\s+)?(?P<piece>ладья|конь|слон|ферзь|король|пешка)\s+(?:на\s+)?(?P<to>" + SQ + r")(?![0-9])")
+
 _PATTERNS = [
+    _SPOKEN,
     # «ладью на g1», «коня с f3 на d5», «ладьёй на h4», «пешку на e5»
     re.compile(_B + _RU_PIECE + rf"\s+(?:(?:с\s+)?(?:пол[яе]\s+)?(?P<frm>{SQ})\s+)?(?:на|в|по)\s+(?:пол[ея]\s+)?(?P<to>{SQ})(?![0-9])"),
     # «взять на h4 ладьёй», «бью на e5 конём», «побить h4 ладьёй»
@@ -119,6 +128,10 @@ def prose_moves(text: str, board: chess.Board) -> list[dict]:
                     continue
                 to_name = chess.square_name(squares[0])
             to = chess.parse_square(to_name)
+            if rx is _SPOKEN:
+                there = board.piece_at(to)
+                if there is not None and there.piece_type == ptype and there.color == board.turn:
+                    continue  # «если ферзь b6 уйдёт» with the queen on b6: a piece, not a move
             frm = frm or groups.get("frm2")
             from_sq = chess.parse_square(frm) if frm else None
             capture = bool(target) or rx.pattern.find("TAKE") >= 0 or any(

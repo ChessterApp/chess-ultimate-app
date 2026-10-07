@@ -33,6 +33,9 @@ _E = r"(?![а-яa-zәғқңөұүһі])"
 _NOW = re.compile(_W + r"(?:сейчас|здесь|тут|в\s+этой\s+позиции|на\s+доске|уже|now|here|right\s+now|at\s+the\s+moment|"
                   r"in\s+this\s+position|on\s+the\s+board|қазір|осы\s+жерде|бұл\s+позицияда)" + _E)
 _YES_NO = re.compile(r"^\W*(?:да|нет|конечно|увы|yes|no|nope|sure|unfortunately|иә|жоқ)" + _E)
+# «тогда», «получится»: the consequence of the move just named, not the board as it is.
+_THEN = re.compile(_W + r"(?:тогда|получится|получается|будет|выйдет|окажется|then|would\s+be|that\s+gives|"
+                   r"сонда|болады)" + _E, re.IGNORECASE)
 # A rule in general, a condition, a future or a hypothetical: not about the board as it is.
 _GENERAL = re.compile(_W + r"(?:если|когда|пока|даже|в\s+общем|по\s+правилам|обычно|всегда|никогда|после|"
                       r"if|when|unless|even|in\s+general|always|never|usually|after|once|"
@@ -171,6 +174,18 @@ def _result_issues(text: str, ctx) -> list[str]:
         if _GENERAL.search(before) and not _NOW.search(text):
             continue
         r = m.group("r").lower()
+        # «ферзь на b6 — тогда пат, и это ничья»: the position after the student's
+        # move, not this board (production voice, 2026-10-07: the check called the
+        # true «Qb6 — пат» wrong and the coach «corrected» itself into a falsehood).
+        after = [b for dest, b in _question_after_boards(ctx) if chess.square_name(dest) in before.lower()]
+        if not after and _THEN.search(before):
+            after = [b for _, b in _question_after_boards(ctx)]
+        if after:
+            if all(b.is_stalemate() or b.is_insufficient_material() for b in after) and r.startswith(("выигр", "win", "won")):
+                issues.append("after the student's move the position is a draw (stalemate or no mating material), not a win")
+            elif all(b.is_checkmate() for b in after) and r.startswith(("ничь", "ничейн", "draw")):
+                issues.append("after the student's move it is checkmate, not a draw")
+            break
         if r.startswith(("выигр", "win", "won")):
             if tb == "draw":
                 issues.append("the endgame tablebase says this position is a draw with best play, not a win")
