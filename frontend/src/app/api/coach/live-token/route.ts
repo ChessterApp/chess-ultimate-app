@@ -439,8 +439,12 @@ function buildRecap(
   const header =
     '\n\nYou are continuing an ongoing coaching conversation. ' +
     'Recent conversation (oldest first):\n';
+  // The recap is in whatever language the talk was; a question in another one is answered in
+  // its own (production voice 2026-10-07: a Russian question after a Kazakh talk got Kazakh —
+  // on the stand 5 of 8 without this sentence, 0 of 8 with it).
   const footer =
-    '\nContinue seamlessly — do not re-introduce yourself or repeat prior explanations.';
+    '\nContinue seamlessly — do not re-introduce yourself or repeat prior explanations. ' +
+    'The recap is history, not a choice of language: answer each new question in the language the student speaks it in.';
   const block = () => header + lines.join('\n') + footer;
 
   // Enforce the total byte budget by dropping the oldest lines first.

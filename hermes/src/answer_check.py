@@ -777,10 +777,35 @@ def _long_issues(text: str, ctx: CheckContext) -> tuple[list[str], str]:
     return issues, blanked
 
 
+def _move_denied(text: str) -> bool:
+    """A written move the sentence refutes: «Лe4 сыграть нельзя», «нельзя Rxh4», «хода Qxg7 нет».
+    The denial sits next to the move — «Ra5+! — шах, после которого белый король не может удержать
+    пешку» denies something of the king, and its false «+» was let through (production 2026-10-07)."""
+    converted, _ = _to_san(text)
+    for m in _MOVE.finditer(converted):
+        before = converted[max(0, m.start() - 28): m.start()]
+        after = converted[m.end(): m.end() + 40]
+        after = re.split(r"[.;!?]|\s[—–-]\s|,\s*(?:а|но|и|потому|после|чтобы|так\s+как|but|and|after)\s", after)[0]
+        if _DENIES.search(after) or re.search(r"(?:нельзя|невозможн\w*|не\s+(?:можешь|может|сможешь|получится)|"
+                                              r"can'?t|cannot)\s+(?:сыграть|играть|сделать|ход\w*|play|go\s+for)?\s*$", before, re.IGNORECASE):
+            return True
+    return False
+
+
 def _san_issues(text: str, ctx: CheckContext) -> list[str]:
     """Written moves that fit no position of the turn and no piece that could make them."""
-    if _DENIES.search(text):
+    denied = bool(_DENIES.search(text))
+    if denied and _move_denied(text):
         return []  # «Лe4 сыграть нельзя»: the move is being refuted
+    issues = _san_issues_all(text, ctx)
+    if denied:
+        # A denial elsewhere («почему нельзя просто Kxf4?» — a question, a refutation further
+        # on): a move is not called impossible, only a «+»/«#» it does not give.
+        issues = [i for i in issues if i.endswith(("gives no check", "is not checkmate"))]
+    return issues
+
+
+def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     converted, cyr_k = _to_san(text)
     converted = _MATE_WORD.sub(lambda mm: mm.group("san") + "#" + mm.group("rest"), converted)
     issues, converted = _long_issues(converted, ctx)

@@ -149,6 +149,8 @@ describe('POST /api/coach/live-token', () => {
     expect(instruction).toContain('Open lines first.');
     // Voice-sourced lines may be tagged.
     expect(instruction).toContain('[user (spoken)] Like this?');
+    // The recap does not pick the language: a Russian question after a Kazakh talk is answered in Russian.
+    expect(instruction).toContain('The recap is history, not a choice of language');
   });
 
   it('does not fetch the recap when no session_id is provided', async () => {

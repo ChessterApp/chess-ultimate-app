@@ -528,3 +528,66 @@ def test_en_passant_is_a_trade_not_a_loss():
     note = hypothetical_notes(fen, moves, 100)["note"]
     assert "en passant capture: it takes the pawn on d5" in note
     assert "a pawn for a pawn, material stays level; not a loss" in note
+
+
+# ── Production re-run after 07.10, 2026-10-07 ─────────────────────────────────
+def test_a_false_check_sign_is_caught_beside_a_denial_of_something_else():
+    fen = "4k3/8/r7/4PK2/8/8/8/1R6 b - - 0 1"
+    ctx = CheckContext.from_fens([fen])
+    assert check_sentence("**Ra5+!** — вот спасительная идея: шах, после которого белый король не может удержать пешку.", ctx) \
+        == ["Ra5+ gives no check"]
+    for refuted in ["Ra5+ сыграть нельзя — шаха не будет.", "Нельзя сыграть Ra5+, там пешка e5.", "Ra5+ не проходит, пешка e5 закрывает."]:
+        assert check_sentence(refuted, CheckContext.from_fens([fen])) == []
+
+
+@pytest.mark.parametrize("fen,sentence,caught", [
+    ("r2q1rk1/pp2bppp/4bn2/3P4/8/2N2N2/PP2BPPP/R2Q1RK1 b - - 0 12", "На этой позиции открытая только вертикаль **e** — на ней нет ни одной пешки.", True),
+    ("r2q1rk1/pp2bppp/4bn2/3P4/8/2N2N2/PP2BPPP/R2Q1RK1 b - - 0 12", "Only the e-file is open here.", True),
+    ("r2q1rk1/pp2bppp/4bn2/3P4/8/2N2N2/PP2BPPP/R2Q1RK1 b - - 0 12", "Открыты вертикали c и e.", False),
+    ("r1bqkbnr/pppp1ppp/2n5/8/8/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 4", "Открытая только вертикаль e.", False),
+])
+def test_only_one_open_file(fen, sentence, caught):
+    ctx = CheckContext.from_fens([fen], question="Какие вертикали здесь открытые и полуоткрытые?")
+    assert bool(check_sentence(sentence, ctx)) is caught
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("Да, можно — но с одной оговоркой: ладья не должна быть под боем **в момент рокировки**.", True),
+    ("For castling, the rook must not be attacked.", True),
+    ("А вот ладья — её сама по себе можно оставить под боем: важно лишь, чтобы поле короля было безопасно.", False),
+])
+def test_the_rook_must_not_be_attacked_is_a_false_rule(sentence, caught):
+    issues = check_sentence(sentence, CheckContext.from_fens([chess.STARTING_FEN], question="Можно ли рокироваться, если моя ладья под боем?"))
+    assert bool(issues) is caught
+
+
+def test_the_tablebase_is_asked_beside_the_engine(monkeypatch):
+    import time as _time
+
+    from src import voice_engine_note as ven
+
+    calls = []
+
+    def slow_tablebase(board):
+        calls.append(_time.monotonic())
+        _time.sleep(0.3)
+        return "draw"
+
+    monkeypatch.setattr(ven, "_tablebase_result", slow_tablebase)
+    t0 = _time.monotonic()
+    note = ven.engine_note("7k/8/8/7P/4K3/8/4B3/8 w - - 0 1", movetime_ms=400)
+    if note is None:
+        pytest.skip("no Stockfish here")
+    assert note["tablebase"] == "draw"
+    assert calls and calls[0] - t0 < 0.2  # asked at the start, not after the search
+
+
+def test_a_draw_the_students_move_makes_is_not_corrected_in_the_next_sentence():
+    # production voice 2026-10-07: «Постой, ферзь b6 — это пат!» then «…так что это сразу ничья.» was «corrected»
+    q = "Хочу сыграть ферзь b6, чтобы запереть короля. Хорошо?"
+    ctx = CheckContext.from_fens([QB6_BOARD], question=q)
+    ctx.tablebase, ctx.engine_eval = "White wins", 20.0
+    assert check_sentence("У чёрного короля нет ходов, а шаха нет, так что это сразу ничья.", ctx) == []
+    other = CheckContext.from_fens([QB6_BOARD], question="Хочу сыграть ферзь d7. Хорошо?")
+    other.tablebase, other.engine_eval = "White wins", 20.0
+    assert check_sentence("Это ничья.", other)  # no stalemating move asked about: still judged on the board

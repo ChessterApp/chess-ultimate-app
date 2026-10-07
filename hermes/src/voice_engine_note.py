@@ -79,6 +79,17 @@ def _game_over_note(board: chess.Board, fen: str) -> Optional[str]:
     return None
 
 
+def _tablebase_result(board: chess.Board) -> Optional[str]:
+    """'draw' / 'White wins' / 'Black wins' from the Lichess tablebase, or None."""
+    try:
+        from src.board_rules import tablebase, tablebase_white_result
+
+        raw = tablebase(board)
+        return tablebase_white_result(board, raw) if raw else None
+    except Exception:  # noqa: BLE001 — a bonus on top of the engine
+        return None
+
+
 def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int] = None) -> Optional[dict]:
     """Return {fen, note, best, lines} for a legal position, or None when it cannot be analysed.
 
@@ -97,15 +108,11 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
         return {"fen": fen, "note": over, "best": None, "lines": []}
 
     # The endgame tablebase (≤ 7 pieces) is exact where Stockfish without
-    # tables shows +1.13 for a dead draw (production, 2026-10-06).
-    tb = None
-    try:
-        from src.board_rules import tablebase, tablebase_white_result
-
-        tb_raw = tablebase(board)
-        tb = tablebase_white_result(board, tb_raw) if tb_raw else None
-    except Exception:  # noqa: BLE001 — a bonus on top of the engine
-        tb = None
+    # tables shows +1.13 for a dead draw (production, 2026-10-06). Asked beside
+    # the engine, not before it: in front of the search its ~0.4 s pushed the
+    # text turn's note past its wait, and the turn went without any facts
+    # (production 2026-10-07: «Да, это выигрыш» on a tablebase draw).
+    tb_future = _threat_pool.submit(_tablebase_result, board.copy(stack=False)) if len(board.piece_map()) <= 7 else None
 
     with_facts = os.environ.get("COACH_ENGINE_FACTS", "1").strip().lower() not in ("0", "false", "no", "off")
     passed_fen = _passed_fen(board) if with_facts else None
@@ -144,6 +151,12 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
     mate_in = result["lines"][0].get("mate_in")
+    tb = None
+    if tb_future is not None:
+        try:
+            tb = tb_future.result(timeout=0.5)  # the lookup ran during the search; a slow one is left out
+        except Exception:  # noqa: BLE001 — a bonus on top of the engine
+            tb = None
     return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts,
             "tablebase": tb, "mate_in": mate_in}
 

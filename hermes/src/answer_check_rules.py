@@ -180,6 +180,14 @@ def _result_issues(text: str, ctx) -> list[str]:
         after = [b for dest, b in _question_after_boards(ctx) if chess.square_name(dest) in before.lower()]
         if not after and _THEN.search(before):
             after = [b for _, b in _question_after_boards(ctx)]
+        if not after:
+            # The square was in the sentence before («Постой, ферзь b6 — это пат! У чёрного короля нет
+            # ходов, а шаха нет, так что это сразу ничья.» — production voice 2026-10-07): a draw that the
+            # student's own move makes is not judged against the board as it stands.
+            draws = [b for _, b in _question_after_boards(ctx) if b.is_stalemate() or b.is_insufficient_material()]
+            mates = [b for _, b in _question_after_boards(ctx) if b.is_checkmate()]
+            if (draws and r.startswith(("ничь", "ничейн", "draw"))) or (mates and r.startswith(("выигр", "win", "won"))):
+                break
         if after:
             if all(b.is_stalemate() or b.is_insufficient_material() for b in after) and r.startswith(("выигр", "win", "won")):
                 issues.append("after the student's move the position is a draw (stalemate or no mating material), not a win")
@@ -337,6 +345,17 @@ def _file_issues(text: str, ctx) -> list[str]:
             elif k.startswith(("закрыт", "closed")):
                 if actual != "closed":
                     issues.append(f"the {name}-file is {actual}, not closed")
+    # «открытая только вертикаль e», «открыта лишь линия e», "only the e-file is open" (production
+    # 2026-10-07: the c-file was open too)
+    for m in re.finditer(r"(?:открыт\w*\s+(?:здесь\s+|тут\s+|сейчас\s+)?(?:только|лишь|одна)\s+(?:одна\s+)?(?:вертикал\w*|лини\w*)\s+\**(?P<f>[a-h])\**"
+                         r"|(?:только|лишь)\s+(?:вертикал\w*|лини\w*)\s+\**(?P<f2>[a-h])\**\s+(?:[а-яё]+\s+){0,2}?открыт\w*"
+                         r"|only\s+the\s+(?P<f3>[a-h])-?file\s+is\s+open)" + _E, text, re.IGNORECASE):
+        if _negated_before(text, m.start()):
+            continue
+        named = (m["f"] or m["f2"] or m["f3"]).lower()
+        opened = [chess.FILE_NAMES[f] for f in range(8) if file_kind(board, f) == "open"]
+        if opened != [named]:
+            issues.append(f"the open files here are {', '.join(opened) or 'none'}, not only the {named}-file")
     # «Открытых вертикалей здесь нет», "there are no open files"
     if re.search(r"(?:полностью\s+)?открыт\w*\s+(?:вертикал|лини)\w*\s+(?:здесь\s+|тут\s+|сейчас\s+)?нет|нет\s+(?:ни\s+одной\s+)?"
                  r"(?:полностью\s+)?открыт\w*\s+(?:вертикал|лини)|no\s+(?:fully\s+)?open\s+files|there\s+are\s+no\s+open\s+files",
@@ -550,19 +569,24 @@ def _colour_issues(text: str) -> list[str]:
 # ── The castling rule itself ────────────────────────────────────────────────
 
 _ROOK_ATTACKED = r"ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
+# «ладья не должна быть под боем (в момент рокировки)», "the rook must not be attacked" (production 2026-10-07)
+_ROOK_MUST_NOT = (r"ладь\w*\s+не\s+(?:должн\w*|может|могут|обязан\w*)\s+(?:быть|находиться|стоять|оказаться)\s+"
+                  r"под\s+(?:бо\w+|удар\w*)|rook\s+(?:must|should|may|can)\s*(?:not|n'?t)\s+be\s+(?:attacked|under\s+attack)")
 
 
 def _castling_rule_issues(text: str) -> list[str]:
     """«Нельзя рокироваться, если ладья под боем» — a false rule: only the king's squares matter
     (the voice coach said it on 2026-10-06)."""
-    if not re.search(_CASTLE_WORD, text, re.IGNORECASE) or not re.search(_ROOK_ATTACKED + r"|rook\s+is\s+(?:not\s+)?(?:attacked|under\s+attack)", text, re.IGNORECASE):
+    if not re.search(_CASTLE_WORD, text, re.IGNORECASE) or not re.search(
+            _ROOK_ATTACKED + r"|" + _ROOK_MUST_NOT + r"|rook\s+is\s+(?:not\s+)?(?:attacked|under\s+attack)", text, re.IGNORECASE):
         return []
     forbids = re.search(
         r"(?:нельзя|невозможн\w*|не\s+можешь|не\s+может|не\s+получится|запрещ\w*|can'?t|cannot|not\s+allowed)"
         r"[^.;!?]{0,60}?(?:если|когда|if|when)[^.;!?]{0,20}?(?:тво\w+\s+|ваш\w+\s+|мо\w+\s+)?" + _ROOK_ATTACKED +
         r"|" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|не\s+можешь|не\s+получится|запрещ)"
         r"|если\s+(?:только\s+)?(?:тво\w+\s+|ваш\w+\s+)?ладь\w*\s+не\s+(?:находится\s+|стоит\s+)?под\s+(?:бо|удар)"
-        r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)",
+        r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)"
+        r"|" + _ROOK_MUST_NOT,
         text, re.IGNORECASE)
     if forbids and not re.search(r"(?<![а-яё])даже(?![а-яё])|\beven\s+if", text, re.IGNORECASE):
         return ["castling is allowed when the rook is attacked: only the king may not be in check, pass "
