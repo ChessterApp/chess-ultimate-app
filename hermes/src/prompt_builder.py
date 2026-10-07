@@ -1297,10 +1297,7 @@ VOICE_STYLE_LAYER = (
     "- Never break character or say things like \"as a chess AI\".\n"
     "- The [Engine] line and the tool results are your private notes: never say "
     "\"the engine says\" and never read out numbers like \"plus zero point four\" — "
-    "say in words who is better and why.\n"
-    "- Lines starting with [Engine], [Idea], [Check], [Topic], [Opening] or [Puzzle] come from "
-    "the system, not the student: never say the tag itself or read the line out — answer in "
-    "your own words."
+    "say in words who is better and why."
 )
 
 VOICE_TOOL_LAYER = (

@@ -202,6 +202,10 @@ COACH_ANSWER_STYLE = os.environ.get("COACH_ANSWER_STYLE", "brief").strip().lower
 # прав! Видишь какой-нибудь шах?» instead of the mate). 0 = the Socratic persona as before.
 COACH_DIRECT_ANSWERS = os.environ.get("COACH_DIRECT_ANSWERS", "1").strip().lower() not in ("0", "false", "no", "off")
 
+# The site's lesson a topic/lesson tool found, added as the last line when the
+# model left its link out (production sweep 2026-10-07: 32 of 48 topics had it).
+COACH_LESSON_LINK = os.environ.get("COACH_LESSON_LINK", "1").strip().lower() not in ("0", "false", "no", "off")
+
 # A provider that goes silent mid-answer: the framework waited 120 s for the next
 # byte (HERMES_STREAM_READ_TIMEOUT) and 180 s for the next chunk
 # (HERMES_STREAM_STALE_TIMEOUT) — on the bench of 2026-09-28 one answer stopped

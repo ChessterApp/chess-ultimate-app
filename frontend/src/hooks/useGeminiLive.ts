@@ -1196,6 +1196,15 @@ export default function useGeminiLive(
         /* UI callback errors must not break the session */
       }
       session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+      // The coach is already answering without these facts (the line comes 0.3–0.8 s after
+      // it starts): a blunder, a trapped piece or stalemate it has not said yet is said now —
+      // it stops and says it, instead of finishing an answer built on a guess and adding the
+      // point at the end (production voice, 2026-10-07: «b3 возможен…», then «b3 — ошибка»).
+      const early = modelTurnTextRef.current.trim() ? verdictNote(ideaVerdictRef.current, modelTurnTextRef.current) : null;
+      if (early) {
+        ideaVerdictRef.current = null;
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: early }] }], turnComplete: true });
+      }
     } catch {
       /* unavailable (an older Hermes answers 404) — the coach answers without the line */
     }
@@ -1292,6 +1301,14 @@ export default function useGeminiLive(
           const sentence = modelSentenceRef.current.slice(0, m.index + 1);
           modelSentenceRef.current = modelSentenceRef.current.slice(m.index + m[0].length);
           speechCheckPendingRef.current.push(checkSpokenSentence(sentence, session));
+          // A sentence done and the point of the student's idea still unsaid, though the
+          // [Idea] line is in: said now, not after a whole answer past it (voice bench
+          // 2026-10-07: 5 of 9 answers ignored a line that came before them).
+          const early = verdictNote(ideaVerdictRef.current, modelTurnTextRef.current);
+          if (early) {
+            ideaVerdictRef.current = null;
+            session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: early }] }], turnComplete: true });
+          }
         }
       }
 

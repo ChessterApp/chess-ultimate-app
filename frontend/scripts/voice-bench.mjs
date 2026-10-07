@@ -342,7 +342,7 @@ async function runCase(ai, args, tools, c, pcm) {
   // --hook on: the browser hook's state for this case.
   const H = args.hook === 'on' ? hookRegexes(args.hookSrc) : null;
   const hook = { utter: '', conceptDone: false, ideaSent: '', conceptTimer: null, ideaTimer: null, sentence: '',
-    checks: 0, pending: [], wrong: [], corrections: 0, awaitingCorrection: false, verdict: null, turnText: '' };
+    checks: 0, pending: [], wrong: [], corrections: 0, awaitingCorrection: false, earlyInterrupt: false, verdict: null, turnText: '' };
   rec.hook_notes = [];
   rec.checked = [];
   rec.correction_text = '';
@@ -384,7 +384,19 @@ async function runCase(ai, args, tools, c, pcm) {
     if (typeof r?.note === 'string' && r.note) {
       sendNote('Idea', r.note);
       hook.verdict = r.verdict && typeof r.verdict === 'object' ? r.verdict : null;
+      // Mirrors useGeminiLive: the coach already talking without the verdict stops and says it now.
+      if (hook.turnText.trim()) sayVerdictNow();
     }
+  };
+  // Mirrors useGeminiLive: the point of the student's idea left unsaid is said at once.
+  const sayVerdictNow = () => {
+    const early = verdictNote(hook.verdict, hook.turnText);
+    if (!early || done || hook.awaitingCorrection) return;
+    hook.verdict = null;
+    rec.verdict_early = true;
+    hook.awaitingCorrection = true;
+    hook.earlyInterrupt = true;
+    sendNote('Verdict', early, true);
   };
   const checkSentence = async (sentence) => {
     if (!H.checkable.test(sentence) || sentence.trim().split(/\s+/).length < 4 || hook.checks >= H.checksPerTurn) return;
@@ -489,7 +501,10 @@ async function runCase(ai, args, tools, c, pcm) {
       while ((m = H.sentenceEnd.exec(hook.sentence))) {
         const sentence = hook.sentence.slice(0, m.index + 1);
         hook.sentence = hook.sentence.slice(m.index + m[0].length);
-        if (!hook.awaitingCorrection) hook.pending.push(checkSentence(sentence));
+        if (!hook.awaitingCorrection) {
+          hook.pending.push(checkSentence(sentence));
+          sayVerdictNow();
+        }
       }
     }
     if (sc.outputTranscription?.text) {
@@ -498,7 +513,11 @@ async function runCase(ai, args, tools, c, pcm) {
       const cur = rec.segments[rec.segments.length - 1];
       if (cur) cur.text += sc.outputTranscription.text;
     }
-    if (sc.interrupted) rec.events.push({ at: rel(t), type: 'interrupted' });
+    if (sc.interrupted) {
+      rec.events.push({ at: rel(t), type: 'interrupted' });
+      // The early verdict cut the coach: what it says from here is the verdict turn.
+      if (H && hook.earlyInterrupt) { rec.correction_text = ''; hook.earlyCutAt = t; }
+    }
     for (const part of sc.modelTurn?.parts ?? []) {
       const d = part.inlineData;
       if (d?.data && d.mimeType?.includes('audio/pcm')) {
@@ -545,7 +564,15 @@ async function runCase(ai, args, tools, c, pcm) {
       if (H) {
         // The hook reads the wrong sentences back after the turn; the coach corrects
         // itself in a new short turn — the case ends when that one completes.
-        if (hook.awaitingCorrection) { hook.awaitingCorrection = false; finishIfIdle(); return; }
+        if (hook.awaitingCorrection) {
+          // The end of the turn the early verdict cut, before the coach said a word of it: wait on.
+          // (the cut turn's own end comes within a few ms of «interrupted»; its tail is not the verdict)
+          if (hook.earlyInterrupt && (hook.earlyCutAt === undefined || t - hook.earlyCutAt < 500)) { rec.correction_text = ''; return; }
+          hook.awaitingCorrection = false;
+          hook.earlyInterrupt = false;
+          finishIfIdle();
+          return;
+        }
         const pending = hook.pending;
         hook.pending = [];
         hook.sentence = '';

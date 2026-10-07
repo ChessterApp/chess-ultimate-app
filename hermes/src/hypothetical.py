@@ -99,6 +99,20 @@ def moved_piece_facts(board: chess.Board, after: chess.Board, move: chess.Move) 
             facts.append(f"{name} is attacked by {who} and defended by " + ", ".join(_piece(after, s) for s in defenders))
     else:
         facts.append(f"{name} is not attacked")
+    # A capture that can be taken back is a trade, not a loss: «exd6 на проходе — и чёрные
+    # заберут её ферзём, отдаёшь пешку» (production 2026-10-07; it takes the d5 pawn first).
+    if board.is_capture(move):
+        moved_type = after.piece_type_at(dest)
+        if board.is_en_passant(move):
+            captured_type = chess.PAWN
+            taken = chess.square(chess.square_file(dest), chess.square_rank(move.from_square))
+            facts.insert(0, f"this is an en passant capture: it takes the pawn on {chess.square_name(taken)}")
+        else:
+            captured_type = board.piece_type_at(dest)
+        if attackers and captured_type and VALUES[captured_type] >= VALUES[moved_type]:
+            level = "material stays level" if VALUES[captured_type] == VALUES[moved_type] else "the mover stays ahead"
+            facts.append(f"if it is taken back, that is a trade — a {chess.piece_name(captured_type)} for a "
+                         f"{chess.piece_name(moved_type)}, {level}; not a loss")
     return facts
 
 

@@ -475,3 +475,56 @@ def test_a_line_step_is_not_advice_on_this_board():
     # the client's case of 05.10 is still advice to check
     fried = CheckContext.from_fens(["rnbqkbnr/pp2pp1p/6p1/2p3NQ/4p3/8/PPPP1PPP/RNB1KB1R w KQkq - 0 5"])
     assert proposed_move("А вот если конь прыгнет на f7 — он бьёт ладью и ферзя.", fried)[2] == "Nxf7"
+
+
+# ── «Дочинить», 2026-10-07 ─────────────────────────────────────────────────────
+def test_lesson_link_added_when_the_model_left_it_out():
+    import json as _json
+
+    from src.server import lesson_link_line
+
+    topic = _json.dumps({"site_lessons": [{"title": "Рентген. Пример 2.", "url": "https://chesster.io/learn/chess-tactics/x-ray-example-2"}],
+                         "example": {"source": "site_lesson", "title": "Рентген. Пример 1.", "course": "Шахматная тактика",
+                                     "url": "https://chesster.io/learn/chess-tactics/x-ray-example-1"}}, ensure_ascii=False)
+    line = lesson_link_line([topic], "Рентген — это обратная связка.", "ru")
+    assert line == "Урок на сайте: «Рентген. Пример 1.» (Шахматная тактика) — https://chesster.io/learn/chess-tactics/x-ray-example-1"
+    assert lesson_link_line([topic], "Пройди урок: https://chesster.io/learn/chess-tactics/x-ray-example-1", "ru") is None
+    assert lesson_link_line(['{"best": "e4"}'], "текст", "ru") is None
+    assert lesson_link_line([topic], "Text.", "en").startswith("Lesson on the site:")
+
+
+@pytest.mark.parametrize("raw,fixed", [
+    ("Нf6+ — и это двойной удар", "Nf6+ — и это двойной удар"),
+    ("Рh8+! — начинаем с шаха", "Rh8+! — начинаем с шаха"),
+    ("Ход Вb5 в 2025 году", "Ход Bb5 в 2025 году"),
+    ("Нельзя на f6", "Нельзя на f6"),
+    ("Кf3 и Лe1", "Кf3 и Лe1"),
+])
+def test_cyrillic_lookalike_piece_letters(raw, fixed):
+    from src.answer_check import normalize_notation
+
+    assert normalize_notation(raw) == fixed
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("Поле f1 прострелено слоном c4, поэтому сначала его надо прогнать: b3, и после отхода у White появляется рокировка.", True),
+    ("Блэк вынужден взять ладью слоном, а затем вторая ладья входит на h8.", True),
+    ("Нет, Qb6 — сразу ничья, пат, и партия заканчивается вничью instant.", True),
+    ("Дебют называется Queen's Gambit — по-русски ферзевый гамбит, и это классика.", False),
+    ("Посмотри урок на сайте: https://chesster.io/learn/chess-basics/black-and-white — там всё есть про это.", False),
+])
+def test_english_word_in_a_russian_sentence(sentence, caught):
+    from src.answer_check import foreign_word_issue
+
+    assert bool(foreign_word_issue(sentence, "ru")) is caught
+    assert foreign_word_issue(sentence, "en") is None
+
+
+def test_en_passant_is_a_trade_not_a_loss():
+    from src.hypothetical import hypothetical_notes
+
+    fen = "rnbqkbnr/1pp1pppp/p7/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3"
+    moves = [m for m in question_moves("Могу ли я побить пешку d5 своей пешкой e5?", fen) if m.get("legal")]
+    note = hypothetical_notes(fen, moves, 100)["note"]
+    assert "en passant capture: it takes the pawn on d5" in note
+    assert "a pawn for a pawn, material stays level; not a loss" in note

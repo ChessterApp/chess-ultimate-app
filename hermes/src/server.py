@@ -838,6 +838,51 @@ def _is_framework_notice(text: str) -> bool:
     return any(notice in text for notice in _FRAMEWORK_STREAM_NOTICES)
 
 
+_LESSON_LINK_TEXT = {
+    "ru": "Урок на сайте: «{title}»{course} — {url}",
+    "kz": "Сайттағы сабақ: «{title}»{course} — {url}",
+    "kk": "Сайттағы сабақ: «{title}»{course} — {url}",
+    "en": "Lesson on the site: “{title}”{course} — {url}",
+}
+
+
+def lesson_link_line(tool_results: list, answer: str, language: str) -> Optional[str]:
+    """The site's lesson a topic or lesson tool found this turn, as one line —
+    when the answer itself carries no lesson link.
+
+    get_topic tells the model to end with the lesson and its address; on the
+    production sweep of 07.10 it did so in 32 of 48 topics (a re-run of the
+    missing 16 gave 13): the model's choice, not the tool's. The link is added
+    by the server instead. None when the answer has a link or no tool found one.
+    """
+    if "/learn/" in (answer or ""):
+        return None
+    for raw in tool_results or []:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        ex = data.get("example") if isinstance(data.get("example"), dict) else {}
+        lesson = None
+        if ex.get("source") == "site_lesson" and ex.get("url"):
+            lesson = ex
+        elif isinstance(data.get("site_lessons"), list) and data["site_lessons"]:
+            first = data["site_lessons"][0]
+            lesson = first if isinstance(first, dict) and first.get("url") else None
+        elif data.get("lesson_id") and data.get("url") and data.get("title"):
+            course = data.get("course")
+            lesson = {"title": data["title"], "url": data["url"],
+                      "course": course.get("title") if isinstance(course, dict) else course}
+        if not lesson or "/learn/" not in str(lesson.get("url")):
+            continue
+        course = f" ({lesson['course']})" if lesson.get("course") else ""
+        template = _LESSON_LINK_TEXT.get(language, _LESSON_LINK_TEXT["ru"])
+        return template.format(title=lesson.get("title") or "", course=course, url=lesson["url"])
+    return None
+
+
 _STREAM_CUT_TEXT = {
     "ru": "(Связь с моделью оборвалась, ответ неполный — задайте вопрос ещё раз.)",
     "kz": "(Модельмен байланыс үзілді, жауап толық емес — сұрағыңызды қайта қойыңыз.)",
@@ -1654,6 +1699,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # lesson's puzzle was replaced by a topic example and the coach solved the
     # example — «Qg4+» on a board where the queen could not reach g4.
     session.lock_board(_board_lock_for_turn(body.message, bool(body.fen), live_game, session.board_state))
+    turn_board_locked = bool(session.board_lock)  # the lock is cleared when the agent thread ends
     named_moves: list = []
     hypo_future = None
     hypo_state = {"used": False, "ms": None, "timed_out": False, "moves": 0}
@@ -2329,6 +2375,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     result_text = payload
                 elif kind == "error":
                     error_exc = payload
+            if streamed_any and error_exc is None and not turn_board_locked and config.COACH_LESSON_LINK:
+                # The lesson the topic tool found, when the model left its link out.
+                link = lesson_link_line(tool_results, "".join(answer_parts), turn_language)
+                if link:
+                    link = "\n\n" + link
+                    partial_parts.append(link)
+                    answer_parts.append(link)
+                    yield _sse({"delta": link})
             if streamed_any and getattr(agent, "_coach_stream_cut", False) is True and error_exc is None:
                 cut_note = "\n\n" + _STREAM_CUT_TEXT.get(turn_language, _STREAM_CUT_TEXT["ru"])
                 partial_parts.append(cut_note)

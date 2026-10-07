@@ -1799,6 +1799,28 @@ def language_issue(sentence: str, language: Optional[str]) -> Optional[str]:
     return None
 
 
+# A generic English chess word inside a Russian or Kazakh sentence: «у White появляется…»,
+# «Блэк вынужден взять», «вничью instant» (production 2026-10-07). Opening names and
+# notation are not words of this list; a replacement would break the grammar — rewritten.
+_FOREIGN_WORD = re.compile(
+    r"(?<![A-Za-z'(])(?:White|Black|white|black|instant|instantly|checkmate|stalemate|tempo|Блэк|Уайт)"
+    r"(?![A-Za-zА-Яа-яЁё)]|'s\s+(?:Gambit|Indian))")  # «ловушка Блэкберна» is a name; «(tempo)» a gloss
+
+
+def foreign_word_issue(sentence: str, language: Optional[str]) -> Optional[str]:
+    """An English chess word in a sentence that is otherwise in *language* (ru/kk), or None."""
+    if language not in ("ru", "kk", "kz") or not sentence:
+        return None
+    cyrillic = sum(1 for ch in sentence if "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі")
+    if cyrillic < MIN_LANGUAGE_LETTERS:
+        return None
+    m = _FOREIGN_WORD.search(_NOT_LANGUAGE.sub(lambda mm: " " * len(mm.group(0)), sentence))
+    if not m:
+        return None
+    name = {"ru": "Russian", "kk": "Kazakh", "kz": "Kazakh"}[language]
+    return f"«{m.group(0)}» is an English word in a {name} sentence: say it in {name} (белые, чёрные, сразу, мат, пат, темп)"
+
+
 _TOPIC_TARGET = re.compile(
     rf"(?:бь[её]т|бьют|атакует|атакуют|нападает|нападают|защищает|защищают|прикрывает|прикрывают|держит|держат|"
     rf"attacks|hits|defends|protects|covers|guards|eyes|eyeing|attacking|hitting|defending)\s+"
@@ -1972,7 +1994,7 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     ctx = ctx or CheckContext.from_fens()
     if is_meta(sentence):
         return [META_ISSUE]
-    wrong_language = language_issue(sentence, ctx.language)
+    wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language)
     if wrong_language:
         return [wrong_language]
     text = sentence.replace("ё", "е")
@@ -2050,6 +2072,18 @@ _CLAIM_START = re.compile(
     re.IGNORECASE)
 
 
+# A piece letter written in Cyrillic by sound or by look: «Нf6+», «Рh8+», «Вf5» (production
+# lesson sweep 2026-10-07). Russian notation has no such letters (it is К, Л, С, Ф), so they
+# are the Latin N, R, B the rest of the answer uses.
+_LOOKALIKE_PIECE = re.compile(r"(?<![А-Яа-яЁёA-Za-z])([НРВ])(?=[x:×]?[a-h][1-8](?![0-9]))")
+_LOOKALIKE_MAP = {"Н": "N", "Р": "R", "В": "B"}
+
+
+def normalize_notation(text: str) -> str:
+    """«Нf6+» → «Nf6+», «Рh8+» → «Rh8+», «Вf5» → «Bf5»."""
+    return _LOOKALIKE_PIECE.sub(lambda m: _LOOKALIKE_MAP[m.group(1)], text) if text else text
+
+
 MIN_RELEASED_CHARS = 20  # a claim-free start shorter than this waits for its sentence
 # A start that announces the move it is about to name («Первый ход — », "The key move: "):
 # held with that move — when the move is cut, «Первый ход — Сначала отдаём ферзя…» dangled
@@ -2097,6 +2131,7 @@ class SentenceGate:
             sentences.append(self._buf)
             self._buf = ""
         for sentence in sentences:
+            sentence = normalize_notation(sentence)
             full = self._released + sentence
             self._released = ""
             if len(full.strip()) >= 12 and self._same(full, self._prev):
@@ -2150,7 +2185,7 @@ class SentenceGate:
         return buf[:cut]
 
     def flush(self) -> list[tuple[str, list[str], str]]:
-        rest, self._buf = self._buf, ""
+        rest, self._buf = normalize_notation(self._buf), ""
         full, self._released = self._released + rest, ""
         if not rest:
             return []
