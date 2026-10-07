@@ -187,7 +187,7 @@ class TestTurn:
 
         def _fix(**kwargs):
             seen["messages"] = kwargs["messages"]
-            kwargs["on_delta"]("это удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8.")
+            kwargs["on_delta"]("Ход, о котором речь — удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8.")
             reply = QuickReply(model=kwargs["model"])
             reply.prompt_tokens, reply.completion_tokens = 100, 20
             return reply
@@ -200,11 +200,12 @@ class TestTurn:
         })
         text = "".join(json.loads(l[6:]).get("delta", "") for l in resp.text.splitlines() if l.startswith("data: "))
         assert "f3 прыгает" not in text and "ерунда" not in text
-        # The claim-free start of the sentence was already out; the rewrite continues it.
-        assert text == "Хороший вопрос. Ход, о котором речь — это удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8."
+        # «Ход, о котором речь — » announces the move: held with it (a cut move left such a start
+        # dangling on production, 2026-10-07), so the rewrite writes the sentence whole.
+        assert text == "Хороший вопрос. Ход, о котором речь — удар конём на f7: конь на f7 бьёт ферзя d8 и ладью h8."
         fix_prompt = seen["messages"][1]["content"]
         assert "a knight cannot move from f3 to d5" in fix_prompt
-        assert "Хороший вопрос. Ход, о котором речь —" in fix_prompt
+        assert "Хороший вопрос." in fix_prompt  # what the student saw: the move's start was held with it
         assert "Ход, о котором речь — Nd5: конь с f3 прыгает на d5." in fix_prompt
         stored = [m.content for m in session_store.get(sid, "check-user").messages if m.role == "assistant"]
         assert stored == [text.strip()]

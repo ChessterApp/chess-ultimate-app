@@ -593,6 +593,10 @@ def _attack_issues(text: str, original: Optional[str] = None, ctx: Optional["Che
             dest = _move_before(converted, m.start(), ptype)
             if dest is None:
                 continue
+            if re.search(rf"(?<![a-z0-9]){dest}(?![0-9])", (m["targets"] or "").lower()):
+                # «Qxg6+ — ферзь бьёт коня на g6»: the capture the move makes, not an attack
+                # from g6 (production 2026-10-07: read as «the queen attacks the e7 knight»).
+                continue
             issue = _attack_issue(ptype, _WithSquare(m, dest), converted, ctx, converted, about_now=True)
             if issue and issue not in issues:
                 issues.append(issue)
@@ -796,8 +800,11 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
         numbered = bool(num or m["bdots"])
         is_piece = san[0] in "KQRBN"
         continues_line = in_line_until >= 0 and not converted[in_line_until:m.start()].strip()
-        if not numbered and not is_piece and not continues_line:
+        if not numbered and not is_piece and not continues_line and "x" not in san:
             continue  # «e4» without a number is a square, not a move
+        # «bxa6» without a number: followed where it is legal so the line goes on from it
+        # («… bxa6. Тогда … Bc6#»), never judged impossible itself (a plan, another position).
+        bare_capture = not numbered and not is_piece and not continues_line
         if num and not is_piece and re.fullmatch(r"[\s*_#>`-]*", converted[:m.start()]) \
                 and re.match(r"\d{1,3}\.\s", converted[m.start():]) \
                 and not re.search(r"\d{1,3}\.\s?[KQRBNa-hO]", converted[m.end():m.end() + 40]):
@@ -842,12 +849,19 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
                     move = trial.parse_san(full)
                 except ValueError:
                     continue
-                if m["check"] and not suffix_ok and trusted and ("x" not in san or trial.is_capture(move)):
-                    suffix_judged = True
+                if m["check"] and not suffix_ok and ("x" not in san or trial.is_capture(move)):
                     gives = trial.gives_check(move)
                     after = trial.copy(stack=False)
                     after.push(move)
-                    suffix_ok = after.is_checkmate() if m["check"] == "#" else gives
+                    holds = after.is_checkmate() if m["check"] == "#" else gives
+                    if trusted:
+                        suffix_judged = True
+                        suffix_ok = holds
+                    elif holds:
+                        # The answer's own line («Qa6+ … bxa6 … Bc6#») reaches a position where
+                        # it mates: that clears it, though a derived position never condemns
+                        # (production 2026-10-07: «следует Bc6# — мат» was cut on the board as it stands).
+                        suffix_ok = True
                 if not legal_somewhere:
                     legal_somewhere = True
                     trial.push(move)
@@ -861,9 +875,11 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
         if not legal_somewhere:
             prev, prev_trusted = None, False
         if legal_somewhere:
-            if suffix_judged and not suffix_ok:
+            if suffix_judged and not suffix_ok and not bare_capture:
                 label = (f"{num}{dots}" if num else (dots or "")) + full
                 issues.append(f"{label} is not checkmate" if m["check"] == "#" else f"{label} gives no check")
+            continue
+        if bare_capture:
             continue
         ptype = chess.PIECE_SYMBOLS.index(san[0].lower()) if is_piece else chess.PAWN
         dest = chess.parse_square(re.findall(SQ, san)[-1])
@@ -1918,17 +1934,23 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
         san = mv["san"]
         if san[0] in "KQRBNO" or mv["num"] or mv["bdots"] or "x" in san \
                 or _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]):
-            candidates.append((mv.end(), san + (mv["check"] or ""), None))
+            candidates.append((mv.end(), san + (mv["check"] or ""), None, mv.start()))
     try:
         from src.move_words import prose_moves
 
         for pm in prose_moves(text, ctx.current):
             if pm["move"] is not None:
                 at = text.lower().replace("ё", "е").find(pm["words"].lower())
-                candidates.append((at + len(pm["words"]) if at >= 0 else 0, pm["san"], pm["move"]))
+                candidates.append((at + len(pm["words"]) if at >= 0 else 0, pm["san"], pm["move"], max(at, 0)))
     except Exception:  # noqa: BLE001
         logger.debug("prose move parse failed", exc_info=True)
-    for end, san, move in sorted(candidates, key=lambda c: c[0]):
+    # Written moves before a candidate make it a step of a line («после ...Nxg6 следует Bf7+ —
+    # и мат»), judged in that line, not advice on this board (production 2026-10-07).
+    written_before = [mv.end() for mv in _MOVE.finditer(converted)
+                      if mv["num"] or mv["bdots"] or mv["san"][0] in "KQRBN" or "x" in mv["san"]]
+    for end, san, move, start in sorted(candidates, key=lambda c: c[0]):
+        if any(e <= start for e in written_before):
+            continue
         tail = text[end: end + 90]
         cut = re.search(r"[.;!?\n]|\s(?:но|а\s+не|однако|but|however)(?![а-яa-z])", tail)
         tail = tail[: cut.start()] if cut else tail
@@ -1993,7 +2015,9 @@ _META_RE = re.compile(
     r"|(?<![а-яa-z])(?:нужно|надо|стоит ли|могу ли|должен|должна)\s+(?:ответить|отвечать|вызывать|вызвать|"
     r"упоминать|назвать|использовать|сказать про|дать)"
     r"|(?<![а-яa-z])(?:из|в|по)\s+блок[аеу]?(?![а-я])|(?<![а-яa-z])блок\s+(?:движка|дебюта|фактов|уже)"
-    r"|(?<![а-яa-z])(?:инструкци[яию]|правило:|факт[ыа]\s+из|только факты|engine[- ]verified|не проверено)"
+    r"|(?<![а-яa-z])(?:инструкци[яию]|факт[ыа]\s+из|только факты|engine[- ]verified|не проверено)"
+    # «Правило: отвечать по-русски» opening the sentence is an instruction; «здесь работает правило: …» is teaching (2026-10-07)
+    r"|^[\s*_>#-]*правило\s*:"
     # thinking aloud in the answer: «… отойти на gxf6... нет, стоп: …» (2026-10-06)
     r"|(?:\.\.\.|…)\s*(?:нет|стоп|хм|подожди|wait|no)[,!.:\s]+(?:стоп|не\s+так|wait|that'?s\s+wrong)?"
     r"|(?<![а-яa-z])нет,\s+стоп\b|\bwait,\s+no\b"
@@ -2027,6 +2051,12 @@ _CLAIM_START = re.compile(
 
 
 MIN_RELEASED_CHARS = 20  # a claim-free start shorter than this waits for its sentence
+# A start that announces the move it is about to name («Первый ход — », "The key move: "):
+# held with that move — when the move is cut, «Первый ход — Сначала отдаём ферзя…» dangled
+# (production 2026-10-07, three of 187 lesson puzzles).
+_ANNOUNCES_MOVE = re.compile(
+    r"(?<![а-яa-z])(?:ход\w*|move|решени\w*|solution|сыгра\w*|играй|play|начн\w*\s+с|начина\w*\s+с|"
+    r"лучше\s+всего|start\s+with)(?![а-яa-z])[^.!?]{0,40}[:—–-]\s*$", re.IGNORECASE)
 
 
 class SentenceGate:
@@ -2100,6 +2130,8 @@ class SentenceGate:
         if safe and len(self._released) + len(safe) < MIN_RELEASED_CHARS \
                 and not re.search(r"[:,;—–-]\s*$", self._released + safe):
             safe = ""  # «А вот твоя » would dangle after a cut; «Смотри сюда: » reads on into any rewrite
+        if safe and _ANNOUNCES_MOVE.search(self._released + safe):
+            safe = ""  # «Первый ход — » goes out with its move or not at all
         if safe:
             self._released += safe
             self._buf = self._buf[len(safe):]

@@ -434,3 +434,44 @@ def test_result_after_the_students_move(sentence, question, caught):
     ctx = CheckContext.from_fens([QB6_BOARD], question=question)
     ctx.tablebase, ctx.engine_eval = "White wins", 20.0
     assert bool(check_sentence(sentence, ctx)) is caught
+
+
+# ── Answer check on the production lesson sweep, 2026-10-07 ───────────────────
+def test_a_start_that_announces_the_move_waits_for_it():
+    gate = SentenceGate(CheckContext.from_fens(["3rk3/2R1n1b1/4B1np/3pP2Q/1p1q1N1P/1P4P1/5P1K/8 w - - 0 1"]))
+    assert gate.feed("Первый ход — ") == []  # «Первый ход — Сначала отдаём ферзя…» dangled after a cut
+    out = gate.feed("**Qxg6+** — ферзь бьёт коня на g6 с шахом. ")
+    assert out == [("Первый ход — **Qxg6+** — ферзь бьёт коня на g6 с шахом. ", [],
+                    "Первый ход — **Qxg6+** — ферзь бьёт коня на g6 с шахом. ")]
+
+
+@pytest.mark.parametrize("fen,sentence,caught", [
+    # the mate at the end of the answer's own line (Qa6+ bxa6 Bc6#), not on the board as it stands
+    ("kb6/1p1B4/1K6/8/p1Q5/8/8/3q4 w - - 0 1",
+     "Первый ход — **Qa6+!** Ферзь отдаётся с шахом, и у чёрных только один ответ — bxa6. "
+     "Тогда чёрный король на a8 заперт, и следует Bc6# — мат!", False),
+    ("kb6/1p1B4/1K6/8/p1Q5/8/8/3q4 w - - 0 1", "Сыграй Bc6# — это мат.", True),
+    # the capture the move makes is not an attack from its square
+    ("3rk3/2R1n1b1/4B1np/3pP2Q/1p1q1N1P/1P4P1/5P1K/8 w - - 0 1", "**Qxg6+!** — ферзь бьёт коня на g6 с шахом.", False),
+    ("3rk3/2R1n1b1/4B1np/3pP2Q/1p1q1N1P/1P4P1/5P1K/8 w - - 0 1", "Qxg6+ — и ферзь нападает на ладью d8.", True),
+    # «правило:» inside a teaching sentence is not the coach's planning
+    ("r2k2nr/p1p3qp/2pp3b/3Qn3/5p2/2B5/PPP3PP/RN1R3K w - - 0 1",
+     "Здесь работает правило: когда фигура соперника защищена лишь связанной фигурой — бей её немедленно.", False),
+    ("r2k2nr/p1p3qp/2pp3b/3Qn3/5p2/2B5/PPP3PP/RN1R3K w - - 0 1", "Правило: отвечать по-русски и коротко.", True),
+])
+def test_lesson_sweep_false_flags(fen, sentence, caught):
+    ctx = CheckContext.from_fens([fen], question="Какой здесь первый ход и почему?")
+    gate = SentenceGate(ctx)
+    flagged = [o for o in gate.feed(sentence + "\n") + gate.flush() if o[1]]
+    assert bool(flagged) is caught
+
+
+def test_a_line_step_is_not_advice_on_this_board():
+    from src.answer_check import proposed_move
+
+    ctx = CheckContext.from_fens(["3rk3/2R1n1b1/4B1np/3pP2Q/1p1q1N1P/1P4P1/5P1K/8 w - - 0 1"])
+    assert proposed_move("После ...Nxg6 (или ...Ke7) следует Bf7+ — слон вскрывает короля, и мат не заставляет себя ждать.", ctx) is None
+    assert proposed_move("Bf7+ — слон вскрывает короля, и мат не заставляет себя ждать.", ctx)[2] == "Bf7+"
+    # the client's case of 05.10 is still advice to check
+    fried = CheckContext.from_fens(["rnbqkbnr/pp2pp1p/6p1/2p3NQ/4p3/8/PPPP1PPP/RNB1KB1R w KQkq - 0 5"])
+    assert proposed_move("А вот если конь прыгнет на f7 — он бьёт ладью и ферзя.", fried)[2] == "Nxf7"
