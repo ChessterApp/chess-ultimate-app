@@ -20,6 +20,7 @@ import SyncBoundary from "@/components/SyncBoundary"
 import SyncIndicator from "@/components/SyncIndicator"
 import { ChromeVisibilityProvider } from "@/components/ChromeVisibilityContext"
 import LockedRedirectListener from "@/components/access/LockedRedirectListener"
+import PremiumCelebrationGate from "@/components/premium/PremiumCelebrationGate"
 
 // Lazy load MUI provider only when needed
 const MuiProvider = lazy(() => import("@/components/providers/MuiProvider"))
@@ -114,6 +115,9 @@ export default function ClientShell({ children }: { children: ReactNode }) {
           <KeyboardShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
           <SyncIndicator />
           <LockedRedirectListener />
+          {/* One-time premium welcome ceremony — only inside the signed-in app
+              chrome, never on landing/auth/public pages. */}
+          {!hideNav && !isLanding && <PremiumCelebrationGate />}
         </OfflineBanner>
       </SubscriptionProvider>
     </ToastProvider>
