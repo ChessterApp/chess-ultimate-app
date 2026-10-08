@@ -23,6 +23,22 @@ export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'err
 // it on the board and tells the model, like the [Engine] line. On production
 // (2026-09-29) the 3.1 Live coach said "let me find an example" without calling
 // get_topic and described a pin that was not on the board.
+// A question about the position on the board («объясни, почему здесь связка», "what's the best move here")
+// keeps it: the knowledge base's example must not replace the student's position, as Hermes' board lock
+// keeps it for the text coach (2026-10-06; the voice lookup ran past it until 2026-10-08). Mirrors
+// _ABOUT_POSITION / _WANTS_NEW_BOARD in hermes/src/server.py.
+export const ABOUT_POSITION_RE =
+  /(?<![а-яёa-z])(ход\S*|реши\S*|решени\S*|задач\S*|лучш\S*|играть|сыграть|сыграю|оцени\S*|позици\S*|здесь|тут|в\s+этой\s+позиции|на\s+доске|move|moves|solve|solution|puzzle|best|play|position|here|жүріс\S*|есеп\S*|осы\s+жерде)(?![а-яёa-z])/i;
+export const WANTS_NEW_BOARD_RE =
+  /(?<![а-яёa-z])(покажи|пример\S*|что\s+такое|объясни\s+тем\S*|загрузи|поставь|расставь|дай\s+(мне\s+)?(ещё\s+|новую\s+)?задач\S*|другую\s+задач\S*|следующ\S+\s+задач\S*|show\s+me|example|load|set\s+up|give\s+me\s+a(nother)?\s+puzzle|what\s+is\s+an?\b)(?![а-яёa-z])/i;
+const START_BOARD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+
+/** The utterance asks about the student's own position (not the start), so no example replaces it. */
+export function keepsBoard(text: string, fen: string | undefined): boolean {
+  if (!fen || fen.split(' ')[0] === START_BOARD) return false;
+  return ABOUT_POSITION_RE.test(text) && !WANTS_NEW_BOARD_RE.test(text);
+}
+
 export const CONCEPT_QUESTION_RE =
   /(что\s+так(ое|ая|ой|ие)|объясни|расскажи\s+(мне\s+)?(про|о|об)\b|покажи\s+(мне\s+)?(пример|как)|пример\S*\s+\S+|что\s+значит|как\s+(играть|использовать|работает)|деген\s+не|түсіндір|мысал|what\s+is|what's\s+an?\b|explain|show\s+me\s+(an?\s+)?example|example\s+of)/i;
 // Words that may name an opening («жареная печень», «детский мат», «против
@@ -1135,6 +1151,9 @@ export default function useGeminiLive(
     } else if (!CONCEPT_QUESTION_RE.test(text)) {
       return;
     }
+    // «Объясни, почему здесь связка»: about the position on the board — the coach explains it from the
+    // [Engine] line; the knowledge base's example must not take its place.
+    if (keepsBoard(text, optionsRef.current.getFen?.())) return;
     conceptDoneRef.current = true;
     try {
       const res = await fetch('/api/coach/tool', {

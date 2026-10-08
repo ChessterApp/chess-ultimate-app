@@ -60,7 +60,12 @@ _PGN_RE = re.compile(r"(?:\b\d{1,3}\.\s*[a-hNBRQKO][^\s]*\s+(?:[a-hNBRQKO][^\s]*
 
 
 def looks_like_pgn(query: str) -> bool:
-    return bool(query) and _PGN_RE.search(query) is not None
+    if not query:
+        return False
+    from src.notation import russian_to_san
+
+    # «1.е4 е5 2.Кф3 Кс6…» — a game pasted in Russian notation is a game too (2026-10-08).
+    return _PGN_RE.search(query) is not None or _PGN_RE.search(russian_to_san(query)) is not None
 
 
 _TAG_LINE_RE = re.compile(r'^\s*\[\w+\s+"[^"]*"\]\s*$')
@@ -79,6 +84,9 @@ def extract_game_pgn(message: str, min_plies: int = 8) -> str | None:
 
     import chess.pgn
 
+    from src.notation import russian_to_san
+
+    message = russian_to_san(message)  # «2.Кф3 Кс6 3.Сс4» → «2.Nf3 Nc6 3.Bc4»; SAN stays as it is
     lines = message.splitlines()
     tags = [ln.strip() for ln in lines if _TAG_LINE_RE.match(ln)]
     start = re.search(r"(?<![\w.])1\.\s*[a-hNBRQKO]", message)

@@ -275,3 +275,24 @@ def test_an_undefended_claim_is_about_the_piece_named():
     ctx = CheckContext.from_fens(["5rk1/q4ppp/2b1pb2/8/r1Bp4/P2Q1N2/R1P2PPP/3R2K1 b - - 0 1"])
     check_sentence("Первый ход — **Rxc4**.", ctx)
     assert check_sentence("Слон на c4 ничем не защищён, а ладья его бьёт.", ctx)
+
+
+@pytest.mark.parametrize("message", [
+    "Разбери мою партию: 1.e4 e5 2.Кf3 Кc6 3.Сc4 Сc5 4.c3 Кf6 5.d4 e:d4 6.c:d4 Сb4+",
+    "Разбери мою партию: 1.е4 е5 2.Кф3 Кс6 3.Сс4 Сс5 4.с3 Кф6 5.д4 е:д4 6.с:д4 Сб4+ 7.Кс3 0-0",
+])
+def test_a_game_in_russian_notation_is_read(message):
+    from src.model_router import extract_game_pgn
+
+    pgn = extract_game_pgn(message)
+    assert pgn and pgn.startswith("1.e4 e5 2.Nf3 Nc6 3.Bc4 Bc5")
+
+
+def test_a_tool_error_tells_the_model_not_to_invent():
+    import json
+
+    from src.tools import ERROR_HINT, discover_and_register
+    from tools.registry import registry
+
+    discover_and_register()
+    assert json.loads(registry.dispatch("analyze_position", {"fen": "garbage"}))["hint"] == ERROR_HINT

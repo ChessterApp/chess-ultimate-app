@@ -147,3 +147,19 @@ it('castling as speech recognition spells it is an idea', () => {
     expect(IDEA_MOVE_RE.test(text), text).toBe(true);
   }
 });
+
+describe('keepsBoard (2026-10-08)', () => {
+  const POS = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  it('keeps the student position for a question about it', async () => {
+    const { keepsBoard } = await import('../useGeminiLive');
+    expect(keepsBoard('Объясни, почему здесь связка', POS)).toBe(true);
+    expect(keepsBoard('Explain the best move here', POS)).toBe(true);
+  });
+  it('lets an example replace the board when one is asked for, or on the start position', async () => {
+    const { keepsBoard } = await import('../useGeminiLive');
+    expect(keepsBoard('Покажи пример связки', POS)).toBe(false);
+    expect(keepsBoard('Что такое связка?', POS)).toBe(false);
+    expect(keepsBoard('Объясни, почему здесь связка', START)).toBe(false);
+  });
+});
