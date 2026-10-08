@@ -92,6 +92,10 @@ describe('POST /api/chess-empire/sync/freeze-thaw', () => {
     expect(syncMock).toHaveBeenCalledWith(
       expect.objectContaining({ externalStudentId: 'stu-1', ceStatus: 'frozen' }),
     );
+    // The helper must receive an injected CE status reader so it can re-read
+    // the authoritative status rather than trusting the posted body.
+    const call = syncMock.mock.calls[0][0];
+    expect(typeof call.ceReader?.getStatus).toBe('function');
   });
 
   it('thaws on a valid request', async () => {
@@ -108,6 +112,16 @@ describe('POST /api/chess-empire/sync/freeze-thaw', () => {
     syncMock.mockRejectedValue(new NotFoundError('student_not_found'));
     const { POST } = await import('../route');
     const res = await POST(post({ external_student_id: 'ghost', status: 'frozen' }, auth()));
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toBe('student_not_found');
+  });
+
+  it('404 when the student is missing in the CE DB', async () => {
+    const { NotFoundError } = await import('@/lib/chess-empire-admin');
+    syncMock.mockRejectedValue(new NotFoundError('ce_student_not_found'));
+    const { POST } = await import('../route');
+    const res = await POST(post({ external_student_id: 'ghost', status: 'active' }, auth()));
     expect(res.status).toBe(404);
     const json = await res.json();
     expect(json.error).toBe('student_not_found');

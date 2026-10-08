@@ -443,13 +443,30 @@ export interface CeSyncClerkAdapter {
   deleteMembership(clerkOrgId: string, userId: string): Promise<void>;
 }
 
+/**
+ * Reads the authoritative CE `students.status` for a student id, injected so
+ * the sync helper never trusts the caller-supplied status (the service token
+ * ships in the CE admin app's client JS, so the posted body is attacker-
+ * controllable) and stays offline-testable — same pattern as the Clerk adapter.
+ * Returns `null` when CE has no such student.
+ */
+export interface CeStudentStatusReader {
+  getStatus(studentId: string): Promise<string | null>;
+}
+
 export type CeSyncAction = 'freeze' | 'thaw' | 'none';
 
 export interface SyncFreezeThawArgs {
   externalStudentId: string;
-  /** Authoritative CE status the admin just set. */
+  /**
+   * Status posted by the CE admin app. A HINT ONLY — never acted on. The
+   * helper re-reads the authoritative value from CE via `ceReader` and acts on
+   * THAT, so a forged body cannot freeze/thaw arbitrary students.
+   */
   ceStatus: 'active' | 'frozen';
   clerk: CeSyncClerkAdapter;
+  /** Reads the authoritative CE status (injectable so tests stay offline). */
+  ceReader: CeStudentStatusReader;
   /** Injectable clock (ms source) for the personal-sub check. */
   now?: () => Date;
 }
@@ -464,20 +481,38 @@ export interface SyncFreezeThawResult {
  * Apply a single CE student status change to Chesster. Thaws (CE active + link
  * frozen) or freezes (CE frozen + link verified); any other pairing is a no-op,
  * mirroring `decideAction()` in the cron for the freeze/thaw directions.
- * Throws `NotFoundError('student_not_found')` when the student isn't linked.
+ *
+ * The caller-supplied `ceStatus` is a hint only — the authoritative status is
+ * re-read from CE via `ceReader` and is the value acted on. Throws
+ * `NotFoundError('ce_student_not_found')` when CE has no such student and
+ * `NotFoundError('student_not_found')` when the student isn't linked here.
  */
 export async function syncFreezeThawByStudent({
   externalStudentId,
   ceStatus,
   clerk,
+  ceReader,
   now = () => new Date(),
 }: SyncFreezeThawArgs): Promise<SyncFreezeThawResult> {
+  const authoritativeStatus = await ceReader.getStatus(externalStudentId);
+  if (authoritativeStatus === null) {
+    throw new NotFoundError('ce_student_not_found');
+  }
+  if (authoritativeStatus !== ceStatus) {
+    // Posted status disagrees with CE — forged, stale, or a race. Log it as a
+    // security/observability signal and proceed on CE's authoritative value.
+    console.warn(
+      '[ce-sync/freeze-thaw] posted status ignored; using CE DB',
+      JSON.stringify({ externalStudentId, posted: ceStatus, authoritative: authoritativeStatus }),
+    );
+  }
+
   const row = await loadMemberByExternalStudentId(externalStudentId);
   if (!row) throw new NotFoundError('student_not_found');
 
   const actorClerkUserId = 'ce-sync-service';
 
-  if (ceStatus === 'active' && row.link_status === 'frozen') {
+  if (authoritativeStatus === 'active' && row.link_status === 'frozen') {
     const member = await unfreezeMember({
       orgId: row.organization_id,
       memberId: row.id,
@@ -489,7 +524,7 @@ export async function syncFreezeThawByStudent({
     return { action: 'thaw', linkStatus: member.link_status, memberId: row.id };
   }
 
-  if (ceStatus === 'frozen' && row.link_status === 'verified') {
+  if (authoritativeStatus === 'frozen' && row.link_status === 'verified') {
     // link_status is school-side truth and always flips; the Clerk org removal
     // is skipped when the member pays for their own Chesster plan.
     const subActive = await hasActivePersonalSubscription(

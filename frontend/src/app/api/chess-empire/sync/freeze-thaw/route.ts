@@ -12,16 +12,22 @@
  * env var is unset. The actual freeze/thaw + Clerk-membership logic lives in
  * `syncFreezeThawByStudent` (@/lib/chess-empire-admin) and mirrors the cron.
  *
- * Body: `{ external_student_id: string, status: 'active' | 'frozen' }`.
+ * Body: `{ external_student_id: string, status: 'active' | 'frozen' }`. The
+ * posted `status` is a HINT ONLY: the service token is exposed in the CE admin
+ * app's client JS, so the body is attacker-controllable. The helper re-reads
+ * the authoritative `students.status` from the CE Supabase and acts on THAT,
+ * never the posted value. A student missing from CE returns 404.
  */
 import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { clerkClient } from '@clerk/nextjs/server';
+import { createClient } from '@supabase/supabase-js';
 import {
   syncFreezeThawByStudent,
   NotFoundError,
   type CeSyncClerkAdapter,
+  type CeStudentStatusReader,
 } from '@/lib/chess-empire-admin';
 
 export const dynamic = 'force-dynamic';
@@ -107,6 +113,38 @@ function realClerkAdapter(): CeSyncClerkAdapter {
   };
 }
 
+/**
+ * Real CE status reader — queries the Chess Empire Supabase `students` table
+ * (service key) for the authoritative status, matched by the id Chesster stores
+ * as `external_student_id`. Returns null when CE has no such row.
+ */
+function realCeStatusReader(): CeStudentStatusReader {
+  return {
+    async getStatus(studentId) {
+      const url = process.env.CHESS_EMPIRE_SUPABASE_URL;
+      const key = process.env.CHESS_EMPIRE_SERVICE_KEY;
+      if (!url || !key) {
+        throw new Error(
+          'ce-sync/freeze-thaw: CHESS_EMPIRE_SUPABASE_URL or CHESS_EMPIRE_SERVICE_KEY not set',
+        );
+      }
+      const client = createClient(url, key, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data, error } = await client
+        .from('students')
+        .select('status')
+        .eq('id', studentId)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`ce-sync/freeze-thaw: CE status read failed: ${error.message}`);
+      }
+      if (!data) return null;
+      return (data as { status?: string | null }).status ?? null;
+    },
+  };
+}
+
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
     return corsJson({ error: 'Unauthorized' }, 401);
@@ -131,6 +169,7 @@ export async function POST(req: NextRequest) {
       externalStudentId,
       ceStatus: status,
       clerk: realClerkAdapter(),
+      ceReader: realCeStatusReader(),
     });
     return corsJson({ ok: true, ...result }, 200);
   } catch (err) {

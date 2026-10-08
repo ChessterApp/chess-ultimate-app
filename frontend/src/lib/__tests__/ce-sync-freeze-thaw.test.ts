@@ -13,6 +13,7 @@ import {
   syncFreezeThawByStudent,
   NotFoundError,
   type CeSyncClerkAdapter,
+  type CeStudentStatusReader,
 } from '../chess-empire-admin';
 
 interface FakeMember {
@@ -94,6 +95,14 @@ function mockClerk(): CeSyncClerkAdapter & {
   };
 }
 
+/** CE status reader stub — returns the authoritative status the test wants. */
+function reader(status: string | null): CeStudentStatusReader & {
+  getStatus: ReturnType<typeof vi.fn>;
+} {
+  const getStatus = vi.fn(async () => status);
+  return { getStatus };
+}
+
 const baseMember: FakeMember = {
   id: 'mem-1',
   organization_id: 'org-1',
@@ -122,6 +131,7 @@ describe('syncFreezeThawByStudent', () => {
       externalStudentId: 'stu-1',
       ceStatus: 'active',
       clerk,
+      ceReader: reader('active'),
     });
 
     expect(result.action).toBe('thaw');
@@ -139,6 +149,7 @@ describe('syncFreezeThawByStudent', () => {
       externalStudentId: 'stu-1',
       ceStatus: 'frozen',
       clerk,
+      ceReader: reader('frozen'),
     });
 
     expect(result.action).toBe('freeze');
@@ -159,6 +170,7 @@ describe('syncFreezeThawByStudent', () => {
       externalStudentId: 'stu-1',
       ceStatus: 'frozen',
       clerk,
+      ceReader: reader('frozen'),
     });
 
     expect(result.action).toBe('freeze');
@@ -174,6 +186,7 @@ describe('syncFreezeThawByStudent', () => {
       externalStudentId: 'stu-1',
       ceStatus: 'active',
       clerk,
+      ceReader: reader('active'),
     });
 
     expect(result.action).toBe('none');
@@ -191,19 +204,82 @@ describe('syncFreezeThawByStudent', () => {
       externalStudentId: 'stu-1',
       ceStatus: 'active',
       clerk,
+      ceReader: reader('active'),
     });
 
     expect(result.action).toBe('thaw');
     expect(clerk.create).not.toHaveBeenCalled();
   });
 
-  it('throws NotFoundError for an unknown student', async () => {
+  it('throws NotFoundError when the student is not linked in Chesster', async () => {
     inject({ member: null });
     const clerk = mockClerk();
 
     await expect(
-      syncFreezeThawByStudent({ externalStudentId: 'nope', ceStatus: 'frozen', clerk }),
+      syncFreezeThawByStudent({
+        externalStudentId: 'nope',
+        ceStatus: 'frozen',
+        clerk,
+        ceReader: reader('frozen'),
+      }),
     ).rejects.toBeInstanceOf(NotFoundError);
+    expect(clerk.create).not.toHaveBeenCalled();
+    expect(clerk.del).not.toHaveBeenCalled();
+  });
+
+  it('acts on the CE DB status, not the posted hint (DB says frozen → freeze)', async () => {
+    // Attacker posts `active` to thaw, but CE DB says the student is frozen.
+    const client = inject({ member: { ...baseMember, link_status: 'verified' } });
+    const clerk = mockClerk();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await syncFreezeThawByStudent({
+      externalStudentId: 'stu-1',
+      ceStatus: 'active',
+      clerk,
+      ceReader: reader('frozen'),
+    });
+
+    expect(result.action).toBe('freeze');
+    expect(client.updates[0].patch.link_status).toBe('frozen');
+    expect(clerk.del).toHaveBeenCalledWith('clerk-org-1', 'user_1');
+    expect(clerk.create).not.toHaveBeenCalled();
+  });
+
+  it('acts on the CE DB status, not the posted hint (DB says active → thaw)', async () => {
+    // Attacker posts `frozen` to freeze, but CE DB says the student is active.
+    const client = inject({ member: { ...baseMember, link_status: 'frozen' } });
+    const clerk = mockClerk();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await syncFreezeThawByStudent({
+      externalStudentId: 'stu-1',
+      ceStatus: 'frozen',
+      clerk,
+      ceReader: reader('active'),
+    });
+
+    expect(result.action).toBe('thaw');
+    expect(client.updates[0].patch.link_status).toBe('verified');
+    expect(clerk.create).toHaveBeenCalledWith('clerk-org-1', 'user_1');
+    expect(clerk.del).not.toHaveBeenCalled();
+  });
+
+  it('throws NotFoundError (and touches nothing) when the student is missing in CE DB', async () => {
+    const client = inject({ member: { ...baseMember, link_status: 'frozen' } });
+    const clerk = mockClerk();
+    const ceReader = reader(null);
+
+    await expect(
+      syncFreezeThawByStudent({
+        externalStudentId: 'stu-1',
+        ceStatus: 'active',
+        clerk,
+        ceReader,
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+    // CE missing is checked before any Chesster read/mutation or Clerk call.
+    expect(client.updates).toHaveLength(0);
     expect(clerk.create).not.toHaveBeenCalled();
     expect(clerk.del).not.toHaveBeenCalled();
   });
