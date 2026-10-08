@@ -2041,16 +2041,53 @@ _PAWN_MOVE_WORDS = re.compile(
     r"(?:толкн\w+|продвин\w+|двин\w+)\s+(?:пешку\s+)?(?:на\s+)?)$", re.IGNORECASE)  # not «пешка e5 висит»: that names a square
 
 
+# Words that look at a move rather than recommend it, when the move is the one the student asked about
+# («А если я сыграю Be7+?» — «Сыграем **Be7+** и посмотрим…»): on the lesson page (2026-10-08) such a
+# sentence was cut as bad advice, and with it the explanation of why the student's idea fails.
+_EXPLORES = re.compile(r"сыграем|берём|берем|ставим|идём|идем|можно|попробуй(?:те)?|попробуем|давай(?:те)?|let'?s",
+                       re.IGNORECASE)
+
+
+# A recommendation in so many words: the student's own idea is advice only with one of these.
+_RECOMMENDS = re.compile(
+    r"(?<![а-яa-z])(?:сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|бей(?:те)?|бери(?:те)?|возьми(?:те)?|лучше|сильнее|"
+    r"правильно|надо|нужно|стоит|рекомендую|советую|предлагаю|хорош\w*\s+ход|лучш\w*\s+ход|сильн\w*\s+ход|"
+    r"отличн\w*|верн\w*\s+ход|play|go\s+for|recommend|best|good\s+move|strong)(?![а-яa-z])", re.IGNORECASE)
+
+
 def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     """The move the coach recommends to the side to move on the board on the
     screen: (board, move, san), or None. In notation («Rg1», «Лg1») or in words
     («поставь ладью на g1»). A sentence that refutes a move («Rg1 сыграть
-    нельзя»), or says not to play it, recommends nothing."""
+    нельзя»), or says not to play it, recommends nothing. The move the student
+    asked about («А если Be7+?») is looked at, not advised — «Ход Be7+ даёт шах:
+    слон бьёт по королю» describes it — unless the sentence recommends it in so
+    many words («Be7+ — хороший ход», «лучше Be7+»)."""
+    found = _proposed_move(sentence, ctx)
+    if found and ctx.quoted and not _RECOMMENDS.search(sentence.replace("ё", "е")):
+        bare = found[2].rstrip("+#").replace("x", "")
+        if bare in {q.rstrip("+#").replace("x", "") for q in ctx.quoted}:
+            return None
+    return found
+
+
+def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]:
     if ctx is None or ctx.current is None or not sentence:
         return None
     text = sentence.replace("ё", "е")
     if _DENIES.search(text):
         return None
+    # «Первый ход — **Bxh4**», «Здесь решает Nf6+!»: the answer to a task is advice too — the engine never
+    # saw these (production 07.10: Bxh4?? and Nf6+?? given as lesson solutions went out unchecked).
+    converted_all, _ = _to_san(text)
+    for mv in _MOVE.finditer(converted_all):
+        if not _ANNOUNCED.search(converted_all[max(0, mv.start() - 45):mv.start()]):
+            continue
+        try:
+            move = ctx.current.parse_san(mv["san"] + (mv["check"] or ""))
+        except ValueError:
+            break
+        return ctx.current, move, ctx.current.san(move)
     for m in _PROPOSES.finditer(text):
         if _NEGATION.search(text[max(0, m.start() - 24): m.start()]):
             continue  # «не стоит играть Rg1», "don't play Rg1"
@@ -2066,6 +2103,8 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
                     and not _PAWN_MOVE_WORDS.search(converted[max(0, mv.start() - 24): mv.start()]) \
                     and not re.fullmatch(r"[\s—–:\-]*(?:здесь\s+|сейчас\s+|here\s+|now\s+)?", converted[: mv.start()]):
                 continue  # «e4» is a square («пешка e5 висит») unless a pawn is told to go there («пешкой: g6», "pawn to e4») or it is the move itself («лучше d4»)
+            if _EXPLORES.fullmatch(m.group(0).strip()) and san.replace("x", "") in {q.replace("x", "") for q in ctx.quoted}:
+                continue  # «Сыграем Be7+ и посмотрим», «можно Be7+»: the student's own idea looked at, not advice
             try:
                 move = ctx.current.parse_san(san + (mv["check"] or ""))
             except ValueError:

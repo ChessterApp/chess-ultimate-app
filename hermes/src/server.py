@@ -2953,6 +2953,9 @@ def _lesson_chat_stream(
             messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})
 
+    # The coach's reasoning setting (2026-10-08): with none sent DeepSeek thought for its whole 2000
+    # tokens and the reply came back empty — 15 of 23 replies on the stand, 6–38 s each.
+    reasoning = _gemini_reasoning(model) or _reasoning_config(model)
     response = client.chat.completions.create(
         model=model,
         messages=messages,
@@ -2960,6 +2963,7 @@ def _lesson_chat_stream(
         temperature=0.7,
         stream=True,
         stream_options={"include_usage": True},
+        **({"extra_body": {"reasoning": reasoning}} if reasoning else {}),
     )
     for chunk in response:
         if chunk.choices and chunk.choices[0].delta.content:
@@ -2975,6 +2979,64 @@ def _lesson_chat_stream(
                 }
 
 
+def _lesson_board_facts(message: str, fen: Optional[str]) -> dict:
+    """What the coach knows before it answers, for the tutor on a lesson page (2026-10-08).
+
+    The tutor had the lesson's text and the puzzles' solutions only: «а если Фe6+?» was answered from
+    the model's head, and its «why» was made up. Here, as in the coach's turn: the engine line of the
+    student's board (the board's facts when it is late), the moves the message names with their
+    verdict, each played by the engine (hints mode — no better move named). Returns {"block": text
+    for the turn, "note": the engine line or None, "after_fens": positions the named moves lead to}.
+    Never raises; runs on a worker thread.
+    """
+    out = {"block": "", "note": None, "after_fens": []}
+    if not fen or not config.COACH_LESSON_FACTS:
+        return out
+    try:
+        board = chess.Board(fen)
+        if not board.is_valid() or board.is_game_over():
+            return out
+    except ValueError:
+        return out
+    from src.prompt_builder import board_facts_block, lesson_engine_block, moves_in_question_block, question_moves
+    from src.tools.stockfish import engines_running
+
+    started = time.monotonic()
+    load = engines_running()
+    note_ms = config.COACH_ENGINE_NOTE_MOVETIME_MS if load < 2 else max(400, config.COACH_ENGINE_NOTE_MOVETIME_MS // 3)
+    idea_ms = config.COACH_HYPOTHETICAL_MOVETIME_MS if load < 2 else max(150, config.COACH_HYPOTHETICAL_MOVETIME_MS // 2)
+    engine_future = _engine_pool.submit(engine_note, fen, movetime_ms=note_ms) if config.COACH_ENGINE_NOTE else None
+    blocks: list[str] = []
+    hypo_future = None
+    try:
+        named = question_moves(message, fen)
+        legal = [q for q in named if q.get("legal")]
+        out["after_fens"] = [q["after_fen"] for q in named if q.get("after_fen")]
+        moves_note = moves_in_question_block(message, fen, named or None)
+        if moves_note:
+            blocks.append(moves_note)
+        if legal and config.COACH_HYPOTHETICAL_NOTE:
+            from src.hypothetical import hypothetical_notes
+
+            hypo_future = _engine_pool.submit(hypothetical_notes, fen, legal, idea_ms, False)
+    except Exception:  # noqa: BLE001 — the facts are a bonus, never a blocker
+        logger.debug("lesson tutor: question moves failed", exc_info=True)
+    state: dict = {}
+    note = _await_engine_note(engine_future, started, state)
+    if note and note.get("note"):
+        out["note"] = note
+        blocks.append(lesson_engine_block(note["note"]))
+    else:
+        facts = board_facts_block(fen)
+        if facts:
+            blocks.append(facts)
+    hypo = _await_engine_note(hypo_future, started, {})
+    if hypo and hypo.get("note"):
+        blocks.append(hypothetical_block(hypo["note"]))
+    out["block"] = "\n\n".join(blocks)
+    return out
+
+
 @app.post("/api/lesson/chat")
 async def lesson_chat(body: LessonChatRequest, request: Request):
     """Lesson tutor chat — streams the tutor's reply as SSE token events.
@@ -2988,6 +3050,10 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     analytics_tracker.track_chat(user_id, "")
 
     model = _resolve_model(None, body.message)
+    pc = body.puzzle_context
+    # The position in front of the student: the live board of the lesson page, else the current puzzle.
+    board_fen = (pc.current_board_fen or (pc.current_puzzle.fen if pc.current_puzzle else None)) if pc else None
+    facts_task = asyncio.create_task(asyncio.to_thread(_lesson_board_facts, body.message, board_fen))
     book = None
     try:
         from src.lesson_texts import lesson_text
@@ -3005,17 +3071,28 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     # (2026-10-05: this chat had run past every check): a wrong one is not shown.
     from src.answer_check import CheckContext, SentenceGate
 
-    pc = body.puzzle_context
+    facts = await facts_task
+    model_message = f"{body.message}\n\n{facts['block']}" if facts["block"] else body.message
     fens = []
     if pc is not None:
         fens += [pc.current_board_fen, pc.current_puzzle.fen if pc.current_puzzle else None]
         fens += [p.fen for p in pc.puzzles]
+    fens += facts["after_fens"]  # the positions the student's named moves lead to
     if book:
         fens += [d["fen"] for d in book.get("diagrams") or []]
     check_ctx = CheckContext.from_fens([f for f in fens if f], question=body.message)
     lang = (body.locale or "").lower()
     check_ctx.language = {"kz": "kk"}.get(lang, lang) if lang in _LESSON_LANG else None
+    note = facts["note"]
+    if note:
+        check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
+        tb = note.get("tablebase")
+        if tb:
+            check_ctx.engine_eval = 0.0 if tb == "draw" else (20.0 if tb.startswith("White") else -20.0)
+            check_ctx.tablebase = tb
+        check_ctx.engine_mate = note.get("mate_in")
     gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
+    verify_left = [config.COACH_MOVE_VERIFY_PER_TURN if (config.COACH_MOVE_VERIFY and config.COACH_LESSON_FACTS) else 0]
 
     async def event_stream():
         queue: asyncio.Queue = asyncio.Queue()
@@ -3039,11 +3116,38 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
                 frames.append(_sse({"delta": piece}))
             return frames
 
+        async def _verified(pairs):
+            """A move the tutor recommends is checked by the engine before it is shown, as the
+            coach's is (src/hypothetical.verify_recommendation); a losing one is left out."""
+            if verify_left[0] <= 0 or check_ctx.current is None:
+                return pairs
+            from src.answer_check import proposed_move, written_line_after
+            from src.hypothetical import verify_recommendation
+
+            out = []
+            for piece, issues, sentence in pairs:
+                if not issues and verify_left[0] > 0:
+                    found = proposed_move(sentence, check_ctx)
+                    if found:
+                        verify_left[0] -= 1
+                        try:
+                            issue = await loop.run_in_executor(
+                                _engine_pool, verify_recommendation, found[0], found[1], found[2],
+                                config.COACH_MOVE_VERIFY_MOVETIME_MS, config.COACH_MOVE_VERIFY_CP, False,
+                                written_line_after(sentence, found[2]))
+                        except Exception:  # noqa: BLE001 — the check is best-effort
+                            logger.debug("lesson tutor: move verification failed", exc_info=True)
+                            issue = None
+                        if issue:
+                            issues = [issue]
+                out.append((piece, issues, sentence))
+            return out
+
         def _run():
             usage_out: dict = {}
             try:
                 for chunk in _lesson_chat_stream(
-                    model, system_prompt, body.message, body.history, usage_out
+                    model, system_prompt, model_message, body.history, usage_out
                 ):
                     if chunk:
                         loop.call_soon_threadsafe(queue.put_nowait, ("delta", chunk))
@@ -3063,17 +3167,21 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
                     break
                 kind, payload = item
                 if kind == "delta":
-                    for frame in _frames(gate.feed(payload)):
+                    for frame in _frames(await _verified(gate.feed(payload))):
                         yield frame
                 elif kind == "error":
                     error_exc = payload
             await future
-            for frame in _frames(gate.flush()):
+            for frame in _frames(await _verified(gate.flush())):
                 yield frame
-            if not shown and dropped and error_exc is None:
+            if not shown and error_exc is None:
+                # Every sentence left out, or the model said nothing at all: one short line, never silence.
                 fallback = _LESSON_FALLBACK.get({"kz": "kk"}.get(lang, lang), _LESSON_FALLBACK["ru"])
                 shown.append(fallback)
                 yield _sse({"delta": fallback})
+                if not dropped:
+                    log_event("lesson_empty_reply", severity="warn", surface="lesson", user_id=user_id, model=model,
+                              payload={"path": "lesson/chat"})
             if dropped:
                 log_event("answer_check", surface="lesson", user_id=user_id, model=model,
                           payload={"path": "lesson/chat", "dropped": dropped[:3]})

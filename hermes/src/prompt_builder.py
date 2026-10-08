@@ -1269,6 +1269,20 @@ def review_block(result: dict) -> str:
     return "\n".join(lines)
 
 
+def lesson_engine_block(note: str) -> str:
+    """The engine line for the student's board on a lesson page (the lesson tutor, 2026-10-08):
+    the facts to explain from, the move itself kept for when the student asks or is stuck."""
+    return (
+        "## Engine analysis of the student's board\n"
+        f"{note}\n"
+        "Stockfish analysed the position on the student's board for this turn; its \"Facts\" part and "
+        "its lines are verified. Explain WHY a move works or fails only from these facts and lines — "
+        "never claim an attack, a defence, a threat, a check or a reply that is not in them. The student "
+        "is working on this position: hint from the facts first; name the move itself when they ask for "
+        "it or have tried and failed. No engine name, no numbers."
+    )
+
+
 def engine_note_block(note: str, opening: bool = False) -> str:
     """The turn's engine line (src/voice_engine_note.py) as a turn-context block.
 

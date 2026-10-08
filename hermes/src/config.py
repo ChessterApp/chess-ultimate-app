@@ -206,6 +206,11 @@ COACH_DIRECT_ANSWERS = os.environ.get("COACH_DIRECT_ANSWERS", "1").strip().lower
 # model left its link out (production sweep 2026-10-07: 32 of 48 topics had it).
 COACH_LESSON_LINK = os.environ.get("COACH_LESSON_LINK", "1").strip().lower() not in ("0", "false", "no", "off")
 
+# The tutor on the lesson pages gets what the coach gets before it answers (2026-10-08): the engine
+# line of the student's board (or its facts), the moves the message names played by the engine, and
+# its own recommended move checked by the engine. 0 — the book and the answer check only, as before.
+COACH_LESSON_FACTS = os.environ.get("COACH_LESSON_FACTS", "1").strip().lower() not in ("0", "false", "no", "off")
+
 # A provider that goes silent mid-answer: the framework waited 120 s for the next
 # byte (HERMES_STREAM_READ_TIMEOUT) and 180 s for the next chunk
 # (HERMES_STREAM_STALE_TIMEOUT) — on the bench of 2026-09-28 one answer stopped
