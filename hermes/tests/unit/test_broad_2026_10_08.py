@@ -296,3 +296,16 @@ def test_a_tool_error_tells_the_model_not_to_invent():
 
     discover_and_register()
     assert json.loads(registry.dispatch("analyze_position", {"fen": "garbage"}))["hint"] == ERROR_HINT
+
+
+@pytest.mark.parametrize("fen,solution,bad", [
+    ("2K5/4p3/1p2k3/1p1R1p2/1P1PP3/1B6/1q6/8 w - - 0 1", ["Rxf5+"], "wrong here"),  # Мат в 3 хода — Набор 27, №1
+    ("7k/8/8/8/8/4K3/8/8 w - - 0 1", ["d4e4"], "not a legal move"),  # Король — Ход вправо
+    ("r1b1qrn1/pppnbkpp/5p2/n7/2P2BP1/3PQ3/PP2PPBP/RNB1K1NR w KQ - 0 1", ["Qe6+"], "not a legal chess position"),
+    ("8/5p1k/6pp/3q4/4N3/7P/5PP1/6K1 w - - 0 1", ["Nf6+"], None),  # a right one
+])
+def test_the_sites_listed_solution_is_checked(fen, solution, bad):
+    from src.hypothetical import site_solution_note
+
+    note = site_solution_note(fen, solution)
+    assert (note is None) if bad is None else (bad in note)

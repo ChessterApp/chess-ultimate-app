@@ -2979,7 +2979,8 @@ def _lesson_chat_stream(
                 }
 
 
-def _lesson_board_facts(message: str, fen: Optional[str]) -> dict:
+def _lesson_board_facts(message: str, fen: Optional[str], puzzle_fen: Optional[str] = None,
+                        solution=None) -> dict:
     """What the coach knows before it answers, for the tutor on a lesson page (2026-10-08).
 
     The tutor had the lesson's text and the puzzles' solutions only: «а если Фe6+?» was answered from
@@ -3006,6 +3007,13 @@ def _lesson_board_facts(message: str, fen: Optional[str]) -> dict:
     note_ms = config.COACH_ENGINE_NOTE_MOVETIME_MS if load < 2 else max(400, config.COACH_ENGINE_NOTE_MOVETIME_MS // 3)
     idea_ms = config.COACH_HYPOTHETICAL_MOVETIME_MS if load < 2 else max(150, config.COACH_HYPOTHETICAL_MOVETIME_MS // 2)
     engine_future = _engine_pool.submit(engine_note, fen, movetime_ms=note_ms) if config.COACH_ENGINE_NOTE else None
+    # The site's listed solution of the puzzle on the board, checked (21 of the site's 1896 tasks list a
+    # losing, illegal or impossible one — 2026-10-08).
+    solution_future = None
+    if puzzle_fen and solution and repair_fen(puzzle_fen).split(" ")[:2] == fen.split(" ")[:2]:
+        from src.hypothetical import site_solution_note
+
+        solution_future = _engine_pool.submit(site_solution_note, puzzle_fen, solution)
     blocks: list[str] = []
     hypo_future = None
     try:
@@ -3033,6 +3041,9 @@ def _lesson_board_facts(message: str, fen: Optional[str]) -> dict:
     hypo = _await_engine_note(hypo_future, started, {})
     if hypo and hypo.get("note"):
         blocks.append(hypothetical_block(hypo["note"]))
+    wrong_solution = _await_engine_note(solution_future, started, {})
+    if wrong_solution:
+        blocks.append(f"## The lesson's listed solution — checked\n{wrong_solution}")
     out["block"] = "\n\n".join(blocks)
     return out
 
@@ -3053,7 +3064,10 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     pc = body.puzzle_context
     # The position in front of the student: the live board of the lesson page, else the current puzzle.
     board_fen = (pc.current_board_fen or (pc.current_puzzle.fen if pc.current_puzzle else None)) if pc else None
-    facts_task = asyncio.create_task(asyncio.to_thread(_lesson_board_facts, body.message, board_fen))
+    cur = pc.current_puzzle if pc else None
+    facts_task = asyncio.create_task(asyncio.to_thread(
+        _lesson_board_facts, body.message, board_fen, cur.fen if cur else None,
+        (cur.solution_line or ([cur.solution_move] if cur.solution_move else None)) if cur else None))
     book = None
     try:
         from src.lesson_texts import lesson_text
