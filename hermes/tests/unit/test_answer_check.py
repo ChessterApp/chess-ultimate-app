@@ -143,7 +143,7 @@ class TestSentences:
         assert rest == "Кон"
 
     def test_gate_holds_from_where_a_claim_can_begin(self):
-        gate = SentenceGate(_ctx())
+        gate = SentenceGate(_ctx(), release_starts=True)  # COACH_STREAM_SENTENCE_STARTS=1
         # Words before the first piece name stream at once; the claim is held.
         assert gate.feed("Смотри сюда: конь с f3 ") == [("Смотри сюда: ", [], "Смотри сюда: ")]
         assert gate.feed("прыгает на d5. Дальше") == [
@@ -151,7 +151,7 @@ class TestSentences:
         assert gate.flush() == [("Дальше", [], "Дальше")]
 
     def test_gate_never_releases_a_partial_word(self):
-        gate = SentenceGate(_ctx())
+        gate = SentenceGate(_ctx(), release_starts=True)
         assert gate.feed("Хороший вопрос, ко") == [("Хороший вопрос, ", [], "Хороший вопрос, ")]
         assert gate.feed("нь с f3 бьёт e5.") == []  # a final "." may be a move number: wait
         assert gate.flush() == [("конь с f3 бьёт e5.", [], "Хороший вопрос, конь с f3 бьёт e5.")]
@@ -554,13 +554,13 @@ def test_the_topic_is_what_the_sentence_hits_not_who_hits():
 def test_a_short_claim_free_start_waits_for_its_sentence():
     """«А вот твоя ладья d5 под боем…» was cut, but «А вот твоя » had already gone
     out and dangled before the rewrite (stand, 2026-10-04)."""
-    gate = SentenceGate(_ctx(ROOK_G1_W))
+    gate = SentenceGate(_ctx(ROOK_G1_W), release_starts=True)
     assert gate.feed("А вот твоя ладья ") == []
     assert gate.feed("d5 под боем, защищать её нечем. ") == [
         ("А вот твоя ладья d5 под боем, защищать её нечем. ",
          ["the rook on d5 is not attacked, so it is not hanging"], "А вот твоя ладья d5 под боем, защищать её нечем. ")]
-    # A longer start still streams at once.
-    gate = SentenceGate(_ctx(ROOK_G1_W))
+    # A longer start still streams at once (when starts stream at all).
+    gate = SentenceGate(_ctx(ROOK_G1_W), release_starts=True)
     assert gate.feed("Хороший вопрос, и ответ на него простой: ладья ") == [
         ("Хороший вопрос, и ответ на него простой: ", [], "Хороший вопрос, и ответ на него простой: ")]
 
@@ -794,3 +794,21 @@ class TestEvalClaims:
         assert written_line_after("После Nf7 Kxf7 Qxc5 у тебя перевес.", "Nxf7") == ["Nf7", "Kxf7", "Qxc5"]
         assert written_line_after("Сыграй 1.Nf7 Kxf7 2.Qxc5 — и перевес.", "Nf7") == ["Nf7", "Kxf7", "Qxc5"]
         assert written_line_after("Сыграй Nf7 — конь бьёт ладью.", "Nf7") == []
+
+
+
+def test_by_default_a_sentence_goes_out_whole_once_checked():
+    """«Сначала нужно было поставить чёрную Однако…»: a shown start dangled when the rest was cut
+    (production 2026-10-07) — the whole sentence waits for its check."""
+    gate = SentenceGate(_ctx(ROOK_G1_W))
+    assert gate.feed("Хороший вопрос, и ответ на него простой: ладья ") == []
+    out = gate.feed("d5 под боем, защищать её нечем. ")
+    assert out and out[0][2].startswith("Хороший вопрос, и ответ на него простой: ладья d5")
+
+
+def test_a_self_correction_after_an_ellipsis_is_thinking_aloud():
+    from src.answer_check import META_ISSUE
+
+    gate = SentenceGate(_ctx())
+    out = gate.feed("Второй — сразу сыграть Be3, блокируя... нет, точнее защищая f1 и готовя O-O. ")
+    assert any(o[1] == [META_ISSUE] for o in out)

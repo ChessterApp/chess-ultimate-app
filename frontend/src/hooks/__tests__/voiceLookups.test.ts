@@ -111,6 +111,9 @@ describe('IDEA_MOVE_RE — a move in the student\'s words', () => {
       // 2026-10-06: castling and a bare pawn move reach the engine too
       'можно мне рокироваться?', 'а если 0-0?', 'can I castle kingside?', 'а если b3?', 'если пешка пойдёт b3',
       'what about b3?',
+      // 2026-10-08: the client's «Се3» and every other way of writing it
+      'Что если я пойду Се3?', 'а если слон пойдёт на е3?', 'слон е3?', 'с1-е3', 'c1e3', 'ферзь бьёт h5', 'съем пешку h5',
+      'а если ф6?', 'Кб5', 'поставлю слона на е3',
     ]) {
       expect(IDEA_MOVE_RE.test(text), text).toBe(true);
     }

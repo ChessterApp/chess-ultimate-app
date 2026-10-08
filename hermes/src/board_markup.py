@@ -40,7 +40,7 @@ _SQUARE = re.compile(r"\b([a-h][1-8])\b", re.IGNORECASE)
 _EXPECTS_MOVE = re.compile(
     r"(?<![а-яa-z])(?:ход|ходом|ходы|сыграй|сыграть|играй|играть|играешь|играем|играет|сделай|начни\s+с\s+шаха|"
     r"(?:начни|начинаем|начнём|начнем|начинай|начать|начинается)\s+с|шах|шахом|"
-    r"ответ|ответь|отвечай|продолжение|продолжай|move|moves|play|playing|plays|reply|answer|with|is|"
+    r"ответ|ответь|отвечай|продолжение|продолжай|после|after|move|moves|play|playing|plays|reply|answer|with|is|"
     r"start\s+with|begin\s+with|you\s+play)$", re.IGNORECASE)
 # An opened "[[" that has not closed within this many characters is not a mark.
 MAX_MARK_CHARS = 400
@@ -61,6 +61,8 @@ class MarkupFilter:
         self._fen = fen
         self._tail = ""  # the last characters let through, to see whether the move is already named
         self._sub: Optional[str] = None  # the move to write if the next text shows the mark was the words
+        # «После [[arrows]] чёрным…»: a word that needs its move even mid-sentence (2026-10-08)
+        self._sub_mid = False
         # After a cut mark: "held" — the space before it was kept back and goes
         # back only if a word follows; "emitted" — that space already went out,
         # so a space right after the mark is dropped.
@@ -100,13 +102,14 @@ class MarkupFilter:
         nxt = upcoming.lstrip(" ")
         if not nxt and not final:
             return  # decide when the next text comes
-        if final or nxt[0] in ".,;!?)\n" or nxt.startswith(("—", "–")):
+        if final or nxt[0] in ".,;!?)\n" or nxt.startswith(("—", "–")) or self._sub_mid:
             gap = self._gap
             self._gap = None
             self._emit(out, (" " if gap == "held" or self._last not in (" ", "\n", "(") else "") + self._sub)
             if nxt and nxt[0] not in ".,;!?)\n" and not upcoming.startswith(" "):
                 self._gap = "held"
         self._sub = None
+        self._sub_mid = False
 
     def _words_for(self, parsed: dict, before: str) -> Optional[str]:
         """The move an arrow mark names, when the words before it leave the move out."""
@@ -122,8 +125,10 @@ class MarkupFilter:
         arrow = parsed["arrows"][-1]
         a, b = arrow["from"], arrow["to"]
         tail = (self._tail + before)[-40:].lower()
-        if b in tail:
+        if b in tail and stripped[-1] not in "—–-:":
             return None  # «Играй Nf3 [[arrows: g1f3]].» — the move is already in the words
+        # (after «ставит мат:» or a dash the move itself is due even when its square was named:
+        # «выходит на f7 и ставит мат: [[arrows]].» came out «мат:.», 2026-10-08)
         san = None
         if self._fen:
             try:
@@ -135,6 +140,8 @@ class MarkupFilter:
                     san = board.san(move)
             except (ValueError, IndexError):
                 san = None
+        self._sub_mid = bool(re.search(r"(?<![а-яa-z])(?:после|after|ходом|сыграй|играй|начни\s+с|начинаем\s+с|начн[её]м\s+с)$",
+                                       stripped, re.IGNORECASE))
         return san or f"{a}–{b}"
 
     def feed(self, text: str) -> tuple[str, list[dict]]:

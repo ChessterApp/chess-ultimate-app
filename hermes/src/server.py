@@ -1906,6 +1906,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         student_color = None
         if live_game:
             student_color = chess.WHITE if active_board.game_state.get("student_color") == "white" else chess.BLACK
+        elif any(str(q.get("verdict") or "").startswith("already played") for q in named_moves or []):
+            # «Я сыграл Qb6. Это мат?»: the student is the side that just moved, not the side to
+            # move («твой ферзь на b6» was called the opponent's — 2026-10-08).
+            try:
+                student_color = not chess.Board(session.board_state).turn
+            except (ValueError, TypeError):
+                student_color = None
         check_ctx = CheckContext.from_fens(
             [session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
@@ -2067,6 +2074,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{opening_plan.block}"
                 if note:
                     message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
+                elif engine_future is not None and session.board_state:
+                    # The engine was late (load, a slow lookup): the board's own facts — what hangs,
+                    # what is pinned, castling, the result on the board — still go in, computed
+                    # without it; a turn with no facts at all was answered from the model's head.
+                    try:
+                        from src.prompt_builder import board_facts_block
+
+                        facts_only = board_facts_block(session.board_state)
+                        if facts_only:
+                            message = f"{message}\n\n{facts_only}"
+                            engine_state["facts_fallback"] = True
+                    except Exception:  # noqa: BLE001 — never block a turn on the fallback
+                        logger.debug("board facts fallback failed", exc_info=True)
                 if note:
                     check_ctx.engine_eval = _parse_white_eval((note.get("lines") or [{}])[0].get("eval"))
                     # The tablebase is exact where the engine is not (a +1.13 dead draw).

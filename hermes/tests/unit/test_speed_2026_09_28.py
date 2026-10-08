@@ -517,6 +517,9 @@ def test_a_rewrite_that_restates_the_shown_start_with_one_word_changed_is_trimme
     """Stand, 2026-10-04: «Самое упорное здесь — отвести» had gone out, the sentence
     was withheld, and the rewrite began «Самое упорное здесь — увести ладью…» —
     the student saw the start twice."""
+    import src.answer_check as _ac
+
+    monkeypatch.setattr(_ac, "RELEASE_STARTS", True)  # the shown start exists only when starts stream
     from src.quick_reply import QuickReply
     from src.sessions import session_store
 

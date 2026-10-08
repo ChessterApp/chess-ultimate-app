@@ -154,9 +154,10 @@ def test_a_bare_pawn_move_asked_about_is_a_move(q):
     assert [m["san"] for m in named] == ["b3"] and named[0]["legal"]
 
 
-@pytest.mark.parametrize("q", ["Почему слон не может отступить на b3?", "Смотри на поле b3"])
-def test_a_square_is_not_a_pawn_move(q):
-    assert [m["san"] for m in question_moves(q, RUY)] == []
+@pytest.mark.parametrize("q,sans", [("Почему слон не может отступить на b3?", ["Bb3"]), ("Смотри на поле b3", [])])
+def test_a_square_is_not_a_pawn_move(q, sans):
+    # never the pawn move b3; the bishop's retreat it asks about is read (src/move_matcher.py, 2026-10-08)
+    assert [m["san"] for m in question_moves(q, RUY)] == sans
 
 
 def test_capturing_the_pawn_that_just_moved_two_squares_is_en_passant():

@@ -601,6 +601,11 @@ def _script_language(message: str) -> Optional[str]:
     Words are counted, not letters: "Explain Сицилианская защита please" is
     English with a Russian name in it. A tie goes to the first word."""
     text = message or ""
+    # A FEN, a link, a PGN header carry no language: a lone FEN made the coach answer a Russian
+    # student in English (2026-10-08).
+    text = re.sub(r"https?://\S+|www\.\S+|\[[A-Za-z]+\s+\"[^\"]*\"\]", " ", text)
+    text = re.sub(r"[rnbqkpRNBQKP1-8]{1,8}(?:/[rnbqkpRNBQKP1-8]{1,8}){7}(?:\s+[wb](?:\s+[KQkq-]{1,4})?(?:\s+[a-h36-]{1,2})?(?:\s+\d+){0,2})?",
+                  " ", text)
     if any(ch in _KAZAKH_LETTERS for ch in text):
         return "kk"
     cyr_words = re.findall(r"[А-Яа-яЁё][А-Яа-яЁё-]*", text)
@@ -946,6 +951,15 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
         san, move, _note = resolve(board, ptype, chess.parse_square(m["sq"]))
         if move is not None:
             _add(san, "prose", m.group(0), None, move)
+    # Every other way of writing a legal move of this position: «Се3», «слон на е3» (Russian
+    # keyboard), «с1-е3», «c1e3», «ферзь бьёт h5», «съем пешку h5», «ф6» (src/move_matcher.py).
+    try:
+        from src.move_matcher import named_moves
+
+        for nm in named_moves(message, board):
+            _add(nm["san"], "match", nm["words"], None, nm["move"])
+    except Exception:  # noqa: BLE001 — a bonus reading on top of the patterns above
+        pass
     return out
 
 
@@ -1165,6 +1179,16 @@ def _move_verdict(board, san: str) -> str:
             return f"NOT legal — {why}" if why else "NOT legal — castling is not available here"
         except Exception:  # noqa: BLE001
             return "NOT legal — castling is not available here"
+    # «Я сыграл Qb6. Это мат?» with the board already after Qb6: the move is not «illegal», it is
+    # behind (production 2026-10-07: «хода Qb6 вообще не было»).
+    m_dest = re.search(r"([a-h][1-8])(?:=[QRBN])?[+#]?$", san)
+    letter = san[0] if san[:1] in "KQRBN" else None
+    if m_dest:
+        here = board.piece_at(chess.parse_square(m_dest.group(1)))
+        if here is not None and here.color != board.turn and here.symbol().upper() == (letter or "P"):
+            side = "White" if here.color == chess.WHITE else "Black"
+            return (f"already played — the board shows the position AFTER it ({side}'s {chess.piece_name(here.piece_type)} "
+                    f"stands on {m_dest.group(1)}, {'White' if board.turn else 'Black'} to move now)")
     other = board.copy(stack=False)
     other.turn = not board.turn
     try:
