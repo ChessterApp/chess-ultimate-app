@@ -994,8 +994,11 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         boards = list(ctx.boards)
         ordered = ([ctx.current] if ctx.current is not None and ctx.current in boards else []) \
             + [b for b in boards if b is not fallback and b is not ctx.current] + ([fallback] if fallback is not None else [])
+        # A board where it is that side's move comes before one where the side is changed to fit: «15.Bxd7+ …
+        # 16.Qb8+» is the game's 16th move, not White moving twice after 15.Bxd7+ (2026-10-08).
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
-            + [(b, colors) for b in ordered]
+            + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
+            + [(b, [c for c in colors if c != b.turn]) for b in ordered]
         for board, board_colors in candidates:
             if board is prev:
                 trusted = prev_trusted
@@ -1584,6 +1587,40 @@ _OWN_PIECE = re.compile(
     re.IGNORECASE)
 
 
+# «А слон чёрных на c4 уже смотрит на f7» with a white bishop on c4 (production 08.10): a piece named by its
+# side — an adjective (белый, чёрный, white), a genitive (белых, чёрных) or the opponent's.
+_SIDE_ADJ = (r"(?:белый|белая|белого|белой|белую|белым|белом|ч[её]рный|ч[её]рная|ч[её]рного|ч[её]рной|ч[её]рную|"
+             r"ч[её]рным|ч[её]рном|white|black)")
+_SIDE_PIECE = re.compile(
+    _B2 + rf"(?:(?P<adj>{_SIDE_ADJ})\s+(?P<p1>{_PIECE_ANY})|(?P<p2>{_PIECE_ANY})\s+(?P<gen>белых|ч[её]рных|соперника|противника))"
+    rf"\s+(?:на\s+|on\s+)?(?P<a>{SQ})(?![0-9])", re.IGNORECASE)
+
+
+def _side_piece_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    for m in _SIDE_PIECE.finditer(text):
+        if _is_hypothetical(text, original, m.start(), whole=True):
+            continue
+        word = (m["adj"] or m["gen"]).lower().replace("ё", "е")
+        if word.startswith(("сопер", "против")):
+            student = ctx.student_color if ctx.student_color is not None else ctx.current.turn
+            color = not student
+        else:
+            color = chess.WHITE if word.startswith(("бел", "white")) else chess.BLACK
+        ptype = _piece_type(m["p1"] or m["p2"])
+        if ptype is None:
+            continue
+        sq = chess.parse_square(m["a"].lower())
+        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype and pc.color == color for b in ctx.boards):
+            continue
+        there = ctx.current.piece_at(sq)
+        if there is not None and there.piece_type == ptype:
+            return [f"the {_NAMES[ptype]} on {m['a'].lower()} is {'White' if there.color else 'Black'}'s, not "
+                    f"{'White' if color else 'Black'}'s"]
+    return []
+
+
 def _presence_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []
@@ -1962,6 +1999,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
+            + _side_piece_issues(text, original, ctx)
             + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else []))
 
 
@@ -2305,6 +2343,18 @@ def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
     return []
 
 
+ECHO_ISSUE = "this sentence repeats the student's question word for word; it is not an answer"
+
+
+def _echoes_question(sentence: str, ctx: CheckContext) -> bool:
+    """«Покажи на доске оперную партию Морфи…» as the answer's first line (production 08.10)."""
+    norm = lambda t: re.sub(r"[^а-яёa-z0-9]+", " ", (t or "").lower()).strip()
+    s = norm(sentence)
+    if len(s) < 20:
+        return False
+    return any(norm(q) == s for q in re.split(r"(?<=[.!?])\s+", ctx.question_raw or "") if q)
+
+
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
@@ -2314,6 +2364,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         ctx.scene_trail = []
     if is_meta(sentence):
         return [META_ISSUE]
+    if _echoes_question(sentence, ctx):
+        return [ECHO_ISSUE]
     wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language)
     if wrong_language:
         return [wrong_language]
