@@ -85,6 +85,9 @@ function parseArgs(argv) {
     inputLangs: '',
     vocab: '',
     hookSrc: path.join(REPO, 'frontend/src/hooks/useGeminiLive.ts'), // the regexes, from this file
+    // Mirrors IdeaAudioGate (2026-10-08): on a move question the coach's audio waits for the [Idea]
+    // verdict this long at most; dropped when the coach answers past a bad move. 0 = off.
+    holdMs: 0,
   };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
@@ -341,7 +344,8 @@ async function runCase(ai, args, tools, c, pcm) {
   const sessionId = `bench-${c.id}-${Date.now()}`;
   // --hook on: the browser hook's state for this case.
   const H = args.hook === 'on' ? hookRegexes(args.hookSrc) : null;
-  const hook = { utter: '', conceptDone: false, ideaSent: '', conceptTimer: null, ideaTimer: null, sentence: '',
+  const hook = { holdPending: false, held: [], holdTimer: null,
+    utter: '', conceptDone: false, ideaSent: '', conceptTimer: null, ideaTimer: null, sentence: '',
     checks: 0, pending: [], wrong: [], corrections: 0, awaitingCorrection: false, earlyInterrupt: false, verdict: null, turnText: '' };
   rec.hook_notes = [];
   rec.checked = [];
@@ -381,22 +385,88 @@ async function runCase(ai, args, tools, c, pcm) {
     if (!H.idea?.test(text) || hook.ideaSent === text) return;
     hook.ideaSent = text;
     const r = await hookPost('/api/coach/voice/idea', { text, fen: c.fen });
+    let cut = false;
     if (typeof r?.note === 'string' && r.note) {
       sendNote('Idea', r.note);
       hook.verdict = r.verdict && typeof r.verdict === 'object' ? r.verdict : null;
       // Mirrors useGeminiLive: the coach already talking without the verdict stops and says it now.
-      if (hook.turnText.trim()) sayVerdictNow();
+      if (hook.turnText.trim()) cut = sayVerdictNow();
     }
+    if (cut) dropHeld();
+    else if (hook.verdict && verdictNote(hook.verdict, hook.turnText) && args.holdMs > 0) watchHeld();
+    else releaseHeld();
+  };
+  // A bad verdict known and unsaid: the first sentence is held, at most max(holdMs, 1500) (IdeaAudioGate.watch).
+  const watchHeld = () => {
+    hook.holdPending = true;
+    hook.holdLimit = Math.max(args.holdMs, 1500);
+    if (hook.holdTimer) { clearTimeout(hook.holdTimer); hook.holdTimer = setTimeout(releaseHeld, hook.holdLimit); }
+  };
+  // Mirrors IdeaAudioGate in useGeminiLive.ts.
+  const releaseHeld = () => {
+    clearTimeout(hook.holdTimer);
+    hook.holdTimer = null;
+    hook.holdPending = false;
+    hook.holdLimit = 0;
+    const held = hook.held;
+    hook.held = [];
+    const now = performance.now();
+    for (const h of held) playChunk(h.buf, now);
+  };
+  const playChunk = (buf, t) => {
+    // What the student hears: audio arrives faster than real time and the
+    // browser queues it gaplessly, so a chunk plays at max(arrival, end of
+    // the queue). Audible spans are merged; the gaps between them are the
+    // silences the student actually sits through.
+    const playStart = Math.max(t, playEnd ?? t);
+    playEnd = playStart + (buf.length / (OUT_RATE * 2)) * 1000;
+    const span = rec.heard[rec.heard.length - 1];
+    if (span && rel(playStart) <= span.end + 50) span.end = rel(playEnd);
+    else rec.heard.push({ start: rel(playStart), end: rel(playEnd) });
+    if (rec.first_audio_ms === undefined) {
+      rec.first_audio_ms = rel(t);
+      if (rec.filler_before_tool === undefined) rec.filler_before_tool = true;
+    }
+    // Audio segments: a new one starts after a turn boundary or a pause, so
+    // a filler still streaming when the tool returns is not taken for the answer.
+    const seg = rec.segments[rec.segments.length - 1];
+    if (!seg || segBreak || t - lastAudioAt > SEGMENT_GAP_MS) {
+      rec.segments.push({ start: rel(t), end: rel(t), play_start: rel(playStart), text: '' });
+      segBreak = false;
+      if (lastToolSentAt !== null && t > lastToolSentAt) {
+        lastPostToolAudioAt = t;
+        if (rec.post_tool_first_audio_ms === undefined) {
+          rec.post_tool_first_audio_ms = Math.round(t - lastToolSentAt);
+          rec.answer_ms = rel(t);
+        }
+      }
+    } else {
+      seg.end = rel(t);
+      if (lastPostToolAudioAt !== null) lastPostToolAudioAt = t;
+    }
+    lastAudioAt = t;
+  };
+  const dropHeld = () => {
+    clearTimeout(hook.holdTimer);
+    hook.holdTimer = null;
+    hook.holdPending = false;
+    hook.holdLimit = 0;
+    rec.dropped_audio_ms = (rec.dropped_audio_ms ?? 0) + Math.round(hook.held.reduce((a, h) => a + h.buf.length / (OUT_RATE * 2) * 1000, 0));
+    hook.held = [];
   };
   // Mirrors useGeminiLive: the point of the student's idea left unsaid is said at once.
   const sayVerdictNow = () => {
     const early = verdictNote(hook.verdict, hook.turnText);
-    if (!early || done || hook.awaitingCorrection) return;
+    if (!early || done || hook.awaitingCorrection) return false;
     hook.verdict = null;
     rec.verdict_early = true;
+    // What the student had heard of the answer past the point before it was cut.
+    const cutAt = rel(performance.now());
+    rec.heard_before_cut_ms = Math.round(rec.heard.reduce((a, s) => a + Math.max(0, Math.min(s.end, cutAt) - s.start), 0));
     hook.awaitingCorrection = true;
     hook.earlyInterrupt = true;
     sendNote('Verdict', early, true);
+    return true;
   };
   const checkSentence = async (sentence) => {
     if (!H.checkable.test(sentence) || sentence.trim().split(/\s+/).length < 4 || hook.checks >= H.checksPerTurn) return;
@@ -488,6 +558,7 @@ async function runCase(ai, args, tools, c, pcm) {
         clearTimeout(hook.conceptTimer);
         hook.conceptTimer = setTimeout(() => void lookUpConcept(utterance), H.conceptDelay);
         if (H.idea?.test(utterance)) {
+          if (args.holdMs > 0) hook.holdPending = true;
           clearTimeout(hook.ideaTimer);
           hook.ideaTimer = setTimeout(() => void lookUpIdea(utterance), H.ideaDelay);
         }
@@ -497,13 +568,16 @@ async function runCase(ai, args, tools, c, pcm) {
       if (hook.awaitingCorrection) rec.correction_text += sc.outputTranscription.text;
       else hook.turnText += sc.outputTranscription.text;
       hook.sentence += sc.outputTranscription.text;
+      // Mirrors useGeminiLive: the coach saying the point releases what was held.
+      if (hook.holdPending && hook.verdict && !verdictNote(hook.verdict, hook.turnText)) releaseHeld();
       let m;
       while ((m = H.sentenceEnd.exec(hook.sentence))) {
         const sentence = hook.sentence.slice(0, m.index + 1);
         hook.sentence = hook.sentence.slice(m.index + m[0].length);
         if (!hook.awaitingCorrection) {
           hook.pending.push(checkSentence(sentence));
-          sayVerdictNow();
+          if (sayVerdictNow()) dropHeld();
+          else if (hook.holdPending && hook.verdict) releaseHeld();
         }
       }
     }
@@ -514,6 +588,7 @@ async function runCase(ai, args, tools, c, pcm) {
       if (cur) cur.text += sc.outputTranscription.text;
     }
     if (sc.interrupted) {
+      if (H) dropHeld();
       rec.events.push({ at: rel(t), type: 'interrupted' });
       // The early verdict cut the coach: what it says from here is the verdict turn.
       if (H && hook.earlyInterrupt) { rec.correction_text = ''; hook.earlyCutAt = t; }
@@ -523,37 +598,12 @@ async function runCase(ai, args, tools, c, pcm) {
       if (d?.data && d.mimeType?.includes('audio/pcm')) {
         const buf = Buffer.from(d.data, 'base64');
         outAudio.push(buf);
-        // What the student hears: audio arrives faster than real time and the
-        // browser queues it gaplessly, so a chunk plays at max(arrival, end of
-        // the queue). Audible spans are merged; the gaps between them are the
-        // silences the student actually sits through.
-        const playStart = Math.max(t, playEnd ?? t);
-        playEnd = playStart + (buf.length / (OUT_RATE * 2)) * 1000;
-        const span = rec.heard[rec.heard.length - 1];
-        if (span && rel(playStart) <= span.end + 50) span.end = rel(playEnd);
-        else rec.heard.push({ start: rel(playStart), end: rel(playEnd) });
-        if (rec.first_audio_ms === undefined) {
-          rec.first_audio_ms = rel(t);
-          if (rec.filler_before_tool === undefined) rec.filler_before_tool = true;
-        }
-        // Audio segments: a new one starts after a turn boundary or a pause, so
-        // a filler still streaming when the tool returns is not taken for the answer.
-        const seg = rec.segments[rec.segments.length - 1];
-        if (!seg || segBreak || t - lastAudioAt > SEGMENT_GAP_MS) {
-          rec.segments.push({ start: rel(t), end: rel(t), play_start: rel(playStart), text: '' });
-          segBreak = false;
-          if (lastToolSentAt !== null && t > lastToolSentAt) {
-            lastPostToolAudioAt = t;
-            if (rec.post_tool_first_audio_ms === undefined) {
-              rec.post_tool_first_audio_ms = Math.round(t - lastToolSentAt);
-              rec.answer_ms = rel(t);
-            }
-          }
+        if (H && hook.holdPending) {
+          hook.held.push({ buf });
+          if (!hook.holdTimer) hook.holdTimer = setTimeout(releaseHeld, hook.holdLimit || args.holdMs);
         } else {
-          seg.end = rel(t);
-          if (lastPostToolAudioAt !== null) lastPostToolAudioAt = t;
+          playChunk(buf, t);
         }
-        lastAudioAt = t;
       }
     }
     if (sc.turnComplete) {

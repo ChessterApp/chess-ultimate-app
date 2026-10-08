@@ -65,6 +65,85 @@ export const IDEA_MOVE_RE =
 // Short: the [Idea] line came 0.3–0.8 s after the coach had started answering (voice bench, 2026-10-06).
 export const IDEA_LOOKUP_DELAY_MS = 150;
 
+// The coach's first words on a move question wait for the [Idea] verdict, at most this long (2026-10-08):
+// the early cut of 07.10 still let the student hear 1–4 s of «хороший ход» before «это пат». 0 — off.
+export const VOICE_IDEA_HOLD_MS = Number(process.env.NEXT_PUBLIC_VOICE_IDEA_HOLD_MS ?? 1000) || 0;
+// A bad verdict already in, the coach not having said it: its first sentence is held until it shows
+// whether it does (the [Idea] line often comes before the first word and is answered past anyway —
+// voice bench 2026-10-08: 5 of 8 answers still let 0.3–1.2 s of it be heard).
+export const VOICE_VERDICT_HOLD_MS = VOICE_IDEA_HOLD_MS > 0 ? Math.max(VOICE_IDEA_HOLD_MS, 1500) : 0;
+
+/**
+ * Holds the coach's audio while the verdict on the student's move is on its way: released as it was
+ * when the verdict is harmless (or late — after *holdMs*), dropped when the coach is about to answer
+ * past a blunder, a trapped piece or stalemate (it is then told the point and starts with it).
+ */
+export class IdeaAudioGate {
+  private held: string[] = [];
+  private pending = false;
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private limit = 0;
+
+  constructor(
+    private readonly play: (b64: string) => void,
+    private readonly holdMs: number,
+  ) {}
+
+  /** A move question was heard: the next audio waits for its verdict. */
+  expect(): void {
+    if (this.holdMs > 0) this.pending = true;
+  }
+
+  /** A bad verdict is known and not yet said: hold the coach's first sentence, at most *ms*. */
+  watch(ms: number): void {
+    if (ms <= 0) return;
+    this.pending = true;
+    this.limit = ms;
+    if (this.timer) {
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => this.release(), ms);
+    }
+  }
+
+  audio(b64: string): void {
+    if (!this.pending) {
+      this.play(b64);
+      return;
+    }
+    this.held.push(b64);
+    if (!this.timer) this.timer = setTimeout(() => this.release(), this.limit || this.holdMs);
+  }
+
+  /** The verdict came (or never will): what was held plays now. */
+  release(): void {
+    this.stop();
+    const held = this.held;
+    this.held = [];
+    held.forEach((b) => this.play(b));
+  }
+
+  /** The held words answer past the point of the move: never played. */
+  drop(): void {
+    this.stop();
+    this.held = [];
+  }
+
+  get holding(): boolean {
+    return this.held.length > 0;
+  }
+
+  get waiting(): boolean {
+    return this.pending;
+  }
+
+  private stop(): void {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    this.pending = false;
+    this.limit = 0;
+  }
+}
+
 /** Words that show the coach told the student the point of a bad idea. */
 export const VERDICT_SAID_RE: Record<string, RegExp> = {
   stalemate: /пат(?![а-яё])|ничь|stalemate|\bdraw|тепе-тең|пат\s/i,
@@ -820,6 +899,16 @@ export default function useGeminiLive(
     },
     [setStatus, reportMetric, ensureTurnId],
   );
+  // The coach's audio passes the gate: on a move question it waits for the verdict (IdeaAudioGate).
+  const enqueuePlaybackRef = useRef(enqueuePlayback);
+  enqueuePlaybackRef.current = enqueuePlayback;
+  const ideaGateRef = useRef<IdeaAudioGate | null>(null);
+  const ideaGate = useCallback((): IdeaAudioGate => {
+    if (!ideaGateRef.current) {
+      ideaGateRef.current = new IdeaAudioGate((b64) => enqueuePlaybackRef.current(b64), VOICE_IDEA_HOLD_MS);
+    }
+    return ideaGateRef.current;
+  }, []);
 
   // Cancel in-flight tool fetches the model no longer wants a response for.
   const handleToolCancellation = useCallback(
@@ -1192,8 +1281,12 @@ export default function useGeminiLive(
     const session = sessionRef.current;
     if (!session || !IDEA_MOVE_RE.test(text) || ideaSentRef.current === text) return;
     const fen = optionsRef.current.getFen?.();
-    if (!fen) return;
+    if (!fen) {
+      ideaGate().release();
+      return;
+    }
     ideaSentRef.current = text;
+    let dropped = false;
     try {
       const res = await fetch('/api/coach/voice/idea', {
         method: 'POST',
@@ -1222,12 +1315,23 @@ export default function useGeminiLive(
       const early = modelTurnTextRef.current.trim() ? verdictNote(ideaVerdictRef.current, modelTurnTextRef.current) : null;
       if (early) {
         ideaVerdictRef.current = null;
+        // What the coach has said so far (held, not yet heard) answers past the point: it is not played.
+        ideaGate().drop();
+        dropped = true;
         session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: early }] }], turnComplete: true });
       }
     } catch {
       /* unavailable (an older Hermes answers 404) — the coach answers without the line */
+    } finally {
+      if (!dropped) {
+        if (ideaVerdictRef.current && verdictNote(ideaVerdictRef.current, modelTurnTextRef.current)) {
+          ideaGate().watch(VOICE_VERDICT_HOLD_MS);  // its first sentence shows whether it says the point
+        } else {
+          ideaGate().release();
+        }
+      }
     }
-  }, []);
+  }, [ideaGate]);
 
   const closeUtterance = useCallback((role: 'user' | 'model') => {
     if (!openUtterancesRef.current[role]) return;
@@ -1290,6 +1394,7 @@ export default function useGeminiLive(
         if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
         conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);
         if (IDEA_MOVE_RE.test(utterance)) {
+          ideaGate().expect();
           if (ideaTimerRef.current) clearTimeout(ideaTimerRef.current);
           ideaTimerRef.current = setTimeout(() => void lookUpIdea(utterance), IDEA_LOOKUP_DELAY_MS);
         }
@@ -1314,6 +1419,9 @@ export default function useGeminiLive(
         // Each finished sentence of the coach goes to the board check.
         modelSentenceRef.current += sc.outputTranscription.text;
         modelTurnTextRef.current += sc.outputTranscription.text;
+        if (ideaGate().waiting && ideaVerdictRef.current && !verdictNote(ideaVerdictRef.current, modelTurnTextRef.current)) {
+          ideaGate().release();  // the coach is saying the point: what it held plays
+        }
         const session = sessionRef.current;
         let m: RegExpExecArray | null;
         while (session && (m = SPEECH_SENTENCE_END_RE.exec(modelSentenceRef.current))) {
@@ -1326,12 +1434,16 @@ export default function useGeminiLive(
           const early = verdictNote(ideaVerdictRef.current, modelTurnTextRef.current);
           if (early) {
             ideaVerdictRef.current = null;
+            ideaGate().drop();  // a sentence past the point, never heard
             session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: early }] }], turnComplete: true });
+          } else if (ideaGate().waiting && ideaVerdictRef.current) {
+            ideaGate().release();  // the first sentence said the point
           }
         }
       }
 
       if (sc.interrupted) {
+        ideaGate().drop();
         flushPlayback();
         closeUtterance('model');
         modelSentenceRef.current = '';
@@ -1371,12 +1483,12 @@ export default function useGeminiLive(
         for (const part of parts) {
           const inline = part.inlineData;
           if (inline?.data && inline.mimeType?.includes('audio/pcm')) {
-            enqueuePlayback(inline.data);
+            ideaGate().audio(inline.data);
           }
         }
       }
     },
-    [flushPlayback, enqueuePlayback, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, lookUpIdea, checkSpokenSentence],
+    [flushPlayback, ideaGate, handleToolCall, handleToolCancellation, ensureTurnId, closeUtterance, lookUpConcept, lookUpIdea, checkSpokenSentence],
   );
 
   const fail = useCallback(
