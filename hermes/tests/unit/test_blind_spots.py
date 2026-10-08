@@ -591,3 +591,40 @@ def test_a_draw_the_students_move_makes_is_not_corrected_in_the_next_sentence():
     other = CheckContext.from_fens([QB6_BOARD], question="Хочу сыграть ферзь d7. Хорошо?")
     other.tablebase, other.engine_eval = "White wins", 20.0
     assert check_sentence("Это ничья.", other)  # no stalemating move asked about: still judged on the board
+
+
+# ── The client's game question of 2026-10-07 («Что если я пойду Се3?») ──────────
+ALEX_GAME = "r1bqk2r/2pn1pp1/2pp4/p1b2P1p/4P3/2NB4/PPP3PP/R1BQ1R1K w kq - 0 1"
+
+
+@pytest.mark.parametrize("words,san", [
+    ("Что если я пойду Се3? Хороший ли это ход?", ["Be3"]),  # Cyrillic С and Cyrillic е
+    ("Фе2 или С:е3?", ["Qe2", "Be3"]),
+    ("с 3 фигурами", []),
+])
+def test_russian_notation_typed_in_cyrillic(words, san):
+    assert [m["san"] for m in question_moves(words, ALEX_GAME) if m.get("legal")] == san
+
+
+def _alex_ctx():
+    q = "Что если я пойду Се3? Хороший ли это ход?"
+    after = [m["after_fen"] for m in question_moves(q, ALEX_GAME) if m.get("after_fen")]
+    return CheckContext.from_fens([ALEX_GAME] + after, question=q)
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("Нет, Be3 — не лучший ход: он ставит слона прямо под удар пешки и меняет хорошего слона на слабую фигуру чёрных.", True),
+    ("Смотри, что происходит: чёрные бьют Bxe3, ты берёшь fxe3 — и твоя пешка f5 уходит с доски.", True),
+    ("Be3 ставит слона под удар слона c5, а защиты нет.", False),
+    ("Нет, это зевок: чёрные просто берут Bxe3, и ты теряешь фигуру.", False),
+])
+def test_the_clients_game_answer(sentence, caught):
+    assert bool(check_sentence(sentence, _alex_ctx())) is caught
+
+
+def test_a_real_pawn_recapture_is_not_flagged():
+    fen = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 1 5"
+    q = "А если Се3?"
+    after = [m["after_fen"] for m in question_moves(q, fen) if m.get("after_fen")]
+    assert check_sentence("Чёрные бьют Bxe3, ты берёшь fxe3 — и у тебя открывается линия f.",
+                          CheckContext.from_fens([fen] + after, question=q)) == []

@@ -594,10 +594,44 @@ def _castling_rule_issues(text: str) -> list[str]:
     return []
 
 
+# «Be3 ставит слона прямо под удар пешки» when the bishop on e3 is hit by a bishop (the client's
+# game, 2026-10-07): who attacks the piece the student's move put on its square.
+_PIECE_ACC = {"слон": chess.BISHOP, "кон": chess.KNIGHT, "лад": chess.ROOK, "ферз": chess.QUEEN, "пешк": chess.PAWN,
+              "корол": chess.KING}
+_UNDER_ATTACK_BY = re.compile(
+    r"(?:(?P<p1>слон|конь|ладья|ферзь|пешка)\s+(?:[а-яё]+\s+){0,2}?(?:вста[её]т|встанет|оказывается|окажется|попада[её]т|"
+    r"попад[её]т)|(?:став\w*|подставля\w*|поставит)\s+(?:(?:сво\w+|тво\w+)\s+)?(?P<p2>слона|коня|ладью|ферзя|пешку|фигуру))"
+    r"\s+(?:прямо\s+|сразу\s+)?под\s+(?:удар|бой)\s+(?:ч[её]рн\w+\s+|бел\w+\s+)?(?P<a>пешки|коня|слона|ладьи|ферзя|короля)" + _E)
+
+
+def _attacked_by_issues(text: str, ctx) -> list[str]:
+    issues = []
+    for m in _UNDER_ATTACK_BY.finditer(text):
+        if _negated_before(text, m.start()):
+            continue
+        said = next((t for k, t in _PIECE_ACC.items() if m["a"].startswith(k)), None)
+        piece_word = m["p1"] or m["p2"] or ""
+        named = next((t for k, t in _PIECE_ACC.items() if piece_word.startswith(k)), None)
+        for dest, board in _question_after_boards(ctx):
+            piece = board.piece_at(dest)
+            if piece is None or (named is not None and named != piece.piece_type):
+                continue
+            attackers = board.attackers(not piece.color, dest)
+            types = {board.piece_type_at(a) for a in attackers}
+            if said in types:
+                continue
+            who = ", ".join(f"the {chess.piece_name(board.piece_type_at(a))} on {chess.square_name(a)}" for a in attackers)
+            issues.append(f"the {chess.piece_name(piece.piece_type)} on {chess.square_name(dest)} is attacked by "
+                          f"{who or 'nothing'}, not by a {chess.piece_name(said)}")
+            break
+    return issues
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
+                + _attacked_by_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
                 + _castling_rule_issues(lowered))

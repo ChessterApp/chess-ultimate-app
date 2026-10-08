@@ -183,11 +183,23 @@ _FIGURINES = str.maketrans({"♔": "K", "♚": "K", "♕": "Q", "♛": "Q", "♖
                             "♗": "B", "♝": "B", "♘": "N", "♞": "N"})
 
 
+# Russian notation typed in Cyrillic throughout: «Се3», «Кс3», «Фа4», «Кре1», «С:е3» (the client's
+# question «Что если я пойду Се3?» named no move — production 2026-10-07). The file letters а, с, е
+# after a piece letter become a, c, e and «:» a capture; the length of the text is kept.
+_CYR_PIECE_FILE = re.compile(r"(?<![А-Яа-яЁёA-Za-z])(Кр|[КСЛФKQRBN])([x:×]?)([асе])(?=[1-8](?![0-9]))")
+_CYR_FILE = {"а": "a", "с": "c", "е": "e"}
+
+
+def _cyrillic_files(text: str) -> str:
+    text = _CYR_PIECE_FILE.sub(lambda m: m.group(1) + ("x" if m.group(2) else "") + _CYR_FILE[m.group(3)], text)
+    return re.sub(r"(?<![А-Яа-яЁёA-Za-z])(Кр|[КСЛФKQRBN]):(?=[a-h][1-8](?![0-9]))", lambda m: m.group(1) + "x", text)
+
+
 def _to_san(text: str) -> tuple[str, set]:
     """*text* with figurines and Russian piece letters as SAN letters, and the
     positions (in the result) where a Cyrillic «К» became N — models write «Кh1»
     for the king too, so there a king move is accepted as well."""
-    text = (text or "").translate(_FIGURINES)
+    text = _cyrillic_files((text or "").translate(_FIGURINES))
     out, cyr_k, last = [], set(), 0
     for m in _RU_SAN.finditer(text):
         out.append(text[last:m.start()])
@@ -790,6 +802,43 @@ def _move_denied(text: str) -> bool:
                                               r"can'?t|cannot)\s+(?:сыграть|играть|сделать|ход\w*|play|go\s+for)?\s*$", before, re.IGNORECASE):
             return True
     return False
+
+
+def _recapture_issues(text: str, ctx: CheckContext) -> list[str]:
+    """«чёрные бьют Bxe3, ты берёшь fxe3» with no pawn on f2 — a pawn taking back on the square
+    the move before it captured on, where no such pawn stands (the client's game, 2026-10-07)."""
+    converted, _ = _to_san(text)
+    moves = list(_MOVE.finditer(converted))
+    issues = []
+    for first, second in zip(moves, moves[1:]):
+        san1, san2 = first["san"], second["san"]
+        if "x" not in san1 or not re.fullmatch(r"[a-h]x[a-h][1-8]", san2) or san2[-2:] != san1[-2:]:
+            continue
+        if first["num"] or first["bdots"] or second["num"] or second["bdots"]:
+            continue  # a written line («17. Bxd5 cxd5») is followed by the line check
+        missing = None
+        for board in [b for b in ctx.boards if ctx.is_given(b) and (ctx.current is None or b.board_fen() != chess.STARTING_BOARD_FEN or ctx.current.board_fen() == chess.STARTING_BOARD_FEN)]:
+            for color in (chess.WHITE, chess.BLACK):
+                trial = board.copy(stack=False)
+                trial.turn = color
+                try:
+                    move = trial.parse_san(san1)
+                except ValueError:
+                    continue
+                if not trial.is_capture(move):
+                    continue
+                trial.push(move)
+                try:
+                    trial.parse_san(san2)
+                    return []  # a position of the turn where that pawn stands: a line from there
+                except ValueError:
+                    dest = chess.parse_square(san2[-2:])
+                    rank = chess.square_rank(dest) + (-1 if trial.turn == chess.WHITE else 1)
+                    if 0 <= rank <= 7:
+                        missing = chess.square_name(chess.square(chess.FILE_NAMES.index(san2[0]), rank))
+        if missing:
+            issues.append(f"{san2} is impossible after {san1}: there is no pawn on {missing} to take back on {san2[-2:]}")
+    return issues
 
 
 def _san_issues(text: str, ctx: CheckContext) -> list[str]:
@@ -2029,7 +2078,7 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     lowered = text.lower()
     # Written moves first: the positions they lead to join the boards of the
     # turn, and the claims after them («Rg1, ладья нападает на ферзя») are judged there.
-    san_issues = _san_issues(text, ctx)
+    san_issues = _san_issues(text, ctx) + _recapture_issues(text, ctx)
     from src.answer_check_rules import rules_issues
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
