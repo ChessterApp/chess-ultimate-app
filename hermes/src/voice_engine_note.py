@@ -16,10 +16,12 @@ from typing import Optional
 
 import chess
 
+from src.fen_repair import repair_fen
 from src.position_facts import THREAT_MOVETIME_MS, dynamic_facts, static_facts
 from src.tools.stockfish import DEFAULT_DEPTH, DEFAULT_MULTIPV, analyze_cached, analyze_timed
 
 PV_PLIES = 4
+MATE_PLIES = 11  # a forced mate up to mate in 6 is written to the end
 
 # Stepping through a game fires one request per move; never run more than a
 # couple of engines for it at once (each request is a Stockfish process).
@@ -79,12 +81,24 @@ def _game_over_note(board: chess.Board, fen: str) -> Optional[str]:
     return None
 
 
+def _tablebase_result(board: chess.Board) -> Optional[str]:
+    """'draw' / 'White wins' / 'Black wins' from the Lichess tablebase, or None."""
+    try:
+        from src.board_rules import tablebase, tablebase_white_result
+
+        raw = tablebase(board)
+        return tablebase_white_result(board, raw) if raw else None
+    except Exception:  # noqa: BLE001 — a bonus on top of the engine
+        return None
+
+
 def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int] = None) -> Optional[dict]:
     """Return {fen, note, best, lines} for a legal position, or None when it cannot be analysed.
 
     With *movetime_ms* the engine searches for that long instead of to *depth*
     (the text turn waits for the line, so it must be ready on time).
     """
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except (ValueError, IndexError):
@@ -97,15 +111,11 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
         return {"fen": fen, "note": over, "best": None, "lines": []}
 
     # The endgame tablebase (≤ 7 pieces) is exact where Stockfish without
-    # tables shows +1.13 for a dead draw (production, 2026-10-06).
-    tb = None
-    try:
-        from src.board_rules import tablebase, tablebase_white_result
-
-        tb_raw = tablebase(board)
-        tb = tablebase_white_result(board, tb_raw) if tb_raw else None
-    except Exception:  # noqa: BLE001 — a bonus on top of the engine
-        tb = None
+    # tables shows +1.13 for a dead draw (production, 2026-10-06). Asked beside
+    # the engine, not before it: in front of the search its ~0.4 s pushed the
+    # text turn's note past its wait, and the turn went without any facts
+    # (production 2026-10-07: «Да, это выигрыш» on a tablebase draw).
+    tb_future = _threat_pool.submit(_tablebase_result, board.copy(stack=False)) if len(board.piece_map()) <= 7 else None
 
     with_facts = os.environ.get("COACH_ENGINE_FACTS", "1").strip().lower() not in ("0", "false", "no", "off")
     passed_fen = _passed_fen(board) if with_facts else None
@@ -120,7 +130,11 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
 
     lines = []
     for raw in result["lines"]:
-        san = _san_line(board, raw.get("pv", ""))
+        # A forced mate is shown to the end: «Rxh6+ gxh6 dxc5+ Ne5» stopped short of the mate in 3, and the
+        # lesson answers made up how it ends (production 07.10: «король уходит на h8», «мат даёт Rh7»).
+        mate = raw.get("mate_in")
+        plies = min(MATE_PLIES, 2 * abs(mate) - (1 if mate > 0 else 0)) if mate else PV_PLIES
+        san = _san_line(board, raw.get("pv", ""), max(PV_PLIES, plies))
         if san:
             lines.append({"moves": san, "eval": _white_eval(raw, board.turn), "depth": raw.get("depth")})
     if not lines:
@@ -143,7 +157,24 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
+    if with_facts:
+        top_pv = (result["lines"][0].get("pv") or "").split()
+        mate = result["lines"][0].get("mate_in")
+        try:
+            from src.position_facts import explain_line
+
+            told = explain_line(board, top_pv, MATE_PLIES if mate and mate > 0 else PV_PLIES + 1)
+        except Exception:  # noqa: BLE001 — the explanation is a bonus on top of the line
+            told = None
+        if told:
+            parts.append(f"The best line, move by move (verified): {told}.")
     mate_in = result["lines"][0].get("mate_in")
+    tb = None
+    if tb_future is not None:
+        try:
+            tb = tb_future.result(timeout=0.5)  # the lookup ran during the search; a slow one is left out
+        except Exception:  # noqa: BLE001 — a bonus on top of the engine
+            tb = None
     return {"fen": fen, "note": " ".join(parts), "best": best["moves"][0], "lines": lines, "facts": facts,
             "tablebase": tb, "mate_in": mate_in}
 

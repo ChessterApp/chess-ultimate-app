@@ -232,3 +232,64 @@ class TestLessonTutorGrounding:
         events = _parse_sse(resp.text)
         assert _deltas(events) == "Давай сверимся с доской: скажи, какой ход или позицию ты имеешь в виду, и я разберу именно её."
         assert events[-1] == {"done": True}
+
+
+@pytest.mark.unit
+class TestLessonTutorFacts:
+    """2026-10-08: the tutor on the lesson pages gets the coach's facts and is never silent."""
+
+    FEN = "r1b4k/pp1n2p1/1qp1B1Pp/2p2p2/3P4/2Q1P3/PP1K1PP1/R6R w - - 0 1"  # Rxh6+ gxh6 … mate in 3
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    def _post(self, message, fen=FEN):
+        return self.client.post("/api/lesson/chat", headers=USER_HEADERS, json={
+            "message": message, "lesson_title": "Мат в 3 хода", "locale": "ru",
+            "puzzle_context": {"mode": "single", "current_board_fen": fen},
+        })
+
+    @patch("src.server._lesson_chat_stream")
+    def test_the_named_move_and_the_board_facts_reach_the_model(self, mock_stream, monkeypatch):
+        from src import config
+
+        monkeypatch.setattr(config, "COACH_ENGINE_NOTE", False)  # no engine in unit tests: the board's facts instead
+        monkeypatch.setattr(config, "COACH_HYPOTHETICAL_NOTE", False)
+        mock_stream.return_value = iter(["Хороший вопрос."])
+        self._post("А если Rxh6+?")
+        sent = mock_stream.call_args.args[2]
+        assert sent.startswith("А если Rxh6+?")
+        assert "Rxh6+" in sent[len("А если Rxh6+?"):] and "legal" in sent  # the move's verdict on the board
+        assert "h6" in sent.split("А если Rxh6+?", 1)[1]
+
+    @patch("src.server._lesson_chat_stream")
+    def test_without_a_board_the_message_goes_as_it_is(self, mock_stream):
+        mock_stream.return_value = iter(["ok"])
+        self.client.post("/api/lesson/chat", headers=USER_HEADERS, json={"message": "Что такое связка?", "lesson_title": "Связка"})
+        assert mock_stream.call_args.args[2] == "Что такое связка?"
+
+    @patch("src.server._lesson_chat_stream")
+    def test_an_empty_reply_becomes_the_fallback_line(self, mock_stream):
+        mock_stream.return_value = iter([])
+        with patch("src.server.log_event"):
+            events = _parse_sse(self._post("Какой здесь первый ход?").text)
+        assert _deltas(events).startswith("Давай сверимся с доской")
+        assert events[-1] == {"done": True}
+
+    def test_the_tutor_asks_the_model_not_to_think_at_length(self, monkeypatch):
+        from src import server
+
+        captured = {}
+
+        class _Completions:
+            def create(self, **kwargs):
+                captured.update(kwargs)
+                return iter([])
+
+        class _Client:
+            def __init__(self, **_):
+                self.chat = type("C", (), {"completions": _Completions()})()
+
+        monkeypatch.setattr("openai.OpenAI", _Client)
+        list(server._lesson_chat_stream("deepseek/deepseek-v4.1-flash", "sys", "hi", []))
+        assert captured["extra_body"]["reasoning"] == {"enabled": False}

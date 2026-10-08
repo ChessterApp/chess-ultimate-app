@@ -112,6 +112,62 @@ def describe_move(board: chess.Board, move: chess.Move) -> str:
     return f"{san} — {', '.join(bits)}" if bits else san
 
 
+def explain_line(board: chess.Board, pv: list, plies: int = 7) -> Optional[str]:
+    """The engine's best line with what each move does, verified on the board (2026-10-08).
+
+    Lesson answers named the right move and made up why (24 of 40 checked on 07.10): «король обязан
+    отойти» where the only reply was gxh6, «мат даёт ладья» where the bishop mates, a discovered check
+    told as a plain one. 'Rxh6+ (takes the pawn h6, check); gxh6 (the only legal move: takes the rook
+    h6); dxc5+ (takes the pawn c5; discovered check by the queen c3); Ne5 (blocks the check); Qxe5#
+    (takes the knight e5, mate)'. None for a line of fewer than two moves.
+    """
+    b = board.copy(stack=False)
+    out = []
+    for uci in pv[:plies]:
+        try:
+            move = chess.Move.from_uci(uci) if isinstance(uci, str) else uci
+        except ValueError:
+            break
+        if move not in b.legal_moves:
+            break
+        san = b.san(move)
+        bits = []
+        replies = b.legal_moves.count()
+        in_check = b.is_check()
+        if replies == 1:
+            bits.append("the only legal move")
+        captured = b.piece_at(move.to_square)
+        if b.is_en_passant(move):
+            bits.append("takes the pawn en passant")
+        elif captured is not None:
+            bits.append(f"takes the {chess.piece_name(captured.piece_type)} {chess.square_name(move.to_square)}")
+        if in_check and b.piece_type_at(move.from_square) != chess.KING and captured is None and not b.is_en_passant(move):
+            bits.append("blocks the check")
+        after = b.copy(stack=False)
+        after.push(move)
+        if after.is_check():
+            checkers = list(after.checkers())
+            direct = [c for c in checkers if c == move.to_square]
+            others = [c for c in checkers if c != move.to_square]
+            kind = "mate" if after.is_checkmate() else "check"
+            if others and direct:
+                bits.append(f"double {kind}")
+            elif others:
+                bits.append(f"discovered {kind} by the {chess.piece_name(after.piece_type_at(others[0]))} "
+                            f"{chess.square_name(others[0])}")
+            else:
+                bits.append(kind)
+        elif after.is_stalemate():
+            bits.append("stalemate")
+        if move.promotion:
+            bits.append(f"promotes to a {chess.piece_name(move.promotion)}")
+        out.append(f"{san} ({', '.join(bits)})" if bits else san)
+        b = after
+        if b.is_game_over():
+            break
+    return "; ".join(out) if len(out) >= 2 or (out and b.is_checkmate()) else None
+
+
 Analyse = Callable[[str], Optional[dict]]
 
 
@@ -159,6 +215,24 @@ def _threat(board: chess.Board, base: float, analyse: Analyse) -> Optional[str]:
     return described if " — " in described else None
 
 
+def _forced_replies(board: chess.Board, best: chess.Move, after: chess.Board) -> Optional[str]:
+    """«after Rxh6+, Black has only one legal move: gxh6 — it must take the rook»: the reply the lesson
+    answers missed (production 07.10: «король обязан отойти на h8» where the only move is gxh6)."""
+    if after.is_game_over():
+        return None
+    replies = list(after.legal_moves)
+    if len(replies) > 2:
+        return None
+    other = _color(after.turn)
+    names = " or ".join(after.san(r) for r in replies)
+    count = "only one legal move" if len(replies) == 1 else "only two legal moves"
+    text = f"after {board.san(best)}, {other} has {count}: {names}"
+    moved = board.piece_at(best.from_square)
+    if len(replies) == 1 and replies[0].to_square == best.to_square and moved is not None:
+        text += f" — it must take the {chess.piece_name(moved.piece_type)} on {chess.square_name(best.to_square)}"
+    return text
+
+
 def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float, analyse: Analyse) -> list[str]:
     """The threat of the best move and the opponent's threat now, as sentences.
 
@@ -184,6 +258,9 @@ def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float
                 threat = _threat(after, -best_score, analyse)
                 if threat:
                     facts.append(f"after {best_san}, {side} threatens {threat}")
+            forced = _forced_replies(board, best, after)
+            if forced:
+                facts.append(forced)
     now = _threat(board, best_score, analyse)
     if now:
         facts.append(f"{other} threatens {now} if {side} ignores it")

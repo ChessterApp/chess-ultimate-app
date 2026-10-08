@@ -601,6 +601,11 @@ def _script_language(message: str) -> Optional[str]:
     Words are counted, not letters: "Explain Сицилианская защита please" is
     English with a Russian name in it. A tie goes to the first word."""
     text = message or ""
+    # A FEN, a link, a PGN header carry no language: a lone FEN made the coach answer a Russian
+    # student in English (2026-10-08).
+    text = re.sub(r"https?://\S+|www\.\S+|\[[A-Za-z]+\s+\"[^\"]*\"\]", " ", text)
+    text = re.sub(r"[rnbqkpRNBQKP1-8]{1,8}(?:/[rnbqkpRNBQKP1-8]{1,8}){7}(?:\s+[wb](?:\s+[KQkq-]{1,4})?(?:\s+[a-h36-]{1,2})?(?:\s+\d+){0,2})?",
+                  " ", text)
     if any(ch in _KAZAKH_LETTERS for ch in text):
         return "kk"
     cyr_words = re.findall(r"[А-Яа-яЁё][А-Яа-яЁё-]*", text)
@@ -883,8 +888,10 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     import chess
 
     from src.answer_check import _MOVE, _to_san
+    from src.fen_repair import repair_fen
     from src.move_words import prose_moves
 
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except ValueError:
@@ -919,11 +926,11 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     converted, _ = _to_san(message_z)
     for m in _MOVE.finditer(converted):
         san = m["san"]
-        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"]:
+        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"] and "x" not in san:
             # A bare square («e4») is not a move the student names — unless it is
             # a pawn move asked about: «А если b3?», «если пешка пойдёт b3»
             # (production, 2026-10-06: 6.b3? b5 trapped the bishop, and the
-            # coach never looked at the move).
+            # coach never looked at the move). A pawn capture («exd5») is a move.
             if not _bare_pawn_move(converted, m, board):
                 continue
         _add(san, "san")
@@ -946,6 +953,15 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
         san, move, _note = resolve(board, ptype, chess.parse_square(m["sq"]))
         if move is not None:
             _add(san, "prose", m.group(0), None, move)
+    # Every other way of writing a legal move of this position: «Се3», «слон на е3» (Russian
+    # keyboard), «с1-е3», «c1e3», «ферзь бьёт h5», «съем пешку h5», «ф6» (src/move_matcher.py).
+    try:
+        from src.move_matcher import named_moves
+
+        for nm in named_moves(message, board):
+            _add(nm["san"], "match", nm["words"], None, nm["move"])
+    except Exception:  # noqa: BLE001 — a bonus reading on top of the patterns above
+        pass
     return out
 
 
@@ -963,7 +979,9 @@ def _bare_pawn_move(converted: str, m, board) -> bool:
     exactly one pawn of the side to move can go there."""
     import chess
 
-    sq = chess.parse_square(m["san"][:2])
+    # The square the pawn goes to: «e4», «e8=Q»; «gxh6» crashed here and took the move notes and
+    # every rule check of the turn with it (production since 2026-10-06, found 2026-10-08).
+    sq = chess.parse_square(re.findall(r"[a-h][1-8]", m["san"])[-1])
     pawn_moves = [mv for mv in board.legal_moves
                   if mv.to_square == sq and board.piece_type_at(mv.from_square) == chess.PAWN
                   and mv.promotion in (None, chess.QUEEN)]
@@ -1050,9 +1068,10 @@ def board_facts_block(fen: Optional[str]) -> str:
     try:
         import chess
 
+        from src.fen_repair import repair_fen
         from src.position_facts import static_facts
 
-        board = chess.Board(fen)
+        board = chess.Board(repair_fen(fen))
         if not board.is_valid():
             return ""
         facts = static_facts(board)
@@ -1165,6 +1184,16 @@ def _move_verdict(board, san: str) -> str:
             return f"NOT legal — {why}" if why else "NOT legal — castling is not available here"
         except Exception:  # noqa: BLE001
             return "NOT legal — castling is not available here"
+    # «Я сыграл Qb6. Это мат?» with the board already after Qb6: the move is not «illegal», it is
+    # behind (production 2026-10-07: «хода Qb6 вообще не было»).
+    m_dest = re.search(r"([a-h][1-8])(?:=[QRBN])?[+#]?$", san)
+    letter = san[0] if san[:1] in "KQRBN" else None
+    if m_dest:
+        here = board.piece_at(chess.parse_square(m_dest.group(1)))
+        if here is not None and here.color != board.turn and here.symbol().upper() == (letter or "P"):
+            side = "White" if here.color == chess.WHITE else "Black"
+            return (f"already played — the board shows the position AFTER it ({side}'s {chess.piece_name(here.piece_type)} "
+                    f"stands on {m_dest.group(1)}, {'White' if board.turn else 'Black'} to move now)")
     other = board.copy(stack=False)
     other.turn = not board.turn
     try:
@@ -1238,6 +1267,20 @@ def review_block(result: dict) -> str:
         "what was better. Set a position on the board only when you walk through one of them."
     )
     return "\n".join(lines)
+
+
+def lesson_engine_block(note: str) -> str:
+    """The engine line for the student's board on a lesson page (the lesson tutor, 2026-10-08):
+    the facts to explain from, the move itself kept for when the student asks or is stuck."""
+    return (
+        "## Engine analysis of the student's board\n"
+        f"{note}\n"
+        "Stockfish analysed the position on the student's board for this turn; its \"Facts\" part and "
+        "its lines are verified. Explain WHY a move works or fails only from these facts and lines — "
+        "never claim an attack, a defence, a threat, a check or a reply that is not in them. The student "
+        "is working on this position: hint from the facts first; name the move itself when they ask for "
+        "it or have tried and failed. No engine name, no numbers."
+    )
 
 
 def engine_note_block(note: str, opening: bool = False) -> str:

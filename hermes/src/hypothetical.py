@@ -18,6 +18,7 @@ from typing import Optional
 
 import chess
 
+from src.fen_repair import repair_fen
 from src.position_facts import VALUES, static_facts
 from src.tools.stockfish import analyze_timed
 
@@ -139,6 +140,7 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
     moves, "items": per-move data} or None when nothing could be analysed.
     Never raises: a failed analysis leaves that move with board facts only.
     """
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except ValueError:
@@ -326,6 +328,7 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
     """The engine's look at a live game for the coach — the evaluation and the
     opponent's threat only, never the best move (the coach hints; production,
     2026-10-05: the queen on h5 hung to g6 and the coach proposed a knight fork)."""
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except ValueError:
@@ -403,3 +406,51 @@ def verify_recommendation(board: chess.Board, move: chess.Move, san: str, moveti
     except Exception:  # noqa: BLE001 — a failed check never blocks the answer
         logger.debug("verify_recommendation failed", exc_info=True)
         return None
+
+
+def site_solution_note(fen: Optional[str], solution, movetime_ms: int = 250) -> Optional[str]:
+    """Why the site's listed solution of a task cannot be taught, by the board and the engine, or None.
+
+    A sweep of all 1896 tasks of the site's programme (2026-10-08) found 21 broken ones: the listed
+    solution loses or misses the mate the set is about («Мат в 3 хода — Набор 27, №1»: Rxf5+ loses, Rd6+
+    mates), is not a legal move, or the position itself is impossible. The coach and the lesson tutor
+    were handed such a solution as the answer. Never raises.
+    """
+    from src.fen_repair import repair_fen
+
+    first = (solution[0] if isinstance(solution, (list, tuple)) and solution else solution) or None
+    if not fen or not first:
+        return None
+    try:
+        board = chess.Board(repair_fen(fen))
+    except ValueError:
+        return "the lesson's position (FEN) cannot be read: do not analyse it, explain the lesson's idea in words."
+    if not board.is_valid():
+        return ("the lesson's position is not a legal chess position (a data error of the site): do not analyse it "
+                "or name moves in it; explain the lesson's idea in words.")
+    move = None
+    try:
+        move = board.parse_san(str(first))
+    except ValueError:
+        try:
+            cand = chess.Move.from_uci(str(first))
+            move = cand if cand in board.legal_moves else None
+        except ValueError:
+            move = None
+    try:
+        base = analyze_timed(board.fen(), movetime_ms, multipv=1, min_depth=MIN_DEPTH)
+        best = _san_line(board, (base.get("lines") or [{}])[0].get("pv", ""), 1) if "error" not in base else []
+    except Exception:  # noqa: BLE001
+        best = []
+    instead = f" The engine's move here is {best[0]} — teach that one." if best else ""
+    if move is None:
+        return (f"the site lists {first} as the solution, but it is not a legal move in this position (a data "
+                "error): do not teach it or guess what was meant; explain the lesson's idea in words.")
+    try:
+        issue = verify_recommendation(board, move, board.san(move), movetime_ms, 150, True)
+    except Exception:  # noqa: BLE001
+        issue = None
+    if issue:
+        tail = "" if "engine's move" in issue else instead
+        return f"the site lists {board.san(move)} as the solution, but it is wrong here ({issue}).{tail} Do not call the site's move correct."
+    return None

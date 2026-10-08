@@ -180,6 +180,14 @@ def _result_issues(text: str, ctx) -> list[str]:
         after = [b for dest, b in _question_after_boards(ctx) if chess.square_name(dest) in before.lower()]
         if not after and _THEN.search(before):
             after = [b for _, b in _question_after_boards(ctx)]
+        if not after:
+            # The square was in the sentence before («Постой, ферзь b6 — это пат! У чёрного короля нет
+            # ходов, а шаха нет, так что это сразу ничья.» — production voice 2026-10-07): a draw that the
+            # student's own move makes is not judged against the board as it stands.
+            draws = [b for _, b in _question_after_boards(ctx) if b.is_stalemate() or b.is_insufficient_material()]
+            mates = [b for _, b in _question_after_boards(ctx) if b.is_checkmate()]
+            if (draws and r.startswith(("ничь", "ничейн", "draw"))) or (mates and r.startswith(("выигр", "win", "won"))):
+                break
         if after:
             if all(b.is_stalemate() or b.is_insufficient_material() for b in after) and r.startswith(("выигр", "win", "won")):
                 issues.append("after the student's move the position is a draw (stalemate or no mating material), not a win")
@@ -254,6 +262,11 @@ _MATE_IN = re.compile(r"(?P<neg>нет\s+|no\s+|не\s+видно\s+)?(?:фор�
                       r"(?P<after>[^.!?]{0,30})", re.IGNORECASE)
 
 
+_MATE_AGAINST = re.compile(
+    _W + r"(?:пропуска\w*|пропуст\w*|получа\w*|получи\w*|получишь|позволя\w*|позвол\w*|допуска\w*|допуст\w*|нарв\w*|"
+    r"подставля\w*|себе|allow\w*|walk\w*\s+into|get\s+mated|after)" + _E, re.IGNORECASE)
+
+
 def _mate_in_issues(text: str, ctx) -> list[str]:
     if getattr(ctx, "engine_eval", None) is None or ctx.current is None:
         return []  # no engine look at this board this turn
@@ -270,6 +283,10 @@ def _mate_in_issues(text: str, ctx) -> list[str]:
             continue
         if _named_side(text) is not None and _named_side(text) != ctx.current.turn:
             continue  # about the side not to move — the engine line is not
+        if _MATE_AGAINST.search(text) or (getattr(ctx, "quoted", None) and not _NOW.search(text)):
+            # «ты сам пропускаешь мат в один ход» after the student's idea: the mate after that move,
+            # not this board's (the lesson tutor's true sentence was cut, 2026-10-08).
+            continue
         has = mate is not None and 0 < mate <= n
         if neg and has:
             return [f"there IS a forced mate in {mate} here (engine)"]
@@ -337,6 +354,17 @@ def _file_issues(text: str, ctx) -> list[str]:
             elif k.startswith(("закрыт", "closed")):
                 if actual != "closed":
                     issues.append(f"the {name}-file is {actual}, not closed")
+    # «открытая только вертикаль e», «открыта лишь линия e», "only the e-file is open" (production
+    # 2026-10-07: the c-file was open too)
+    for m in re.finditer(r"(?:открыт\w*\s+(?:здесь\s+|тут\s+|сейчас\s+)?(?:только|лишь|одна)\s+(?:одна\s+)?(?:вертикал\w*|лини\w*)\s+\**(?P<f>[a-h])\**"
+                         r"|(?:только|лишь)\s+(?:вертикал\w*|лини\w*)\s+\**(?P<f2>[a-h])\**\s+(?:[а-яё]+\s+){0,2}?открыт\w*"
+                         r"|only\s+the\s+(?P<f3>[a-h])-?file\s+is\s+open)" + _E, text, re.IGNORECASE):
+        if _negated_before(text, m.start()):
+            continue
+        named = (m["f"] or m["f2"] or m["f3"]).lower()
+        opened = [chess.FILE_NAMES[f] for f in range(8) if file_kind(board, f) == "open"]
+        if opened != [named]:
+            issues.append(f"the open files here are {', '.join(opened) or 'none'}, not only the {named}-file")
     # «Открытых вертикалей здесь нет», "there are no open files"
     if re.search(r"(?:полностью\s+)?открыт\w*\s+(?:вертикал|лини)\w*\s+(?:здесь\s+|тут\s+|сейчас\s+)?нет|нет\s+(?:ни\s+одной\s+)?"
                  r"(?:полностью\s+)?открыт\w*\s+(?:вертикал|лини)|no\s+(?:fully\s+)?open\s+files|there\s+are\s+no\s+open\s+files",
@@ -549,20 +577,37 @@ def _colour_issues(text: str) -> list[str]:
 
 # ── The castling rule itself ────────────────────────────────────────────────
 
-_ROOK_ATTACKED = r"ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
+_ROOK_ATTACKED = (r"(?:ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
+                  r"|(?:атакованн\w*|атакуем\w*)\s+ладь\w*)")
+# «ладья не должна быть под боем (в момент рокировки)», "the rook must not be attacked" (production 2026-10-07)
+_ROOK_MUST_NOT = (r"ладь\w*\s+не\s+(?:должн\w*|может|могут|обязан\w*)\s+(?:быть|находиться|стоять|оказаться)\s+"
+                  r"под\s+(?:бо\w+|удар\w*)|rook\s+(?:must|should|may|can)\s*(?:not|n'?t)\s+be\s+(?:attacked|under\s+attack)")
 
 
-def _castling_rule_issues(text: str) -> list[str]:
+def _castling_rule_issues(text: str, question: str = "") -> list[str]:
     """«Нельзя рокироваться, если ладья под боем» — a false rule: only the king's squares matter
-    (the voice coach said it on 2026-10-06)."""
-    if not re.search(_CASTLE_WORD, text, re.IGNORECASE) or not re.search(_ROOK_ATTACKED + r"|rook\s+is\s+(?:not\s+)?(?:attacked|under\s+attack)", text, re.IGNORECASE):
+    (the voice coach said it on 2026-10-06). The castling may be named in the question only:
+    «Можно рокироваться, если ладья под боем?» — «Можно, если только ладья не под боем»."""
+    q = (question or "").lower().replace("ё", "е")
+    # «Можно ли рокироваться, если моя ладья под боем?» — «Нет, нельзя — …» (the newest code,
+    # 2026-10-08, with the right rule two sentences later): the general rule, answered no.
+    if (re.search(_CASTLE_WORD, q, re.IGNORECASE) and re.search(_ROOK_ATTACKED, q, re.IGNORECASE)
+            and re.search(r"(?<![а-яё])(?:если|когда)(?![а-яё])|\b(?:if|when)\b", q)
+            and re.search(r"^\W*(?:(?:нет|no|жоқ)[\s,—–-]+(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|you\s+can'?t|"
+                          r"cannot)|нельзя)(?![а-яё])", text, re.IGNORECASE)):
+        return ["castling is allowed when the rook is attacked: only the king may not be in check, pass "
+                "through or land on an attacked square — the answer to the question is yes"]
+    if not re.search(_CASTLE_WORD, text + " " + q, re.IGNORECASE) or not re.search(
+            _ROOK_ATTACKED + r"|" + _ROOK_MUST_NOT + r"|rook\s+is\s+(?:not\s+)?(?:attacked|under\s+attack)", text, re.IGNORECASE):
         return []
     forbids = re.search(
         r"(?:нельзя|невозможн\w*|не\s+можешь|не\s+может|не\s+получится|запрещ\w*|can'?t|cannot|not\s+allowed)"
         r"[^.;!?]{0,60}?(?:если|когда|if|when)[^.;!?]{0,20}?(?:тво\w+\s+|ваш\w+\s+|мо\w+\s+)?" + _ROOK_ATTACKED +
         r"|" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|не\s+можешь|не\s+получится|запрещ)"
+        r"|при\s+" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|запрещ)"
         r"|если\s+(?:только\s+)?(?:тво\w+\s+|ваш\w+\s+)?ладь\w*\s+не\s+(?:находится\s+|стоит\s+)?под\s+(?:бо|удар)"
-        r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)",
+        r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)"
+        r"|" + _ROOK_MUST_NOT,
         text, re.IGNORECASE)
     if forbids and not re.search(r"(?<![а-яё])даже(?![а-яё])|\beven\s+if", text, re.IGNORECASE):
         return ["castling is allowed when the rook is attacked: only the king may not be in check, pass "
@@ -570,12 +615,190 @@ def _castling_rule_issues(text: str) -> list[str]:
     return []
 
 
+# «Be3 ставит слона прямо под удар пешки» when the bishop on e3 is hit by a bishop (the client's
+# game, 2026-10-07): who attacks the piece the student's move put on its square.
+_PIECE_ACC = {"слон": chess.BISHOP, "кон": chess.KNIGHT, "лад": chess.ROOK, "ферз": chess.QUEEN, "пешк": chess.PAWN,
+              "корол": chess.KING}
+_UNDER_ATTACK_BY = re.compile(
+    r"(?:(?P<p1>слон|конь|ладья|ферзь|пешка)\s+(?:[а-яё]+\s+){0,2}?(?:вста[её]т|встанет|оказывается|окажется|попада[её]т|"
+    r"попад[её]т)|(?:став\w*|подставля\w*|поставит)\s+(?:(?:сво\w+|тво\w+)\s+)?(?P<p2>слона|коня|ладью|ферзя|пешку|фигуру))"
+    r"\s+(?:прямо\s+|сразу\s+)?под\s+(?:удар|бой)\s+(?:ч[её]рн\w+\s+|бел\w+\s+)?(?P<a>пешки|коня|слона|ладьи|ферзя|короля)" + _E)
+
+
+def _attacked_by_issues(text: str, ctx) -> list[str]:
+    issues = []
+    for m in _UNDER_ATTACK_BY.finditer(text):
+        if _negated_before(text, m.start()):
+            continue
+        said = next((t for k, t in _PIECE_ACC.items() if m["a"].startswith(k)), None)
+        piece_word = m["p1"] or m["p2"] or ""
+        named = next((t for k, t in _PIECE_ACC.items() if piece_word.startswith(k)), None)
+        for dest, board in _question_after_boards(ctx):
+            piece = board.piece_at(dest)
+            if piece is None or (named is not None and named != piece.piece_type):
+                continue
+            attackers = board.attackers(not piece.color, dest)
+            types = {board.piece_type_at(a) for a in attackers}
+            if said in types:
+                continue
+            who = ", ".join(f"the {chess.piece_name(board.piece_type_at(a))} on {chess.square_name(a)}" for a in attackers)
+            issues.append(f"the {chess.piece_name(piece.piece_type)} on {chess.square_name(dest)} is attacked by "
+                          f"{who or 'nothing'}, not by a {chess.piece_name(said)}")
+            break
+    return issues
+
+
+# «На b3 пешка пойти не может» with b2–b3 legal, «конь b1 не может пойти на c3» (the voice coach,
+# 2026-10-06): a legal move of the board in front of the student denied. A condition or a later
+# position («если…», «после…», «пока…») is not about this board and is left alone.
+_GO_PIECE = r"(?P<piece>пешк\w*|кон[ьяеюё]\w*|слон\w*|ладь\w*|ферз\w*|корол\w*|pawn|knight|bishop|rook|queen|king)"
+_GO_VERB = (r"(?:пойти|ходить|сходить|встать|отступить|уйти|прыгнуть|шагнуть|двинуться|переместиться|попасть|"
+            r"go|move|retreat|step|jump)")
+_CANNOT_GO = [
+    re.compile(_W + _GO_PIECE + r"(?:\s+(?:с\s+|on\s+|from\s+)?(?P<frm>[a-h][1-8]))?\s+(?:сейчас\s+|никак\s+|уже\s+)?"
+               r"(?:не\s+может|не\s+сможет|не\s+могут|can'?t|cannot|can\s+not)\s+(?:\w+\s+)?" + _GO_VERB
+               + r"\s+(?:на|в|to|on)\s+(?P<to>[a-h][1-8])" + _E, re.IGNORECASE),
+    re.compile(_W + r"(?:на|в)\s+(?P<to>[a-h][1-8])\s+" + _GO_PIECE + r"(?:\s+(?P<frm>[a-h][1-8]))?\s+(?:сейчас\s+|никак\s+)?"
+               + _GO_VERB + r"\s+не\s+(?:может|сможет|могут)" + _E, re.IGNORECASE),
+]
+_GO_TYPES = {"пешк": chess.PAWN, "pawn": chess.PAWN, "кон": chess.KNIGHT, "knight": chess.KNIGHT, "слон": chess.BISHOP,
+             "bishop": chess.BISHOP, "лад": chess.ROOK, "rook": chess.ROOK, "ферз": chess.QUEEN, "queen": chess.QUEEN,
+             "корол": chess.KING, "king": chess.KING}
+
+
+# «не может пойти на f7, там пешка под защитой» means it would be lost, not that the rules forbid it.
+_GO_SAFETY = re.compile(r"защищ|защит|под\s+удар|под\s+бо|потер|отда|зев|бесплатн|без\s+потер|размен|"
+                        r"defend|protect|lose|hang|attacked|safe", re.IGNORECASE)
+
+
+def _reaches(board: chess.Board, sq: int, to: int) -> bool:
+    """The piece on *sq* could go to *to* by its way of moving, ignoring checks and blockers on its own square."""
+    piece = board.piece_at(sq)
+    if piece.piece_type != chess.PAWN:
+        return bool(board.attacks_mask(sq) & chess.BB_SQUARES[to])
+    step = 8 if piece.color == chess.WHITE else -8
+    return to in (sq + step, sq + 2 * step)  # the square is empty: a pawn goes there only straight ahead
+
+
+def _cannot_go_issues(text: str, ctx) -> list[str]:
+    board = getattr(ctx, "current", None)
+    if board is None or (_GENERAL.search(text) and not _NOW.search(text)) or _GO_SAFETY.search(text):
+        return []
+    for rx in _CANNOT_GO:
+        for m in rx.finditer(text):
+            ptype = next(t for k, t in _GO_TYPES.items() if m.group("piece").lower().startswith(k))
+            to = chess.parse_square(m.group("to"))
+            frm = chess.parse_square(m.group("frm")) if m.group("frm") else None
+            if board.piece_at(to) is not None:
+                continue  # a capture: «can't go» there is about what it costs
+            # The pieces the sentence may mean: the one on the named square, else every piece of the type
+            # that moves that way to the square; all of them must be able to go.
+            cands = [frm] if frm is not None else [sq for sq in board.pieces(ptype, chess.WHITE) | board.pieces(ptype, chess.BLACK)
+                                                  if _reaches(board, sq, to)]
+            if not cands or any(board.piece_type_at(sq) != ptype for sq in cands):
+                continue
+            legal = []
+            for sq in cands:
+                b = board.copy(stack=False)
+                b.turn = board.color_at(sq)
+                if b.turn != board.turn and (b.is_check() or not b.is_valid()):
+                    break  # the side not to move: only when its moves are well defined
+                mv = next((mv for mv in b.legal_moves if mv.from_square == sq and mv.to_square == to), None)
+                if mv is None:
+                    break
+                legal.append((b, mv))
+            else:
+                b, mv = legal[0]
+                return [f"{b.san(mv)} is legal here: the {chess.piece_name(ptype)} on "
+                        f"{chess.square_name(mv.from_square)} can go to {chess.square_name(to)}"]
+    return []
+
+
+# «Король обязан отойти» right after «Первый ход — Rxh6+», where the only legal reply is gxh6; «вынуждены
+# взять» where nothing can take. Production lesson answers, 07.10: the sacrifice nobody took, the king
+# that «had to move» and could not. Judged on the scene — the position after the move the answer named
+# in this sentence or the one before — and only when the claim cannot be true at all there.
+_FORCED_KING = re.compile(
+    _W + r"(?:корол\w*|king)\s+(?:[а-яёa-z]+\s+){0,3}?(?:обязан\w*|вынужден\w*|должен|придётся|придется|has\s+to|must)"
+         r"\s+(?:[а-яёa-z]+\s+)?(?:уйти|отойти|отступить|уходить|отходить|бежать|убегать|move|retreat|run|step)" + _E,
+    re.IGNORECASE)
+_FORCED_TAKE = re.compile(
+    _W + r"(?:обязан\w*|вынужден\w*|должн\w*|приходится|придётся|придется|has\s+to|have\s+to|must)\s+"
+         r"(?:[а-яёa-z]+\s+)?(?:взять|бить|побить|забрать|брать|съесть|take|capture)" + _E, re.IGNORECASE)
+
+
+_WRITTEN_MOVE = re.compile(r"(?<![a-zа-я0-9])(?:[kqrbnкрфлс][a-h]?[1-8]?[x:×]?[a-h][1-8]|[a-h][x:×][a-h][1-8]|o-o(?:-o)?)[+#]?",
+                           re.IGNORECASE)
+
+
+def _norm_san(san: str) -> str:
+    s = san.rstrip("+#!?").replace(":", "x").replace("×", "x").lower()
+    for ru, en in (("кр", "k"), ("ф", "q"), ("л", "r"), ("с", "b"), ("к", "n")):
+        if s.startswith(ru):
+            return en + s[len(ru):]
+    return s
+
+
+def _scene_at(text: str, at: int, ctx):
+    """(board, san) the claim at *at* is about: after the last move written before it in this sentence,
+    else after the last move of the sentences before (if the explanation is still about it)."""
+    if _NOW.search(text[:at]):
+        return getattr(ctx, "current", None), "the move on the board"  # «сейчас король нападает…»: the board as it is
+    before = [_norm_san(m.group(0)) for m in _WRITTEN_MOVE.finditer(text[:at])]
+    trail = getattr(ctx, "scene_trail", []) or []
+    if before and trail:
+        last = before[-1]
+        for san, board, _move in trail:  # the first move of the sentence written as the last one before the claim
+            if _norm_san(san) == last:
+                return board, san
+        for san, board, _move in trail:
+            if _norm_san(san)[-2:] == last[-2:]:
+                return board, san
+        return None, ""
+    if before:
+        return None, ""
+    prev = getattr(ctx, "scene_before", None)
+    if prev and prev[2] <= 3:
+        return prev[0], prev[1]
+    return None, ""
+
+
+def _forced_reply_issues(text: str, ctx) -> list[str]:
+    if getattr(ctx, "current", None) is None:
+        return []  # no position of the turn: a line read from the starting board means nothing
+    m_king, m_take = _FORCED_KING.search(text), _FORCED_TAKE.search(text)
+    m0 = m_king or m_take
+    if m0 is None:
+        return []
+    board, san = _scene_at(text, m0.start(), ctx)
+    if board is None or board.is_game_over():
+        return []
+    if _GENERAL.search(text) and not _NOW.search(text) and not re.search(r"(?<![а-яё])после(?![а-яё])", text):
+        return []
+    side = "White" if board.turn == chess.WHITE else "Black"
+    replies = list(board.legal_moves)
+    named = _named_side(text)
+    if named is not None and named != board.turn:
+        return []
+    m = m_king
+    if m and not _negated_before(text, m.start()) and not any(board.piece_type_at(r.from_square) == chess.KING for r in replies):
+        only = ", ".join(board.san(r) for r in replies[:3])
+        return [f"after {san} the {side.lower()} king cannot move at all: the only replies are {only}"]
+    m = m_take
+    if m and not _negated_before(text, m.start()) and not any(board.is_capture(r) for r in replies):
+        only = ", ".join(board.san(r) for r in replies[:3])
+        return [f"after {san} {side} cannot take anything: the replies are {only}"]
+    return []
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
         return (_castling_issues(lowered, ctx) + _result_issues(lowered, ctx) + _mate_state_issues(lowered, ctx)
+                + _attacked_by_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
-                + _castling_rule_issues(lowered))
+                + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
+                + _forced_reply_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

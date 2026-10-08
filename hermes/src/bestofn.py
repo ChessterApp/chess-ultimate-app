@@ -63,6 +63,12 @@ JUDGE_REASON_CAP = 200
 _JUDGE_TIMEOUT = 15.0
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+
+def _no_thinking(model: str) -> dict:
+    from src.llm_transport import reasoning_for
+
+    return reasoning_for(model) or {"enabled": False}
+
 # The candidate texts are model-generated but still untrusted for the judge's
 # purposes: the system prompt is explicit that anything inside the <candidate>
 # delimiters is DATA to compare, never instructions to follow.
@@ -324,6 +330,9 @@ def run_judge(
                 "temperature": 0,
                 "max_tokens": 200,
                 "response_format": {"type": "json_object"},
+                # No hidden thinking (2026-10-08): without this DeepSeek spent the whole budget thinking and
+                # returned nothing — the lesson tutor's empty replies on production.
+                "reasoning": _no_thinking(model),
             },
             timeout=_JUDGE_TIMEOUT,
         )

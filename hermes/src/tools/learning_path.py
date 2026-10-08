@@ -659,6 +659,12 @@ def get_lesson(
         out["lesson_text"] = own["text"]
         if own.get("diagrams"):
             out["diagrams"] = own["diagrams"]
+        if "[Диаграмма:" in own["text"] or own.get("diagrams"):
+            # Four of 187 lesson puzzles were answered with a diagram's move — another position, often for
+            # the other side («1...Ba6!» with White to move; production 2026-10-07).
+            out["diagrams_note"] = ("The [Диаграмма: …] positions and `diagrams` are the book's examples — other "
+                                    "positions, not the board in front of the student. A question about the board "
+                                    "is answered from the board's own position and engine line, never from a diagram.")
 
     fen = row.get("exercise_fen")
     if fen:
@@ -712,6 +718,17 @@ def get_lesson(
         elif shown:
             out["board_actions"] = [{"type": "set_puzzle", "fen": shown["fen"], "solution": shown["solution"]}]
             out["board_hint"] = "The lesson's exercise is ALREADY on the board as a puzzle; guide the student through it."
+        if shown:
+            # The site's listed solution, checked by the engine: 21 of its 1896 tasks list one that loses, is
+            # illegal or sits in an impossible position (2026-10-08).
+            try:
+                from src.hypothetical import site_solution_note
+
+                wrong = site_solution_note(shown["fen"], shown["solution"])
+            except Exception:  # noqa: BLE001 — the check is a bonus on top of the lesson
+                wrong = None
+            if wrong:
+                out["solution_check"] = wrong
     return out
 
 

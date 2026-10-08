@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
+import { russianToSan } from '@/lib/russianNotation';
 import ReactMarkdown from 'react-markdown';
 import ToolIndicator from './ToolIndicator';
 import FeedbackButtons from './FeedbackButtons';
@@ -89,20 +90,15 @@ const FEN_RE = /^\s*([rnbqkpRNBQKP1-8]+\/){7}[rnbqkpRNBQKP1-8]+\s+[wb]\s+(-|[KQk
 const GAME_URL_RE =
   /^(?:https?:\/\/)?(?:www\.)?(?:lichess\.org\/(?:game\/export\/)?[A-Za-z0-9]{8}(?:[A-Za-z0-9]{4})?(?:[/#?].*)?|chess\.com\/(?:(?:analysis\/)?game\/(?:live|daily|computer)\/\d+|live\/game\/\d+)(?:[/#?].*)?)$/i;
 
-const RU_PIECES: Record<string, string> = { Кр: 'K', Ф: 'Q', Л: 'R', С: 'B', К: 'N' };
-
 /**
- * Russian figurine letters → SAN: students paste "1.e4 e5 2.Фh5 Кc6 3.Сc4"
- * (Кр — king, Ф — queen, Л — rook, С — bishop, К — knight; х/× as the capture
- * sign; 0-0 for castling). The board's parser knows only SAN and silently
- * dropped such a game while the chat said it was loaded (2026-09-29).
+ * Russian notation → SAN: students paste "1.e4 e5 2.Фh5 Кc6 3.Сc4" or "1.е4 е5 2.Кф3 Кс6"
+ * (Кр — king, Ф — queen, Л — rook, С — bishop, К — knight; Cyrillic and transliterated files;
+ * х/×/: as the capture sign; 0-0 for castling). The board's parser knows only SAN and silently
+ * dropped such a game while the chat said it was loaded (2026-09-29); Cyrillic files were not read
+ * until 2026-10-08.
  */
 export function normalizeRussianSan(text: string): string {
-  return (text || '')
-    .replace(/(^|[\s.(])(Кр|Ф|Л|С|К)(?=[a-hх×x:]|[1-8][a-hх×x:])/g, (_m, pre: string, p: string) => pre + RU_PIECES[p])
-    .replace(/([a-hKQRBN1-8])[х×:](?=[a-h][1-8])/g, '$1x')
-    .replace(/\b0-0-0\b/g, 'O-O-O')
-    .replace(/\b0-0\b/g, 'O-O');
+  return russianToSan(text || '');
 }
 
 /** True when the board's parser (chess.js) reads *pgn* as a game. */

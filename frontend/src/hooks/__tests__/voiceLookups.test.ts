@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { CONCEPT_QUESTION_RE, IDEA_MOVE_RE, OPENING_HINT_RE, openingNote, topicNote, verdictNote } from '../useGeminiLive';
 
@@ -111,6 +111,9 @@ describe('IDEA_MOVE_RE — a move in the student\'s words', () => {
       // 2026-10-06: castling and a bare pawn move reach the engine too
       'можно мне рокироваться?', 'а если 0-0?', 'can I castle kingside?', 'а если b3?', 'если пешка пойдёт b3',
       'what about b3?',
+      // 2026-10-08: the client's «Се3» and every other way of writing it
+      'Что если я пойду Се3?', 'а если слон пойдёт на е3?', 'слон е3?', 'с1-е3', 'c1e3', 'ферзь бьёт h5', 'съем пешку h5',
+      'а если ф6?', 'Кб5', 'поставлю слона на е3',
     ]) {
       expect(IDEA_MOVE_RE.test(text), text).toBe(true);
     }
@@ -143,4 +146,77 @@ it('castling as speech recognition spells it is an idea', () => {
   for (const text of ['Қазір қысқа рокеровка жасай аламын ба?', 'Қазір қысқа рокіровка жасай аламын ба?']) {
     expect(IDEA_MOVE_RE.test(text), text).toBe(true);
   }
+});
+
+describe('keepsBoard (2026-10-08)', () => {
+  const POS = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  it('keeps the student position for a question about it', async () => {
+    const { keepsBoard } = await import('../useGeminiLive');
+    expect(keepsBoard('Объясни, почему здесь связка', POS)).toBe(true);
+    expect(keepsBoard('Explain the best move here', POS)).toBe(true);
+  });
+  it('lets an example replace the board when one is asked for, or on the start position', async () => {
+    const { keepsBoard } = await import('../useGeminiLive');
+    expect(keepsBoard('Покажи пример связки', POS)).toBe(false);
+    expect(keepsBoard('Что такое связка?', POS)).toBe(false);
+    expect(keepsBoard('Объясни, почему здесь связка', START)).toBe(false);
+  });
+});
+
+describe('IdeaAudioGate (2026-10-08)', () => {
+  it('plays at once when no move question is pending', async () => {
+    const { IdeaAudioGate } = await import('../useGeminiLive');
+    const played: string[] = [];
+    const gate = new IdeaAudioGate((b) => played.push(b), 1000);
+    gate.audio('a');
+    expect(played).toEqual(['a']);
+  });
+
+  it('holds audio after a move question and plays it when the verdict comes', async () => {
+    const { IdeaAudioGate } = await import('../useGeminiLive');
+    const played: string[] = [];
+    const gate = new IdeaAudioGate((b) => played.push(b), 1000);
+    gate.expect();
+    gate.audio('a');
+    gate.audio('b');
+    expect(played).toEqual([]);
+    gate.release();
+    expect(played).toEqual(['a', 'b']);
+    gate.audio('c');
+    expect(played).toEqual(['a', 'b', 'c']);
+  });
+
+  it('drops the held words when they answer past a bad move', async () => {
+    const { IdeaAudioGate } = await import('../useGeminiLive');
+    const played: string[] = [];
+    const gate = new IdeaAudioGate((b) => played.push(b), 1000);
+    gate.expect();
+    gate.audio('хороший ход');
+    gate.drop();
+    expect(played).toEqual([]);
+    gate.audio('это пат');
+    expect(played).toEqual(['это пат']);
+  });
+
+  it('never holds longer than its limit, and is off at 0', async () => {
+    vi.useFakeTimers();
+    try {
+      const { IdeaAudioGate } = await import('../useGeminiLive');
+      const played: string[] = [];
+      const gate = new IdeaAudioGate((b) => played.push(b), 1000);
+      gate.expect();
+      gate.audio('a');
+      vi.advanceTimersByTime(999);
+      expect(played).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(played).toEqual(['a']);
+      const off = new IdeaAudioGate((b) => played.push(b), 0);
+      off.expect();
+      off.audio('b');
+      expect(played).toEqual(['a', 'b']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

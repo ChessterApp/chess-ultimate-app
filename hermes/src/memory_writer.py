@@ -60,6 +60,12 @@ _HTTP_TIMEOUT = 10.0
 _REFLECTOR_TIMEOUT = 15.0
 _OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
+
+def _no_thinking(model: str) -> dict:
+    from src.llm_transport import reasoning_for
+
+    return reasoning_for(model) or {"enabled": False}
+
 # The student message is untrusted free text. The system prompt is explicit that
 # anything inside the <student_message> delimiters is DATA, never instructions.
 _REFLECTOR_SYSTEM = (
@@ -250,6 +256,9 @@ def _call_reflector_llm(
                 "temperature": 0,
                 "max_tokens": 400,
                 "response_format": {"type": "json_object"},
+                # No hidden thinking (2026-10-08): without this DeepSeek spent the whole budget thinking and
+                # returned nothing — the lesson tutor's empty replies on production.
+                "reasoning": _no_thinking(model),
             },
             timeout=_REFLECTOR_TIMEOUT,
         )
