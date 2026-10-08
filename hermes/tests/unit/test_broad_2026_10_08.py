@@ -117,3 +117,115 @@ def test_invented_game_history():
 def test_squares_and_pieces_in_other_spellings(sentence, caught):
     fen = ALEX if "d3" in sentence or "c3" in sentence else "r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
     assert bool(check_sentence(sentence, CheckContext.from_fens([fen]))) is caught
+
+
+# A lesson puzzle with castling rights its kings and rooks no longer allow (16 of the site's 187).
+BAD_CASTLING = "r1q1kb1r/pppn1npp/8/4p1B1/8/1Q6/PPP2PPP/RN2R1K1 w Qkq - 0 1"
+
+
+def test_a_lesson_fen_with_impossible_castling_is_repaired_not_refused():
+    from src.fen_repair import repair_fen
+
+    assert repair_fen(BAD_CASTLING) == "r1q1kb1r/pppn1npp/8/4p1B1/8/1Q6/PPP2PPP/RN2R1K1 w kq - 0 1"
+    assert repair_fen(chess.STARTING_FEN) == chess.STARTING_FEN  # a valid FEN is left exactly as it is
+    assert repair_fen("garbage") == "garbage" and repair_fen(None) is None
+    assert repair_fen("4k3/8/8/8/8/8/8/4K3 w - e3 0 1") == "4k3/8/8/8/8/8/8/4K3 w - - 0 1"
+
+
+def test_the_engine_tools_and_notes_take_such_a_fen():
+    import json
+
+    from src.prompt_builder import board_facts_block
+    from src.tools import discover_and_register
+    from tools.registry import registry
+
+    discover_and_register()
+    out = json.loads(registry.dispatch("check_moves", {"fen": BAD_CASTLING, "moves": ["Qe6+"]}))
+    assert "error" not in out and out["results"][0]["legal"] is True
+    assert board_facts_block(BAD_CASTLING)
+    assert [m["san"] for m in question_moves("А если Qe6+?", BAD_CASTLING)] == ["Qe6+"]
+
+
+@pytest.mark.parametrize("text,flagged", [
+    ("第一着是 **Kd4**——把马跳向中心，切断白方后的前路。", True),
+    ("مرحبا بك في الشطرنج", True),
+    ("Защита Грюнфельда (Grünfeld) и система Рети (Réti) — гипермодерн.", False),
+])
+def test_a_sentence_in_another_script(text, flagged):
+    assert bool(language_issue(text, "ru")) is flagged
+
+
+@pytest.mark.parametrize("text,fixed", [
+    ("Первый ход — **Kxf2** (конь берёт пешку f2 с шахом).", "Первый ход — **Nxf2** (конь берёт пешку f2 с шахом)."),
+    ("Итальянская партия — 1.e4 e5 2.Kf3 Kc6 3.Cc4.", "Итальянская партия — 1.e4 e5 2.Nf3 Nc6 3.Bc4."),
+    ("Движок даёт линию 1.Kc3 Kb8 2.Qg7 Ka8.", "Движок даёт линию 1.Kc3 Kb8 2.Qg7 Ka8."),  # an endgame line: the king
+    ("Король обязан ответить, а после Kxf2 конь f6 прыгает на g4.", "Король обязан ответить, а после Kxf2 конь f6 прыгает на g4."),
+])
+def test_russian_piece_letters_typed_in_latin(text, fixed):
+    from src.answer_check import normalize_notation
+
+    assert normalize_notation(text) == fixed
+
+
+START4 = "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4"
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("На b3 пешка пойти не может.", True),
+    ("Конь b1 не может пойти на c3.", True),
+    ("Слон c4 не может пойти на f7, там пешка под защитой короля.", False),  # a capture that costs, not a rule
+    ("Если слон уйдёт, конь не может пойти на d4.", False),
+    ("Пешка b2 не может пойти на b5.", False),
+])
+def test_a_legal_move_denied(sentence, caught):
+    assert bool(check_sentence(sentence, CheckContext.from_fens([START4]))) is caught
+
+
+def test_the_castling_rule_named_in_the_question_only():
+    ctx = CheckContext.from_fens(["4k2r/8/8/8/8/8/8/4K2R w K - 0 1"], question="Можно рокироваться, если ладья под боем?")
+    assert check_sentence("Можно, если только ваша ладья не находится под боем.", ctx)
+    assert check_sentence("Нет, при атакованной ладье рокировка запрещена.", ctx)
+    assert check_sentence("Да, можно: даже если ладья под боем, рокировка разрешена.", ctx) == []
+
+
+def test_a_wrong_no_to_the_castling_rule_question():
+    ctx = CheckContext.from_fens([chess.STARTING_FEN], question="Можно ли рокироваться, если моя ладья под боем?")
+    assert check_sentence("Нет, нельзя — рокировка через битое поле запрещена.", ctx)
+    assert check_sentence("Нет, ладья под боем рокировке не мешает.", ctx) == []
+
+
+@pytest.mark.parametrize("text,out", [
+    ("Затем выводи короля из-под пешки, а ладью поставь на четвёртую.", "Выводи короля из-под пешки, а ладью поставь на четвёртую."),
+    ("**Затем** выводи короля из-под пешки.", "Выводи короля из-под пешки."),
+    ("Затяни узел потуже.", "Затяни узел потуже."),
+])
+def test_a_sentence_leaning_on_one_left_out(text, out):
+    from src.answer_check import strip_leaning_start
+
+    assert strip_leaning_start(text) == out
+
+
+@pytest.mark.parametrize("fen,sentence,caught", [
+    ("3R1rk1/6pp/3Q4/pp2Pq2/4Nn2/P7/1P6/K7 w - - 0 1", "Первый ход — **...Rxf3!**.", True),  # a lesson diagram's move
+    ("3R1rk1/6pp/3Q4/pp2Pq2/4Nn2/P7/1P6/K7 w - - 0 1", "Первый ход — **Nf6+**.", False),
+    ("r1b2rk1/ppp2ppp/1bnq1n2/1B1p2B1/3PP3/2N2N2/PP3PPP/R2Q1RK1 w - - 0 1", "Первый ход — **1...Ba6!**", True),
+    (chess.STARTING_FEN, "Первый ход — e4: пешка занимает центр.", False),
+])
+def test_the_announced_first_move_is_a_move_of_the_board(fen, sentence, caught):
+    assert bool(check_sentence(sentence, CheckContext.from_fens([fen]))) is caught
+
+
+def test_the_only_reply_to_a_sacrifice_is_a_fact():
+    from src.position_facts import _forced_replies
+
+    board = chess.Board("r1b4k/pp1n2p1/1qp1B1Pp/2p2p2/3P4/2Q1P3/PP1K1PP1/R6R w - - 0 1")
+    move = board.parse_san("Rxh6+")
+    after = board.copy()
+    after.push(move)
+    assert _forced_replies(board, move, after) == "after Rxh6+, Black has only one legal move: gxh6 — it must take the rook on h6"
+
+
+def test_a_pawn_capture_in_the_question_is_read_not_a_crash():
+    fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
+    assert [m["san"] for m in question_moves("Почему не exd5?", fen) if m.get("legal")] == ["exd5"]
+    assert [m["san"] for m in question_moves("А если b3?", fen) if m.get("legal")] == ["b3"]

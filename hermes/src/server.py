@@ -17,12 +17,12 @@ import asyncio
 import chess
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from src.config import (
     load_env,
@@ -67,6 +67,8 @@ from src.prompt_builder import (
     get_prompt_version,
 )
 from src.event_logger import log_event, new_turn_id
+from src.answer_check import strip_leaning_start
+from src.fen_repair import repair_fen
 from src.coach_feedback import upsert_feedback, delete_feedback
 from src.identity import current_user_id
 from src import config
@@ -1129,9 +1131,15 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 # ── /api/coach/* routes ────────────────────────────────────────────────
 
 
+# A FEN from the site with castling/en-passant flags its position allows (src/fen_repair.py):
+# 16 of the 187 lesson puzzles say «w Qkq» with the white king on g1, and the engine, the board
+# facts and the «а если…» notes refused such a board (2026-10-07).
+SiteFen = Annotated[Optional[str], AfterValidator(repair_fen)]
+
+
 class CoachChatRequest(BaseModel):
     message: str
-    fen: Optional[str] = None
+    fen: SiteFen = None
     session_id: Optional[str] = None
     locale: Optional[str] = None
     # Per-turn grounding the UI adds (e.g. the Review drawer's "[Review context]
@@ -1157,7 +1165,7 @@ class CoachBoardCreateRequest(BaseModel):
     kind: str = "study"
     title: Optional[str] = None
     pgn: Optional[str] = None
-    fen: Optional[str] = None
+    fen: SiteFen = None
     ply: Optional[int] = None
     orientation: str = "white"
     source: Optional[dict] = None
@@ -1169,8 +1177,8 @@ class CoachBoardUpdateRequest(BaseModel):
     pgn: Optional[str] = None
     # fen: a new study position (drops the loaded game). position: the FEN the
     # student is looking at — a navigation when it belongs to the loaded game.
-    fen: Optional[str] = None
-    position: Optional[str] = None
+    fen: SiteFen = None
+    position: SiteFen = None
     ply: Optional[int] = None
     orientation: Optional[str] = None
     annotations: Optional[dict] = None
@@ -2226,7 +2234,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         loop.run_in_executor(None, _run_fix, "".join(answer_parts), sentence, issues)
                     else:
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
+                        fix["after_drop"] = True
                     continue
+                if fix.pop("after_drop", False):
+                    text = strip_leaning_start(text)  # «Затем…» after the sentence left out
                 frames.extend(_answer_frames(text))
             return frames
 
@@ -2715,7 +2726,7 @@ class PuzzleContextPuzzle(BaseModel):
     """One puzzle in the lesson's puzzle set. Every field is optional/best-effort
     — the client trims fields and older clients omit them entirely."""
     order_index: Optional[int] = None
-    fen: Optional[str] = None
+    fen: SiteFen = None
     solution_move: Optional[str] = None
     solution_line: list[str] = Field(default_factory=list)
     hint_text: Optional[str] = None
@@ -2735,7 +2746,7 @@ class PuzzleContext(BaseModel):
     current_index: Optional[int] = None
     total_count: Optional[int] = None
     current_puzzle: Optional[PuzzleContextPuzzle] = None
-    current_board_fen: Optional[str] = None
+    current_board_fen: SiteFen = None
     puzzles: list[PuzzleContextPuzzle] = Field(default_factory=list)
 
     model_config = {"extra": "ignore"}
@@ -2900,7 +2911,9 @@ def _build_lesson_system_prompt(
             f"{book.get('lesson')} «{book.get('title')}»)** — teach in its words:\n{book['text']}"
         )
         if book.get("diagrams"):
-            prompt += "\n\nExplanatory diagrams of the lesson (FEN — what they show):\n" + "\n".join(
+            prompt += ("\n\nExplanatory diagrams of the lesson (FEN — what they show) — the book's examples, other "
+                       "positions than the student's puzzle; a question about the puzzle is answered from the "
+                       "puzzle's position, never from a diagram:\n") + "\n".join(
                 f"- {d['fen']}" + (f" — {d['context']}" if d.get("context") else "") for d in book["diagrams"][:4])
     prompt += (
         "\n\nName only moves, squares, attacks and defences that are true on the positions given here "
@@ -3010,6 +3023,8 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
         shown: list[str] = []
         dropped: list[dict] = []
 
+        after_drop = [0]
+
         def _frames(pairs):
             frames = []
             for piece, issues, sentence in pairs:
@@ -3017,6 +3032,9 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
                     logger.info("answer check (lesson tutor): %s | %s", "; ".join(issues), sentence.strip()[:200])
                     dropped.append({"sentence": sentence.strip()[:300], "issues": issues})
                     continue
+                if dropped and len(dropped) > after_drop[0]:
+                    after_drop[0] = len(dropped)
+                    piece = strip_leaning_start(piece)  # «Затем…» after the sentence left out
                 shown.append(piece)
                 frames.append(_sse({"delta": piece}))
             return frames
@@ -3080,26 +3098,26 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
 
 
 class VoicePromptRequest(BaseModel):
-    fen: Optional[str] = None
+    fen: SiteFen = None
     locale: Optional[str] = None
     tools_available: bool = True
     session_id: Optional[str] = None   # the chat session the voice continues: its language holds
 
 
 class VoiceEngineNoteRequest(BaseModel):
-    fen: str
+    fen: Annotated[str, AfterValidator(repair_fen)]
 
 
 class VoiceCheckRequest(BaseModel):
     text: str                      # what the coach just said (its output transcription)
-    fen: Optional[str] = None      # the board at the time
+    fen: SiteFen = None            # the board at the time
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
     question: Optional[str] = None  # the student's words (moves it quoted are not claims)
 
 
 class VoiceIdeaRequest(BaseModel):
     text: str                      # the student's words (input transcription)
-    fen: str                       # the board at the time
+    fen: Annotated[str, AfterValidator(repair_fen)]  # the board at the time
     live_game: Optional[bool] = False
 
 
@@ -3664,6 +3682,8 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
         shown: list[str] = []
         dropped: list[dict] = []
 
+        after_drop = [0]
+
         def _frames(pairs):
             frames = []
             for piece, issues, sentence in pairs:
@@ -3671,6 +3691,9 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
                     logger.info("answer check (game comment): %s | %s", "; ".join(issues), sentence.strip()[:200])
                     dropped.append({"sentence": sentence.strip()[:300], "issues": issues})
                     continue
+                if dropped and len(dropped) > after_drop[0]:
+                    after_drop[0] = len(dropped)
+                    piece = strip_leaning_start(piece)  # «Затем…» after the sentence left out
                 shown.append(piece)
                 frames.append(_sse({"delta": piece}))
             return frames

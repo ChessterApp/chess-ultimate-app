@@ -18,6 +18,7 @@ from typing import Optional
 
 import chess
 
+from src.fen_repair import repair_fen
 from src.position_facts import VALUES, static_facts
 from src.tools.stockfish import analyze_timed
 
@@ -139,6 +140,7 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
     moves, "items": per-move data} or None when nothing could be analysed.
     Never raises: a failed analysis leaves that move with board facts only.
     """
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except ValueError:
@@ -326,6 +328,7 @@ def live_game_note(fen: str, movetime_ms: int = 300) -> Optional[dict]:
     """The engine's look at a live game for the coach — the evaluation and the
     opponent's threat only, never the best move (the coach hints; production,
     2026-10-05: the queen on h5 hung to g6 and the coach proposed a knight fork)."""
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except ValueError:

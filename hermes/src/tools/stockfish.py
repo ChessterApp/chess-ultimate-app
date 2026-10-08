@@ -102,6 +102,9 @@ def analyze_position(
     movetime_ms: int | None = None,
 ) -> dict:
     """Run Stockfish analysis on a FEN position — to *depth*, or for *movetime_ms* when given."""
+    from src.fen_repair import repair_fen
+
+    fen = repair_fen(fen)
     if not _validate_fen(fen):
         return {"error": f"Invalid FEN: {fen}"}
 

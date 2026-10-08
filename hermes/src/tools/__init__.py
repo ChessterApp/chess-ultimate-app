@@ -49,7 +49,34 @@ def discover_and_register() -> list[str]:
         except Exception:
             logger.exception("Failed to load tool module: %s", full_name)
 
+    _repair_fen_args()
     return loaded
+
+
+def _repair_fen_args() -> None:
+    """Every chess tool gets its ``fen`` with castling/en-passant flags its position allows.
+
+    The model passes the lesson's FEN as it is; 16 of 187 site puzzles have
+    castling rights their kings and rooks no longer allow, and the engine tools
+    answered «Invalid FEN» to them (production, 2026-10-07).
+    """
+    from src.fen_repair import repair_fen
+
+    for name in get_registered_tools():
+        entry = registry.get_entry(name)
+        if entry is None or getattr(entry.handler, "_repairs_fen", False):
+            continue
+        props = ((entry.schema or {}).get("parameters") or {}).get("properties") or {}
+        if "fen" not in props:
+            continue
+
+        def handler(args, _inner=entry.handler, **kwargs):
+            if isinstance(args, dict) and isinstance(args.get("fen"), str):
+                args = {**args, "fen": repair_fen(args["fen"])}
+            return _inner(args, **kwargs)
+
+        handler._repairs_fen = True
+        entry.handler = handler
 
 
 def get_registered_tools() -> list[str]:

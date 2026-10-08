@@ -568,22 +568,34 @@ def _colour_issues(text: str) -> list[str]:
 
 # ── The castling rule itself ────────────────────────────────────────────────
 
-_ROOK_ATTACKED = r"ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
+_ROOK_ATTACKED = (r"(?:ладь\w*\s+(?:[а-яё]+\s+){0,2}?(?:под\s+бо\w+|под\s+удар\w*|атакован\w*)"
+                  r"|(?:атакованн\w*|атакуем\w*)\s+ладь\w*)")
 # «ладья не должна быть под боем (в момент рокировки)», "the rook must not be attacked" (production 2026-10-07)
 _ROOK_MUST_NOT = (r"ладь\w*\s+не\s+(?:должн\w*|может|могут|обязан\w*)\s+(?:быть|находиться|стоять|оказаться)\s+"
                   r"под\s+(?:бо\w+|удар\w*)|rook\s+(?:must|should|may|can)\s*(?:not|n'?t)\s+be\s+(?:attacked|under\s+attack)")
 
 
-def _castling_rule_issues(text: str) -> list[str]:
+def _castling_rule_issues(text: str, question: str = "") -> list[str]:
     """«Нельзя рокироваться, если ладья под боем» — a false rule: only the king's squares matter
-    (the voice coach said it on 2026-10-06)."""
-    if not re.search(_CASTLE_WORD, text, re.IGNORECASE) or not re.search(
+    (the voice coach said it on 2026-10-06). The castling may be named in the question only:
+    «Можно рокироваться, если ладья под боем?» — «Можно, если только ладья не под боем»."""
+    q = (question or "").lower().replace("ё", "е")
+    # «Можно ли рокироваться, если моя ладья под боем?» — «Нет, нельзя — …» (the newest code,
+    # 2026-10-08, with the right rule two sentences later): the general rule, answered no.
+    if (re.search(_CASTLE_WORD, q, re.IGNORECASE) and re.search(_ROOK_ATTACKED, q, re.IGNORECASE)
+            and re.search(r"(?<![а-яё])(?:если|когда)(?![а-яё])|\b(?:if|when)\b", q)
+            and re.search(r"^\W*(?:(?:нет|no|жоқ)[\s,—–-]+(?:нельзя|не\s+можешь|не\s+можете|не\s+получится|you\s+can'?t|"
+                          r"cannot)|нельзя)(?![а-яё])", text, re.IGNORECASE)):
+        return ["castling is allowed when the rook is attacked: only the king may not be in check, pass "
+                "through or land on an attacked square — the answer to the question is yes"]
+    if not re.search(_CASTLE_WORD, text + " " + q, re.IGNORECASE) or not re.search(
             _ROOK_ATTACKED + r"|" + _ROOK_MUST_NOT + r"|rook\s+is\s+(?:not\s+)?(?:attacked|under\s+attack)", text, re.IGNORECASE):
         return []
     forbids = re.search(
         r"(?:нельзя|невозможн\w*|не\s+можешь|не\s+может|не\s+получится|запрещ\w*|can'?t|cannot|not\s+allowed)"
         r"[^.;!?]{0,60}?(?:если|когда|if|when)[^.;!?]{0,20}?(?:тво\w+\s+|ваш\w+\s+|мо\w+\s+)?" + _ROOK_ATTACKED +
         r"|" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|не\s+можешь|не\s+получится|запрещ)"
+        r"|при\s+" + _ROOK_ATTACKED + r"[^.;!?]{0,30}?(?:нельзя|невозможн|запрещ)"
         r"|если\s+(?:только\s+)?(?:тво\w+\s+|ваш\w+\s+)?ладь\w*\s+не\s+(?:находится\s+|стоит\s+)?под\s+(?:бо|удар)"
         r"|only\s+if\s+(?:your\s+|the\s+)?rook\s+is\s+not\s+(?:attacked|under\s+attack)"
         r"|" + _ROOK_MUST_NOT,
@@ -627,6 +639,72 @@ def _attacked_by_issues(text: str, ctx) -> list[str]:
     return issues
 
 
+# «На b3 пешка пойти не может» with b2–b3 legal, «конь b1 не может пойти на c3» (the voice coach,
+# 2026-10-06): a legal move of the board in front of the student denied. A condition or a later
+# position («если…», «после…», «пока…») is not about this board and is left alone.
+_GO_PIECE = r"(?P<piece>пешк\w*|кон[ьяеюё]\w*|слон\w*|ладь\w*|ферз\w*|корол\w*|pawn|knight|bishop|rook|queen|king)"
+_GO_VERB = (r"(?:пойти|ходить|сходить|встать|отступить|уйти|прыгнуть|шагнуть|двинуться|переместиться|попасть|"
+            r"go|move|retreat|step|jump)")
+_CANNOT_GO = [
+    re.compile(_W + _GO_PIECE + r"(?:\s+(?:с\s+|on\s+|from\s+)?(?P<frm>[a-h][1-8]))?\s+(?:сейчас\s+|никак\s+|уже\s+)?"
+               r"(?:не\s+может|не\s+сможет|не\s+могут|can'?t|cannot|can\s+not)\s+(?:\w+\s+)?" + _GO_VERB
+               + r"\s+(?:на|в|to|on)\s+(?P<to>[a-h][1-8])" + _E, re.IGNORECASE),
+    re.compile(_W + r"(?:на|в)\s+(?P<to>[a-h][1-8])\s+" + _GO_PIECE + r"(?:\s+(?P<frm>[a-h][1-8]))?\s+(?:сейчас\s+|никак\s+)?"
+               + _GO_VERB + r"\s+не\s+(?:может|сможет|могут)" + _E, re.IGNORECASE),
+]
+_GO_TYPES = {"пешк": chess.PAWN, "pawn": chess.PAWN, "кон": chess.KNIGHT, "knight": chess.KNIGHT, "слон": chess.BISHOP,
+             "bishop": chess.BISHOP, "лад": chess.ROOK, "rook": chess.ROOK, "ферз": chess.QUEEN, "queen": chess.QUEEN,
+             "корол": chess.KING, "king": chess.KING}
+
+
+# «не может пойти на f7, там пешка под защитой» means it would be lost, not that the rules forbid it.
+_GO_SAFETY = re.compile(r"защищ|защит|под\s+удар|под\s+бо|потер|отда|зев|бесплатн|без\s+потер|размен|"
+                        r"defend|protect|lose|hang|attacked|safe", re.IGNORECASE)
+
+
+def _reaches(board: chess.Board, sq: int, to: int) -> bool:
+    """The piece on *sq* could go to *to* by its way of moving, ignoring checks and blockers on its own square."""
+    piece = board.piece_at(sq)
+    if piece.piece_type != chess.PAWN:
+        return bool(board.attacks_mask(sq) & chess.BB_SQUARES[to])
+    step = 8 if piece.color == chess.WHITE else -8
+    return to in (sq + step, sq + 2 * step)  # the square is empty: a pawn goes there only straight ahead
+
+
+def _cannot_go_issues(text: str, ctx) -> list[str]:
+    board = getattr(ctx, "current", None)
+    if board is None or (_GENERAL.search(text) and not _NOW.search(text)) or _GO_SAFETY.search(text):
+        return []
+    for rx in _CANNOT_GO:
+        for m in rx.finditer(text):
+            ptype = next(t for k, t in _GO_TYPES.items() if m.group("piece").lower().startswith(k))
+            to = chess.parse_square(m.group("to"))
+            frm = chess.parse_square(m.group("frm")) if m.group("frm") else None
+            if board.piece_at(to) is not None:
+                continue  # a capture: «can't go» there is about what it costs
+            # The pieces the sentence may mean: the one on the named square, else every piece of the type
+            # that moves that way to the square; all of them must be able to go.
+            cands = [frm] if frm is not None else [sq for sq in board.pieces(ptype, chess.WHITE) | board.pieces(ptype, chess.BLACK)
+                                                  if _reaches(board, sq, to)]
+            if not cands or any(board.piece_type_at(sq) != ptype for sq in cands):
+                continue
+            legal = []
+            for sq in cands:
+                b = board.copy(stack=False)
+                b.turn = board.color_at(sq)
+                if b.turn != board.turn and (b.is_check() or not b.is_valid()):
+                    break  # the side not to move: only when its moves are well defined
+                mv = next((mv for mv in b.legal_moves if mv.from_square == sq and mv.to_square == to), None)
+                if mv is None:
+                    break
+                legal.append((b, mv))
+            else:
+                b, mv = legal[0]
+                return [f"{b.san(mv)} is legal here: the {chess.piece_name(ptype)} on "
+                        f"{chess.square_name(mv.from_square)} can go to {chess.square_name(to)}"]
+    return []
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
@@ -634,6 +712,6 @@ def rules_issues(lowered: str, ctx) -> list[str]:
                 + _attacked_by_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
-                + _castling_rule_issues(lowered))
+                + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

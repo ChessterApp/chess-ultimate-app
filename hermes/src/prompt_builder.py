@@ -888,8 +888,10 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     import chess
 
     from src.answer_check import _MOVE, _to_san
+    from src.fen_repair import repair_fen
     from src.move_words import prose_moves
 
+    fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
     except ValueError:
@@ -924,11 +926,11 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     converted, _ = _to_san(message_z)
     for m in _MOVE.finditer(converted):
         san = m["san"]
-        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"]:
+        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"] and "x" not in san:
             # A bare square («e4») is not a move the student names — unless it is
             # a pawn move asked about: «А если b3?», «если пешка пойдёт b3»
             # (production, 2026-10-06: 6.b3? b5 trapped the bishop, and the
-            # coach never looked at the move).
+            # coach never looked at the move). A pawn capture («exd5») is a move.
             if not _bare_pawn_move(converted, m, board):
                 continue
         _add(san, "san")
@@ -977,7 +979,9 @@ def _bare_pawn_move(converted: str, m, board) -> bool:
     exactly one pawn of the side to move can go there."""
     import chess
 
-    sq = chess.parse_square(m["san"][:2])
+    # The square the pawn goes to: «e4», «e8=Q»; «gxh6» crashed here and took the move notes and
+    # every rule check of the turn with it (production since 2026-10-06, found 2026-10-08).
+    sq = chess.parse_square(re.findall(r"[a-h][1-8]", m["san"])[-1])
     pawn_moves = [mv for mv in board.legal_moves
                   if mv.to_square == sq and board.piece_type_at(mv.from_square) == chess.PAWN
                   and mv.promotion in (None, chess.QUEEN)]
@@ -1064,9 +1068,10 @@ def board_facts_block(fen: Optional[str]) -> str:
     try:
         import chess
 
+        from src.fen_repair import repair_fen
         from src.position_facts import static_facts
 
-        board = chess.Board(fen)
+        board = chess.Board(repair_fen(fen))
         if not board.is_valid():
             return ""
         facts = static_facts(board)

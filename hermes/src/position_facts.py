@@ -159,6 +159,24 @@ def _threat(board: chess.Board, base: float, analyse: Analyse) -> Optional[str]:
     return described if " — " in described else None
 
 
+def _forced_replies(board: chess.Board, best: chess.Move, after: chess.Board) -> Optional[str]:
+    """«after Rxh6+, Black has only one legal move: gxh6 — it must take the rook»: the reply the lesson
+    answers missed (production 07.10: «король обязан отойти на h8» where the only move is gxh6)."""
+    if after.is_game_over():
+        return None
+    replies = list(after.legal_moves)
+    if len(replies) > 2:
+        return None
+    other = _color(after.turn)
+    names = " or ".join(after.san(r) for r in replies)
+    count = "only one legal move" if len(replies) == 1 else "only two legal moves"
+    text = f"after {board.san(best)}, {other} has {count}: {names}"
+    moved = board.piece_at(best.from_square)
+    if len(replies) == 1 and replies[0].to_square == best.to_square and moved is not None:
+        text += f" — it must take the {chess.piece_name(moved.piece_type)} on {chess.square_name(best.to_square)}"
+    return text
+
+
 def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float, analyse: Analyse) -> list[str]:
     """The threat of the best move and the opponent's threat now, as sentences.
 
@@ -184,6 +202,9 @@ def dynamic_facts(board: chess.Board, best_uci: Optional[str], best_score: float
                 threat = _threat(after, -best_score, analyse)
                 if threat:
                     facts.append(f"after {best_san}, {side} threatens {threat}")
+            forced = _forced_replies(board, best, after)
+            if forced:
+                facts.append(forced)
     now = _threat(board, best_score, analyse)
     if now:
         facts.append(f"{other} threatens {now} if {side} ignores it")

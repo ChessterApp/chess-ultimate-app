@@ -659,6 +659,12 @@ def get_lesson(
         out["lesson_text"] = own["text"]
         if own.get("diagrams"):
             out["diagrams"] = own["diagrams"]
+        if "[Диаграмма:" in own["text"] or own.get("diagrams"):
+            # Four of 187 lesson puzzles were answered with a diagram's move — another position, often for
+            # the other side («1...Ba6!» with White to move; production 2026-10-07).
+            out["diagrams_note"] = ("The [Диаграмма: …] positions and `diagrams` are the book's examples — other "
+                                    "positions, not the board in front of the student. A question about the board "
+                                    "is answered from the board's own position and engine line, never from a diagram.")
 
     fen = row.get("exercise_fen")
     if fen:

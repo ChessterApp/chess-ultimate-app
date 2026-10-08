@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
@@ -1881,6 +1882,19 @@ _NOT_LANGUAGE = re.compile(
     r"|(?<![A-Za-z])(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8]|O-O(?:-O)?)[+#!?]*(?![A-Za-z])"
     r"|`[^`]*`")
 MIN_LANGUAGE_LETTERS = 30
+# Letters of neither alphabet (Chinese, Arabic, Hindi…): a whole lesson answer came in Chinese on
+# the local stand (DeepSeek, 2026-10-08) and the check, counting only Latin and Cyrillic, saw nothing.
+MIN_OTHER_SCRIPT = 4
+
+
+def _other_script(text: str) -> int:
+    """Letters neither Latin (accents included: «Réti», «Grünfeld») nor Cyrillic."""
+    def other(ch: str) -> bool:
+        if not ch.isalpha() or "a" <= ch.lower() <= "z" or "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі":
+            return False
+        base = unicodedata.normalize("NFD", ch)[0].lower()
+        return not ("a" <= base <= "z" or "а" <= base <= "я") and ch.lower() not in "ßøæœłđı"
+    return sum(1 for ch in text if other(ch))
 
 
 def looks_wrong_script(text: str, language: Optional[str]) -> bool:
@@ -1891,6 +1905,8 @@ def looks_wrong_script(text: str, language: Optional[str]) -> bool:
     stripped = _NOT_LANGUAGE.sub(" ", text or "")
     cyrillic = sum(1 for ch in stripped if "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі")
     latin = sum(1 for ch in stripped if "a" <= ch.lower() <= "z")
+    if _other_script(stripped) >= MIN_OTHER_SCRIPT:
+        return True
     if language == "en":
         return cyrillic >= 8 and cyrillic > 2 * latin
     return latin >= 8 and latin > 2 * cyrillic
@@ -1907,6 +1923,9 @@ def language_issue(sentence: str, language: Optional[str]) -> Optional[str]:
     text = _NOT_LANGUAGE.sub(" ", sentence or "")
     cyrillic = sum(1 for ch in text if "а" <= ch.lower() <= "я" or ch.lower() in "ёәғқңөұүһі")
     latin = sum(1 for ch in text if "a" <= ch.lower() <= "z")
+    if _other_script(text) >= MIN_OTHER_SCRIPT:
+        name = {"ru": "Russian", "kk": "Kazakh", "kz": "Kazakh", "en": "English"}.get(language, language)
+        return f"this sentence is not in {name}; the whole answer must be in {name}"
     if language == "en":
         if cyrillic >= MIN_LANGUAGE_LETTERS and cyrillic > 2 * latin:
             return "this sentence is not in English; the whole answer must be in English"
@@ -2112,6 +2131,45 @@ def proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple]
     return None
 
 
+# The move named as the answer to the task: «Первый ход — **...Rxf3!**», «Здесь решает 1...Qh1+!», "The key
+# move is Nf6+". On production 07.10 four of 187 lesson puzzles were answered from a diagram of the lesson's
+# text — another position, often for the other side («1...Ba6!» with White to move) — and the check, which
+# reads a bare capture or a numbered move as a step of some line, let them through.
+_ANNOUNCED = re.compile(
+    r"(?:(?<![а-яa-z])(?:перв\w*\s+ход\w*|решает|решающ\w+\s+ход|решени\w*|лучш\w+\s+ход\w*|ключев\w+\s+ход\w*|"
+    r"начина\w*\s+с|начн\w*\s+с)(?:\s+(?:здесь|тут|в\s+задаче|в\s+этой\s+позиции))?|"
+    r"\b(?:first|key|winning|best)\s+move(?:\s+is)?|\bthe\s+solution(?:\s+is)?)\s*(?:[—–:-]|это|is)?\s*[*_]*\s*$",
+    re.IGNORECASE)
+
+
+def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    converted, _ = _to_san(text)
+    for mv in _MOVE.finditer(converted):
+        if not _ANNOUNCED.search(converted[max(0, mv.start() - 45):mv.start()]):
+            continue
+        san = mv["san"]
+        if san[0] not in "KQRBNO" and "x" not in san and not mv["num"] and not mv["bdots"]:
+            return []  # «первый ход — e4» may be a square of a plan; only clear moves are judged
+        black = bool(mv["bdots"] or (mv["dots"] in ("...", "…")))
+        white = bool(mv["num"] and mv["dots"] == ".")
+        for board in ctx.boards:
+            # Any position of the turn: the board, a tool's example, a game, or a line the answer wrote before.
+            if (black and board.turn != chess.BLACK) or (white and board.turn != chess.WHITE):
+                continue
+            try:
+                board.parse_san(san)
+                return []
+            except ValueError:
+                continue
+        side = "White" if ctx.current.turn == chess.WHITE else "Black"
+        label = (mv["num"] or "") + (mv["dots"] or mv["bdots"] or "") + san
+        return [f"{label} is not a move of the position on the board ({side} to move there): the answer must name a "
+                f"legal move of that position, not one from another diagram"]
+    return []
+
+
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
@@ -2134,6 +2192,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
               + _opening_issues(text) + _fact_issues(lowered, text, ctx) + _plan_move_issues(lowered, text, ctx)
               + rules_issues(lowered, ctx))
+    if not san_issues:
+        issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)
     if ctx._object:
         ctx.topic = ctx._object
@@ -2204,8 +2264,50 @@ _LOOKALIKE_MAP = {"Н": "N", "Р": "R", "В": "B"}
 
 
 def normalize_notation(text: str) -> str:
-    """«Нf6+» → «Nf6+», «Рh8+» → «Rh8+», «Вf5» → «Bf5»."""
-    return _LOOKALIKE_PIECE.sub(lambda m: _LOOKALIKE_MAP[m.group(1)], text) if text else text
+    """«Нf6+» → «Nf6+», «Рh8+» → «Rh8+», «Вf5» → «Bf5»; Russian letters typed as Latin ones —
+    «Cc4» → «Bc4», «Kf7+ (конь с g5…)» → «Nf7+», «1.e4 e5 2.Kf3» → «2.Nf3»."""
+    if not text:
+        return text
+    text = _LOOKALIKE_PIECE.sub(lambda m: _LOOKALIKE_MAP[m.group(1)], text)
+    text = _LATIN_C.sub("B", text)
+    text = _KNIGHT_AS_K.sub("N", text)
+    return _LINE_START.sub(lambda m: _fix_line_letters(m.group(0)), text) if "K" in text else text
+
+
+# Russian notation typed with Latin letters (production 2026-10-07, 5 of 187 lesson answers): С (слон)
+# as a Latin C, which no notation has, and К (конь) as a Latin K, which is the king: «Первый ход —
+# **Kxf2** (конь берёт пешку f2 с шахом)», «Kc7+ — конь врывается», «1.e3, 2.Kc3, 3.Cc4».
+_LATIN_C = re.compile(r"(?<![A-Za-zА-Яа-яЁё0-9])C(?=[x:×]?[a-h][1-8](?![0-9]))")
+# A K glossed as a knight in brackets: «Kf7+ (конь с g5 на f7)». Only the gloss counts — «после Kxf2 конь
+# f6 прыгает на g4» is the king taking and then another piece.
+_KNIGHT_AS_K = re.compile(r"(?<![A-Za-zА-Яа-яЁё0-9])K(?=x?[a-h][1-8][+#!?]*\**\s*\(\s*кон[ьяеёю])")
+_LINE_START = re.compile(r"(?<![0-9])1\s?\.\s?(?:[KQRBNa-hO][^.!?\n]*(?:\.\s?\S[^.!?\n]*)*)")
+
+
+def _fix_line_letters(line: str) -> str:
+    """A line from the first move with a K that only a knight can play: «1.e4 e5 2.Kf3» → «2.Nf3».
+
+    Only once two moves of it have been read from the initial position: «1.Kc3 Kb8 2.Qg7» is an
+    endgame line from the board, and its Kc3 is the king."""
+    board = chess.Board()
+    out, last = [], 0
+    for m in re.finditer(r"(?<![A-Za-z])([KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?)([+#!?]*)", line):
+        san = m.group(1)
+        try:
+            board.push_san(san)
+            continue
+        except ValueError:
+            pass
+        if san.startswith("K") and len(board.move_stack) >= 2:
+            try:
+                board.push_san("N" + san[1:])
+                out.append(line[last:m.start()] + "N")
+                last = m.start() + 1
+                continue
+            except ValueError:
+                pass
+        break  # the line leaves this board: nothing further to read
+    return "".join(out) + line[last:]
 
 
 MIN_RELEASED_CHARS = 20  # a claim-free start shorter than this waits for its sentence
@@ -2224,6 +2326,23 @@ _ANNOUNCES_MOVE = re.compile(
 RELEASE_STARTS = os.environ.get("COACH_STREAM_SENTENCE_STARTS", "0").strip().lower() not in ("0", "false", "no", "off", "")
 # «Be3, блокируя... нет, точнее защищая f1»: a self-correction after an ellipsis is the model thinking aloud.
 _SELF_CORRECTION = re.compile(r"^\W*(?:нет|стоп|хм|то\s+есть|точнее|вернее|wait|no)(?:[,—:\s]|$)", re.IGNORECASE)
+
+
+# A word that leans on the sentence before it: when that sentence was left out, «Затем выводи короля…»
+# opened what was left of the answer (lucena, the newest code, 2026-10-08).
+_LEANS_BACK = re.compile(
+    r"^(\s*(?:[>#-]+\s*)?)([*_]{0,2})(?:затем|потом|после\s+этого|дальше|далее|следом|кроме\s+того|также|тоже|then|"
+    r"after\s+that|next|also|besides)(?![а-яёa-z])([*_]{0,2})[\s,—–-]*", re.IGNORECASE)
+
+
+def strip_leaning_start(text: str) -> str:
+    """*text* without a first word that refers to a sentence the student never saw."""
+    m = _LEANS_BACK.match(text or "")
+    if not m or len(text) - m.end() < 12:
+        return text
+    rest = text[m.end():]
+    mark = "" if m.group(3) else m.group(2)  # «**Затем** выводи» loses its bold, «**Затем выводи…**» keeps it
+    return m.group(1) + mark + rest[:1].upper() + rest[1:]
 
 
 class SentenceGate:
