@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 07.10-2 (повторный прогон прода 07.10 и вопрос заказчика «Се3»: ход в любом написании, без обрывков фраз, факты эндшпиля успевают к ответу, ещё около пятнадцати ложных утверждений ловятся, ложная поправка «пат — не ничья» в голосе) — включает всё из версий 06.10, 06.10-2 и 07.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 08.10 (прогон прода после обновления 08.10: знаменитые партии с проверенными записями, ход с диаграммы урока, побочные ложные фразы о рокировке и правилах) — включает всё из версий 06.10, 06.10-2, 07.10 и 07.10-2
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,21 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 08.10 (прогон chesster.io после обновления 08.10; код только `hermes/src/`, миграций, переменных и
+изменений бэкенда нет; если сервер уже на 07.10-2 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 21):
+- **Знаменитые партии.** «Покажи оперную партию Морфи»: база партий мастеров начинается с 1994 года, тренер взял из неё
+  другую партию, доска её не приняла, и «Оперу» тренер рассказал по памяти, с ошибками. Теперь пять знаменитых партий
+  (Опера, Бессмертная, Вечнозелёная, Партия века, Бессмертная Каспарова) хранятся в Hermes с проверенными записями:
+  названная партия сразу встаёт на доску, модель получает ходы и какие фигуры отдала каждая сторона.
+- **Ход с диаграммы урока.** «Первый ход чёрных — Qxg2+» проходил проверку, потому что был возможен на диаграмме из текста
+  урока, которую вернул инструмент. Теперь ход-ответ должен быть возможен на доске ученика, на позиции, которую тренер
+  действительно поставил, или в варианте самого ответа.
+- **Побочные ложные фразы:** «при длинной рокировке проверяй b1», «при троекратном повторении ничья автоматически»,
+  «слон чёрных на c4» при белом слоне, «если слон уйдёт на a6, рокировка станет доступна» (с a6 он всё равно бьёт f1),
+  «чёрные обязаны ответить королём» после хода, на который есть только взятие; повтор вопроса ученика первой строкой.
+  Верная фраза «конь забирает пешку h7 … он бьёт f8» больше не вырезается («он» — конь, не пешка).
+- **Инструкция:** блок `mcp_servers` в `config.yaml` сервера больше не затирается при копировании кода (шаг 4).
 
 Новое в версии 07.10-2 (повторный прогон на chesster.io после обновления 07.10; код только `hermes/src/`, миграций,
 переменных и изменений бэкенда нет; если сервер уже на 07.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 18, 19, 20):
@@ -590,11 +605,12 @@ grep -q '_small_talk_stream' chess-ultimate-app/hermes/src/server.py \
   && test -f chess-ultimate-app/hermes/src/fen_repair.py \
   && grep -q 'COACH_LESSON_FACTS' chess-ultimate-app/hermes/src/config.py \
   && grep -q 'def site_solution_note' chess-ultimate-app/hermes/src/hypothetical.py \
-  && echo "версия 07.10-2 в main есть" || echo "НЕТ версии 07.10-2"
+  && test -f chess-ultimate-app/hermes/src/famous_games.py \
+  && echo "версия 08.10 в main есть" || echo "НЕТ версии 08.10"
 ```
 
-Если «НЕТ версии 07.10-2»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
-того, кто прислал эту инструкцию, влить ветку `fix/engine-note-tablebase-parallel`. Ничего не обновляй.
+Если «НЕТ версии 08.10»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
+того, кто прислал эту инструкцию, влить ветку `fix/prod-rerun-2026-10-08`. Ничего не обновляй.
 
 ## Шаг 2. Резервная копия
 
@@ -660,10 +676,25 @@ diff /root/hermes-chess/profiles/chess-coach/config.yaml chess-ultimate-app/herm
 - Если в плане есть что-то внутри `.env`, `.venv`, `data/`, `sessions/`: **СТОП**, исключения не
   сработали.
 
-Копирование (`--delete` не используется: лишние старые файлы остаются, они не мешают):
+Копирование (`--delete` не используется: лишние старые файлы остаются, они не мешают). Блок `mcp_servers` в
+серверном `config.yaml` (его нет в репозитории) копирование затирает — команда ниже сохраняет файл до копирования и
+возвращает блок после (на обновлении 08.10 его восстанавливали вручную):
 
 ```bash
-cd /root/hermes-update && rsync -a --exclude-from=rsync-exclude.txt chess-ultimate-app/hermes/ /root/hermes-chess/
+cd /root/hermes-update && cp /root/hermes-chess/profiles/chess-coach/config.yaml config.server.yaml \
+  && rsync -a --exclude-from=rsync-exclude.txt chess-ultimate-app/hermes/ /root/hermes-chess/ \
+  && python3 - <<'PY'
+import re
+old = open("/root/hermes-update/config.server.yaml").read()
+path = "/root/hermes-chess/profiles/chess-coach/config.yaml"
+new = open(path).read()
+block = re.search(r"(?ms)^mcp_servers:.*?(?=^\S|\Z)", old)
+if block and not re.search(r"(?m)^mcp_servers:", new):
+    open(path, "a").write("\n" + block.group(0).rstrip() + "\n")
+    print("mcp_servers возвращён из прежнего config.yaml")
+else:
+    print("mcp_servers: возвращать нечего")
+PY
 ```
 
 **Проверка импорта** до перезапуска. Работающий процесс при этом не трогается:
@@ -857,6 +888,10 @@ curl -s -o /dev/null -w 'строка движка (эндшпиль): %{time_to
   -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{"fen":"7k/8/8/7P/2K5/8/5B2/8 w - - 0 1"}'
 curl -s -X POST localhost:8642/api/coach/voice/check -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
   -d '{"text":"У чёрного короля нет ходов, а шаха нет, так что это сразу ничья.","fen":"k7/8/3Q4/8/8/8/8/2K5 w - - 0 1","question":"Хочу сыграть ферзь b6, чтобы запереть короля. Хорошо?"}'; echo
+# 21. (08.10) знаменитая партия встаёт на доску сразу: в кадрах load_pgn с «Paul Morphy», инструментов поиска партий нет
+curl -s -N -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
+  -d '{"message":"Покажи оперную партию Морфи","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","locale":"ru"}' \
+  | python3 -c 'import sys,json; L=[json.loads(l[5:]) for l in sys.stdin if l.startswith("data:")]; print("доска:", any("Paul Morphy" in (a.get("pgn") or "") for d in L for a in (d.get("board_actions") or [])), "| поиск партий:", [d["tool_call"] for d in L if d.get("tool_call") in ("find_games_by_position","get_game_pgn")])'
 # 20. (07.10-2) чат урока отвечает текстом, а не пустотой; в сообщении модели — факты доски (в логах строки "lesson_empty_reply" быть не должно)
 curl -s -N -X POST localhost:8642/api/lesson/chat -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
   -d '{"message":"Какой здесь первый ход и почему?","lesson_title":"Двойной удар","locale":"ru","puzzle_context":{"mode":"single","current_board_fen":"8/5p1k/6pp/3q4/4N3/7P/5PP1/6K1 w - - 0 1","current_puzzle":{"fen":"8/5p1k/6pp/3q4/4N3/7P/5PP1/6K1 w - - 0 1","solution_move":"Nf6+"}}}' \

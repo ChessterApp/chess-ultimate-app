@@ -137,7 +137,7 @@ for _ptype, _pat in _EN_PIECES:
 _NAMED_PIECE = re.compile(_W + "(?P<piece>" + "|".join(p for _, p in _RU_PIECES + _EN_PIECES) + ")" + _E
                           + rf"\s+(?:на\s+|on\s+|с\s+|from\s+)?(?P<a>{SQ})(?![0-9])", re.IGNORECASE)
 _PRONOUN_SUBJECT = re.compile(
-    _W + r"(?:он|она|it|he|she)\s+(?:сам\w*\s+|же\s+|also\s+|now\s+|still\s+|itself\s+)?(?:нападает\s*:\s*|атакует\s*:\s*)?"
+    _W + r"(?P<pron>он|она|it|he|she)\s+(?:сам\w*\s+|же\s+|also\s+|now\s+|still\s+|itself\s+)?(?:нападает\s*:\s*|атакует\s*:\s*)?"
     rf"(?P<verb>{_RU_VERBS}|{_EN_VERBS})(?P<targets>{_STOP}{{0,90}})", re.IGNORECASE)
 # «Rg1 нападает на ферзя h4», "Rg1 attacks the queen on h4": a written move as
 # the subject — the piece on its destination square.
@@ -313,6 +313,10 @@ class CheckContext:
     # each: a claim before «Kxh7» in «…поэтому он обязан её взять: Kxh7» is about the board before it.
     scene_before: Optional[tuple] = None
     scene_trail: list = field(default_factory=list)
+    # Positions only named in a tool's text (a lesson's diagram, a list of tasks): a move legal only there is not
+    # an answer about the student's board (production 08.10: «Первый ход чёрных — Qxg2+» passed on a diagram).
+    text_keys: set = field(default_factory=set)
+    shown_keys: set = field(default_factory=set)
     MAX_BOARDS = 400
 
     @classmethod
@@ -343,7 +347,11 @@ class CheckContext:
     def add_text(self, text: str) -> None:
         """Positions a tool result carries (a topic example, a puzzle, a game)."""
         for fen in _FEN_IN_TEXT.findall(text or ""):
-            self.add(fen)
+            self.add(fen, shown=False)
+            try:
+                self.text_keys.add(self._key(chess.Board(fen)))  # named in a tool's text, maybe never on the board
+            except ValueError:
+                pass
         for pgn in re.findall(r'"pgn"\s*:\s*"([^"]{8,})"', text or ""):
             self.add_line(pgn.replace("\\n", " "))
 
@@ -354,7 +362,7 @@ class CheckContext:
     def is_given(self, board: chess.Board) -> bool:
         return self._key(board) in self.given
 
-    def add(self, fen: Optional[str], derived: bool = False) -> None:
+    def add(self, fen: Optional[str], derived: bool = False, shown: bool = True) -> None:
         if not fen:
             return
         try:
@@ -364,6 +372,8 @@ class CheckContext:
         key = self._key(board)
         if not derived:
             self.given.add(key)
+        if shown:
+            self.shown_keys.add(key)
         if len(self.boards) >= self.MAX_BOARDS:
             return
         if all(self._key(b) != key for b in self.boards):
@@ -621,6 +631,14 @@ def _attack_issues(text: str, original: Optional[str] = None, ctx: Optional["Che
         # «он сам нападает: бьёт ладью d5» — the pronoun is the piece named last before it.
         for m in _PRONOUN_SUBJECT.finditer(text):
             named = list(_NAMED_PIECE.finditer(text[: m.start()]))
+            # «Конь забирает пешку h7 с шахом: он бьёт f8 и f6» — «он» is the knight, not the pawn: a Russian
+            # pronoun agrees in gender (конь, слон, ферзь, король — он; пешка, ладья — она), and a piece in the
+            # accusative is what was taken, not who acts (a true sentence was cut on production, 2026-10-08).
+            pron = (m.group("pron") or "").lower()
+            if pron in ("он", "она"):
+                fem = pron == "она"
+                named = [n for n in named if (re.match(r"(?:пешк|лад)", n["piece"].lower()) is not None) == fem
+                         and not re.fullmatch(r"(?:коня|слона|ферзя|короля|пешку|ладью)", n["piece"].lower())]
             if not named or _NEGATION.search(text[m.start(): m.start("verb")]):
                 continue
             last = named[-1]
@@ -976,8 +994,11 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         boards = list(ctx.boards)
         ordered = ([ctx.current] if ctx.current is not None and ctx.current in boards else []) \
             + [b for b in boards if b is not fallback and b is not ctx.current] + ([fallback] if fallback is not None else [])
+        # A board where it is that side's move comes before one where the side is changed to fit: «15.Bxd7+ …
+        # 16.Qb8+» is the game's 16th move, not White moving twice after 15.Bxd7+ (2026-10-08).
         candidates = ([(prev, [prev.turn])] if prev is not None and prev.turn in colors else []) \
-            + [(b, colors) for b in ordered]
+            + [(b, [c for c in colors if c == b.turn]) for b in ordered] \
+            + [(b, [c for c in colors if c != b.turn]) for b in ordered]
         for board, board_colors in candidates:
             if board is prev:
                 trusted = prev_trusted
@@ -1566,6 +1587,40 @@ _OWN_PIECE = re.compile(
     re.IGNORECASE)
 
 
+# «А слон чёрных на c4 уже смотрит на f7» with a white bishop on c4 (production 08.10): a piece named by its
+# side — an adjective (белый, чёрный, white), a genitive (белых, чёрных) or the opponent's.
+_SIDE_ADJ = (r"(?:белый|белая|белого|белой|белую|белым|белом|ч[её]рный|ч[её]рная|ч[её]рного|ч[её]рной|ч[её]рную|"
+             r"ч[её]рным|ч[её]рном|white|black)")
+_SIDE_PIECE = re.compile(
+    _B2 + rf"(?:(?P<adj>{_SIDE_ADJ})\s+(?P<p1>{_PIECE_ANY})|(?P<p2>{_PIECE_ANY})\s+(?P<gen>белых|ч[её]рных|соперника|противника))"
+    rf"\s+(?:на\s+|on\s+)?(?P<a>{SQ})(?![0-9])", re.IGNORECASE)
+
+
+def _side_piece_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    for m in _SIDE_PIECE.finditer(text):
+        if _is_hypothetical(text, original, m.start(), whole=True):
+            continue
+        word = (m["adj"] or m["gen"]).lower().replace("ё", "е")
+        if word.startswith(("сопер", "против")):
+            student = ctx.student_color if ctx.student_color is not None else ctx.current.turn
+            color = not student
+        else:
+            color = chess.WHITE if word.startswith(("бел", "white")) else chess.BLACK
+        ptype = _piece_type(m["p1"] or m["p2"])
+        if ptype is None:
+            continue
+        sq = chess.parse_square(m["a"].lower())
+        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype and pc.color == color for b in ctx.boards):
+            continue
+        there = ctx.current.piece_at(sq)
+        if there is not None and there.piece_type == ptype:
+            return [f"the {_NAMES[ptype]} on {m['a'].lower()} is {'White' if there.color else 'Black'}'s, not "
+                    f"{'White' if color else 'Black'}'s"]
+    return []
+
+
 def _presence_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []
@@ -1944,6 +1999,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
+            + _side_piece_issues(text, original, ctx)
             + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else []))
 
 
@@ -2250,7 +2306,7 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
 # reads a bare capture or a numbered move as a step of some line, let them through.
 _ANNOUNCED = re.compile(
     r"(?:(?<![а-яa-z])(?:перв\w*\s+ход\w*|решает|решающ\w+\s+ход|решени\w*|лучш\w+\s+ход\w*|ключев\w+\s+ход\w*|"
-    r"начина\w*\s+с|начн\w*\s+с)(?:\s+(?:здесь|тут|в\s+задаче|в\s+этой\s+позиции))?|"
+    r"начина\w*\s+с|начн\w*\s+с)(?:\s+(?:здесь|тут|в\s+задаче|в\s+этой\s+позиции|бел\w*|ч[её]рн\w*|за\s+\w+|for\s+\w+)){0,2}|"
     r"\b(?:first|key|winning|best)\s+move(?:\s+is)?|\bthe\s+solution(?:\s+is)?)\s*(?:[—–:-]|это|is)?\s*[*_]*\s*$",
     re.IGNORECASE)
 
@@ -2268,8 +2324,12 @@ def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
         black = bool(mv["bdots"] or (mv["dots"] in ("...", "…")))
         white = bool(mv["num"] and mv["dots"] == ".")
         for board in ctx.boards:
-            # Any position of the turn: the board, a tool's example, a game, or a line the answer wrote before.
+            # A position of the turn the student sees or the answer reaches: the board, what a tool put on it, a
+            # game, a line the answer wrote — not one only named in a tool's text (a lesson's diagram).
             if (black and board.turn != chess.BLACK) or (white and board.turn != chess.WHITE):
+                continue
+            key = ctx._key(board)
+            if key in ctx.text_keys and key not in ctx.shown_keys and ctx.is_given(board):
                 continue
             try:
                 board.parse_san(san)
@@ -2283,6 +2343,18 @@ def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
     return []
 
 
+ECHO_ISSUE = "this sentence repeats the student's question word for word; it is not an answer"
+
+
+def _echoes_question(sentence: str, ctx: CheckContext) -> bool:
+    """«Покажи на доске оперную партию Морфи…» as the answer's first line (production 08.10)."""
+    norm = lambda t: re.sub(r"[^а-яёa-z0-9]+", " ", (t or "").lower()).strip()
+    s = norm(sentence)
+    if len(s) < 20:
+        return False
+    return any(norm(q) == s for q in re.split(r"(?<=[.!?])\s+", ctx.question_raw or "") if q)
+
+
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
@@ -2292,6 +2364,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
         ctx.scene_trail = []
     if is_meta(sentence):
         return [META_ISSUE]
+    if _echoes_question(sentence, ctx):
+        return [ECHO_ISSUE]
     wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language)
     if wrong_language:
         return [wrong_language]

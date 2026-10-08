@@ -719,9 +719,12 @@ def _cannot_go_issues(text: str, ctx) -> list[str]:
 # that «had to move» and could not. Judged on the scene — the position after the move the answer named
 # in this sentence or the one before — and only when the claim cannot be true at all there.
 _FORCED_KING = re.compile(
-    _W + r"(?:корол\w*|king)\s+(?:[а-яёa-z]+\s+){0,3}?(?:обязан\w*|вынужден\w*|должен|придётся|придется|has\s+to|must)"
-         r"\s+(?:[а-яёa-z]+\s+)?(?:уйти|отойти|отступить|уходить|отходить|бежать|убегать|move|retreat|run|step)" + _E,
-    re.IGNORECASE)
+    _W + r"(?:(?:корол\w*|king)\s+(?:[а-яёa-z]+\s+){0,3}?(?:обязан\w*|вынужден\w*|должен|придётся|придется|has\s+to|must)"
+         r"\s+(?:[а-яёa-z]+\s+)?(?:уйти|отойти|отступить|уходить|отходить|бежать|убегать|move|retreat|run|step)"
+         # «чёрные обязаны ответить королём на e7» (the Opera Game told on the stand, 2026-10-08)
+         r"|(?:обязан\w*|вынужден\w*|должн\w*|придётся|придется|has\s+to|must)\s+(?:[а-яёa-z]+\s+)?"
+         r"(?:ответить|отвечать|уйти|отойти|сыграть|пойти|играть|reply|answer|move)\s+(?:[а-яёa-z]+\s+)?(?:корол[её]м|with\s+the\s+king))"
+    + _E, re.IGNORECASE)
 _FORCED_TAKE = re.compile(
     _W + r"(?:обязан\w*|вынужден\w*|должн\w*|приходится|придётся|придется|has\s+to|have\s+to|must)\s+"
          r"(?:[а-яёa-z]+\s+)?(?:взять|бить|побить|забрать|брать|съесть|take|capture)" + _E, re.IGNORECASE)
@@ -791,6 +794,72 @@ def _forced_reply_issues(text: str, ctx) -> list[str]:
     return []
 
 
+# «При длинной проверяй d1, c1, b1» (production 08.10): the king goes e1–d1–c1; b1 only has to be empty — the
+# rook passes it, and it may be attacked.
+_LONG_CASTLE = re.compile(_W + r"(?:длинн\w*|ферзев\w*|o-o-o|0-0-0|long|queen-?side)" + _E, re.IGNORECASE)
+
+
+def _castling_b1_issues(text: str) -> list[str]:
+    if not _LONG_CASTLE.search(text) or not re.search(r"(?<![a-z0-9])b[18](?![0-9])", text):
+        return []
+    if re.search(r"пуст|свобод|не\s+важн|может\s+быть\s+под|empty|free|may\s+be\s+attacked|doesn'?t\s+matter", text):
+        return []
+    listed = re.search(r"(?<![a-z0-9])[d][18][^.;]{0,12}(?<![a-z0-9])c[18][^.;]{0,12}(?<![a-z0-9])b[18](?![0-9])", text)
+    attacked = re.search(r"(?<![a-z0-9])b[18](?![0-9])[^.;]{0,40}(?:под\s+бо|под\s+удар|атаков|бит\w*|attacked|under\s+attack)"
+                         r"|(?:под\s+бо|под\s+удар|атаков|бит\w*|attacked)[^.;]{0,40}(?<![a-z0-9])b[18](?![0-9])", text)
+    if listed or attacked:
+        return ["for long castling the king passes d1 and lands on c1 (d8, c8 for Black): only those and the king's "
+                "own square must be safe; b1 (b8) must just be empty — it may be attacked"]
+    return []
+
+
+# «если позиция повторилась трижды — ничья объявляется автоматически» (production 08.10): threefold repetition and
+# the 50-move rule give a draw when a player claims it; only fivefold repetition and 75 moves end the game by themselves.
+def _automatic_draw_issues(text: str) -> list[str]:
+    if not re.search(r"автоматич\w*|сама\s+собой|сам\s+собой|automatic\w*|by\s+itself", text):
+        return []
+    if re.search(r"пят\w*\s*крат|пять\s+раз|fivefold|five\s+times|75|семьдесят\s+пят", text):
+        return []
+    if re.search(r"трижды|тр[её]х?кратн\w*|три\s+раза|threefold|three\s+times|50\s+ход|пятидесят|50[- ]move|fifty", text):
+        return ["a threefold repetition or 50 moves without a capture or a pawn move give a draw only when a player "
+                "claims it; the game ends by itself only after a fivefold repetition or 75 such moves"]
+    return []
+
+
+# «Если слон c4 уйдёт на a6, рокировка станет доступна» (production 08.10) with the bishop still hitting f1 from a6:
+# the piece is moved on the board as said and castling judged there.
+_CASTLE_AFTER = re.compile(
+    _W + r"(?:если|когда|после\s+того\s+как)\s+(?:[а-яё]+\s+){0,2}?(?P<piece>слон|конь|ладья|ферзь|пешка)\s+"
+    r"(?:с\s+)?(?P<frm>[a-h][1-8])?\s*(?:[а-яё-]+\s+){0,2}?(?:уйд[её]т|уйдет|отойд[её]т|отойдет|уходит|отходит|пойд[её]т|"
+    r"переместится|встанет)\s+на\s+(?P<to>[a-h][1-8])"
+    r"[^.;]{0,60}?рок[иеі]р\w*\s+(?:станет|будет|окажется|снова\s+будет)\s+(?:доступн|возможн|разреш|можно|легальн)",
+    re.IGNORECASE)
+
+
+def _castle_after_issues(text: str, ctx) -> list[str]:
+    board = getattr(ctx, "current", None)
+    m = _CASTLE_AFTER.search(text)
+    if board is None or m is None:
+        return []
+    ptype = {"слон": chess.BISHOP, "конь": chess.KNIGHT, "ладья": chess.ROOK, "ферзь": chess.QUEEN, "пешка": chess.PAWN}[m["piece"].lower()]
+    to = chess.parse_square(m["to"])
+    froms = [chess.parse_square(m["frm"])] if m["frm"] else [sq for sq in board.pieces(ptype, chess.WHITE) | board.pieces(ptype, chess.BLACK)]
+    student = ctx.student_color if getattr(ctx, "student_color", None) is not None else board.turn
+    wing = "O-O-O" if _LONG_CASTLE.search(text) else "O-O"
+    for frm in froms:
+        pc = board.piece_at(frm)
+        if pc is None or pc.piece_type != ptype or pc.color == student:
+            continue
+        b = board.copy(stack=False)
+        b.remove_piece_at(frm)
+        b.set_piece_at(to, pc)
+        legal, why = castling_status(b, student).get(wing, (True, ""))
+        if not legal:
+            return [f"even with the {chess.piece_name(ptype)} on {chess.square_name(to)} {wing} stays impossible: {why}"]
+        return []
+    return []
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
@@ -799,6 +868,7 @@ def rules_issues(lowered: str, ctx) -> list[str]:
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
                 + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
-                + _forced_reply_issues(lowered, ctx))
+                + _forced_reply_issues(lowered, ctx) + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered)
+                + _castle_after_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

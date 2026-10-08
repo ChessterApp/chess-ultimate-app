@@ -309,3 +309,68 @@ def test_the_sites_listed_solution_is_checked(fen, solution, bad):
 
     note = site_solution_note(fen, solution)
     assert (note is None) if bad is None else (bad in note)
+
+
+def test_a_pronoun_agrees_with_its_piece():
+    fen = "r4rk1/ppq2pp1/2n2n1p/3p2N1/3P3N/2P5/P1B2PPP/R2Q1RK1 w - - 0 1"
+    ctx = CheckContext.from_fens([fen])
+    assert check_sentence("Конь забирает пешку h7 с шахом, и это вилка: он бьёт одновременно короля на f8 и коня на f6.", ctx) == []
+
+
+def test_a_move_legal_only_on_a_lesson_diagram_is_not_the_answer():
+    fen = "6k1/3bpp2/3p2p1/2qP4/1p1Q2P1/pP3P2/P1P1N2r/1K2R3 b - - 0 1"
+    ctx = CheckContext.from_fens([fen])
+    ctx.add_text('{"lesson_text": "[Диаграмма: 6k1/5ppp/8/8/8/8/5PPq/6K1 b - - 0 1]"}')
+    assert check_sentence("Первый ход чёрных — **Qxg2+ (ферзь берёт пешку g2 с шахом)**.", ctx)
+    assert check_sentence("Первый ход чёрных — **Rxe2**.", CheckContext.from_fens([fen])) == []
+
+
+def test_famous_games_are_verified_scores():
+    from src.famous_games import GAMES, _replay
+
+    endings = {"opera": "Rd8#", "immortal": "Be7#", "evergreen": "Bxe7#", "game-of-the-century": "Rc2#",
+               "kasparov-topalov": "Qa7"}
+    for g in GAMES:
+        game, _moves = _replay(g)
+        assert not game.errors and game.end().san() == endings[g["key"]]
+
+
+@pytest.mark.parametrize("message,key", [
+    ("Покажи на доске оперную партию Морфи и коротко объясни, в чём её красота.", "opera"),
+    ("Покажи бессмертную партию Андерсена против Кизерицкого.", "immortal"),
+    ("Разбери бессмертную партию Каспарова", "kasparov-topalov"),
+    ("Покажи партию века", "game-of-the-century"),
+    ("Как играть против защиты Филидора?", None),
+])
+def test_a_famous_game_named_in_the_message(message, key):
+    from src.famous_games import famous_game
+
+    found = famous_game(message)
+    assert (found and found["key"]) == key
+
+
+def test_the_opera_game_told_with_a_reply_that_does_not_exist():
+    from src.famous_games import famous_game
+
+    ctx = CheckContext.from_fens([chess.STARTING_FEN], [famous_game("оперная партия")["pgn"]])
+    check_sentence("Потом 15.Bxd7+ — снова отдают слона, 16.Qb8+ — отдают ферзя!", ctx)
+    assert check_sentence("Чёрные обязаны ответить королём на e7 — брать ферзя нельзя.", ctx)
+
+
+@pytest.mark.parametrize("fen,question,sentence,caught", [
+    (chess.STARTING_FEN, "Можно ли рокироваться, если моя ладья под боем?",
+     "Перед рокировкой проверяй поля короля — e1, f1, g1 при короткой и d1, c1, b1 при длинной.", True),
+    (chess.STARTING_FEN, "", "При длинной рокировке поле b1 должно быть пустым, но может быть под боем.", False),
+    (chess.STARTING_FEN, "", "А если позиция повторилась трижды — ничья объявляется автоматически.", True),
+    (chess.STARTING_FEN, "", "После пятикратного повторения ничья наступает автоматически.", False),
+    ("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w kq - 6 5", "", "А слон чёрных на c4 уже смотрит на f7.", True),
+    ("r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w kq - 6 5", "", "Белый слон на c4 смотрит на f7.", False),
+    ("r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8", "А если 0-0?",
+     "А если слон c4 всё-таки уйдёт на a6, он потеряет давление на f1, и рокировка станет доступна.", True),
+    ("r2qk2r/ppp2ppp/2np1n2/4p3/2b1P3/2N2N2/PPP2PPP/R1BQK2R w KQkq - 0 8", "А если 0-0?",
+     "Если слон c4 уйдёт на d5, рокировка станет доступна.", False),
+    (chess.STARTING_FEN, "Покажи на доске оперную партию Морфи и коротко объясни, в чём её красота.",
+     "Покажи на доске оперную партию Морфи и коротко объясни, в чём её красота.", True),
+])
+def test_side_claims_of_the_prod_run(fen, question, sentence, caught):
+    assert bool(check_sentence(sentence, CheckContext.from_fens([fen], question=question))) is caught

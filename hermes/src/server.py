@@ -1677,6 +1677,21 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except Exception:  # noqa: BLE001 — the pre-step is best-effort
             logger.debug("opening pre-step failed", exc_info=True)
             opening_plan = None
+    # A famous game named in the message («оперная партия Морфи», «партия века»): its verified score goes
+    # on the board, its moves and what each side gave up into the turn (src/famous_games.py; production
+    # 08.10: the coach took another game from the database, the board refused it, and the Opera Game was
+    # told from memory, wrong).
+    famous = None
+    if config.COACH_OPENING_PRESTEP and not live_game and review_future is None and opening_plan is None:
+        try:
+            from src.famous_games import famous_game
+
+            famous = famous_game(body.message)
+            if famous:
+                session.apply_board_actions([{"type": "load_pgn", "pgn": famous["pgn"]}], board_id=active_board.id)
+        except Exception:  # noqa: BLE001 — the pre-step is best-effort
+            logger.debug("famous game pre-step failed", exc_info=True)
+            famous = None
     _mark("opening")
     # Under load (several students' engines at work) the searches are shorter, so
     # the lines are ready within the wait instead of missing it altogether.
@@ -1924,7 +1939,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         check_ctx = CheckContext.from_fens(
             [session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
-            [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None) if p]
+            [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None,
+                         famous["pgn"] if famous else None) if p]
             + [b["line"] for b in (opening_plan.branches if opening_plan else [])]
             + [b.pgn for b in session.boards if b.pgn and b.id != active_board.id],
             question=body.message,
@@ -2080,6 +2096,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 message = augmented_message
                 if opening_plan:
                     message = f"{message}\n\n{opening_plan.block}"
+                if famous:
+                    message = f"{message}\n\n{famous['block']}"
                 if note:
                     message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
                 elif engine_future is not None and session.board_state:
@@ -2278,6 +2296,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
+        if famous:
+            # The famous game the student named goes on the board before the first word.
+            yield _sse({"board_actions": [{"type": "load_pgn", "pgn": famous["pgn"], "board_id": active_board.id}]})
         if opening_plan and opening_plan.load:
             # So does the opening the student asked about — applied to the
             # session board already (before the engine note); this frame only
