@@ -112,6 +112,62 @@ def describe_move(board: chess.Board, move: chess.Move) -> str:
     return f"{san} — {', '.join(bits)}" if bits else san
 
 
+def explain_line(board: chess.Board, pv: list, plies: int = 7) -> Optional[str]:
+    """The engine's best line with what each move does, verified on the board (2026-10-08).
+
+    Lesson answers named the right move and made up why (24 of 40 checked on 07.10): «король обязан
+    отойти» where the only reply was gxh6, «мат даёт ладья» where the bishop mates, a discovered check
+    told as a plain one. 'Rxh6+ (takes the pawn h6, check); gxh6 (the only legal move: takes the rook
+    h6); dxc5+ (takes the pawn c5; discovered check by the queen c3); Ne5 (blocks the check); Qxe5#
+    (takes the knight e5, mate)'. None for a line of fewer than two moves.
+    """
+    b = board.copy(stack=False)
+    out = []
+    for uci in pv[:plies]:
+        try:
+            move = chess.Move.from_uci(uci) if isinstance(uci, str) else uci
+        except ValueError:
+            break
+        if move not in b.legal_moves:
+            break
+        san = b.san(move)
+        bits = []
+        replies = b.legal_moves.count()
+        in_check = b.is_check()
+        if replies == 1:
+            bits.append("the only legal move")
+        captured = b.piece_at(move.to_square)
+        if b.is_en_passant(move):
+            bits.append("takes the pawn en passant")
+        elif captured is not None:
+            bits.append(f"takes the {chess.piece_name(captured.piece_type)} {chess.square_name(move.to_square)}")
+        if in_check and b.piece_type_at(move.from_square) != chess.KING and captured is None and not b.is_en_passant(move):
+            bits.append("blocks the check")
+        after = b.copy(stack=False)
+        after.push(move)
+        if after.is_check():
+            checkers = list(after.checkers())
+            direct = [c for c in checkers if c == move.to_square]
+            others = [c for c in checkers if c != move.to_square]
+            kind = "mate" if after.is_checkmate() else "check"
+            if others and direct:
+                bits.append(f"double {kind}")
+            elif others:
+                bits.append(f"discovered {kind} by the {chess.piece_name(after.piece_type_at(others[0]))} "
+                            f"{chess.square_name(others[0])}")
+            else:
+                bits.append(kind)
+        elif after.is_stalemate():
+            bits.append("stalemate")
+        if move.promotion:
+            bits.append(f"promotes to a {chess.piece_name(move.promotion)}")
+        out.append(f"{san} ({', '.join(bits)})" if bits else san)
+        b = after
+        if b.is_game_over():
+            break
+    return "; ".join(out) if len(out) >= 2 or (out and b.is_checkmate()) else None
+
+
 Analyse = Callable[[str], Optional[dict]]
 
 

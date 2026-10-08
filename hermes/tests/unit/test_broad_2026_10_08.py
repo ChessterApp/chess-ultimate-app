@@ -229,3 +229,49 @@ def test_a_pawn_capture_in_the_question_is_read_not_a_crash():
     fen = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"
     assert [m["san"] for m in question_moves("Почему не exd5?", fen) if m.get("legal")] == ["exd5"]
     assert [m["san"] for m in question_moves("А если b3?", fen) if m.get("legal")] == ["b3"]
+
+
+def test_the_best_line_is_explained_move_by_move():
+    from src.position_facts import explain_line
+
+    board = chess.Board("r1b4k/pp1n2p1/1qp1B1Pp/2p2p2/3P4/2Q1P3/PP1K1PP1/R6R w - - 0 1")
+    told = explain_line(board, ["h1h6", "g7h6", "d4c5", "d7e5", "c3e5"])
+    assert told == ("Rxh6+ (takes the pawn h6, check); gxh6 (the only legal move, takes the rook h6); "
+                    "dxc5+ (takes the pawn c5, discovered check by the queen c3); Ne5 (blocks the check); "
+                    "Qxe5# (takes the knight e5, mate)")
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("Король обязан отойти — и на h8 у него нет покоя.", True),  # after Rxh6+ only gxh6 is legal
+    ("Пешка g7 обязана взять ладью.", False),
+])
+def test_a_forced_reply_is_judged_after_the_move(sentence, caught):
+    ctx = CheckContext.from_fens(["r1b4k/pp1n2p1/1qp1B1Pp/2p2p2/3P4/2Q1P3/PP1K1PP1/R6R w - - 0 1"])
+    check_sentence("Первый ход — **Rxh6+**.", ctx)
+    assert bool(check_sentence(sentence, ctx)) is caught
+
+
+@pytest.mark.parametrize("fen,question,sentence", [
+    # the pawn named by the square it left in this sentence
+    ("r1b4k/pp1n2p1/1qp1B1Pp/2p2p2/3P4/2Q1P3/PP1K1PP1/R6R w - - 0 1", "А если я сыграю Bxf5?",
+     "Посмотри на чёрный ответ **cxd4**: пешка c5 бьёт твою пешку d4 и одновременно нападает на твоего ферзя c3."),
+    # Russian word order: the pawn on b2 holds a3
+    ("8/4b1k1/6pp/pp1p4/3PpP1P/PpP3P1/1P1B3K/8 b - - 0 1", "А если я сыграю Bxh4?", "Обе они защищены: a3 держит пешка b2, а h4 — пешка g3."),
+])
+def test_true_sentences_of_the_lesson_tutor_are_not_cut(fen, question, sentence):
+    board = chess.Board(fen)
+    named = question_moves(question, fen)
+    after = [q["after_fen"] for q in named if q.get("after_fen")]
+    assert check_sentence(sentence, CheckContext.from_fens([fen] + after, question=question)) == []
+
+
+def test_a_mate_the_student_walks_into_is_not_this_boards_mate():
+    ctx = CheckContext.from_fens(["2r2b2/5Rpk/5pR1/5P2/6N1/8/3r3P/6K1 w - - 0 1"], question="А если я сыграю Rfxf6?")
+    ctx.engine_eval, ctx.engine_mate = 100.0, 3
+    assert check_sentence("То есть вместо того, чтобы атаковать, ты сам пропускаешь мат в один ход.", ctx) == []
+
+
+def test_an_undefended_claim_is_about_the_piece_named():
+    ctx = CheckContext.from_fens(["5rk1/q4ppp/2b1pb2/8/r1Bp4/P2Q1N2/R1P2PPP/3R2K1 b - - 0 1"])
+    check_sentence("Первый ход — **Rxc4**.", ctx)
+    assert check_sentence("Слон на c4 ничем не защищён, а ладья его бьёт.", ctx)

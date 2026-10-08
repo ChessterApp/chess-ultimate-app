@@ -304,6 +304,15 @@ class CheckContext:
     _object: Optional[str] = None
     # The piece the sentence is about (type, square): «конь на c5 не связан — он сам бьёт d5».
     _subject: Optional[tuple] = None
+    # The position after the last move the answer wrote (this sentence or the one before), and that
+    # move: «Первый ход — Rxh6+. Король обязан отойти…» is about the board after Rxh6+ (2026-10-08).
+    scene: Optional[chess.Board] = None
+    scene_san: str = ""
+    scene_age: int = 0
+    # The scene before this sentence's moves, and this sentence's moves in order with the board after
+    # each: a claim before «Kxh7» in «…поэтому он обязан её взять: Kxh7» is about the board before it.
+    scene_before: Optional[tuple] = None
+    scene_trail: list = field(default_factory=list)
     MAX_BOARDS = 400
 
     @classmethod
@@ -517,6 +526,20 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     a = chess.parse_square(m["a"])
     targets = [t for t in _clause_targets(m["targets"]) if t != m["a"] and not _negated_target(m["targets"], t)]
     now = about_now or not _is_hypothetical(text, original if original is not None else text, m.start())
+    # (Only for a piece named in words by its square: a written move as the subject already stands where it went.)
+    went = None if about_now else _moved_in_sentence(original if original is not None else text, ptype, a, ctx)
+    if went is not None:
+        # «cxd4: пешка c5 бьёт пешку d4 и нападает на ферзя c3» — the pawn named by the square it left in
+        # this very sentence: its capture is no attack claim, the rest is judged from where it went
+        # (the lesson tutor's true sentence was cut, 2026-10-08).
+        dest, after = went
+        targets = [t for t in targets if t != chess.square_name(dest)]
+        wrong = [t for t in targets if not _geometry_attack(ptype, dest, chess.parse_square(t))]
+        if wrong:
+            return f"a {_NAMES[ptype]} on {chess.square_name(dest)} does not attack {', '.join(wrong)}"
+        blocked = [t for t in targets if chess.parse_square(t) not in after.attacks(dest)]
+        return f"a {_NAMES[ptype]} on {chess.square_name(dest)} does not reach {', '.join(blocked)}: a piece is in the way" \
+            if blocked and now and _HARD_VERB.search(m["verb"]) else None
     if not targets and ctx is not None and re.match(r"\s*(?:it|её|ее|его)(?![а-яa-z])", m["targets"]):
         # "your queen on c3 defends it": the pronoun is the square the sentence is about
         referent = _pronoun_square(text, m.start("targets"), ctx)
@@ -571,6 +594,16 @@ def _negated_target(targets: str, square: str) -> bool:
 
 
 _CONJ = re.compile(r"\s(?:и|а|но|или|and|but|or|yet)\s", re.IGNORECASE)
+
+
+def _moved_in_sentence(text: str, ptype: int, a: int, ctx: Optional["CheckContext"]) -> Optional[tuple]:
+    """(destination, board after) when this sentence's line moves the *ptype* piece standing on *a*."""
+    if ctx is None:
+        return None
+    for _san, after, move in getattr(ctx, "scene_trail", []) or []:
+        if move.from_square == a and after.piece_type_at(move.to_square) == ptype:
+            return move.to_square, after
+    return None
 
 
 def _attack_issues(text: str, original: Optional[str] = None, ctx: Optional["CheckContext"] = None) -> list[str]:
@@ -973,9 +1006,12 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
                         suffix_ok = True
                 if not legal_somewhere:
                     legal_somewhere = True
+                    scene_san = trial.san(move)
                     trial.push(move)
                     prev, prev_trusted = trial, trusted
                     ctx.add(trial.fen(), derived=True)  # a line written in the answer goes on from here
+                    ctx.scene, ctx.scene_san, ctx.scene_age = trial.copy(stack=False), scene_san, 0
+                    ctx.scene_trail.append((scene_san, ctx.scene, move))
                 if suffix_ok or not m["check"]:
                     break
             if legal_somewhere and (suffix_ok or not m["check"]):
@@ -1156,6 +1192,36 @@ def _hanging_kind(verb: str) -> str:
 _EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|apart\s+from|but\s+(?:the|your|my|a))(?![а-яa-z])", re.IGNORECASE)
 
 
+# «Ладья c1 забирает ферзя», «брать пешкой b7xc6» with no rook on c1 and no pawn on b7 (production lesson
+# answers, 07.10): a piece named by the square it stands on, which no position of the turn — the board, a
+# tool's position, a game, a line the answer wrote, the student's idea — has there.
+_GHOST = re.compile(
+    _B2 + rf"(?:(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+(?:сейчас\s+|уже\s+|сама\s+|сам\s+)?"
+    r"(?:бь[её]т|забирает|берёт|берет|защищает|атакует|нападает|держит|стоит|висит|давит|смотрит|прикрывает|связан\w*)(?![а-яa-z])"
+    rf"|(?P<w2>{_PIECE_ANY})\s+(?P<sq2>{SQ})\s?[x×:]\s?{SQ})", re.IGNORECASE)
+
+
+def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None or ctx.current.board_fen() == chess.STARTING_BOARD_FEN:
+        return []  # an opening talked about from the first move: its positions are not all on the boards
+    if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
+        return []  # a game named in the words may be one the turn does not have
+    for m in _GHOST.finditer(text):
+        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"])
+        if _NEGATION.search(text[max(0, m.start() - 12):m.start()]):
+            continue
+        ptype = _piece_type(word)
+        if ptype is None:
+            continue
+        sq = chess.parse_square(sq_name.lower())
+        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in ctx.boards):
+            continue
+        there = ctx.current.piece_at(sq)
+        here = f"there is a {_NAMES[there.piece_type]} there" if there else "nothing stands there"
+        return [f"there is no {_NAMES[ptype]} on {sq_name.lower()} in this position ({here})"]
+    return []
+
+
 def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []  # no real position of the turn to judge by
@@ -1178,11 +1244,12 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         if _is_hypothetical(text, original, m.start()):
             continue
         sq = chess.parse_square(sq_name)
+        named = _piece_type(m["p1"] or m["p2"] or "") if (m["p1"] or m["p2"]) else None
         seen = False
         for board in ctx.boards:
             piece = board.piece_at(sq)
-            if piece is None:
-                continue
+            if piece is None or (named is not None and piece.piece_type != named):
+                continue  # «Слон на c4 ничем не защищён» is not about the rook a written Rxc4 put there
             seen = True
             defenders = board.attackers(piece.color, sq)
             attackers = board.attackers(not piece.color, sq)
@@ -1793,7 +1860,10 @@ def _piece_name_at(board: chess.Board, sq: int) -> str:
 # "c2 defends it", «d6 защищает её»: a bare square as the subject is the piece standing there.
 _SQUARE_SUBJECT = re.compile(
     _B2 + rf"(?<!on )(?<!на )(?<!from )(?<!с )(?<!со )(?<!to )(?<!the )(?P<a>{SQ})\s+(?P<verb>defends|protects|covers|guards|attacks|hits|защищает|прикрывает|держит|атакует|бь[её]т)\s+"
-    rf"(?:the\s+)?(?:(?:{_PIECE_ANY})\s+(?:on\s+|на\s+)?)?(?:(?P<b>{SQ})|(?P<it>it|её|ее|его))(?![0-9])", re.IGNORECASE)
+    rf"(?:the\s+)?(?:(?P<pw>{_PIECE_ANY})\s+(?:on\s+|на\s+)?)?(?:(?P<b>{SQ})|(?P<it>it|её|ее|его))(?![0-9])", re.IGNORECASE)
+# «a3 держит пешка b2»: a piece word in the nominative after the verb is its subject — the pawn on b2
+# holds a3 (Russian word order; the lesson tutor's true sentence was cut, 2026-10-08).
+_NOMINATIVE_PIECE = re.compile(r"(?:пешка|конь|слон|ладья|ферзь|король)", re.IGNORECASE)
 
 
 def _square_subject_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
@@ -1808,6 +1878,8 @@ def _square_subject_issues(text: str, original: str, ctx: CheckContext) -> list[
             continue
         ctx._object = target_name
         a, target = chess.parse_square(m["a"]), chess.parse_square(target_name)
+        if m["b"] and m["pw"] and _NOMINATIVE_PIECE.fullmatch(m["pw"]):
+            a, target = target, a  # the subject stands after the verb
         if a == target:
             continue
         piece = ctx.current.piece_at(a)
@@ -1816,7 +1888,8 @@ def _square_subject_issues(text: str, original: str, ctx: CheckContext) -> list[
         if target == _ep_victim(ctx.current, a):
             continue  # «e5 бьёт пешку d5» on the move after d7-d5: en passant
         if target not in ctx.current.attacks(a):
-            issues.append(f"the {_NAMES[piece.piece_type]} on {m['a']} does not reach {target_name}")
+            issues.append(f"the {_NAMES[piece.piece_type]} on {chess.square_name(a)} does not reach "
+                          f"{chess.square_name(target)}")
     return issues
 
 
@@ -1870,7 +1943,8 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _instrument_issues(text, original, ctx) + _object_first_issues(text, original, ctx)
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
-            + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx))
+            + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
+            + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else []))
 
 
 # A sentence in the wrong language: the model answered a Russian question in
@@ -2212,6 +2286,10 @@ def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
+    if sentence.strip():
+        ctx.scene_age += 1  # the scene a move of this sentence sets is age 0; the explanation after it still sees it
+        ctx.scene_before = (ctx.scene, ctx.scene_san, ctx.scene_age) if ctx.scene is not None else None
+        ctx.scene_trail = []
     if is_meta(sentence):
         return [META_ISSUE]
     wrong_language = language_issue(sentence, ctx.language) or foreign_word_issue(sentence, ctx.language)

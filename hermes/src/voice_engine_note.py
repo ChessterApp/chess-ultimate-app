@@ -157,6 +157,17 @@ def engine_note(fen: str, depth: int = DEFAULT_DEPTH, movetime_ms: Optional[int]
     facts = _facts(board, result["lines"][0], prefetch) if with_facts else []
     if facts:
         parts.append("Facts (verified on the board and by the engine): " + "; ".join(facts) + ".")
+    if with_facts:
+        top_pv = (result["lines"][0].get("pv") or "").split()
+        mate = result["lines"][0].get("mate_in")
+        try:
+            from src.position_facts import explain_line
+
+            told = explain_line(board, top_pv, MATE_PLIES if mate and mate > 0 else PV_PLIES + 1)
+        except Exception:  # noqa: BLE001 — the explanation is a bonus on top of the line
+            told = None
+        if told:
+            parts.append(f"The best line, move by move (verified): {told}.")
     mate_in = result["lines"][0].get("mate_in")
     tb = None
     if tb_future is not None:

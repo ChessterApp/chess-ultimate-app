@@ -262,6 +262,11 @@ _MATE_IN = re.compile(r"(?P<neg>нет\s+|no\s+|не\s+видно\s+)?(?:фор�
                       r"(?P<after>[^.!?]{0,30})", re.IGNORECASE)
 
 
+_MATE_AGAINST = re.compile(
+    _W + r"(?:пропуска\w*|пропуст\w*|получа\w*|получи\w*|получишь|позволя\w*|позвол\w*|допуска\w*|допуст\w*|нарв\w*|"
+    r"подставля\w*|себе|allow\w*|walk\w*\s+into|get\s+mated|after)" + _E, re.IGNORECASE)
+
+
 def _mate_in_issues(text: str, ctx) -> list[str]:
     if getattr(ctx, "engine_eval", None) is None or ctx.current is None:
         return []  # no engine look at this board this turn
@@ -278,6 +283,10 @@ def _mate_in_issues(text: str, ctx) -> list[str]:
             continue
         if _named_side(text) is not None and _named_side(text) != ctx.current.turn:
             continue  # about the side not to move — the engine line is not
+        if _MATE_AGAINST.search(text) or (getattr(ctx, "quoted", None) and not _NOW.search(text)):
+            # «ты сам пропускаешь мат в один ход» after the student's idea: the mate after that move,
+            # not this board's (the lesson tutor's true sentence was cut, 2026-10-08).
+            continue
         has = mate is not None and 0 < mate <= n
         if neg and has:
             return [f"there IS a forced mate in {mate} here (engine)"]
@@ -705,6 +714,83 @@ def _cannot_go_issues(text: str, ctx) -> list[str]:
     return []
 
 
+# «Король обязан отойти» right after «Первый ход — Rxh6+», where the only legal reply is gxh6; «вынуждены
+# взять» where nothing can take. Production lesson answers, 07.10: the sacrifice nobody took, the king
+# that «had to move» and could not. Judged on the scene — the position after the move the answer named
+# in this sentence or the one before — and only when the claim cannot be true at all there.
+_FORCED_KING = re.compile(
+    _W + r"(?:корол\w*|king)\s+(?:[а-яёa-z]+\s+){0,3}?(?:обязан\w*|вынужден\w*|должен|придётся|придется|has\s+to|must)"
+         r"\s+(?:[а-яёa-z]+\s+)?(?:уйти|отойти|отступить|уходить|отходить|бежать|убегать|move|retreat|run|step)" + _E,
+    re.IGNORECASE)
+_FORCED_TAKE = re.compile(
+    _W + r"(?:обязан\w*|вынужден\w*|должн\w*|приходится|придётся|придется|has\s+to|have\s+to|must)\s+"
+         r"(?:[а-яёa-z]+\s+)?(?:взять|бить|побить|забрать|брать|съесть|take|capture)" + _E, re.IGNORECASE)
+
+
+_WRITTEN_MOVE = re.compile(r"(?<![a-zа-я0-9])(?:[kqrbnкрфлс][a-h]?[1-8]?[x:×]?[a-h][1-8]|[a-h][x:×][a-h][1-8]|o-o(?:-o)?)[+#]?",
+                           re.IGNORECASE)
+
+
+def _norm_san(san: str) -> str:
+    s = san.rstrip("+#!?").replace(":", "x").replace("×", "x").lower()
+    for ru, en in (("кр", "k"), ("ф", "q"), ("л", "r"), ("с", "b"), ("к", "n")):
+        if s.startswith(ru):
+            return en + s[len(ru):]
+    return s
+
+
+def _scene_at(text: str, at: int, ctx):
+    """(board, san) the claim at *at* is about: after the last move written before it in this sentence,
+    else after the last move of the sentences before (if the explanation is still about it)."""
+    if _NOW.search(text[:at]):
+        return getattr(ctx, "current", None), "the move on the board"  # «сейчас король нападает…»: the board as it is
+    before = [_norm_san(m.group(0)) for m in _WRITTEN_MOVE.finditer(text[:at])]
+    trail = getattr(ctx, "scene_trail", []) or []
+    if before and trail:
+        last = before[-1]
+        for san, board, _move in trail:  # the first move of the sentence written as the last one before the claim
+            if _norm_san(san) == last:
+                return board, san
+        for san, board, _move in trail:
+            if _norm_san(san)[-2:] == last[-2:]:
+                return board, san
+        return None, ""
+    if before:
+        return None, ""
+    prev = getattr(ctx, "scene_before", None)
+    if prev and prev[2] <= 3:
+        return prev[0], prev[1]
+    return None, ""
+
+
+def _forced_reply_issues(text: str, ctx) -> list[str]:
+    if getattr(ctx, "current", None) is None:
+        return []  # no position of the turn: a line read from the starting board means nothing
+    m_king, m_take = _FORCED_KING.search(text), _FORCED_TAKE.search(text)
+    m0 = m_king or m_take
+    if m0 is None:
+        return []
+    board, san = _scene_at(text, m0.start(), ctx)
+    if board is None or board.is_game_over():
+        return []
+    if _GENERAL.search(text) and not _NOW.search(text) and not re.search(r"(?<![а-яё])после(?![а-яё])", text):
+        return []
+    side = "White" if board.turn == chess.WHITE else "Black"
+    replies = list(board.legal_moves)
+    named = _named_side(text)
+    if named is not None and named != board.turn:
+        return []
+    m = m_king
+    if m and not _negated_before(text, m.start()) and not any(board.piece_type_at(r.from_square) == chess.KING for r in replies):
+        only = ", ".join(board.san(r) for r in replies[:3])
+        return [f"after {san} the {side.lower()} king cannot move at all: the only replies are {only}"]
+    m = m_take
+    if m and not _negated_before(text, m.start()) and not any(board.is_capture(r) for r in replies):
+        only = ", ".join(board.san(r) for r in replies[:3])
+        return [f"after {san} {side} cannot take anything: the replies are {only}"]
+    return []
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
@@ -712,6 +798,7 @@ def rules_issues(lowered: str, ctx) -> list[str]:
                 + _attacked_by_issues(lowered, ctx)
                 + _mate_in_issues(lowered, ctx) + _file_issues(lowered, ctx) + _passed_issues(lowered, ctx)
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
-                + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx))
+                + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
+                + _forced_reply_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []
