@@ -309,3 +309,17 @@ def test_the_sites_listed_solution_is_checked(fen, solution, bad):
 
     note = site_solution_note(fen, solution)
     assert (note is None) if bad is None else (bad in note)
+
+
+def test_a_pronoun_agrees_with_its_piece():
+    fen = "r4rk1/ppq2pp1/2n2n1p/3p2N1/3P3N/2P5/P1B2PPP/R2Q1RK1 w - - 0 1"
+    ctx = CheckContext.from_fens([fen])
+    assert check_sentence("Конь забирает пешку h7 с шахом, и это вилка: он бьёт одновременно короля на f8 и коня на f6.", ctx) == []
+
+
+def test_a_move_legal_only_on_a_lesson_diagram_is_not_the_answer():
+    fen = "6k1/3bpp2/3p2p1/2qP4/1p1Q2P1/pP3P2/P1P1N2r/1K2R3 b - - 0 1"
+    ctx = CheckContext.from_fens([fen])
+    ctx.add_text('{"lesson_text": "[Диаграмма: 6k1/5ppp/8/8/8/8/5PPq/6K1 b - - 0 1]"}')
+    assert check_sentence("Первый ход чёрных — **Qxg2+ (ферзь берёт пешку g2 с шахом)**.", ctx)
+    assert check_sentence("Первый ход чёрных — **Rxe2**.", CheckContext.from_fens([fen])) == []
