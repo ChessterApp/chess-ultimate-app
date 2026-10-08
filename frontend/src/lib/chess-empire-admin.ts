@@ -354,6 +354,162 @@ export async function revokeMember(args: MemberActionArgs): Promise<CeMemberRow>
   });
 }
 
+// ─── Event-driven CE freeze/thaw (single student) ─────────────────────────
+// When a CE admin flips a student's status in the Chess Empire admin app we
+// apply the same transition the nightly cron would — immediately, for that one
+// student. This mirrors a single row of `reconcile()` in
+// scripts/sync-chess-empire-members.mjs: link_status flips (reusing
+// freezeMember/unfreezeMember above) AND Clerk org membership is added on thaw /
+// removed on freeze (kept when the member pays for their own plan). The hourly
+// cron remains the safety net if a call is missed.
+
+/** Row shape the sync helper needs, with the org's Clerk id joined in. */
+export interface CeSyncMemberRow {
+  id: string;
+  organization_id: string;
+  user_id: string;
+  link_status: LinkStatus;
+  clerk_org_id: string | null;
+}
+
+/**
+ * Look up the single `chess_empire` member for a CE student id, resolving the
+ * owning org's `clerk_org_id`. Returns null when no such student is linked.
+ */
+export async function loadMemberByExternalStudentId(
+  externalStudentId: string,
+): Promise<CeSyncMemberRow | null> {
+  if (!externalStudentId) return null;
+  const supabase = adminClient();
+  const { data, error } = await supabase
+    .from('organization_members')
+    .select('id, organization_id, user_id, link_status, organizations(clerk_org_id)')
+    .eq('external_student_id', externalStudentId)
+    .eq('external_source', 'chess_empire')
+    .maybeSingle();
+  if (error) throw new Error(`loadMemberByExternalStudentId: ${error.message}`);
+  if (!data) return null;
+  const row = data as {
+    id: string;
+    organization_id: string;
+    user_id: string;
+    link_status: LinkStatus;
+    organizations?: { clerk_org_id?: string | null } | null;
+  };
+  return {
+    id: row.id,
+    organization_id: row.organization_id,
+    user_id: row.user_id,
+    link_status: row.link_status,
+    clerk_org_id: row.organizations?.clerk_org_id ?? null,
+  };
+}
+
+/**
+ * Whether `clerkUserId` holds an active personal (self-paid) Chesster
+ * subscription. Mirrors `hasActivePersonalSubscription()` in the cron: a freeze
+ * keeps the member's Clerk org membership when they pay for their own plan.
+ * Any error / no row → false (no override).
+ */
+export async function hasActivePersonalSubscription(
+  clerkUserId: string,
+  nowMs: number = Date.now(),
+): Promise<boolean> {
+  if (!clerkUserId) return false;
+  const supabase = adminClient();
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('status, current_period_end')
+    .eq('clerk_user_id', clerkUserId)
+    .order('updated_at', { ascending: false })
+    .limit(1);
+  if (error || !data || data.length === 0) return false;
+  const row = data[0] as { status: string; current_period_end: string | null };
+  if (!['active', 'trialing'].includes(row.status)) return false;
+  if (row.current_period_end && new Date(row.current_period_end).getTime() < nowMs) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Clerk org-membership side effects, injected so the sync helper stays
+ * Clerk-free (and offline-testable). `createMembership` must swallow
+ * already-a-member, `deleteMembership` must swallow already-gone — same
+ * idempotency the cron's raw REST client guarantees.
+ */
+export interface CeSyncClerkAdapter {
+  createMembership(clerkOrgId: string, userId: string): Promise<void>;
+  deleteMembership(clerkOrgId: string, userId: string): Promise<void>;
+}
+
+export type CeSyncAction = 'freeze' | 'thaw' | 'none';
+
+export interface SyncFreezeThawArgs {
+  externalStudentId: string;
+  /** Authoritative CE status the admin just set. */
+  ceStatus: 'active' | 'frozen';
+  clerk: CeSyncClerkAdapter;
+  /** Injectable clock (ms source) for the personal-sub check. */
+  now?: () => Date;
+}
+
+export interface SyncFreezeThawResult {
+  action: CeSyncAction;
+  linkStatus: LinkStatus;
+  memberId: string;
+}
+
+/**
+ * Apply a single CE student status change to Chesster. Thaws (CE active + link
+ * frozen) or freezes (CE frozen + link verified); any other pairing is a no-op,
+ * mirroring `decideAction()` in the cron for the freeze/thaw directions.
+ * Throws `NotFoundError('student_not_found')` when the student isn't linked.
+ */
+export async function syncFreezeThawByStudent({
+  externalStudentId,
+  ceStatus,
+  clerk,
+  now = () => new Date(),
+}: SyncFreezeThawArgs): Promise<SyncFreezeThawResult> {
+  const row = await loadMemberByExternalStudentId(externalStudentId);
+  if (!row) throw new NotFoundError('student_not_found');
+
+  const actorClerkUserId = 'ce-sync-service';
+
+  if (ceStatus === 'active' && row.link_status === 'frozen') {
+    const member = await unfreezeMember({
+      orgId: row.organization_id,
+      memberId: row.id,
+      actorClerkUserId,
+    });
+    if (row.clerk_org_id) {
+      await clerk.createMembership(row.clerk_org_id, row.user_id);
+    }
+    return { action: 'thaw', linkStatus: member.link_status, memberId: row.id };
+  }
+
+  if (ceStatus === 'frozen' && row.link_status === 'verified') {
+    // link_status is school-side truth and always flips; the Clerk org removal
+    // is skipped when the member pays for their own Chesster plan.
+    const subActive = await hasActivePersonalSubscription(
+      row.user_id,
+      now().getTime(),
+    );
+    const member = await freezeMember({
+      orgId: row.organization_id,
+      memberId: row.id,
+      actorClerkUserId,
+    });
+    if (row.clerk_org_id && !subActive) {
+      await clerk.deleteMembership(row.clerk_org_id, row.user_id);
+    }
+    return { action: 'freeze', linkStatus: member.link_status, memberId: row.id };
+  }
+
+  return { action: 'none', linkStatus: row.link_status, memberId: row.id };
+}
+
 export interface SetMemberAccessExpiryArgs {
   orgId: string;
   memberId: string;
