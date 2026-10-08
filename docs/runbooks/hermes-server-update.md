@@ -660,10 +660,25 @@ diff /root/hermes-chess/profiles/chess-coach/config.yaml chess-ultimate-app/herm
 - Если в плане есть что-то внутри `.env`, `.venv`, `data/`, `sessions/`: **СТОП**, исключения не
   сработали.
 
-Копирование (`--delete` не используется: лишние старые файлы остаются, они не мешают):
+Копирование (`--delete` не используется: лишние старые файлы остаются, они не мешают). Блок `mcp_servers` в
+серверном `config.yaml` (его нет в репозитории) копирование затирает — команда ниже сохраняет файл до копирования и
+возвращает блок после (на обновлении 08.10 его восстанавливали вручную):
 
 ```bash
-cd /root/hermes-update && rsync -a --exclude-from=rsync-exclude.txt chess-ultimate-app/hermes/ /root/hermes-chess/
+cd /root/hermes-update && cp /root/hermes-chess/profiles/chess-coach/config.yaml config.server.yaml \
+  && rsync -a --exclude-from=rsync-exclude.txt chess-ultimate-app/hermes/ /root/hermes-chess/ \
+  && python3 - <<'PY'
+import re
+old = open("/root/hermes-update/config.server.yaml").read()
+path = "/root/hermes-chess/profiles/chess-coach/config.yaml"
+new = open(path).read()
+block = re.search(r"(?ms)^mcp_servers:.*?(?=^\S|\Z)", old)
+if block and not re.search(r"(?m)^mcp_servers:", new):
+    open(path, "a").write("\n" + block.group(0).rstrip() + "\n")
+    print("mcp_servers возвращён из прежнего config.yaml")
+else:
+    print("mcp_servers: возвращать нечего")
+PY
 ```
 
 **Проверка импорта** до перезапуска. Работающий процесс при этом не трогается:
