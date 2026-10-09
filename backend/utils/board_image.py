@@ -60,3 +60,44 @@ def render_final_position_png(pgn_text: str, size: int = BOARD_SIZE):
     except Exception as e:  # malformed PGN, illegal move, render failure
         logger.debug(f"Failed to render board thumbnail: {e}")
         return None
+
+
+# Brand colours for the logo-card fallback (match the dark board square tone).
+_LOGO_CARD_BG = "#2b2b2b"
+_LOGO_CARD_FG = "#f5f5f0"
+
+
+def render_logo_card_png(size: int = BOARD_SIZE):
+    """Render a branded Chesster logo card as a PNG.
+
+    Used as the OG thumbnail fallback when there is no position to show — e.g. a
+    shared but empty game collection. Returns PNG bytes, or None when the
+    renderer is unavailable.
+    """
+    if cairosvg is None:
+        logger.warning("cairosvg unavailable — cannot render logo card")
+        return None
+
+    try:
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" '
+            f'height="{size}" viewBox="0 0 {size} {size}">'
+            f'<rect width="{size}" height="{size}" fill="{_LOGO_CARD_BG}"/>'
+            f'<text x="50%" y="48%" fill="{_LOGO_CARD_FG}" '
+            f'font-family="Georgia, serif" font-size="{size // 8}" '
+            f'font-weight="bold" text-anchor="middle" '
+            f'dominant-baseline="middle">&#9822; Chesster</text>'
+            f'<text x="50%" y="60%" fill="{_LOGO_CARD_FG}" '
+            f'font-family="Georgia, serif" font-size="{size // 20}" '
+            f'text-anchor="middle" dominant-baseline="middle" '
+            f'opacity="0.8">My Games</text>'
+            f'</svg>'
+        )
+        return cairosvg.svg2png(
+            bytestring=svg.encode("utf-8"),
+            output_width=size,
+            output_height=size,
+        )
+    except Exception as e:  # pragma: no cover - render failure
+        logger.debug(f"Failed to render logo card: {e}")
+        return None

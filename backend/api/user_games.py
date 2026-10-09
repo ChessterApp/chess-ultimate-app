@@ -13,14 +13,20 @@ import chess.pgn
 from flask import Blueprint, request, jsonify, Response
 
 from services.supabase_client import supabase
-from utils.auth import verify_clerk_token, get_current_user_id, require_active_membership
-from utils.board_image import render_final_position_png
+from utils.auth import (
+    verify_clerk_token,
+    get_current_user_id,
+    require_active_membership,
+    _fetch_clerk_user,
+)
+from utils.board_image import render_final_position_png, render_logo_card_png
 
 logger = logging.getLogger(__name__)
 
 user_games_bp = Blueprint('user_games', __name__)
 
 TABLE = 'user_games'
+COLLECTION_SHARES_TABLE = 'user_game_collection_shares'
 
 # Columns that clients may set when creating/updating a game
 ALLOWED_FIELDS = {
@@ -514,4 +520,233 @@ def get_shared_game_thumbnail(token):
 
     except Exception as e:
         logger.error(f"Error rendering shared game thumbnail: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── COLLECTION SHARE (Phase 1) ──────────────────────────────────────────────
+#
+# A user may share their ENTIRE "My Games" collection via one opaque, revocable
+# token — mirroring the per-game share above but at the collection level (one
+# row per owner in user_game_collection_shares). Recipients must be signed in to
+# browse the collection; only the OG preview (/meta, /thumbnail.png) is public.
+# Revoking deletes the row, so the token stops resolving — exactly like clearing
+# a per-game share_token. Shared views strip the private `notes` field.
+
+
+def _owner_display_name(user_id: str):
+    """Best-effort human name for a collection owner, resolved from Clerk."""
+    record = _fetch_clerk_user(user_id)
+    if not record:
+        return None
+    name = ' '.join(
+        part for part in (record.get('first_name'), record.get('last_name')) if part
+    ).strip()
+    return name or record.get('username') or None
+
+
+def _public_game(row: dict) -> dict:
+    """Shape a game row for a collection-share recipient: drop private fields."""
+    game = dict(row)
+    game.pop('user_id', None)
+    game.pop('notes', None)
+    return game
+
+
+def _resolve_collection_owner(token: str):
+    """Return the owner user_id for a live collection-share token, else None.
+
+    An unknown or revoked token has no matching row → None → caller 404s.
+    """
+    result = supabase.table(COLLECTION_SHARES_TABLE) \
+        .select('user_id') \
+        .eq('token', token) \
+        .execute()
+    if not result.data:
+        return None
+    return result.data[0].get('user_id')
+
+
+@user_games_bp.route('/api/games/collection/share', methods=['POST'])
+@verify_clerk_token
+def create_collection_share_token():
+    """Mint (or return the existing) share token for the caller's collection.
+
+    Owner-only, idempotent: a user who already has a token gets it back unchanged
+    so repeated shares produce the same stable link.
+    """
+    user_id = get_current_user_id()
+    try:
+        existing = supabase.table(COLLECTION_SHARES_TABLE) \
+            .select('token') \
+            .eq('user_id', user_id) \
+            .execute()
+
+        if existing.data:
+            return jsonify({'token': existing.data[0]['token']}), 200
+
+        token = secrets.token_urlsafe(16)
+        supabase.table(COLLECTION_SHARES_TABLE) \
+            .insert({'user_id': user_id, 'token': token}) \
+            .execute()
+
+        return jsonify({'token': token}), 200
+
+    except Exception as e:
+        logger.error(f"Error creating collection share token: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/collection/share', methods=['DELETE'])
+@verify_clerk_token
+def revoke_collection_share_token():
+    """Revoke the caller's collection share link by deleting its row. Owner-only.
+
+    Idempotent: revoking when nothing is shared still succeeds. After this the
+    token no longer resolves, so every shared/* route 404s.
+    """
+    user_id = get_current_user_id()
+    try:
+        supabase.table(COLLECTION_SHARES_TABLE) \
+            .delete() \
+            .eq('user_id', user_id) \
+            .execute()
+        return '', 204
+
+    except Exception as e:
+        logger.error(f"Error revoking collection share token: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/collection/shared/<token>', methods=['GET'])
+@verify_clerk_token
+def get_shared_collection(token):
+    """List a shared collection's games — the recipient view.
+
+    ANY signed-in user may read it. Same paginated shape as GET /api/games, but
+    the private `notes` field is stripped from every game and `user_id` is never
+    returned. Also includes the owner display name. Unknown/revoked token → 404.
+    """
+    try:
+        owner_id = _resolve_collection_owner(token)
+        if not owner_id:
+            return jsonify({'error': 'Collection not found'}), 404
+
+        page = max(1, int(request.args.get('page', 1)))
+        per_page = min(100, max(1, int(request.args.get('per_page', 20))))
+        offset = (page - 1) * per_page
+
+        result = supabase.table(TABLE) \
+            .select('*', count='exact') \
+            .eq('user_id', owner_id) \
+            .is_('deleted_at', 'null') \
+            .order('created_at', desc=True) \
+            .range(offset, offset + per_page - 1) \
+            .execute()
+
+        return jsonify({
+            'games': [_public_game(g) for g in result.data],
+            'total': result.count,
+            'page': page,
+            'per_page': per_page,
+            'owner_name': _owner_display_name(owner_id),
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error listing shared collection: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/collection/shared/<token>/games/<game_id>', methods=['GET'])
+@verify_clerk_token
+def get_shared_collection_game(token, game_id):
+    """Fetch a single game from a shared collection — signed-in recipients only.
+
+    Returns the game only if it belongs to the token owner (404 otherwise). The
+    private `notes` field and `user_id` are stripped. Unknown/revoked token → 404.
+    """
+    try:
+        owner_id = _resolve_collection_owner(token)
+        if not owner_id:
+            return jsonify({'error': 'Collection not found'}), 404
+
+        result = supabase.table(TABLE) \
+            .select('*') \
+            .eq('id', game_id) \
+            .eq('user_id', owner_id) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        if not result.data:
+            return jsonify({'error': 'Game not found'}), 404
+
+        return jsonify(_public_game(result.data[0])), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching shared collection game: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/collection/shared/<token>/meta', methods=['GET'])
+def get_shared_collection_meta(token):
+    """Public metadata for a shared collection's Open Graph link preview.
+
+    PUBLIC — no Clerk auth. Returns ONLY the owner display name and game count —
+    never any game data. Unknown/revoked token → 404.
+    """
+    try:
+        owner_id = _resolve_collection_owner(token)
+        if not owner_id:
+            return jsonify({'error': 'Collection not found'}), 404
+
+        count_result = supabase.table(TABLE) \
+            .select('id', count='exact') \
+            .eq('user_id', owner_id) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        return jsonify({
+            'owner_name': _owner_display_name(owner_id),
+            'game_count': count_result.count or 0,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching shared collection meta: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/collection/shared/<token>/thumbnail.png', methods=['GET'])
+def get_shared_collection_thumbnail(token):
+    """Public board-image thumbnail for a shared collection's OG preview.
+
+    PUBLIC — no Clerk auth. Renders the FINAL position of the owner's most recent
+    game. Falls back to the branded logo card when the collection is empty (or
+    the newest game won't render). Unknown/revoked token → 404.
+    """
+    try:
+        owner_id = _resolve_collection_owner(token)
+        if not owner_id:
+            return jsonify({'error': 'Collection not found'}), 404
+
+        result = supabase.table(TABLE) \
+            .select('pgn') \
+            .eq('user_id', owner_id) \
+            .is_('deleted_at', 'null') \
+            .order('created_at', desc=True) \
+            .limit(1) \
+            .execute()
+
+        png = None
+        if result.data:
+            png = render_final_position_png(result.data[0].get('pgn'))
+        if png is None:
+            png = render_logo_card_png()
+        if png is None:
+            return jsonify({'error': 'Collection not found'}), 404
+
+        resp = Response(png, mimetype='image/png')
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
+
+    except Exception as e:
+        logger.error(f"Error rendering shared collection thumbnail: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
