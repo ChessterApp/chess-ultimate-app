@@ -389,21 +389,15 @@ def test_a_move_given_to_the_wrong_side(sentence, caught):
     assert bool(check_sentence(sentence, ctx)) is caught
 
 
-@pytest.mark.parametrize("case,sentence,want", [
-    (191, "Ход у чёрных — и здесь спасает только один ход: **Ke5!**", "Ke5"),  # loses; Kf5 holds
-    (208, "**Kxb3!** — король бьёт слона. Это единственный ход, который спасает партию.", "Kxb3"),  # loses
+@pytest.mark.parametrize("fen,sentence,want", [
+    ("8/5K2/8/8/4k2P/8/8/8 b - - 0 1", "Ход у чёрных — и здесь спасает только один ход: **Ke5!**", "Ke5"),  # loses; Kf5 holds
+    ("8/5k2/8/p1p5/2K5/1b6/8/8 w - - 0 1", "**Kxb3!** — король бьёт слона. Это единственный ход, который спасает партию.", "Kxb3"),  # loses
 ])
-def test_a_move_marked_as_the_only_one_goes_to_the_engine(case, sentence, want):
-    import json
-
+def test_a_move_marked_as_the_only_one_goes_to_the_engine(fen, sentence, want):
     from src.answer_check import proposed_move
     from src.fen_repair import repair_fen
 
-    c = json.load(open("eval/bench/2026-10-06-blind-spots/curriculum_cases.json"))[case] \
-        if __import__("os").path.exists("eval/bench/2026-10-06-blind-spots/curriculum_cases.json") else None
-    if c is None:
-        pytest.skip("bench data is not in the repository")
-    found = proposed_move(sentence, CheckContext.from_fens([repair_fen(c["fen"])]))
+    found = proposed_move(sentence, CheckContext.from_fens([repair_fen(fen)]))
     assert found and found[2] == want
 
 
