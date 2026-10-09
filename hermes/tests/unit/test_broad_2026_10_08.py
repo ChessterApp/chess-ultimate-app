@@ -374,3 +374,16 @@ def test_the_opera_game_told_with_a_reply_that_does_not_exist():
 ])
 def test_side_claims_of_the_prod_run(fen, question, sentence, caught):
     assert bool(check_sentence(sentence, CheckContext.from_fens([fen], question=question))) is caught
+
+
+@pytest.mark.parametrize("sentence,caught", [
+    ("После Се3 чёрные просто бьют Сxc5 — и ты теряешь слона за пешку.", True),  # Bxc5 is White's (the client's Се3)
+    ("Свою e3-пешку ты ничем не защищаешь.", True),  # a bishop stands on e3
+    ("Чёрные просто бьют Bxe3, и слон пропадает.", False),
+    ("Белые бьют Bxc5.", False),
+])
+def test_a_move_given_to_the_wrong_side(sentence, caught):
+    named = question_moves("Что если я пойду Се3? Хороший ли это ход?", ALEX)
+    ctx = CheckContext.from_fens([ALEX] + [q["after_fen"] for q in named if q.get("after_fen")],
+                                 question="Что если я пойду Се3? Хороший ли это ход?")
+    assert bool(check_sentence(sentence, ctx)) is caught

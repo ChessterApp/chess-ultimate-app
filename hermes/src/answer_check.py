@@ -1219,7 +1219,9 @@ _EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|ap
 _GHOST = re.compile(
     _B2 + rf"(?:(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+(?:сейчас\s+|уже\s+|сама\s+|сам\s+)?"
     r"(?:бь[её]т|забирает|берёт|берет|защищает|атакует|нападает|держит|стоит|висит|давит|смотрит|прикрывает|связан\w*)(?![а-яa-z])"
-    rf"|(?P<w2>{_PIECE_ANY})\s+(?P<sq2>{SQ})\s?[x×:]\s?{SQ})", re.IGNORECASE)
+    rf"|(?P<w2>{_PIECE_ANY})\s+(?P<sq2>{SQ})\s?[x×:]\s?{SQ}"
+    # «свою e3-пешку» with a bishop on e3 (production 08.10)
+    rf"|(?<![a-z0-9])(?P<sq3>{SQ})-(?P<w3>{_PIECE_ANY}))", re.IGNORECASE)
 
 
 def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
@@ -1228,7 +1230,7 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
     if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
         return []  # a game named in the words may be one the turn does not have
     for m in _GHOST.finditer(text):
-        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"])
+        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"]) if m["w2"] else (m["w3"], m["sq3"])
         if _NEGATION.search(text[max(0, m.start() - 12):m.start()]):
             continue
         ptype = _piece_type(word)
@@ -1594,6 +1596,63 @@ _SIDE_ADJ = (r"(?:белый|белая|белого|белой|белую|бе�
 _SIDE_PIECE = re.compile(
     _B2 + rf"(?:(?P<adj>{_SIDE_ADJ})\s+(?P<p1>{_PIECE_ANY})|(?P<p2>{_PIECE_ANY})\s+(?P<gen>белых|ч[её]рных|соперника|противника))"
     rf"\s+(?:на\s+|on\s+)?(?P<a>{SQ})(?![0-9])", re.IGNORECASE)
+
+
+# «После Се3 чёрные просто бьют Сxc5» — Bxc5 is White's (production 08.10, the client's own question): a move
+# given to a side that cannot make it on any position of the turn while the other side can.
+_SIDE_PLAYS = re.compile(
+    _B2 + r"(?P<side>белые|белым|ч[её]рные|ч[её]рным|white|black)\s+(?:[а-яёa-z]+\s+){0,2}?"
+    r"(?:бьют|берут|забирают|играют|сыграют|отвечают|ответят|идут|пойдут|ходят|делают|жертвуют|plays?|takes?|answers?|replies?|captures?)"
+    r"\s+(?:[а-яёa-z]+\s+){0,1}?[*_]*(?P<mv>(?:\d{1,3}\s?\.{1,3}\s?|\.\.\.|…)?(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8]|O-O(?:-O)?)[+#]?)",
+    re.IGNORECASE)
+
+
+def _side_move_issues(original: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    converted, _ = _to_san(original)
+    for m in _SIDE_PLAYS.finditer(converted):
+        side = chess.WHITE if m["side"].lower().startswith(("бел", "white")) else chess.BLACK
+        mv = re.sub(r"^\d{1,3}\s?\.{1,3}\s?|^\.\.\.|^…", "", m["mv"])
+        # The moves written before it in the sentence lead somewhere too («После Кxe5 чёрные играют Кxe5»;
+        # a Cyrillic К may be a knight or a king, and the line check leaves it out).
+        boards = list(ctx.boards)
+        for prior in _MOVE.finditer(converted[: m.start("mv")]):
+            for cand in {prior["san"], "N" + prior["san"][1:] if prior["san"][0] == "K" else prior["san"]}:
+                for b in list(boards):
+                    for color in (chess.WHITE, chess.BLACK):
+                        t = b.copy(stack=False)
+                        t.turn = color
+                        try:
+                            pm = t.parse_san(cand)
+                        except ValueError:
+                            continue
+                        if "x" in cand and not t.is_capture(pm):
+                            continue  # python-chess reads «Bxc5» onto an empty c5 too
+                        t.push(pm)
+                        boards.append(t)
+                if len(boards) > 300:
+                    break
+
+        def legal_for(color: int) -> bool:
+            for b in boards:
+                t = b.copy(stack=False)
+                if t.turn != color:
+                    t.turn, t.ep_square = color, None
+                    if not t.is_valid():
+                        continue
+                try:
+                    played = t.parse_san(mv)
+                except ValueError:
+                    continue
+                if "x" in mv and not t.is_capture(played):
+                    continue
+                return True
+            return False
+        if not legal_for(side) and legal_for(not side):
+            return [f"{mv.rstrip('+#')} is a {'Black' if side else 'White'} move here: "
+                    f"{'White' if side else 'Black'} cannot play it"]
+    return []
 
 
 def _side_piece_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
@@ -1999,7 +2058,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
-            + _side_piece_issues(text, original, ctx)
+            + _side_piece_issues(text, original, ctx) + _side_move_issues(original, ctx)
             + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else []))
 
 
