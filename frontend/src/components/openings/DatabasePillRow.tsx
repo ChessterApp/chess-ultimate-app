@@ -12,9 +12,10 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Box, Typography, InputBase } from '@mui/material';
-import { Lock, Add, Edit } from '@mui/icons-material';
-import { useDatabases, type UserDatabase } from '@/hooks/useDatabases';
+import { Box, Typography, InputBase, Popover, Button } from '@mui/material';
+import { Lock, Add, Edit, DeleteOutline, Restore } from '@mui/icons-material';
+import { useDatabases, type UserDatabase, type DeletedDatabase } from '@/hooks/useDatabases';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 interface DatabasePillRowProps {
   /** TWIC master count from /api/opponent/status (null until loaded). */
@@ -53,7 +54,7 @@ const countSx = (active: boolean) => ({
 });
 
 export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, onSelect }: DatabasePillRowProps) {
-  const { databases, error, refresh, createDatabase, renameDatabase } = useDatabases();
+  const { databases, error, refresh, createDatabase, renameDatabase, deleteDatabase, restoreDatabase, listDeleted } = useDatabases();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -61,9 +62,19 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
   const [newValue, setNewValue] = useState('');
   const newInputRef = useRef<HTMLInputElement>(null);
 
+  // ─── Delete confirmation + recently-deleted/restore panel ───
+  const [deleteTarget, setDeleteTarget] = useState<UserDatabase | null>(null);
+  const [deleted, setDeleted] = useState<DeletedDatabase[]>([]);
+  const [restoreAnchor, setRestoreAnchor] = useState<HTMLElement | null>(null);
+
+  const reloadDeleted = useCallback(async () => {
+    setDeleted(await listDeleted());
+  }, [listDeleted]);
+
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    listDeleted().then(setDeleted);
+  }, [refresh, listDeleted]);
 
   // ─── Rename ───
   const beginRename = useCallback((db: UserDatabase) => {
@@ -110,6 +121,32 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
     setCreating(false);
     setNewValue('');
   }, []);
+
+  // ─── Delete (soft) ───
+  const confirmDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    const { id } = deleteTarget;
+    const wasActive = selectedDatabaseId === id;
+    setDeleteTarget(null);
+    const ok = await deleteDatabase(id);
+    if (ok) {
+      // If the removed db was active, fall back to the default db (else Master).
+      if (wasActive) {
+        const fallback = databases.find(db => db.is_default && db.id !== id);
+        onSelect(fallback ? fallback.id : null);
+      }
+      reloadDeleted();
+    }
+  }, [deleteTarget, selectedDatabaseId, deleteDatabase, databases, onSelect, reloadDeleted]);
+
+  // ─── Restore ───
+  const handleRestore = useCallback(async (id: string) => {
+    const restored = await restoreDatabase(id);
+    if (restored) {
+      await reloadDeleted();
+      onSelect(restored.id);
+    }
+  }, [restoreDatabase, reloadDeleted, onSelect]);
 
   const masterActive = selectedDatabaseId === null;
 
@@ -168,8 +205,8 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
               }}
               sx={{
                 ...pillSx(active),
-                '&:hover .db-edit': { opacity: 1 },
-                '& .db-edit': { opacity: active ? 1 : 0 },
+                '&:hover .db-action': { opacity: 1 },
+                '& .db-action': { opacity: active ? 1 : 0 },
               }}
             >
               <span>{db.name}</span>
@@ -179,7 +216,7 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
                 role="button"
                 tabIndex={0}
                 aria-label={`Rename ${db.name}`}
-                className="db-edit"
+                className="db-action"
                 onClick={(e) => { e.stopPropagation(); beginRename(db); }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); beginRename(db); }
@@ -194,6 +231,29 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
               >
                 <Edit sx={{ fontSize: 13 }} />
               </Box>
+              {/* Delete — hidden for the built-in default "My Games" db (backend also guards). */}
+              {!db.is_default && (
+                <Box
+                  component="span"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Delete ${db.name}`}
+                  className="db-action"
+                  onClick={(e) => { e.stopPropagation(); setDeleteTarget(db); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setDeleteTarget(db); }
+                  }}
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'opacity 0.15s',
+                    '&:hover': { color: active ? '#fff' : 'error.main' },
+                    '&:focus-visible': { outline: '2px solid', outlineColor: active ? '#fff' : 'error.main', outlineOffset: 1, borderRadius: '4px' },
+                  }}
+                >
+                  <DeleteOutline sx={{ fontSize: 13 }} />
+                </Box>
+              )}
             </Box>
           );
         })}
@@ -228,6 +288,28 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
             <span>New</span>
           </Box>
         )}
+
+        {/* Recently deleted — only when there's something to restore */}
+        {deleted.length > 0 && (
+          <Box
+            component="button"
+            type="button"
+            onClick={(e) => setRestoreAnchor(e.currentTarget)}
+            aria-label={`Recently deleted (${deleted.length})`}
+            sx={{
+              ...pillSx(false),
+              fontFamily: 'inherit',
+              appearance: 'none',
+              color: 'var(--text-tertiary)',
+              bgcolor: 'transparent',
+              border: 'none',
+            }}
+          >
+            <Restore sx={{ fontSize: 14 }} />
+            <span>Recently deleted</span>
+            <Typography component="span" sx={countSx(false)}>{deleted.length}</Typography>
+          </Box>
+        )}
       </Box>
 
       {/* Inline error (duplicate name / validation) — never throws, keeps input open */}
@@ -236,6 +318,55 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
           {error}
         </Typography>
       )}
+
+      {/* Restore panel — lists soft-deleted dbs with their remaining recovery window */}
+      <Popover
+        open={Boolean(restoreAnchor)}
+        anchorEl={restoreAnchor}
+        onClose={() => setRestoreAnchor(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { p: 1, minWidth: 240, maxWidth: 300 } } }}
+      >
+        <Typography sx={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', px: 0.5, pb: 0.5 }}>
+          Recently deleted
+        </Typography>
+        {deleted.map((d) => (
+          <Box
+            key={d.id}
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5, px: 0.5 }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {d.name}
+              </Typography>
+              <Typography sx={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                {d.game_count} games · {d.days_left} days left
+              </Typography>
+            </Box>
+            <Button
+              size="small"
+              startIcon={<Restore sx={{ fontSize: 14 }} />}
+              onClick={() => handleRestore(d.id)}
+              sx={{ fontSize: 11, textTransform: 'none', flexShrink: 0 }}
+            >
+              Restore
+            </Button>
+          </Box>
+        ))}
+      </Popover>
+
+      {/* Delete confirmation */}
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        variant="danger"
+        title="Delete database"
+        message={deleteTarget ? `Delete '${deleteTarget.name}'? Its ${deleteTarget.game_count} games will be recoverable for 30 days.` : ''}
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </Box>
   );
 }

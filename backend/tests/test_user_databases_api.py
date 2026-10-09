@@ -15,10 +15,12 @@ the real ownership, duplicate and soft-delete logic.
 import json
 import os
 import re
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from unittest.mock import patch
 
-from api.user_databases import DATABASES_TABLE, GAMES_TABLE
+from api.user_databases import DATABASES_TABLE, GAMES_TABLE, RETENTION_DAYS
 
 USER_A = 'user_a'
 USER_B = 'user_b'
@@ -81,6 +83,13 @@ class FakeBuilder:
         return self
 
     def is_(self, *a, **k):
+        return self
+
+    @property
+    def not_(self):
+        return self
+
+    def lt(self, *a, **k):
         return self
 
     def ilike(self, *a, **k):
@@ -318,6 +327,68 @@ class TestRestoreDatabase:
             mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
             resp = client.post('/api/databases/nonexistent/restore', headers=auth_headers)
             assert resp.status_code == 404
+
+
+# ─── LIST DELETED (restore panel) ──────────────────────────────────────────────
+
+def _deleted_days_ago(days):
+    """A soft-deleted copy of DB_OPENINGS whose deleted_at is `days` days ago."""
+    ts = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return {**DB_OPENINGS, 'deleted_at': ts}
+
+
+class TestListDeletedDatabases:
+    def test_list_deleted_empty(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.get('/api/databases/deleted', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json() == []
+
+    def test_list_deleted_within_window(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [_deleted_days_ago(5)]},
+                GAMES_TABLE: {'count': 3},
+            })
+            resp = client.get('/api/databases/deleted', headers=auth_headers)
+            assert resp.status_code == 200
+            body = resp.get_json()
+            assert len(body) == 1
+            row = body[0]
+            assert row['id'] == DB_OPENINGS['id']
+            assert row['name'] == DB_OPENINGS['name']
+            assert row['game_count'] == 3
+            assert row['days_left'] == RETENTION_DAYS - 5
+
+    def test_list_deleted_excludes_expired(self, client, auth_headers):
+        # Deleted longer ago than the window → treated as gone.
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [_deleted_days_ago(RETENTION_DAYS + 10)]}})
+            resp = client.get('/api/databases/deleted', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json() == []
+
+    def test_list_deleted_days_left_floor_at_zero(self, client, auth_headers):
+        # Exactly at the boundary (RETENTION_DAYS) is excluded; one day short is 1.
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [_deleted_days_ago(RETENTION_DAYS - 1)]}})
+            resp = client.get('/api/databases/deleted', headers=auth_headers)
+            body = resp.get_json()
+            assert len(body) == 1
+            assert body[0]['days_left'] == 1
+
+    def test_list_deleted_requires_auth(self, client):
+        resp = client.get('/api/databases/deleted')
+        assert resp.status_code == 401
+
+    def test_cannot_see_other_users_deleted_db(self, client, auth_headers):
+        other = {**_deleted_days_ago(2), 'user_id': USER_B}
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [other]}})
+            resp = client.get('/api/databases/deleted', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json() == []
 
 
 # ─── CROSS-USER ISOLATION ─────────────────────────────────────────────────────

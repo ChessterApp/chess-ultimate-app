@@ -28,6 +28,24 @@ GAMES_TABLE = 'user_games'
 
 MAX_NAME_LEN = 80
 
+# Soft-deleted databases are recoverable for this many days, then hard-deleted by
+# the cleanup command (commands/cleanup_deleted_databases.py).
+RETENTION_DAYS = 30
+
+
+def _parse_ts(value):
+    """Parse an ISO timestamp (tolerating a trailing 'Z') into an aware datetime,
+    or None if it can't be parsed."""
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
 
 def _validate_name(data):
     """Return (name, error_response_tuple). name is the trimmed value on success."""
@@ -126,6 +144,52 @@ def list_databases():
 
     except Exception as e:
         logger.error(f"Error listing databases: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── LIST DELETED (restore panel) ──────────────────────────────────────────────
+
+@user_databases_bp.route('/api/databases/deleted', methods=['GET'])
+@verify_clerk_token
+def list_deleted_databases():
+    """List the caller's soft-deleted databases still within the recovery window.
+
+    Each row carries a live game_count and days_left (30 minus days since
+    deletion, floored at 0). Rows already past RETENTION_DAYS are omitted — the
+    cleanup command treats them as gone. Ordered most-recently-deleted first.
+    """
+    user_id = get_current_user_id()
+    try:
+        result = supabase.table(DATABASES_TABLE) \
+            .select('*') \
+            .eq('user_id', user_id) \
+            .not_.is_('deleted_at', 'null') \
+            .order('deleted_at', desc=True) \
+            .execute()
+
+        now = datetime.now(timezone.utc)
+        deleted = []
+        for row in result.data or []:
+            if row.get('user_id') != user_id:
+                continue
+            deleted_at = _parse_ts(row.get('deleted_at'))
+            if deleted_at is None:
+                continue
+            days_since = (now - deleted_at).days
+            if days_since >= RETENTION_DAYS:
+                continue  # past the window — treated as gone
+            deleted.append({
+                'id': row['id'],
+                'name': row.get('name'),
+                'deleted_at': row.get('deleted_at'),
+                'game_count': _game_count(row['id']),
+                'days_left': max(0, RETENTION_DAYS - days_since),
+            })
+
+        return jsonify(deleted), 200
+
+    except Exception as e:
+        logger.error(f"Error listing deleted databases: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 

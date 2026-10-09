@@ -143,4 +143,77 @@ describe('useDatabases', () => {
     expect(result.current.databases.find(d => d.id === 'db-openings')?.name).toBe('Openings');
     expect(result.current.error).toBe('A database with that name already exists.');
   });
+
+  it('deleteDatabase removes the pill optimistically and calls DELETE', async () => {
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB, OPENINGS_DB]);
+    const { result } = renderHook(() => useDatabases());
+    await act(async () => { await result.current.refresh(); });
+
+    mockApiFetch.mockResolvedValueOnce({ success: true });
+    let ok = false;
+    await act(async () => { ok = await result.current.deleteDatabase('db-openings'); });
+
+    expect(ok).toBe(true);
+    expect(result.current.databases).toEqual([DEFAULT_DB]);
+    const [url, opts] = mockApiFetch.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/databases/db-openings');
+    expect(opts.method).toBe('DELETE');
+  });
+
+  it('rolls back the optimistic delete when the server rejects it', async () => {
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB, OPENINGS_DB]);
+    const { result } = renderHook(() => useDatabases());
+    await act(async () => { await result.current.refresh(); });
+
+    mockApiFetch.mockRejectedValueOnce(httpError('boom', 500));
+    let ok = true;
+    await act(async () => { ok = await result.current.deleteDatabase('db-openings'); });
+
+    expect(ok).toBe(false);
+    // The pill is restored after the failed DELETE.
+    expect(result.current.databases).toEqual([DEFAULT_DB, OPENINGS_DB]);
+    expect(result.current.error).toBe('boom');
+  });
+
+  it('restoreDatabase POSTs to /restore and refreshes the live list', async () => {
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB]);
+    const { result } = renderHook(() => useDatabases());
+    await act(async () => { await result.current.refresh(); });
+
+    // POST /restore resolves, then the hook re-fetches the live list.
+    mockApiFetch.mockResolvedValueOnce(OPENINGS_DB);
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB, OPENINGS_DB]);
+    let restored: UserDatabase | null = null;
+    await act(async () => { restored = await result.current.restoreDatabase('db-openings'); });
+
+    expect(restored).toEqual(OPENINGS_DB);
+    expect(result.current.databases).toEqual([DEFAULT_DB, OPENINGS_DB]);
+    const [url, opts] = mockApiFetch.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/databases/db-openings/restore');
+    expect(opts.method).toBe('POST');
+  });
+
+  it('listDeleted fetches /deleted and returns the rows', async () => {
+    const deleted = [
+      { id: 'db-openings', name: 'Openings', deleted_at: '2026-01-01T00:00:00+00:00', game_count: 2, days_left: 25 },
+    ];
+    mockApiFetch.mockResolvedValueOnce(deleted);
+    const { result } = renderHook(() => useDatabases());
+
+    let rows: unknown;
+    await act(async () => { rows = await result.current.listDeleted(); });
+
+    expect(rows).toEqual(deleted);
+    expect(mockApiFetch.mock.calls[0][0]).toBe('/api/databases/deleted');
+  });
+
+  it('listDeleted returns [] on error instead of throwing', async () => {
+    mockApiFetch.mockRejectedValueOnce(httpError('nope', 500));
+    const { result } = renderHook(() => useDatabases());
+
+    let rows: unknown = null;
+    await act(async () => { rows = await result.current.listDeleted(); });
+
+    expect(rows).toEqual([]);
+  });
 });

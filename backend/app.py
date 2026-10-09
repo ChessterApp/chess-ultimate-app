@@ -279,6 +279,13 @@ try:
 except ImportError as e:
     logger.warning(f"⚠️  Could not register lifecycle-emails CLI: {e}")
 
+try:
+    from commands.cleanup_deleted_databases import register_cli as register_db_cleanup_cli
+    register_db_cleanup_cli(app)
+    logger.info("✅ Database-cleanup CLI registered (flask databases cleanup-deleted)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not register database-cleanup CLI: {e}")
+
 # Read-only impersonation: block write requests platform-wide whenever the
 # super-admin "View as" cookie is present.
 try:

@@ -7,8 +7,8 @@
  * friendly inline `error` string rather than a throw, so the pill-row UI can
  * keep its inline input open.
  *
- * Delete/restore are intentionally omitted — they ship in Phase 3 alongside the
- * confirmation modal and the recently-deleted panel.
+ * Phase 3 adds soft-delete (optimistic pill removal), restore, and listing the
+ * recently-deleted databases for the restore panel.
  */
 
 import { useState, useRef, useCallback } from 'react';
@@ -26,6 +26,15 @@ export interface UserDatabase {
   game_count: number;
   created_at?: string;
   updated_at?: string;
+}
+
+/** A soft-deleted database still within its 30-day recovery window. */
+export interface DeletedDatabase {
+  id: string;
+  name: string;
+  deleted_at: string;
+  game_count: number;
+  days_left: number;
 }
 
 const DUPLICATE_NAME_MESSAGE = 'A database with that name already exists.';
@@ -146,6 +155,43 @@ export function useDatabases() {
     }
   }, [fetchWithAuth, setDatabases]);
 
+  const deleteDatabase = useCallback(async (id: string): Promise<boolean> => {
+    setError(null);
+    // Optimistic removal; keep the prior list to roll back on failure.
+    const previous = databasesRef.current;
+    setDatabases(prev => prev.filter(db => db.id !== id));
+    try {
+      await fetchWithAuth<{ success: boolean }>(`/${id}`, { method: 'DELETE' });
+      return true;
+    } catch (e: unknown) {
+      setDatabases(previous); // roll back the optimistic removal
+      setError(e instanceof Error ? e.message : 'Failed to delete database');
+      return false;
+    }
+  }, [fetchWithAuth, setDatabases]);
+
+  const restoreDatabase = useCallback(async (id: string): Promise<UserDatabase | null> => {
+    setError(null);
+    try {
+      const restored = await fetchWithAuth<UserDatabase>(`/${id}/restore`, { method: 'POST' });
+      // Re-fetch so the restored pill lands in its canonical (default-first) slot
+      // with an up-to-date game_count.
+      await refresh();
+      return restored;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to restore database');
+      return null;
+    }
+  }, [fetchWithAuth, refresh]);
+
+  const listDeleted = useCallback(async (): Promise<DeletedDatabase[]> => {
+    try {
+      return await fetchWithAuth<DeletedDatabase[]>('/deleted');
+    } catch {
+      return [];
+    }
+  }, [fetchWithAuth]);
+
   return {
     databases,
     loading,
@@ -153,5 +199,8 @@ export function useDatabases() {
     refresh,
     createDatabase,
     renameDatabase,
+    deleteDatabase,
+    restoreDatabase,
+    listDeleted,
   };
 }
