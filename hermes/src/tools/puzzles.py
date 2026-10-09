@@ -126,12 +126,6 @@ def site_puzzle(theme: Optional[str], resolved: Optional[str], user_id: Optional
         return None
 
 
-_PUZZLE_NOT_THE_OLD_BOARD = (
-    " Any [Engine] line or board facts in the student's message are about the board as it was before this "
-    "puzzle: they say nothing about it — read the puzzle from its own FEN."
-)
-
-
 def get_puzzle(
     theme: str = None,
     rating: int = None,
@@ -163,7 +157,7 @@ def get_puzzle(
                     f"{site.get('n')} of {site.get('of')} of {where}, the student's own programme: say so, say whose "
                     "move it is and what to look for, never the solution, and give the set's address at the end"
                     + (f": {site['url']}" if site.get("url") else "") + ". For the next task call get_puzzle again "
-                    "with this puzzle_id in exclude_ids." + _PUZZLE_NOT_THE_OLD_BOARD
+                    "with this puzzle_id in exclude_ids."
                 ),
                 "board_actions": [shown.model_dump(by_alias=True)],
             }
@@ -210,7 +204,7 @@ def get_puzzle(
         "how_to_show": (
             "The first puzzle is already on the student's board — do not call board_control "
             "for it. Say whose move it is and what to look for, never the solution. Another "
-            "puzzle from this list: board_control set_puzzle with its puzzle_id." + _PUZZLE_NOT_THE_OLD_BOARD
+            "puzzle from this list: board_control set_puzzle with its puzzle_id."
         ),
         "board_actions": [shown.model_dump(by_alias=True)],
     }
@@ -232,13 +226,8 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         user_id=user_id,
         locale=args.get("locale") or "ru",
     )
-    from src.sessions import BOARD_KEPT_NOTE, board_lock_for
-
-    if board_lock_for(kwargs) and isinstance(result, dict):
-        # «already on the student's board» would be a lie now (production 2026-10-09)
-        for key in ("board_actions", "how_to_show", "on_board"):
-            result.pop(key, None)
-        result["board_hint"] = BOARD_KEPT_NOTE
+    # A puzzle is what the student asked for: only a strict board lock keeps it off the board,
+    # and the model then hears so (src/board_truth.py, for every tool).
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 

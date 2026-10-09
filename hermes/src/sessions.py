@@ -44,13 +44,23 @@ class Session(BaseModel):
     # production (2026-10-06) get_topic/get_lesson put an example over the
     # student's puzzle and the coach solved the example. Not serialized.
     _board_lock: Optional[str] = PrivateAttr(default=None)
+    # A strict lock (the question points at this board: «здесь», «эту задачу», «первый ход», a move,
+    # a live game) keeps every position off the board; a plain one (the words only touch on a move
+    # or a puzzle) keeps off the examples of get_topic/get_lesson, while a puzzle or a position the
+    # coach puts up on purpose goes on — «Есть задачка на мат в два?» asks for one (2026-10-09).
+    _board_lock_strict: bool = PrivateAttr(default=False)
 
-    def lock_board(self, fen: Optional[str]) -> None:
+    def lock_board(self, fen: Optional[str], strict: bool = False) -> None:
         self._board_lock = fen
+        self._board_lock_strict = bool(fen) and strict
 
     @property
     def board_lock(self) -> Optional[str]:
         return self._board_lock
+
+    @property
+    def board_lock_strict(self) -> bool:
+        return self._board_lock_strict
 
     # ── boards ──────────────────────────────────────────────────────
     def ensure_board(self) -> Board:
@@ -299,17 +309,28 @@ session_store = SessionStore()
 BOARD_KEPT_NOTE = (
     "The student's own position stays on the board this turn (they asked about it): nothing was put on the "
     "board. Do not describe the example or lesson position as the board, and do not solve it instead — answer "
-    "about the student's position; name the lesson by its link if it helps."
+    "about the student's position; name the lesson by its link if it helps. If the student was in fact asking "
+    "for a new example, lesson or puzzle, offer to put it on the board: a short «да» from them will do it."
 )
 
 
-def board_lock_for(kwargs: Optional[dict]) -> Optional[str]:
-    """The locked position of the coach session a tool runs in (kwargs ``session_id``), else None."""
+def _tool_session(kwargs: Optional[dict]):
     session_id = (kwargs or {}).get("session_id")
     if not session_id:
         return None
     try:
-        session = session_store.get(str(session_id))
+        return session_store.get(str(session_id))
     except Exception:  # noqa: BLE001
         return None
+
+
+def board_lock_for(kwargs: Optional[dict]) -> Optional[str]:
+    """The locked position of the coach session a tool runs in (kwargs ``session_id``), else None."""
+    session = _tool_session(kwargs)
     return getattr(session, "board_lock", None) if session is not None else None
+
+
+def board_lock_strict_for(kwargs: Optional[dict]) -> bool:
+    """Whether no position at all may replace the board this turn (see Session._board_lock_strict)."""
+    session = _tool_session(kwargs)
+    return bool(getattr(session, "board_lock_strict", False)) if session is not None else False

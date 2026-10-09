@@ -607,6 +607,46 @@ def _arm_gemini_reasoning(agent) -> None:
     agent._build_api_kwargs = _build_api_kwargs
 
 
+OLD_BOARD_NOTE = (
+    "## The board changed during this answer\n"
+    "What the turn said about the board as it was before (its state, engine line, facts, the student's move "
+    "on it) was removed: "
+    "the position now on the board is the one in the tool result — read it from there."
+)
+
+
+def _forget_old_board(agent, moved: dict, old_blocks: list) -> None:
+    """From the model call after a tool puts a different position up, the turn's blocks about the old
+    board are left out of the request (src/board_truth.py tells the model the same in the result).
+
+    On the stand (2026-10-09) the coach put a mate puzzle up over the student's position and then
+    explained it with the old position's engine line — «конь f6 бьёт пешку d5» — in 4 of 8 answers.
+    Only the request is changed: the session keeps the message as it was.
+    """
+    build = getattr(agent, "_build_api_kwargs", None)
+    if build is None:
+        return
+
+    def _build_api_kwargs(api_messages):
+        if moved.get("fen") and old_blocks:
+            for msg in api_messages:
+                if isinstance(msg, dict) and msg.get("role") == "user" and isinstance(msg.get("content"), str):
+                    msg["content"] = forget_old_board_text(msg["content"], old_blocks)
+        return build(api_messages)
+
+    agent._build_api_kwargs = _build_api_kwargs
+
+
+def forget_old_board_text(text: str, old_blocks: list) -> str:
+    """*text* with every block about the old board replaced by OLD_BOARD_NOTE (once)."""
+    noted = False
+    for block in old_blocks:
+        if block and block in text:
+            text = text.replace(block, "" if noted else OLD_BOARD_NOTE)
+            noted = True
+    return text
+
+
 def _turn_fallback_model(routed_model: str) -> Optional[str]:
     """Fallback for this turn, or ``None`` when failover is switched off."""
     if not config.COACH_MODEL_FALLBACK_ENABLED:
@@ -671,20 +711,38 @@ _WANTS_NEW_PUZZLE = re.compile(
     re.IGNORECASE)
 # The default board is nothing of the student's to keep: the start position, an empty board.
 _DEFAULT_BOARDS = frozenset({chess.STARTING_BOARD_FEN, "8/8/8/8/8/8/8/8"})
+# The question points at the board in front of the student — then nothing replaces it, not even a
+# puzzle: the coach answered «Задача из урока … Какой здесь первый ход?» with get_puzzle in 3 of
+# 1620 production turns. Words that only touch on a move or a puzzle («Есть задачка на мат в два?»,
+# «как ходит конь») lock out the examples of get_topic/get_lesson, not a puzzle (2026-10-09).
+_ABOUT_THIS_BOARD = re.compile(
+    r"(?<![\w-])(?:здесь|тут|сейчас|эт(?:а|у|ой|от|ом|и|их|им)\s+(?:[\w-]+\s+)?(?:позици\w*|задач\w*|ход\w*|доск\w*|"
+    r"парти\w*|вариант\w*)|в\s+этой\s+позиции|из\s+этой\s+позиции|на\s+доске|перв\w+\s+ход\w*|лучш\w+\s+ход\w*|"
+    r"следующ\w+\s+ход\w*|чей\s+ход|как(?:ой|ую|им)\s+(?:[\w-]+\s+)?ход\w*|which\s+move|what\s+move|жүріс\w*|"
+    r"как\s+(?:мне\s+|белым\s+|ч[её]рным\s+)?(?:выиграть|решить|спастись|защититься)|"
+    r"что\s+(?:мне\s+|белым\s+|ч[её]рным\s+)?(?:делать|играть|сыграть)|here|this\s+(?:position|puzzle|move|board)|"
+    r"on\s+the\s+board|best\s+move|first\s+move|what\s+should\s+i\s+play|оцени\w*|осы|бұл|мұнда|қазір|бағала\w*)(?![\w-])"
+    r"|(?<![\w-])(?:[KQRBNКФЛС]?[a-hасе][1-8]|[KQRBNКФЛС][a-h]?x?[a-h][1-8]|O-O(?:-O)?|0-0(?:-0)?)(?![\w-])",
+    re.IGNORECASE)
+
+
+def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> tuple[Optional[str], bool]:
+    """(the position to keep on the board this turn or None, whether the lock is strict)."""
+    if not fen:
+        return None, False
+    if live_game:
+        return fen, True
+    if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
+        return None, False
+    text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
+    if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
+        return fen, bool(_ABOUT_THIS_BOARD.search(text))
+    return None, False
 
 
 def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> Optional[str]:
     """The position to keep on the board this turn, or None."""
-    if not fen:
-        return None
-    if live_game:
-        return fen
-    if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
-        return None
-    text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
-    if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
-        return fen
-    return None
+    return _board_lock_level(message, has_fen, live_game, fen)[0]
 
 
 def _idea_verdict(hypo: Optional[dict]) -> Optional[dict]:
@@ -1742,7 +1800,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # replacing it (src/sessions.board_lock_for). Production, 2026-10-06: a
     # lesson's puzzle was replaced by a topic example and the coach solved the
     # example — «Qg4+» on a board where the queen could not reach g4.
-    session.lock_board(_board_lock_for_turn(body.message, bool(body.fen), live_game, session.board_state))
+    lock_fen, lock_strict = _board_lock_level(body.message, bool(body.fen), live_game, session.board_state)
+    session.lock_board(lock_fen, strict=lock_strict)
     turn_board_locked = bool(session.board_lock)  # the lock is cleared when the agent thread ends
     named_moves: list = []
     hypo_future = None
@@ -1828,6 +1887,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             logger.debug("game context failed", exc_info=True)
     # Moves the student named («могу ли я сыграть Qxg7?»): their legality is a
     # fact of the board, decided here, not left to the model.
+    moves_note = None
     try:
         from src.prompt_builder import moves_in_question_block
 
@@ -1838,6 +1898,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     except Exception:  # noqa: BLE001 — never block a turn on this
         logger.debug("moves-in-question block failed", exc_info=True)
     current_message = attach_turn_context(current_message, turn_context)
+    # The blocks about the board the student sent — its state and analysis, the moves they named —
+    # leave the model's later calls once a tool puts a different position up (_forget_old_board).
+    turn_board_blocks = re.findall(r"## Current Board State\n.*?(?=\n\n## |\Z)", turn_context or "", re.S)
+    if moves_note:
+        turn_board_blocks.append(moves_note)
     if history_messages:
         recent = history_messages[-20:]  # last ~10 turns
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
@@ -2053,6 +2118,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # when it completes so the frontend's ToolIndicator lights up during a
         # tool-using exchange. Callbacks run on the executor thread, so hop onto
         # the loop via call_soon_threadsafe (same bridge as _on_delta).
+        # The board the turn's engine line and facts describe, and those blocks: when a tool puts a
+        # different position up, they are left out of the next model calls (_forget_old_board).
+        board_moved = {"from": session.board_state, "fen": None}
+        old_board_blocks: list = list(turn_board_blocks)
+
         def _on_tool_start(tool_call_id, tool_name, args):
             tool_starts[tool_call_id] = time.monotonic()
             loop.call_soon_threadsafe(queue.put_nowait, ("tool_call", tool_name))
@@ -2067,11 +2137,24 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             # of an answer used to reach the student only when the whole turn was
             # over, seconds after the text that talks about them.
             actions = tool_board_actions(result)
-            if actions and session.board_lock:
-                # The student's position stays: no tool replaces it this turn.
+            if actions and session.board_lock_strict:
+                # The student's position stays: no tool replaces it this turn (src/board_truth.py has
+                # already told the model; a plain lock keeps out only the topic/lesson examples).
                 actions = [a for a in actions if not (isinstance(a, dict) and a.get("type") in _POSITION_ACTIONS)]
             if actions:
                 loop.call_soon_threadsafe(queue.put_nowait, ("board_actions", actions))
+                try:
+                    from src.board_truth import POSITION_ACTIONS, position_after
+
+                    for action in actions:
+                        if isinstance(action, dict) and action.get("type") in POSITION_ACTIONS:
+                            new_fen = position_after(action)
+                            if (new_fen or "").split(" ")[0] != (board_moved["from"] or "").split(" ")[0]:
+                                board_moved["fen"] = new_fen or "?"
+                                # the engine's verdict was about the old board: no eval-based checks now
+                                check_ctx.engine_eval = check_ctx.tablebase = check_ctx.engine_mate = None
+                except Exception:  # noqa: BLE001 — never break a turn on the bookkeeping
+                    logger.debug("board move bookkeeping failed", exc_info=True)
             # What the tool put on the board (a topic example, a puzzle, a game)
             # is a position the answer may talk about.
             try:
@@ -2109,6 +2192,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
         agent.tool_start_callback = _on_tool_start
         agent.tool_complete_callback = _on_tool_complete
+        _forget_old_board(agent, board_moved, old_board_blocks)
 
         def _run():
             try:
@@ -2120,7 +2204,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if famous:
                     message = f"{message}\n\n{famous['block']}"
                 if note:
-                    message = f"{message}\n\n{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}"
+                    old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative)))
+                    message = f"{message}\n\n{old_board_blocks[-1]}"
                 elif engine_future is not None and session.board_state:
                     # The engine was late (load, a slow lookup): the board's own facts — what hangs,
                     # what is pinned, castling, the result on the board — still go in, computed
@@ -2130,6 +2215,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
 
                         facts_only = board_facts_block(session.board_state)
                         if facts_only:
+                            old_board_blocks.append(facts_only)
                             message = f"{message}\n\n{facts_only}"
                             engine_state["facts_fallback"] = True
                     except Exception:  # noqa: BLE001 — never block a turn on the fallback
@@ -2146,12 +2232,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 if live and live.get("note"):
                     from src.prompt_builder import live_game_block
 
-                    message = f"{message}\n\n{live_game_block(live['note'])}"
+                    old_board_blocks.append(live_game_block(live['note']))
+                    message = f"{message}\n\n{old_board_blocks[-1]}"
                     check_ctx.engine_eval = live.get("eval")
                 hypo = _await_engine_note(hypo_future, engine_started, hypo_state)
                 if hypo:
-                    message = (f"{message}\n\n"
-                               f"{hypothetical_block(hypo['note'], live_game=bool(live_game), where=past['label'] if past else None)}")
+                    old_board_blocks.append(
+                        hypothetical_block(hypo['note'], live_game=bool(live_game), where=past['label'] if past else None))
+                    message = f"{message}\n\n{old_board_blocks[-1]}"
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
@@ -2174,7 +2262,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 reply = stream_completion(
                     model=model,
                     api_key=os.environ.get("OPENROUTER_API_KEY", ""),
-                    messages=fix_messages(turn_msg["message"] or augmented_message, shown, wrong, issues,
+                    messages=fix_messages(forget_old_board_text(turn_msg["message"] or augmented_message, old_board_blocks)
+                                          if board_moved["fen"] else (turn_msg["message"] or augmented_message),
+                                          shown, wrong, issues,
                                           lang_note, _student_side_note(check_ctx)),
                     on_delta=lambda text: loop.call_soon_threadsafe(queue.put_nowait, ("fix", text)),
                     timeout_s=config.COACH_ANSWER_FIX_TIMEOUT_S,

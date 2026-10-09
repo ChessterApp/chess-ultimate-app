@@ -322,23 +322,92 @@ def test_default_board_is_not_locked(fen, live, locked):
     assert bool(_board_lock_for_turn("Какой здесь лучший ход?", True, live, fen)) is locked
 
 
-def test_locked_puzzle_does_not_claim_the_board(monkeypatch):
+@pytest.mark.parametrize("message,strict", [
+    # pointing at the board in front of the student: nothing replaces it, not even a puzzle
+    ("Задача из урока «Пример 5» (курс «Продвинутая тактика»). Какой здесь первый ход и почему?", True),
+    ("Как решить эту задачу?", True),
+    ("Дай подсказку к этой задаче", True),
+    ("Какой лучший ход?", True),
+    ("А если Qb6? Хороший ход?", True),
+    ("Бұл позицияда өтпелі пешкалар бар ма?", True),
+    ("Оцени позицию", True),
+    ("Какой ход посоветуешь и почему?", True),
+    ("Which move do you recommend?", True),
+    ("Маған ең жақсы жүрісті ұсыншы.", True),
+    # only touching on a puzzle or a move: a puzzle may go up, the topic examples may not
+    ("Есть задачка на мат в два?", False),
+    ("Задачку бы на вилку", False),
+    ("А можно порешать задачи?", False),
+    ("Хочу потренироваться на задачах", False),
+    ("Some puzzle please", False),
+    ("Как ходит конь?", False),
+])
+def test_board_lock_level(message, strict):
+    from src.server import _board_lock_level
+
+    fen, is_strict = _board_lock_level(message, True, False, PASSED)
+    assert fen == PASSED and is_strict is strict
+
+
+def _puzzle_result():
     import json
 
-    from src.sessions import session_store
-    from src.tools import puzzles
+    return json.dumps({"puzzles": [{"fen": NOMATE}], "on_board": "x",
+                       "how_to_show": "The puzzle is already on the student's board",
+                       "board_actions": [{"type": "set_puzzle", "fen": NOMATE, "solution": ["Nc3"]},
+                                         {"type": "draw_arrows", "arrows": []}]})
 
-    monkeypatch.setattr(puzzles, "get_puzzle", lambda **kw: {
-        "puzzles": [{"fen": "8/8/8/8/8/8/8/K6k w - - 0 1"}], "on_board": "x",
-        "how_to_show": "The puzzle is already on the student's board", "board_actions": [{"type": "set_puzzle"}]})
-    session = session_store.create(user_id="lock-test-puzzle")
-    session.lock_board(PASSED)
-    out = json.loads(puzzles._handle_get_puzzle({"theme": "pin"}, session_id=session.id))
-    assert not {"board_actions", "how_to_show", "on_board"} & out.keys()
-    assert "stays on the board" in out["board_hint"]
+
+def test_board_truth_strict_lock_keeps_every_position_off():
+    import json
+
+    from src.board_truth import board_truth
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="truth-strict")
+    session.lock_board(PASSED, strict=True)
+    out = json.loads(board_truth(_puzzle_result(), {"session_id": session.id}))
+    assert [a["type"] for a in out["board_actions"]] == ["draw_arrows"]
+    assert not {"how_to_show", "on_board"} & out.keys() and "stays on the board" in out["board_hint"]
+    out = json.loads(board_truth(json.dumps({"type": "set_fen", "fen": NOMATE}), {"session_id": session.id}))
+    assert out["shown"] is False and "type" not in out  # board_control: nothing goes up, and the model hears it
+
+
+def test_board_truth_names_the_new_board():
+    import json
+
+    from src.board_truth import board_truth
+    from src.middleware.response_envelope import tool_board_actions
+    from src.sessions import session_store
+
+    session = session_store.create(user_id="truth-plain")
+    session.lock_board(PASSED)  # a plain lock: the puzzle the student asked for goes up
+    out = json.loads(board_truth(_puzzle_result(), {"session_id": session.id}))
+    assert out["board_actions"][0]["type"] == "set_puzzle" and "already on" in out["how_to_show"]
+    assert NOMATE in out["board_now"] and "White to move" in out["board_now"] and "[Engine]" in out["board_now"]
+    raw = board_truth(json.dumps({"type": "load_pgn", "pgn": "1. e4 e5 2. Nf3"}), {})
+    assert tool_board_actions(raw)[0]["type"] == "load_pgn"  # board_control's own action still reaches the board
+    assert "Black to move" in json.loads(raw)["board_now"]
+    arrows = json.dumps({"type": "draw_arrows", "arrows": []})
+    assert board_truth(arrows, {"session_id": session.id}) == arrows
+
+
+def test_every_tool_tells_the_board():
+    import json
+
+    from tools.registry import registry
+
+    from src.sessions import session_store
+    from src.tools import discover_and_register
+
+    discover_and_register()
+    session = session_store.create(user_id="truth-registry")
+    session.lock_board(PASSED, strict=True)
+    out = json.loads(registry.dispatch("board_control", {"action_type": "set_fen", "fen": NOMATE}, session_id=session.id))
+    assert out.get("shown") is False
     session.lock_board(None)
-    out = json.loads(puzzles._handle_get_puzzle({"theme": "pin"}, session_id=session.id))
-    assert out["board_actions"] and "already on" in out["how_to_show"]
+    out = json.loads(registry.dispatch("board_control", {"action_type": "set_fen", "fen": NOMATE}, session_id=session.id))
+    assert out["board_actions"][0]["fen"] == NOMATE and "board_now" in out
 
 
 def test_locked_tools_keep_the_board(monkeypatch):
@@ -675,3 +744,25 @@ def test_a_real_pawn_recapture_is_not_flagged():
     after = [m["after_fen"] for m in question_moves(q, fen) if m.get("after_fen")]
     assert check_sentence("Чёрные бьют Bxe3, ты берёшь fxe3 — и у тебя открывается линия f.",
                           CheckContext.from_fens([fen] + after, question=q)) == []
+
+
+def test_old_board_blocks_leave_the_request_once_the_board_moves():
+    """A puzzle put up over the student's position was explained with the old engine line
+    («конь f6 бьёт пешку d5», stand 2026-10-09): from the next model call that line is gone."""
+    from types import SimpleNamespace
+
+    from src.server import OLD_BOARD_NOTE, _forget_old_board
+
+    engine, facts = "## Engine analysis of the board\nBest: Nxd5", "## Facts\nd5 hangs"
+    sent = []
+    agent = SimpleNamespace(_build_api_kwargs=lambda msgs: sent.append([m["content"] for m in msgs]) or {})
+    moved, blocks = {"fen": None}, [engine, facts]
+    _forget_old_board(agent, moved, blocks)
+    user = f"Есть задачка?\n\n{engine}\n\n{facts}\n\nAnswer in Russian."
+    agent._build_api_kwargs([{"role": "user", "content": user}])
+    assert engine in sent[-1][0]  # nothing moved yet: the student's board is still the board
+    moved["fen"] = NOMATE
+    agent._build_api_kwargs([{"role": "system", "content": engine}, {"role": "user", "content": user}])
+    system, text = sent[-1]
+    assert system == engine and engine not in text and facts not in text
+    assert text.count(OLD_BOARD_NOTE) == 1 and text.startswith("Есть задачка?") and text.endswith("Answer in Russian.")
