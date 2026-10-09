@@ -2312,7 +2312,10 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         san = mv["san"]
         if san[0] not in "KQRBNO" and not mv["num"] and not mv["bdots"] and "x" not in san:
             continue
-        if not _PRAISED.match(converted, mv.end()) or _NEGATION.search(converted[max(0, mv.start() - 24): mv.start()]):
+        # «**Kxb3!** — единственный ход» (production 09.10, a losing king move): a move marked «!» or «!!» is
+        # the coach's choice too.
+        exclaimed = re.match(r"[*_]*!{1,2}(?![?])", converted[mv.end():])
+        if not (_PRAISED.match(converted, mv.end()) or exclaimed) or _NEGATION.search(converted[max(0, mv.start() - 24): mv.start()]):
             continue
         try:
             move = ctx.current.parse_san(san + (mv["check"] or ""))
@@ -2365,6 +2368,8 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
 # reads a bare capture or a numbered move as a step of some line, let them through.
 _ANNOUNCED = re.compile(
     r"(?:(?<![а-яa-z])(?:перв\w*\s+ход\w*|решает|решающ\w+\s+ход|решени\w*|лучш\w+\s+ход\w*|ключев\w+\s+ход\w*|"
+    r"(?:спасает|выигрывает|держит|решает)\s+(?:здесь\s+|тут\s+)?(?:только\s+|лишь\s+)?(?:один|единственн\w+)\s+ход|"
+    r"только\s+один\s+ход|единственн\w+\s+(?:ход|спасение|защита)|"
     r"начина\w*\s+с|начн\w*\s+с)(?:\s+(?:здесь|тут|в\s+задаче|в\s+этой\s+позиции|бел\w*|ч[её]рн\w*|за\s+\w+|for\s+\w+)){0,2}|"
     r"\b(?:first|key|winning|best)\s+move(?:\s+is)?|\bthe\s+solution(?:\s+is)?)\s*(?:[—–:-]|это|is)?\s*[*_]*\s*$",
     re.IGNORECASE)
@@ -2390,6 +2395,8 @@ def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
             key = ctx._key(board)
             if key in ctx.text_keys and key not in ctx.shown_keys and ctx.is_given(board):
                 continue
+            if board.board_fen() == chess.STARTING_BOARD_FEN and ctx.current.board_fen() != chess.STARTING_BOARD_FEN:
+                continue  # «Первый ход здесь 1.e4» on a mating puzzle (production 09.10): the start stands in for nothing here
             try:
                 board.parse_san(san)
                 return []

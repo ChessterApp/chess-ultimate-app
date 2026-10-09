@@ -860,6 +860,28 @@ def _castle_after_issues(text: str, ctx) -> list[str]:
     return []
 
 
+# «На доске ход чёрных» with White to move (production 09.10, a lesson puzzle): the side to move named for the board.
+_TURN_CLAIM = re.compile(
+    _W + r"(?:(?:сейчас|здесь|тут|на\s+доске|в\s+этой\s+позиции)\s+(?:[а-яё]+\s+)?ход\s+(?:у\s+)?(?P<a>белых|ч[её]рных)"
+    r"|ход\s+(?:у\s+)?(?P<b>белых|ч[её]рных)\s+(?:сейчас|здесь|тут|на\s+доске)"
+    r"|^\W*ход\s+(?:у\s+)?(?P<c>белых|ч[её]рных)(?=[\s,.!—–:-]))" + _E, re.IGNORECASE)
+
+
+def _turn_claim_issues(text: str, ctx) -> list[str]:
+    board = getattr(ctx, "current", None)
+    m = _TURN_CLAIM.search(text)
+    if board is None or m is None or getattr(ctx, "scene_trail", None):
+        return []  # a move written in this sentence: the turn may be the one after it
+    if board.board_fen() == chess.STARTING_BOARD_FEN:
+        return []  # no position of the student's: the board may show a line a tool has just put there
+    if re.search(r"(?<![а-яё])(?:после|если|когда|тогда|в\s+партии|в\s+примере|в\s+уроке)(?![а-яё])", text[:m.start()]):
+        return []
+    said = chess.WHITE if (m["a"] or m["b"] or m["c"]).lower().startswith("бел") else chess.BLACK
+    if said != board.turn:
+        return [f"on the board it is {'White' if board.turn else 'Black'} to move, not {'White' if said else 'Black'}"]
+    return []
+
+
 def rules_issues(lowered: str, ctx) -> list[str]:
     """All the claims above in one sentence (*lowered*: lower case, ё → е)."""
     try:
@@ -869,6 +891,6 @@ def rules_issues(lowered: str, ctx) -> list[str]:
                 + _en_passant_issues(lowered, ctx) + _king_issues(lowered, ctx) + _colour_issues(lowered)
                 + _castling_rule_issues(lowered, getattr(ctx, "question", "")) + _cannot_go_issues(lowered, ctx)
                 + _forced_reply_issues(lowered, ctx) + _castling_b1_issues(lowered) + _automatic_draw_issues(lowered)
-                + _castle_after_issues(lowered, ctx))
+                + _castle_after_issues(lowered, ctx) + _turn_claim_issues(lowered, ctx))
     except Exception:  # noqa: BLE001 — a broken pattern must never block an answer
         return []

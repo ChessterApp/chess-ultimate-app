@@ -387,3 +387,32 @@ def test_a_move_given_to_the_wrong_side(sentence, caught):
     ctx = CheckContext.from_fens([ALEX] + [q["after_fen"] for q in named if q.get("after_fen")],
                                  question="Что если я пойду Се3? Хороший ли это ход?")
     assert bool(check_sentence(sentence, ctx)) is caught
+
+
+@pytest.mark.parametrize("case,sentence,want", [
+    (191, "Ход у чёрных — и здесь спасает только один ход: **Ke5!**", "Ke5"),  # loses; Kf5 holds
+    (208, "**Kxb3!** — король бьёт слона. Это единственный ход, который спасает партию.", "Kxb3"),  # loses
+])
+def test_a_move_marked_as_the_only_one_goes_to_the_engine(case, sentence, want):
+    import json
+
+    from src.answer_check import proposed_move
+    from src.fen_repair import repair_fen
+
+    c = json.load(open("eval/bench/2026-10-06-blind-spots/curriculum_cases.json"))[case] \
+        if __import__("os").path.exists("eval/bench/2026-10-06-blind-spots/curriculum_cases.json") else None
+    if c is None:
+        pytest.skip("bench data is not in the repository")
+    found = proposed_move(sentence, CheckContext.from_fens([repair_fen(c["fen"])]))
+    assert found and found[2] == want
+
+
+def test_the_side_to_move_named_for_the_board():
+    fen = "r1b2rk1/ppp2ppp/1bnq1n2/1B1p2B1/3PP3/2N2N2/PP3PPP/R2Q1RK1 w - - 0 1"
+    assert check_sentence("На доске ход чёрных, и у белых есть защитник.", CheckContext.from_fens([fen]))
+    assert check_sentence("На доске ход белых.", CheckContext.from_fens([fen])) == []
+
+
+def test_the_start_position_does_not_excuse_an_announced_move():
+    fen = "r1b2rk1/ppp2ppp/1bnq1n2/1B1p2B1/3PP3/2N2N2/PP3PPP/R2Q1RK1 w - - 0 1"
+    assert check_sentence("Первый ход здесь **1.e4** — белые занимают центр.", CheckContext.from_fens([fen]))
