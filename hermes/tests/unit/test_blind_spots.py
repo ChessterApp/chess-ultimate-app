@@ -288,11 +288,57 @@ def test_no_lesson_by_one_shared_word(monkeypatch):
     ("Дай задачу на вилку", True, False, False),
     ("Какой здесь лучший ход?", False, False, False),
     ("Объясни связку", False, True, True),
+    # the site's chips and other ways to ask for a new puzzle (production 2026-10-09)
+    ("Дай мне тактическую задачу", True, False, False),
+    ("Give me a tactical puzzle", True, False, False),
+    ("Маған тактикалық есеп бер", True, False, False),
+    ("Можно ещё одну задачу?", True, False, False),
+    ("Хочу задачу на связку посложнее", True, False, False),
+    ("Подбери мне лёгкую задачу", True, False, False),
+    ("Позиционная vs тактическая игра — в чём суть?", True, False, False),
+    # …but the puzzle on the board stays when the question is about it
+    ("Дай подсказку к этой задаче", True, False, True),
+    ("Как решить эту задачу?", True, False, True),
+    ("Хочу понять эту задачу", True, False, True),
+    ("Осы есепті қалай шешемін?", True, False, True),
+    ("Бұл позицияда өтпелі пешкалар бар ма?", True, False, True),
 ])
 def test_board_lock_rule(message, has_fen, live, locked):
     from src.server import _board_lock_for_turn
 
-    assert bool(_board_lock_for_turn(message, has_fen, live, chess.STARTING_FEN)) is locked
+    assert bool(_board_lock_for_turn(message, has_fen, live, PASSED)) is locked
+
+
+@pytest.mark.parametrize("fen,live,locked", [
+    (chess.STARTING_FEN, False, False),
+    ("8/8/8/8/8/8/8/8 w - - 0 1", False, False),
+    (chess.STARTING_FEN, True, True),  # a game that has not started yet is still the game
+])
+def test_default_board_is_not_locked(fen, live, locked):
+    """The start position is nothing of the student's to keep: «Дай мне тактическую задачу» on a fresh
+    /coach left the board unchanged and the coach said the puzzle was on it (production 2026-10-09)."""
+    from src.server import _board_lock_for_turn
+
+    assert bool(_board_lock_for_turn("Какой здесь лучший ход?", True, live, fen)) is locked
+
+
+def test_locked_puzzle_does_not_claim_the_board(monkeypatch):
+    import json
+
+    from src.sessions import session_store
+    from src.tools import puzzles
+
+    monkeypatch.setattr(puzzles, "get_puzzle", lambda **kw: {
+        "puzzles": [{"fen": "8/8/8/8/8/8/8/K6k w - - 0 1"}], "on_board": "x",
+        "how_to_show": "The puzzle is already on the student's board", "board_actions": [{"type": "set_puzzle"}]})
+    session = session_store.create(user_id="lock-test-puzzle")
+    session.lock_board(PASSED)
+    out = json.loads(puzzles._handle_get_puzzle({"theme": "pin"}, session_id=session.id))
+    assert not {"board_actions", "how_to_show", "on_board"} & out.keys()
+    assert "stays on the board" in out["board_hint"]
+    session.lock_board(None)
+    out = json.loads(puzzles._handle_get_puzzle({"theme": "pin"}, session_id=session.id))
+    assert out["board_actions"] and "already on" in out["how_to_show"]
 
 
 def test_locked_tools_keep_the_board(monkeypatch):
