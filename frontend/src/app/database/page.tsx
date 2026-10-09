@@ -97,6 +97,25 @@ import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
+// Incoming share-link params (?g= / ?game=&source= / ?gu=) must survive two
+// hazards before the game actually opens: the URL-sync effect strips them from
+// the address bar while no game tab is open yet, and the page can mount twice
+// on arrival with the first instance's state updates silently discarded. Stash
+// them at module level and clear only once the game has opened (or the link is
+// known to be bad), so a remount can still consume them.
+const pendingShareParams: {
+  g: string | null;
+  game: string | null;
+  source: string | null;
+  gu: string | null;
+} = { g: null, game: null, source: null, gu: null };
+
+function clearPendingGameParams() {
+  pendingShareParams.g = null;
+  pendingShareParams.game = null;
+  pendingShareParams.source = null;
+}
+
 // Extract PGN tag pairs (e.g. [White "Kasparov"]) so a deep-linked game tab can
 // show real player names/result instead of placeholders.
 function parsePgnHeaders(pgn: string): Record<string, string> {
@@ -1520,18 +1539,31 @@ export default function DebutPage() {
   //     ?game=<id>&source=twic. The opaque slug never leaks the data source. ───
   const searchParams = useSearchParams();
   const urlGameHandledRef = useRef(false);
+  const mountedRef = useRef(true);
   useEffect(() => {
-    if (urlGameHandledRef.current || !searchParams || !authLoaded) return;
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  useEffect(() => {
+    if (urlGameHandledRef.current || !searchParams) return;
 
     // Resolve the deep link: prefer the opaque slug, fall back to legacy params.
-    const slug = searchParams.get('g');
-    const legacyId = searchParams.get('game');
-    const legacySource = searchParams.get('source');
+    // Stash whatever the URL carries BEFORE the authLoaded early-return below —
+    // by the time Clerk loads, the URL-sync effect has already stripped ?g=.
+    const slug = searchParams.get('g') ?? pendingShareParams.g;
+    const legacyId = searchParams.get('game') ?? pendingShareParams.game;
+    const legacySource = searchParams.get('source') ?? pendingShareParams.source;
+    pendingShareParams.g = slug;
+    pendingShareParams.game = legacyId;
+    pendingShareParams.source = legacySource;
+    if (!authLoaded) return;
+
     let target: { source: GameSource; id: number } | null = null;
     if (slug) {
       target = decodeGameSlug(slug);
       if (!target) {
         urlGameHandledRef.current = true;
+        clearPendingGameParams();
         setSnackbar({ open: true, msg: t('shareGame.notFound'), severity: 'error' });
         return;
       }
@@ -1543,8 +1575,16 @@ export default function DebutPage() {
     urlGameHandledRef.current = true;
 
     // Recipients must be signed in — the single-game PGN endpoint is authed.
+    // Rebuild the return URL from the stash: window.location may already have
+    // been stripped of the share params.
     if (!isSignedIn) {
-      const back = `${window.location.pathname}${window.location.search}`;
+      const backParams = new URLSearchParams(window.location.search);
+      if (slug) backParams.set('g', slug);
+      else if (legacyId) {
+        backParams.set('game', legacyId);
+        if (legacySource) backParams.set('source', legacySource);
+      }
+      const back = `${window.location.pathname}?${backParams.toString()}`;
       window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
       return;
     }
@@ -1556,6 +1596,14 @@ export default function DebutPage() {
 
     pgnPromise
       .then((pgn) => {
+        // If this instance was unmounted while the PGN was in flight (the page
+        // mounts twice on arrival), its state updates would be discarded — keep
+        // the stash so the live instance retries instead of opening nothing.
+        if (!mountedRef.current) {
+          urlGameHandledRef.current = false;
+          return;
+        }
+        clearPendingGameParams();
         const tags = parsePgnHeaders(pgn);
         handleOpenGame({
           id: String(id),
@@ -1574,14 +1622,21 @@ export default function DebutPage() {
         }, { evictOldestIfFull: true });
       })
       .catch((e: any) => {
+        if (!mountedRef.current) {
+          urlGameHandledRef.current = false;
+          return;
+        }
         const status = e?.status;
         if (status === 401 || status === 403 || e?.message === 'Not authenticated') {
-          const back = `${window.location.pathname}${window.location.search}`;
+          const backParams = new URLSearchParams(window.location.search);
+          if (slug) backParams.set('g', slug);
           setSnackbar({ open: true, msg: t('shareGame.signInToView'), severity: 'error' });
-          window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+          window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(`${window.location.pathname}?${backParams.toString()}`)}`);
         } else if (status === 404) {
+          clearPendingGameParams();
           setSnackbar({ open: true, msg: t('shareGame.notFound'), severity: 'error' });
         } else {
+          clearPendingGameParams();
           setSnackbar({ open: true, msg: t('shareGame.loadError'), severity: 'error' });
         }
       });
@@ -1592,15 +1647,24 @@ export default function DebutPage() {
   //     signed in; the fetch endpoint is authed. ───
   const urlSharedGameHandledRef = useRef(false);
   useEffect(() => {
-    if (urlSharedGameHandledRef.current || !searchParams || !authLoaded) return;
-    const token = searchParams.get('gu');
+    if (urlSharedGameHandledRef.current || !searchParams) return;
+    // Stash before the authLoaded early-return — same remount/strip hazards as
+    // the ?g= effect above.
+    const token = searchParams.get('gu') ?? pendingShareParams.gu;
     if (!token) return;
+    pendingShareParams.gu = token;
+    if (!authLoaded) return;
     urlSharedGameHandledRef.current = true;
+
+    const buildBack = () => {
+      const backParams = new URLSearchParams(window.location.search);
+      backParams.set('gu', token);
+      return `${window.location.pathname}?${backParams.toString()}`;
+    };
 
     // Recipients must be signed in — the shared-game endpoint is authed.
     if (!isSignedIn) {
-      const back = `${window.location.pathname}${window.location.search}`;
-      window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+      window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(buildBack())}`);
       return;
     }
 
@@ -1613,16 +1677,26 @@ export default function DebutPage() {
           `${apiBase}/api/games/shared/${encodeURIComponent(token)}`,
           { headers: { Authorization: `Bearer ${clerkToken}` } },
         );
+        if (!mountedRef.current) {
+          urlSharedGameHandledRef.current = false;
+          return;
+        }
+        pendingShareParams.gu = null;
         handleOpenGame(game, { evictOldestIfFull: true });
       } catch (e: unknown) {
+        if (!mountedRef.current) {
+          urlSharedGameHandledRef.current = false;
+          return;
+        }
         const status = (e as { status?: number })?.status;
         if (status === 401 || status === 403) {
-          const back = `${window.location.pathname}${window.location.search}`;
           setSnackbar({ open: true, msg: t('shareGame.signInToView'), severity: 'error' });
-          window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+          window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(buildBack())}`);
         } else if (status === 404) {
+          pendingShareParams.gu = null;
           setSnackbar({ open: true, msg: t('shareGame.notFound'), severity: 'error' });
         } else {
+          pendingShareParams.gu = null;
           setSnackbar({ open: true, msg: t('shareGame.loadError'), severity: 'error' });
         }
       }
@@ -1648,7 +1722,11 @@ export default function DebutPage() {
         try { slug = encodeGameSlug(src as GameSource, id); } catch { slug = null; }
       }
     }
-    if (slug) params.set('g', slug); else params.delete('g');
+    // Never strip an incoming share link that hasn't opened yet — on first
+    // mount this effect runs with zero opened games, before the deep-link
+    // effect has consumed ?g=.
+    if (slug) params.set('g', slug);
+    else if (!pendingShareParams.g && !pendingShareParams.game) params.delete('g');
     const qs = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
   }, [activeTab, openedGames]);
