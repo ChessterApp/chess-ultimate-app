@@ -127,6 +127,7 @@ export default function DebutBoard({
               alignItems: 'center',
               justifyContent: 'center',
               cursor: 'pointer',
+              userSelect: 'none',
               color: 'text.secondary',
               padding: '5px',
               transition: 'background-color 0.15s, color 0.15s',

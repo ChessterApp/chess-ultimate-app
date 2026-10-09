@@ -81,6 +81,7 @@ export default function StartReviewButton({
     fontWeight: 800,
     borderRadius: 999,
     cursor: allowed && !loading ? 'pointer' : 'not-allowed',
+    userSelect: 'none',
     opacity: allowed ? 1 : 0.5,
     fontFamily: 'inherit',
     transition: 'filter 0.15s ease',
