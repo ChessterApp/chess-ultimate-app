@@ -51,6 +51,7 @@ def discover_and_register() -> list[str]:
 
     _repair_fen_args()
     _hint_on_error()
+    _tell_the_board()
     return loaded
 
 
@@ -83,6 +84,24 @@ def _hint_on_error() -> None:
             return result
 
         handler._hints_errors = True
+        handler._repairs_fen = getattr(entry.handler, "_repairs_fen", False)
+        entry.handler = handler
+
+
+def _tell_the_board() -> None:
+    """What a tool put on the board is what the model hears, for every tool (src/board_truth.py)."""
+    from src.board_truth import board_truth
+
+    for name in get_registered_tools():
+        entry = registry.get_entry(name)
+        if entry is None or getattr(entry.handler, "_tells_board", False):
+            continue
+
+        def handler(args, _inner=entry.handler, **kwargs):
+            return board_truth(_inner(args, **kwargs), kwargs)
+
+        handler._tells_board = True
+        handler._hints_errors = getattr(entry.handler, "_hints_errors", False)
         handler._repairs_fen = getattr(entry.handler, "_repairs_fen", False)
         entry.handler = handler
 
