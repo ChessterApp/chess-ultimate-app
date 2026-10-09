@@ -37,6 +37,7 @@ import { useUserGames, type UserGame, type ListGamesFilters } from '@/hooks/useU
 import AddGameModal from './AddGameModal';
 import EditGameModal from './EditGameModal';
 import ShareMyGameButton from './ShareMyGameButton';
+import ShareMyGamesButton from './ShareMyGamesButton';
 
 type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
@@ -261,21 +262,25 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
       {/* Owner mode: mutation UI (add/import + modals). Hidden in shared mode. */}
       {!isShared && (
         <>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<Add />}
-            onClick={() => setAddModalOpen(true)}
-            sx={{
-              fontSize: 12,
-              textTransform: 'none',
-              py: 0.75,
-              background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
-              '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #4f46e5)' },
-            }}
-          >
-            {t('myGames.addGame')}
-          </Button>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<Add />}
+              onClick={() => setAddModalOpen(true)}
+              sx={{
+                fontSize: 12,
+                textTransform: 'none',
+                py: 0.75,
+                flex: 1,
+                background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+                '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #4f46e5)' },
+              }}
+            >
+              {t('myGames.addGame')}
+            </Button>
+            <ShareMyGamesButton />
+          </Box>
 
           <AddGameModal
             open={addModalOpen}
