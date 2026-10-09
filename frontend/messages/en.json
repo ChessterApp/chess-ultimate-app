@@ -1127,6 +1127,10 @@
       "cancel": "Cancel",
       "addModal": {
         "enterOnBoard": "Enter on Board",
+        "boardEntry": "Enter Moves",
+        "boardEntryHint": "Play the moves on the board",
+        "movesLabel": "Moves",
+        "noMovesYet": "No moves yet",
         "uploadScoresheet": "Upload Scoresheet",
         "importPgn": "Import PGN",
         "pgnPlaceholder": "Paste your PGN here...\n\n[Event \"?\"]\n[White \"?\"]\n[Black \"?\"]\n[Result \"*\"]\n\n1. e4 e5 2. Nf3 Nc6 ...",

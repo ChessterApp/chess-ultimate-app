@@ -1127,6 +1127,10 @@
       "cancel": "Болдырмау",
       "addModal": {
         "enterOnBoard": "Тақтада енгізу",
+        "boardEntry": "Жүрістерді енгізу",
+        "boardEntryHint": "Жүрістерді тақтада ойнаңыз",
+        "movesLabel": "Жүрістер",
+        "noMovesYet": "Әзірге жүрістер жоқ",
         "uploadScoresheet": "Бланк жүктеу",
         "importPgn": "PGN импорт",
         "pgnPlaceholder": "PGN мұнда қойыңыз...\n\n[Event \"?\"]\n[White \"?\"]\n[Black \"?\"]\n[Result \"*\"]\n\n1. e4 e5 2. Nf3 Nc6 ...",

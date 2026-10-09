@@ -9,7 +9,7 @@
 
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -27,11 +27,15 @@ import {
   InputLabel,
   CircularProgress,
 } from '@mui/material';
-import { Close, CameraAlt, Description } from '@mui/icons-material';
+import { Close, CameraAlt, Description, SportsEsports, Undo, RestartAlt } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
+import type { Key } from 'chessground/types';
+import type { PromotionRole } from '@/lib/chess/promotion';
+import ChessgroundBoard from '@/components/chess/ChessgroundBoard';
+import { buildPgnFromSanMoves, detectResult } from '@/lib/chess/boardEntry';
 
-type InputMethod = 'scoresheet' | 'pgn';
+type InputMethod = 'scoresheet' | 'pgn' | 'board';
 
 interface GameFormData {
   title: string;
@@ -93,6 +97,12 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
   // Scoresheet state
   const [scoresheetPgn, setScoresheetPgn] = useState('');
 
+  // Manual move-entry (in-modal board) state
+  const [boardEntryPgn, setBoardEntryPgn] = useState('');
+  // Last terminal result auto-applied to the form, so we only pre-fill on the
+  // transition into a terminal position and never clobber a user override.
+  const lastDetectedResultRef = useRef<string | null>(null);
+
   const useBoardPgn = boardHasMoves && !boardOverridden;
 
   const resetState = useCallback(() => {
@@ -102,6 +112,8 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
     setError('');
     setSaving(false);
     setScoresheetPgn('');
+    setBoardEntryPgn('');
+    lastDetectedResultRef.current = null;
     setBoardOverridden(false);
     setShowReplaceWarning(false);
     setPendingMethod(null);
@@ -163,6 +175,18 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
     populateFormFromPgn(resultPgn);
   }, [populateFormFromPgn]);
 
+  // ── Board Entry Callback ──
+
+  const handleBoardEntryChange = useCallback((entryPgn: string, detectedResult: string | null) => {
+    setBoardEntryPgn(entryPgn);
+    // Pre-fill the result only when the position newly becomes terminal; the
+    // user remains free to override it afterwards.
+    if (detectedResult && detectedResult !== lastDetectedResultRef.current) {
+      setForm(prev => ({ ...prev, result: detectedResult }));
+    }
+    lastDetectedResultRef.current = detectedResult;
+  }, []);
+
   // ── Save Handler ──
 
   const handleSave = useCallback(async () => {
@@ -200,6 +224,13 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
       }
       finalPgn = scoresheetPgn;
       source = 'scoresheet';
+    } else if (method === 'board') {
+      if (!boardEntryPgn) {
+        setError(t('myGames.addModal.noMoves'));
+        return;
+      }
+      finalPgn = boardEntryPgn;
+      source = 'board_entry';
     }
 
     setSaving(true);
@@ -228,9 +259,10 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
     } finally {
       setSaving(false);
     }
-  }, [useBoardPgn, boardPgn, method, pgn, scoresheetPgn, form, onSave, onBoardReset, handleClose, t]);
+  }, [useBoardPgn, boardPgn, method, pgn, scoresheetPgn, boardEntryPgn, form, onSave, onBoardReset, handleClose, t]);
 
   const methods: { key: InputMethod; label: string; icon: React.ReactNode }[] = [
+    { key: 'board', label: t('myGames.addModal.boardEntry'), icon: <SportsEsports sx={{ fontSize: 16 }} /> },
     { key: 'scoresheet', label: t('myGames.addModal.uploadScoresheet'), icon: <CameraAlt sx={{ fontSize: 16 }} /> },
     { key: 'pgn', label: t('myGames.addModal.importPgn'), icon: <Description sx={{ fontSize: 16 }} /> },
   ];
@@ -391,6 +423,9 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
                 t={t}
               />
             )}
+            {method === 'board' && (
+              <BoardEntryTab onChange={handleBoardEntryChange} t={t} />
+            )}
           </Box>
         )}
 
@@ -422,7 +457,7 @@ export default function AddGameModal({ open, onClose, onSave, boardPgn, boardHas
             variant="contained"
             size="small"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || (!useBoardPgn && method === 'board' && !boardEntryPgn)}
             sx={{
               fontSize: 12,
               textTransform: 'none',
@@ -646,6 +681,131 @@ function ScoresheetTab({ scoresheetPgn, onResult, t }: ScoresheetTabProps) {
           </Typography>
         </Box>
       )}
+    </Box>
+  );
+}
+
+// ─── Board Entry Tab ────────────────────
+
+interface BoardEntryTabProps {
+  /** Reports the live PGN (SAN moves + trailing result) and the auto-detected
+   *  terminal result (`null` while the game is unfinished) on every change. */
+  onChange: (pgn: string, detectedResult: string | null) => void;
+  t: ReturnType<typeof useTranslations>;
+}
+
+function BoardEntryTab({ onChange, t }: BoardEntryTabProps) {
+  const [sanMoves, setSanMoves] = useState<string[]>([]);
+
+  // Rebuild the position from the SAN list each render — keeps React state as
+  // the single source of truth (no mutable chess.js ref to fall out of sync).
+  const chess = React.useMemo(() => {
+    const game = new Chess();
+    for (const san of sanMoves) {
+      try {
+        game.move(san);
+      } catch {
+        break;
+      }
+    }
+    return game;
+  }, [sanMoves]);
+
+  const fen = chess.fen();
+  const detectedResult = detectResult(chess);
+
+  // Surface the live PGN + detected result upward whenever the moves change.
+  // `onChange` is a stable useCallback in the parent, so this effect only
+  // re-runs when the move list (and thus the detected result) changes.
+  useEffect(() => {
+    onChange(
+      buildPgnFromSanMoves(sanMoves, detectedResult ?? '*'),
+      detectedResult,
+    );
+  }, [sanMoves, detectedResult, onChange]);
+
+  const handleMove = useCallback((from: Key, to: Key, promotion?: PromotionRole) => {
+    setSanMoves(prev => {
+      const game = new Chess();
+      for (const san of prev) {
+        try {
+          game.move(san);
+        } catch {
+          return prev;
+        }
+      }
+      try {
+        const move = game.move({ from, to, promotion: promotion ?? 'q' });
+        if (!move) return prev;
+        return [...prev, move.san];
+      } catch {
+        return prev;
+      }
+    });
+  }, []);
+
+  const handleTakeback = useCallback(() => {
+    setSanMoves(prev => prev.slice(0, -1));
+  }, []);
+
+  const handleClear = useCallback(() => {
+    setSanMoves([]);
+  }, []);
+
+  // Readable move list: "1. e4 e5 2. Nf3 ..."
+  const moveListText = sanMoves
+    .map((san, i) => (i % 2 === 0 ? `${Math.floor(i / 2) + 1}. ${san}` : san))
+    .join(' ');
+
+  return (
+    <Box>
+      <Typography sx={{ fontSize: 11, color: 'text.secondary', mb: 1 }}>
+        {t('myGames.addModal.boardEntryHint')}
+      </Typography>
+
+      <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1.5 }}>
+        <ChessgroundBoard
+          fen={fen}
+          onMove={handleMove}
+          movable
+          boardSize={320}
+        />
+      </Box>
+
+      {/* Controls */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+        <Button
+          size="small"
+          startIcon={<Undo sx={{ fontSize: 14 }} />}
+          onClick={handleTakeback}
+          disabled={sanMoves.length === 0}
+          sx={{ fontSize: 11, textTransform: 'none', color: 'text.secondary', '&:hover': { bgcolor: 'action.hover' } }}
+        >
+          {t('myGames.addModal.undo')}
+        </Button>
+        <Button
+          size="small"
+          startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
+          onClick={handleClear}
+          disabled={sanMoves.length === 0}
+          sx={{ fontSize: 11, textTransform: 'none', color: 'text.secondary', '&:hover': { bgcolor: 'action.hover' } }}
+        >
+          {t('myGames.addModal.reset')}
+        </Button>
+      </Box>
+
+      {/* Move list */}
+      <Box sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+          <Chip label={t('myGames.addModal.movesLabel')} size="small" sx={{ height: 20, fontSize: 10, bgcolor: 'action.selected' }} />
+          {detectedResult && (
+            <Chip label={detectedResult} size="small" color="success" sx={{ height: 20, fontSize: 10 }} />
+          )}
+        </Box>
+        <Typography sx={{ fontSize: 12, fontFamily: 'monospace', color: 'text.secondary', minHeight: 20, lineHeight: 1.6, wordBreak: 'break-word' }}>
+          {moveListText || t('myGames.addModal.noMovesYet')}
+        </Typography>
+      </Box>
     </Box>
   );
 }

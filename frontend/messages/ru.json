@@ -1127,6 +1127,10 @@
       "cancel": "Отмена",
       "addModal": {
         "enterOnBoard": "Ввести на доске",
+        "boardEntry": "Ввести ходы",
+        "boardEntryHint": "Разыгрывайте ходы на доске",
+        "movesLabel": "Ходы",
+        "noMovesYet": "Ходов пока нет",
         "uploadScoresheet": "Загрузить бланк",
         "importPgn": "Импорт PGN",
         "pgnPlaceholder": "Вставьте PGN сюда...\n\n[Event \"?\"]\n[White \"?\"]\n[Black \"?\"]\n[Result \"*\"]\n\n1. e4 e5 2. Nf3 Nc6 ...",
