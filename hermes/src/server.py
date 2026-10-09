@@ -646,7 +646,7 @@ _engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note
 _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
 # The student asks about the position in front of them…
 _ABOUT_POSITION = re.compile(
-    r"(?<![а-яa-z])(?:ход\w*|реши\w*|решени\w*|задач\w*|лучш\w*|играть|сыграть|сыграю|оцени\w*|позици\w*|"
+    r"(?<![а-яa-z])(?:ход\w*|реши\w*|решени\w*|задач\w*|лучш\w*|играть|сыграть|сыграю|оцени\w*|позици(?!онн)\w*|"
     r"здесь|тут|в\s+этой\s+позиции|move|moves|solve|solution|puzzle|best|play|position|here|жүріс\w*|есеп\w*|осы\s+жерде)"
     r"(?![а-яa-z])", re.IGNORECASE)
 # …unless they ask for something new on the board (an example, a puzzle, a line).
@@ -654,6 +654,23 @@ _WANTS_NEW_BOARD = re.compile(
     r"(?<![а-яa-z])(?:покажи|пример\w*|что\s+такое|объясни\s+тем\w*|загрузи|поставь|расставь|дай\s+(?:мне\s+)?(?:ещё\s+|новую\s+)?задач\w*|"
     r"другую\s+задач\w*|следующ\w+\s+задач\w*|show\s+me|example|load|set\s+up|give\s+me\s+a(?:nother)?\s+puzzle|"
     r"what\s+is\s+an?\b)(?![а-яa-z])", re.IGNORECASE)
+# …or a new puzzle in their own words: «Дай мне тактическую задачу», «можно ещё одну задачу?»,
+# «Give me a tactical puzzle», «Маған тактикалық есеп бер» (the site's own chips, production
+# 2026-10-09: the adjective kept _WANTS_NEW_BOARD from matching, the board stayed as it was and
+# the coach said «задача уже на доске»). Not «дай подсказку к задаче», not «эту задачу».
+_NEW_PUZZLE_NOUN = (r"(?:задач(?:у|и|ку|ки)|задани[еяй]|упражнени[еяй]|пазл\w*|головоломк[уи]|"
+                    r"puzzles?|exercises?|tasks?|есеп\w*|жаттығу\w*)")
+_PUZZLE_SKIP_WORD = (r"(?!(?:эт\w*|тот|ту|this|that|the|осы|подсказк\w*|намёк\w*|hint\w*|решени\w*|"
+                     r"ответ\w*|к|по|в|о|об|для|про)(?![\w-]))[\w-]+")
+_WANTS_NEW_PUZZLE = re.compile(
+    r"(?<![\w-])(?:дай\w*|давай(?:те)?|хочу|хотел\w*|подбери\w*|предложи\w*|найди\w*|пришли\w*|загадай\w*|"
+    r"покажи\w*|ещё|еще|нов(?:ую|ые|ое|ая)|друг(?:ую|ие|ое|ая)|следующ\w+|какую-нибудь|любую|"
+    r"give|want|find|send|show|another|new|next|тағы|жаңа|басқа)"
+    rf"(?:\s+{_PUZZLE_SKIP_WORD}){{0,3}}?\s+{_NEW_PUZZLE_NOUN}(?![\w-])"
+    rf"|(?<![\w-]){_NEW_PUZZLE_NOUN}(?:\s+{_PUZZLE_SKIP_WORD}){{0,2}}?\s+бер\w*",
+    re.IGNORECASE)
+# The default board is nothing of the student's to keep: the start position, an empty board.
+_DEFAULT_BOARDS = frozenset({chess.STARTING_BOARD_FEN, "8/8/8/8/8/8/8/8"})
 
 
 def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> Optional[str]:
@@ -662,10 +679,10 @@ def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Opti
         return None
     if live_game:
         return fen
-    if not has_fen:
+    if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
         return None
     text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
-    if _ABOUT_POSITION.search(text) and not _WANTS_NEW_BOARD.search(text):
+    if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
         return fen
     return None
 
@@ -1700,8 +1717,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     load = engines_running()
     note_movetime = config.COACH_ENGINE_NOTE_MOVETIME_MS if load < 2 else max(400, config.COACH_ENGINE_NOTE_MOVETIME_MS // 3)
     idea_movetime = config.COACH_HYPOTHETICAL_MOVETIME_MS if load < 2 else max(150, config.COACH_HYPOTHETICAL_MOVETIME_MS // 2)
+    # A request for a new puzzle is not about the board in front of the student: its line
+    # only misleads — «Дай мне тактическую задачу» on the start position was answered with
+    # «сыграй d4, на Nf6 — c4» about the puzzle just put up (stand, 2026-10-09).
+    wants_puzzle = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
     if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan) and session.board_state
-            and not live_game and review_future is None):
+            and not live_game and review_future is None and not wants_puzzle):
         engine_future = _engine_pool.submit(engine_note, session.board_state, movetime_ms=note_movetime)
     # A live game: the evaluation and the opponent's threat (no best move) — the
     # coach hints, but it must know what hangs and what is coming (2026-10-05).
