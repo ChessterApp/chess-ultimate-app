@@ -974,7 +974,14 @@
       "opening": "Opening game…",
       "openManually": "Open the game",
       "ogGenericTitle": "Chess game · Chesster",
-      "ogWatchSuffix": "Watch and analyze this game on Chesster"
+      "ogWatchSuffix": "Watch and analyze this game on Chesster",
+      "myGameShareTooltip": "Share game",
+      "copyShareLink": "Copy share link",
+      "disableLink": "Disable link",
+      "linkCopied": "Link copied",
+      "linkDisabled": "Sharing disabled",
+      "shareFailed": "Could not share link",
+      "disableFailed": "Could not disable link"
     },
     "gameLinked": "Game linked!",
     "saveToMyGames": "Save to My Games",

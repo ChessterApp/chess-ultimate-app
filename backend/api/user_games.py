@@ -4,6 +4,7 @@ User Games API — CRUD + Import endpoints for My Games feature
 
 import io
 import logging
+import secrets
 import traceback
 from datetime import datetime, timezone
 
@@ -346,4 +347,138 @@ def import_local():
 
     except Exception as e:
         logger.error(f"Error importing games: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── SHARE TOKENS (Phase 3a) ─────────────────────────────────────────────────
+#
+# A saved game is sharable only because its owner explicitly minted a token.
+# The owner can revoke it (DELETE), which immediately kills the recipient view.
+# Recipients must be signed in to fetch the game itself; only the OG preview
+# metadata (/shared/<token>/meta) is public.
+
+
+@user_games_bp.route('/api/games/<game_id>/share', methods=['POST'])
+@verify_clerk_token
+def create_share_token(game_id):
+    """Mint (or return the existing) share token for an owned game.
+
+    Owner-only. Idempotent: if the row already has a token, return it unchanged
+    so repeated shares produce the same stable link.
+    """
+    user_id = get_current_user_id()
+    try:
+        existing = supabase.table(TABLE) \
+            .select('id, share_token') \
+            .eq('id', game_id) \
+            .eq('user_id', user_id) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        if not existing.data:
+            return jsonify({'error': 'Game not found'}), 404
+
+        token = existing.data[0].get('share_token')
+        if token:
+            return jsonify({'share_token': token}), 200
+
+        token = secrets.token_urlsafe(16)
+        supabase.table(TABLE) \
+            .update({'share_token': token, 'updated_at': datetime.now(timezone.utc).isoformat()}) \
+            .eq('id', game_id) \
+            .eq('user_id', user_id) \
+            .execute()
+
+        return jsonify({'share_token': token}), 200
+
+    except Exception as e:
+        logger.error(f"Error creating share token: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/<game_id>/share', methods=['DELETE'])
+@verify_clerk_token
+def revoke_share_token(game_id):
+    """Revoke an owned game's share link by clearing its token. Owner-only."""
+    user_id = get_current_user_id()
+    try:
+        existing = supabase.table(TABLE) \
+            .select('id') \
+            .eq('id', game_id) \
+            .eq('user_id', user_id) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        if not existing.data:
+            return jsonify({'error': 'Game not found'}), 404
+
+        supabase.table(TABLE) \
+            .update({'share_token': None, 'updated_at': datetime.now(timezone.utc).isoformat()}) \
+            .eq('id', game_id) \
+            .eq('user_id', user_id) \
+            .execute()
+
+        return '', 204
+
+    except Exception as e:
+        logger.error(f"Error revoking share token: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/shared/<token>', methods=['GET'])
+@verify_clerk_token
+def get_shared_game(token):
+    """Fetch a shared game by token — the recipient view.
+
+    ANY signed-in user may read it (not just the owner). Returns the full game
+    row (pgn + metadata) but NEVER user_id. Unknown or revoked token → 404.
+    """
+    try:
+        result = supabase.table(TABLE) \
+            .select('*') \
+            .eq('share_token', token) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        if not result.data:
+            return jsonify({'error': 'Game not found'}), 404
+
+        row = dict(result.data[0])
+        row.pop('user_id', None)
+        return jsonify(row), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching shared game: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/shared/<token>/meta', methods=['GET'])
+def get_shared_game_meta(token):
+    """Public metadata for a shared game's Open Graph link preview.
+
+    PUBLIC — no Clerk auth. Powers the `/g/u/<token>` short-link OG cards.
+    Returns ONLY header fields (players, result, event, date) — never the PGN,
+    moves, user_id, or game id. Unknown token → 404.
+    """
+    try:
+        result = supabase.table(TABLE) \
+            .select('white, black, result, event, title, date') \
+            .eq('share_token', token) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        if not result.data:
+            return jsonify({'error': 'Game not found'}), 404
+
+        row = result.data[0]
+        return jsonify({
+            'white': row.get('white'),
+            'black': row.get('black'),
+            'result': row.get('result'),
+            'event': row.get('event') or row.get('title'),
+            'date': row.get('date'),
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error fetching shared game meta: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500

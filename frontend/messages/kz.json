@@ -974,7 +974,14 @@
       "opening": "Ойын ашылуда…",
       "openManually": "Ойынды ашу",
       "ogGenericTitle": "Шахмат ойыны · Chesster",
-      "ogWatchSuffix": "Бұл ойынды Chesster-де көріп, талдаңыз"
+      "ogWatchSuffix": "Бұл ойынды Chesster-де көріп, талдаңыз",
+      "myGameShareTooltip": "Ойынмен бөлісу",
+      "copyShareLink": "Сілтемені көшіру",
+      "disableLink": "Сілтемені өшіру",
+      "linkCopied": "Сілтеме көшірілді",
+      "linkDisabled": "Сілтеме бойынша қолжетімділік өшірілді",
+      "shareFailed": "Сілтемемен бөлісу мүмкін болмады",
+      "disableFailed": "Сілтемені өшіру мүмкін болмады"
     },
     "gameLinked": "Ойын байланыстырылды!",
     "saveToMyGames": "Менің ойындарыма сақтау",

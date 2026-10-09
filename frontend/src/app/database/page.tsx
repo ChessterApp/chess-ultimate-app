@@ -120,7 +120,7 @@ function withTimeout<T>(promise: Promise<T>, ms = FETCH_TIMEOUT_MS): Promise<T> 
 export default function DebutPage() {
   const t = useTranslations('debut');
   const backendHealthy = useBackendHealth();
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const { isLoaded: authLoaded, isSignedIn, getToken } = useAuth();
 
   // mounted guard removed — dynamic imports with ssr:false handle this
 
@@ -1586,6 +1586,48 @@ export default function DebutPage() {
         }
       });
   }, [searchParams, authLoaded, isSignedIn, fetchGamePgn, fetchLichessPgn, handleOpenGame, setSnackbar, t]);
+
+  // ─── Deep link: open a shared *user* game from ?gu=<token>. The token is an
+  //     opaque, revocable share token (see /g/u/<token>). Recipients must be
+  //     signed in; the fetch endpoint is authed. ───
+  const urlSharedGameHandledRef = useRef(false);
+  useEffect(() => {
+    if (urlSharedGameHandledRef.current || !searchParams || !authLoaded) return;
+    const token = searchParams.get('gu');
+    if (!token) return;
+    urlSharedGameHandledRef.current = true;
+
+    // Recipients must be signed in — the shared-game endpoint is authed.
+    if (!isSignedIn) {
+      const back = `${window.location.pathname}${window.location.search}`;
+      window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+      return;
+    }
+
+    (async () => {
+      try {
+        const clerkToken = await getToken();
+        if (!clerkToken) throw Object.assign(new Error('Not authenticated'), { status: 401 });
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+        const game = await apiFetch<Record<string, unknown>>(
+          `${apiBase}/api/games/shared/${encodeURIComponent(token)}`,
+          { headers: { Authorization: `Bearer ${clerkToken}` } },
+        );
+        handleOpenGame(game, { evictOldestIfFull: true });
+      } catch (e: unknown) {
+        const status = (e as { status?: number })?.status;
+        if (status === 401 || status === 403) {
+          const back = `${window.location.pathname}${window.location.search}`;
+          setSnackbar({ open: true, msg: t('shareGame.signInToView'), severity: 'error' });
+          window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+        } else if (status === 404) {
+          setSnackbar({ open: true, msg: t('shareGame.notFound'), severity: 'error' });
+        } else {
+          setSnackbar({ open: true, msg: t('shareGame.loadError'), severity: 'error' });
+        }
+      }
+    })();
+  }, [searchParams, authLoaded, isSignedIn, getToken, handleOpenGame, setSnackbar, t]);
 
   const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
     setGameMoveIndices(prev => ({ ...prev, [gameId]: moveIndex }));

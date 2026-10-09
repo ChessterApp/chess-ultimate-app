@@ -974,7 +974,14 @@
       "opening": "Открываем партию…",
       "openManually": "Открыть партию",
       "ogGenericTitle": "Шахматная партия · Chesster",
-      "ogWatchSuffix": "Смотрите и анализируйте эту партию на Chesster"
+      "ogWatchSuffix": "Смотрите и анализируйте эту партию на Chesster",
+      "myGameShareTooltip": "Поделиться партией",
+      "copyShareLink": "Скопировать ссылку",
+      "disableLink": "Отключить ссылку",
+      "linkCopied": "Ссылка скопирована",
+      "linkDisabled": "Доступ по ссылке отключён",
+      "shareFailed": "Не удалось поделиться ссылкой",
+      "disableFailed": "Не удалось отключить ссылку"
     },
     "gameLinked": "Партия привязана!",
     "saveToMyGames": "Сохранить в Мои партии",

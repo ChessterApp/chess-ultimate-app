@@ -72,3 +72,25 @@ export async function fetchGameMeta(
     return null;
   }
 }
+
+/**
+ * Fetch public metadata for a shared *user* game by its share token. Hits the
+ * PUBLIC `/api/games/shared/<token>/meta` endpoint — header fields only, never
+ * the PGN. Never throws — returns null on any network/HTTP error (unknown or
+ * revoked token → 404 → null) so `generateMetadata` can fall back cleanly.
+ */
+export async function fetchSharedGameMeta(
+  token: string,
+): Promise<GameMeta | null> {
+  const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+  try {
+    const res = await fetch(
+      `${backendUrl}/api/games/shared/${encodeURIComponent(token)}/meta`,
+      { next: { revalidate: 300 } },
+    );
+    if (!res.ok) return null;
+    return (await res.json()) as GameMeta;
+  } catch {
+    return null;
+  }
+}

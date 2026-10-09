@@ -34,6 +34,7 @@ import { useTranslations } from 'next-intl';
 import { useUserGames, type UserGame, type ListGamesFilters } from '@/hooks/useUserGames';
 import AddGameModal from './AddGameModal';
 import EditGameModal from './EditGameModal';
+import ShareMyGameButton from './ShareMyGameButton';
 
 type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
@@ -356,6 +357,11 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
                       >
                         <Edit sx={{ fontSize: 14, color: 'text.secondary' }} />
                       </IconButton>
+                      <ShareMyGameButton
+                        gameId={game.id}
+                        white={game.white}
+                        black={game.black}
+                      />
                       <IconButton
                         size="small"
                         onClick={(e) => handleDelete(e, game.id)}
