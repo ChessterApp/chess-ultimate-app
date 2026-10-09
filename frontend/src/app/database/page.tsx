@@ -1521,7 +1521,10 @@ export default function DebutPage() {
         : prev;
       return [...trimmed, newGame];
     });
-    setGameMoveIndices(prev => ({ ...prev, [gameId]: -1 }));
+    // Auto-select the first move on open so the notation has an active cursor
+    // and Review / next-move controls advance immediately. Games with no moves
+    // fall back to the starting position (-1).
+    setGameMoveIndices(prev => ({ ...prev, [gameId]: newGame.moves.length > 0 ? 0 : -1 }));
     setActiveTab(gameId);
 
     // Track favorite state for user games

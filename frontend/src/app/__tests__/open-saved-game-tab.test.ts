@@ -135,7 +135,9 @@ describe('Open Saved Game — Tab state management', () => {
     return {
       openedGames: [...openedGames, newGame],
       activeTab: newGame.id,
-      moveIndices: { [newGame.id]: -1 },
+      // Auto-select the first move on open (empty games fall back to -1) so the
+      // notation has an active cursor and Review / next-move controls work.
+      moveIndices: { [newGame.id]: newGame.moves.length > 0 ? 0 : -1 },
     };
   }
 
@@ -162,9 +164,15 @@ describe('Open Saved Game — Tab state management', () => {
     expect(result.activeTab).toBe('usr-game-1');
   });
 
-  it('should initialize move index to -1 (starting position)', () => {
+  it('should auto-select the first move on open so Review/next-move work immediately', () => {
     const result = simulateOpenGame([], 'my-games', testGame);
-    expect(result.moveIndices['usr-game-1']).toBe(-1);
+    expect(result.moveIndices['usr-game-1']).toBe(0);
+  });
+
+  it('should fall back to starting position (-1) for a game with no moves', () => {
+    const emptyGame: OpenedGame = { ...testGame, id: 'empty-game', moves: [], fens: [] };
+    const result = simulateOpenGame([], 'my-games', emptyGame);
+    expect(result.moveIndices['empty-game']).toBe(-1);
   });
 
   it('should switch to existing tab if game already open', () => {
