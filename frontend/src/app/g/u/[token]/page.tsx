@@ -10,7 +10,9 @@
  */
 import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
+import { createTranslator } from 'next-intl';
 import { getTranslations } from 'next-intl/server';
+import enMessages from '../../../../../messages/en.json';
 import { fetchSharedGameMeta, buildShareTitle, buildShareDescription, sharedThumbnailUrl } from '@/lib/gameShareMeta';
 import TokenRedirect from './TokenRedirect';
 
@@ -23,9 +25,10 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { token } = await params;
-  // OG cards are crawled signed-out with no locale cookie, so next-intl would
-  // resolve the Russian default. Pin the preview copy to English.
-  const t = await getTranslations({ locale: 'en', namespace: 'debut.shareGame' });
+  // OG cards are crawled signed-out with no locale cookie. The request config
+  // resolves locale from the cookie alone, so getTranslations({locale: 'en'})
+  // still gets the Russian-default messages — build from en.json directly.
+  const t = createTranslator({ locale: 'en', messages: enMessages, namespace: 'debut.shareGame' });
   const watchSuffix = t('ogWatchSuffix');
 
   // Defaults — used when the token is unknown/revoked or the meta fetch fails.
