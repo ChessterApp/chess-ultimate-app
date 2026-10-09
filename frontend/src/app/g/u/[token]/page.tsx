@@ -11,7 +11,7 @@
 import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
 import { getTranslations } from 'next-intl/server';
-import { fetchSharedGameMeta, buildShareTitle, buildShareDescription } from '@/lib/gameShareMeta';
+import { fetchSharedGameMeta, buildShareTitle, buildShareDescription, sharedThumbnailUrl } from '@/lib/gameShareMeta';
 import TokenRedirect from './TokenRedirect';
 
 const SITE_URL = 'https://chesster.io';
@@ -32,11 +32,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   let title = t('ogGenericTitle');
   let description = watchSuffix;
   const url = `${SITE_URL}/g/u/${token}`;
+  // Falls back to the generic logo card until the game resolves.
+  let image = OG_IMAGE;
 
   const meta = await fetchSharedGameMeta(token);
   const builtTitle = buildShareTitle(meta);
   if (builtTitle) title = builtTitle;
-  if (meta) description = buildShareDescription(meta, watchSuffix);
+  if (meta) {
+    description = buildShareDescription(meta, watchSuffix);
+    // Only show the board thumbnail once we know the token resolves — the
+    // endpoint 404s for unknown/revoked tokens, which would unfurl broken.
+    image = sharedThumbnailUrl(token);
+  }
 
   return {
     metadataBase: new URL(SITE_URL),
@@ -48,13 +55,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       url,
       siteName: 'Chesster',
       type: 'website',
-      images: [OG_IMAGE],
+      images: [image],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: [OG_IMAGE],
+      images: [image],
     },
   };
 }

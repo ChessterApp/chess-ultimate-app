@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildShareTitle, buildShareDescription } from '@/lib/gameShareMeta';
+import {
+  buildShareTitle,
+  buildShareDescription,
+  masterThumbnailUrl,
+  sharedThumbnailUrl,
+} from '@/lib/gameShareMeta';
 
 const WATCH = 'Watch and analyze this game on Chesster';
 
@@ -44,5 +49,34 @@ describe('buildShareDescription', () => {
     expect(
       buildShareDescription({ event: 'Tata Steel', date: '????.??.??' }, WATCH),
     ).toBe(`Tata Steel · ${WATCH}`);
+  });
+});
+
+describe('thumbnail URLs', () => {
+  // NEXT_PUBLIC_BACKEND_URL is unset in the test env, so the public fallback
+  // host must be used — never localhost, which crawlers can't reach.
+  const BASE = 'https://api.chesster.io';
+
+  it('builds the master board-thumbnail URL with source', () => {
+    expect(masterThumbnailUrl('twic', 42)).toBe(
+      `${BASE}/api/openings/games/42/thumbnail.png?source=twic`,
+    );
+    expect(masterThumbnailUrl('lichess', 7)).toBe(
+      `${BASE}/api/openings/games/7/thumbnail.png?source=lichess`,
+    );
+  });
+
+  it('builds the shared user-game thumbnail URL and encodes the token', () => {
+    expect(sharedThumbnailUrl('abc123')).toBe(
+      `${BASE}/api/games/shared/abc123/thumbnail.png`,
+    );
+    expect(sharedThumbnailUrl('a/b c')).toBe(
+      `${BASE}/api/games/shared/a%2Fb%20c/thumbnail.png`,
+    );
+  });
+
+  it('uses the public backend host, not localhost', () => {
+    expect(masterThumbnailUrl('twic', 1)).not.toContain('localhost');
+    expect(sharedThumbnailUrl('tok')).not.toContain('localhost');
   });
 });

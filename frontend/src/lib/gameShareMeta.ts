@@ -53,6 +53,26 @@ export function buildShareDescription(
 }
 
 /**
+ * Public base URL of the Flask backend, used for ABSOLUTE asset URLs that
+ * external crawlers fetch directly (e.g. OG images). Unlike the server-side
+ * `BACKEND_URL` (which may be localhost), this must be the publicly reachable
+ * host so WhatsApp/Telegram can load the thumbnail.
+ */
+function publicBackendUrl(): string {
+  return process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.chesster.io';
+}
+
+/** Absolute URL of a master game's board-position OG thumbnail (PNG). */
+export function masterThumbnailUrl(source: GameSource, id: number): string {
+  return `${publicBackendUrl()}/api/openings/games/${id}/thumbnail.png?source=${source}`;
+}
+
+/** Absolute URL of a shared user game's board-position OG thumbnail (PNG). */
+export function sharedThumbnailUrl(token: string): string {
+  return `${publicBackendUrl()}/api/games/shared/${encodeURIComponent(token)}/thumbnail.png`;
+}
+
+/**
  * Fetch public game metadata from the Flask backend. Never throws — returns
  * null on any network/HTTP error so `generateMetadata` can fall back cleanly.
  */

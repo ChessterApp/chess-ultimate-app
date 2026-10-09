@@ -27,6 +27,7 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id, require_active_membership
 from utils.cache import with_cache
+from utils.board_image import render_final_position_png
 
 logger = logging.getLogger(__name__)
 
@@ -2702,6 +2703,65 @@ def get_game_meta(game_id):
         'white_elo': row['white_elo'],
         'black_elo': row['black_elo'],
     })
+
+
+def _twic_game_pgn(game_id: int) -> Optional[str]:
+    """Read a master game's PGN text from the TWIC file by DB offset."""
+    conn = get_internal_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT pgn_offset, pgn_length FROM games WHERE id = ?", [game_id]
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or row['pgn_offset'] is None or not row['pgn_length']:
+        return None
+    with open(TWIC_PGN_PATH, 'r', errors='replace') as f:
+        f.seek(row['pgn_offset'])
+        return f.read(row['pgn_length'])
+
+
+def _lichess_game_pgn(game_id: str) -> Optional[str]:
+    """Fetch a Lichess game's full PGN (with moves) for rendering."""
+    try:
+        resp = requests.get(
+            f'https://lichess.org/game/export/{game_id}',
+            headers={'Accept': 'application/x-chess-pgn'},
+            timeout=10,
+        )
+    except Exception:
+        return None
+    if resp.status_code != 200:
+        return None
+    return resp.text
+
+
+@openings_bp.route('/games/<int:game_id>/thumbnail.png', methods=['GET'])
+def get_game_thumbnail(game_id):
+    """Public board-image thumbnail for Open Graph link previews.
+
+    PUBLIC — no Clerk auth. Renders ONLY the game's FINAL position as a PNG so
+    a shared `/g/<slug>` link unfurls with an actual chessboard. Never exposes
+    the PGN, move list, or any identity. Unknown id/source → 404.
+    """
+    source = request.args.get('source', 'twic').strip().lower()
+    if source not in ('twic', 'lichess'):
+        return jsonify({'error': f'Unknown source: {source}'}), 400
+
+    if source == 'lichess':
+        pgn_text = _lichess_game_pgn(str(game_id))
+    else:
+        if not check_internal_db_exists():
+            return jsonify({'error': 'Database not available'}), 503
+        pgn_text = _twic_game_pgn(game_id)
+
+    png = render_final_position_png(pgn_text) if pgn_text else None
+    if png is None:
+        return jsonify({'error': 'Game not found'}), 404
+
+    resp = Response(png, mimetype='image/png')
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
 
 
 @openings_bp.route('/games/position-count', methods=['GET'])

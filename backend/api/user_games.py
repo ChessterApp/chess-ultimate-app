@@ -10,10 +10,11 @@ from datetime import datetime, timezone
 
 import chess
 import chess.pgn
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, Response
 
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id, require_active_membership
+from utils.board_image import render_final_position_png
 
 logger = logging.getLogger(__name__)
 
@@ -481,4 +482,36 @@ def get_shared_game_meta(token):
 
     except Exception as e:
         logger.error(f"Error fetching shared game meta: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_games_bp.route('/api/games/shared/<token>/thumbnail.png', methods=['GET'])
+def get_shared_game_thumbnail(token):
+    """Public board-image thumbnail for a shared game's Open Graph preview.
+
+    PUBLIC — no Clerk auth. Renders ONLY the game's FINAL position as a PNG so
+    the `/g/u/<token>` short link unfurls with an actual chessboard. Never
+    exposes the PGN, move list, user_id, or game id. Unknown/revoked token or
+    an unrenderable PGN → 404.
+    """
+    try:
+        result = supabase.table(TABLE) \
+            .select('pgn') \
+            .eq('share_token', token) \
+            .is_('deleted_at', 'null') \
+            .execute()
+
+        if not result.data:
+            return jsonify({'error': 'Game not found'}), 404
+
+        png = render_final_position_png(result.data[0].get('pgn'))
+        if png is None:
+            return jsonify({'error': 'Game not found'}), 404
+
+        resp = Response(png, mimetype='image/png')
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
+
+    except Exception as e:
+        logger.error(f"Error rendering shared game thumbnail: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500

@@ -12,7 +12,7 @@ import type { Metadata } from 'next';
 import type { CSSProperties } from 'react';
 import { getTranslations } from 'next-intl/server';
 import { decodeGameSlug } from '@/lib/gameSlug';
-import { fetchGameMeta, buildShareTitle, buildShareDescription } from '@/lib/gameShareMeta';
+import { fetchGameMeta, buildShareTitle, buildShareDescription, masterThumbnailUrl } from '@/lib/gameShareMeta';
 import GameRedirect from './GameRedirect';
 
 const SITE_URL = 'https://chesster.io';
@@ -33,6 +33,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   let title = t('ogGenericTitle');
   let description = watchSuffix;
   let url = SITE_URL;
+  // Falls back to the generic logo card until the game resolves.
+  let image = OG_IMAGE;
 
   const target = decodeGameSlug(slug);
   if (target) {
@@ -40,7 +42,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     const meta = await fetchGameMeta(target.source, target.id);
     const builtTitle = buildShareTitle(meta);
     if (builtTitle) title = builtTitle;
-    if (meta) description = buildShareDescription(meta, watchSuffix);
+    if (meta) {
+      description = buildShareDescription(meta, watchSuffix);
+      // Only show the board thumbnail once we know the game exists — the
+      // endpoint 404s for unknown ids, which would unfurl a broken image.
+      image = masterThumbnailUrl(target.source, target.id);
+    }
   }
 
   return {
@@ -53,13 +60,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       url,
       siteName: 'Chesster',
       type: 'website',
-      images: [OG_IMAGE],
+      images: [image],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: [OG_IMAGE],
+      images: [image],
     },
   };
 }
