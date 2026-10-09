@@ -1177,7 +1177,20 @@
         "saveChanges": "Сохранить изменения",
         "unsavedChanges": "Несохранённые изменения",
         "savedSuccessfully": "Изменения сохранены"
-      }
+      },
+      "sharedHeader": "Партии: {name}",
+      "sharedEmpty": "В этой коллекции пока нет партий",
+      "sharedUnavailable": "Эта ссылка больше недоступна"
+    },
+    "shareCollection": {
+      "ogGenericTitle": "Шахматная коллекция · Chesster",
+      "ogTitle": "Партии: {name} · {count}",
+      "ogDescription": "Смотрите эту шахматную коллекцию на Chesster",
+      "notFound": "Коллекция не найдена",
+      "notFoundBody": "Ссылка на коллекцию недействительна или устарела.",
+      "goToDatabase": "Перейти в базу данных",
+      "opening": "Открываем коллекцию…",
+      "openManually": "Открыть коллекцию"
     }
   },
   "onboarding": {

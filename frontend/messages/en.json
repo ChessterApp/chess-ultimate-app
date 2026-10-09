@@ -1177,7 +1177,20 @@
         "saveChanges": "Save Changes",
         "unsavedChanges": "Unsaved changes",
         "savedSuccessfully": "Changes saved successfully"
-      }
+      },
+      "sharedHeader": "{name}'s games",
+      "sharedEmpty": "This collection has no games yet",
+      "sharedUnavailable": "This link is no longer available"
+    },
+    "shareCollection": {
+      "ogGenericTitle": "Chess collection · Chesster",
+      "ogTitle": "{name}'s games · {count}",
+      "ogDescription": "Browse this chess collection on Chesster",
+      "notFound": "Collection not found",
+      "notFoundBody": "This collection link is invalid or has expired.",
+      "goToDatabase": "Go to the database",
+      "opening": "Opening collection…",
+      "openManually": "Open the collection"
     }
   },
   "onboarding": {

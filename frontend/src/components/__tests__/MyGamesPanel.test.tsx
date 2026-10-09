@@ -1,9 +1,88 @@
-import { describe, it, expect } from 'vitest';
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { UserGame, ListGamesFilters } from '@/hooks/useUserGames';
 
 /**
- * MyGamesPanel — Component structure and logic tests
+ * MyGamesPanel — Component structure and logic tests + shared read-only mode.
  */
+
+// ─── Mocks for the shared-mode render tests ───
+const getTokenMock = vi.fn(async () => 'clerk-token');
+vi.mock('@clerk/nextjs', () => ({
+  useAuth: () => ({ getToken: getTokenMock }),
+}));
+
+vi.mock('next-intl', () => ({
+  // Interpolate {name} so the owner header is assertable; otherwise echo the key.
+  useTranslations: () => (key: string, params?: Record<string, unknown>) =>
+    params && 'name' in params ? `${params.name}'s games` : key,
+}));
+
+// Owner-mode hook stub — shared mode never reads from it, but it must resolve.
+vi.mock('@/hooks/useUserGames', () => ({
+  useUserGames: () => ({
+    games: [],
+    total: 0,
+    page: 1,
+    perPage: 20,
+    loading: false,
+    error: null,
+    fetchGames: vi.fn(),
+    createGame: vi.fn(),
+    updateGame: vi.fn(),
+    deleteGame: vi.fn(),
+    toggleFavorite: vi.fn(),
+  }),
+}));
+
+// Child mutation components are never rendered in shared mode; stub to avoid
+// pulling their (heavy) transitive deps into the test transform.
+vi.mock('@/components/openings/AddGameModal', () => ({ default: () => null }));
+vi.mock('@/components/openings/EditGameModal', () => ({ default: () => null }));
+vi.mock('@/components/openings/ShareMyGameButton', () => ({
+  default: () => <button aria-label="share game" />,
+}));
+
+const apiFetchMock = vi.fn();
+vi.mock('@/lib/api', () => ({
+  apiFetch: (...args: unknown[]) => apiFetchMock(...args),
+}));
+
+import MyGamesPanel from '@/components/openings/MyGamesPanel';
+
+function makeGame(overrides: Partial<UserGame> = {}): UserGame {
+  return {
+    id: 'g1',
+    user_id: '',
+    title: null,
+    white: 'Carlsen',
+    black: 'Nakamura',
+    white_elo: 2855,
+    black_elo: 2780,
+    result: '1-0',
+    date: '2024.01.02',
+    event: 'Test',
+    eco: 'B90',
+    opening_name: null,
+    pgn: '1. e4 c5 *',
+    notes: null,
+    tags: [],
+    is_favorite: false,
+    source: 'manual',
+    created_at: '2024-01-02T00:00:00Z',
+    updated_at: '2024-01-02T00:00:00Z',
+  };
+}
+
+class ApiError extends Error {
+  status: number;
+  constructor(status: number) {
+    super(`status ${status}`);
+    this.status = status;
+  }
+}
 
 describe('MyGamesPanel Filter Logic', () => {
   function buildFilters(
@@ -188,5 +267,102 @@ describe('UserGame Type Shape', () => {
     expect(game.title).toBeNull();
     expect(game.white_elo).toBeNull();
     expect(game.tags).toHaveLength(0);
+  });
+});
+
+describe('MyGamesPanel shared read-only mode', () => {
+  beforeEach(() => {
+    apiFetchMock.mockReset();
+    getTokenMock.mockClear();
+  });
+  afterEach(() => cleanup());
+
+  it('fetches the collection from the shared endpoint and shows the owner header', async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      games: [makeGame()],
+      total: 1,
+      page: 1,
+      per_page: 20,
+      owner_name: 'Alice',
+    });
+
+    await act(async () => {
+      render(<MyGamesPanel sharedToken="tok-abc" />);
+    });
+
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalled());
+    const url = apiFetchMock.mock.calls[0][0] as string;
+    expect(url).toContain('/api/games/collection/shared/tok-abc');
+    expect(await screen.findByText("Alice's games")).toBeTruthy();
+    expect(screen.getByText('Carlsen')).toBeTruthy();
+  });
+
+  it('hides all mutation UI in shared mode', async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      games: [makeGame()],
+      total: 1,
+      page: 1,
+      per_page: 20,
+      owner_name: 'Alice',
+    });
+
+    await act(async () => {
+      render(<MyGamesPanel sharedToken="tok-abc" onOpenGame={vi.fn()} />);
+    });
+
+    await screen.findByText('Carlsen');
+    // No add / edit / delete / per-row share / favorite-toggle controls.
+    expect(screen.queryByText('myGames.addGame')).toBeNull();
+    expect(screen.queryByText('myGames.searchPlaceholder')).toBeNull();
+    expect(screen.queryByLabelText('edit game')).toBeNull();
+    expect(screen.queryByLabelText('delete game')).toBeNull();
+    expect(screen.queryByLabelText('toggle favorite')).toBeNull();
+    expect(screen.queryByLabelText('share game')).toBeNull();
+  });
+
+  it('opens a game via the shared per-game endpoint on row click', async () => {
+    const onOpenGame = vi.fn();
+    apiFetchMock
+      .mockResolvedValueOnce({ games: [makeGame()], total: 1, page: 1, per_page: 20, owner_name: 'Alice' })
+      .mockResolvedValueOnce(makeGame({ pgn: '1. e4 c5 2. Nf3 *' }));
+
+    await act(async () => {
+      render(<MyGamesPanel sharedToken="tok-abc" onOpenGame={onOpenGame} />);
+    });
+
+    const row = await screen.findByText('Carlsen');
+    await act(async () => {
+      fireEvent.click(row);
+    });
+
+    await waitFor(() => expect(onOpenGame).toHaveBeenCalled());
+    const detailUrl = apiFetchMock.mock.calls[1][0] as string;
+    expect(detailUrl).toContain('/api/games/collection/shared/tok-abc/games/g1');
+  });
+
+  it('renders a friendly empty state for an empty collection', async () => {
+    apiFetchMock.mockResolvedValueOnce({
+      games: [],
+      total: 0,
+      page: 1,
+      per_page: 20,
+      owner_name: 'Alice',
+    });
+
+    await act(async () => {
+      render(<MyGamesPanel sharedToken="tok-abc" />);
+    });
+
+    expect(await screen.findByText('myGames.sharedEmpty')).toBeTruthy();
+  });
+
+  it('renders the revoked state when the token 404s', async () => {
+    apiFetchMock.mockRejectedValueOnce(new ApiError(404));
+
+    await act(async () => {
+      render(<MyGamesPanel sharedToken="tok-gone" />);
+    });
+
+    expect(await screen.findByText('myGames.sharedUnavailable')).toBeTruthy();
   });
 });

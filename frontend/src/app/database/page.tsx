@@ -108,7 +108,8 @@ const pendingShareParams: {
   game: string | null;
   source: string | null;
   gu: string | null;
-} = { g: null, game: null, source: null, gu: null };
+  gc: string | null;
+} = { g: null, game: null, source: null, gu: null, gc: null };
 
 function clearPendingGameParams() {
   pendingShareParams.g = null;
@@ -155,6 +156,11 @@ export default function DebutPage() {
   // ─── Browse mode state ───
   const [browseFen, setBrowseFen] = useState(STARTING_FEN);
   const [browseMoveHistory, setBrowseMoveHistory] = useState<Array<{ san: string; fen: string }>>([]);
+
+  // ─── Shared collection (read-only recipient view) state ───
+  // Set from ?gc=<token>; when present the My Games tab renders MyGamesPanel in
+  // read-only shared mode against the owner's collection.
+  const [sharedCollectionToken, setSharedCollectionToken] = useState<string | null>(null);
 
   // ─── My Games tab board interaction state ───
   const [myGamesMoveHistory, setMyGamesMoveHistory] = useState<string[]>([STARTING_FEN]);
@@ -1703,6 +1709,35 @@ export default function DebutPage() {
     })();
   }, [searchParams, authLoaded, isSignedIn, getToken, handleOpenGame, setSnackbar, t]);
 
+  // ─── Deep link: open a shared *collection* from ?gc=<token>. The token is an
+  //     opaque, revocable share token (see /g/c/<token>). Recipients must be
+  //     signed in; MyGamesPanel then fetches the collection from the authed
+  //     endpoint and renders read-only. Mirrors the ?gu= flow above. ───
+  const urlSharedCollectionHandledRef = useRef(false);
+  useEffect(() => {
+    if (urlSharedCollectionHandledRef.current || !searchParams) return;
+    // Stash before the authLoaded early-return — same remount/strip hazards as
+    // the ?g= / ?gu= effects above.
+    const token = searchParams.get('gc') ?? pendingShareParams.gc;
+    if (!token) return;
+    pendingShareParams.gc = token;
+    if (!authLoaded) return;
+    urlSharedCollectionHandledRef.current = true;
+
+    // Recipients must be signed in — the shared-collection endpoint is authed.
+    if (!isSignedIn) {
+      const backParams = new URLSearchParams(window.location.search);
+      backParams.set('gc', token);
+      const back = `${window.location.pathname}?${backParams.toString()}`;
+      window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+      return;
+    }
+
+    pendingShareParams.gc = null;
+    setSharedCollectionToken(token);
+    setActiveTab('my-games');
+  }, [searchParams, authLoaded, isSignedIn]);
+
   const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
     setGameMoveIndices(prev => ({ ...prev, [gameId]: moveIndex }));
   }, []);
@@ -2296,6 +2331,7 @@ export default function DebutPage() {
                   boardPgn={buildMyGamesPgn()}
                   boardHasMoves={myGamesSanMoves.length > 0}
                   onBoardReset={handleMyGamesReset}
+                  sharedToken={sharedCollectionToken ?? undefined}
                 />
               </Box>
             ) : activeGame ? (
