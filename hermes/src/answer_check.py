@@ -1219,7 +1219,9 @@ _EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|ap
 _GHOST = re.compile(
     _B2 + rf"(?:(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+(?:сейчас\s+|уже\s+|сама\s+|сам\s+)?"
     r"(?:бь[её]т|забирает|берёт|берет|защищает|атакует|нападает|держит|стоит|висит|давит|смотрит|прикрывает|связан\w*)(?![а-яa-z])"
-    rf"|(?P<w2>{_PIECE_ANY})\s+(?P<sq2>{SQ})\s?[x×:]\s?{SQ})", re.IGNORECASE)
+    rf"|(?P<w2>{_PIECE_ANY})\s+(?P<sq2>{SQ})\s?[x×:]\s?{SQ}"
+    # «свою e3-пешку» with a bishop on e3 (production 08.10)
+    rf"|(?<![a-z0-9])(?P<sq3>{SQ})-(?P<w3>{_PIECE_ANY}))", re.IGNORECASE)
 
 
 def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
@@ -1228,7 +1230,7 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
     if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
         return []  # a game named in the words may be one the turn does not have
     for m in _GHOST.finditer(text):
-        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"])
+        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"]) if m["w2"] else (m["w3"], m["sq3"])
         if _NEGATION.search(text[max(0, m.start() - 12):m.start()]):
             continue
         ptype = _piece_type(word)
@@ -1594,6 +1596,63 @@ _SIDE_ADJ = (r"(?:белый|белая|белого|белой|белую|бе�
 _SIDE_PIECE = re.compile(
     _B2 + rf"(?:(?P<adj>{_SIDE_ADJ})\s+(?P<p1>{_PIECE_ANY})|(?P<p2>{_PIECE_ANY})\s+(?P<gen>белых|ч[её]рных|соперника|противника))"
     rf"\s+(?:на\s+|on\s+)?(?P<a>{SQ})(?![0-9])", re.IGNORECASE)
+
+
+# «После Се3 чёрные просто бьют Сxc5» — Bxc5 is White's (production 08.10, the client's own question): a move
+# given to a side that cannot make it on any position of the turn while the other side can.
+_SIDE_PLAYS = re.compile(
+    _B2 + r"(?P<side>белые|белым|ч[её]рные|ч[её]рным|white|black)\s+(?:[а-яёa-z]+\s+){0,2}?"
+    r"(?:бьют|берут|забирают|играют|сыграют|отвечают|ответят|идут|пойдут|ходят|делают|жертвуют|plays?|takes?|answers?|replies?|captures?)"
+    r"\s+(?:[а-яёa-z]+\s+){0,1}?[*_]*(?P<mv>(?:\d{1,3}\s?\.{1,3}\s?|\.\.\.|…)?(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8]|O-O(?:-O)?)[+#]?)",
+    re.IGNORECASE)
+
+
+def _side_move_issues(original: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    converted, _ = _to_san(original)
+    for m in _SIDE_PLAYS.finditer(converted):
+        side = chess.WHITE if m["side"].lower().startswith(("бел", "white")) else chess.BLACK
+        mv = re.sub(r"^\d{1,3}\s?\.{1,3}\s?|^\.\.\.|^…", "", m["mv"])
+        # The moves written before it in the sentence lead somewhere too («После Кxe5 чёрные играют Кxe5»;
+        # a Cyrillic К may be a knight or a king, and the line check leaves it out).
+        boards = list(ctx.boards)
+        for prior in _MOVE.finditer(converted[: m.start("mv")]):
+            for cand in {prior["san"], "N" + prior["san"][1:] if prior["san"][0] == "K" else prior["san"]}:
+                for b in list(boards):
+                    for color in (chess.WHITE, chess.BLACK):
+                        t = b.copy(stack=False)
+                        t.turn = color
+                        try:
+                            pm = t.parse_san(cand)
+                        except ValueError:
+                            continue
+                        if "x" in cand and not t.is_capture(pm):
+                            continue  # python-chess reads «Bxc5» onto an empty c5 too
+                        t.push(pm)
+                        boards.append(t)
+                if len(boards) > 300:
+                    break
+
+        def legal_for(color: int) -> bool:
+            for b in boards:
+                t = b.copy(stack=False)
+                if t.turn != color:
+                    t.turn, t.ep_square = color, None
+                    if not t.is_valid():
+                        continue
+                try:
+                    played = t.parse_san(mv)
+                except ValueError:
+                    continue
+                if "x" in mv and not t.is_capture(played):
+                    continue
+                return True
+            return False
+        if not legal_for(side) and legal_for(not side):
+            return [f"{mv.rstrip('+#')} is a {'Black' if side else 'White'} move here: "
+                    f"{'White' if side else 'Black'} cannot play it"]
+    return []
 
 
 def _side_piece_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
@@ -1999,7 +2058,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _square_subject_issues(text, original, ctx) + _legality_issues(text, original, ctx)
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
-            + _side_piece_issues(text, original, ctx)
+            + _side_piece_issues(text, original, ctx) + _side_move_issues(original, ctx)
             + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else []))
 
 
@@ -2103,7 +2162,8 @@ _TOPIC_TARGET = re.compile(
 # should put the rook on g1": the coach recommends a move. Its quality is the
 # engine's to judge (src/server.py verifies it before the sentence is shown).
 _PROPOSES = re.compile(
-    r"(?<![а-яa-z])(?:сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|ставь(?:те)?|пойди(?:те)?|ходи(?:те)?|бей(?:те)?|"
+    # «Спокойнее всего уйти слоном — например, сыграть Bb5» (prod 09.10: Bb5 hangs the bishop) — not «если сыграть …»
+    r"(?<![а-яa-z])(?:(?<!если\s)(?<!если\sбы\s)(?:например,?\s+)?сыграть|спокойнее(?:\s+всего)?|сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|ставь(?:те)?|пойди(?:те)?|ходи(?:те)?|бей(?:те)?|"
     r"бери(?:те)?|возьми(?:те)?|забирай(?:те)?|сыграем|берём|берем|ставим|идём|идем|"
     r"лучше(?:\s+всего)?|сильнее(?:\s+всего)?|правильно|точнее|надо|нужно|стоит|можно|рекомендую|советую|предлагаю|"
     r"попробуй(?:те)?|я\s+бы\s+(?:сыграл\w*|поставил\w*|пошл\w+|взял\w*|отв[её]л\w*|ув[её]л\w*)|хороший\s+ход|лучший\s+ход|сильный\s+ход|"
@@ -2253,7 +2313,10 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
         san = mv["san"]
         if san[0] not in "KQRBNO" and not mv["num"] and not mv["bdots"] and "x" not in san:
             continue
-        if not _PRAISED.match(converted, mv.end()) or _NEGATION.search(converted[max(0, mv.start() - 24): mv.start()]):
+        # «**Kxb3!** — единственный ход» (production 09.10, a losing king move): a move marked «!» or «!!» is
+        # the coach's choice too.
+        exclaimed = re.match(r"[*_]*!{1,2}(?![?])", converted[mv.end():])
+        if not (_PRAISED.match(converted, mv.end()) or exclaimed) or _NEGATION.search(converted[max(0, mv.start() - 24): mv.start()]):
             continue
         try:
             move = ctx.current.parse_san(san + (mv["check"] or ""))
@@ -2306,6 +2369,8 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
 # reads a bare capture or a numbered move as a step of some line, let them through.
 _ANNOUNCED = re.compile(
     r"(?:(?<![а-яa-z])(?:перв\w*\s+ход\w*|решает|решающ\w+\s+ход|решени\w*|лучш\w+\s+ход\w*|ключев\w+\s+ход\w*|"
+    r"(?:спасает|выигрывает|держит|решает)\s+(?:здесь\s+|тут\s+)?(?:только\s+|лишь\s+)?(?:один|единственн\w+)\s+ход|"
+    r"только\s+один\s+ход|единственн\w+\s+(?:ход|спасение|защита)|"
     r"начина\w*\s+с|начн\w*\s+с)(?:\s+(?:здесь|тут|в\s+задаче|в\s+этой\s+позиции|бел\w*|ч[её]рн\w*|за\s+\w+|for\s+\w+)){0,2}|"
     r"\b(?:first|key|winning|best)\s+move(?:\s+is)?|\bthe\s+solution(?:\s+is)?)\s*(?:[—–:-]|это|is)?\s*[*_]*\s*$",
     re.IGNORECASE)
@@ -2331,6 +2396,8 @@ def _announced_move_issues(text: str, ctx: CheckContext) -> list[str]:
             key = ctx._key(board)
             if key in ctx.text_keys and key not in ctx.shown_keys and ctx.is_given(board):
                 continue
+            if board.board_fen() == chess.STARTING_BOARD_FEN and ctx.current.board_fen() != chess.STARTING_BOARD_FEN:
+                continue  # «Первый ход здесь 1.e4» on a mating puzzle (production 09.10): the start stands in for nothing here
             try:
                 board.parse_san(san)
                 return []
@@ -2454,12 +2521,17 @@ _LOOKALIKE_PIECE = re.compile(r"(?<![А-Яа-яЁёA-Za-z])([НРВ])(?=[x:×]?[
 _LOOKALIKE_MAP = {"Н": "N", "Р": "R", "В": "B"}
 
 
+_RU_PROMO = re.compile(r"(?<=[a-h][18])=?([ФЛСК])(?![а-яё])")
+_RU_PROMO_MAP = {"Ф": "=Q", "Л": "=R", "С": "=B", "К": "=N"}
+
+
 def normalize_notation(text: str) -> str:
     """«Нf6+» → «Nf6+», «Рh8+» → «Rh8+», «Вf5» → «Bf5»; Russian letters typed as Latin ones —
     «Cc4» → «Bc4», «Kf7+ (конь с g5…)» → «Nf7+», «1.e4 e5 2.Kf3» → «2.Nf3»."""
     if not text:
         return text
     text = _LOOKALIKE_PIECE.sub(lambda m: _LOOKALIKE_MAP[m.group(1)], text)
+    text = _RU_PROMO.sub(lambda m: _RU_PROMO_MAP[m.group(1)], text)  # «b8=Ф» → «b8=Q» (prod 09.10)
     text = _LATIN_C.sub("B", text)
     text = _KNIGHT_AS_K.sub("N", text)
     return _LINE_START.sub(lambda m: _fix_line_letters(m.group(0)), text) if "K" in text else text

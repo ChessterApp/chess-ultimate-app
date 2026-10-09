@@ -140,8 +140,9 @@ class MarkupFilter:
                     san = board.san(move)
             except (ValueError, IndexError):
                 san = None
+        # …and after a colon: «Начни с шаха: [[arrows]] и попробуй…» came out «Начни с шаха: и попробуй» (prod 09.10)
         self._sub_mid = bool(re.search(r"(?<![а-яa-z])(?:после|after|ходом|сыграй|играй|начни\s+с|начинаем\s+с|начн[её]м\s+с)$",
-                                       stripped, re.IGNORECASE))
+                                       stripped, re.IGNORECASE)) or stripped.endswith(":")
         return san or f"{a}–{b}"
 
     def feed(self, text: str) -> tuple[str, list[dict]]:
