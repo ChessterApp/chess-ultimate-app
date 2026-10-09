@@ -2162,7 +2162,8 @@ _TOPIC_TARGET = re.compile(
 # should put the rook on g1": the coach recommends a move. Its quality is the
 # engine's to judge (src/server.py verifies it before the sentence is shown).
 _PROPOSES = re.compile(
-    r"(?<![а-яa-z])(?:сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|ставь(?:те)?|пойди(?:те)?|ходи(?:те)?|бей(?:те)?|"
+    # «Спокойнее всего уйти слоном — например, сыграть Bb5» (prod 09.10: Bb5 hangs the bishop) — not «если сыграть …»
+    r"(?<![а-яa-z])(?:(?<!если\s)(?<!если\sбы\s)(?:например,?\s+)?сыграть|спокойнее(?:\s+всего)?|сыграй(?:те)?|играй(?:те)?|поставь(?:те)?|ставь(?:те)?|пойди(?:те)?|ходи(?:те)?|бей(?:те)?|"
     r"бери(?:те)?|возьми(?:те)?|забирай(?:те)?|сыграем|берём|берем|ставим|идём|идем|"
     r"лучше(?:\s+всего)?|сильнее(?:\s+всего)?|правильно|точнее|надо|нужно|стоит|можно|рекомендую|советую|предлагаю|"
     r"попробуй(?:те)?|я\s+бы\s+(?:сыграл\w*|поставил\w*|пошл\w+|взял\w*|отв[её]л\w*|ув[её]л\w*)|хороший\s+ход|лучший\s+ход|сильный\s+ход|"
@@ -2520,12 +2521,17 @@ _LOOKALIKE_PIECE = re.compile(r"(?<![А-Яа-яЁёA-Za-z])([НРВ])(?=[x:×]?[
 _LOOKALIKE_MAP = {"Н": "N", "Р": "R", "В": "B"}
 
 
+_RU_PROMO = re.compile(r"(?<=[a-h][18])=?([ФЛСК])(?![а-яё])")
+_RU_PROMO_MAP = {"Ф": "=Q", "Л": "=R", "С": "=B", "К": "=N"}
+
+
 def normalize_notation(text: str) -> str:
     """«Нf6+» → «Nf6+», «Рh8+» → «Rh8+», «Вf5» → «Bf5»; Russian letters typed as Latin ones —
     «Cc4» → «Bc4», «Kf7+ (конь с g5…)» → «Nf7+», «1.e4 e5 2.Kf3» → «2.Nf3»."""
     if not text:
         return text
     text = _LOOKALIKE_PIECE.sub(lambda m: _LOOKALIKE_MAP[m.group(1)], text)
+    text = _RU_PROMO.sub(lambda m: _RU_PROMO_MAP[m.group(1)], text)  # «b8=Ф» → «b8=Q» (prod 09.10)
     text = _LATIN_C.sub("B", text)
     text = _KNIGHT_AS_K.sub("N", text)
     return _LINE_START.sub(lambda m: _fix_line_letters(m.group(0)), text) if "K" in text else text

@@ -416,3 +416,19 @@ def test_the_side_to_move_named_for_the_board():
 def test_the_start_position_does_not_excuse_an_announced_move():
     fen = "r1b2rk1/ppp2ppp/1bnq1n2/1B1p2B1/3PP3/2N2N2/PP3PPP/R2Q1RK1 w - - 0 1"
     assert check_sentence("Первый ход здесь **1.e4** — белые занимают центр.", CheckContext.from_fens([fen]))
+
+
+def test_an_arrow_after_a_colon_mid_sentence_is_the_move():
+    f = MarkupFilter("8/8/8/8/8/2k5/8/K1N1N3 w - - 0 1")
+    out, _ = f.feed("Начни с шаха: [[arrows: e1d3]] и попробуй загнать.")
+    assert (out + f.flush()) == "Начни с шаха: Ned3 и попробуй загнать."
+
+
+def test_an_infinitive_recommendation_goes_to_the_engine():
+    from src.answer_check import normalize_notation, proposed_move
+
+    fen = "r1bqk2r/1pppbppp/p1n2n2/4p3/B3P3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 4 6"
+    ctx = CheckContext.from_fens([fen])
+    assert proposed_move("Спокойнее всего уйти слоном — например, сыграть Bb5 или Bc2.", ctx)[2] == "Bb5"
+    assert proposed_move("Если сыграть Bb5, слон пропадает.", ctx) is None
+    assert normalize_notation("а не сразу b8=Ф?") == "а не сразу b8=Q?"
