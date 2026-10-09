@@ -27,6 +27,7 @@ user_games_bp = Blueprint('user_games', __name__)
 
 TABLE = 'user_games'
 COLLECTION_SHARES_TABLE = 'user_game_collection_shares'
+DATABASES_TABLE = 'user_databases'
 
 # Columns that clients may set when creating/updating a game
 ALLOWED_FIELDS = {
@@ -70,6 +71,46 @@ def _extract_pgn_headers(pgn_text: str) -> dict:
         return {}
 
 
+def _fetch_owned_database(user_id: str, database_id: str):
+    """Return the caller-owned, LIVE database row by id, or None.
+
+    The id/user_id/deleted_at match is re-checked in Python so the result is
+    correct even under a filter-agnostic Supabase mock.
+    """
+    result = supabase.table(DATABASES_TABLE) \
+        .select('*') \
+        .eq('id', database_id) \
+        .eq('user_id', user_id) \
+        .is_('deleted_at', 'null') \
+        .execute()
+    for row in result.data or []:
+        if (row.get('id') == database_id
+                and row.get('user_id') == user_id
+                and row.get('deleted_at') is None):
+            return row
+    return None
+
+
+def _default_database_id(user_id: str):
+    """Return the id of the caller's LIVE default database, or None.
+
+    Post-backfill every user has exactly one; None only if the lookup fails, in
+    which case callers leave the game's database_id unset (back-compat).
+    """
+    result = supabase.table(DATABASES_TABLE) \
+        .select('id, is_default, deleted_at, user_id') \
+        .eq('user_id', user_id) \
+        .eq('is_default', True) \
+        .is_('deleted_at', 'null') \
+        .execute()
+    for row in result.data or []:
+        if (row.get('user_id') == user_id
+                and row.get('is_default')
+                and row.get('deleted_at') is None):
+            return row.get('id')
+    return None
+
+
 # ─── LIST ────────────────────────────────────────────────────────────────────
 
 @user_games_bp.route('/api/games', methods=['GET'])
@@ -85,6 +126,8 @@ def list_games():
         result (str): Filter by result (1-0, 0-1, 1/2-1/2)
         favorite (bool): Filter favorites only
         tag (str): Filter by tag
+        database_id (str): Scope to one owned database. Omit for all games
+            (back-compat — the default before the UI passes a database).
     """
     user_id = get_current_user_id()
     try:
@@ -122,6 +165,12 @@ def list_games():
         if tag_filter:
             query = query.contains('tags', [tag_filter])
 
+        # Scope to one database. The query is already user-scoped, so a
+        # database_id the caller doesn't own simply returns no rows.
+        database_id = request.args.get('database_id', '').strip()
+        if database_id:
+            query = query.eq('database_id', database_id)
+
         # Pagination
         query = query.range(offset, offset + per_page - 1)
 
@@ -148,6 +197,8 @@ def create_game():
 
     Request body:
         pgn (str, required): PGN notation
+        database_id (str, optional): Owned database to file this game under.
+            Falls back to the caller's default database so games are never orphaned.
         title, white, black, etc.: optional metadata
     """
     user_id = get_current_user_id()
@@ -162,6 +213,16 @@ def create_game():
         if not game:
             return jsonify({'error': 'Invalid PGN'}), 400
 
+        # Resolve the target database: an explicit one must be owned; otherwise
+        # fall back to the caller's default so the game is never orphaned.
+        requested_db = data.get('database_id')
+        if requested_db:
+            if not _fetch_owned_database(user_id, requested_db):
+                return jsonify({'error': 'Database not found'}), 404
+            database_id = requested_db
+        else:
+            database_id = _default_database_id(user_id)
+
         # Auto-extract headers as defaults
         extracted = _extract_pgn_headers(data['pgn'])
 
@@ -174,6 +235,8 @@ def create_game():
 
         # pgn is always from the request
         row['pgn'] = data['pgn']
+        if database_id:
+            row['database_id'] = database_id
 
         result = supabase.table(TABLE).insert(row).execute()
         return jsonify(result.data[0]), 201
@@ -313,6 +376,9 @@ def import_local():
         rows = []
         errors = []
 
+        # Resolve the default database once so imported games aren't orphaned.
+        default_db_id = _default_database_id(user_id)
+
         for idx, game_data in enumerate(games):
             pgn = game_data.get('pgn')
             if not pgn:
@@ -338,6 +404,8 @@ def import_local():
             # Preserve source override if provided
             if 'source' in game_data:
                 row['source'] = game_data['source']
+            if default_db_id:
+                row['database_id'] = default_db_id
 
             rows.append(row)
 

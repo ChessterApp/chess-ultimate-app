@@ -62,9 +62,14 @@ interface MyGamesPanelProps {
    * and games are fetched from the authed collection-share endpoints.
    */
   sharedToken?: string;
+  /**
+   * When set, the list is scoped to this database (collection) and new games
+   * are filed under it. Omit for the default "all games" view.
+   */
+  databaseId?: string;
 }
 
-export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken }: MyGamesPanelProps) {
+export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId }: MyGamesPanelProps) {
   const t = useTranslations('debut');
   const isShared = !!sharedToken;
   const { getToken } = useAuth();
@@ -104,8 +109,9 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     if (searchQuery.trim()) filters.q = searchQuery.trim();
     if (resultFilter) filters.result = resultFilter;
     if (favoriteFilter) filters.favorite = true;
+    if (databaseId) filters.database_id = databaseId;
     return filters;
-  }, [searchQuery, resultFilter, favoriteFilter]);
+  }, [searchQuery, resultFilter, favoriteFilter, databaseId]);
 
   // Fetch one page of the shared collection from the authed endpoint.
   const fetchSharedCollection = useCallback(async (pageNum: number) => {
@@ -215,9 +221,11 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     pgn: string,
     metadata?: Parameters<typeof createGame>[1]
   ) => {
-    const game = await createGame(pgn, metadata);
+    // File the new game under the active database when one is selected.
+    const withDb = databaseId ? { ...metadata, database_id: databaseId } : metadata;
+    const game = await createGame(pgn, withDb);
     return game !== null;
-  }, [createGame]);
+  }, [createGame, databaseId]);
 
   // Unified view model — sourced from the shared endpoint in shared mode, from
   // the owned-games hook otherwise.

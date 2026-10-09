@@ -34,6 +34,8 @@ const nextConfig = {
             { source: '/api/scoresheet/:path*', destination: `${backendUrl}/api/scoresheet/:path*` },
             { source: '/api/games', destination: `${backendUrl}/api/games` },
             { source: '/api/games/:path*', destination: `${backendUrl}/api/games/:path*` },
+            { source: '/api/databases', destination: `${backendUrl}/api/databases` },
+            { source: '/api/databases/:path*', destination: `${backendUrl}/api/databases/:path*` },
             { source: '/api/super-admin/:path*', destination: `${backendUrl}/api/super-admin/:path*` },
         ];
         // Rewrite @powersync/ to powersync/ (Vercel doesn't serve @-prefixed dirs from public/)

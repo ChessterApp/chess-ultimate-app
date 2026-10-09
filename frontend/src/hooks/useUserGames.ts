@@ -33,6 +33,7 @@ export interface UserGame {
   tags: string[];
   is_favorite: boolean;
   source: string;
+  database_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -49,6 +50,7 @@ export interface ListGamesFilters {
   result?: string;
   favorite?: boolean;
   tag?: string;
+  database_id?: string;
 }
 
 export interface ImportResult {
@@ -83,6 +85,7 @@ function rowToUserGame(row: Record<string, unknown>): UserGame {
     tags,
     is_favorite: row.is_favorite === 1 || row.is_favorite === true,
     source: (row.source as string) ?? '',
+    database_id: (row.database_id as string) ?? null,
     created_at: (row.created_at as string) ?? '',
     updated_at: (row.updated_at as string) ?? '',
   };
@@ -311,6 +314,7 @@ function useUserGamesLegacy() {
       if (filters?.result) params.set('result', filters.result);
       if (filters?.favorite) params.set('favorite', 'true');
       if (filters?.tag) params.set('tag', filters.tag);
+      if (filters?.database_id) params.set('database_id', filters.database_id);
 
       const data = await fetchWithAuth<ListGamesResponse>(`?${params}`);
       setGames(data.games);

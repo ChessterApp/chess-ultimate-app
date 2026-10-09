@@ -112,6 +112,36 @@ def _make_fake_table(data=None, count=None):
     return table
 
 
+def _make_multi_table(tables):
+    """Create a fake supabase.table() seeded per table name.
+
+    tables maps a table name → dict(data=[...], count=N). Used by the
+    database_id tests where create_game looks up `user_databases` separately
+    from the `user_games` insert.
+    """
+    def table(name):
+        spec = tables.get(name, {})
+        return FakeQueryBuilder(data=spec.get('data'), count=spec.get('count'))
+    return table
+
+
+DEFAULT_DB_ROW = {
+    'id': 'db-default-0000',
+    'user_id': USER_ID,
+    'name': 'My Games',
+    'is_default': True,
+    'deleted_at': None,
+}
+
+OTHER_DB_ROW = {
+    'id': 'db-openings-1111',
+    'user_id': USER_ID,
+    'name': 'Openings',
+    'is_default': False,
+    'deleted_at': None,
+}
+
+
 @pytest.fixture
 def app():
     """Create a minimal Flask app with the user_games blueprint."""
@@ -449,6 +479,84 @@ class TestPgnHeaderExtraction:
         headers = _extract_pgn_headers(pgn)
         assert 'white_elo' not in headers
         assert headers['black_elo'] == 1500
+
+
+# ─── DATABASE_ID SCOPING ─────────────────────────────────────────────────────
+
+class TestListGamesDatabaseScope:
+    def test_list_games_with_database_id(self, client, auth_headers):
+        """?database_id scopes the list; endpoint still returns 200 with rows."""
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _make_fake_table(data=[SAMPLE_GAME_ROW], count=1)
+            resp = client.get(
+                f'/api/games?database_id={OTHER_DB_ROW["id"]}',
+                headers=auth_headers,
+            )
+            assert resp.status_code == 200
+            body = resp.get_json()
+            assert body['total'] == 1
+            assert len(body['games']) == 1
+
+    def test_list_games_without_database_id_is_back_compat(self, client, auth_headers):
+        """Omitting database_id keeps the original behavior (all games)."""
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _make_fake_table(data=[SAMPLE_GAME_ROW], count=1)
+            resp = client.get('/api/games', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json()['total'] == 1
+
+
+class TestCreateGameDatabaseStamp:
+    def test_create_stamps_default_database_when_omitted(self, client, auth_headers):
+        """No database_id in body → new game is stamped with the default db."""
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _make_multi_table({
+                'user_databases': {'data': [DEFAULT_DB_ROW]},
+                'user_games': {'data': []},
+            })
+            resp = client.post('/api/games',
+                               data=json.dumps({'pgn': SAMPLE_PGN}),
+                               headers=auth_headers)
+            assert resp.status_code == 201
+            assert resp.get_json()['database_id'] == DEFAULT_DB_ROW['id']
+
+    def test_create_stamps_explicit_owned_database(self, client, auth_headers):
+        """An owned database_id in the body is validated and stamped."""
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _make_multi_table({
+                'user_databases': {'data': [OTHER_DB_ROW]},
+                'user_games': {'data': []},
+            })
+            resp = client.post('/api/games',
+                               data=json.dumps({'pgn': SAMPLE_PGN, 'database_id': OTHER_DB_ROW['id']}),
+                               headers=auth_headers)
+            assert resp.status_code == 201
+            assert resp.get_json()['database_id'] == OTHER_DB_ROW['id']
+
+    def test_create_rejects_unowned_database(self, client, auth_headers):
+        """A database_id the caller doesn't own → 404, no game created."""
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _make_multi_table({
+                'user_databases': {'data': []},  # lookup finds nothing
+                'user_games': {'data': []},
+            })
+            resp = client.post('/api/games',
+                               data=json.dumps({'pgn': SAMPLE_PGN, 'database_id': 'db-not-mine'}),
+                               headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_create_without_default_still_succeeds(self, client, auth_headers):
+        """No default db resolved → game is created unstamped (back-compat)."""
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _make_multi_table({
+                'user_databases': {'data': []},
+                'user_games': {'data': []},
+            })
+            resp = client.post('/api/games',
+                               data=json.dumps({'pgn': SAMPLE_PGN}),
+                               headers=auth_headers)
+            assert resp.status_code == 201
+            assert resp.get_json().get('database_id') is None
 
 
 if __name__ == '__main__':

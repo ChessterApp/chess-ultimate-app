@@ -79,6 +79,10 @@ const MyGamesMoveList = dynamic(() => import('@/components/openings/MyGamesMoveL
   ssr: false,
   loading: () => <div className="animate-pulse h-20 bg-stone-200 rounded-xl" />
 });
+const DatabasePillRow = dynamic(() => import('@/components/openings/DatabasePillRow'), {
+  ssr: false,
+  loading: () => null
+});
 
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
@@ -219,6 +223,9 @@ export default function DebutPage() {
   // ─── Game viewer tabs ───
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
   const [activeTab, setActiveTab] = useState<string>('debut');
+  // Active database for the pill row: null = Master (TWIC) view. Selecting a
+  // user database scopes the My Games list to that database_id.
+  const [selectedDatabaseId, setSelectedDatabaseId] = useState<string | null>(null);
   const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
   // Track the last non-game tab so closing a game returns to the right place
   const lastHomeTabRef = useRef<string>('debut');
@@ -1838,32 +1845,23 @@ export default function DebutPage() {
         </Box>
       )}
 
-      {/* Master DB stats strip — auto-updates after weekly TWIC Phase 1 indexing.
-          Height is reserved up-front (container always rendered) so the async
+      {/* Database switcher (Variation B pill row) — Master (TWIC) + user databases.
+          minHeight reserves the first row's height up-front so the async count
           pop-in never shifts the board below it — a shift desyncs chessground's
-          cached pointer bounds and taps land one rank off. */}
-      <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, height: { xs: 42, sm: 50 }, boxSizing: 'border-box' }}>
-        {masterDbGameCount !== null && (
-          <Box
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 1,
-              px: 1.5,
-              py: 0.75,
-              borderRadius: '9999px',
-              bgcolor: 'rgba(255,255,255,0.95)',
-              border: '1px solid rgba(31,41,55,0.1)',
-            }}
-          >
-            <Typography variant="caption" sx={{ fontWeight: 600, color: 'var(--text-tertiary)', letterSpacing: 0.5, textTransform: 'uppercase' }}>
-              Master Database
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-              {masterDbGameCount.toLocaleString()} games
-            </Typography>
-          </Box>
-        )}
+          cached pointer bounds and taps land one rank off. The row wraps on
+          mobile instead of overflowing horizontally. */}
+      <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, minHeight: { xs: 42, sm: 50 }, boxSizing: 'border-box' }}>
+        <DatabasePillRow
+          masterGameCount={masterDbGameCount}
+          selectedDatabaseId={selectedDatabaseId}
+          onSelect={(databaseId) => {
+            setSelectedDatabaseId(databaseId);
+            // A user database only has a visible effect in the My Games list, so
+            // switch to it when one is picked; Master restores the default view.
+            if (databaseId) setActiveTab('my-games');
+            else setActiveTab('debut');
+          }}
+        />
       </Box>
 
       {/* Mode switcher + Tab bar */}
@@ -2335,6 +2333,7 @@ export default function DebutPage() {
                   boardHasMoves={myGamesSanMoves.length > 0}
                   onBoardReset={handleMyGamesReset}
                   sharedToken={sharedCollectionToken ?? undefined}
+                  databaseId={selectedDatabaseId ?? undefined}
                 />
               </Box>
             ) : activeGame ? (
