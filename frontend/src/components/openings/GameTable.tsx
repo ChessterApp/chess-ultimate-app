@@ -17,6 +17,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import ShareGameButton from './ShareGameButton';
 
 interface GameTableProps {
   games: GameSearchResult[];
@@ -39,6 +40,7 @@ export default function GameTable({ games, onOpenGame, loading }: GameTableProps
             <TableCell sx={thSx}>Elo</TableCell>
             <TableCell sx={thSx}>Result</TableCell>
             <TableCell sx={thSx}>ECO</TableCell>
+            <TableCell sx={thSx} aria-label="Share" />
           </TableRow>
         </TableHead>
         <TableBody>
@@ -49,6 +51,10 @@ export default function GameTable({ games, onOpenGame, loading }: GameTableProps
               sx={{
                 cursor: onOpenGame ? 'pointer' : 'default',
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
+                // Hover-reveal the share button on desktop; always show on touch.
+                '& .share-cell': { opacity: 0, transition: 'opacity 0.15s ease' },
+                '&:hover .share-cell': { opacity: 1 },
+                '@media (hover: none)': { '& .share-cell': { opacity: 1 } },
               }}
             >
               <TableCell sx={tdSx}>
@@ -75,6 +81,14 @@ export default function GameTable({ games, onOpenGame, loading }: GameTableProps
               </TableCell>
               <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
                 {game.eco || ''}
+              </TableCell>
+              <TableCell sx={{ ...tdSx, p: 0, width: 36, textAlign: 'center' }} className="share-cell">
+                <ShareGameButton
+                  source={game.source}
+                  gameId={game.id}
+                  white={game.white_name || game.white}
+                  black={game.black_name || game.black}
+                />
               </TableCell>
             </TableRow>
           ))}

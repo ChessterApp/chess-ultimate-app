@@ -965,6 +965,11 @@
     "debutTab": "📖 Database",
     "noPgnData": "No PGN data available for this game",
     "maxTabsError": "Max 10 game tabs. Close some first.",
+    "shareGame": {
+      "notFound": "Game not found",
+      "signInToView": "Sign in to view this game",
+      "loadError": "Couldn't load the shared game"
+    },
     "gameLinked": "Game linked!",
     "saveToMyGames": "Save to My Games",
     "savedToMyGames": "Saved to My Games",

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import { useTranslations } from 'next-intl';
+import { encodeGameSlug, decodeGameSlug, type GameSource } from '@/lib/gameSlug';
 import { Box, Typography, Snackbar, Alert, Chip, Switch } from '@mui/material';
 import { useBackendHealth } from '@/hooks/useBackendHealth';
 import { apiFetch } from '@/lib/api';
@@ -95,6 +97,16 @@ import { Close, FolderOpen } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
+// Extract PGN tag pairs (e.g. [White "Kasparov"]) so a deep-linked game tab can
+// show real player names/result instead of placeholders.
+function parsePgnHeaders(pgn: string): Record<string, string> {
+  const tags: Record<string, string> = {};
+  const re = /\[(\w+)\s+"([^"]*)"\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(pgn)) !== null) tags[m[1]] = m[2];
+  return tags;
+}
+
 // Suspended in-flight requests (e.g. iOS backgrounding the service worker) never
 // settle, leaving loading state stuck forever — force-reject so the UI recovers.
 const FETCH_TIMEOUT_MS = 12000;
@@ -108,6 +120,7 @@ function withTimeout<T>(promise: Promise<T>, ms = FETCH_TIMEOUT_MS): Promise<T> 
 export default function DebutPage() {
   const t = useTranslations('debut');
   const backendHealthy = useBackendHealth();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
 
   // mounted guard removed — dynamic imports with ssr:false handle this
 
@@ -1416,7 +1429,7 @@ export default function DebutPage() {
   }, []);
 
   // ─── Game viewer handlers ───
-  const handleOpenGame = useCallback(async (game: any) => {
+  const handleOpenGame = useCallback(async (game: any, opts?: { evictOldestIfFull?: boolean }) => {
     const gameId = String(game.id || `${game.white_name || game.white}-${game.black_name || game.black}-${game.date}`);
     const existing = openedGames.find(g => g.id === gameId);
     if (existing) {
@@ -1424,7 +1437,9 @@ export default function DebutPage() {
       return;
     }
 
-    if (openedGames.length >= 10) {
+    // Deep-linked games (evictOldestIfFull) replace the oldest tab when full
+    // instead of being refused, so a share link always opens.
+    if (openedGames.length >= 10 && !opts?.evictOldestIfFull) {
       setSnackbar({ open: true, msg: t('maxTabsError'), severity: 'error' });
       return;
     }
@@ -1475,7 +1490,12 @@ export default function DebutPage() {
       source: game.user_id ? 'user' : (game.source || 'twic'),
     };
 
-    setOpenedGames(prev => [...prev, newGame]);
+    setOpenedGames(prev => {
+      const trimmed = opts?.evictOldestIfFull && prev.length >= 10
+        ? prev.slice(prev.length - 9)
+        : prev;
+      return [...trimmed, newGame];
+    });
     setGameMoveIndices(prev => ({ ...prev, [gameId]: -1 }));
     setActiveTab(gameId);
 
@@ -1496,35 +1516,100 @@ export default function DebutPage() {
     if (activeTab === gameId) setActiveTab(lastHomeTabRef.current);
   }, [activeTab]);
 
-  // ─── URL param: open game from ?game=<id>&source=twic ───
+  // ─── Deep link: open a shared game from ?g=<slug> (new) or the legacy
+  //     ?game=<id>&source=twic. The opaque slug never leaks the data source. ───
   const searchParams = useSearchParams();
   const urlGameHandledRef = useRef(false);
   useEffect(() => {
-    if (urlGameHandledRef.current || !searchParams) return;
-    const gameId = searchParams.get('game');
-    const source = searchParams.get('source');
-    if (gameId && source === 'twic') {
-      urlGameHandledRef.current = true;
-      // Fetch PGN and open the game in a tab
-      fetchGamePgn(Number(gameId))
-        .then((pgn) => {
-          handleOpenGame({
-            id: gameId,
-            pgn,
-            pgn_offset: 0,
-            pgn_length: 0,
-            source: 'twic',
-          });
-        })
-        .catch(() => {
-          // Silently fail — user can retry from the database
-        });
+    if (urlGameHandledRef.current || !searchParams || !authLoaded) return;
+
+    // Resolve the deep link: prefer the opaque slug, fall back to legacy params.
+    const slug = searchParams.get('g');
+    const legacyId = searchParams.get('game');
+    const legacySource = searchParams.get('source');
+    let target: { source: GameSource; id: number } | null = null;
+    if (slug) {
+      target = decodeGameSlug(slug);
+      if (!target) {
+        urlGameHandledRef.current = true;
+        setSnackbar({ open: true, msg: t('shareGame.notFound'), severity: 'error' });
+        return;
+      }
+    } else if (legacyId && legacySource === 'twic' && Number.isInteger(Number(legacyId))) {
+      target = { source: 'twic', id: Number(legacyId) };
     }
-  }, [searchParams, fetchGamePgn, handleOpenGame]);
+    if (!target) return;
+
+    urlGameHandledRef.current = true;
+
+    // Recipients must be signed in — the single-game PGN endpoint is authed.
+    if (!isSignedIn) {
+      const back = `${window.location.pathname}${window.location.search}`;
+      window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+      return;
+    }
+
+    const { source, id } = target;
+    const pgnPromise = source === 'lichess'
+      ? fetchLichessPgn(String(id))
+      : fetchGamePgn(id);
+
+    pgnPromise
+      .then((pgn) => {
+        const tags = parsePgnHeaders(pgn);
+        handleOpenGame({
+          id: String(id),
+          pgn,
+          pgn_offset: 0,
+          pgn_length: 0,
+          source,
+          white_name: tags.White,
+          black_name: tags.Black,
+          white_elo: tags.WhiteElo ? Number(tags.WhiteElo) : undefined,
+          black_elo: tags.BlackElo ? Number(tags.BlackElo) : undefined,
+          result: tags.Result,
+          eco: tags.ECO,
+          date: tags.Date,
+          event: tags.Event,
+        }, { evictOldestIfFull: true });
+      })
+      .catch((e: any) => {
+        const status = e?.status;
+        if (status === 401 || status === 403 || e?.message === 'Not authenticated') {
+          const back = `${window.location.pathname}${window.location.search}`;
+          setSnackbar({ open: true, msg: t('shareGame.signInToView'), severity: 'error' });
+          window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+        } else if (status === 404) {
+          setSnackbar({ open: true, msg: t('shareGame.notFound'), severity: 'error' });
+        } else {
+          setSnackbar({ open: true, msg: t('shareGame.loadError'), severity: 'error' });
+        }
+      });
+  }, [searchParams, authLoaded, isSignedIn, fetchGamePgn, fetchLichessPgn, handleOpenGame, setSnackbar, t]);
 
   const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
     setGameMoveIndices(prev => ({ ...prev, [gameId]: moveIndex }));
   }, []);
+
+  // ─── URL sync: reflect the active game tab as ?g=<slug> ───
+  // Shareable games (twic/lichess) write an opaque slug; other tabs remove it.
+  // Other query params (explorer/db) are preserved.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const active = openedGames.find(g => g.id === activeTab);
+    let slug: string | null = null;
+    if (active) {
+      const src = (active.source as string) || 'twic';
+      const id = Number(active.id);
+      if ((src === 'twic' || src === 'lichess') && Number.isInteger(id) && id >= 0) {
+        try { slug = encodeGameSlug(src as GameSource, id); } catch { slug = null; }
+      }
+    }
+    if (slug) params.set('g', slug); else params.delete('g');
+    const qs = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${qs ? `?${qs}` : ''}`);
+  }, [activeTab, openedGames]);
 
   const activeGame = openedGames.find(g => g.id === activeTab);
   const activeGameFen = activeGame

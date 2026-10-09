@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmar
 import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
 import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
+import ShareGameButton from './ShareGameButton';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
 import type { MoveContextMenuActions } from './MoveNotation';
 
@@ -177,6 +178,12 @@ export default function GameViewerPanel({
             {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <ShareGameButton
+              source={game.source || 'twic'}
+              gameId={game.id}
+              white={game.white}
+              black={game.black}
+            />
             {onToggleFavorite && (
               <Tooltip title={isFavorite ? 'Unfavorite' : 'Favorite'}>
                 <IconButton
