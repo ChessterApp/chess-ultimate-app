@@ -2608,6 +2608,102 @@ def get_lichess_game_pgn(game_id):
         return jsonify({'error': str(e)}), 500
 
 
+_PGN_TAG_RE = re.compile(r'^\[(\w+)\s+"(.*)"\]\s*$')
+
+
+def _parse_pgn_tags(pgn_text: str) -> dict:
+    """Extract the leading [Tag "value"] header block from a PGN string."""
+    tags = {}
+    for line in (pgn_text or '').splitlines():
+        s = line.strip()
+        if s.startswith('['):
+            m = _PGN_TAG_RE.match(s)
+            if m:
+                tags[m.group(1)] = m.group(2)
+        elif s:
+            break  # reached movetext — headers are done
+    return tags
+
+
+def _meta_int(v) -> Optional[int]:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _lichess_game_meta(game_id: str):
+    """Fetch public header-only metadata for a Lichess game (no moves)."""
+    try:
+        resp = requests.get(
+            f'https://lichess.org/game/export/{game_id}',
+            headers={'Accept': 'application/x-chess-pgn'},
+            params={'moves': 'false', 'clocks': 'false', 'evals': 'false', 'tags': 'true'},
+            timeout=10,
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+    if resp.status_code == 404:
+        return jsonify({'error': 'Game not found'}), 404
+    if resp.status_code != 200:
+        return jsonify({'error': f'Lichess returned {resp.status_code}'}), resp.status_code
+    tags = _parse_pgn_tags(resp.text)
+    return jsonify({
+        'white': tags.get('White'),
+        'black': tags.get('Black'),
+        'result': tags.get('Result'),
+        'event': tags.get('Event'),
+        'date': tags.get('Date') or tags.get('UTCDate'),
+        'white_elo': _meta_int(tags.get('WhiteElo')),
+        'black_elo': _meta_int(tags.get('BlackElo')),
+    })
+
+
+@openings_bp.route('/games/<int:game_id>/meta', methods=['GET'])
+@with_cache(max_age=3600)
+def get_game_meta(game_id):
+    """Public game metadata for Open Graph link previews.
+
+    PUBLIC — no Clerk auth. Powers the `/g/<slug>` short-link OG cards so a
+    shared game unfurls nicely in WhatsApp/Telegram. Returns ONLY header
+    fields (players, result, event, date, elos) — never the PGN or move list,
+    which stay behind the auth-gated `/pgn` endpoints.
+    """
+    source = request.args.get('source', 'twic').strip().lower()
+    if source not in ('twic', 'lichess'):
+        return jsonify({'error': f'Unknown source: {source}'}), 400
+
+    if source == 'lichess':
+        return _lichess_game_meta(str(game_id))
+
+    # twic / internal master database
+    if not check_internal_db_exists():
+        return jsonify({'error': 'Database not available'}), 503
+
+    conn = get_internal_db_connection()
+    try:
+        row = conn.execute(
+            "SELECT white_name, black_name, result, event, date, white_elo, black_elo "
+            "FROM games WHERE id = ?",
+            [game_id],
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return jsonify({'error': 'Game not found'}), 404
+
+    return jsonify({
+        'white': row['white_name'],
+        'black': row['black_name'],
+        'result': row['result'],
+        'event': row['event'],
+        'date': row['date'],
+        'white_elo': row['white_elo'],
+        'black_elo': row['black_elo'],
+    })
+
+
 @openings_bp.route('/games/position-count', methods=['GET'])
 @verify_clerk_token
 @with_cache(max_age=300)

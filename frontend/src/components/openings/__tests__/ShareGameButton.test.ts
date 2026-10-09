@@ -3,10 +3,10 @@ import { buildGameShareUrl, shareOrCopyGame } from '@/components/openings/ShareG
 import { decodeGameSlug } from '@/lib/gameSlug';
 
 describe('buildGameShareUrl', () => {
-  it('builds an opaque /database?g= link that decodes back to the game', () => {
+  it('builds an opaque /g/ short link that decodes back to the game', () => {
     const url = buildGameShareUrl('https://chesster.io', 'twic', 12345);
-    expect(url.startsWith('https://chesster.io/database?g=')).toBe(true);
-    const slug = new URL(url).searchParams.get('g')!;
+    expect(url.startsWith('https://chesster.io/g/')).toBe(true);
+    const slug = new URL(url).pathname.slice('/g/'.length);
     expect(decodeGameSlug(slug)).toEqual({ source: 'twic', id: 12345 });
   });
 

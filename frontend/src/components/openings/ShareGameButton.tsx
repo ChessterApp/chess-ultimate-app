@@ -13,9 +13,10 @@ import { IconButton, Tooltip, Snackbar, Alert } from '@mui/material';
 import { IosShare } from '@mui/icons-material';
 import { encodeGameSlug, type GameSource } from '@/lib/gameSlug';
 
-/** Build the shareable `/database?g=<slug>` link for a game. */
+/** Build the shareable `/g/<slug>` short link for a game. The `/g/` route
+ * renders OG previews and bounces to `/database?g=<slug>`. */
 export function buildGameShareUrl(origin: string, source: GameSource, gameId: number): string {
-  return `${origin}/database?g=${encodeGameSlug(source, gameId)}`;
+  return `${origin}/g/${encodeGameSlug(source, gameId)}`;
 }
 
 /**
