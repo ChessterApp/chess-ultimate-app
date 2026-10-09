@@ -1177,7 +1177,20 @@
         "saveChanges": "Өзгерістерді сақтау",
         "unsavedChanges": "Сақталмаған өзгерістер",
         "savedSuccessfully": "Өзгерістер сақталды"
-      }
+      },
+      "sharedHeader": "{name} партиялары",
+      "sharedEmpty": "Бұл жинақта әзірге партиялар жоқ",
+      "sharedUnavailable": "Бұл сілтеме енді қолжетімді емес"
+    },
+    "shareCollection": {
+      "ogGenericTitle": "Шахмат жинағы · Chesster",
+      "ogTitle": "{name} партиялары · {count}",
+      "ogDescription": "Бұл шахмат жинағын Chesster-де қараңыз",
+      "notFound": "Жинақ табылмады",
+      "notFoundBody": "Жинақ сілтемесі жарамсыз немесе ескірген.",
+      "goToDatabase": "Дерекқорға өту",
+      "opening": "Жинақ ашылуда…",
+      "openManually": "Жинақты ашу"
     }
   },
   "onboarding": {
