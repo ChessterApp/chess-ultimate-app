@@ -175,6 +175,13 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import user games API: {e}")
 
 try:
+    from api.user_databases import user_databases_bp
+    app.register_blueprint(user_databases_bp)
+    logger.info("✅ User Databases API registered (game database CRUD)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import user databases API: {e}")
+
+try:
     from routes.webhooks import webhooks_bp
     app.register_blueprint(webhooks_bp)
     logger.info("✅ Webhooks API registered (Clerk organization sync)")
