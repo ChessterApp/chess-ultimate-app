@@ -19,7 +19,7 @@ from flask import Blueprint, request, jsonify
 
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id
-from api.user_games import _public_game, _owner_display_name
+from api.user_games import _public_game, _owner_display_name, ALLOWED_FIELDS
 
 logger = logging.getLogger(__name__)
 
@@ -570,4 +570,89 @@ def unsubscribe_shared_database(token):
 
     except Exception as e:
         logger.error(f"Error unsubscribing from shared database: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── COPY TO MY WORKSPACE (deep copy) ───────────────────────────────────────────
+#
+# Resolve a share token, create a new database owned by the requester, and
+# deep-copy every source game under it with fresh ids. The copy is a NORMAL owned
+# database afterwards — edit/share/delete all flow through the existing endpoints.
+
+# Game content to carry over on a deep copy. The owner's private `notes` are
+# intentionally dropped (they're stripped from the shared view too).
+_COPY_FIELDS = ALLOWED_FIELDS - {'notes'}
+
+# Batch size for inserting copied games (large collections).
+_COPY_BATCH = 500
+
+
+def _free_copy_name(user_id, source_name):
+    """Pick an un-taken '<name> (copy)' / '(copy 2)'… name, trimmed to fit."""
+    source_name = (source_name or 'Database').strip()
+
+    def _fit(suffix):
+        room = MAX_NAME_LEN - len(suffix)
+        base = source_name[:room].rstrip() if room < len(source_name) else source_name
+        return f"{base}{suffix}"
+
+    candidate = _fit(' (copy)')
+    if not _live_name_taken(user_id, candidate):
+        return candidate
+    n = 2
+    while n <= 1000:
+        candidate = _fit(f' (copy {n})')
+        if not _live_name_taken(user_id, candidate):
+            return candidate
+        n += 1
+    return _fit(f' (copy {secrets.token_hex(3)})')
+
+
+@user_databases_bp.route('/api/databases/shared/<token>/copy', methods=['POST'])
+@verify_clerk_token
+def copy_shared_database(token):
+    """Deep-copy a shared database into the caller's workspace.
+
+    Creates a new owned database named '<name> (copy)' (deduped) and copies every
+    source game with a fresh id, the caller's user_id, the new database_id, and no
+    share_token. 404 on unknown/revoked token. Returns the new db meta.
+    """
+    user_id = get_current_user_id()
+    try:
+        source = _fetch_db_by_share_token(token)
+        if not source:
+            return jsonify({'error': 'Shared database not found'}), 404
+
+        name = _free_copy_name(user_id, source.get('name'))
+        created = supabase.table(DATABASES_TABLE) \
+            .insert({'user_id': user_id, 'name': name, 'is_default': False}) \
+            .execute()
+        new_db = dict(created.data[0])
+        new_db_id = new_db['id']
+
+        try:
+            source_games = _db_games(source['id'], sanitized=False)
+            copies = []
+            for g in source_games:
+                row = {'user_id': user_id, 'database_id': new_db_id, 'share_token': None}
+                for field in _COPY_FIELDS:
+                    if field in g:
+                        row[field] = g[field]
+                copies.append(row)
+
+            for i in range(0, len(copies), _COPY_BATCH):
+                batch = copies[i:i + _COPY_BATCH]
+                if batch:
+                    supabase.table(GAMES_TABLE).insert(batch).execute()
+        except Exception:
+            # No cross-statement transaction available — roll back the empty db so
+            # a failed copy doesn't leave an orphan.
+            supabase.table(DATABASES_TABLE).delete().eq('id', new_db_id).eq('user_id', user_id).execute()
+            raise
+
+        new_db['game_count'] = len(source_games)
+        return jsonify(new_db), 201
+
+    except Exception as e:
+        logger.error(f"Error copying shared database: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500

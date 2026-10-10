@@ -685,6 +685,65 @@ class TestUnsubscribeSharedDatabase:
         assert resp.status_code == 401
 
 
+# ─── COPY TO WORKSPACE (deep copy) ──────────────────────────────────────────────
+
+class TestCopySharedDatabase:
+    def test_copy_creates_owned_db_with_games(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'data': [_game(1), _game(2)]},
+            })
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy', headers=auth_headers)
+            assert resp.status_code == 201
+            body = resp.get_json()
+            assert body['name'] == 'Openings (copy)'
+            assert body['is_default'] is False
+            assert body['game_count'] == 2
+            assert body['user_id'] == USER_A
+
+    def test_copy_dedupes_name(self, client, auth_headers):
+        clash = {**DB_OPENINGS, 'id': 'db-clash', 'name': 'Openings (copy)'}
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED, clash]},
+                GAMES_TABLE: {'data': [_game(1)]},
+            })
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy', headers=auth_headers)
+            assert resp.status_code == 201
+            assert resp.get_json()['name'] == 'Openings (copy 2)'
+
+    def test_copy_empty_db_ok(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'data': []},
+            })
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy', headers=auth_headers)
+            assert resp.status_code == 201
+            assert resp.get_json()['game_count'] == 0
+
+    def test_copy_only_source_db_games(self, client, auth_headers):
+        """Games tagged to another database aren't swept into the copy count."""
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'data': [_game(1), _game(2, database_id='db-other')]},
+            })
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy', headers=auth_headers)
+            assert resp.get_json()['game_count'] == 1
+
+    def test_copy_unknown_token_404(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.post('/api/databases/shared/nope/copy', headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_copy_requires_auth(self, client):
+        resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy')
+        assert resp.status_code == 401
+
+
 # ─── MIGRATION SHAPE ──────────────────────────────────────────────────────────
 
 MIGRATION_PATH = os.path.join(
