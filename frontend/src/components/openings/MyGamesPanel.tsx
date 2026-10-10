@@ -85,7 +85,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     updateGame,
     deleteGame,
     toggleFavorite,
-  } = useUserGames();
+  } = useUserGames(databaseId);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [resultFilter, setResultFilter] = useState<ResultFilter>('');

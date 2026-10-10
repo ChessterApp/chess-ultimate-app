@@ -93,15 +93,20 @@ function rowToUserGame(row: Record<string, unknown>): UserGame {
 
 // ─── PowerSync-backed hook ──────────────
 
-function useUserGamesPowerSync() {
+function useUserGamesPowerSync(databaseId?: string) {
   const { userId, getToken } = useAuth();
   const { database } = usePowerSyncContext();
 
   const [error, setError] = useState<string | null>(null);
 
+  // Scope the live query to one database when selected, so a newly-created (or
+  // otherwise empty) database shows only its own games — never the user's whole
+  // inherited collection. Omit the filter for the Master/all-games view.
   const { data: rawData, isLoading } = useQuery(
-    'SELECT * FROM user_games WHERE user_id = ?',
-    [userId ?? ''],
+    databaseId
+      ? 'SELECT * FROM user_games WHERE user_id = ? AND database_id = ?'
+      : 'SELECT * FROM user_games WHERE user_id = ?',
+    databaseId ? [userId ?? '', databaseId] : [userId ?? ''],
   );
 
   const games = useMemo(
@@ -438,11 +443,11 @@ function useUserGamesLegacy() {
 
 // ─── Exported hook ──────────────────────
 
-export function useUserGames() {
+export function useUserGames(databaseId?: string) {
   // Feature flag is a module-level constant, so hook order is stable across renders.
   if (LOCAL_FIRST_GAMES) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useUserGamesPowerSync();
+    return useUserGamesPowerSync(databaseId);
   }
   // eslint-disable-next-line react-hooks/rules-of-hooks
   return useUserGamesLegacy();

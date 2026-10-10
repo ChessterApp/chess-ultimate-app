@@ -46,14 +46,20 @@ vi.mock('@/lib/powersync/PowerSyncProvider', () => ({
 }));
 
 // ─── useQuery mock ──────────────────────
+// Capture the SQL + params so tests can assert the live query is scoped (e.g.
+// by database_id) rather than fetching the whole collection.
 
+let lastQuery: { sql: string; params: unknown[] } = { sql: '', params: [] };
 const mockQueryData = vi.fn().mockReturnValue([]);
 vi.mock('@powersync/react', () => ({
-  useQuery: () => ({
-    data: mockQueryData(),
-    isLoading: false,
-    error: undefined,
-  }),
+  useQuery: (sql: string, params: unknown[]) => {
+    lastQuery = { sql, params };
+    return {
+      data: mockQueryData(sql, params),
+      isLoading: false,
+      error: undefined,
+    };
+  },
 }));
 
 import { useUserGames } from '../useUserGames';
@@ -240,6 +246,49 @@ describe('useUserGames (PowerSync mode)', () => {
       expect.stringContaining('UPDATE user_games SET'),
       expect.arrayContaining([1]), // is_favorite = 1
     );
+  });
+
+  // ─── Database scoping (STEP 0.5: newly-created DBs must be EMPTY) ───
+  // The PowerSync live query must filter by database_id when one is selected,
+  // otherwise every database shows the user's entire collection.
+  describe('database_id scoping', () => {
+    const GAME_IN_A = { ...GAME_ROW, id: 'game-a', database_id: 'db-A' };
+    const GAME_IN_B = { ...GAME_ROW, id: 'game-b', database_id: 'db-B' };
+
+    beforeEach(() => {
+      // Behave like the real DB: when the query is scoped by database_id, only
+      // rows with that database_id come back.
+      mockQueryData.mockImplementation((sql: string, params: unknown[]) => {
+        const rows = [GAME_IN_A, GAME_IN_B];
+        if (sql.includes('database_id')) {
+          return rows.filter(r => r.database_id === params[1]);
+        }
+        return rows;
+      });
+    });
+
+    it('scopes the live query to the selected database', () => {
+      renderHook(() => useUserGames('db-A'));
+      expect(lastQuery.sql).toContain('database_id');
+      expect(lastQuery.params).toEqual(['user-123', 'db-A']);
+    });
+
+    it('shows ONLY that database\'s games, never the inherited collection', () => {
+      const { result } = renderHook(() => useUserGames('db-A'));
+      expect(result.current.games.map(g => g.id)).toEqual(['game-a']);
+    });
+
+    it('a freshly-created (empty) database shows zero games', () => {
+      const { result } = renderHook(() => useUserGames('db-new-empty'));
+      expect(result.current.games).toEqual([]);
+      expect(result.current.total).toBe(0);
+    });
+
+    it('falls back to the whole collection when no database is selected (Master view)', () => {
+      renderHook(() => useUserGames());
+      expect(lastQuery.sql).not.toContain('database_id');
+      expect(lastQuery.params).toEqual(['user-123']);
+    });
   });
 
   it('should import games via API', async () => {
