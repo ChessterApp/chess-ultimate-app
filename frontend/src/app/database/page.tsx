@@ -97,7 +97,7 @@ const EditGameModal = dynamic(() => import('@/components/openings/EditGameModal'
 import { useUserGames, type UserGame } from '@/hooks/useUserGames';
 import { useGameMoveTree, findNodeById as findGameTreeNode, findParentOf as findGameTreeParent } from '@/hooks/useGameMoveTree';
 import type { MoveContextMenuActions } from '@/components/openings/MoveNotation';
-import { Close, FolderOpen } from '@mui/icons-material';
+import { Close } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -1869,36 +1869,8 @@ export default function DebutPage() {
         {/* Mode tabs hidden — Browse Database disabled for now */}
 
         {/* Game tabs — only show in repertoire mode */}
-        {mode === 'repertoire' && (
+        {mode === 'repertoire' && openedGames.length > 0 && (
           <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'var(--text-tertiary)', borderRadius: 2 } }}>
-            <Chip
-              label={t('debutTab')}
-              onClick={() => setActiveTab('debut')}
-              sx={{
-                height: 28, fontSize: 12, fontWeight: 600,
-                borderRadius: '9999px',
-                bgcolor: activeTab === 'debut' ? 'primary.main' : 'rgba(255,255,255,0.95)',
-                color: activeTab === 'debut' ? '#fff' : 'var(--text-secondary)',
-                border: activeTab === 'debut' ? 'none' : '1px solid rgba(31,41,55,0.1)',
-                '&:hover': { bgcolor: activeTab === 'debut' ? 'primary.dark' : 'var(--surface-card-hover)' },
-                cursor: 'pointer', flexShrink: 0,
-              }}
-            />
-            <Chip
-              icon={<FolderOpen sx={{ fontSize: 14 }} />}
-              label={t('myGamesTab')}
-              onClick={() => setActiveTab('my-games')}
-              sx={{
-                height: 28, fontSize: 12, fontWeight: 600,
-                borderRadius: '9999px',
-                bgcolor: activeTab === 'my-games' ? 'primary.main' : 'rgba(255,255,255,0.95)',
-                color: activeTab === 'my-games' ? '#fff' : 'var(--text-secondary)',
-                border: activeTab === 'my-games' ? 'none' : '1px solid rgba(31,41,55,0.1)',
-                '&:hover': { bgcolor: activeTab === 'my-games' ? 'primary.dark' : 'var(--surface-card-hover)' },
-                '& .MuiChip-icon': { color: activeTab === 'my-games' ? '#fff' : 'var(--text-secondary)' },
-                cursor: 'pointer', flexShrink: 0,
-              }}
-            />
           {openedGames.map(g => (
             <Chip
               key={g.id}

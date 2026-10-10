@@ -47,6 +47,27 @@ describe('DatabasePillRow', () => {
     expect(screen.queryByText('Recently deleted')).toBeNull();
   });
 
+  it('shows the 📖 icon on Master and the folder icon only on the default db pill', async () => {
+    const { container } = render(
+      <DatabasePillRow masterGameCount={100} selectedDatabaseId={null} onSelect={vi.fn()} />,
+    );
+    await waitFor(() => expect(h.fns.listDeleted).toHaveBeenCalled());
+
+    // Master pill carries the 📖 emoji (migrated from the old "📖 Database" chip).
+    expect(screen.getByText('📖')).toBeTruthy();
+
+    // The folder icon renders on the default "My Games" pill...
+    const defaultPill = screen.getByText('My Games').closest('[role="button"]');
+    expect(defaultPill?.querySelector('[data-testid="FolderOpenIcon"]')).toBeTruthy();
+
+    // ...but not on a non-default custom db pill.
+    const customPill = screen.getByText('Openings').closest('[role="button"]');
+    expect(customPill?.querySelector('[data-testid="FolderOpenIcon"]')).toBeNull();
+
+    // And exactly one folder icon exists across the whole row.
+    expect(container.querySelectorAll('[data-testid="FolderOpenIcon"]')).toHaveLength(1);
+  });
+
   it('renders cleanly with only the default db (empty user-db state)', async () => {
     h.state = { databases: [DEFAULT_DB], error: null, ...h.fns };
     render(<DatabasePillRow masterGameCount={0} selectedDatabaseId={null} onSelect={vi.fn()} />);

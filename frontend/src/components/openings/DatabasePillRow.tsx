@@ -13,7 +13,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { Box, Typography, InputBase, Popover, Button } from '@mui/material';
-import { Lock, Add, Edit, DeleteOutline, Restore } from '@mui/icons-material';
+import { FolderOpen, Add, Edit, DeleteOutline, Restore } from '@mui/icons-material';
 import { useDatabases, type UserDatabase, type DeletedDatabase } from '@/hooks/useDatabases';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
@@ -161,7 +161,7 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
           aria-pressed={masterActive}
           sx={{ ...pillSx(masterActive), fontFamily: 'inherit', appearance: 'none' }}
         >
-          <Lock sx={{ fontSize: 13 }} />
+          <span aria-hidden style={{ fontSize: 13, lineHeight: 1 }}>📖</span>
           <span>Master</span>
           {masterGameCount !== null && (
             <Typography component="span" sx={countSx(masterActive)}>
@@ -209,6 +209,7 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
                 '& .db-action': { opacity: active ? 1 : 0 },
               }}
             >
+              {db.is_default && <FolderOpen sx={{ fontSize: 13 }} />}
               <span>{db.name}</span>
               <Typography component="span" sx={countSx(active)}>{db.game_count}</Typography>
               <Box
