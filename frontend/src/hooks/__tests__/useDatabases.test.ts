@@ -216,4 +216,36 @@ describe('useDatabases', () => {
 
     expect(rows).toEqual([]);
   });
+
+  it('shareDatabase POSTs and mirrors the token into the list', async () => {
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB, OPENINGS_DB]);
+    const { result } = renderHook(() => useDatabases());
+    await act(async () => { await result.current.refresh(); });
+
+    mockApiFetch.mockResolvedValueOnce({ share_token: 'tok-123' });
+    let token: string | null = null;
+    await act(async () => { token = await result.current.shareDatabase('db-openings'); });
+
+    expect(token).toBe('tok-123');
+    const [url, opts] = mockApiFetch.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/databases/db-openings/share');
+    expect(opts.method).toBe('POST');
+    expect(result.current.databases.find(d => d.id === 'db-openings')?.share_token).toBe('tok-123');
+  });
+
+  it('revokeShare DELETEs and clears the token in the list', async () => {
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB, { ...OPENINGS_DB, share_token: 'tok-123' }]);
+    const { result } = renderHook(() => useDatabases());
+    await act(async () => { await result.current.refresh(); });
+
+    mockApiFetch.mockResolvedValueOnce({ success: true });
+    let ok = false;
+    await act(async () => { ok = await result.current.revokeShare('db-openings'); });
+
+    expect(ok).toBe(true);
+    const [url, opts] = mockApiFetch.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/databases/db-openings/share');
+    expect(opts.method).toBe('DELETE');
+    expect(result.current.databases.find(d => d.id === 'db-openings')?.share_token).toBeNull();
+  });
 });

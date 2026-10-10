@@ -45,6 +45,29 @@ DB_OPENINGS = {
     'deleted_at': None,
 }
 
+SHARE_TOKEN = 'share_token_openings_abc'
+
+DB_OPENINGS_SHARED = {**DB_OPENINGS, 'share_token': SHARE_TOKEN}
+
+
+def _game(idx, database_id=DB_OPENINGS['id'], **overrides):
+    row = {
+        'id': f'game-{idx}',
+        'user_id': USER_A,
+        'title': f'Game {idx}',
+        'white': 'Player1',
+        'black': 'Player2',
+        'result': '1-0',
+        'pgn': '[Event "x"]\n\n1. e4 e5 1-0\n',
+        'notes': 'private notes',
+        'database_id': database_id,
+        'deleted_at': None,
+        'created_at': '2025-02-02T10:00:00+00:00',
+        'updated_at': '2025-02-02T10:00:00+00:00',
+    }
+    row.update(overrides)
+    return row
+
 
 # ─── Per-table mock ──────────────────────────────────────────────────────────
 
@@ -143,6 +166,13 @@ def auth_headers():
 def mock_jwt():
     """@verify_clerk_token is applied at import time — mock the decode to USER_A."""
     with patch('utils.auth._decode_clerk_token', return_value={'sub': USER_A}):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def mock_owner_name():
+    """Owner display name comes from Clerk — stub it out for share tests."""
+    with patch('api.user_databases._owner_display_name', return_value='Alice A'):
         yield
 
 
@@ -423,6 +453,123 @@ class TestCrossUserIsolation:
             assert resp.status_code == 404
 
 
+# ─── SHARE (mint / revoke) ─────────────────────────────────────────────────────
+
+class TestShareDatabase:
+    def test_mint_token(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [DB_OPENINGS]}})
+            resp = client.post(f'/api/databases/{DB_OPENINGS["id"]}/share', headers=auth_headers)
+            assert resp.status_code == 200
+            token = resp.get_json()['share_token']
+            assert isinstance(token, str)
+            assert len(token) >= 16
+
+    def test_mint_is_idempotent(self, client, auth_headers):
+        """A database that already has a token gets the same one back."""
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]}})
+            resp = client.post(f'/api/databases/{DB_OPENINGS["id"]}/share', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json()['share_token'] == SHARE_TOKEN
+
+    def test_cannot_share_default_400(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [DB_DEFAULT]}})
+            resp = client.post(f'/api/databases/{DB_DEFAULT["id"]}/share', headers=auth_headers)
+            assert resp.status_code == 400
+            assert 'default' in resp.get_json()['error'].lower()
+
+    def test_share_missing_404(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.post('/api/databases/nope/share', headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_cannot_share_other_users_db_404(self, client, auth_headers):
+        other = {**DB_OPENINGS, 'user_id': USER_B}
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [other]}})
+            resp = client.post(f'/api/databases/{other["id"]}/share', headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_share_requires_auth(self, client):
+        resp = client.post(f'/api/databases/{DB_OPENINGS["id"]}/share')
+        assert resp.status_code == 401
+
+
+class TestRevokeDatabaseShare:
+    def test_revoke_ok(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]}})
+            resp = client.delete(f'/api/databases/{DB_OPENINGS["id"]}/share', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json()['success'] is True
+
+    def test_revoke_missing_404(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.delete('/api/databases/nope/share', headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_revoke_requires_auth(self, client):
+        resp = client.delete(f'/api/databases/{DB_OPENINGS["id"]}/share')
+        assert resp.status_code == 401
+
+
+# ─── SHARED VIEW (recipient) ────────────────────────────────────────────────────
+
+class TestGetSharedDatabase:
+    def test_resolves_meta_and_games(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'data': [_game(1), _game(2)]},
+            })
+            resp = client.get(f'/api/databases/shared/{SHARE_TOKEN}', headers=auth_headers)
+            assert resp.status_code == 200
+            body = resp.get_json()
+            assert body['database']['id'] == DB_OPENINGS['id']
+            assert body['database']['name'] == 'Openings'
+            assert body['database']['game_count'] == 2
+            assert body['owner_name'] == 'Alice A'
+            assert len(body['games']) == 2
+
+    def test_games_are_sanitized(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'data': [_game(1)]},
+            })
+            resp = client.get(f'/api/databases/shared/{SHARE_TOKEN}', headers=auth_headers)
+            game = resp.get_json()['games'][0]
+            assert 'notes' not in game
+            assert 'user_id' not in game
+            assert game['pgn']  # non-private fields survive
+
+    def test_only_this_databases_games(self, client, auth_headers):
+        """A game tagged to a different database is not leaked under this token."""
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'data': [_game(1), _game(9, database_id='db-other')]},
+            })
+            resp = client.get(f'/api/databases/shared/{SHARE_TOKEN}', headers=auth_headers)
+            body = resp.get_json()
+            assert body['database']['game_count'] == 1
+            assert [g['id'] for g in body['games']] == ['game-1']
+
+    def test_unknown_token_404(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.get('/api/databases/shared/nope', headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_requires_auth(self, client):
+        resp = client.get(f'/api/databases/shared/{SHARE_TOKEN}')
+        assert resp.status_code == 401
+
+
 # ─── MIGRATION SHAPE ──────────────────────────────────────────────────────────
 
 MIGRATION_PATH = os.path.join(
@@ -474,6 +621,33 @@ class TestMigrationShape:
     def test_idempotent_backfill(self, sql):
         assert 'NOT EXISTS' in sql
         assert 'INSERT INTO user_databases' in sql
+
+
+SHARE_MIGRATION_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'migrations',
+    '019_add_user_databases_share_token.sql',
+)
+
+
+class TestShareTokenMigrationShape:
+    @pytest.fixture
+    def sql(self):
+        with open(SHARE_MIGRATION_PATH, 'r') as f:
+            return f.read()
+
+    def test_file_exists(self):
+        assert os.path.exists(SHARE_MIGRATION_PATH)
+
+    def test_adds_share_token_column(self, sql):
+        assert re.search(
+            r'ALTER\s+TABLE\s+user_databases\s+ADD\s+COLUMN\s+IF\s+NOT\s+EXISTS\s+share_token\s+TEXT',
+            sql, re.IGNORECASE,
+        )
+
+    def test_unique_partial_index(self, sql):
+        assert 'user_databases_share_token_idx' in sql
+        assert re.search(r'WHERE\s+share_token\s+IS\s+NOT\s+NULL', sql, re.IGNORECASE)
 
 
 if __name__ == '__main__':

@@ -12,10 +12,15 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { Box, Typography, InputBase, Popover, Button } from '@mui/material';
-import { FolderOpen, Add, Edit, DeleteOutline, Restore } from '@mui/icons-material';
+import { Box, Typography, InputBase, Popover, Button, TextField } from '@mui/material';
+import { FolderOpen, Add, Edit, DeleteOutline, Restore, IosShare, ContentCopy, LinkOff } from '@mui/icons-material';
 import { useDatabases, type UserDatabase, type DeletedDatabase } from '@/hooks/useDatabases';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
+
+/** Build the per-database share link consumed by the ?sdb= deep-link handler. */
+export function buildDatabaseShareUrl(origin: string, token: string): string {
+  return `${origin}/database?sdb=${token}`;
+}
 
 interface DatabasePillRowProps {
   /** TWIC master count from /api/opponent/status (null until loaded). */
@@ -54,7 +59,7 @@ const countSx = (active: boolean) => ({
 });
 
 export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, onSelect }: DatabasePillRowProps) {
-  const { databases, error, refresh, createDatabase, renameDatabase, deleteDatabase, restoreDatabase, listDeleted } = useDatabases();
+  const { databases, error, refresh, createDatabase, renameDatabase, deleteDatabase, restoreDatabase, listDeleted, shareDatabase, revokeShare } = useDatabases();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -66,6 +71,13 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
   const [deleteTarget, setDeleteTarget] = useState<UserDatabase | null>(null);
   const [deleted, setDeleted] = useState<DeletedDatabase[]>([]);
   const [restoreAnchor, setRestoreAnchor] = useState<HTMLElement | null>(null);
+
+  // ─── Share popover (per-database link) ───
+  const [shareAnchor, setShareAnchor] = useState<HTMLElement | null>(null);
+  const [shareTarget, setShareTarget] = useState<UserDatabase | null>(null);
+  const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const reloadDeleted = useCallback(async () => {
     setDeleted(await listDeleted());
@@ -147,6 +159,46 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
       onSelect(restored.id);
     }
   }, [restoreDatabase, reloadDeleted, onSelect]);
+
+  // ─── Share (mint/copy/revoke a per-database link) ───
+  const openShare = useCallback(async (e: React.MouseEvent, db: UserDatabase) => {
+    e.stopPropagation();
+    setShareAnchor(e.currentTarget as HTMLElement);
+    setShareTarget(db);
+    setShareCopied(false);
+    if (db.share_token) {
+      setShareToken(db.share_token);
+      return;
+    }
+    setShareLoading(true);
+    const token = await shareDatabase(db.id);
+    setShareToken(token);
+    setShareLoading(false);
+  }, [shareDatabase]);
+
+  const closeShare = useCallback(() => {
+    setShareAnchor(null);
+    setShareTarget(null);
+    setShareToken(null);
+    setShareCopied(false);
+  }, []);
+
+  const copyShareLink = useCallback(async () => {
+    if (!shareToken) return;
+    const url = buildDatabaseShareUrl(window.location.origin, shareToken);
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+    } catch {
+      setShareCopied(false);
+    }
+  }, [shareToken]);
+
+  const revokeShareLink = useCallback(async () => {
+    if (!shareTarget) return;
+    const ok = await revokeShare(shareTarget.id);
+    if (ok) closeShare();
+  }, [shareTarget, revokeShare, closeShare]);
 
   const masterActive = selectedDatabaseId === null;
 
@@ -232,6 +284,29 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
               >
                 <Edit sx={{ fontSize: 13 }} />
               </Box>
+              {/* Share — per-database link. Hidden for the default db (never shareable). */}
+              {!db.is_default && (
+                <Box
+                  component="span"
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Share ${db.name}`}
+                  className="db-action"
+                  onClick={(e) => openShare(e, db)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); openShare(e as unknown as React.MouseEvent, db); }
+                  }}
+                  sx={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    transition: 'opacity 0.15s',
+                    color: db.share_token ? (active ? '#fff' : 'primary.main') : 'inherit',
+                    '&:focus-visible': { outline: '2px solid', outlineColor: active ? '#fff' : 'primary.main', outlineOffset: 1, borderRadius: '4px' },
+                  }}
+                >
+                  <IosShare sx={{ fontSize: 13 }} />
+                </Box>
+              )}
               {/* Delete — hidden for the built-in default "My Games" db (backend also guards). */}
               {!db.is_default && (
                 <Box
@@ -355,6 +430,62 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
             </Button>
           </Box>
         ))}
+      </Popover>
+
+      {/* Share link popover — mint/copy/revoke a per-database read-only link */}
+      <Popover
+        open={Boolean(shareAnchor)}
+        anchorEl={shareAnchor}
+        onClose={closeShare}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        slotProps={{ paper: { sx: { p: 1.5, width: 300 } } }}
+      >
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', mb: 0.5 }}>
+          Share {shareTarget?.name}
+        </Typography>
+        {shareLoading && (
+          <Typography sx={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Creating link…</Typography>
+        )}
+        {!shareLoading && shareToken && (
+          <>
+            <Typography sx={{ fontSize: 11, color: 'var(--text-tertiary)', mb: 0.75 }}>
+              Anyone signed in with this link can view (read-only) this database&apos;s games.
+            </Typography>
+            <TextField
+              value={buildDatabaseShareUrl(typeof window !== 'undefined' ? window.location.origin : '', shareToken)}
+              size="small"
+              fullWidth
+              slotProps={{ input: { readOnly: true } }}
+              sx={{ mb: 1, '& .MuiOutlinedInput-root': { fontSize: 11 } }}
+            />
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<ContentCopy sx={{ fontSize: 15 }} />}
+                onClick={copyShareLink}
+                sx={{ textTransform: 'none', fontSize: 12, flex: 1 }}
+              >
+                {shareCopied ? 'Copied' : 'Copy'}
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<LinkOff sx={{ fontSize: 15 }} />}
+                onClick={revokeShareLink}
+                sx={{ textTransform: 'none', fontSize: 12 }}
+              >
+                Revoke
+              </Button>
+            </Box>
+          </>
+        )}
+        {!shareLoading && !shareToken && (
+          <Typography sx={{ fontSize: 12, color: 'error.main' }}>
+            {error || 'Could not create a share link.'}
+          </Typography>
+        )}
       </Popover>
 
       {/* Delete confirmation */}

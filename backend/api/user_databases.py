@@ -11,6 +11,7 @@ error handling, logging).
 """
 
 import logging
+import secrets
 import traceback
 from datetime import datetime, timezone
 
@@ -18,6 +19,7 @@ from flask import Blueprint, request, jsonify
 
 from services.supabase_client import supabase
 from utils.auth import verify_clerk_token, get_current_user_id
+from api.user_games import _public_game, _owner_display_name
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ user_databases_bp = Blueprint('user_databases', __name__)
 
 DATABASES_TABLE = 'user_databases'
 GAMES_TABLE = 'user_games'
+SHARED_DATABASES_TABLE = 'user_shared_databases'
 
 MAX_NAME_LEN = 80
 
@@ -315,4 +318,139 @@ def restore_database(database_id):
 
     except Exception as e:
         logger.error(f"Error restoring database: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── SHARING ───────────────────────────────────────────────────────────────────
+#
+# A user database (except the default/Master) can be shared read-only via one
+# opaque, revocable token. The token resolves to the database's meta and its
+# games (scoped by database_id), sanitized with the same _public_game helper used
+# by the whole-collection (gc=) share path. Revoking sets share_token back to
+# NULL so the token stops resolving → 404 everywhere. Mirrors the per-game and
+# per-collection share semantics.
+
+
+def _db_games(database_id, sanitized=False):
+    """Return live games under a database, newest first. Sanitized strips the
+    private fields for a share recipient."""
+    result = supabase.table(GAMES_TABLE) \
+        .select('*') \
+        .eq('database_id', database_id) \
+        .is_('deleted_at', 'null') \
+        .order('created_at', desc=True) \
+        .execute()
+    rows = [r for r in (result.data or []) if r.get('database_id') == database_id]
+    return [_public_game(r) for r in rows] if sanitized else rows
+
+
+def _fetch_db_by_share_token(token):
+    """Return the LIVE database row for a share token, or None.
+
+    The share_token/deleted_at match is re-checked in Python so an unknown or
+    revoked token resolves to None even under a filter-agnostic mock.
+    """
+    if not token:
+        return None
+    result = supabase.table(DATABASES_TABLE) \
+        .select('*') \
+        .eq('share_token', token) \
+        .is_('deleted_at', 'null') \
+        .execute()
+    for row in result.data or []:
+        if row.get('share_token') == token and row.get('deleted_at') is None:
+            return row
+    return None
+
+
+@user_databases_bp.route('/api/databases/<database_id>/share', methods=['POST'])
+@verify_clerk_token
+def share_database(database_id):
+    """Mint (or return the existing) share token for an owned database.
+
+    Idempotent — a database that already has a token gets it back unchanged.
+    400 if it's the default/Master database (never shareable), 404 if missing.
+    """
+    user_id = get_current_user_id()
+    try:
+        existing = _fetch_owned(database_id, user_id)
+        if not existing:
+            return jsonify({'error': 'Database not found'}), 404
+
+        if existing.get('is_default'):
+            return jsonify({'error': "Your default database can't be shared."}), 400
+
+        if existing.get('share_token'):
+            return jsonify({'share_token': existing['share_token']}), 200
+
+        token = secrets.token_urlsafe(16)
+        now = datetime.now(timezone.utc).isoformat()
+        supabase.table(DATABASES_TABLE) \
+            .update({'share_token': token, 'updated_at': now}) \
+            .eq('id', database_id) \
+            .eq('user_id', user_id) \
+            .execute()
+
+        return jsonify({'share_token': token}), 200
+
+    except Exception as e:
+        logger.error(f"Error sharing database: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/databases/<database_id>/share', methods=['DELETE'])
+@verify_clerk_token
+def revoke_database_share(database_id):
+    """Revoke an owned database's share token (set it NULL). Owner-scoped.
+
+    Idempotent: revoking when nothing is shared still succeeds. After this the
+    token no longer resolves → the shared view 404s.
+    """
+    user_id = get_current_user_id()
+    try:
+        existing = _fetch_owned(database_id, user_id)
+        if not existing:
+            return jsonify({'error': 'Database not found'}), 404
+
+        now = datetime.now(timezone.utc).isoformat()
+        supabase.table(DATABASES_TABLE) \
+            .update({'share_token': None, 'updated_at': now}) \
+            .eq('id', database_id) \
+            .eq('user_id', user_id) \
+            .execute()
+
+        return jsonify({'success': True}), 200
+
+    except Exception as e:
+        logger.error(f"Error revoking database share: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/databases/shared/<token>', methods=['GET'])
+@verify_clerk_token
+def get_shared_database(token):
+    """Resolve a share token → the database meta + its games, READ-ONLY.
+
+    Any signed-in user may read it. Games are scoped by database_id and
+    sanitized (private `notes`/`user_id` stripped) with the same _public_game
+    helper used by the collection-share path. Unknown/revoked token → 404.
+    """
+    try:
+        db = _fetch_db_by_share_token(token)
+        if not db:
+            return jsonify({'error': 'Shared database not found'}), 404
+
+        games = _db_games(db['id'], sanitized=True)
+        return jsonify({
+            'database': {
+                'id': db['id'],
+                'name': db.get('name'),
+                'game_count': len(games),
+            },
+            'owner_name': _owner_display_name(db['user_id']),
+            'games': games,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error reading shared database: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500

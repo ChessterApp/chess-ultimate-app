@@ -13,6 +13,8 @@ const h = vi.hoisted(() => ({
     deleteDatabase: vi.fn(),
     restoreDatabase: vi.fn(),
     listDeleted: vi.fn(),
+    shareDatabase: vi.fn(),
+    revokeShare: vi.fn(),
   },
   state: {} as Record<string, unknown>,
 }));
@@ -32,6 +34,8 @@ beforeEach(() => {
   h.fns.listDeleted.mockResolvedValue([]);
   h.fns.deleteDatabase.mockResolvedValue(true);
   h.fns.restoreDatabase.mockResolvedValue({ ...OPENINGS_DB });
+  h.fns.shareDatabase.mockResolvedValue('sdb-token-xyz');
+  h.fns.revokeShare.mockResolvedValue(true);
   h.state = { databases: [DEFAULT_DB, OPENINGS_DB], error: null, ...h.fns };
 });
 
@@ -105,6 +109,48 @@ describe('DatabasePillRow', () => {
     fireEvent.click(screen.getByText('Cancel'));
 
     expect(h.fns.deleteDatabase).not.toHaveBeenCalled();
+  });
+
+  it('hides the share affordance for the default db but shows it for user dbs', () => {
+    render(<DatabasePillRow masterGameCount={100} selectedDatabaseId={null} onSelect={vi.fn()} />);
+    expect(screen.queryByLabelText('Share My Games')).toBeNull();
+    expect(screen.getByLabelText('Share Openings')).toBeTruthy();
+  });
+
+  it('mints a share link and shows the /database?sdb= URL on click', async () => {
+    render(<DatabasePillRow masterGameCount={100} selectedDatabaseId={null} onSelect={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Share Openings'));
+    await waitFor(() => expect(h.fns.shareDatabase).toHaveBeenCalledWith('db-openings'));
+
+    const field = await screen.findByDisplayValue(/\/database\?sdb=sdb-token-xyz$/);
+    expect(field).toBeTruthy();
+  });
+
+  it('reuses an already-minted token without re-calling the server', async () => {
+    h.state = {
+      databases: [DEFAULT_DB, { ...OPENINGS_DB, share_token: 'existing-token' }],
+      error: null,
+      ...h.fns,
+    };
+    render(<DatabasePillRow masterGameCount={100} selectedDatabaseId={null} onSelect={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Share Openings'));
+    expect(await screen.findByDisplayValue(/sdb=existing-token$/)).toBeTruthy();
+    expect(h.fns.shareDatabase).not.toHaveBeenCalled();
+  });
+
+  it('revokes a shared link from the popover', async () => {
+    h.state = {
+      databases: [DEFAULT_DB, { ...OPENINGS_DB, share_token: 'existing-token' }],
+      error: null,
+      ...h.fns,
+    };
+    render(<DatabasePillRow masterGameCount={100} selectedDatabaseId={null} onSelect={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Share Openings'));
+    fireEvent.click(await screen.findByText('Revoke'));
+    await waitFor(() => expect(h.fns.revokeShare).toHaveBeenCalledWith('db-openings'));
   });
 
   it('shows the recently-deleted panel and restores from it', async () => {

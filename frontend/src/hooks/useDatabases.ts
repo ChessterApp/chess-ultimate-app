@@ -24,6 +24,8 @@ export interface UserDatabase {
   name: string;
   is_default: boolean;
   game_count: number;
+  /** Opaque per-database share token, or null/undefined when not shared. */
+  share_token?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -192,6 +194,36 @@ export function useDatabases() {
     }
   }, [fetchWithAuth]);
 
+  // Mint (or return the existing) share token for a database. Idempotent on the
+  // server. Mirrors the token into the local list so the pill reflects shared
+  // state without a refetch.
+  const shareDatabase = useCallback(async (id: string): Promise<string | null> => {
+    setError(null);
+    try {
+      const { share_token } = await fetchWithAuth<{ share_token: string }>(`/${id}/share`, {
+        method: 'POST',
+      });
+      setDatabases(prev => prev.map(db => (db.id === id ? { ...db, share_token } : db)));
+      return share_token;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to share database');
+      return null;
+    }
+  }, [fetchWithAuth, setDatabases]);
+
+  // Revoke a database's share link (clears the token). Owner-scoped.
+  const revokeShare = useCallback(async (id: string): Promise<boolean> => {
+    setError(null);
+    try {
+      await fetchWithAuth<{ success: boolean }>(`/${id}/share`, { method: 'DELETE' });
+      setDatabases(prev => prev.map(db => (db.id === id ? { ...db, share_token: null } : db)));
+      return true;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to revoke share');
+      return false;
+    }
+  }, [fetchWithAuth, setDatabases]);
+
   return {
     databases,
     loading,
@@ -202,5 +234,7 @@ export function useDatabases() {
     deleteDatabase,
     restoreDatabase,
     listDeleted,
+    shareDatabase,
+    revokeShare,
   };
 }
