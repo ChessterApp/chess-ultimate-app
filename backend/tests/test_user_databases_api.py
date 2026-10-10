@@ -20,7 +20,12 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from unittest.mock import patch
 
-from api.user_databases import DATABASES_TABLE, GAMES_TABLE, RETENTION_DAYS
+from api.user_databases import (
+    DATABASES_TABLE,
+    GAMES_TABLE,
+    SHARED_DATABASES_TABLE,
+    RETENTION_DAYS,
+)
 
 USER_A = 'user_a'
 USER_B = 'user_b'
@@ -570,6 +575,116 @@ class TestGetSharedDatabase:
         assert resp.status_code == 401
 
 
+# ─── SUBSCRIPTIONS ("Shared with me") ───────────────────────────────────────────
+
+SUB_ROW = {
+    'id': 'sub-1',
+    'subscriber_id': USER_A,
+    'source_token': SHARE_TOKEN,
+    'added_at': '2025-03-01T10:00:00+00:00',
+}
+
+
+class TestSubscribeSharedDatabase:
+    def test_subscribe_ok(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'count': 3},
+                SHARED_DATABASES_TABLE: {'data': []},
+            })
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/subscribe', headers=auth_headers)
+            assert resp.status_code == 200
+            body = resp.get_json()
+            assert body['source_token'] == SHARE_TOKEN
+            assert body['database_id'] == DB_OPENINGS['id']
+            assert body['name'] == 'Openings'
+            assert body['game_count'] == 3
+            assert body['owner_name'] == 'Alice A'
+
+    def test_subscribe_idempotent(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'count': 3},
+                SHARED_DATABASES_TABLE: {'data': [SUB_ROW]},
+            })
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/subscribe', headers=auth_headers)
+            assert resp.status_code == 200
+
+    def test_subscribe_unknown_token_404(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.post('/api/databases/shared/nope/subscribe', headers=auth_headers)
+            assert resp.status_code == 404
+
+    def test_subscribe_requires_auth(self, client):
+        resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/subscribe')
+        assert resp.status_code == 401
+
+
+class TestListSharedDatabases:
+    def test_list_resolves_meta(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                SHARED_DATABASES_TABLE: {'data': [SUB_ROW]},
+                DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]},
+                GAMES_TABLE: {'count': 2},
+            })
+            resp = client.get('/api/databases/shared', headers=auth_headers)
+            assert resp.status_code == 200
+            body = resp.get_json()
+            assert len(body) == 1
+            assert body[0]['available'] is True
+            assert body[0]['name'] == 'Openings'
+            assert body[0]['database_id'] == DB_OPENINGS['id']
+            assert body[0]['game_count'] == 2
+
+    def test_list_marks_revoked_unavailable(self, client, auth_headers):
+        # Subscription exists but the token no longer resolves (owner revoked).
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({
+                SHARED_DATABASES_TABLE: {'data': [SUB_ROW]},
+                DATABASES_TABLE: {'data': []},
+            })
+            resp = client.get('/api/databases/shared', headers=auth_headers)
+            body = resp.get_json()
+            assert len(body) == 1
+            assert body[0]['available'] is False
+            assert body[0]['source_token'] == SHARE_TOKEN
+            assert body[0]['name'] is None
+
+    def test_list_only_own_subscriptions(self, client, auth_headers):
+        other = {**SUB_ROW, 'subscriber_id': USER_B}
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({SHARED_DATABASES_TABLE: {'data': [other]}})
+            resp = client.get('/api/databases/shared', headers=auth_headers)
+            assert resp.get_json() == []
+
+    def test_list_requires_auth(self, client):
+        resp = client.get('/api/databases/shared')
+        assert resp.status_code == 401
+
+
+class TestUnsubscribeSharedDatabase:
+    def test_unsubscribe_ok(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({SHARED_DATABASES_TABLE: {'data': [SUB_ROW]}})
+            resp = client.delete(f'/api/databases/shared/subscription/{SHARE_TOKEN}', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json()['success'] is True
+
+    def test_unsubscribe_idempotent(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = make_table({SHARED_DATABASES_TABLE: {'data': []}})
+            resp = client.delete(f'/api/databases/shared/subscription/{SHARE_TOKEN}', headers=auth_headers)
+            assert resp.status_code == 200
+
+    def test_unsubscribe_requires_auth(self, client):
+        resp = client.delete(f'/api/databases/shared/subscription/{SHARE_TOKEN}')
+        assert resp.status_code == 401
+
+
 # ─── MIGRATION SHAPE ──────────────────────────────────────────────────────────
 
 MIGRATION_PATH = os.path.join(
@@ -648,6 +763,39 @@ class TestShareTokenMigrationShape:
     def test_unique_partial_index(self, sql):
         assert 'user_databases_share_token_idx' in sql
         assert re.search(r'WHERE\s+share_token\s+IS\s+NOT\s+NULL', sql, re.IGNORECASE)
+
+
+SUBS_MIGRATION_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'migrations',
+    '020_create_user_shared_databases.sql',
+)
+
+
+class TestSubscriptionsMigrationShape:
+    @pytest.fixture
+    def sql(self):
+        with open(SUBS_MIGRATION_PATH, 'r') as f:
+            return f.read()
+
+    def test_file_exists(self):
+        assert os.path.exists(SUBS_MIGRATION_PATH)
+
+    def test_creates_table(self, sql):
+        assert 'CREATE TABLE IF NOT EXISTS user_shared_databases' in sql
+
+    def test_subscriber_and_token_columns(self, sql):
+        assert re.search(r'subscriber_id\s+TEXT\s+NOT NULL', sql)
+        assert re.search(r'source_token\s+TEXT\s+NOT NULL', sql)
+
+    def test_unique_subscription(self, sql):
+        assert re.search(r'UNIQUE\s*\(\s*subscriber_id\s*,\s*source_token\s*\)', sql, re.IGNORECASE)
+
+    def test_rls_enabled(self, sql):
+        assert re.search(
+            r'ALTER\s+TABLE\s+user_shared_databases\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY',
+            sql, re.IGNORECASE,
+        )
 
 
 if __name__ == '__main__':

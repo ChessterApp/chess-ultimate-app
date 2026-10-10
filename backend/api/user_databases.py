@@ -454,3 +454,120 @@ def get_shared_database(token):
     except Exception as e:
         logger.error(f"Error reading shared database: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
+
+
+# ─── "SHARED WITH ME" SUBSCRIPTIONS ────────────────────────────────────────────
+#
+# Opening a share link records a subscription so the shared database persists as
+# a read-only pill. The subscription is keyed by (subscriber_id, source_token);
+# deleting one removes only the subscriber's own row and never touches the
+# owner's data. A revoked/unknown token simply stops resolving.
+
+
+def _shared_db_meta(token):
+    """Resolve a share token to a compact meta dict for a subscriber view, or
+    None if the token no longer resolves (revoked/unknown)."""
+    db = _fetch_db_by_share_token(token)
+    if not db:
+        return None
+    return {
+        'source_token': token,
+        'database_id': db['id'],
+        'name': db.get('name'),
+        'owner_name': _owner_display_name(db['user_id']),
+        'game_count': _game_count(db['id']),
+    }
+
+
+@user_databases_bp.route('/api/databases/shared/<token>/subscribe', methods=['POST'])
+@verify_clerk_token
+def subscribe_shared_database(token):
+    """Record (idempotently) the caller's subscription to a shared database.
+
+    404 if the token doesn't resolve. Returns the shared-db meta so the caller
+    can render the pill immediately.
+    """
+    user_id = get_current_user_id()
+    try:
+        meta = _shared_db_meta(token)
+        if not meta:
+            return jsonify({'error': 'Shared database not found'}), 404
+
+        existing = supabase.table(SHARED_DATABASES_TABLE) \
+            .select('id') \
+            .eq('subscriber_id', user_id) \
+            .eq('source_token', token) \
+            .execute()
+
+        if not (existing.data or []):
+            supabase.table(SHARED_DATABASES_TABLE) \
+                .insert({'subscriber_id': user_id, 'source_token': token}) \
+                .execute()
+
+        return jsonify(meta), 200
+
+    except Exception as e:
+        logger.error(f"Error subscribing to shared database: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/databases/shared', methods=['GET'])
+@verify_clerk_token
+def list_shared_databases():
+    """List the caller's shared-database subscriptions, resolved to live meta.
+
+    Each row carries an `available` flag: a subscription whose token the owner
+    has since revoked still appears (so the user can remove it) but with
+    available=false and no game data.
+    """
+    user_id = get_current_user_id()
+    try:
+        result = supabase.table(SHARED_DATABASES_TABLE) \
+            .select('*') \
+            .eq('subscriber_id', user_id) \
+            .order('added_at', desc=True) \
+            .execute()
+
+        items = []
+        for row in result.data or []:
+            if row.get('subscriber_id') != user_id:
+                continue
+            token = row.get('source_token')
+            meta = _shared_db_meta(token)
+            if meta:
+                items.append({**meta, 'added_at': row.get('added_at'), 'available': True})
+            else:
+                items.append({
+                    'source_token': token,
+                    'database_id': None,
+                    'name': None,
+                    'owner_name': None,
+                    'game_count': 0,
+                    'added_at': row.get('added_at'),
+                    'available': False,
+                })
+
+        return jsonify(items), 200
+
+    except Exception as e:
+        logger.error(f"Error listing shared databases: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/databases/shared/subscription/<token>', methods=['DELETE'])
+@verify_clerk_token
+def unsubscribe_shared_database(token):
+    """Remove ONLY the caller's subscription row for a token. Owner data is never
+    touched. Idempotent: removing a missing subscription still succeeds."""
+    user_id = get_current_user_id()
+    try:
+        supabase.table(SHARED_DATABASES_TABLE) \
+            .delete() \
+            .eq('subscriber_id', user_id) \
+            .eq('source_token', token) \
+            .execute()
+        return jsonify({'success': True}), 200
+
+    except Exception as e:
+        logger.error(f"Error unsubscribing from shared database: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
