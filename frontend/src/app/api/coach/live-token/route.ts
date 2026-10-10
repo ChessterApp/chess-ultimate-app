@@ -3,6 +3,7 @@ import { requireCoachAccess } from '@/lib/coach-access';
 import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
+import { VOICE_GAME_GUIDANCE, VOICE_GAME_TOOLS } from '@/lib/coach/voice-game';
 
 // Region pin is load-bearing: Gemini mint calls are geo-blocked outside iad1.
 export const runtime = 'nodejs';
@@ -122,6 +123,10 @@ export function transcriptionConfig(locale: string): Record<string, unknown> {
   };
 }
 
+const ACK_LANGUAGE_NOTE = `
+The short acknowledgment you say before a tool («секунду, гляну», «бір сәт», "one sec") is in the student's
+language — never an English phrase in a Russian or Kazakh conversation.`;
+
 // Appended when tools are available, so the voice coach uses them instead of guessing.
 const COACH_TOOL_GUIDANCE = `
 
@@ -130,8 +135,8 @@ highlight squares, or step through moves as you explain. Use the engine and data
 search master games, opening and position stats) instead of guessing or inventing lines. Call a tool when it
 makes your point concrete; keep talking naturally while you do.
 IMPORTANT for a live voice conversation: the moment you decide to call a tool, FIRST speak a brief spoken
-acknowledgment out loud (something like "let me check that" or "one sec, looking now") and THEN make the tool
-call. Never go silent while a tool runs — the player should always hear you respond right away.`;
+acknowledgment out loud, in the student's language («секунду, гляну», «бір сәт, қараймын», "one sec") and THEN
+make the tool call. Never go silent while a tool runs — the player should always hear you respond right away.`;
 
 // The voice coach gets the same chess toolset as the text coach (TZ 3d: every
 // tool in voice mode) — knowledge base, study programme, the student's games,
@@ -160,6 +165,9 @@ const VOICE_CORE_TOOLS = new Set<string>([
   'lookup_opening',
   // A game review by voice: the critical moments, as the text coach gets them.
   'review_game',
+  // The game against the coach by voice — run by the browser (src/lib/coach/voice-game.ts).
+  'start_game',
+  'make_game_move',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or
@@ -553,7 +561,10 @@ export async function POST(request: Request) {
   }
 
   const model = liveModel();
-  const functionDeclarations = filterVoiceTools(rawTools, model);
+  // The game tools are the site's own (the browser runs them), so they are there even when Hermes'
+  // declarations are not. COACH_VOICE_GAME=0 leaves them out.
+  const gameTools = (process.env.COACH_VOICE_GAME ?? '1').trim() === '0' ? [] : VOICE_GAME_TOOLS;
+  const functionDeclarations = filterVoiceTools([...rawTools, ...gameTools], model);
 
   // Prefer Hermes' single-source prompt (persona + spoken style + profile + FEN
   // + spoken tool directives, all rendered from SOUL.md). Fall back to the
@@ -570,6 +581,11 @@ export async function POST(request: Request) {
       systemInstruction += COACH_TOOL_GUIDANCE;
     }
   }
+
+  if (gameTools.length > 0) systemInstruction += VOICE_GAME_GUIDANCE;
+  // Hermes' prompt asked for «"let me check that"» before a tool until 10.10, and the coach said
+  // it in English in the middle of Russian speech; this holds until every Hermes has the fix.
+  systemInstruction += ACK_LANGUAGE_NOTE;
 
   // Inject the capped conversation recap so the voice coach continues seamlessly.
   systemInstruction += buildRecap(recapMessages);

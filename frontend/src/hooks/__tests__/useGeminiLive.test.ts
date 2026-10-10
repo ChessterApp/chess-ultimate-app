@@ -1345,3 +1345,97 @@ describe('useGeminiLive', () => {
     vi.useRealTimers();
   });
 });
+
+// ---- The game against the coach by voice (2026-10-10) ------------------------
+describe('useGeminiLive: a game by voice', () => {
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const AFTER = 'rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2';
+  const game = (over: Record<string, unknown> = {}) => ({
+    board_id: 'b1', student_color: 'white', engine_elo: 1200, comment_mode: 'quiet', status: 'playing',
+    result: null, termination: null, winner: null, fen: START, pgn: '', ply: 0, moves: [],
+    student_to_move: true, in_check: false, student: null, engine: null, comment_wanted: false, ...over,
+  }) as any;
+  const fetchCalls = () => (globalThis.fetch as any).mock.calls.map((c: any[]) => c[0]);
+
+  async function connectWith(opts: Record<string, unknown>) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => (url === '/api/coach/live-token'
+      ? { ok: true, json: async () => ({ token: 'auth_tokens/abc', model: 'gemini-3.1-flash-live-preview', expiresAt: '2026-01-01T00:00:00.000Z' }) }
+      : { ok: true, json: async () => ({}) })));
+    const hook = renderHook(() => useGeminiLive(opts as any));
+    await act(async () => {
+      await hook.result.current.connect();
+    });
+    return hook;
+  }
+  const call = async (name: string, args: Record<string, unknown>) => {
+    await act(async () => {
+      g.connectArgs.value.callbacks.onmessage({ toolCall: { functionCalls: [{ id: 'c1', name, args }] } });
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    return g.session.sendToolResponse.mock.calls.at(-1)?.[0]?.functionResponses?.[0]?.response;
+  };
+
+  it('start_game starts the page\'s game, quiet, at a site strength — not through Hermes', async () => {
+    const startGame = vi.fn(async () => game({ student_color: 'black', engine: { san: 'e4', uci: 'e2e4' } }));
+    await connectWith({ getGame: () => null, startGame });
+    const response = await call('start_game', { color: 'black', elo: 1300 });
+    expect(startGame).toHaveBeenCalledWith({ color: 'black', elo: 1200, comment_mode: 'quiet' });
+    expect(response).toMatchObject({ ok: true, student_color: 'black', engine_first_move: 'e4' });
+    expect(fetchCalls()).not.toContain('/api/coach/tool');
+  });
+
+  it('make_game_move plays the spoken move as UCI and returns the engine reply', async () => {
+    const playGameMove = vi.fn(async () => game({ fen: AFTER, student: { san: 'e4', uci: 'e2e4', verdict: 'ok', cp_loss: 0, eval_after: 0.3, best: null }, engine: { san: 'd5', uci: 'd7d5' } }));
+    await connectWith({ getGame: () => game(), playGameMove });
+    const response = await call('make_game_move', { move: 'е4' });  // Cyrillic «е»
+    expect(playGameMove).toHaveBeenCalledWith('e2e4');
+    expect(response).toMatchObject({ ok: true, student_move: 'e4', engine_reply: 'd5' });
+  });
+
+  it('an illegal or out-of-turn move is refused with the reason, nothing played', async () => {
+    const playGameMove = vi.fn();
+    await connectWith({ getGame: () => game(), playGameMove });
+    expect(await call('make_game_move', { move: 'Ke2' })).toMatchObject({ error: expect.stringMatching(/not a legal move/) });
+    expect(playGameMove).not.toHaveBeenCalled();
+  });
+
+  it('during a game board_control cannot change the position, and the model hears so', async () => {
+    await connectWith({ getGame: () => game() });
+    const response = await call('board_control', { action_type: 'set_fen', fen: AFTER });
+    expect(response.error).toMatch(/A game is on/);
+    expect(fetchCalls()).not.toContain('/api/coach/tool');
+  });
+
+  it('a board change in the game goes in as a [Game] line, with no engine line', async () => {
+    let current = game();
+    const { result } = await connectWith({ getGame: () => current });
+    g.session.sendClientContent.mockClear();
+    current = game({ fen: AFTER, student: { san: 'e4', uci: 'e2e4', verdict: 'ok', cp_loss: 0, eval_after: 0.3, best: null }, engine: { san: 'd5', uci: 'd7d5' } });
+    act(() => result.current.sendBoardUpdate(AFTER));
+    const text = g.session.sendClientContent.mock.calls.at(-1)[0].turns[0].parts[0].text;
+    expect(text).toMatch(/^\[Game\].*the engine answered d5/);
+    expect(fetchCalls()).not.toContain('/api/coach/voice/engine-note');
+  });
+
+  it('a move said in the game is not looked up as an idea', async () => {
+    await connectWith({ getGame: () => game(), getFen: () => START });
+    vi.useFakeTimers();
+    try {
+      act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { inputTranscription: { text: 'а если Кf3' } } }));
+      await act(async () => {
+        vi.advanceTimersByTime(2000);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fetchCalls()).not.toContain('/api/coach/voice/idea');
+  });
+
+  it('stopping the voice saves what was said so far (open utterances close)', async () => {
+    const onTranscript = vi.fn();
+    const { result } = await connectWith({ onTranscript });
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text: 'Я отвечаю' } } }));
+    act(() => result.current.disconnect());
+    expect(onTranscript.mock.calls.map(([t]) => `${t.role}:${t.final}`)).toContain('model:true');
+  });
+});

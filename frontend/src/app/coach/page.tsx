@@ -518,6 +518,43 @@ export default function CoachPage() {
     [sessionId, handleSessionCreated, board, applyGameView, t],
   );
 
+  // The voice coach starts and plays the same game (src/lib/coach/voice-game.ts): it gets the
+  // state back and says the engine's moves aloud, so no text comment is asked for here.
+  const voiceStartGame = useCallback(
+    async (options: GameStartOptions) => {
+      let sid = sessionId;
+      if (!sid) {
+        const created = await coachApi.createSession();
+        if (!created) throw new Error('session');
+        sid = created.id;
+        handleSessionCreated(sid);
+      }
+      const view = await coachApi.startGame(sid, options);
+      if (!view) throw new Error('the game did not start');
+      setGameDialogOpen(false);
+      board.resetBoard();
+      applyGameView(view);
+      return view;
+    },
+    [sessionId, handleSessionCreated, board, applyGameView],
+  );
+
+  const voiceGameMove = useCallback(
+    async (uci: string) => {
+      const current = gameRef.current;
+      if (!sessionId || !current || current.status !== 'playing') throw new Error('No game is on.');
+      setGameThinking(true);
+      try {
+        const view = await coachApi.gameMove(sessionId, current.board_id, uci);
+        applyGameView(view);
+        return view;
+      } finally {
+        setGameThinking(false);
+      }
+    },
+    [sessionId, applyGameView],
+  );
+
   const submitGameMove = useCallback(
     async (uci: string) => {
       const current = gameRef.current;
@@ -985,6 +1022,9 @@ export default function CoachPage() {
             onSessionCreated={handleSessionCreated}
             onActiveBoardChanged={handleActiveBoardChanged}
             onOpenGame={handleOpenGame}
+            game={game}
+            onVoiceStartGame={voiceStartGame}
+            onVoiceGameMove={voiceGameMove}
           />
         </div>
       </div>

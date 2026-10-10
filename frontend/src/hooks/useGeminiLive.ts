@@ -6,6 +6,16 @@ import type {
   LiveServerToolCallCancellation,
   Session,
 } from '@google/genai';
+import type { GameStateView } from '@/lib/coach/boards-api';
+import {
+  VOICE_GAME_TOOL_NAMES,
+  gameColor,
+  gameMoveResult,
+  gameNote,
+  gameStartResult,
+  nearestStrength,
+  spokenMoveToUci,
+} from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -324,6 +334,12 @@ export interface UseGeminiLiveOptions {
    * The UI shows the "minutes used up" message instead of a connection error.
    */
   onQuotaExhausted?: () => void;
+  /** The game against the coach on the board, if any (src/lib/coach/voice-game.ts). */
+  getGame?: () => GameStateView | null | undefined;
+  /** Start the same game as the «Play the coach» button; resolves to its state. */
+  startGame?: (options: { color: 'white' | 'black' | 'random'; elo: number; comment_mode: 'quiet' }) => Promise<GameStateView>;
+  /** Play the student's move (UCI) in that game; resolves to the state after the engine's reply. */
+  playGameMove?: (uci: string) => Promise<GameStateView>;
 }
 
 export interface UseGeminiLiveReturn {
@@ -511,6 +527,34 @@ export default function useGeminiLive(
   // Keep the latest options accessible from stable callbacks without re-binding them.
   const optionsRef = useRef<UseGeminiLiveOptions>(options);
   optionsRef.current = options;
+  // The game position the voice coach was last told about (by a tool result or a [Game] line):
+  // the board change it causes is not reported a second time.
+  const gameToldFenRef = useRef<string | null>(null);
+  const gameLive = () => optionsRef.current.getGame?.()?.status === 'playing';
+
+  /** start_game / make_game_move, run here: the same game as the «Play the coach» button. */
+  const runGameTool = useCallback(async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const opts = optionsRef.current;
+    const game = opts.getGame?.() ?? null;
+    try {
+      if (name === 'start_game') {
+        if (!opts.startGame) return { error: 'A game cannot be started here.' };
+        if (game && game.status === 'playing') return { ...gameStartResult(game), ok: false, error: 'A game is already on.' };
+        const view = await opts.startGame({ color: gameColor(args.color), elo: nearestStrength(args.elo), comment_mode: 'quiet' });
+        gameToldFenRef.current = view.fen;
+        return gameStartResult(view);
+      }
+      if (!game || game.status !== 'playing' || !opts.playGameMove) return { error: 'No game is on: call start_game first.' };
+      if (!game.student_to_move) return { error: "It is not the student's move." };
+      const parsed = spokenMoveToUci(game.fen, args.move);
+      if ('error' in parsed) return { error: parsed.error, legal_moves: parsed.legal.slice(0, 40) };
+      const view = await opts.playGameMove(parsed.uci);
+      gameToldFenRef.current = view.fen;
+      return gameMoveResult(view);
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : 'the game call failed' };
+    }
+  }, []);
 
   const statusRef = useRef<LiveStatus>('idle');
   const sessionRef = useRef<Session | null>(null);
@@ -962,6 +1006,32 @@ export default function useGeminiLive(
           }
         }, TOOL_CALL_TIMEOUT_MS);
         try {
+          // The game tools are the site's own: the browser plays them (src/lib/coach/voice-game.ts).
+          if (fc.name && VOICE_GAME_TOOL_NAMES.has(fc.name)) {
+            clearTimeout(timeout);
+            const response = await runGameTool(fc.name, (fc.args ?? {}) as Record<string, unknown>);
+            if (response.error) {
+              toolOk = false;
+              toolErrorCode = 'game';
+            }
+            return { id: fc.id, name: fc.name, response };
+          }
+          // While a game is on the position belongs to it: the page keeps it anyway, and the
+          // model must not be told it set one (it said «я поставил e4» and nothing moved).
+          const action = String((fc.args as { action_type?: unknown } | undefined)?.action_type ?? '');
+          if (fc.name === 'board_control' && gameLive() && ['set_fen', 'load_pgn', 'set_puzzle', 'clear_board', 'navigate'].includes(action)) {
+            clearTimeout(timeout);
+            toolOk = false;
+            toolErrorCode = 'game_on';
+            return {
+              id: fc.id,
+              name: fc.name,
+              response: {
+                error: "A game is on: the position belongs to the game, nothing was changed. The student's moves go " +
+                  "through make_game_move and the engine makes the coach's; board_control may only draw arrows or highlight squares.",
+              },
+            };
+          }
           // The site already made this call for the student's words: the model
           // gets the same result — the board keeps what the student was told about.
           const siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
@@ -1077,7 +1147,7 @@ export default function useGeminiLive(
     } catch {
       /* session may be closing */
     }
-  }, [reportMetric, ensureTurnId]);
+  }, [reportMetric, ensureTurnId, runGameTool]);
 
   // Gemini rarely marks a transcription `finished`, so an utterance also ends at
   // the turn's edges: the student's when the coach starts answering (speech or a
@@ -1219,6 +1289,7 @@ export default function useGeminiLive(
 
   const lookUpConcept = useCallback(async (text: string) => {
     if (conceptDoneRef.current || text.trim().split(/\s+/).length < 2) return;
+    if (gameLive()) return;  // the board is the game's: no example goes up
     const session = sessionRef.current;
     if (!session) return;
     // A puzzle or a review asked for: the site fetches it; the coach only talks.
@@ -1393,7 +1464,7 @@ export default function useGeminiLive(
         const utterance = userUtteranceRef.current;
         if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
         conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);
-        if (IDEA_MOVE_RE.test(utterance)) {
+        if (IDEA_MOVE_RE.test(utterance) && !gameLive()) {  // in a game a move said is a move played
           ideaGate().expect();
           if (ideaTimerRef.current) clearTimeout(ideaTimerRef.current);
           ideaTimerRef.current = setTimeout(() => void lookUpIdea(utterance), IDEA_LOOKUP_DELAY_MS);
@@ -1624,6 +1695,20 @@ export default function useGeminiLive(
   // failure just means no line — the coach falls back to analyze_position.
   const sendPosition = useCallback((session: Session, fen: string) => {
     boardFenRef.current = fen;
+    // The board shows the game against the coach: its moves go in as a [Game] line, and no engine
+    // line — that would hand the voice coach the best move to tell (the text coach hints too).
+    const game = optionsRef.current.getGame?.();
+    if (game && game.fen.split(' ')[0] === fen.split(' ')[0]) {
+      engineNoteAbortRef.current?.abort();
+      if (gameToldFenRef.current === game.fen) return;  // the tool result already said it
+      gameToldFenRef.current = game.fen;
+      try {
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameNote(game) }] }], turnComplete: false });
+      } catch {
+        /* session may be closing */
+      }
+      return;
+    }
     try {
       session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text: boardUpdateText(fen) }] }],
@@ -1868,6 +1953,10 @@ export default function useGeminiLive(
     (errMsg?: string) => {
       if (userStoppedRef.current) return; // deliberate stop, handled by disconnect()
       if (statusRef.current === 'error') return; // already surfaced a failure
+      // What was said so far is final now: an open utterance was never saved to the session and
+      // vanished from the chat on the next reload (Alexander, 10.10: «транскрибирует не весь диалог»).
+      closeUtterance('user');
+      closeUtterance('model');
 
       const canReconnect =
         !reconnectUsedRef.current && !!resumptionHandleRef.current;
@@ -1900,7 +1989,7 @@ export default function useGeminiLive(
       emitSessionEnd('drop');
       fail(errMsg ?? 'Live coach disconnected. Please restart to continue.');
     },
-    [cleanup, fail, setStatus, openConnection, emitSessionEnd],
+    [cleanup, fail, setStatus, openConnection, emitSessionEnd, closeUtterance],
   );
   handleDropRef.current = handleDrop;
 
@@ -1986,12 +2075,14 @@ export default function useGeminiLive(
       // Session-end telemetry (metering 'end' + lifecycle 'session_end'). No-op
       // when no session actually opened.
       emitSessionEnd(endReason);
+      closeUtterance('user');  // saved to the session before the teardown (see handleDrop)
+      closeUtterance('model');
       cleanup();
       setIsActive(false);
       setRemainingSeconds(null);
       setStatus('idle');
     },
-    [cleanup, setStatus, emitSessionEnd],
+    [cleanup, setStatus, emitSessionEnd, closeUtterance],
   );
 
   // Gracefully end a session because the monthly voice quota ran out. Notify the

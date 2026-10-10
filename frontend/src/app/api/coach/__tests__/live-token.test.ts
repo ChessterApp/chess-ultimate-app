@@ -30,6 +30,8 @@ describe('POST /api/coach/live-token', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // These tests are about Hermes' declarations; the site's own game tools have theirs below.
+    process.env.COACH_VOICE_GAME = '0';
   });
 
   afterEach(() => {
@@ -38,7 +40,29 @@ describe('POST /api/coach/live-token', () => {
     } else {
       process.env.GEMINI_API_KEY = originalKey;
     }
+    delete process.env.COACH_VOICE_GAME;
     vi.restoreAllMocks();
+  });
+
+  it('declares the game tools the browser runs, with their prompt, even when Hermes has no tools', async () => {
+    delete process.env.COACH_VOICE_GAME;
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/tools')) return { ok: false, json: async () => ({}) };
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen' }));
+
+    expect(response.status).toBe(200);
+    const config = createMock.mock.calls[0][0].config.liveConnectConstraints.config;
+    expect(config.tools[0].functionDeclarations.map((d: any) => d.name)).toEqual(['start_game', 'make_game_move']);
+    expect(config.systemInstruction).toContain('## A game against the student (voice)');
+    // The acknowledgment before a tool is said in the student's language (2026-10-10).
+    expect(config.systemInstruction).not.toContain('"let me check that"');
   });
 
   it('returns 401 when not authenticated', async () => {
