@@ -1195,7 +1195,10 @@
       },
       "sharedHeader": "{name}'s games",
       "sharedEmpty": "This collection has no games yet",
-      "sharedUnavailable": "This link is no longer available"
+      "sharedUnavailable": "This link is no longer available",
+      "copyShared": "Copy to my workspace",
+      "copyingShared": "Copying…",
+      "copiedShared": "Copied to \"{name}\""
     },
     "shareCollection": {
       "ogGenericTitle": "Chess collection · Chesster",

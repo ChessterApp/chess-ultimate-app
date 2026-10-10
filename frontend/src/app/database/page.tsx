@@ -113,7 +113,8 @@ const pendingShareParams: {
   source: string | null;
   gu: string | null;
   gc: string | null;
-} = { g: null, game: null, source: null, gu: null, gc: null };
+  sdb: string | null;
+} = { g: null, game: null, source: null, gu: null, gc: null, sdb: null };
 
 function clearPendingGameParams() {
   pendingShareParams.g = null;
@@ -165,6 +166,11 @@ export default function DebutPage() {
   // Set from ?gc=<token>; when present the My Games tab renders MyGamesPanel in
   // read-only shared mode against the owner's collection.
   const [sharedCollectionToken, setSharedCollectionToken] = useState<string | null>(null);
+
+  // ─── Shared *database* (per-db ?sdb token) read-only view + copy ───
+  const [sharedDatabaseToken, setSharedDatabaseToken] = useState<string | null>(null);
+  // Bumped to force the database pill row to re-fetch (after copy-to-workspace).
+  const [pillReloadKey, setPillReloadKey] = useState(0);
 
   // ─── My Games tab board interaction state ───
   const [myGamesMoveHistory, setMyGamesMoveHistory] = useState<string[]>([STARTING_FEN]);
@@ -1748,6 +1754,52 @@ export default function DebutPage() {
     setActiveTab('my-games');
   }, [searchParams, authLoaded, isSignedIn]);
 
+  // ─── Deep link: open a shared *database* from ?sdb=<token>. Mirrors ?gc= but
+  //     for a single database: records a "Shared with me" subscription (so the
+  //     pill persists) then opens the read-only view. Recipients must be signed
+  //     in. ───
+  const urlSharedDatabaseHandledRef = useRef(false);
+  useEffect(() => {
+    if (urlSharedDatabaseHandledRef.current || !searchParams) return;
+    const token = searchParams.get('sdb') ?? pendingShareParams.sdb;
+    if (!token) return;
+    pendingShareParams.sdb = token;
+    if (!authLoaded) return;
+    urlSharedDatabaseHandledRef.current = true;
+
+    if (!isSignedIn) {
+      const backParams = new URLSearchParams(window.location.search);
+      backParams.set('sdb', token);
+      const back = `${window.location.pathname}?${backParams.toString()}`;
+      window.location.assign(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
+      return;
+    }
+
+    pendingShareParams.sdb = null;
+
+    // Record the subscription so the shared pill persists across reloads, then
+    // open the read-only view. A revoked/unknown token still opens (the panel
+    // shows an "unavailable" state); the subscribe is best-effort.
+    (async () => {
+      try {
+        const clerkToken = await getToken();
+        if (clerkToken) {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+          await apiFetch(`${apiBase}/api/databases/shared/${encodeURIComponent(token)}/subscribe`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${clerkToken}` },
+          });
+        }
+      } catch {
+        // best-effort — still open the view below
+      }
+      setSelectedDatabaseId(null);
+      setSharedDatabaseToken(token);
+      setPillReloadKey(k => k + 1);
+      setActiveTab('my-games');
+    })();
+  }, [searchParams, authLoaded, isSignedIn, getToken]);
+
   const handleGameMoveChange = useCallback((gameId: string, moveIndex: number) => {
     setGameMoveIndices(prev => ({ ...prev, [gameId]: moveIndex }));
   }, []);
@@ -1854,11 +1906,14 @@ export default function DebutPage() {
         <DatabasePillRow
           masterGameCount={masterDbGameCount}
           selectedDatabaseId={selectedDatabaseId}
-          onSelect={(databaseId) => {
+          sharedDatabaseToken={sharedDatabaseToken}
+          reloadKey={pillReloadKey}
+          onSelect={(databaseId, sharedToken) => {
             setSelectedDatabaseId(databaseId);
-            // A user database only has a visible effect in the My Games list, so
-            // switch to it when one is picked; Master restores the default view.
-            if (databaseId) setActiveTab('my-games');
+            setSharedDatabaseToken(sharedToken ?? null);
+            // A user/shared database only has a visible effect in the My Games
+            // list, so switch to it when one is picked; Master restores default.
+            if (databaseId || sharedToken) setActiveTab('my-games');
             else setActiveTab('debut');
           }}
         />
@@ -2305,7 +2360,16 @@ export default function DebutPage() {
                   boardHasMoves={myGamesSanMoves.length > 0}
                   onBoardReset={handleMyGamesReset}
                   sharedToken={sharedCollectionToken ?? undefined}
+                  sharedDatabaseToken={sharedDatabaseToken ?? undefined}
                   databaseId={selectedDatabaseId ?? undefined}
+                  onCopyShared={(db) => {
+                    // Copied → switch to the new owned pill and refresh the row.
+                    setSharedDatabaseToken(null);
+                    setSelectedDatabaseId(db.id);
+                    setPillReloadKey(k => k + 1);
+                    setActiveTab('my-games');
+                    setSnackbar({ open: true, msg: t('myGames.copiedShared', { name: db.name }), severity: 'success' });
+                  }}
                 />
               </Box>
             ) : activeGame ? (

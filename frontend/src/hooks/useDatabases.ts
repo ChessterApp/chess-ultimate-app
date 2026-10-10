@@ -39,6 +39,19 @@ export interface DeletedDatabase {
   days_left: number;
 }
 
+/** A database shared with the current user (a "Shared with me" subscription). */
+export interface SharedDatabase {
+  source_token: string;
+  /** Resolved source database id — null when the owner has revoked the link. */
+  database_id: string | null;
+  name: string | null;
+  owner_name: string | null;
+  game_count: number;
+  added_at?: string;
+  /** False once the owner revokes the link — kept so the user can remove it. */
+  available: boolean;
+}
+
 const DUPLICATE_NAME_MESSAGE = 'A database with that name already exists.';
 
 /** True for a 409 Conflict (duplicate name) from apiFetch's ApiError. */
@@ -50,6 +63,7 @@ export function useDatabases() {
   const { getToken } = useAuth();
 
   const [databases, setDatabasesState] = useState<UserDatabase[]>([]);
+  const [sharedDatabases, setSharedDatabases] = useState<SharedDatabase[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -224,8 +238,68 @@ export function useDatabases() {
     }
   }, [fetchWithAuth, setDatabases]);
 
+  // ─── "Shared with me" subscriptions ───
+
+  const refreshShared = useCallback(async (): Promise<SharedDatabase[]> => {
+    try {
+      const data = await fetchWithAuth<SharedDatabase[]>('/shared');
+      setSharedDatabases(data);
+      return data;
+    } catch {
+      return [];
+    }
+  }, [fetchWithAuth]);
+
+  // Subscribe to a shared database (idempotent). Returns its resolved meta.
+  const subscribeShared = useCallback(async (token: string): Promise<SharedDatabase | null> => {
+    setError(null);
+    try {
+      const meta = await fetchWithAuth<SharedDatabase>(`/shared/${encodeURIComponent(token)}/subscribe`, {
+        method: 'POST',
+      });
+      await refreshShared();
+      return meta;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to open shared database');
+      return null;
+    }
+  }, [fetchWithAuth, refreshShared]);
+
+  // Remove the current user's subscription (owner data untouched).
+  const unsubscribeShared = useCallback(async (token: string): Promise<boolean> => {
+    setError(null);
+    const previous = sharedDatabases;
+    setSharedDatabases(prev => prev.filter(s => s.source_token !== token));
+    try {
+      await fetchWithAuth<{ success: boolean }>(`/shared/subscription/${encodeURIComponent(token)}`, {
+        method: 'DELETE',
+      });
+      return true;
+    } catch (e: unknown) {
+      setSharedDatabases(previous); // roll back
+      setError(e instanceof Error ? e.message : 'Failed to remove shared database');
+      return false;
+    }
+  }, [fetchWithAuth, sharedDatabases]);
+
+  // Deep-copy a shared database into the caller's workspace → a new owned db.
+  const copyShared = useCallback(async (token: string): Promise<UserDatabase | null> => {
+    setError(null);
+    try {
+      const created = await fetchWithAuth<UserDatabase>(`/shared/${encodeURIComponent(token)}/copy`, {
+        method: 'POST',
+      });
+      await refresh();
+      return created;
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to copy database');
+      return null;
+    }
+  }, [fetchWithAuth, refresh]);
+
   return {
     databases,
+    sharedDatabases,
     loading,
     error,
     refresh,
@@ -236,5 +310,9 @@ export function useDatabases() {
     listDeleted,
     shareDatabase,
     revokeShare,
+    refreshShared,
+    subscribeShared,
+    unsubscribeShared,
+    copyShared,
   };
 }

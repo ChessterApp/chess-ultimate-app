@@ -27,8 +27,15 @@ interface DatabasePillRowProps {
   masterGameCount: number | null;
   /** Currently active database id, or null for the Master pill. */
   selectedDatabaseId: string | null;
-  /** Fires with a database id (scopes the games list) or null (Master view). */
-  onSelect: (databaseId: string | null) => void;
+  /** Active "shared with me" token when a shared pill is selected, else null. */
+  sharedDatabaseToken?: string | null;
+  /**
+   * Fires with a database id (scopes the games list) or null (Master view). The
+   * second arg carries a shared-db token when a "Shared with me" pill is picked.
+   */
+  onSelect: (databaseId: string | null, sharedToken?: string | null) => void;
+  /** Bumped by the parent to force a re-fetch (e.g. after copy-to-workspace). */
+  reloadKey?: number;
 }
 
 // Shared pill geometry/colour — identical to the existing tab chips on the page.
@@ -58,8 +65,8 @@ const countSx = (active: boolean) => ({
   color: active ? 'rgba(255,255,255,0.75)' : 'var(--text-tertiary)',
 });
 
-export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, onSelect }: DatabasePillRowProps) {
-  const { databases, error, refresh, createDatabase, renameDatabase, deleteDatabase, restoreDatabase, listDeleted, shareDatabase, revokeShare } = useDatabases();
+export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, sharedDatabaseToken, onSelect, reloadKey }: DatabasePillRowProps) {
+  const { databases, sharedDatabases, error, refresh, createDatabase, renameDatabase, deleteDatabase, restoreDatabase, listDeleted, shareDatabase, revokeShare, refreshShared, unsubscribeShared } = useDatabases();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState('');
@@ -84,9 +91,11 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
   }, [listDeleted]);
 
   useEffect(() => {
+    // reloadKey is a deliberate re-fetch trigger (e.g. after copy-to-workspace).
     refresh();
+    refreshShared();
     listDeleted().then(setDeleted);
-  }, [refresh, listDeleted]);
+  }, [refresh, refreshShared, listDeleted, reloadKey]);
 
   // ─── Rename ───
   const beginRename = useCallback((db: UserDatabase) => {
@@ -200,7 +209,15 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
     if (ok) closeShare();
   }, [shareTarget, revokeShare, closeShare]);
 
-  const masterActive = selectedDatabaseId === null;
+  // ─── "Shared with me" — unsubscribe (owner data untouched) ───
+  const handleUnsubscribe = useCallback(async (e: React.MouseEvent, token: string) => {
+    e.stopPropagation();
+    const wasActive = sharedDatabaseToken === token;
+    await unsubscribeShared(token);
+    if (wasActive) onSelect(null); // fall back to Master
+  }, [unsubscribeShared, sharedDatabaseToken, onSelect]);
+
+  const masterActive = selectedDatabaseId === null && !sharedDatabaseToken;
 
   return (
     <Box>
@@ -330,6 +347,59 @@ export default function DatabasePillRow({ masterGameCount, selectedDatabaseId, o
                   <DeleteOutline sx={{ fontSize: 13 }} />
                 </Box>
               )}
+            </Box>
+          );
+        })}
+
+        {/* "Shared with me" — distinct read-only pills (Legacy folder style) */}
+        {(sharedDatabases ?? []).map((s) => {
+          const active = sharedDatabaseToken === s.source_token;
+          const label = s.available ? (s.name || 'Shared database') : 'Unavailable';
+          return (
+            <Box
+              key={s.source_token}
+              role="button"
+              tabIndex={0}
+              aria-pressed={active}
+              aria-label={`Shared database ${label}`}
+              onClick={() => { if (s.available) onSelect(null, s.source_token); }}
+              onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && s.available) { e.preventDefault(); onSelect(null, s.source_token); }
+              }}
+              sx={{
+                ...pillSx(active),
+                opacity: s.available ? 1 : 0.6,
+                cursor: s.available ? 'pointer' : 'default',
+                '&:hover .db-action': { opacity: 1 },
+                '& .db-action': { opacity: active ? 1 : 0 },
+              }}
+            >
+              <FolderOpen sx={{ fontSize: 13 }} />
+              <span>{label}</span>
+              {s.available && (
+                <Typography component="span" sx={countSx(active)}>{s.game_count}</Typography>
+              )}
+              <Box
+                component="span"
+                role="button"
+                tabIndex={0}
+                aria-label={`Remove shared ${label}`}
+                className="db-action"
+                onClick={(e) => handleUnsubscribe(e, s.source_token)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); handleUnsubscribe(e as unknown as React.MouseEvent, s.source_token); }
+                }}
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  ml: 0.25,
+                  transition: 'opacity 0.15s',
+                  '&:hover': { color: active ? '#fff' : 'error.main' },
+                  '&:focus-visible': { outline: '2px solid', outlineColor: active ? '#fff' : 'error.main', outlineOffset: 1, borderRadius: '4px' },
+                }}
+              >
+                <DeleteOutline sx={{ fontSize: 13 }} />
+              </Box>
             </Box>
           );
         })}

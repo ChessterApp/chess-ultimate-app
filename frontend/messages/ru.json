@@ -1195,7 +1195,10 @@
       },
       "sharedHeader": "Партии: {name}",
       "sharedEmpty": "В этой коллекции пока нет партий",
-      "sharedUnavailable": "Эта ссылка больше недоступна"
+      "sharedUnavailable": "Эта ссылка больше недоступна",
+      "copyShared": "Скопировать в мою область",
+      "copyingShared": "Копирование…",
+      "copiedShared": "Скопировано в «{name}»"
     },
     "shareCollection": {
       "ogGenericTitle": "Шахматная коллекция · Chesster",

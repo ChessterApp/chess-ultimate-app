@@ -15,6 +15,10 @@ const h = vi.hoisted(() => ({
     listDeleted: vi.fn(),
     shareDatabase: vi.fn(),
     revokeShare: vi.fn(),
+    refreshShared: vi.fn(),
+    subscribeShared: vi.fn(),
+    unsubscribeShared: vi.fn(),
+    copyShared: vi.fn(),
   },
   state: {} as Record<string, unknown>,
 }));
@@ -36,7 +40,10 @@ beforeEach(() => {
   h.fns.restoreDatabase.mockResolvedValue({ ...OPENINGS_DB });
   h.fns.shareDatabase.mockResolvedValue('sdb-token-xyz');
   h.fns.revokeShare.mockResolvedValue(true);
-  h.state = { databases: [DEFAULT_DB, OPENINGS_DB], error: null, ...h.fns };
+  h.fns.refreshShared.mockResolvedValue([]);
+  h.fns.unsubscribeShared.mockResolvedValue(true);
+  h.fns.copyShared.mockResolvedValue({ id: 'db-copy', name: 'Openings (copy)', is_default: false, game_count: 2 });
+  h.state = { databases: [DEFAULT_DB, OPENINGS_DB], sharedDatabases: [], error: null, ...h.fns };
 });
 
 describe('DatabasePillRow', () => {
@@ -151,6 +158,47 @@ describe('DatabasePillRow', () => {
     fireEvent.click(screen.getByLabelText('Share Openings'));
     fireEvent.click(await screen.findByText('Revoke'));
     await waitFor(() => expect(h.fns.revokeShare).toHaveBeenCalledWith('db-openings'));
+  });
+
+  const SHARED_SUB = {
+    source_token: 'tok-shared',
+    database_id: 'db-remote',
+    name: 'Coach Repertoire',
+    owner_name: 'Coach',
+    game_count: 7,
+    available: true,
+  };
+
+  it('renders a read-only "shared with me" pill and selects it by token', () => {
+    const onSelect = vi.fn();
+    h.state = { databases: [DEFAULT_DB], sharedDatabases: [SHARED_SUB], error: null, ...h.fns };
+    render(<DatabasePillRow masterGameCount={0} selectedDatabaseId={null} onSelect={onSelect} />);
+
+    const pill = screen.getByLabelText('Shared database Coach Repertoire');
+    expect(pill).toBeTruthy();
+    fireEvent.click(pill);
+    expect(onSelect).toHaveBeenCalledWith(null, 'tok-shared');
+  });
+
+  it('removes a shared subscription (owner data untouched)', async () => {
+    h.state = { databases: [DEFAULT_DB], sharedDatabases: [SHARED_SUB], error: null, ...h.fns };
+    render(<DatabasePillRow masterGameCount={0} selectedDatabaseId={null} onSelect={vi.fn()} />);
+
+    fireEvent.click(screen.getByLabelText('Remove shared Coach Repertoire'));
+    await waitFor(() => expect(h.fns.unsubscribeShared).toHaveBeenCalledWith('tok-shared'));
+  });
+
+  it('shows an unavailable (revoked) shared pill that cannot be opened', () => {
+    const onSelect = vi.fn();
+    const revoked = { ...SHARED_SUB, available: false, name: null, database_id: null };
+    h.state = { databases: [DEFAULT_DB], sharedDatabases: [revoked], error: null, ...h.fns };
+    render(<DatabasePillRow masterGameCount={0} selectedDatabaseId={null} onSelect={onSelect} />);
+
+    const pill = screen.getByLabelText('Shared database Unavailable');
+    fireEvent.click(pill);
+    expect(onSelect).not.toHaveBeenCalled();
+    // ...but it can still be removed.
+    expect(screen.getByLabelText('Remove shared Unavailable')).toBeTruthy();
   });
 
   it('shows the recently-deleted panel and restores from it', async () => {

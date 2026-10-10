@@ -248,4 +248,72 @@ describe('useDatabases', () => {
     expect(opts.method).toBe('DELETE');
     expect(result.current.databases.find(d => d.id === 'db-openings')?.share_token).toBeNull();
   });
+
+  // ─── "Shared with me" subscriptions ───
+
+  const SHARED_SUB = {
+    source_token: 'tok-shared',
+    database_id: 'db-remote',
+    name: 'Coach Repertoire',
+    owner_name: 'Coach',
+    game_count: 7,
+    available: true,
+  };
+
+  it('refreshShared loads the subscription list', async () => {
+    mockApiFetch.mockResolvedValueOnce([SHARED_SUB]);
+    const { result } = renderHook(() => useDatabases());
+
+    await act(async () => { await result.current.refreshShared(); });
+
+    expect(result.current.sharedDatabases).toEqual([SHARED_SUB]);
+    expect(mockApiFetch.mock.calls[0][0]).toBe('/api/databases/shared');
+  });
+
+  it('subscribeShared POSTs to /subscribe and refreshes the list', async () => {
+    mockApiFetch.mockResolvedValueOnce(SHARED_SUB);          // POST subscribe
+    mockApiFetch.mockResolvedValueOnce([SHARED_SUB]);         // refreshShared
+    const { result } = renderHook(() => useDatabases());
+
+    let meta: unknown = null;
+    await act(async () => { meta = await result.current.subscribeShared('tok-shared'); });
+
+    expect(meta).toEqual(SHARED_SUB);
+    const [url, opts] = mockApiFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/databases/shared/tok-shared/subscribe');
+    expect(opts.method).toBe('POST');
+    expect(result.current.sharedDatabases).toEqual([SHARED_SUB]);
+  });
+
+  it('unsubscribeShared DELETEs and optimistically drops the pill', async () => {
+    mockApiFetch.mockResolvedValueOnce([SHARED_SUB]);        // refreshShared seed
+    const { result } = renderHook(() => useDatabases());
+    await act(async () => { await result.current.refreshShared(); });
+
+    mockApiFetch.mockResolvedValueOnce({ success: true });   // DELETE
+    let ok = false;
+    await act(async () => { ok = await result.current.unsubscribeShared('tok-shared'); });
+
+    expect(ok).toBe(true);
+    const [url, opts] = mockApiFetch.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/databases/shared/subscription/tok-shared');
+    expect(opts.method).toBe('DELETE');
+    expect(result.current.sharedDatabases).toEqual([]);
+  });
+
+  it('copyShared POSTs to /copy and refreshes the owned list', async () => {
+    const newDb: UserDatabase = { id: 'db-copy', name: 'Coach Repertoire (copy)', is_default: false, game_count: 7 };
+    mockApiFetch.mockResolvedValueOnce(newDb);               // POST copy
+    mockApiFetch.mockResolvedValueOnce([DEFAULT_DB, newDb]); // refresh
+    const { result } = renderHook(() => useDatabases());
+
+    let created: UserDatabase | null = null;
+    await act(async () => { created = await result.current.copyShared('tok-shared'); });
+
+    expect(created).toEqual(newDb);
+    const [url, opts] = mockApiFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/databases/shared/tok-shared/copy');
+    expect(opts.method).toBe('POST');
+    expect(result.current.databases).toEqual([DEFAULT_DB, newDb]);
+  });
 });

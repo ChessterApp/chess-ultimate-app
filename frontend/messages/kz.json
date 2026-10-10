@@ -1195,7 +1195,10 @@
       },
       "sharedHeader": "{name} партиялары",
       "sharedEmpty": "Бұл жинақта әзірге партиялар жоқ",
-      "sharedUnavailable": "Бұл сілтеме енді қолжетімді емес"
+      "sharedUnavailable": "Бұл сілтеме енді қолжетімді емес",
+      "copyShared": "Менің кеңістігіме көшіру",
+      "copyingShared": "Көшірілуде…",
+      "copiedShared": "«{name}» ішіне көшірілді"
     },
     "shareCollection": {
       "ogGenericTitle": "Шахмат жинағы · Chesster",

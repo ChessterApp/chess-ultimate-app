@@ -29,11 +29,13 @@ import {
   FolderOpen,
   Add,
   Edit,
+  ContentCopy,
 } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@clerk/nextjs';
 import { apiFetch } from '@/lib/api';
 import { useUserGames, type UserGame, type ListGamesFilters } from '@/hooks/useUserGames';
+import { useDatabases, type UserDatabase } from '@/hooks/useDatabases';
 import AddGameModal from './AddGameModal';
 import EditGameModal from './EditGameModal';
 import ShareMyGameButton from './ShareMyGameButton';
@@ -49,6 +51,12 @@ interface SharedCollectionResponse {
   page: number;
   per_page: number;
   owner_name?: string | null;
+}
+
+interface SharedDatabaseResponse {
+  database: { id: string; name: string | null; game_count: number };
+  owner_name?: string | null;
+  games: UserGame[];
 }
 
 interface MyGamesPanelProps {
@@ -67,12 +75,23 @@ interface MyGamesPanelProps {
    * are filed under it. Omit for the default "all games" view.
    */
   databaseId?: string;
+  /**
+   * When set, renders a READ-ONLY view of another user's shared *database*
+   * (per-database token from `/database?sdb=<token>`), with a "Copy to my
+   * workspace" CTA. Distinct from `sharedToken`, which is the whole-collection
+   * (gc) share.
+   */
+  sharedDatabaseToken?: string;
+  /** Called with the new owned database after a successful copy-to-workspace. */
+  onCopyShared?: (db: UserDatabase) => void;
 }
 
-export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId }: MyGamesPanelProps) {
+export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId, sharedDatabaseToken, onCopyShared }: MyGamesPanelProps) {
   const t = useTranslations('debut');
-  const isShared = !!sharedToken;
+  const isSharedDb = !!sharedDatabaseToken;
+  const isShared = !!sharedToken || isSharedDb;
   const { getToken } = useAuth();
+  const { copyShared } = useDatabases();
   const {
     games,
     total,
@@ -103,6 +122,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
   const [sharedLoading, setSharedLoading] = useState(false);
   const [sharedError, setSharedError] = useState<string | null>(null);
   const [sharedUnavailable, setSharedUnavailable] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const buildFilters = useCallback((): ListGamesFilters => {
     const filters: ListGamesFilters = {};
@@ -145,7 +165,47 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     }
   }, [sharedToken, getToken]);
 
-  // Initial load (owner mode only — shared mode loads via its own effect)
+  // Fetch a shared *database* (per-db token) — read-only, all games in one shot.
+  const fetchSharedDatabase = useCallback(async () => {
+    if (!sharedDatabaseToken) return;
+    setSharedLoading(true);
+    setSharedError(null);
+    setSharedUnavailable(false);
+    try {
+      const clerkToken = await getToken();
+      if (!clerkToken) throw Object.assign(new Error('Not authenticated'), { status: 401 });
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+      const data = await apiFetch<SharedDatabaseResponse>(
+        `${apiBase}/api/databases/shared/${encodeURIComponent(sharedDatabaseToken)}`,
+        { headers: { Authorization: `Bearer ${clerkToken}` } },
+      );
+      setSharedGames(data.games);
+      setSharedTotal(data.games.length);
+      setSharedPage(1);
+      setSharedOwner(data.owner_name ?? '');
+    } catch (e: unknown) {
+      const status = (e as { status?: number })?.status;
+      if (status === 404) {
+        setSharedUnavailable(true);
+      } else {
+        setSharedError(e instanceof Error ? e.message : 'Failed to load database');
+      }
+    } finally {
+      setSharedLoading(false);
+    }
+  }, [sharedDatabaseToken, getToken]);
+
+  // Copy a shared database into the caller's workspace, then hand the new owned
+  // db back to the parent so it can switch to it.
+  const handleCopyShared = useCallback(async () => {
+    if (!sharedDatabaseToken) return;
+    setCopying(true);
+    const created = await copyShared(sharedDatabaseToken);
+    setCopying(false);
+    if (created) onCopyShared?.(created);
+  }, [sharedDatabaseToken, copyShared, onCopyShared]);
+
+  // Initial load (owner mode only — shared modes load via their own effects)
   useEffect(() => {
     if (isShared) return;
     fetchGames(1, perPage, buildFilters());
@@ -164,11 +224,17 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     };
   }, [isShared, searchQuery, resultFilter, favoriteFilter, fetchGames, perPage, buildFilters]);
 
-  // Shared collection load (shared mode only)
+  // Shared collection load (gc whole-collection mode only)
   useEffect(() => {
-    if (!isShared) return;
+    if (!sharedToken) return;
     fetchSharedCollection(1);
-  }, [isShared, fetchSharedCollection]);
+  }, [sharedToken, fetchSharedCollection]);
+
+  // Shared database load (per-db sdb mode only)
+  useEffect(() => {
+    if (!sharedDatabaseToken) return;
+    fetchSharedDatabase();
+  }, [sharedDatabaseToken, fetchSharedDatabase]);
 
   const handlePageChange = (_: React.ChangeEvent<unknown>, newPage: number) => {
     if (isShared) {
@@ -181,7 +247,9 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
   // Row click: in shared mode, fetch the single game through the collection-share
   // endpoint (notes stripped) before opening; otherwise open the owned game.
   const handleRowClick = useCallback(async (game: UserGame) => {
-    if (!isShared) {
+    // Owner mode, and sdb mode (rows already carry the full sanitized PGN) open
+    // directly; only the gc collection mode re-fetches to strip notes per game.
+    if (!isShared || isSharedDb) {
       onOpenGame?.(game);
       return;
     }
@@ -198,7 +266,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
       // The list row already carries the full PGN — open it as a fallback.
       onOpenGame?.(game);
     }
-  }, [isShared, sharedToken, getToken, onOpenGame]);
+  }, [isShared, isSharedDb, sharedToken, getToken, onOpenGame]);
 
   const handleDelete = async (e: React.MouseEvent, gameId: string) => {
     e.stopPropagation();
@@ -232,7 +300,8 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
   const displayGames = isShared ? sharedGames : games;
   const displayTotal = isShared ? sharedTotal : total;
   const displayPage = isShared ? sharedPage : page;
-  const displayPerPage = isShared ? SHARED_PER_PAGE : perPage;
+  // sdb mode returns every game in one response, so keep it on a single page.
+  const displayPerPage = isSharedDb ? Math.max(sharedGames.length, 1) : isShared ? SHARED_PER_PAGE : perPage;
   const displayLoading = isShared ? sharedLoading : loading;
   const displayError = isShared ? sharedError : error;
   const totalPages = Math.ceil(displayTotal / displayPerPage);
@@ -313,6 +382,28 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
         <Typography variant="subtitle2" sx={{ fontSize: 14, fontWeight: 700, color: 'text.primary' }}>
           {t('myGames.sharedHeader', { name: sharedOwner })}
         </Typography>
+      )}
+
+      {/* Shared database (sdb) mode: read-only, with a copy-to-workspace CTA */}
+      {isSharedDb && !sharedUnavailable && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<ContentCopy sx={{ fontSize: 16 }} />}
+            onClick={handleCopyShared}
+            disabled={copying}
+            sx={{
+              fontSize: 12,
+              textTransform: 'none',
+              py: 0.75,
+              background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+              '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #4f46e5)' },
+            }}
+          >
+            {copying ? t('myGames.copyingShared') : t('myGames.copyShared')}
+          </Button>
+        </Box>
       )}
 
       {/* Search + filters — owner mode only (the shared endpoint is unfiltered) */}
