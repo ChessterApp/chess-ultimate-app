@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import React from 'react';
 
 // Mock the data hook so the pill row renders against controlled state. The hook
@@ -44,6 +44,11 @@ beforeEach(() => {
   h.fns.unsubscribeShared.mockResolvedValue(true);
   h.fns.copyShared.mockResolvedValue({ id: 'db-copy', name: 'Openings (copy)', is_default: false, game_count: 2 });
   h.state = { databases: [DEFAULT_DB, OPENINGS_DB], sharedDatabases: [], error: null, ...h.fns };
+});
+
+afterEach(() => {
+  // Unmount rendered rows so they don't leak into other test files' DOM.
+  cleanup();
 });
 
 describe('DatabasePillRow', () => {

@@ -3,8 +3,8 @@
 // Covers the per-database shared (sdb) read-only mode of MyGamesPanel: it lists
 // the shared database's games without any mutation UI and offers a
 // "Copy to my workspace" CTA that hands the new owned db back to the parent.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import React from 'react';
 
 // next-intl: echo the key so assertions stay locale-independent.
@@ -56,6 +56,11 @@ const SHARED_RESPONSE = {
 beforeEach(() => {
   mockApiFetch.mockReset();
   copyShared.mockReset();
+});
+
+afterEach(() => {
+  // Unmount prior renders so lingering panels don't leak into later queries.
+  cleanup();
 });
 
 describe('MyGamesPanel — shared database (sdb) mode', () => {
