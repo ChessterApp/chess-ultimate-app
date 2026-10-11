@@ -2679,6 +2679,7 @@
       "duplicate": "You're already registered for this tournament.",
       "ineligible": "You are not eligible for this tournament.",
       "no_razryad": "Registration is only available to students with a razryad (chess rating category).",
+      "razryad_too_high": "You can't register for League B — you already hold the 3rd category (разряд) or higher. League B is for developing players who haven't yet earned a category.",
       "not_found": "Tournament not found.",
       "invalid_input": "Invalid registration request.",
       "unauthorized": "Sign in to register.",

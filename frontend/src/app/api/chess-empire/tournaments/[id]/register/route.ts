@@ -73,6 +73,13 @@ function mapRegisterError(reason: string): {
           'Registration is only available to students with a razryad (chess rating category).',
         status: 409,
       };
+    case 'razryad_too_high':
+      return {
+        code: 'razryad_too_high',
+        message:
+          'You already hold the 3rd category (разряд) or higher, so you can no longer register for League B.',
+        status: 409,
+      };
     case 'not_found':
       return { code: 'not_found', message: 'Tournament not found.', status: 404 };
     case 'invalid_input':
