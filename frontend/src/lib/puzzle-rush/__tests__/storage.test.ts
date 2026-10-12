@@ -3,13 +3,11 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  loadGuestBests, loadLastMode, recordGuestScore, saveLastMode, hasSeenRules, markRulesSeen,
-  loadGuestToken, saveGuestToken,
+  applyGuestScore, loadGuestBests, loadLastMode, recordGuestScore, saveLastMode, hasSeenRules, markRulesSeen, localStore,
 } from '../storage';
 
 beforeEach(() => {
   localStorage.clear();
-  sessionStorage.clear();
 });
 
 describe('mode preselect', () => {
@@ -28,19 +26,20 @@ describe('mode preselect', () => {
   });
 });
 
-describe('rules + guest token', () => {
+describe('rules + outbox store', () => {
   it('remembers that the rules were seen', () => {
     expect(hasSeenRules()).toBe(false);
     markRulesSeen();
     expect(hasSeenRules()).toBe(true);
   });
 
-  it('keeps the guest token in sessionStorage only', () => {
-    saveGuestToken('tok');
-    expect(loadGuestToken()).toBe('tok');
-    expect(localStorage.length).toBe(0);
-    saveGuestToken(null);
-    expect(loadGuestToken()).toBeNull();
+  it('localStore is a thin localStorage wrapper', () => {
+    const store = localStore();
+    store.setItem('k', 'v');
+    expect(localStorage.getItem('k')).toBe('v');
+    expect(store.getItem('k')).toBe('v');
+    store.removeItem('k');
+    expect(store.getItem('k')).toBeNull();
   });
 });
 
@@ -63,5 +62,20 @@ describe('guest bests (on-device)', () => {
     expect(loadGuestBests(day2).survival).toMatchObject({ top_score: 12, best_today: null });
     recordGuestScore('survival', 4, day2);
     expect(loadGuestBests(day2).survival).toMatchObject({ top_score: 12, best_today: 4 });
+  });
+});
+
+describe('applyGuestScore (pure preview of recordGuestScore)', () => {
+  const day = new Date(2026, 9, 12, 10);
+
+  it('matches what recordGuestScore stores and reports', () => {
+    recordGuestScore('5min', 7, day);
+    for (const score of [3, 7, 9, 0]) {
+      const before = loadGuestBests(day)['5min'];
+      const preview = applyGuestScore(before, score);
+      const isPb = recordGuestScore('5min', score, day);
+      expect(preview.isPb).toBe(isPb);
+      expect(preview.best).toEqual(loadGuestBests(day)['5min']);
+    }
   });
 });

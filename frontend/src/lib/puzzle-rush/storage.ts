@@ -1,13 +1,14 @@
 /**
- * On-device Puzzle Rush state: last-played mode, the first-visit rules flag,
- * the guest run token (session only) and guest bests (never sent anywhere).
+ * On-device Puzzle Rush state (web): last-played mode, the first-visit rules
+ * flag, guest bests (never sent anywhere) and the store behind the finished-run
+ * outbox.
  */
 
+import type { KeyValueStore } from './outbox';
 import { RUSH_MODES, type ModeBests, type RushMode } from './types';
 
 const LAST_MODE_KEY = 'puzzleRush.lastMode';
 const RULES_SEEN_KEY = 'puzzleRush.rulesSeen';
-const GUEST_TOKEN_KEY = 'puzzleRush.guestToken';
 const GUEST_BESTS_KEY = 'puzzleRush.guestBests';
 
 export const DEFAULT_MODE: RushMode = '5min';
@@ -30,7 +31,15 @@ function write(storage: Storage | undefined, key: string, value: string | null) 
 }
 
 const local = () => (typeof window === 'undefined' ? undefined : window.localStorage);
-const session = () => (typeof window === 'undefined' ? undefined : window.sessionStorage);
+
+/** localStorage as the outbox store; a no-op store where it's unavailable. */
+export function localStore(): KeyValueStore {
+  return {
+    getItem: (key) => read(local(), key),
+    setItem: (key, value) => write(local(), key, value),
+    removeItem: (key) => write(local(), key, null),
+  };
+}
 
 /** Last-played mode, falling back to 5 min (§7.1). */
 export function loadLastMode(): RushMode {
@@ -48,14 +57,6 @@ export function hasSeenRules(): boolean {
 
 export function markRulesSeen() {
   write(local(), RULES_SEEN_KEY, '1');
-}
-
-export function loadGuestToken(): string | null {
-  return read(session(), GUEST_TOKEN_KEY);
-}
-
-export function saveGuestToken(token: string | null) {
-  write(session(), GUEST_TOKEN_KEY, token);
 }
 
 interface GuestBest {
@@ -109,4 +110,20 @@ export function recordGuestScore(mode: RushMode, score: number, now: Date = new 
   };
   write(local(), GUEST_BESTS_KEY, JSON.stringify(raw));
   return isPb;
+}
+
+/**
+ * Pure preview of `recordGuestScore`: the bests a finished guest run will
+ * leave (from bests loaded before the run) and whether it is a new PB — so the
+ * results modal renders in the run-ending frame without waiting on a write.
+ */
+export function applyGuestScore(best: ModeBests, score: number): { best: ModeBests; isPb: boolean } {
+  return {
+    best: {
+      ...best,
+      top_score: Math.max(best.top_score ?? 0, score),
+      best_today: Math.max(best.best_today ?? 0, score),
+    },
+    isPb: score > 0 && score > (best.top_score ?? 0),
+  };
 }

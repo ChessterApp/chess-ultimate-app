@@ -57,7 +57,6 @@ function modal(props: Partial<React.ComponentProps<typeof ResultsModal>> = {}) {
 
 beforeEach(() => {
   localStorage.clear();
-  sessionStorage.clear();
   global.fetch = vi.fn(async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
 });
 afterEach(() => cleanup());
@@ -82,10 +81,46 @@ describe('ResultsModal', () => {
     expect(screen.getByRole('heading', { name: 'Tough One' })).toBeTruthy();
   });
 
-  it('guests see dashes for ranks and a sign-in prompt', () => {
-    modal({ isGuest: true, results: { ...RESULTS, personal_rank: null, global_rank: null } });
-    expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(3);
+  it('guests see their on-device bests in the tiles (never ranks) and a sign-in prompt', () => {
+    modal({
+      isGuest: true,
+      isPb: true,
+      results: { ...RESULTS, is_new_pb: false, personal_rank: null, global_rank: null },
+      guestBests: { top_score: 14, best_today: 14, top_run_id: null, achieved_at: null },
+    });
+    const cells = screen.getByTestId('rush-ranks').querySelectorAll('[class*="rankValue"]');
+    expect([...cells].map((c) => c.textContent)).toEqual(['14', '14', '14']);
+    expect(screen.getByRole('heading', { name: 'New Personal Best!' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Sign in to save scores' }).getAttribute('href')).toBe('/sign-in');
+  });
+
+  it('guest run below the device best: no PB title, tiles show the standing bests', () => {
+    modal({
+      isGuest: true,
+      isPb: false,
+      score: 12,
+      results: { ...RESULTS, score: 12, is_new_pb: false, personal_rank: null, global_rank: null },
+      guestBests: { top_score: 30, best_today: 12, top_run_id: null, achieved_at: null },
+    });
+    expect(screen.getByTestId('rush-results').dataset.tone).toBe('great');
+    expect(screen.queryByRole('heading', { name: 'New Personal Best!' })).toBeNull();
+    const cells = screen.getByTestId('rush-ranks').querySelectorAll('[class*="rankValue"]');
+    expect([...cells].map((c) => c.textContent)).toEqual(['30', '12', '30']);
+  });
+
+  it('signed-in ranks show a placeholder while /runs/finish is in flight', () => {
+    modal({ isPb: false, results: { ...RESULTS, is_new_pb: false, personal_rank: null, global_rank: null }, ranksPending: true });
+    const cells = screen.getByTestId('rush-ranks').querySelectorAll('[class*="rankValue"]');
+    expect([...cells].map((c) => c.textContent)).toEqual(['…', '…', '…']);
+    expect(screen.getByTestId('rush-results').dataset.tone).toBe('great');
+  });
+
+  it('focuses Play Again on the frame after the first paint (not during the commit)', async () => {
+    modal();
+    const button = screen.getByRole('button', { name: 'Play Again' });
+    expect(document.activeElement).not.toBe(button);
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))); });
+    expect(document.activeElement).toBe(button);
   });
 
   it('Enter plays again, Esc closes', () => {

@@ -1,7 +1,9 @@
 /**
  * Wire types for the Puzzle Rush backend (`backend/api/puzzle_rush.py`).
- * The server owns the clock and validates every move; the client never sees a
- * solution line while a run is active.
+ * Instant-moves v2: the client plays the whole run from a prefetched puzzle
+ * pack and records it once at the end (`POST /runs/finish`).
+ *
+ * Framework-free (shared with the mobile app): no React / DOM / Next imports.
  */
 
 export type RushMode = '3min' | '5min' | 'survival';
@@ -10,17 +12,55 @@ export const MODE_SECONDS: Record<RushMode, number | null> = { '3min': 180, '5mi
 
 export type RushPeriod = 'daily' | 'weekly' | 'all';
 export type RushScope = 'global' | 'personal';
-export type EndReason = 'strikes' | 'timeout' | 'quit' | 'abandoned';
+export type EndReason = 'strikes' | 'timeout' | 'quit';
 
+type File = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
+type Rank = '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8';
+/** Board square, e.g. "e4" (assignable to chessground's `Key`). */
+export type Square = `${File}${Rank}`;
+
+/** One puzzle of a pack (`GET /pack`). */
 export interface RushPuzzle {
-  id: string;
   index: number;
+  id: string;
   /** Position BEFORE the opponent's setup move. */
   fen: string;
-  setup_move: string;
+  /** Full UCI line: moves[0] is the opponent setup, user moves at odd indices. */
+  moves: string[];
   rating: number;
+  themes: string[];
   /** The side the user plays. */
   color: 'white' | 'black';
+}
+
+export interface PackResponse {
+  seed: string;
+  from: number;
+  count: number;
+  puzzles: RushPuzzle[];
+}
+
+export type AttemptResult = 'solved' | 'failed' | 'unfinished';
+
+export interface RunAttempt {
+  index: number;
+  puzzle_id: string;
+  rating: number;
+  result: AttemptResult;
+  /** The user's own UCI moves, in order. */
+  user_moves: string[];
+  /** From the previous answer (or Go!) to this answer; null if unfinished. */
+  ms: number | null;
+}
+
+export interface FinishRequest {
+  run_id: string;
+  mode: RushMode;
+  seed: string;
+  started_at: string;
+  ended_at: string;
+  end_reason: EndReason;
+  attempts: RunAttempt[];
 }
 
 export interface RushResults {
@@ -34,60 +74,10 @@ export interface RushResults {
   global_rank: Record<RushPeriod, number> | null;
 }
 
-export interface RunState {
+export interface FinishResponse extends RushResults {
   run_id: string;
-  mode: RushMode;
-  score: number;
-  strikes: number;
-  streak: number;
-  started_at: string;
-  deadline: string | null;
-  server_now: string;
-  run_over: boolean;
-  end_reason?: EndReason;
-}
-
-export interface CreateRunResponse {
-  run_id: string;
-  mode: RushMode;
-  started_at: string;
-  deadline: string | null;
-  server_now: string;
-  puzzle: RushPuzzle;
-  guest_token?: string;
-}
-
-export interface MoveResponse extends RunState {
-  result: 'correct' | 'wrong' | 'solved';
-  reply?: string;
-  next_puzzle?: RushPuzzle;
-  results?: RushResults;
-}
-
-export interface QuitResponse extends RunState {
-  results: RushResults;
-}
-
-export interface RushAttempt {
-  index: number;
-  puzzle_id: string;
-  rating: number;
-  result: 'solved' | 'failed' | 'unfinished';
-  user_moves: string[];
-  ms: number | null;
-  /** Present only once the run has ended. */
-  fen?: string;
-  solution?: string[];
-}
-
-export interface RunSummary extends RunState {
-  longest_streak: number;
-  highest_solved_rating: number | null;
-  avg_ms_per_puzzle: number | null;
-  duration_ms: number | null;
-  ended_at: string | null;
-  attempts: RushAttempt[];
-  results?: RushResults;
+  /** True when the run was already recorded (a retry); the stored result is returned. */
+  duplicate: boolean;
 }
 
 export interface ModeBests {

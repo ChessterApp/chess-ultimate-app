@@ -129,12 +129,30 @@ class FakeQuery:
         return FakeResult([dict(r) for r in matched], count if self._count else None)
 
 
+class MissingRpc(Exception):
+    """What supabase-py raises (PGRST202) when the function isn't deployed."""
+
+
+class FakeRpc:
+    def __init__(self, fn, params):
+        self.fn, self.params = fn, params
+
+    def execute(self):
+        return FakeResult(self.fn(**self.params))
+
+
 class FakeSupabase:
     def __init__(self):
         self.db = {}
+        self.functions = {}
 
     def table(self, name):
         return FakeQuery(self.db, name)
+
+    def rpc(self, name, params):
+        if name not in self.functions:
+            raise MissingRpc(f'Could not find the function public.{name}')
+        return FakeRpc(self.functions[name], params)
 
     def rows(self, name):
         return self.db.get(name, [])
@@ -681,4 +699,5 @@ def test_blueprint_registered_in_app():
     assert {
         '/api/puzzlerush/runs', '/api/puzzlerush/runs/<run_id>/move', '/api/puzzlerush/runs/<run_id>/quit',
         '/api/puzzlerush/runs/<run_id>', '/api/puzzlerush/bests', '/api/puzzlerush/leaderboard',
+        '/api/puzzlerush/pack', '/api/puzzlerush/runs/finish',
     } <= rules, out.stderr[-2000:]

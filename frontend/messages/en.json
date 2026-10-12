@@ -3029,8 +3029,7 @@
       "end": {
         "strikes": "Three strikes",
         "timeout": "Time's up",
-        "quit": "You ended the run",
-        "abandoned": "Run timed out"
+        "quit": "You ended the run"
       }
     },
     "summary": {
@@ -3043,8 +3042,6 @@
       "prev": "Previous move",
       "next": "Next move",
       "closeReview": "Close review",
-      "loading": "Loading review…",
-      "error": "Couldn't load the review.",
       "step": "{n} / {total}"
     },
     "leaderboard": {
@@ -3062,8 +3059,7 @@
       "run": "Run {n}"
     },
     "errors": {
-      "start": "Couldn't start a rush. Try again.",
-      "rate_limited": "Too many guest runs from this network — sign in or try again later."
+      "start": "Couldn't start a rush. Try again."
     },
     "entry": {
       "title": "Puzzle Rush",

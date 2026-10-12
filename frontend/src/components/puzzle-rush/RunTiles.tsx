@@ -41,13 +41,14 @@ interface TimerProps {
   frozenMs?: number | null;
 }
 
-/** Timed modes count down to the server deadline; Survival shows elapsed time. */
+/** Timed modes count down to the run's deadline; Survival shows elapsed time. */
 export function TimerTile({ mode, startedAtMs, deadlineMs, running, frozenMs = null }: TimerProps) {
   const t = useTranslations('puzzleRush.run');
-  const [now, setNow] = useState(() => Date.now());
+  // Same monotonic clock as the run engine (startedAtMs / deadlineMs).
+  const [now, setNow] = useState(() => performance.now());
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => setNow(Date.now()), 250);
+    const id = setInterval(() => setNow(performance.now()), 250);
     return () => clearInterval(id);
   }, [running]);
 

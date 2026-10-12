@@ -52,8 +52,8 @@ export default function PuzzleRush() {
   const [bests, setBests] = useState<BestsResponse | null>(null);
 
   const rush = usePuzzleRush(DEFAULT_MODE);
-  const { state, countdown, showResults, setShowResults, isPb, isGuest, auth } = rush;
-  const review = useRunReview(state.phase === 'over' ? state.runId : null, auth);
+  const { state, tiles, countdown, showResults, closeResults, isPb, isGuest, auth } = rush;
+  const review = useRunReview(state.phase === 'over' ? state.runId : null, rush.review);
 
   // localStorage-backed choices only after mount (SSR renders the defaults, so
   // reading them during render would cause a hydration mismatch).
@@ -65,7 +65,7 @@ export default function PuzzleRush() {
 
   const runOver = state.phase === 'over';
   // Refetch bests / boards once each finished run has been recorded.
-  const finishedRun = runOver ? state.runId ?? '' : '';
+  const finishedRun = rush.recorded ? state.runId ?? '' : '';
 
   useEffect(() => {
     let live = true;
@@ -96,7 +96,6 @@ export default function PuzzleRush() {
     setMode(state.mode);
     rush.reset();
   }, [rush, state.mode]);
-  const closeResults = useCallback(() => setShowResults(false), [setShowResults]);
 
   const inRun = state.phase === 'starting' || state.phase === 'countdown' || state.phase === 'playing';
   const turnSide = state.puzzle?.color;
@@ -138,7 +137,10 @@ export default function PuzzleRush() {
   );
 
   let body: React.ReactNode;
-  if (inRun) {
+  // The frozen run board stays under the results modal: swapping to the
+  // summary layout (a fresh board) in the run-ending frame would delay the
+  // final ✕ and the modal. The summary takes over once the modal closes.
+  if (inRun || (runOver && showResults)) {
     // S3–S7: countdown and the run itself.
     body = (
       <div className={styles.runLayout}>
@@ -150,6 +152,7 @@ export default function PuzzleRush() {
             lastMove={state.lastMove}
             movable={state.phase === 'playing' && !state.inputLocked}
             covered={state.covered}
+            waiting={state.stalled}
             badge={state.badge}
             countdown={countdown}
             goLabel={t('run.go')}
@@ -168,7 +171,7 @@ export default function PuzzleRush() {
           <StrikesTile strikes={state.strikes} />
         </div>
         <div className={styles.runExtras}>
-          <ResultsGrid tiles={state.tiles} />
+          <ResultsGrid tiles={tiles} />
           {coachText && <CoachToast key={state.coach!.seq} text={coachText} />}
           <div className={styles.quitRow}>
             <button type="button" className={styles.textButton} onClick={rush.quit} disabled={state.phase !== 'playing'}>
@@ -201,7 +204,7 @@ export default function PuzzleRush() {
             <RunSummary
               mode={state.mode}
               score={state.score}
-              tiles={state.tiles}
+              tiles={tiles}
               endReason={state.endReason}
               review={review}
               onPlayAgain={playAgain}
@@ -229,7 +232,7 @@ export default function PuzzleRush() {
               </button>
               {state.error && (
                 <p className={styles.errorNote} role="alert">
-                  {state.error === 'rate_limited' ? t('errors.rate_limited') : t('errors.start')}
+                  {t('errors.start')}
                 </p>
               )}
               <div className={styles.guestNote}>
@@ -267,6 +270,8 @@ export default function PuzzleRush() {
           endReason={state.endReason}
           isPb={isPb}
           isGuest={isGuest}
+          guestBests={rush.guestBest}
+          ranksPending={rush.ranksPending}
           onPlayAgain={playAgain}
           onNewRush={newRush}
           onClose={closeResults}

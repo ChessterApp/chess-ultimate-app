@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { rushApi, RushApiError } from '../api';
+import { createRushApi, rushApi, RushApiError } from '../api';
+import type { FinishRequest } from '../types';
 
 const fetchMock = vi.fn();
 
@@ -12,33 +13,36 @@ function lastCall() {
   return { url: new URL(url as string, 'http://x'), init: init as RequestInit };
 }
 
+const FINISH: FinishRequest = {
+  run_id: '11111111-2222-4333-8444-555555555555', mode: '5min', seed: '0123456789abcdef',
+  started_at: '2026-10-12T10:00:00.000Z', ended_at: '2026-10-12T10:05:00.000Z', end_reason: 'timeout', attempts: [],
+};
+
 beforeEach(() => {
   fetchMock.mockReset();
   global.fetch = fetchMock as unknown as typeof fetch;
 });
 
 describe('rushApi', () => {
-  it('sends the Clerk bearer token for signed-in calls (and no guest header)', async () => {
-    respond(201, { run_id: 'r1' });
-    await rushApi.createRun({ getToken: async () => 'jwt-123', guestToken: 'g' }, '5min');
+  it('pack: public GET with only seed/from/count (stable, cacheable URL)', async () => {
+    respond(200, { seed: 'abc', from: 40, count: 0, puzzles: [] });
+    await rushApi.pack('0123456789abcdef', 40);
     const { url, init } = lastCall();
-    expect(url.pathname).toBe('/api/puzzlerush/runs');
-    expect(init.method).toBe('POST');
-    expect(JSON.parse(init.body as string)).toEqual({ mode: '5min' });
-    const headers = init.headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer jwt-123');
-    expect(headers['X-Guest-Token']).toBeUndefined();
+    expect(url.pathname).toBe('/api/puzzlerush/pack');
+    expect(Object.fromEntries(url.searchParams)).toEqual({ seed: '0123456789abcdef', from: '40', count: '40' });
+    expect(init.method).toBe('GET');
+    expect(init.headers).toEqual({});
   });
 
-  it('sends X-Guest-Token for guest calls', async () => {
-    respond(200, { result: 'correct' });
-    await rushApi.move({ getToken: async () => null, guestToken: 'guest-abc' }, 'run-1', 'e2e4');
+  it('finish: POSTs the run with the Clerk bearer token and the local time zone', async () => {
+    respond(200, { run_id: FINISH.run_id, score: 0 });
+    await rushApi.finish({ getToken: async () => 'jwt-123' }, FINISH);
     const { url, init } = lastCall();
-    expect(url.pathname).toBe('/api/puzzlerush/runs/run-1/move');
-    const headers = init.headers as Record<string, string>;
-    expect(headers['X-Guest-Token']).toBe('guest-abc');
-    expect(headers.Authorization).toBeUndefined();
-    expect(JSON.parse(init.body as string)).toEqual({ uci: 'e2e4' });
+    expect(url.pathname).toBe('/api/puzzlerush/runs/finish');
+    expect(url.searchParams.get('tz')).toBeTruthy();
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual(FINISH);
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer jwt-123', 'Content-Type': 'application/json' });
   });
 
   it('passes the local time zone and leaderboard params as query', async () => {
@@ -50,16 +54,15 @@ describe('rushApi', () => {
     expect(url.searchParams.get('period')).toBe('weekly');
     expect(url.searchParams.get('scope')).toBe('global');
     expect(url.searchParams.get('tz')).toBeTruthy();
-    expect(init.method).toBe('GET');
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
-  it('surfaces the 409 run_over body (with results) and never retries', async () => {
-    respond(409, { error: 'run_over', end_reason: 'timeout', results: { score: 3 } });
-    const err = await rushApi.move({ getToken: async () => null, guestToken: 'g' }, 'r', 'e2e4').catch((e) => e);
+  it('surfaces the error code + body and never retries', async () => {
+    respond(409, { error: 'conflict' });
+    const err = await rushApi.finish({ getToken: async () => 't' }, FINISH).catch((e) => e);
     expect(err).toBeInstanceOf(RushApiError);
     expect(err.status).toBe(409);
-    expect(err.code).toBe('run_over');
-    expect(err.body.results).toEqual({ score: 3 });
+    expect(err.code).toBe('conflict');
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -67,5 +70,11 @@ describe('rushApi', () => {
     fetchMock.mockResolvedValueOnce(new Response('oops', { status: 502 }));
     const err = await rushApi.bests({ getToken: async () => 't' }).catch((e) => e);
     expect(err.code).toBe('http_502');
+  });
+
+  it('createRushApi takes an absolute base for the mobile app', async () => {
+    respond(200, { puzzles: [] });
+    await createRushApi('https://chesster.io/api/puzzlerush').pack('0123456789abcdef');
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/^https:\/\/chesster\.io\/api\/puzzlerush\/pack\?seed=/);
   });
 });

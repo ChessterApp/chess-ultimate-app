@@ -4,9 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
 import type { Key } from 'chessground/types';
-import { rushApi, type RushAuth } from '@/lib/puzzle-rush/api';
-import type { ResultTile } from '@/lib/puzzle-rush/runReducer';
-import type { EndReason, RunSummary as RunSummaryData, RushAttempt, RushMode } from '@/lib/puzzle-rush/types';
+import type { ResultTile, ReviewAttempt } from '@/lib/puzzle-rush/runReducer';
+import type { EndReason, RushMode } from '@/lib/puzzle-rush/types';
 import { ResultsGrid } from './RunTiles';
 import styles from './PuzzleRush.module.css';
 
@@ -18,8 +17,8 @@ interface ReviewLine {
   orientation: 'white' | 'black';
 }
 
-export function buildReviewLine(attempt: RushAttempt): ReviewLine | null {
-  if (!attempt.fen || !attempt.solution?.length) return null;
+export function buildReviewLine(attempt: ReviewAttempt): ReviewLine | null {
+  if (!attempt.solution.length) return null;
   const chess = new Chess(attempt.fen);
   // The user plays the side NOT to move in the stored FEN.
   const orientation = chess.turn() === 'w' ? 'black' : 'white';
@@ -40,14 +39,14 @@ export function buildReviewLine(attempt: RushAttempt): ReviewLine | null {
 }
 
 /** SAN for the user's own moves in a missed puzzle (played after the setup move). */
-function userSans(attempt: RushAttempt): string[] {
-  if (!attempt.fen || !attempt.solution?.length) return attempt.user_moves;
+function userSans(attempt: ReviewAttempt): string[] {
+  if (!attempt.solution.length) return attempt.user_moves;
   try {
     const chess = new Chess(attempt.fen);
     const line = [attempt.solution[0]];
     attempt.user_moves.forEach((m, i) => {
       line.push(m);
-      if (i < attempt.user_moves.length - 1 && attempt.solution?.[2 * i + 2]) line.push(attempt.solution[2 * i + 2]);
+      if (i < attempt.user_moves.length - 1 && attempt.solution[2 * i + 2]) line.push(attempt.solution[2 * i + 2]);
     });
     const out: string[] = [];
     line.forEach((uci, i) => {
@@ -60,34 +59,27 @@ function userSans(attempt: RushAttempt): string[] {
   }
 }
 
-/** In-page missed-puzzle review: loads the ended run once, steps through solutions. */
-export function useRunReview(runId: string | null, auth: () => RushAuth) {
-  const [data, setData] = useState<RunSummaryData | null>(null);
-  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+/**
+ * In-page missed-puzzle review, offline: the solutions are already in the
+ * run's pack (`reviewAttempts`). `runId` resets the selection per run.
+ */
+export function useRunReview(runId: string | null, attempts: ReviewAttempt[]) {
   const [selected, setSelected] = useState<number | null>(null);
   const [step, setStep] = useState(1);
 
-  // New run → drop the previous run's review (reset during render, not in an effect).
+  // New run → drop the previous run's selection (reset during render, not in an effect).
   const [forRun, setForRun] = useState(runId);
   if (forRun !== runId) {
     setForRun(runId);
-    setData(null);
     setSelected(null);
-    setStatus('idle');
   }
 
   const select = useCallback((index: number) => {
     setSelected((cur) => (cur === index ? null : index));
     setStep(1);
-    if (!data && runId && status !== 'loading') {
-      setStatus('loading');
-      rushApi.getRun(auth(), runId)
-        .then((d) => { setData(d); setStatus('idle'); })
-        .catch(() => setStatus('error'));
-    }
-  }, [auth, data, runId, status]);
+  }, []);
 
-  const attempt = selected === null ? null : data?.attempts.find((a) => a.index === selected) ?? null;
+  const attempt = selected === null ? null : attempts.find((a) => a.index === selected) ?? null;
   const line = useMemo(() => (attempt ? buildReviewLine(attempt) : null), [attempt]);
   const maxStep = line ? line.fens.length - 1 : 0;
 
@@ -113,7 +105,7 @@ export function useRunReview(runId: string | null, auth: () => RushAuth) {
     ? { fen: line.fens[step], lastMove: line.lastMoves[step], orientation: line.orientation }
     : null;
 
-  return { selected, select, close, status, attempt, line, step, maxStep, stepBy, board };
+  return { selected, select, close, attempt, line, step, maxStep, stepBy, board };
 }
 
 type Review = ReturnType<typeof useRunReview>;
@@ -131,7 +123,7 @@ interface Props {
 /** S10: score, clickable ✓/✕ grid, review drawer, Play Again / New Rush. */
 export default function RunSummary({ mode, score, tiles, endReason, review, onPlayAgain, onNewRush }: Props) {
   const t = useTranslations('puzzleRush');
-  const { selected, attempt, line, step, maxStep, stepBy, close, status } = review;
+  const { selected, attempt, line, step, maxStep, stepBy, close } = review;
 
   return (
     <div data-testid="rush-summary">
@@ -169,8 +161,6 @@ export default function RunSummary({ mode, score, tiles, endReason, review, onPl
             )}
             <button type="button" className={styles.textButton} onClick={close} aria-label={t('summary.closeReview')}>✕</button>
           </div>
-          {status === 'loading' && <p className={styles.drawerLine}>{t('summary.loading')}</p>}
-          {status === 'error' && <p className={styles.drawerLine}>{t('summary.error')}</p>}
           {attempt && attempt.result !== 'solved' && attempt.user_moves.length > 0 && (
             <p className={styles.drawerLine}>{t('summary.yourMoves', { moves: userSans(attempt).join(' ') })}</p>
           )}

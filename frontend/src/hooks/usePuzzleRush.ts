@@ -1,22 +1,27 @@
 'use client';
 
 /**
- * usePuzzleRush — drives one Puzzle Rush run: countdown, server-validated
- * moves, the §3 feedback/transition timings, server-owned timeout, quit, and
- * on-device guest bests. All board state lives in `runReducer`.
+ * usePuzzleRush — drives one Puzzle Rush run on top of the pure `runReducer`:
+ * pack prefetch / top-up, the 3-2-1-Go! countdown, the §3 feedback/transition
+ * timings, the local clock, sounds, and the single background `/runs/finish`
+ * for signed-in players (with a localStorage outbox). No network call sits
+ * between a move and its ✓/✕: the reducer judges the move in the same update.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import type { Key } from 'chessground/types';
-import { rushApi, RushApiError, type RushAuth } from '@/lib/puzzle-rush/api';
-import { initialRunState, runReducer } from '@/lib/puzzle-rush/runReducer';
-import { loadGuestToken, recordGuestScore, saveGuestToken, saveLastMode } from '@/lib/puzzle-rush/storage';
-import type { RunState, RushMode, RushResults } from '@/lib/puzzle-rush/types';
+import { rushApi, type RushAuth } from '@/lib/puzzle-rush/api';
+import { dequeueFinish, enqueueFinish, flushOutbox } from '@/lib/puzzle-rush/outbox';
+import { newRunId, newSeed, retryDelay, topUpFrom } from '@/lib/puzzle-rush/pack';
+import { finishRequest, initialRunState, resultTiles, reviewAttempts, runReducer, type MoveOutcome } from '@/lib/puzzle-rush/runReducer';
+import { applyGuestScore, loadGuestBests, localStore, recordGuestScore, saveLastMode } from '@/lib/puzzle-rush/storage';
+import type { ModeBests, RushMode, RushPuzzle } from '@/lib/puzzle-rush/types';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 
 // §3 implementation targets.
 export const TIMINGS = {
+  COUNTDOWN_LEAD_IN: 750,
   COUNTDOWN_STEP: 750,
   GO_VISIBLE: 1100,
   BADGE_HOLD_OK: 160,
@@ -24,42 +29,56 @@ export const TIMINGS = {
   BOARD_CLEAR: 150,
   FADE_IN: 170,
   REVEAL_IN_THREE: 200,
-  RESULTS_DELAY: 700,
   COACH_VISIBLE: 2600,
-  TIMEOUT_POLL: 500,
-  TIMEOUT_POLL_TRIES: 12,
 } as const;
 
 export type CountdownStep = 3 | 2 | 1 | 'go' | null;
 
+const now = () => performance.now();
+
+interface PendingPack {
+  seed: string;
+  promise: Promise<RushPuzzle[]>;
+}
+
+function fetchPack(): PendingPack {
+  const seed = newSeed();
+  const promise = rushApi.pack(seed).then((r) => r.puzzles);
+  promise.catch(() => {}); // awaited (and handled) by start()
+  return { seed, promise };
+}
+
 export function usePuzzleRush(initialMode: RushMode) {
-  const { getToken, isSignedIn } = useAuth();
+  const { getToken, isSignedIn, userId } = useAuth();
   const { play } = useSoundEffects();
   const [state, dispatch] = useReducer(runReducer, initialMode, initialRunState);
   const [countdown, setCountdown] = useState<CountdownStep>(null);
-  const [showResults, setShowResults] = useState(false);
-  const [guestPb, setGuestPb] = useState(false);
+  const [resultsClosed, setResultsClosed] = useState(false);
+  // Guest bests as they were when the run started (the results derive from them).
+  const [guestBefore, setGuestBefore] = useState<Record<RushMode, ModeBests> | null>(null);
+  // Run id once it is recorded (server for signed-in, localStorage for guests).
+  const [recordedRun, setRecordedRun] = useState<string | null>(null);
+  const [finishFailed, setFinishFailed] = useState(false);
 
-  // Latest state for async handlers (synced after each commit).
   const stateRef = useRef(state);
   useLayoutEffect(() => {
     stateRef.current = state;
   });
-  const guestTokenRef = useRef<string | null>(null);
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   // Bumped per run so late timers / responses from an old run are ignored.
   const genRef = useRef(0);
   const finishedRef = useRef<string | null>(null);
+  const nextPackRef = useRef<PendingPack | null>(null);
+  const topUpRef = useRef(false);
+  const outcomeRef = useRef<MoveOutcome | null>(null);
 
-  // Stable identity: Clerk's getToken may change per render, and the deadline
-  // effect must not re-arm (and re-poll) because of it.
+  // Stable identity: Clerk's getToken may change per render.
   const clerkRef = useRef({ getToken, isSignedIn });
   useLayoutEffect(() => {
     clerkRef.current = { getToken, isSignedIn };
   });
   const auth = useCallback((): RushAuth => ({
     getToken: async () => (clerkRef.current.isSignedIn ? clerkRef.current.getToken() : null),
-    guestToken: guestTokenRef.current,
   }), []);
 
   const later = useCallback((ms: number, fn: () => void) => {
@@ -76,157 +95,173 @@ export function usePuzzleRush(initialMode: RushMode) {
 
   useEffect(() => () => clearTimers(), [clearTimers]);
 
+  // Prefetch the first pack while the mode select is on screen.
   useEffect(() => {
-    guestTokenRef.current = loadGuestToken();
+    if (!nextPackRef.current) nextPackRef.current = fetchPack();
   }, []);
 
-  const endRun = useCallback((s: Partial<RunState>, results: RushResults | null) => {
-    dispatch({ type: 'RUN_OVER', state: s, results, clientNow: Date.now() });
-  }, []);
-
-  /** Ask the server (source of truth) whether the clock ran out; it ends the run lazily. */
-  const pollTimeout = useCallback((runId: string) => {
-    const attempt = (tries: number) => {
-      const retry = () => {
-        if (tries < TIMINGS.TIMEOUT_POLL_TRIES) later(TIMINGS.TIMEOUT_POLL, () => attempt(tries + 1));
-      };
-      rushApi.getRun(auth(), runId).then((summary) => {
-        if (stateRef.current.runId !== runId) return;
-        if (summary.run_over) endRun(summary, summary.results ?? null);
-        else retry();
-      }).catch(retry);
-    };
-    attempt(0);
-  }, [auth, endRun, later]);
+  // Resend runs whose /finish never landed (previous page loads).
+  useEffect(() => {
+    if (!isSignedIn || !userId) return;
+    void flushOutbox(localStore(), userId, (body) => rushApi.finish(auth(), body));
+  }, [isSignedIn, userId, auth]);
 
   const start = useCallback(async (mode: RushMode) => {
     clearTimers();
     genRef.current += 1;
+    const gen = genRef.current;
     finishedRef.current = null;
-    setShowResults(false);
-    setGuestPb(false);
+    topUpRef.current = false;
+    setResultsClosed(false);
+    setGuestBefore(loadGuestBests());
+    setFinishFailed(false);
     setCountdown(null);
     saveLastMode(mode);
     dispatch({ type: 'START_REQUESTED', mode });
 
-    const gen = genRef.current;
-    try {
-      const res = await rushApi.createRun({ ...auth(), guestToken: null }, mode);
-      if (gen !== genRef.current) return;
-      guestTokenRef.current = res.guest_token ?? null;
-      saveGuestToken(guestTokenRef.current);
-      const now = Date.now();
-      dispatch({ type: 'RUN_CREATED', response: res, clientNow: now });
+    let pack = nextPackRef.current ?? fetchPack();
+    let puzzles: RushPuzzle[] | null = null;
+    for (let tries = 0; tries < 2 && !puzzles; tries += 1) {
+      try {
+        puzzles = await pack.promise;
+      } catch {
+        if (tries === 0) pack = fetchPack();
+      }
+    }
+    if (gen !== genRef.current) return;
+    if (!puzzles?.length) {
+      nextPackRef.current = null;
+      dispatch({ type: 'START_FAILED', error: 'network' });
+      return;
+    }
+    dispatch({ type: 'RUN_STARTED', runId: newRunId(), seed: pack.seed, puzzles });
+    // Play Again's pack, fetched during the countdown (never mid-run).
+    nextPackRef.current = fetchPack();
 
-      // Align "Go!" with the server's started_at (create + 3 s), so the clock
-      // starts exactly when the board becomes playable.
-      const startedAt = Date.parse(res.started_at) - (Date.parse(res.server_now) - now);
-      const toGo = Math.max(startedAt - now, 0);
-      const firstStep = Math.max(toGo - 3 * TIMINGS.COUNTDOWN_STEP, 0);
-      const goAt = Math.max(toGo, firstStep + 3 * TIMINGS.COUNTDOWN_STEP);
-      later(firstStep, () => setCountdown(3));
-      later(firstStep + TIMINGS.REVEAL_IN_THREE, () => dispatch({ type: 'PUZZLE_REVEALED' }));
-      later(firstStep + TIMINGS.COUNTDOWN_STEP, () => setCountdown(2));
-      later(firstStep + 2 * TIMINGS.COUNTDOWN_STEP, () => setCountdown(1));
-      later(goAt, () => {
-        setCountdown('go');
-        dispatch({ type: 'SETUP_PLAYED' });
+    const step = TIMINGS.COUNTDOWN_STEP;
+    const t0 = TIMINGS.COUNTDOWN_LEAD_IN;
+    later(t0, () => setCountdown(3));
+    later(t0 + TIMINGS.REVEAL_IN_THREE, () => dispatch({ type: 'PUZZLE_REVEALED' }));
+    later(t0 + step, () => setCountdown(2));
+    later(t0 + 2 * step, () => setCountdown(1));
+    later(t0 + 3 * step, () => {
+      setCountdown('go');
+      dispatch({ type: 'GO', now: now(), wallNow: Date.now() });
+      play('move');
+    });
+    later(t0 + 3 * step + TIMINGS.GO_VISIBLE, () => setCountdown(null));
+  }, [clearTimers, later, play]);
+
+  const onMove = useCallback((from: Key, to: Key, promotion?: string) => {
+    dispatch({ type: 'USER_MOVED', uci: `${from}${to}${promotion ?? ''}`, now: now() });
+  }, []);
+
+  // Feedback pipeline after each judged move: sounds, then the reply or the next puzzle.
+  useEffect(() => {
+    const o = state.outcome;
+    if (!o || outcomeRef.current === o) return;
+    outcomeRef.current = o;
+    play(o.capture ? 'capture' : 'move');
+    if (o.result === 'wrong') play('clank');
+    else if (o.result === 'solved') play('success');
+    if (state.phase === 'over') return;
+    if (o.result === 'correct') {
+      later(TIMINGS.BADGE_HOLD_OK, () => {
+        dispatch({ type: 'REPLY_PLAYED' });
         play('move');
       });
-      later(goAt + TIMINGS.GO_VISIBLE, () => setCountdown(null));
-    } catch (e) {
-      if (gen !== genRef.current) return;
-      const code = e instanceof RushApiError ? e.code : 'network';
-      dispatch({ type: 'START_FAILED', error: code });
+    } else {
+      later(o.result === 'solved' ? TIMINGS.BADGE_HOLD_OK : TIMINGS.BADGE_HOLD_FAIL, () => dispatch({ type: 'ADVANCE' }));
     }
-  }, [auth, clearTimers, later, play]);
+  }, [state.outcome, state.phase, later, play]);
 
-  const playNextPuzzle = useCallback(() => {
-    dispatch({ type: 'ADVANCE' });
+  // A puzzle mounted mid-run (after ADVANCE or a stalled top-up): fade in, then the setup move.
+  const midRunMount = state.phase === 'playing' && state.covered ? state.boardKey : null;
+  useEffect(() => {
+    if (midRunMount === null) return;
     later(TIMINGS.BOARD_CLEAR, () => dispatch({ type: 'PUZZLE_REVEALED' }));
     later(TIMINGS.BOARD_CLEAR + TIMINGS.FADE_IN, () => {
       dispatch({ type: 'SETUP_PLAYED' });
       play('move');
     });
-  }, [later, play]);
+  }, [midRunMount, later, play]);
 
-  const onMove = useCallback(async (from: Key, to: Key, promotion?: string) => {
-    const s = stateRef.current;
-    if (s.inputLocked || s.phase !== 'playing' || !s.runId) return;
-    const uci = `${from}${to}${promotion ?? ''}`;
-    const before = { fen: s.fen, lastMove: s.lastMove };
-    const isCapture = /[a-z]/i.test(boardCharAt(s.fen, to));
-    dispatch({ type: 'USER_MOVED', uci });
-    play(isCapture ? 'capture' : 'move');
+  // Pack top-up: background, silent retries; the board only waits if the pack runs dry.
+  const topUpAt = (state.phase === 'playing' || state.phase === 'countdown') && state.puzzle
+    ? topUpFrom(state.pack.length, state.puzzle.index) : null;
+  const seed = state.seed;
+  useEffect(() => {
+    if (topUpAt === null || !seed || topUpRef.current) return;
+    topUpRef.current = true;
+    const gen = genRef.current;
+    const attempt = (failures: number) => {
+      rushApi.pack(seed, topUpAt).then((r) => {
+        if (gen !== genRef.current) return;
+        topUpRef.current = false;
+        dispatch({ type: 'PACK_EXTENDED', puzzles: r.puzzles });
+      }).catch(() => {
+        if (gen === genRef.current) later(retryDelay(failures), () => attempt(failures + 1));
+      });
+    };
+    attempt(0);
+  }, [topUpAt, seed, later]);
 
-    const runId = s.runId;
-    try {
-      const res = await rushApi.move(auth(), runId, uci);
-      if (stateRef.current.runId !== runId) return;
-      dispatch({ type: 'MOVE_RESULT', response: res, clientNow: Date.now() });
-      if (res.result === 'wrong') play('clank');
-      else if (res.result === 'solved') play('success');
+  // Local clock: timed modes end exactly at the deadline.
+  useEffect(() => {
+    if (state.phase !== 'playing' || state.deadlineMs === null) return;
+    const deadline = state.deadlineMs;
+    let t: ReturnType<typeof setTimeout>;
+    const check = () => {
+      const n = now();
+      if (n >= deadline) dispatch({ type: 'TIME_UP', now: n });
+      else t = setTimeout(check, deadline - n);
+    };
+    t = setTimeout(check, deadline - now());
+    return () => clearTimeout(t);
+  }, [state.phase, state.deadlineMs]);
 
-      if (res.run_over) return;
-      if (res.result === 'correct') {
-        later(TIMINGS.BADGE_HOLD_OK, () => {
-          dispatch({ type: 'REPLY_PLAYED' });
-          play('move');
-        });
-      } else {
-        later(res.result === 'solved' ? TIMINGS.BADGE_HOLD_OK : TIMINGS.BADGE_HOLD_FAIL, playNextPuzzle);
-      }
-    } catch (e) {
-      if (stateRef.current.runId !== runId) return;
-      if (e instanceof RushApiError && e.code === 'run_over') {
-        endRun(e.body as Partial<RunState>, (e.body.results as RushResults) ?? null);
-        return;
-      }
-      dispatch({ type: 'MOVE_REJECTED', ...before });
-    }
-  }, [auth, endRun, later, play, playNextPuzzle]);
-
-  const quit = useCallback(async () => {
-    const runId = stateRef.current.runId;
-    if (!runId || stateRef.current.phase === 'over') return;
-    clearTimers();
-    setCountdown(null);
-    try {
-      const res = await rushApi.quit(auth(), runId);
-      endRun(res, res.results);
-    } catch {
-      endRun({ end_reason: 'quit' }, null);
-    }
-  }, [auth, clearTimers, endRun]);
+  const quit = useCallback(() => {
+    if (stateRef.current.phase !== 'playing') return;
+    dispatch({ type: 'QUIT', now: now() });
+  }, []);
 
   const reset = useCallback(() => {
     clearTimers();
     genRef.current += 1;
     setCountdown(null);
-    setShowResults(false);
     dispatch({ type: 'RESET' });
   }, [clearTimers]);
 
-  // Client-side deadline: lock and let the server confirm the timeout.
-  useEffect(() => {
-    if (state.phase !== 'playing' && state.phase !== 'countdown') return;
-    if (state.deadlineMs === null || !state.runId) return;
-    const runId = state.runId;
-    const t = setTimeout(() => pollTimeout(runId), Math.max(state.deadlineMs - Date.now(), 0));
-    return () => clearTimeout(t);
-  }, [state.phase, state.deadlineMs, state.runId, pollTimeout]);
-
-  // Run-over side effects, once per run.
+  // Run over, once per run, after paint: the results modal has already
+  // rendered from local state in the run-ending frame (no state is set here
+  // before paint). Guests: persist the bests. Signed-in: queue + send /finish;
+  // ranks / PB merge in when it returns.
   useEffect(() => {
     if (state.phase !== 'over' || !state.runId || finishedRef.current === state.runId) return;
-    finishedRef.current = state.runId;
+    const runId = state.runId;
+    finishedRef.current = runId;
     clearTimers();
-    // Guest bests live in localStorage (external store); the PB flag is its write result.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (!isSignedIn) setGuestPb(recordGuestScore(state.mode, state.results?.score ?? state.score));
-    saveGuestToken(null);
-    later(TIMINGS.RESULTS_DELAY, () => setShowResults(true));
-  }, [state.phase, state.runId, state.mode, state.results, state.score, isSignedIn, clearTimers, later]);
+    /* eslint-disable react-hooks/set-state-in-effect -- run-over sync with localStorage */
+    setCountdown(null);
+    if (!isSignedIn) {
+      recordGuestScore(state.mode, state.score);
+      setRecordedRun(runId);
+      return;
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+    const body = finishRequest(state);
+    if (!body || !userId) return;
+    const store = localStore();
+    enqueueFinish(store, userId, body);
+    rushApi.finish(auth(), body).then((res) => {
+      dequeueFinish(store, runId);
+      if (stateRef.current.runId !== runId) return;
+      dispatch({ type: 'FINISH_RESULT', results: res });
+      setRecordedRun(runId);
+    }).catch(() => {
+      if (stateRef.current.runId === runId) setFinishFailed(true);
+    });
+  }, [state, isSignedIn, userId, auth, clearTimers]);
 
   // Coach toast auto-dismiss.
   useEffect(() => {
@@ -236,36 +271,30 @@ export function usePuzzleRush(initialMode: RushMode) {
     return () => clearTimeout(t);
   }, [state.coach]);
 
-  const isPb = Boolean(state.results?.is_new_pb) || guestPb;
+  const isGuest = !isSignedIn;
+  const over = state.phase === 'over';
+  const closeResults = useCallback(() => setResultsClosed(true), []);
+  const guestResult = isGuest && over && guestBefore ? applyGuestScore(guestBefore[state.mode], state.score) : null;
 
   return {
     state,
+    tiles: resultTiles(state),
+    review: over ? reviewAttempts(state) : [],
     countdown,
-    showResults,
-    setShowResults,
-    isPb,
-    isGuest: !isSignedIn,
+    showResults: over && !resultsClosed,
+    closeResults,
+    isPb: isGuest ? Boolean(guestResult?.isPb) : Boolean(state.results?.is_new_pb),
+    isGuest,
+    /** Guests: this mode's on-device bests including the finished run. */
+    guestBest: guestResult?.best ?? null,
+    /** Signed-in: /runs/finish hasn't answered yet. */
+    ranksPending: !isGuest && over && recordedRun !== state.runId && !finishFailed,
+    /** The finished run is on the server (signed-in) / on the device (guest). */
+    recorded: over && recordedRun === state.runId,
     start,
     onMove,
     quit,
     reset,
     auth,
   };
-}
-
-/** Piece letter on `square` in a FEN ('' when empty). */
-function boardCharAt(fen: string, square: string): string {
-  const file = square.charCodeAt(0) - 97;
-  const rank = 8 - Number(square[1]);
-  const row = fen.split(' ')[0].split('/')[rank] ?? '';
-  let col = 0;
-  for (const ch of row) {
-    if (/\d/.test(ch)) col += Number(ch);
-    else {
-      if (col === file) return ch;
-      col += 1;
-    }
-    if (col > file) break;
-  }
-  return '';
 }
