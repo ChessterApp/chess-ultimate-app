@@ -28,11 +28,14 @@ interface Props {
   badge?: { square: Key; kind: 'ok' | 'fail' } | null;
   countdown?: CountdownStep;
   goLabel?: string;
+  /** The next puzzle is still downloading (pack top-up): hold the board. */
+  waiting?: boolean;
   onMove?: (from: Key, to: Key, promotion?: PromotionRole) => void;
 }
 
 export default function RushBoard({
-  fen, orientation, boardKey, lastMove, movable, covered = false, badge = null, countdown = null, goLabel = 'Go!', onMove,
+  fen, orientation, boardKey, lastMove, movable, covered = false, badge = null, countdown = null, goLabel = 'Go!',
+  waiting = false, onMove,
 }: Props) {
   return (
     <div className={styles.boardFrame} data-testid="rush-board">
@@ -45,7 +48,8 @@ export default function RushBoard({
         onMove={onMove}
         animationDuration={200}
       />
-      <div className={`${styles.cover} ${covered ? styles.coverOn : ''}`} aria-hidden="true" />
+      <div className={`${styles.cover} ${covered || waiting ? styles.coverOn : ''}`} aria-hidden="true" />
+      {waiting && <span className={styles.spinner} role="status" data-testid="rush-waiting" />}
       {badge && (
         <span
           className={`${styles.badge} ${badge.kind === 'ok' ? styles.badgeOk : styles.badgeFail}`}

@@ -3,13 +3,11 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  loadGuestBests, loadLastMode, recordGuestScore, saveLastMode, hasSeenRules, markRulesSeen,
-  loadGuestToken, saveGuestToken,
+  loadGuestBests, loadLastMode, recordGuestScore, saveLastMode, hasSeenRules, markRulesSeen, localStore,
 } from '../storage';
 
 beforeEach(() => {
   localStorage.clear();
-  sessionStorage.clear();
 });
 
 describe('mode preselect', () => {
@@ -28,19 +26,20 @@ describe('mode preselect', () => {
   });
 });
 
-describe('rules + guest token', () => {
+describe('rules + outbox store', () => {
   it('remembers that the rules were seen', () => {
     expect(hasSeenRules()).toBe(false);
     markRulesSeen();
     expect(hasSeenRules()).toBe(true);
   });
 
-  it('keeps the guest token in sessionStorage only', () => {
-    saveGuestToken('tok');
-    expect(loadGuestToken()).toBe('tok');
-    expect(localStorage.length).toBe(0);
-    saveGuestToken(null);
-    expect(loadGuestToken()).toBeNull();
+  it('localStore is a thin localStorage wrapper', () => {
+    const store = localStore();
+    store.setItem('k', 'v');
+    expect(localStorage.getItem('k')).toBe('v');
+    expect(store.getItem('k')).toBe('v');
+    store.removeItem('k');
+    expect(store.getItem('k')).toBeNull();
   });
 });
 

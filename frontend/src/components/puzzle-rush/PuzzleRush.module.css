@@ -486,6 +486,24 @@
   }
 }
 
+.spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+  z-index: 4;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .countdown {
   position: absolute;
   inset: 0;
@@ -1173,6 +1191,12 @@ button.cell:hover {
   color: var(--tp);
   margin-top: 2px;
   font-variant-numeric: tabular-nums;
+}
+.rankPending {
+  opacity: 0.45;
+}
+.rankValueIn {
+  animation: rise 240ms var(--ease-out) both;
 }
 @keyframes rise {
   from {

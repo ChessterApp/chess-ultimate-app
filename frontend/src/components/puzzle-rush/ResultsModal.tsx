@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { EndReason, RushMode, RushResults } from '@/lib/puzzle-rush/types';
+import type { EndReason, ModeBests, RushMode, RushResults } from '@/lib/puzzle-rush/types';
 import { formatClock } from './RunTiles';
 import styles from './PuzzleRush.module.css';
 
@@ -23,15 +23,25 @@ interface Props {
   endReason: EndReason | null;
   isPb: boolean;
   isGuest: boolean;
+  /** Guests: on-device bests for this mode, already including this run. */
+  guestBests?: ModeBests | null;
+  /** Signed-in: `/runs/finish` is in flight, ranks fill in when it returns. */
+  ranksPending?: boolean;
   onPlayAgain: () => void;
   onNewRush: () => void;
   onClose: () => void;
   signInHref: string;
 }
 
-/** S9: end-of-run card. Enter = Play Again, Esc = close (§1 Keyboard). */
+/**
+ * S9: end-of-run card, rendered from local state the moment the run ends.
+ * Signed-in: ranks (and the PB title) animate in when `/runs/finish` returns.
+ * Guests: the tiles show on-device bests, never ranks. Enter = Play Again,
+ * Esc = close (§1 Keyboard).
+ */
 export default function ResultsModal({
-  mode, score, results, endReason, isPb, isGuest, onPlayAgain, onNewRush, onClose, signInHref,
+  mode, score, results, endReason, isPb, isGuest, guestBests = null, ranksPending = false,
+  onPlayAgain, onNewRush, onClose, signInHref,
 }: Props) {
   const t = useTranslations('puzzleRush');
   const [copied, setCopied] = useState(false);
@@ -63,9 +73,21 @@ export default function ResultsModal({
     }
   };
 
-  const rank = (n: number | null | undefined) => (n ? `#${n}` : '—');
+  const rank = (n: number | null | undefined) => (n ? `#${n}` : ranksPending ? '…' : '—');
+  const best = (n: number | null | undefined) => (n === null || n === undefined ? '—' : String(n));
   const ranks = results?.global_rank;
   const avg = results?.avg_ms_per_puzzle;
+  const cells = isGuest
+    ? [
+      ['personal', best(guestBests?.top_score)],
+      ['today', best(guestBests?.best_today)],
+      ['allTime', best(guestBests?.top_score)],
+    ]
+    : [
+      ['personal', rank(results?.personal_rank)],
+      ['today', rank(ranks?.daily)],
+      ['allTime', rank(ranks?.all)],
+    ];
 
   return (
     <div className={styles.scrim} onClick={onClose}>
@@ -88,19 +110,16 @@ export default function ResultsModal({
           </div>
         </div>
 
-        <div className={styles.ranks}>
-          <div className={styles.rankCell}>
-            <div className={styles.rankLabel}>{t('results.personal')}</div>
-            <div className={styles.rankValue}>{rank(results?.personal_rank)}</div>
-          </div>
-          <div className={styles.rankCell}>
-            <div className={styles.rankLabel}>{t('results.today')}</div>
-            <div className={styles.rankValue}>{rank(ranks?.daily)}</div>
-          </div>
-          <div className={styles.rankCell}>
-            <div className={styles.rankLabel}>{t('results.allTime')}</div>
-            <div className={styles.rankValue}>{rank(ranks?.all)}</div>
-          </div>
+        <div className={styles.ranks} data-testid="rush-ranks">
+          {cells.map(([key, value]) => (
+            <div key={key} className={styles.rankCell}>
+              <div className={styles.rankLabel}>{t(`results.${key}`)}</div>
+              {/* Re-keyed so a rank arriving from /runs/finish rises in. */}
+              <div key={value} className={`${styles.rankValue} ${value === '…' ? styles.rankPending : styles.rankValueIn}`}>
+                {value}
+              </div>
+            </div>
+          ))}
         </div>
         {isGuest && (
           <p className={styles.guestRanks}>
