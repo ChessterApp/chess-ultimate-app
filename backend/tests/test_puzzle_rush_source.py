@@ -106,8 +106,14 @@ def test_ramp_saturates_at_db_max_rating(tmp_path, rng):
 
 
 def test_get_and_moves_split(tmp_path):
-    source = PuzzleSource(make_puzzles_db(tmp_path / 'p.db', [m1('x', 500)]))
-    assert source.get('x') == {'id': 'x', 'fen': M1_FEN, 'moves': ['a7a6', 'd1d8'], 'rating': 500}
+    db = make_puzzles_db(tmp_path / 'p.db', [m1('x', 500), m1('y', 510)])
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE puzzles SET themes = 'fork short' WHERE id = 'y'")
+    conn.commit()
+    conn.close()
+    source = PuzzleSource(db)
+    assert source.get('x') == {'id': 'x', 'fen': M1_FEN, 'moves': ['a7a6', 'd1d8'], 'rating': 500, 'themes': []}
+    assert source.get('y')['themes'] == ['fork', 'short']
     assert source.get('missing') is None
 
 

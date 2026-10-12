@@ -1,18 +1,21 @@
 """
-Puzzle Rush run engine — lifecycle, server-owned clock, server-validated moves,
-difficulty ramp, personal bests and leaderboards (spec §1, §5, §7).
+Puzzle Rush engine — puzzle packs, finished-run recording, personal bests and
+leaderboards (spec §1, §5, §7; instant-moves plan v2).
+
+v2 flow (the client owns the run): `pack()` hands out a deterministic puzzle
+sequence for a client seed (full solution lines — §7.9 server validation was
+dropped, cheating is a non-issue), the client plays the whole run locally, and
+`finish_run()` records it in one Postgres RPC round trip. Scores and streaks are
+recomputed from the attempts so every stored row is self-consistent.
+
+Legacy v1 flow (kept one release for open tabs, the client no longer calls it):
+`create_run` / `submit_move` / `quit_run` with a server-owned clock and
+server-validated moves. Every v1 run write is a compare-and-set on `move_seq`.
+`started_at` is creation time + COUNTDOWN_SECONDS; `deadline_at = started_at +
+mode seconds`; expiry (timeout / 10-minute idle → abandoned) is checked lazily.
 
 State lives in Supabase (puzzle_rush_runs / _attempts / _bests) so any worker
-can serve any request; the solution line is only ever read from the puzzles DB
-on the server and is never sent to the client while a run is active (§7.9).
-
-Concurrency: every run write is a compare-and-set on `move_seq`, so two racing
-requests for the same run can't both apply (the loser gets a 409).
-
-Clock: `started_at` is creation time + COUNTDOWN_SECONDS (the 3-2-1-Go! the
-client plays while the first puzzle fades in); `deadline_at = started_at + mode
-seconds`. Expiry (timeout / 10-minute idle → abandoned) is checked lazily on
-every access.
+can serve any request.
 """
 
 import hashlib
@@ -26,7 +29,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import chess
 
-from services.puzzle_rush_source import get_puzzle_source
+from services.puzzle_rush_source import NoPuzzleAvailable, get_puzzle_source
 from services.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -46,6 +49,17 @@ PERSONAL_TOP = 10
 # Rows scanned to build a daily/weekly board (deduped to best-per-user).
 PERIOD_SCAN_LIMIT = 1000
 
+# Packs (plan v2 §Backend 1): default size, per-request cap, and the longest
+# run a pack (and a finished run) may cover.
+PACK_DEFAULT = 40
+PACK_MAX = 100
+MAX_ATTEMPTS = 500
+FINISH_RPC = 'puzzle_rush_finish_run'
+FINISH_END_REASONS = ('strikes', 'timeout', 'quit')
+ATTEMPT_RESULTS = ('solved', 'failed', 'unfinished')
+
+_SEED_RE = re.compile(r'^[0-9a-f]{8,64}$')
+_UCI_RE = re.compile(r'^[a-h][1-8][a-h][1-8][qrbn]?$')
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 
 
@@ -105,6 +119,61 @@ def period_start(period: str, tz: ZoneInfo, now: datetime | None = None) -> date
 
 def _rng(run: dict, index: int) -> random.Random:
     return random.Random(f"{run['seed']}:{index}")
+
+
+def _int_arg(value, default: int, lo: int, hi: int, code: str) -> int:
+    if value is None or value == '':
+        return default
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise RushError(code)
+    if not lo <= n <= hi:
+        raise RushError(code)
+    return n
+
+
+def pack(seed, start=None, count=None) -> dict:
+    """Puzzles [start, start+count) of the deterministic sequence for `seed`.
+
+    Puzzle i is `pick(i)` with the per-index RNG and every earlier puzzle of the
+    seed excluded, exactly like a v1 run, so any (seed, start, count) slice is
+    the same no matter how the client splits its top-ups. The prefix is replayed
+    on every call (a handful of index seeks per puzzle, well under 1 ms each).
+    """
+    if not isinstance(seed, str) or not _SEED_RE.match(seed):
+        raise RushError('invalid_seed')
+    start = _int_arg(start, 0, 0, MAX_ATTEMPTS, 'invalid_from')
+    count = _int_arg(count, PACK_DEFAULT, 1, PACK_MAX, 'invalid_count')
+    end = min(start + count, MAX_ATTEMPTS)
+
+    source = get_puzzle_source()
+    run = {'seed': seed}
+    served, out = [], []
+    try:
+        for i in range(end):
+            puzzle = source.pick(i, served, _rng(run, i))
+            served.append(puzzle['id'])
+            if i >= start:
+                out.append(pack_puzzle(puzzle, i))
+    except NoPuzzleAvailable as e:
+        logger.error('puzzle rush pack exhausted for seed %s at %d: %s', seed, len(served), e)
+        raise RushError('no_puzzles', 503)
+    return {'seed': seed, 'from': start, 'count': len(out), 'puzzles': out}
+
+
+def pack_puzzle(puzzle: dict, index: int) -> dict:
+    """Client view of a pack puzzle: the full line, moves[0] is the opponent setup."""
+    board = chess.Board(puzzle['fen'])
+    return {
+        'index': index,
+        'id': puzzle['id'],
+        'fen': puzzle['fen'],
+        'moves': puzzle['moves'],
+        'rating': puzzle['rating'],
+        'themes': puzzle.get('themes') or [],
+        'color': 'black' if board.turn == chess.WHITE else 'white',
+    }
 
 
 def public_puzzle(puzzle: dict, index: int) -> dict:
@@ -434,6 +503,148 @@ def get_summary(run: dict, tz: ZoneInfo, now: datetime | None = None) -> dict:
     else:
         summary['current_puzzle'] = current
     return summary
+
+
+# ─── Finished runs (v2) ──────────────────────────────────────────────────────
+
+def _finish_attempts(raw) -> list:
+    if not isinstance(raw, list) or len(raw) > MAX_ATTEMPTS:
+        raise RushError('invalid_attempts')
+    out = []
+    for i, a in enumerate(raw):
+        if not isinstance(a, dict):
+            raise RushError('invalid_attempts')
+        moves = a.get('user_moves') or []
+        if isinstance(moves, str):
+            moves = moves.split()
+        ms = a.get('ms')
+        rating = a.get('rating')
+        valid = (
+            a.get('index') == i
+            and isinstance(a.get('puzzle_id'), str) and 0 < len(a['puzzle_id']) <= 16
+            and isinstance(rating, int) and not isinstance(rating, bool) and 0 <= rating <= 4000
+            and a.get('result') in ATTEMPT_RESULTS
+            and (a['result'] != 'unfinished' or i == len(raw) - 1)
+            and isinstance(moves, list) and len(moves) <= 64
+            and all(isinstance(m, str) and _UCI_RE.match(m) for m in moves)
+            and (ms is None or (isinstance(ms, int) and not isinstance(ms, bool) and 0 <= ms <= 86_400_000))
+        )
+        if not valid:
+            raise RushError('invalid_attempts', 400, {'index': i})
+        out.append({'idx': i, 'puzzle_id': a['puzzle_id'], 'puzzle_rating': rating,
+                    'result': a['result'], 'user_moves': ' '.join(moves), 'ms': ms})
+    return out
+
+
+def run_stats(attempts: list) -> dict:
+    """Score / strikes / streaks / averages, recomputed from the attempt list."""
+    score = strikes = streak = longest = 0
+    highest = None
+    timed = []
+    for a in attempts:
+        if a['result'] == 'solved':
+            score += 1
+            streak += 1
+            longest = max(longest, streak)
+            highest = max(highest or 0, a['puzzle_rating'])
+        elif a['result'] == 'failed':
+            strikes += 1
+            streak = 0
+        if a['result'] != 'unfinished' and a.get('ms') is not None:
+            timed.append(a['ms'])
+    return {
+        'score': score,
+        'strikes': strikes,
+        'current_streak': streak,
+        'longest_streak': longest,
+        'highest_solved_rating': highest,
+        'avg_ms_per_puzzle': round(sum(timed) / len(timed)) if timed else None,
+        'puzzle_count': len(attempts),
+    }
+
+
+def finish_run(user_id: str, body: dict, tz: ZoneInfo, now: datetime | None = None) -> dict:
+    """Record a run the client played locally (plan v2). Idempotent on run_id.
+
+    Data hygiene only, not anti-cheat: the row must be self-consistent, so the
+    score and streaks come from `attempts`, never from the client's totals.
+    """
+    now = now or _now()
+    run_id = body.get('run_id')
+    if not isinstance(run_id, str) or not _UUID_RE.match(run_id.lower()):
+        raise RushError('invalid_run_id')
+    mode = body.get('mode')
+    if mode not in MODE_SECONDS:
+        raise RushError('invalid_mode')
+    seed = body.get('seed')
+    if not isinstance(seed, str) or not _SEED_RE.match(seed):
+        raise RushError('invalid_seed')
+    if body.get('end_reason') not in FINISH_END_REASONS:
+        raise RushError('invalid_end_reason')
+    try:
+        started, ended = _parse(body.get('started_at')), _parse(body.get('ended_at'))
+    except (TypeError, ValueError):
+        raise RushError('invalid_time')
+    if not started or not ended or ended < started or ended > now + timedelta(minutes=5):
+        raise RushError('invalid_time')
+
+    attempts = _finish_attempts(body.get('attempts'))
+    stats = run_stats(attempts)
+    if stats['strikes'] > MAX_STRIKES:
+        raise RushError('invalid_attempts')
+
+    # served_at is reconstructed from the per-puzzle times: a puzzle's ms runs
+    # from the previous answer (or Go!) to its own answer.
+    served = started
+    for a in attempts:
+        a['served_at'] = _iso(served)
+        if a['ms'] is not None and a['result'] != 'unfinished':
+            served += timedelta(milliseconds=a['ms'])
+            a['answered_at'] = _iso(served)
+        else:
+            a['answered_at'] = None
+
+    seconds = MODE_SECONDS[mode]
+    run = {
+        'id': run_id,
+        'user_id': user_id,
+        'display_name': _display_name(user_id),
+        'mode': mode,
+        'seed': seed,
+        'started_at': _iso(started),
+        'deadline_at': _iso(started + timedelta(seconds=seconds)) if seconds else None,
+        'ended_at': _iso(ended),
+        'end_reason': body['end_reason'],
+        'duration_ms': _ms(started, ended),
+        **stats,
+    }
+    periods = {p: _iso(period_start(p, tz, now)) for p in PERIODS if p != 'all'}
+    try:
+        res = supabase.rpc(FINISH_RPC, {'payload': {
+            'run': run, 'attempts': attempts, 'periods': periods,
+        }}).execute().data
+    except Exception as e:
+        logger.error('puzzle rush finish RPC %s failed for run %s: %s', FINISH_RPC, run_id, e)
+        raise RushError('finish_unavailable', 503)
+    if not isinstance(res, dict) or 'status' not in res:
+        logger.error('puzzle rush finish RPC returned %r for run %s', res, run_id)
+        raise RushError('finish_unavailable', 503)
+    if res['status'] == 'conflict':
+        raise RushError('conflict', 409)
+
+    stored = res.get('run') or {}
+    return {
+        'run_id': run_id,
+        'duplicate': res['status'] == 'duplicate',
+        'score': stored.get('score', stats['score']),
+        'is_new_pb': bool(stored.get('is_new_pb')),
+        'longest_streak': stored.get('longest_streak', stats['longest_streak']),
+        'highest_solved_rating': stored.get('highest_solved_rating', stats['highest_solved_rating']),
+        'avg_ms_per_puzzle': stored.get('avg_ms_per_puzzle', stats['avg_ms_per_puzzle']),
+        'duration_ms': stored.get('duration_ms', run['duration_ms']),
+        'personal_rank': res.get('personal_rank'),
+        'global_rank': res.get('global_rank'),
+    }
 
 
 # ─── Bests, ranks, leaderboards ──────────────────────────────────────────────

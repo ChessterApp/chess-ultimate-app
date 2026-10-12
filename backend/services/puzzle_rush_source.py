@@ -32,7 +32,7 @@ STRICT_QUALITY_SQL = 'popularity >= 80 AND rating_deviation <= 80'
 RELAXED_QUALITY_SQL = 'popularity >= 80'
 DENSITY_SAMPLE = 300
 MIN_STRICT_DENSITY = 0.05
-COLUMNS = 'id, fen, moves, rating'
+COLUMNS = 'id, fen, moves, rating, themes'
 
 
 class NoPuzzleAvailable(Exception):
@@ -45,7 +45,8 @@ def target_rating(index: int) -> int:
 
 
 def _row_to_puzzle(row) -> dict:
-    return {'id': row[0], 'fen': row[1], 'moves': row[2].split(), 'rating': row[3]}
+    return {'id': row[0], 'fen': row[1], 'moves': row[2].split(), 'rating': row[3],
+            'themes': (row[4] or '').split()}
 
 
 class PuzzleSource:

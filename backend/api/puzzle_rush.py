@@ -1,11 +1,18 @@
 """
 Puzzle Rush API — thin HTTP layer over services/puzzle_rush.py.
 
-Auth is optional (§7.6): a valid Clerk bearer token makes the run the user's;
-without one the run is a guest run and the returned `guest_token` must be sent
-on every later call (header `X-Guest-Token`, or `guest_token` in the body/query).
-Ownership: a user's run is only reachable by that user; a guest run only with
-its token. Guest run creation is rate-limited per client IP.
+v2 (instant moves): `GET /pack` is public and stateless; the client plays the
+run locally and signed-in players record it with `POST /runs/finish`
+(`Authorization: Bearer <Clerk JWT>` — no cookies, so mobile clients work the
+same way). Guests never call the server during or after a run.
+
+Legacy v1 routes (`POST /runs`, `/runs/<id>/move`, `/runs/<id>/quit`) stay one
+release for open tabs. Auth there is optional (§7.6): a valid Clerk bearer
+token makes the run the user's; without one the run is a guest run and the
+returned `guest_token` must be sent on every later call (header
+`X-Guest-Token`, or `guest_token` in the body/query). Ownership: a user's run is
+only reachable by that user; a guest run only with its token. Guest run
+creation is rate-limited per client IP.
 """
 
 import hmac
@@ -77,6 +84,25 @@ def _owned_run(run_id: str):
 @puzzle_rush_bp.errorhandler(rush.RushError)
 def _handle_rush_error(e):
     return _error(e)
+
+
+# Packs are a pure function of (seed, from, count) and the static puzzles DB.
+PACK_CACHE_CONTROL = 'public, max-age=86400, immutable'
+
+
+@puzzle_rush_bp.route('/api/puzzlerush/pack', methods=['GET'])
+def get_pack():
+    resp = jsonify(rush.pack(request.args.get('seed'), request.args.get('from'), request.args.get('count')))
+    resp.headers['Cache-Control'] = PACK_CACHE_CONTROL
+    return resp
+
+
+@puzzle_rush_bp.route('/api/puzzlerush/runs/finish', methods=['POST'])
+def finish_run():
+    user_id = _optional_user()
+    if not user_id:
+        raise rush.RushError('auth_required', 401)
+    return jsonify(rush.finish_run(user_id, _body(), _tz()))
 
 
 @puzzle_rush_bp.route('/api/puzzlerush/runs', methods=['POST'])
