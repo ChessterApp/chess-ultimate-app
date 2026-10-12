@@ -31,11 +31,14 @@ interface Props {
   /** The next puzzle is still downloading (pack top-up): hold the board. */
   waiting?: boolean;
   onMove?: (from: Key, to: Key, promotion?: PromotionRole) => void;
+  /** Retry-mode hints: green arrow (level 2) / circle on the piece (level 1). */
+  hintMove?: [Key, Key] | null;
+  hintSquare?: Key | null;
 }
 
 export default function RushBoard({
   fen, orientation, boardKey, lastMove, movable, covered = false, badge = null, countdown = null, goLabel = 'Go!',
-  waiting = false, onMove,
+  waiting = false, onMove, hintMove = null, hintSquare = null,
 }: Props) {
   return (
     <div className={styles.boardFrame} data-testid="rush-board">
@@ -46,6 +49,8 @@ export default function RushBoard({
         lastMove={lastMove}
         movable={movable}
         onMove={onMove}
+        hintMove={hintMove}
+        hintSquare={hintSquare}
         animationDuration={200}
       />
       <div className={`${styles.cover} ${covered || waiting ? styles.coverOn : ''}`} aria-hidden="true" />

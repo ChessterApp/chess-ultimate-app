@@ -32,6 +32,8 @@ interface ChessgroundBoardProps {
    * Purely presentational — user drawing stays disabled.
    */
   hintMove?: [Key, Key] | null;
+  /** Optional hint circle on a square (green auto-shape); can coexist with `hintMove`. */
+  hintSquare?: Key | null;
   check?: boolean; // Auto-highlight king in check based on FEN
   boardSize?: number;
   animationDuration?: number;
@@ -52,6 +54,13 @@ interface ChessgroundBoardProps {
   onSizeChange?: (px: number) => void;
 }
 
+function hintShapes(hintMove: [Key, Key] | null, hintSquare: Key | null) {
+  const shapes: { orig: Key; dest?: Key; brush: string }[] = [];
+  if (hintMove) shapes.push({ orig: hintMove[0], dest: hintMove[1], brush: 'green' });
+  if (hintSquare) shapes.push({ orig: hintSquare, brush: 'green' });
+  return shapes;
+}
+
 /**
  * React wrapper around chessground library
  * Provides a clean interface for chess board rendering with full chessground features
@@ -66,6 +75,7 @@ export default function ChessgroundBoard({
   highlightSquares = [],
   lastMove = null,
   hintMove = null,
+  hintSquare = null,
   check = true, // Enable check highlighting by default
   boardSize,
   animationDuration = DEFAULT_BOARD_ANIMATION_DURATION,
@@ -277,9 +287,7 @@ export default function ChessgroundBoard({
           dest: arrow.to,
           brush: arrow.brush,
         })),
-        autoShapes: hintMove
-          ? [{ orig: hintMove[0], dest: hintMove[1], brush: 'green' }]
-          : [],
+        autoShapes: hintShapes(hintMove, hintSquare),
       },
 
       highlight: {
@@ -372,14 +380,12 @@ export default function ChessgroundBoard({
     })));
   }, [arrows]);
 
-  // Update the hint auto-shape (green from→to arrow) independently of any
-  // user-drawn shapes. setAutoShapes leaves user shapes untouched.
+  // Update the hint auto-shapes (green from→to arrow, green square circle)
+  // independently of any user-drawn shapes. setAutoShapes leaves user shapes untouched.
   useEffect(() => {
     if (!cgRef.current) return;
-    cgRef.current.setAutoShapes?.(
-      hintMove ? [{ orig: hintMove[0], dest: hintMove[1], brush: 'green' }] : [],
-    );
-  }, [hintMove]);
+    cgRef.current.setAutoShapes?.(hintShapes(hintMove, hintSquare));
+  }, [hintMove, hintSquare]);
 
   // Update square highlights. An empty list must clear them too — otherwise a
   // highlight set by the coach survives set_fen / clear_board.
