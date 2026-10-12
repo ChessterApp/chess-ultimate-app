@@ -29,6 +29,7 @@ import {
 } from "@mui/material";
 import type { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
@@ -67,6 +68,7 @@ import Breadcrumbs from "@/components/Breadcrumbs";
 export default function PuzzlePage() {
   const session = useSession();
   const t = useTranslations('puzzle');
+  const tRush = useTranslations('puzzleRush.entry');
   const { showToast } = useToast();
   const { play: playSound } = useSoundEffects();
   const [rateLimited, setRateLimited] = useState(false);
@@ -635,6 +637,20 @@ export default function PuzzlePage() {
     <>
       <Box sx={{ p: { xs: 1, sm: 2, md: 3, lg: 4 }, backgroundColor: 'var(--surface-page)', minHeight: "100vh" }} >
         <Box sx={{ px: { xs: 1, sm: 2 }, mb: 1 }}><Breadcrumbs /></Box>
+        <Link
+          href="/puzzle/rush"
+          data-testid="puzzle-rush-entry"
+          className="mx-1 sm:mx-2 mb-3 flex items-center gap-3 rounded-2xl border border-teal-500/30 bg-teal-500/10 px-4 py-3 transition-colors hover:bg-teal-500/15 focus-visible:outline-2 focus-visible:outline-teal-600"
+        >
+          <span className="text-2xl" aria-hidden="true">⚡</span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-bold text-[var(--text-primary)]">{tRush('title')}</span>
+            <span className="block text-sm text-[var(--text-secondary)]">{tRush('desc')}</span>
+          </span>
+          <span className="shrink-0 whitespace-nowrap rounded-full bg-gradient-to-br from-teal-500 to-teal-600 px-4 py-2 text-sm font-extrabold text-white shadow-[0_3px_0_#0f766e]">
+            {tRush('cta')} →
+          </span>
+        </Link>
         <Stack direction={{ xs: "column", lg: "row" }} spacing={{ xs: 2, sm: 3, lg: 4 }} >
            <Box sx={{ flex: '0 0 auto', width: { xs: "100%", lg: "auto" }, display: "flex", justifyContent: "center" }}>
              <AiChessboardPanel
