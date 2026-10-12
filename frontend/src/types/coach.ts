@@ -3,6 +3,7 @@
  */
 
 import { Key } from 'chessground/types';
+import type { GameStateView } from '@/lib/coach/boards-api';
 
 // ─── Board Actions (matches Hermes board_protocol.py) ────────────────────
 
@@ -48,6 +49,12 @@ export interface ClearBoardAction {
   type: 'clear_board';
 }
 
+/** A game against the coach started or moved on (Hermes' start_game / make_game_move): its state. */
+export interface GameAction {
+  type: 'game';
+  game: GameStateView;
+}
+
 /** Every action may name the board (tab) it targets; absent = the active board. */
 type Addressed = { board_id?: string };
 
@@ -61,6 +68,7 @@ export type BoardAction = Addressed &
   | NavigateAction
   | FlipBoardAction
   | ClearBoardAction
+  | GameAction
   );
 
 // ─── Game Results (from TWIC search) ─────────────────────────────────────

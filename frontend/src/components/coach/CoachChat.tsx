@@ -16,7 +16,7 @@ import ToolIndicator from './ToolIndicator';
 import FeedbackButtons from './FeedbackButtons';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
-import { coachApi } from '@/lib/coach/boards-api';
+import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
@@ -69,6 +69,8 @@ interface CoachChatProps {
    * this to scope every question to the move currently under review.
    */
   contextNote?: string;
+  /** The game against the coach on the board, if any — the voice coach hears its moves (src/lib/coach/voice-game.ts). */
+  game?: GameStateView | null;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -143,6 +145,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onActiveBoardChanged,
     onOpenGame,
     contextNote,
+    game = null,
   },
   ref,
 ) {
@@ -332,6 +335,11 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     setVoiceQuotaExhausted(true);
   }, []);
 
+  // The game against the coach, for the voice coach: read through a ref (the hook keeps its options in one).
+  const gameRef = useRef<GameStateView | null>(game);
+  gameRef.current = game;
+  const getGame = useCallback(() => gameRef.current, []);
+
   const {
     status: voiceStatus,
     isSupported: voiceSupported,
@@ -350,6 +358,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
     onQuotaExhausted: handleVoiceQuotaExhausted,
+    getGame,
   });
 
   // While voice mode is live, push every board change into the session so the

@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { name?: string; args?: Record<string, unknown>; session_id?: string };
+  let body: { name?: string; args?: Record<string, unknown>; session_id?: string; utterance?: string };
   try {
     body = await request.json();
   } catch {
@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           args: body.args ?? {},
           session_id: body.session_id,
+          // The student's last words: Hermes decides the board lock from them (src/board_lock.py).
+          utterance: typeof body.utterance === 'string' ? body.utterance.slice(0, 600) : undefined,
         }),
         signal: AbortSignal.timeout(TOOL_TIMEOUT_MS),
       },

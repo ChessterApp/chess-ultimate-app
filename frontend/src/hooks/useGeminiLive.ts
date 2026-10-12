@@ -6,6 +6,16 @@ import type {
   LiveServerToolCallCancellation,
   Session,
 } from '@google/genai';
+import type { GameStateView } from '@/lib/coach/boards-api';
+import {
+  famousNote,
+  gameFromActions,
+  gameMoveNote,
+  gameNote,
+  gameStartNote,
+  mayAskForAGame,
+  mentionsAGame,
+} from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -162,7 +172,9 @@ export function verdictNote(verdict: { kind?: string; headline?: string } | null
   ).replace(/\s+/g, ' ').trim();
 }
 // Tools the site calls itself from the student's words (see lookUpConcept).
-export const SITE_FETCHED_TOOLS = new Set(['get_topic', 'lookup_opening', 'get_puzzle', 'review_game']);
+export const SITE_FETCHED_TOOLS = new Set([
+  'get_topic', 'lookup_opening', 'get_puzzle', 'review_game', 'famous_game', 'start_game', 'make_game_move',
+]);
 
 // What the coach said is checked on the board sentence by sentence (the same
 // check the text coach's answers pass before they are shown — a spoken
@@ -324,6 +336,8 @@ export interface UseGeminiLiveOptions {
    * The UI shows the "minutes used up" message instead of a connection error.
    */
   onQuotaExhausted?: () => void;
+  /** The game against the coach on the board, if any (src/lib/coach/voice-game.ts). */
+  getGame?: () => GameStateView | null | undefined;
 }
 
 export interface UseGeminiLiveReturn {
@@ -511,6 +525,11 @@ export default function useGeminiLive(
   // Keep the latest options accessible from stable callbacks without re-binding them.
   const optionsRef = useRef<UseGeminiLiveOptions>(options);
   optionsRef.current = options;
+  // The game position the voice coach was last told about (by a tool result or a [Game] line):
+  // the board change it causes is not reported a second time.
+  const gameToldFenRef = useRef<string | null>(null);
+  const gameLive = () => optionsRef.current.getGame?.()?.status === 'playing';
+
 
   const statusRef = useRef<LiveStatus>('idle');
   const sessionRef = useRef<Session | null>(null);
@@ -981,6 +1000,8 @@ export default function useGeminiLive(
               name: fc.name,
               args: fc.args ?? {},
               session_id: sessionId,
+              // Hermes decides the board lock from the student's words, as for a text turn.
+              utterance: userUtteranceRef.current || undefined,
             }),
             signal: controller.signal,
           });
@@ -1000,6 +1021,10 @@ export default function useGeminiLive(
               },
             };
           }
+          // A game started or a move played (start_game / make_game_move): the model has the result,
+          // so the board change it brings is not reported again as a [Game] line.
+          const game = gameFromActions((data as { board_actions?: unknown[] }).board_actions);
+          if (game) gameToldFenRef.current = game.fen;
           try {
             optionsRef.current.onToolResult?.(fc.name ?? '', data);
           } catch {
@@ -1151,7 +1176,12 @@ export default function useGeminiLive(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name, args, session_id: optionsRef.current.getSessionId?.() ?? undefined }),
+        body: JSON.stringify({
+          name,
+          args,
+          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          utterance: userUtteranceRef.current || undefined,
+        }),
       });
       if (!res.ok) return false;
       const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
@@ -1160,6 +1190,8 @@ export default function useGeminiLive(
       if (!note) return false;
       if (sessionRef.current !== session) return false;
       siteResultsRef.current.set(name, data);
+      const game = gameFromActions(data.board_actions);
+      if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
       try {
         optionsRef.current.onToolResult?.(name, data);
       } catch {
@@ -1218,9 +1250,22 @@ export default function useGeminiLive(
   }, []);
 
   const lookUpConcept = useCallback(async (text: string) => {
-    if (conceptDoneRef.current || text.trim().split(/\s+/).length < 2) return;
+    if (conceptDoneRef.current) return;
     const session = sessionRef.current;
     if (!session) return;
+    // A game asked for, or the student's move said on its own in the game: Hermes reads the words and
+    // does it (src/game_intent.py) — the Live model alone may play by talking (2026-10-10).
+    if (gameLive()) {
+      if (text.trim().split(/\s+/).length <= 6 && (await siteToolCall('make_game_move', { said: text }, session, gameMoveNote))) {
+        conceptDoneRef.current = true;
+      }
+      return;  // the board is the game's: no example goes up
+    }
+    if (mayAskForAGame(text) && (await siteToolCall('start_game', { said: text }, session, gameStartNote))) {
+      conceptDoneRef.current = true;
+      return;
+    }
+    if (text.trim().split(/\s+/).length < 2) return;
     // A puzzle or a review asked for: the site fetches it; the coach only talks.
     if (PUZZLE_REQUEST_RE.test(text)) {
       conceptDoneRef.current = true;
@@ -1230,6 +1275,12 @@ export default function useGeminiLive(
     if (REVIEW_REQUEST_RE.test(text)) {
       conceptDoneRef.current = true;
       if (await lookUpReview(text, session)) return;
+    }
+    // A famous game named («оперная партия Морфи»): its verified score goes up, as the text coach's
+    // pre-step puts it (Hermes decides which game; 2026-10-12).
+    if (mentionsAGame(text) && (await siteToolCall('famous_game', { text }, session, famousNote))) {
+      conceptDoneRef.current = true;
+      return;
     }
     // An opening named in the words wins over a concept («что такое жареная
     // печень» is the Fried Liver, not the knowledge base's «печень»).
@@ -1253,6 +1304,7 @@ export default function useGeminiLive(
           name: 'get_topic',
           args: { topic: text },
           session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          utterance: text,
         }),
       });
       if (!res.ok) return;
@@ -1273,7 +1325,7 @@ export default function useGeminiLive(
     } catch {
       /* unavailable — the coach can still call get_topic itself */
     }
-  }, [lookUpOpening, lookUpPuzzle, lookUpReview]);
+  }, [lookUpOpening, lookUpPuzzle, lookUpReview, siteToolCall]);
   // The student names a move: play it on the board at Hermes, let Stockfish look
   // at the position after it, and hand the model the "[Idea]" line — before it
   // answers from its head (text coach: src/hypothetical.py, same facts).
@@ -1292,7 +1344,8 @@ export default function useGeminiLive(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text, fen }),
+        // The game on the board: «на 8-м ходу» is judged at that move, as the text coach does.
+        body: JSON.stringify({ text, fen, pgn: optionsRef.current.getPgn?.() || undefined }),
       });
       if (!res.ok) return;
       const data = (await res.json().catch(() => null)) as
@@ -1393,7 +1446,7 @@ export default function useGeminiLive(
         const utterance = userUtteranceRef.current;
         if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
         conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);
-        if (IDEA_MOVE_RE.test(utterance)) {
+        if (IDEA_MOVE_RE.test(utterance) && !gameLive()) {  // in a game a move said is a move played
           ideaGate().expect();
           if (ideaTimerRef.current) clearTimeout(ideaTimerRef.current);
           ideaTimerRef.current = setTimeout(() => void lookUpIdea(utterance), IDEA_LOOKUP_DELAY_MS);
@@ -1624,6 +1677,20 @@ export default function useGeminiLive(
   // failure just means no line — the coach falls back to analyze_position.
   const sendPosition = useCallback((session: Session, fen: string) => {
     boardFenRef.current = fen;
+    // The board shows the game against the coach: its moves go in as a [Game] line, and no engine
+    // line — that would hand the voice coach the best move to tell (the text coach hints too).
+    const game = optionsRef.current.getGame?.();
+    if (game && game.fen.split(' ')[0] === fen.split(' ')[0]) {
+      engineNoteAbortRef.current?.abort();
+      if (gameToldFenRef.current === game.fen) return;  // the tool result already said it
+      gameToldFenRef.current = game.fen;
+      try {
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameNote(game) }] }], turnComplete: false });
+      } catch {
+        /* session may be closing */
+      }
+      return;
+    }
     try {
       session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text: boardUpdateText(fen) }] }],
@@ -1868,6 +1935,10 @@ export default function useGeminiLive(
     (errMsg?: string) => {
       if (userStoppedRef.current) return; // deliberate stop, handled by disconnect()
       if (statusRef.current === 'error') return; // already surfaced a failure
+      // What was said so far is final now: an open utterance was never saved to the session and
+      // vanished from the chat on the next reload (Alexander, 10.10: «транскрибирует не весь диалог»).
+      closeUtterance('user');
+      closeUtterance('model');
 
       const canReconnect =
         !reconnectUsedRef.current && !!resumptionHandleRef.current;
@@ -1900,7 +1971,7 @@ export default function useGeminiLive(
       emitSessionEnd('drop');
       fail(errMsg ?? 'Live coach disconnected. Please restart to continue.');
     },
-    [cleanup, fail, setStatus, openConnection, emitSessionEnd],
+    [cleanup, fail, setStatus, openConnection, emitSessionEnd, closeUtterance],
   );
   handleDropRef.current = handleDrop;
 
@@ -1986,12 +2057,14 @@ export default function useGeminiLive(
       // Session-end telemetry (metering 'end' + lifecycle 'session_end'). No-op
       // when no session actually opened.
       emitSessionEnd(endReason);
+      closeUtterance('user');  // saved to the session before the teardown (see handleDrop)
+      closeUtterance('model');
       cleanup();
       setIsActive(false);
       setRemainingSeconds(null);
       setStatus('idle');
     },
-    [cleanup, setStatus, emitSessionEnd],
+    [cleanup, setStatus, emitSessionEnd, closeUtterance],
   );
 
   // Gracefully end a session because the monthly voice quota ran out. Notify the

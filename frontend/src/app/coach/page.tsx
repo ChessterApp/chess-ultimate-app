@@ -123,6 +123,8 @@ export default function CoachPage() {
   const [gameDialogOpen, setGameDialogOpen] = useState(false);
   const [gameError, setGameError] = useState<string | null>(null);
   const gameRef = useRef<GameStateView | null>(null);
+  // applyGameView, for the board actions handled above it (a `game` action from the coach).
+  const applyGameViewRef = useRef<((view: GameStateView) => void) | null>(null);
   gameRef.current = game;
   const gameLive = game?.status === 'playing';
   const chatRef = useRef<CoachChatHandle>(null);
@@ -264,6 +266,12 @@ export default function CoachPage() {
     (actions: BoardAction[]) => {
       const forStudy: BoardAction[] = [];
       for (const action of actions) {
+        // A game the coach started or moved on (start_game / make_game_move, text or voice): shown
+        // exactly as a game started with the button (2026-10-12).
+        if (action.type === 'game') {
+          applyGameViewRef.current?.(action.game);
+          continue;
+        }
         const target = action.board_id;
         const tab = target ? openedGames.find((g) => g.id === target) : undefined;
         if (tab && action.type === 'navigate') {
@@ -481,6 +489,7 @@ export default function CoachPage() {
     },
     [board],
   );
+  applyGameViewRef.current = applyGameView;
 
   const requestGameComment = useCallback(
     (sid: string, view: GameStateView) => {
@@ -985,6 +994,7 @@ export default function CoachPage() {
             onSessionCreated={handleSessionCreated}
             onActiveBoardChanged={handleActiveBoardChanged}
             onOpenGame={handleOpenGame}
+            game={game}
           />
         </div>
       </div>

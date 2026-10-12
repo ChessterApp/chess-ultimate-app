@@ -20,6 +20,12 @@ import chess.pgn
 
 POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
 
+GAME_KEPT_NOTE = (
+    "A game against the student is on: the position belongs to the game and nothing was put on the board. "
+    "The student's moves go through make_game_move, the engine makes yours; board_control may only draw "
+    "arrows or highlight squares."
+)
+
 
 def position_after(action: dict) -> Optional[str]:
     """The FEN a position-changing board action leaves on the board, or None."""
@@ -65,11 +71,15 @@ def board_truth(result, kwargs: Optional[dict]):
     if not moving:
         return result
 
-    from src.sessions import BOARD_KEPT_NOTE, board_lock_strict_for
+    from src.sessions import BOARD_KEPT_NOTE, _tool_session, board_lock_strict_for
 
     if board_lock_strict_for(kwargs):
+        from src.tools.game_play import live_game_board
+
+        session = _tool_session(kwargs)
+        note = GAME_KEPT_NOTE if session is not None and live_game_board(session) is not None else BOARD_KEPT_NOTE
         if single:
-            return json.dumps({"shown": False, "board_hint": BOARD_KEPT_NOTE}, ensure_ascii=False)
+            return json.dumps({"shown": False, "board_hint": note}, ensure_ascii=False)
         kept = [a for a in actions if a.get("type") not in POSITION_ACTIONS]
         if kept:
             obj["board_actions"] = kept
@@ -77,7 +87,7 @@ def board_truth(result, kwargs: Optional[dict]):
             obj.pop("board_actions", None)
         for key in ("how_to_show", "on_board"):  # «already on the student's board» would be a lie
             obj.pop(key, None)
-        obj["board_hint"] = BOARD_KEPT_NOTE
+        obj["board_hint"] = note
         return json.dumps(obj, ensure_ascii=False)
 
     if single:

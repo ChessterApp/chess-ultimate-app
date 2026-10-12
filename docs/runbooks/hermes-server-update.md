@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 09.10-3 (задача встаёт на доску при любой просьбе, тренер не описывает прежнюю позицию) — включает всё из версий 06.10 … 09.10-2
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 12.10 (партия с тренером словами — в тексте и голосом; голос получил замок доски, знаменитые партии и ход по номеру) — включает всё из версий 06.10 … 09.10-3
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,21 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 12.10 (жалоба Александра на голос 10.10 и сверка голоса с текстом; код только `hermes/src/`, миграций,
+переменных и изменений бэкенда нет; если сервер уже на 09.10-3 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 25, 26):
+- **Партия словами.** «Давай сыграем», «спорим, я тебя обыграю» — и в тексте, и голосом тренер говорил «играю e5», а
+  на доске ничего не было (голосом после 1.e4 d5 2.exd5 модель сама написала позицию и стёрла обе пешки). Теперь
+  инструменты `start_game` / `make_game_move` (`src/tools/game_play.py`) запускают ту же партию, что кнопка «Сыграть с
+  тренером», ходит движок. Просьбу сыграть и ход, написанный отдельно («е4», «конь f3»), сервер распознаёт сам
+  (`src/game_intent.py`) и выполняет до ответа модели; вопрос «а если Кf3?» не играется; фраза тренера «я ответил Кc6»,
+  если движок так не ходил, не показывается.
+- **Инструменты видят сессию в тексте.** Фреймворк звал инструменты без `session_id`: замок доски внутри get_topic /
+  get_lesson и «правда о доске» в тексте не работали (держал только фильтр на выходе). Теперь ход передаёт свою сессию.
+- **Голос = текст:** голосовые вызовы инструментов идут в сессии ученика и под замком доски по его последней фразе
+  (`src/board_lock.py` — то же правило, что в тексте), знаменитые партии ставятся проверенной записью (инструмент
+  `famous_game`), «на 8-м ходу» разбирается в позиции того хода. Подтверждение перед инструментом — на языке ученика
+  (было английское «let me check that»).
 
 Новое в версии 09.10-3 (доводка 09.10-2 в общем виде; код только `hermes/src/`, миграций, переменных и изменений
 бэкенда нет; если сервер уже на 09.10 или 09.10-2 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 23, 24):
@@ -645,11 +660,13 @@ grep -q '_small_talk_stream' chess-ultimate-app/hermes/src/server.py \
   && grep -q '_SIDE_PLAYS' chess-ultimate-app/hermes/src/answer_check.py \
   && grep -q '_WANTS_NEW_PUZZLE' chess-ultimate-app/hermes/src/server.py \
   && test -f chess-ultimate-app/hermes/src/board_truth.py \
-  && echo "версия 09.10-3 в main есть" || echo "НЕТ версии 09.10-3"
+  && test -f chess-ultimate-app/hermes/src/game_intent.py \
+  && test -f chess-ultimate-app/hermes/src/tools/game_play.py \
+  && echo "версия 12.10 в main есть" || echo "НЕТ версии 12.10"
 ```
 
-Если «НЕТ версии 09.10-3»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
-того, кто прислал эту инструкцию, влить ветку `fix/coach-board-truth-2026-10-09`. Ничего не обновляй.
+Если «НЕТ версии 12.10»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
+того, кто прислал эту инструкцию, влить ветку `fix/voice-game-2026-10-10`. Ничего не обновляй.
 
 ## Шаг 2. Резервная копия
 
@@ -938,6 +955,28 @@ curl -s -N --max-time 120 -X POST localhost:8642/api/coach/chat -H 'Content-Type
 curl -s -N --max-time 120 -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
   -d '{"message":"Есть задачка на мат в два?","fen":"r2q1rk1/pp2bppp/4bn2/3P4/8/2N2N2/PP2BPPP/R2Q1RK1 b - - 0 12","locale":"ru"}' \
   | python3 -c 'import sys,json; L=[json.loads(l[5:]) for l in sys.stdin if l.startswith("data:")]; print("задача на доске:", any(a.get("type")=="set_puzzle" for d in L for a in (d.get("board_actions") or [])))'
+# 25. (12.10) партия словами: «давай сыграем» начинает партию, «е4» в ней играется — ожидание «старт: True, ходы: ['e4', …]»
+python3 - <<'PY'
+import json, urllib.request
+def chat(msg, fen, sid=None, bid=None):
+    body = json.dumps({"message": msg, "fen": fen, "locale": "ru", "session_id": sid, "board_id": bid}).encode()
+    req = urllib.request.Request("http://localhost:8642/api/coach/chat", body, {"Content-Type": "application/json", "X-User-Id": "deploy-check"})
+    frames = [json.loads(l[5:]) for l in urllib.request.urlopen(req, timeout=180).read().decode().splitlines() if l.startswith("data:")]
+    games = [a["game"] for f in frames for a in (f.get("board_actions") or []) if a.get("type") == "game"]
+    return games, next((f["session_id"] for f in frames if f.get("done")), sid)
+START = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+games, sid = chat("Спорим, я тебя обыграю? Давай сыграем партию, я за белых.", START)
+print("старт:", bool(games))
+games2, _ = chat("е4", games[0]["fen"], sid, games[0]["board_id"]) if games else ([], None)
+print("ходы:", games2[0]["moves"] if games2 else None)
+PY
+# 26. (12.10) голосовой вызов инструмента идёт в сессии ученика и под замком доски по его словам — ожидание «shown: False»
+SID26=$(curl -s -X POST localhost:8642/api/coach/sessions -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
+BID26=$(curl -s localhost:8642/api/coach/sessions/$SID26/boards -H 'X-User-Id: deploy-check' | python3 -c 'import sys,json; print(json.load(sys.stdin)["active_board_id"])')
+curl -s -o /dev/null -X PATCH localhost:8642/api/coach/sessions/$SID26/boards/$BID26 -H 'X-User-Id: deploy-check' -H 'Content-Type: application/json' -d '{"fen":"r2q1rk1/pp2bppp/4bn2/3P4/8/2N2N2/PP2BPPP/R2Q1RK1 b - - 0 12"}'
+curl -s -X POST localhost:8642/api/coach/tool/board_control -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
+  -d '{"args":{"action_type":"set_fen","fen":"8/8/8/8/8/8/8/K6k w - - 0 1"},"session_id":"'"$SID26"'","utterance":"Как здесь выиграть?"}' \
+  | python3 -c 'import sys,json; print("shown:", json.load(sys.stdin).get("result",{}).get("shown"))'
 # 21. (08.10) знаменитая партия встаёт на доску сразу: в кадрах load_pgn с «Paul Morphy», инструментов поиска партий нет
 curl -s -N -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
   -d '{"message":"Покажи оперную партию Морфи","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1","locale":"ru"}' \
@@ -1094,6 +1133,8 @@ COACH_BESTOFN=<значение или «не задана»>, COACH_TWO_STAGE=<
   22 09.10 — «Се3»: issues <…>
   23 09.10-2 — задача на доске <True/False>
   24 09.10-3 — задача на доске <True/False>
+  25 12.10 — старт <True/False>, ходы <…>
+  26 12.10 — shown <False/…>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
 ```

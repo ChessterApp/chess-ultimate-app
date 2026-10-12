@@ -354,7 +354,10 @@ def game_context(board_rec: Board) -> str:
         lines.append("Rules for this turn: if the student asks for a hint, give a HINT (a theme, a piece to look at, "
                      "a question) — not the best move, unless they insist twice. Never make a move for the student "
                      "and never change the board position with board_control while the game is on; arrows and "
-                     "highlights are fine.")
+                     "highlights are fine. When the student writes the move they play («е4», «конь f3», «беру на "
+                     "d5»), call make_game_move with it in SAN FIRST, before a word about the reply, and tell them "
+                     "the engine's reply from its result — never guess the reply or answer with a move of your "
+                     "own; «а если …?» is a question, not a move to play.")
     annotations = state.get("annotations") or []
     bad = [a for a in annotations if a.get("verdict") in ("mistake", "blunder")]
     if bad:
