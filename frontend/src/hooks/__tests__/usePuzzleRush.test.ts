@@ -142,7 +142,9 @@ describe('usePuzzleRush', () => {
     expect(result.current.state.endReason).toBe('strikes');
     expect(result.current.showResults).toBe(true);
     expect(result.current.isPb).toBe(true);
-    expect(result.current.guestBests?.['3min']).toMatchObject({ top_score: 1, best_today: 1 });
+    expect(result.current.guestBest).toMatchObject({ top_score: 1, best_today: 1 });
+    await act(async () => {}); // persisted after paint
+    expect(JSON.parse(localStorage.getItem('puzzleRush.guestBests')!)['3min'].top).toBe(1);
     expect(result.current.tiles.map((t) => t.solved)).toEqual([true, false, false, false]);
     expect(urls()).toHaveLength(before);
 
@@ -155,7 +157,7 @@ describe('usePuzzleRush', () => {
     const hook = await playingRun(matePack(40));
     act(() => hook.result.current.quit());
     expect(hook.result.current.isPb).toBe(false);
-    expect(hook.result.current.guestBests?.['3min'].top_score).toBe(9);
+    expect(hook.result.current.guestBest?.top_score).toBe(9);
   });
 
   it('timeout: the local clock ends the run exactly at the deadline', async () => {

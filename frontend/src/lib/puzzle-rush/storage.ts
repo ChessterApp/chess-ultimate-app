@@ -111,3 +111,19 @@ export function recordGuestScore(mode: RushMode, score: number, now: Date = new 
   write(local(), GUEST_BESTS_KEY, JSON.stringify(raw));
   return isPb;
 }
+
+/**
+ * Pure preview of `recordGuestScore`: the bests a finished guest run will
+ * leave (from bests loaded before the run) and whether it is a new PB — so the
+ * results modal renders in the run-ending frame without waiting on a write.
+ */
+export function applyGuestScore(best: ModeBests, score: number): { best: ModeBests; isPb: boolean } {
+  return {
+    best: {
+      ...best,
+      top_score: Math.max(best.top_score ?? 0, score),
+      best_today: Math.max(best.best_today ?? 0, score),
+    },
+    isPb: score > 0 && score > (best.top_score ?? 0),
+  };
+}

@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  loadGuestBests, loadLastMode, recordGuestScore, saveLastMode, hasSeenRules, markRulesSeen, localStore,
+  applyGuestScore, loadGuestBests, loadLastMode, recordGuestScore, saveLastMode, hasSeenRules, markRulesSeen, localStore,
 } from '../storage';
 
 beforeEach(() => {
@@ -62,5 +62,20 @@ describe('guest bests (on-device)', () => {
     expect(loadGuestBests(day2).survival).toMatchObject({ top_score: 12, best_today: null });
     recordGuestScore('survival', 4, day2);
     expect(loadGuestBests(day2).survival).toMatchObject({ top_score: 12, best_today: 4 });
+  });
+});
+
+describe('applyGuestScore (pure preview of recordGuestScore)', () => {
+  const day = new Date(2026, 9, 12, 10);
+
+  it('matches what recordGuestScore stores and reports', () => {
+    recordGuestScore('5min', 7, day);
+    for (const score of [3, 7, 9, 0]) {
+      const before = loadGuestBests(day)['5min'];
+      const preview = applyGuestScore(before, score);
+      const isPb = recordGuestScore('5min', score, day);
+      expect(preview.isPb).toBe(isPb);
+      expect(preview.best).toEqual(loadGuestBests(day)['5min']);
+    }
   });
 });

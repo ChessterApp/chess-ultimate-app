@@ -270,7 +270,7 @@ export default function PuzzleRush() {
           endReason={state.endReason}
           isPb={isPb}
           isGuest={isGuest}
-          guestBests={rush.guestBests?.[state.mode] ?? null}
+          guestBests={rush.guestBest}
           ranksPending={rush.ranksPending}
           onPlayAgain={playAgain}
           onNewRush={newRush}

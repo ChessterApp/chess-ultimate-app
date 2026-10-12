@@ -15,7 +15,7 @@ import { rushApi, type RushAuth } from '@/lib/puzzle-rush/api';
 import { dequeueFinish, enqueueFinish, flushOutbox } from '@/lib/puzzle-rush/outbox';
 import { newRunId, newSeed, retryDelay, topUpFrom } from '@/lib/puzzle-rush/pack';
 import { finishRequest, initialRunState, resultTiles, reviewAttempts, runReducer, type MoveOutcome } from '@/lib/puzzle-rush/runReducer';
-import { loadGuestBests, localStore, recordGuestScore, saveLastMode } from '@/lib/puzzle-rush/storage';
+import { applyGuestScore, loadGuestBests, localStore, recordGuestScore, saveLastMode } from '@/lib/puzzle-rush/storage';
 import type { ModeBests, RushMode, RushPuzzle } from '@/lib/puzzle-rush/types';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
 
@@ -54,8 +54,11 @@ export function usePuzzleRush(initialMode: RushMode) {
   const [state, dispatch] = useReducer(runReducer, initialMode, initialRunState);
   const [countdown, setCountdown] = useState<CountdownStep>(null);
   const [resultsClosed, setResultsClosed] = useState(false);
-  const [guest, setGuest] = useState<{ pb: boolean; bests: Record<RushMode, ModeBests> } | null>(null);
-  const [finish, setFinish] = useState<'idle' | 'sending' | 'done' | 'failed'>('idle');
+  // Guest bests as they were when the run started (the results derive from them).
+  const [guestBefore, setGuestBefore] = useState<Record<RushMode, ModeBests> | null>(null);
+  // Run id once it is recorded (server for signed-in, localStorage for guests).
+  const [recordedRun, setRecordedRun] = useState<string | null>(null);
+  const [finishFailed, setFinishFailed] = useState(false);
 
   const stateRef = useRef(state);
   useLayoutEffect(() => {
@@ -110,8 +113,8 @@ export function usePuzzleRush(initialMode: RushMode) {
     finishedRef.current = null;
     topUpRef.current = false;
     setResultsClosed(false);
-    setGuest(null);
-    setFinish('idle');
+    setGuestBefore(loadGuestBests());
+    setFinishFailed(false);
     setCountdown(null);
     saveLastMode(mode);
     dispatch({ type: 'START_REQUESTED', mode });
@@ -229,32 +232,34 @@ export function usePuzzleRush(initialMode: RushMode) {
     dispatch({ type: 'RESET' });
   }, [clearTimers]);
 
-  // Run over, once per run, before paint: the results modal renders from local
-  // state at once; signed-in ranks / PB arrive from the background /finish.
-  useLayoutEffect(() => {
+  // Run over, once per run, after paint: the results modal has already
+  // rendered from local state in the run-ending frame (no state is set here
+  // before paint). Guests: persist the bests. Signed-in: queue + send /finish;
+  // ranks / PB merge in when it returns.
+  useEffect(() => {
     if (state.phase !== 'over' || !state.runId || finishedRef.current === state.runId) return;
-    finishedRef.current = state.runId;
+    const runId = state.runId;
+    finishedRef.current = runId;
     clearTimers();
-    /* eslint-disable react-hooks/set-state-in-effect -- run-over sync with localStorage / the finish request */
+    /* eslint-disable react-hooks/set-state-in-effect -- run-over sync with localStorage */
     setCountdown(null);
     if (!isSignedIn) {
-      const pb = recordGuestScore(state.mode, state.score);
-      setGuest({ pb, bests: loadGuestBests() });
+      recordGuestScore(state.mode, state.score);
+      setRecordedRun(runId);
       return;
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
     const body = finishRequest(state);
     if (!body || !userId) return;
     const store = localStore();
     enqueueFinish(store, userId, body);
-    setFinish('sending');
-    /* eslint-enable react-hooks/set-state-in-effect */
     rushApi.finish(auth(), body).then((res) => {
-      dequeueFinish(store, body.run_id);
-      if (stateRef.current.runId !== body.run_id) return;
+      dequeueFinish(store, runId);
+      if (stateRef.current.runId !== runId) return;
       dispatch({ type: 'FINISH_RESULT', results: res });
-      setFinish('done');
+      setRecordedRun(runId);
     }).catch(() => {
-      if (stateRef.current.runId === body.run_id) setFinish('failed');
+      if (stateRef.current.runId === runId) setFinishFailed(true);
     });
   }, [state, isSignedIn, userId, auth, clearTimers]);
 
@@ -267,21 +272,25 @@ export function usePuzzleRush(initialMode: RushMode) {
   }, [state.coach]);
 
   const isGuest = !isSignedIn;
+  const over = state.phase === 'over';
   const closeResults = useCallback(() => setResultsClosed(true), []);
+  const guestResult = isGuest && over && guestBefore ? applyGuestScore(guestBefore[state.mode], state.score) : null;
 
   return {
     state,
     tiles: resultTiles(state),
-    review: state.phase === 'over' ? reviewAttempts(state) : [],
+    review: over ? reviewAttempts(state) : [],
     countdown,
-    showResults: state.phase === 'over' && !resultsClosed,
+    showResults: over && !resultsClosed,
     closeResults,
-    isPb: isGuest ? Boolean(guest?.pb) : Boolean(state.results?.is_new_pb),
+    isPb: isGuest ? Boolean(guestResult?.isPb) : Boolean(state.results?.is_new_pb),
     isGuest,
-    guestBests: guest?.bests ?? null,
-    ranksPending: finish === 'sending',
+    /** Guests: this mode's on-device bests including the finished run. */
+    guestBest: guestResult?.best ?? null,
+    /** Signed-in: /runs/finish hasn't answered yet. */
+    ranksPending: !isGuest && over && recordedRun !== state.runId && !finishFailed,
     /** The finished run is on the server (signed-in) / on the device (guest). */
-    recorded: state.phase === 'over' && (isGuest ? guest !== null : finish === 'done'),
+    recorded: over && recordedRun === state.runId,
     start,
     onMove,
     quit,
