@@ -7,11 +7,17 @@ import { useTranslations } from 'next-intl';
 interface GameCard {
   href: string;
   poster: string;
-  titleKey: 'wheel' | 'tugOfWar';
+  titleKey: 'puzzleRush' | 'wheel' | 'tugOfWar';
   gradient: string;
 }
 
 const games: GameCard[] = [
+  {
+    href: '/puzzle/rush',
+    poster: '/games/puzzle-rush-poster.webp',
+    titleKey: 'puzzleRush',
+    gradient: 'from-emerald-950/95 via-emerald-900/60',
+  },
   {
     href: '/games/wheel',
     poster: '/games/wheel-poster.webp',
@@ -30,13 +36,13 @@ export default function GamesPage() {
   const t = useTranslations('gamesHub');
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="max-w-6xl mx-auto px-4 py-8">
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t('title')}</h1>
         <p className="mt-1 text-gray-500 dark:text-gray-400">{t('subtitle')}</p>
       </header>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {games.map((game) => (
           <Link
             key={game.href}
@@ -48,7 +54,7 @@ export default function GamesPage() {
               src={game.poster}
               alt=""
               fill
-              sizes="(max-width: 640px) 100vw, 50vw"
+              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
               className="object-cover transition-transform duration-300 group-hover:scale-105"
               priority
             />
