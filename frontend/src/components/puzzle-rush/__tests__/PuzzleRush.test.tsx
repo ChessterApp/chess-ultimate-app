@@ -16,7 +16,7 @@ import kz from '../../../../messages/kz.json';
 vi.mock('@clerk/nextjs', () => ({ useAuth: () => ({ isSignedIn: false, getToken: async () => null, userId: null }) }));
 vi.mock('next/dynamic', () => ({ default: () => () => <div data-testid="cg-board" /> }));
 vi.mock('canvas-confetti', () => ({ default: vi.fn() }));
-vi.mock('@/lib/fonts', () => ({ fraunces: { variable: 'font-fraunces' } }));
+vi.mock('../fonts', () => ({ fraunces: { variable: 'font-fraunces' } }));
 
 import ResultsModal, { resultTone } from '../ResultsModal';
 import { ResultsGrid } from '../RunTiles';

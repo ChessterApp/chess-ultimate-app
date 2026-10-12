@@ -10,7 +10,7 @@ import { rushApi } from '@/lib/puzzle-rush/api';
 import { STARTING_FEN } from '@/lib/puzzle-rush/runReducer';
 import { hasSeenRules, loadGuestBests, loadLastMode, markRulesSeen, DEFAULT_MODE } from '@/lib/puzzle-rush/storage';
 import type { BestsResponse, RushMode } from '@/lib/puzzle-rush/types';
-import { fraunces } from '@/lib/fonts';
+import { fraunces } from './fonts';
 import ModeSelect from './ModeSelect';
 import RulesModal from './RulesModal';
 import ResultsModal from './ResultsModal';
