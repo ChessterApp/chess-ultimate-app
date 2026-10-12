@@ -3048,6 +3048,7 @@
       "tile": {
         "solved": "Puzzle {n}, solved",
         "missed": "Puzzle {n}, missed",
+        "revealed": "Puzzle {n}, missed, solution viewed",
         "retried": "Puzzle {n}, solved on retry",
         "retriedHelp": "Puzzle {n}, solved on retry with help"
       }
@@ -3086,12 +3087,16 @@
       "hint": "Hint",
       "solution": "Solution",
       "retry": "Retry",
+      "analyze": "Analyze",
+      "analyzeTitle": "Open this position on the analysis board (new tab)",
       "nextMistake": "Next mistake",
+      "nextShort": "Next",
       "exit": "Exit",
       "allReviewed": "All mistakes reviewed",
       "retriedTag": "Solved on retry",
       "retriedHelpTag": "Solved with help",
       "helpMark": "Hint or solution used",
+      "revealedMark": "Solution viewed",
       "panelHint": "Play the move on the board. Unlimited tries — your run score stays the same."
     }
   }

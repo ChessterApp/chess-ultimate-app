@@ -128,9 +128,9 @@ export default function ResultsModal({
     ];
 
   return (
-    <div className={styles.scrim} onClick={onClose}>
+    <div className={`${styles.scrim} ${styles.sheetScrim}`} onClick={onClose}>
       <div
-        className={styles.modal}
+        className={`${styles.modal} ${styles.sheet}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="rush-result-title"
@@ -228,6 +228,7 @@ export default function ResultsModal({
             onSelect={onOpenPuzzle}
             puzzleLabel={(n, state) => t(`summary.tile.${state}`, { n })}
             helpTitle={t('retry.helpMark')}
+            revealedTitle={t('retry.revealedMark')}
           />
         </div>
 

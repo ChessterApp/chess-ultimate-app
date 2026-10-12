@@ -95,13 +95,14 @@ export function StrikesTile({ strikes }: { strikes: number }) {
   );
 }
 
-/** A tile's state for its accessible label: run result, or a ✕ solved in Retry mode. */
-export type TileState = 'solved' | 'missed' | 'retried' | 'retriedHelp';
+/** A tile's state for its accessible label: run result, or a ✕ solved / revealed in Retry mode. */
+export type TileState = 'solved' | 'missed' | 'revealed' | 'retried' | 'retriedHelp';
 
 export function tileState(tile: ResultTile, outcome?: RetryOutcome): TileState {
   if (tile.solved) return 'solved';
   if (outcome === 'solved') return 'retried';
-  return outcome === 'solved_with_help' ? 'retriedHelp' : 'missed';
+  if (outcome === 'solved_with_help') return 'retriedHelp';
+  return outcome === 'revealed' ? 'revealed' : 'missed';
 }
 
 interface GridProps {
@@ -115,9 +116,13 @@ interface GridProps {
   puzzleLabel?: (n: number, state: TileState) => string;
   /** Tooltip for the "hint / solution used" marker. */
   helpTitle?: string;
+  /** Tooltip for the "solution viewed" marker on a ✕ revealed in Retry mode. */
+  revealedTitle?: string;
 }
 
-export function ResultsGrid({ tiles, summary = false, selected = null, outcomes, onSelect, puzzleLabel, helpTitle }: GridProps) {
+export function ResultsGrid({
+  tiles, summary = false, selected = null, outcomes, onSelect, puzzleLabel, helpTitle, revealedTitle,
+}: GridProps) {
   if (tiles.length === 0) return null;
   return (
     <div className={`${styles.grid} ${summary ? styles.gridSummary : ''}`} data-testid="rush-grid">
@@ -126,13 +131,16 @@ export function ResultsGrid({ tiles, summary = false, selected = null, outcomes,
         const state = tileState(tile, outcome);
         const retried = state === 'retried' || state === 'retriedHelp';
         const tone = tile.solved ? styles.cellOk : retried ? styles.cellRetry : styles.cellFail;
-        const cls = `${styles.cell} ${tone} ${selected === tile.index ? styles.cellSelected : ''}`;
+        const cls = `${styles.cell} ${tone} ${state === 'revealed' ? styles.cellRevealed : ''} ${selected === tile.index ? styles.cellSelected : ''}`;
         const inner = (
           <>
             <span className={styles.cellMark}>{tile.solved ? '✓' : retried ? '↻✓' : '✕'}</span>
             <span className={styles.cellRating}>{tile.rating}</span>
             {state === 'retriedHelp' && (
               <span className={styles.cellHelp} title={helpTitle} aria-hidden="true" data-testid="cell-help" />
+            )}
+            {state === 'revealed' && (
+              <span className={styles.cellSeen} title={revealedTitle} aria-hidden="true" data-testid="cell-revealed">👁</span>
             )}
           </>
         );

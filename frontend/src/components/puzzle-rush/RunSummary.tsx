@@ -16,6 +16,7 @@ import {
   type RetryState,
 } from '@/lib/puzzle-rush/retryReducer';
 import type { EndReason, RushMode } from '@/lib/puzzle-rush/types';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
 import { ResultsGrid } from './RunTiles';
 import styles from './PuzzleRush.module.css';
 
@@ -23,6 +24,15 @@ import styles from './PuzzleRush.module.css';
 export const WRONG_HOLD_MS = 600;
 /** Solution auto-play pace. */
 export const SOLUTION_PLY_MS = 500;
+
+/** The analysis board, opened on `fen` (same URL the board editor uses). */
+export const analyzeHref = (fen: string) => `/position?fen=${encodeURIComponent(fen)}`;
+
+/** Shortcuts belong to the page, not to whatever the user is typing into. */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName);
+}
 
 interface ReviewLine {
   /** FEN after each ply; [0] is the position before the setup move. */
@@ -90,6 +100,7 @@ export function useRetry(runId: string | null, attempts: ReviewAttempt[], tiles:
   const [session, setSession] = useState<Session>(EMPTY_SESSION);
   const [step, setStep] = useState(1);
   const [autoplay, setAutoplay] = useState(false);
+  const { play } = useSoundEffects();
 
   // New run → drop the previous run's retry state (reset during render, not in an effect).
   const [forRun, setForRun] = useState(runId);
@@ -125,8 +136,17 @@ export function useRetry(runId: string | null, attempts: ReviewAttempt[], tiles:
   }, []);
 
   const move = useCallback((from: Key, to: Key, promotion?: string) => {
-    dispatch({ type: 'move', uci: `${from}${to}${promotion ?? ''}` });
-  }, [dispatch]);
+    const action: RetryAction = { type: 'move', uci: `${from}${to}${promotion ?? ''}` };
+    const after = retryReducer(retry, action);
+    if (after && after !== retry) {
+      if (after.status === 'wrong') play('error');
+      else {
+        play('move');
+        if (after.status === 'solved') play('success');
+      }
+    }
+    dispatch(action);
+  }, [retry, play, dispatch]);
 
   const hint = useCallback(() => dispatch({ type: 'hint' }), [dispatch]);
 
@@ -173,17 +193,29 @@ export function useRetry(runId: string | null, attempts: ReviewAttempt[], tiles:
     return () => clearTimeout(id);
   }, [autoplay, status, step, maxStep]);
 
-  // ← / → step through a revealed solution; Esc leaves Retry mode.
+  // H / S / R / N mirror the action bar, ← / → step a revealed solution, Esc leaves Retry mode.
   useEffect(() => {
     if (selected === null) return;
+    const stepping = status === 'revealed' && !autoplay;
+    const keys: Record<string, (() => void) | undefined> = {
+      h: hint,
+      s: showSolution,
+      r: restart,
+      n: nextMistake,
+      escape: close,
+      arrowleft: stepping ? () => stepBy(-1) : undefined,
+      arrowright: stepping ? () => stepBy(1) : undefined,
+    };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-      else if (status === 'revealed' && !autoplay && e.key === 'ArrowLeft') stepBy(-1);
-      else if (status === 'revealed' && !autoplay && e.key === 'ArrowRight') stepBy(1);
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || isTyping(e.target)) return;
+      const run = keys[e.key?.toLowerCase()];
+      if (!run) return;
+      e.preventDefault();
+      run();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selected, status, autoplay, stepBy, close]);
+  }, [selected, status, autoplay, hint, showSolution, restart, nextMistake, stepBy, close]);
 
   let board: {
     fen: string;
@@ -213,8 +245,11 @@ export function useRetry(runId: string | null, attempts: ReviewAttempt[], tiles:
     }
   }
 
+  // The position being solved (or the solution step on screen), never a rejected move.
+  const analyzeFen = retry ? (retry.status === 'revealed' && line ? line.fens[step] : retry.fen) : null;
+
   return {
-    selected, retry, outcomes, attempt, line, step, maxStep, autoplay, board,
+    selected, retry, outcomes, attempt, line, step, maxStep, autoplay, board, analyzeFen,
     open, close, move, hint, restart, showSolution, stepBy, nextMistake,
     hasNext: next !== null, allReviewed,
   };
@@ -246,7 +281,42 @@ export function RetryBanner({ review }: { review: Retry }) {
   );
 }
 
-/** Under the board: what was played in the run, then Hint / Solution / Retry / Next mistake / Exit. */
+interface ActionProps {
+  icon: string;
+  label: string;
+  /** Mobile label, when `label` won't fit a sixth of a phone screen. */
+  short?: string;
+  /** aria-keyshortcuts value; `keyLabel` is how it reads in the tooltip. */
+  shortcut?: string;
+  keyLabel?: string;
+  main?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
+}
+
+function RetryAction({ icon, label, short, shortcut, keyLabel = shortcut, main = false, disabled = false, onClick }: ActionProps) {
+  return (
+    <button
+      type="button"
+      className={`${styles.retryAction} ${main ? styles.retryActionMain : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      aria-keyshortcuts={shortcut}
+      title={keyLabel ? `${label} (${keyLabel})` : undefined}
+    >
+      <span aria-hidden="true">{icon}</span>
+      {short ? (
+        <>
+          <span className={styles.retryLabelLong}>{label}</span>
+          <span className={styles.retryLabelShort}>{short}</span>
+        </>
+      ) : label}
+    </button>
+  );
+}
+
+/** Under the board: what was played in the run, then Hint / Solution / Retry / Analyze / Next mistake / Exit. */
 export function RetryControls({ review, onPlayAgain }: { review: Retry; onPlayAgain: () => void }) {
   const t = useTranslations('puzzleRush');
   const { retry, attempt } = review;
@@ -258,21 +328,26 @@ export function RetryControls({ review, onPlayAgain }: { review: Retry; onPlayAg
     <div className={styles.retryControls}>
       <p className={styles.retryPlayed}>{played ? t('retry.youPlayed', { moves: played }) : ' '}</p>
       <div className={styles.retryBar} role="toolbar" aria-label={t('retry.actions')}>
-        <button type="button" className={styles.retryAction} onClick={review.hint} disabled={retry.status !== 'playing' || retry.hintLevel === 2}>
-          <span aria-hidden="true">💡</span>{t('retry.hint')}
-        </button>
-        <button type="button" className={styles.retryAction} onClick={review.showSolution} disabled={!live}>
-          <span aria-hidden="true">👁</span>{t('retry.solution')}
-        </button>
-        <button type="button" className={styles.retryAction} onClick={review.restart}>
-          <span aria-hidden="true">↻</span>{t('retry.retry')}
-        </button>
-        <button type="button" className={`${styles.retryAction} ${styles.retryActionMain}`} onClick={review.nextMistake} disabled={!review.hasNext}>
-          <span aria-hidden="true">→</span>{t('retry.nextMistake')}
-        </button>
-        <button type="button" className={styles.retryAction} onClick={review.close}>
-          <span aria-hidden="true">✕</span>{t('retry.exit')}
-        </button>
+        <RetryAction icon="💡" label={t('retry.hint')} shortcut="H" onClick={review.hint} disabled={retry.status !== 'playing' || retry.hintLevel === 2} />
+        <RetryAction icon="👁" label={t('retry.solution')} shortcut="S" onClick={review.showSolution} disabled={!live} />
+        <RetryAction icon="↻" label={t('retry.retry')} shortcut="R" onClick={review.restart} />
+        {review.analyzeFen ? (
+          <a className={styles.retryAction} href={analyzeHref(review.analyzeFen)} target="_blank" rel="noopener noreferrer" title={t('retry.analyzeTitle')}>
+            <span aria-hidden="true">🔍</span>{t('retry.analyze')}
+          </a>
+        ) : (
+          <RetryAction icon="🔍" label={t('retry.analyze')} disabled />
+        )}
+        <RetryAction
+          icon="→"
+          label={t('retry.nextMistake')}
+          short={t('retry.nextShort')}
+          shortcut="N"
+          main
+          onClick={review.nextMistake}
+          disabled={!review.hasNext}
+        />
+        <RetryAction icon="✕" label={t('retry.exit')} shortcut="Escape" keyLabel="Esc" onClick={review.close} />
       </div>
       {review.allReviewed && (
         <div className={styles.retryDone} data-testid="retry-done">
@@ -365,6 +440,7 @@ export default function RunSummary({ mode, score, tiles, endReason, review, onPl
         onSelect={review.open}
         puzzleLabel={(n, state) => t(`summary.tile.${state}`, { n })}
         helpTitle={t('retry.helpMark')}
+        revealedTitle={t('retry.revealedMark')}
       />
 
       <RetryPanel review={review} />

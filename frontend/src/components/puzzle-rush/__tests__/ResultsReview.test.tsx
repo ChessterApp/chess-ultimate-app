@@ -13,7 +13,8 @@ import { NextIntlClientProvider } from 'next-intl';
 import en from '../../../../messages/en.json';
 import { initialRunState, type ResultTile, type ReviewAttempt } from '@/lib/puzzle-rush/runReducer';
 import { MATE1, MISS, SOLVE } from '@/lib/puzzle-rush/__tests__/fixtures';
-import { SOLUTION_PLY_MS, WRONG_HOLD_MS } from '../RunSummary';
+import { analyzeHref, SOLUTION_PLY_MS, WRONG_HOLD_MS } from '../RunSummary';
+import { applyUci } from '@/lib/puzzle-rush/validate';
 
 type BoardProps = {
   movable?: boolean;
@@ -22,6 +23,7 @@ type BoardProps = {
   onMove?: (from: string, to: string) => void;
 };
 const board = vi.hoisted(() => ({ props: {} as BoardProps }));
+const sound = vi.hoisted(() => ({ play: vi.fn() }));
 
 vi.mock('@clerk/nextjs', () => ({ useAuth: () => ({ isSignedIn: false, getToken: async () => null, userId: null }) }));
 vi.mock('next/dynamic', () => ({
@@ -30,6 +32,7 @@ vi.mock('next/dynamic', () => ({
     return <div data-testid="cg-board" />;
   },
 }));
+vi.mock('@/hooks/useSoundEffects', () => ({ useSoundEffects: () => sound }));
 vi.mock('canvas-confetti', () => ({ default: vi.fn() }));
 vi.mock('../fonts', () => ({ fraunces: { variable: 'font-fraunces' } }));
 
@@ -86,6 +89,7 @@ async function renderPage() {
 }
 
 beforeEach(() => {
+  sound.play.mockClear();
   localStorage.clear();
   localStorage.setItem('puzzleRush.rulesSeen', '1');
 });
@@ -185,8 +189,10 @@ describe('PuzzleRush page — results modal → Retry mode', () => {
     act(() => { vi.advanceTimersByTime(SOLUTION_PLY_MS); });
     expect(screen.getByText('2 / 2')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Previous move' })).toBeTruthy();
-    // Revealed without solving: still a plain ✕.
-    expect(screen.getByRole('button', { name: 'Puzzle 2, missed' })).toBeTruthy();
+    // Revealed without solving: still a ✕, marked as viewed.
+    const tile = screen.getByRole('button', { name: 'Puzzle 2, missed, solution viewed' });
+    expect(tile.getAttribute('data-result')).toBe('failed');
+    expect(within(tile).getByTestId('cell-revealed')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(banner()).toContain('Find the best move');
@@ -198,5 +204,90 @@ describe('PuzzleRush page — results modal → Retry mode', () => {
     expect(screen.queryByTestId('retry-banner')).toBeNull();
     expect(screen.queryByTestId('rush-review')).toBeNull();
     expect(board.props.movable).toBe(false);
+  });
+
+  it('revealing the solution counts as reviewed: Next mistake moves on, then all reviewed', async () => {
+    vi.useFakeTimers();
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Solution' }));
+    expect(screen.queryByTestId('retry-done')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next mistake' }));
+    expect(panelTitle()).toBe('Puzzle 3 · 523');
+    fireEvent.click(screen.getByRole('button', { name: 'Solution' }));
+    expect(screen.getByTestId('retry-done').textContent).toContain('All mistakes reviewed');
+    expect((screen.getByRole('button', { name: 'Next mistake' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+const key = (k: string, init: KeyboardEventInit = {}) => act(() => { fireEvent.keyDown(window, { key: k, ...init }); });
+
+describe('PuzzleRush page — Retry mode shortcuts, Analyze, sounds', () => {
+  it('H twice draws the arrow, N goes to the next miss, Esc exits', async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    key('h');
+    expect(board.props.hintSquare).toBe('d1');
+    key('H');
+    expect(board.props.hintMove).toEqual(['d1', 'd8']);
+    key('n');
+    expect(panelTitle()).toBe('Puzzle 3 · 523');
+    key('Escape');
+    expect(screen.queryByTestId('rush-review')).toBeNull();
+  });
+
+  it('ignores shortcuts while typing or with a modifier held', async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    act(() => { fireEvent.keyDown(input, { key: 'h' }); });
+    act(() => { fireEvent.keyDown(input, { key: 'n' }); });
+    key('n', { ctrlKey: true });
+    key('h', { metaKey: true });
+    expect(board.props.hintSquare).toBeNull();
+    expect(panelTitle()).toBe('Puzzle 2 · 461');
+    input.remove();
+  });
+
+  it('S reveals, ←/→ step the solution, R resets; buttons advertise their keys', async () => {
+    vi.useFakeTimers();
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    expect(screen.getByRole('button', { name: 'Hint' }).getAttribute('aria-keyshortcuts')).toBe('H');
+    expect(screen.getByRole('button', { name: 'Exit' }).getAttribute('title')).toBe('Exit (Esc)');
+    key('s');
+    act(() => { vi.advanceTimersByTime(SOLUTION_PLY_MS); });
+    expect(screen.getByText('2 / 2')).toBeTruthy();
+    key('ArrowLeft');
+    expect(screen.getByText('1 / 2')).toBeTruthy();
+    key('ArrowRight');
+    expect(screen.getByText('2 / 2')).toBeTruthy();
+    key('r');
+    expect(board.props.movable).toBe(true);
+  });
+
+  it('Analyze opens the current position on the analysis board in a new tab', async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    const link = screen.getByRole('link', { name: 'Analyze' });
+    const fen = applyUci(MATE1.fen, MATE1.moves[0])!.fen;
+    expect(link.getAttribute('href')).toBe(analyzeHref(fen));
+    expect(link.getAttribute('href')).toContain(encodeURIComponent(fen));
+    expect(link.getAttribute('target')).toBe('_blank');
+  });
+
+  it('plays the error sound on a wrong move, move + success when solved', async () => {
+    vi.useFakeTimers();
+    await renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    play('g1', 'h1');
+    expect(sound.play.mock.calls).toEqual([['error']]);
+    act(() => { vi.advanceTimersByTime(WRONG_HOLD_MS); });
+    sound.play.mockClear();
+    play('a1', 'a5'); // illegal: silent
+    expect(sound.play).not.toHaveBeenCalled();
+    play('d1', 'd8');
+    expect(sound.play.mock.calls).toEqual([['move'], ['success']]);
   });
 });

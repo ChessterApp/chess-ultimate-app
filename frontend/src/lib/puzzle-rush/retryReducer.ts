@@ -43,7 +43,8 @@ export type RetryAction =
   | { type: 'retry' }
   | { type: 'showSolution' };
 
-export type RetryOutcome = 'solved' | 'solved_with_help' | 'unsolved';
+/** `revealed`: the solution was shown without solving — reviewed, but the tile stays ✕. */
+export type RetryOutcome = 'solved' | 'solved_with_help' | 'revealed';
 export type RetryOutcomes = Record<number, RetryOutcome>;
 
 export function startRetry(attempt: ReviewAttempt): RetryState {
@@ -122,13 +123,13 @@ export function retryHint(state: RetryState | null): { square: Square | null; mo
   return { square: null, move: [from, expected.slice(2, 4) as Square] };
 }
 
-const RANK: Record<RetryOutcome, number> = { unsolved: 0, solved_with_help: 1, solved: 2 };
+const RANK: Record<RetryOutcome, number> = { revealed: 0, solved_with_help: 1, solved: 2 };
 
 /** Fold the puzzle's current state into the run's outcome map, keeping the best result. */
 export function recordOutcome(outcomes: RetryOutcomes, state: RetryState | null): RetryOutcomes {
   if (!state || (state.status !== 'solved' && state.status !== 'revealed')) return outcomes;
   const next: RetryOutcome = state.status === 'revealed'
-    ? 'unsolved'
+    ? 'revealed'
     : state.usedHint || state.usedSolution ? 'solved_with_help' : 'solved';
   const cur = outcomes[state.index];
   if (cur && RANK[cur] >= RANK[next]) return outcomes;
@@ -141,10 +142,11 @@ export function isRetrySolved(outcome: RetryOutcome | undefined): boolean {
 
 /**
  * The next missed puzzle after `current` (in run order, wrapping around to
- * `current` itself last) not yet solved in retry, or null when none is left.
+ * `current` itself last) not yet reviewed — solved or revealed in retry —
+ * or null when none is left.
  */
 export function nextMistakeIndex(tiles: ResultTile[], outcomes: RetryOutcomes, current: number | null): number | null {
-  const open = tiles.filter((t) => !t.solved && !isRetrySolved(outcomes[t.index])).map((t) => t.index);
+  const open = tiles.filter((t) => !t.solved && !outcomes[t.index]).map((t) => t.index);
   if (!open.length) return null;
   if (current === null) return open[0];
   return open.find((i) => i > current) ?? open[0];

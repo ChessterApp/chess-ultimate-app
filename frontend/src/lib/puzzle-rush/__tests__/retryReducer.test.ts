@@ -103,16 +103,16 @@ describe('retryReducer', () => {
 });
 
 describe('recordOutcome', () => {
-  it('records solved / solved_with_help / unsolved, keeping the best', () => {
+  it('records solved / solved_with_help / revealed, keeping the best', () => {
     const clean = run(startRetry(attempt(MATE1, 2)), { type: 'move', uci: 'd1d8' });
     expect(recordOutcome({}, clean)).toEqual({ 2: 'solved' });
     const helped = run(startRetry(attempt(MATE1, 2)), { type: 'hint' }, { type: 'move', uci: 'd1d8' });
     expect(recordOutcome({}, helped)).toEqual({ 2: 'solved_with_help' });
     const revealed = run(startRetry(attempt(MATE1, 2)), { type: 'showSolution' });
-    expect(recordOutcome({}, revealed)).toEqual({ 2: 'unsolved' });
+    expect(recordOutcome({}, revealed)).toEqual({ 2: 'revealed' });
     expect(recordOutcome({ 2: 'solved' }, helped)).toEqual({ 2: 'solved' });
     // Solving after looking at the solution counts as helped.
-    expect(recordOutcome({ 2: 'unsolved' }, run(revealed, { type: 'retry' }, { type: 'move', uci: 'd1d8' })))
+    expect(recordOutcome({ 2: 'revealed' }, run(revealed, { type: 'retry' }, { type: 'move', uci: 'd1d8' })))
       .toEqual({ 2: 'solved_with_help' });
     // Still playing → nothing recorded.
     const o = {};
@@ -137,9 +137,32 @@ describe('nextMistakeIndex', () => {
   });
 
   it('skips puzzles solved in retry; null when all are solved', () => {
-    expect(nextMistakeIndex(tiles, { 2: 'solved', 0: 'unsolved' }, 0)).toBe(3);
+    expect(nextMistakeIndex(tiles, { 2: 'solved' }, 0)).toBe(3);
     expect(nextMistakeIndex(tiles, { 2: 'solved_with_help', 3: 'solved' }, 3)).toBe(0);
     expect(nextMistakeIndex(tiles, { 0: 'solved', 2: 'solved', 3: 'solved_with_help' }, 3)).toBeNull();
     expect(nextMistakeIndex(tiles.filter((t) => t.solved), {}, null)).toBeNull();
+  });
+
+  it('a revealed solution counts as reviewed', () => {
+    const revealed = recordOutcome({}, run(startRetry(attempt(MATE1, 2)), { type: 'showSolution' }));
+    expect(nextMistakeIndex(tiles, revealed, 0)).toBe(3);
+    expect(nextMistakeIndex(tiles, revealed, 3)).toBe(0);
+  });
+
+  it('done after revealing every miss', () => {
+    let outcomes = {};
+    let current: number | null = null;
+    for (const expected of [0, 2, 3]) {
+      current = nextMistakeIndex(tiles, outcomes, current);
+      expect(current).toBe(expected);
+      outcomes = recordOutcome(outcomes, run(startRetry(attempt(MATE1, current!)), { type: 'showSolution' }));
+    }
+    expect(nextMistakeIndex(tiles, outcomes, current)).toBeNull();
+  });
+
+  it('mixed solved / revealed: done once each miss is one or the other', () => {
+    expect(nextMistakeIndex(tiles, { 0: 'revealed', 2: 'solved' }, 2)).toBe(3);
+    expect(nextMistakeIndex(tiles, { 0: 'revealed', 2: 'solved', 3: 'solved_with_help' }, 3)).toBeNull();
+    expect(nextMistakeIndex(tiles, { 0: 'solved', 2: 'revealed', 3: 'revealed' }, 3)).toBeNull();
   });
 });
