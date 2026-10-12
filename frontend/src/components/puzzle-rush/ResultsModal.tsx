@@ -68,7 +68,7 @@ export default function ResultsModal({
 
   const share = async () => {
     const text = t('results.shareText', { score, mode: t(`modes.${mode}.short`) });
-    const url = `${window.location.origin}/puzzle/rush`;
+    const url = `${window.location.origin}/games/puzzlerush`;
     try {
       if (navigator.share) {
         await navigator.share({ text, url });

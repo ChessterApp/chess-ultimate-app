@@ -24,6 +24,7 @@ const isPublicRoute = createRouteMatcher([
   '/for-schools',  // Marketing landing (auth-gated wizard lives under /for-schools/start/*)
   '/landing-test',  // Design test page (Linear DNA study) — noindex, not linked anywhere
   '/games',  // Games hub — poster cards only; individual games gate themselves (client-side, like /coach)
+  '/games/puzzlerush(.*)',  // Puzzle Rush — guests can play (runs are client-side; scores stay on device)
   '/games/tug-of-war(.*)',  // Classroom tug-of-war prototype — public per PRD (zero-friction smartboard use)
   '/family/join(.*)',  // Family invite links — page has its own sign-in fallback; must be reachable signed-out
   '/delete-account',  // Google Play requires this URL reachable signed-out; deletion API still auth-checks server-side
