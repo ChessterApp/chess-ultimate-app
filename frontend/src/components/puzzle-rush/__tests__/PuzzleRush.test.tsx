@@ -115,6 +115,14 @@ describe('ResultsModal', () => {
     expect(screen.getByTestId('rush-results').dataset.tone).toBe('great');
   });
 
+  it('focuses Play Again on the frame after the first paint (not during the commit)', async () => {
+    modal();
+    const button = screen.getByRole('button', { name: 'Play Again' });
+    expect(document.activeElement).not.toBe(button);
+    await act(async () => { await new Promise((r) => requestAnimationFrame(() => r(null))); });
+    expect(document.activeElement).toBe(button);
+  });
+
   it('Enter plays again, Esc closes', () => {
     const h = modal();
     fireEvent.keyDown(window, { key: 'Enter' });

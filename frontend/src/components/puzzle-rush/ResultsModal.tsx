@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { EndReason, ModeBests, RushMode, RushResults } from '@/lib/puzzle-rush/types';
 import { formatClock } from './RunTiles';
@@ -46,6 +46,14 @@ export default function ResultsModal({
   const t = useTranslations('puzzleRush');
   const [copied, setCopied] = useState(false);
   const tone = resultTone(score, isPb);
+  const playAgainRef = useRef<HTMLButtonElement>(null);
+
+  // Focus Play Again after the modal's first paint, not via autoFocus: focusing
+  // during the commit forces a full layout in the run-ending frame (~40 ms).
+  useEffect(() => {
+    const id = requestAnimationFrame(() => playAgainRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -146,7 +154,7 @@ export default function ResultsModal({
 
         <div className={styles.resultActions}>
           <div className={styles.buttonRow}>
-            <button type="button" className={styles.cta} onClick={onPlayAgain} autoFocus>
+            <button type="button" className={styles.cta} onClick={onPlayAgain} ref={playAgainRef}>
               {t('results.playAgain')}
             </button>
             <button type="button" className={styles.ghostButton} onClick={onNewRush}>
