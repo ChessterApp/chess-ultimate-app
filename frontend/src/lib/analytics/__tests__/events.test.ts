@@ -2,6 +2,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ANALYTICS_EVENTS, PII_DENYLIST, stripPii, track } from '../events';
 
+const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
+vi.mock('posthog-js', () => ({ default: { capture } }));
+
 describe('ANALYTICS_EVENTS', () => {
   it('exposes wizard events with snake_case names', () => {
     expect(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STARTED).toBe('school_onboarding_started');
@@ -82,32 +85,33 @@ describe('stripPii()', () => {
 
 describe('track()', () => {
   beforeEach(() => {
-    // Reset any prior posthog mock.
-    (window as unknown as { posthog?: unknown }).posthog = undefined;
+    capture.mockReset();
   });
 
   afterEach(() => {
-    (window as unknown as { posthog?: unknown }).posthog = undefined;
+    vi.unstubAllGlobals();
   });
 
-  it('is a no-op when PostHog is not loaded', () => {
-    // Should not throw.
-    expect(() => track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STARTED)).not.toThrow();
+  it('calls posthog.capture with the event name and PII-stripped props', () => {
+    track(ANALYTICS_EVENTS.COMPANION_NAMED, { foo: 1, companion_name: 'Foxy', FEN: 'x' });
+    expect(capture).toHaveBeenCalledWith('companion_named', { foo: 1 });
   });
 
-  it('forwards to window.posthog.capture when present', () => {
-    const capture = vi.fn();
-    (window as unknown as { posthog: unknown }).posthog = { capture };
+  it('passes undefined props through', () => {
+    track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STARTED);
+    expect(capture).toHaveBeenCalledWith('school_onboarding_started', undefined);
+  });
+
+  it('is a no-op server-side', () => {
+    vi.stubGlobal('window', undefined);
     track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STARTED, { foo: 1 });
-    expect(capture).toHaveBeenCalledWith('school_onboarding_started', { foo: 1 });
+    expect(capture).not.toHaveBeenCalled();
   });
 
   it('swallows errors from posthog.capture', () => {
-    (window as unknown as { posthog: unknown }).posthog = {
-      capture: () => {
-        throw new Error('boom');
-      },
-    };
+    capture.mockImplementation(() => {
+      throw new Error('boom');
+    });
     expect(() => track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STARTED)).not.toThrow();
   });
 });

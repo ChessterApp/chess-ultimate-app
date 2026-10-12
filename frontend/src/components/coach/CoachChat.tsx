@@ -857,7 +857,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   }, []);
 
   return (
-    <div className="flex flex-col h-full" style={{ background: '#16213e' }}>
+    // ph-no-capture: masks the chat + voice-mode UI from PostHog session replay (kids' privacy).
+    <div className="ph-no-capture flex flex-col h-full" style={{ background: '#16213e' }}>
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {messages.length === 0 && (

@@ -8,6 +8,8 @@ import "../styles/chess-animations.css";
 import ClientShell from "@/components/ClientShell";
 import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 import PrefetchManager from "@/components/PrefetchManager";
+import PostHogIdentify from "@/components/analytics/PostHogIdentify";
+import PostHogRouteRecording from "@/components/analytics/PostHogRouteRecording";
 import LocalStorageMigration from "@/components/LocalStorageMigration";
 import { PowerSyncProvider } from "@/lib/powersync/PowerSyncProvider";
 import { OrganizationProvider } from "@/contexts/OrganizationContext";
@@ -73,6 +75,8 @@ export default async function RootLayout({
           ) : null}
         </head>
         <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning>
+          <PostHogIdentify />
+          <PostHogRouteRecording />
           <OrganizationProvider org={org}>
             <BrandingInjector />
             <ImpersonationBanner />

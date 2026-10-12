@@ -11,6 +11,8 @@ const ASSET_VERSION = crypto.randomBytes(8).toString('hex');
 /** @type {import('next').NextConfig} */
 const nextConfig = {
     output: process.env.VERCEL ? undefined : ('standalone' as const),
+    // PostHog API paths end in a trailing slash (/ingest/e/); don't redirect them.
+    skipTrailingSlashRedirect: true,
     productionBrowserSourceMaps: process.env.ENABLE_SOURCE_MAPS === 'true',
     env: {
         // Expose build hash to client-side code for cache-busting query params
@@ -41,11 +43,17 @@ const nextConfig = {
         ];
         // Rewrite @powersync/ to powersync/ (Vercel doesn't serve @-prefixed dirs from public/)
         const powersyncRewrite = { source: '/@powersync/:path*', destination: '/powersync/:path*' };
+        // PostHog reverse proxy (first-party /ingest so ad blockers don't drop events).
+        // The static rule MUST come first or /ingest/:path* swallows it.
+        const posthogRewrites = [
+            { source: '/ingest/static/:path*', destination: 'https://us-assets.i.posthog.com/static/:path*' },
+            { source: '/ingest/:path*', destination: 'https://us.i.posthog.com/:path*' },
+        ];
         // On Vercel, use beforeFiles so rewrites run before Next.js file resolution
         if (process.env.VERCEL) {
-            return { beforeFiles: [...rules, powersyncRewrite], afterFiles: [], fallback: [] };
+            return { beforeFiles: [...posthogRewrites, ...rules, powersyncRewrite], afterFiles: [], fallback: [] };
         }
-        return [...rules, powersyncRewrite];
+        return [...posthogRewrites, ...rules, powersyncRewrite];
     },
     async redirects() {
         return [
