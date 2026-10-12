@@ -4,6 +4,8 @@
 // checklist, and tenant-landing analytics. Any new event added to the
 // codebase MUST be registered here.
 
+import posthog from 'posthog-js';
+
 export const ANALYTICS_EVENTS = {
   // Wizard step transitions
   SCHOOL_ONBOARDING_STARTED: 'school_onboarding_started',
@@ -102,18 +104,14 @@ export type AnalyticsEvent =
   (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
 
 /**
- * Thin wrapper around window.posthog.capture so call sites don't have to
- * null-check the global. No-op when PostHog hasn't loaded yet (SSR / before
- * instrumentation-client mounts).
+ * Thin wrapper around posthog.capture so call sites never touch the SDK
+ * directly. No-op during SSR; before init (or with no key configured) the
+ * SDK itself drops the call.
  */
 export function track(event: AnalyticsEvent, props?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;
-  const ph = (window as unknown as {
-    posthog?: { capture: (e: string, p?: Record<string, unknown>) => void };
-  }).posthog;
-  if (!ph) return;
   try {
-    ph.capture(event, stripPii(props));
+    posthog.capture(event, stripPii(props));
   } catch {
     // swallow — analytics never breaks the call site
   }

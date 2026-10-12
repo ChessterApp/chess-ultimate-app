@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useClerk } from '@clerk/nextjs'
+import posthog from 'posthog-js'
 
 const CONFIRM_WORD = 'DELETE'
 
@@ -49,7 +50,9 @@ export default function DeleteAccountPage() {
       }
 
       // Deleted: end the Clerk session and land on the home page with a
-      // confirmation banner.
+      // confirmation banner. Reset PostHog first so the next visitor on this
+      // device isn't attributed to the deleted user.
+      posthog.reset()
       await signOut({ redirectUrl: '/?account_deleted=1' })
     } catch {
       setError('Network error. Your account was not deleted. Please try again.')

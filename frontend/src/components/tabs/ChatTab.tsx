@@ -784,8 +784,10 @@ export const ChatTab: React.FC<ChatTabProps> = ({
           }
         `}
       </style>
+      {/* ph-no-capture: masks the AI chat + voice input from PostHog session replay (kids' privacy). */}
       <Box
         ref={containerRef}
+        className="ph-no-capture"
         sx={{
           width: "100%",
           maxWidth: `${dimensions.width}px`,
