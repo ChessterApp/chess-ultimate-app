@@ -26,6 +26,14 @@ vi.mock('next/image', () => ({
 afterEach(cleanup);
 
 describe('GamesPage', () => {
+  it('renders the Puzzle Rush card first, linking to the game page', () => {
+    render(<GamesPage />);
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(3);
+    expect(links[0].getAttribute('aria-label')).toBe('[puzzleRush.title]');
+    expect(links[0].getAttribute('href')).toBe('/puzzle/rush');
+  });
+
   it('renders both game cards linking to the game routes', () => {
     render(<GamesPage />);
     const wheel = screen.getByRole('link', { name: '[wheel.title]' });
@@ -39,12 +47,14 @@ describe('GamesPage', () => {
     const srcs = Array.from(container.querySelectorAll('img')).map((img) =>
       img.getAttribute('src'),
     );
+    expect(srcs).toContain('/games/puzzle-rush-poster.webp');
     expect(srcs).toContain('/games/wheel-poster.webp');
     expect(srcs).toContain('/games/tug-of-war-poster.webp');
   });
 
   it('renders titles and descriptions for both games', () => {
     render(<GamesPage />);
+    expect(screen.getByText('[puzzleRush.description]')).toBeTruthy();
     expect(screen.getByText('[wheel.description]')).toBeTruthy();
     expect(screen.getByText('[tugOfWar.description]')).toBeTruthy();
     expect(screen.getByText('[title]')).toBeTruthy();
