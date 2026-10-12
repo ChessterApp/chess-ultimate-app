@@ -137,7 +137,10 @@ export default function PuzzleRush() {
   );
 
   let body: React.ReactNode;
-  if (inRun) {
+  // The frozen run board stays under the results modal: swapping to the
+  // summary layout (a fresh board) in the run-ending frame would delay the
+  // final ✕ and the modal. The summary takes over once the modal closes.
+  if (inRun || (runOver && showResults)) {
     // S3–S7: countdown and the run itself.
     body = (
       <div className={styles.runLayout}>
