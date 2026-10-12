@@ -638,7 +638,7 @@ export default function PuzzlePage() {
       <Box sx={{ p: { xs: 1, sm: 2, md: 3, lg: 4 }, backgroundColor: 'var(--surface-page)', minHeight: "100vh" }} >
         <Box sx={{ px: { xs: 1, sm: 2 }, mb: 1 }}><Breadcrumbs /></Box>
         <Link
-          href="/puzzle/rush"
+          href="/games/puzzlerush"
           data-testid="puzzle-rush-entry"
           className="mx-1 sm:mx-2 mb-3 flex items-center gap-3 rounded-2xl border border-teal-500/30 bg-teal-500/10 px-4 py-3 transition-colors hover:bg-teal-500/15 focus-visible:outline-2 focus-visible:outline-teal-600"
         >

@@ -31,7 +31,7 @@ describe('GamesPage', () => {
     const links = screen.getAllByRole('link');
     expect(links).toHaveLength(3);
     expect(links[0].getAttribute('aria-label')).toBe('[puzzleRush.title]');
-    expect(links[0].getAttribute('href')).toBe('/puzzle/rush');
+    expect(links[0].getAttribute('href')).toBe('/games/puzzlerush');
   });
 
   it('renders both game cards linking to the game routes', () => {

@@ -60,6 +60,11 @@ const nextConfig = {
                 permanent: true,
             },
             {
+                source: '/puzzle/rush',
+                destination: '/games/puzzlerush',
+                permanent: true,
+            },
+            {
                 source: '/debut/:path*',
                 destination: '/database/:path*',
                 permanent: true,

@@ -13,7 +13,7 @@ interface GameCard {
 
 const games: GameCard[] = [
   {
-    href: '/puzzle/rush',
+    href: '/games/puzzlerush',
     poster: '/games/puzzle-rush-poster.webp',
     titleKey: 'puzzleRush',
     gradient: 'from-emerald-950/95 via-emerald-900/60',

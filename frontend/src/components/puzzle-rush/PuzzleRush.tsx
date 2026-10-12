@@ -20,7 +20,7 @@ import RushBoard from './RushBoard';
 import { CoachToast, LOGO_SRC, ResultsGrid, ScoreTile, StrikesTile, TimerTile } from './RunTiles';
 import styles from './PuzzleRush.module.css';
 
-const SIGN_IN_HREF = '/sign-in?redirect_url=/puzzle/rush';
+const SIGN_IN_HREF = '/sign-in?redirect_url=/games/puzzlerush';
 const CONFETTI_COLORS = ['#14b8a6', '#0d9488', '#2dd4bf', '#f59e0b', '#ffffff'];
 
 async function firePbConfetti() {
