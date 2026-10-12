@@ -1242,7 +1242,35 @@ button.cell:hover {
 .shareRow {
   display: flex;
   justify-content: center;
+  align-items: center;
+  gap: 10px;
   margin-top: 12px;
+}
+.shareSep {
+  color: var(--tt);
+}
+.resultTabs {
+  margin-top: 0;
+  padding: 0 24px;
+}
+.tabBadge {
+  margin-left: 6px;
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+.resultPuzzles {
+  padding: 2px 24px 8px;
+}
+.resultPuzzles .summaryHint {
+  margin-top: 14px;
+}
+/* "Retry mistakes (N)" won't fit half a 400px modal on one line (ru is longer still). */
+.buttonRowStack {
+  grid-template-columns: minmax(0, 1fr);
+}
+/* Ties to the ✕ tiles it reopens. */
+.retryButton {
+  color: var(--red);
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */
