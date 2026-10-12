@@ -117,4 +117,22 @@ describe('useSoundEffects', () => {
     expect(audioInstances).toHaveLength(0)
     expect(oscillatorCount).toBe(1)
   })
+
+  it('synthesizes the Puzzle Rush clank (metallic partials + thud) without a sample', () => {
+    const { result } = renderHook(() => useSoundEffects())
+
+    act(() => result.current.play('clank'))
+
+    expect(audioInstances).toHaveLength(0)
+    expect(oscillatorCount).toBe(4)
+  })
+
+  it('respects the mute setting for the clank', () => {
+    window.localStorage.setItem('sound_enabled', JSON.stringify(false))
+    const { result } = renderHook(() => useSoundEffects())
+
+    act(() => result.current.play('clank'))
+
+    expect(oscillatorCount).toBe(0)
+  })
 })

@@ -3,14 +3,14 @@
 import { useCallback, useRef, useEffect } from 'react'
 import { useLocalStorage } from 'usehooks-ts'
 
-type SoundType = 'move' | 'capture' | 'success' | 'error' | 'click' | 'navigate'
+type SoundType = 'move' | 'capture' | 'success' | 'error' | 'click' | 'navigate' | 'clank'
 
 // Path to the pre-encoded success chime sample (CC0). Played for `success`;
 // the oscillator config below is the fallback if the sample fails to load/play.
 const SUCCESS_SAMPLE_URL = '/sounds/puzzle-solved.mp3'
 
 // All other sounds are generated programmatically via the Web Audio API.
-const SOUND_CONFIGS: Record<SoundType, { frequency: number; duration: number; type: OscillatorType; volume: number; decay?: number; secondFreq?: number; delay?: number }> = {
+const SOUND_CONFIGS: Record<Exclude<SoundType, 'clank'>, { frequency: number; duration: number; type: OscillatorType; volume: number; decay?: number; secondFreq?: number; delay?: number }> = {
   move: { frequency: 440, duration: 0.08, type: 'sine', volume: 0.15, decay: 0.06 },
   capture: { frequency: 300, duration: 0.12, type: 'triangle', volume: 0.2, decay: 0.1 },
   success: { frequency: 523, duration: 0.3, type: 'sine', volume: 0.15, secondFreq: 659, delay: 0.15 },
@@ -18,6 +18,13 @@ const SOUND_CONFIGS: Record<SoundType, { frequency: number; duration: number; ty
   click: { frequency: 800, duration: 0.04, type: 'sine', volume: 0.08, decay: 0.03 },
   navigate: { frequency: 600, duration: 0.06, type: 'sine', volume: 0.08, decay: 0.05 },
 }
+
+// [frequency Hz, volume, duration s] — ratios ~1 : 2.76 : 5.4 give the metallic ring.
+const CLANK_PARTIALS: [number, number, number][] = [
+  [392, 0.12, 0.22],
+  [1082, 0.07, 0.14],
+  [2117, 0.04, 0.08],
+]
 
 export function useSoundEffects() {
   const [soundEnabled] = useLocalStorage<boolean>('sound_enabled', true)
@@ -51,7 +58,22 @@ export function useSoundEffects() {
     osc.stop(startTime + duration)
   }, [])
 
-  const playSynth = useCallback((sound: SoundType) => {
+  // Puzzle Rush "clank": a short metallic hit — inharmonic partials with a fast
+  // decay over a low thud, so a miss reads as a miss without a buzzer.
+  const playClank = useCallback(() => {
+    try {
+      const ctx = getContext()
+      const now = ctx.currentTime
+      for (const [freq, vol, dur] of CLANK_PARTIALS) {
+        playTone(freq, dur, 'triangle', vol, dur, now, ctx)
+      }
+      playTone(110, 0.12, 'square', 0.06, 0.1, now, ctx)
+    } catch {
+      // Silently fail — sound is non-critical
+    }
+  }, [getContext, playTone])
+
+  const playSynth = useCallback((sound: Exclude<SoundType, 'clank'>) => {
     try {
       const ctx = getContext()
       const config = SOUND_CONFIGS[sound]
@@ -105,8 +127,13 @@ export function useSoundEffects() {
       return
     }
 
+    if (sound === 'clank') {
+      playClank()
+      return
+    }
+
     playSynth(sound)
-  }, [soundEnabled, moveSound, getSuccessAudio, playSynth])
+  }, [soundEnabled, moveSound, getSuccessAudio, playSynth, playClank])
 
   // Cleanup
   useEffect(() => {

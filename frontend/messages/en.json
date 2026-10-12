@@ -363,6 +363,10 @@
     "tugOfWar": {
       "title": "Tug of War",
       "description": "Two teams, two boards — solve puzzles to pull the rope to your side"
+    },
+    "puzzleRush": {
+      "title": "Puzzle Rush",
+      "description": "Solve puzzles against the clock — three strikes and you're out"
     }
   },
   "learn": {
@@ -2939,6 +2943,132 @@
       "completed": "Completed",
       "progress": "{done} of {total} done",
       "reward": "You earned {xp} XP and {coins} coins!"
+    }
+  },
+  "puzzleRush": {
+    "title": "Puzzle Rush",
+    "subtitle": "Solve as many as you can. 3 strikes ends the run.",
+    "back": "Back to puzzles",
+    "tabs": {
+      "play": "Play",
+      "leaderboard": "Leaderboard"
+    },
+    "modes": {
+      "3min": {
+        "title": "3 Minutes",
+        "short": "3 min",
+        "desc": "Fast pattern recognition"
+      },
+      "5min": {
+        "title": "5 Minutes",
+        "short": "5 min",
+        "desc": "The classic warm-up"
+      },
+      "survival": {
+        "title": "Survival",
+        "short": "Survival",
+        "desc": "No clock — pure endurance"
+      }
+    },
+    "best": "Best {score}",
+    "today": "Today {score}",
+    "bestToday": "Best today",
+    "topScore": "Top score",
+    "start": "Start Rush",
+    "starting": "Starting…",
+    "howItWorks": "How it works",
+    "rules": {
+      "title": "Puzzle Rush",
+      "lead": "Solve puzzles in timed and survival modes.",
+      "r1": "Solve as many puzzles as you can",
+      "r2": "Puzzles start easy and get harder",
+      "r3": "Miss three puzzles and your Rush is over",
+      "ok": "Got it",
+      "close": "Close"
+    },
+    "guest": {
+      "note": "Playing as a guest — scores stay on this device.",
+      "signIn": "Sign in to save scores"
+    },
+    "run": {
+      "solved": "Solved",
+      "timeLeft": "Time left",
+      "time": "Time",
+      "strikes": "Strikes",
+      "heartsLeft": "{left} of 3 hearts left",
+      "quit": "Quit",
+      "toMove": "to move",
+      "white": "White",
+      "black": "Black",
+      "rating": "puzzle rating {rating}",
+      "go": "Go!",
+      "results": "Results"
+    },
+    "coach": {
+      "streak5": "Five in a row — you're on fire!",
+      "streak10": "Ten straight. Unstoppable!",
+      "lastHeart": "Last heart — check every move before you play it."
+    },
+    "results": {
+      "pb": "New Personal Best!",
+      "great": "Great Run!",
+      "tough": "Tough One",
+      "personal": "Personal",
+      "today": "Today",
+      "allTime": "All-time",
+      "longestStreak": "Longest streak",
+      "highestSolved": "Highest solved",
+      "avgTime": "Avg time per puzzle",
+      "playAgain": "Play Again",
+      "newRush": "New Rush",
+      "share": "Share",
+      "copied": "Copied!",
+      "shareText": "I solved {score} puzzles in Puzzle Rush ({mode}) on Chesster!",
+      "guestRanks": "Sign in to get ranked on the leaderboards.",
+      "close": "Close",
+      "end": {
+        "strikes": "Three strikes",
+        "timeout": "Time's up",
+        "quit": "You ended the run",
+        "abandoned": "Run timed out"
+      }
+    },
+    "summary": {
+      "hint": "Tap a puzzle to review its solution",
+      "puzzle": "Puzzle {n}",
+      "solvedTag": "Solved",
+      "missedTag": "Missed",
+      "yourMoves": "Your moves: {moves}",
+      "solution": "Solution",
+      "prev": "Previous move",
+      "next": "Next move",
+      "closeReview": "Close review",
+      "loading": "Loading review…",
+      "error": "Couldn't load the review.",
+      "step": "{n} / {total}"
+    },
+    "leaderboard": {
+      "global": "Global",
+      "personal": "Personal",
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "all": "All-time",
+      "you": "You",
+      "empty": "No scores yet — be the first.",
+      "signIn": "Sign in to see your personal bests.",
+      "loading": "Loading…",
+      "error": "Couldn't load the leaderboard.",
+      "player": "Player",
+      "run": "Run {n}"
+    },
+    "errors": {
+      "start": "Couldn't start a rush. Try again.",
+      "rate_limited": "Too many guest runs from this network — sign in or try again later."
+    },
+    "entry": {
+      "title": "Puzzle Rush",
+      "desc": "Race the clock — solve as many puzzles as you can before three strikes.",
+      "cta": "Play Puzzle Rush"
     }
   }
 }
