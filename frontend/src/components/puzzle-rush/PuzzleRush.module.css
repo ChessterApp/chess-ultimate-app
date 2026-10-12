@@ -740,6 +740,19 @@ button.cell:hover {
 .cellRetry .cellRating {
   color: var(--amber);
 }
+/* A ✕ whose solution was viewed in Retry mode: reviewed, still a miss. */
+.cellRevealed {
+  position: relative;
+}
+.cellSeen {
+  position: absolute;
+  top: -3px;
+  right: calc(50% - 15px);
+  font-size: 9px;
+  line-height: 1;
+  filter: grayscale(1);
+  opacity: 0.75;
+}
 .cellHelp {
   position: absolute;
   top: 0;
@@ -1009,13 +1022,14 @@ button.cell:hover {
 }
 .retryBar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.6fr) minmax(0, 1fr);
   gap: 6px;
   margin-top: 12px;
 }
 .retryAction {
   appearance: none;
   display: flex;
+  text-decoration: none;
   flex-direction: column;
   align-items: center;
   gap: 3px;
@@ -1032,9 +1046,12 @@ button.cell:hover {
   text-overflow: ellipsis;
   transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.retryAction > span {
+.retryAction > span[aria-hidden] {
   font-size: 16px;
   line-height: 1;
+}
+.retryLabelShort {
+  display: none;
 }
 .retryAction:hover {
   background: var(--card-2);
@@ -1042,7 +1059,8 @@ button.cell:hover {
 .retryAction:active {
   transform: translateY(1px);
 }
-.retryAction:disabled {
+.retryAction:disabled,
+.retryAction[aria-disabled='true'] {
   opacity: 0.45;
   cursor: not-allowed;
   transform: none;
@@ -1077,15 +1095,42 @@ button.cell:hover {
   padding: 10px 20px;
 }
 
-@media (max-width: 480px) {
+/* Phones: the action bar docks above the app's bottom nav (4rem), icon-first,
+ * one row of ≥44px targets; the page gets matching room so nothing hides under it. */
+@media (max-width: 640px) {
   .retryBar {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(4rem + env(safe-area-inset-bottom));
+    z-index: 40;
+    margin: 0;
+    padding: 8px max(8px, env(safe-area-inset-left)) 8px max(8px, env(safe-area-inset-right));
+    grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(0, 1.3fr) minmax(0, 1fr);
+    gap: 4px;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.06);
   }
   .retryAction {
-    grid-column: span 2;
+    min-height: 48px;
+    padding: 6px 2px;
+    gap: 2px;
+    font-size: 10.5px;
+    border-radius: 10px;
+    white-space: nowrap;
   }
-  .retryActionMain {
-    grid-column: span 4;
+  .retryAction > span[aria-hidden] {
+    font-size: 18px;
+  }
+  .retryLabelLong {
+    display: none;
+  }
+  .retryLabelShort {
+    display: inline;
+  }
+  .root:has(.retryBar) {
+    padding-bottom: 96px;
   }
 }
 
@@ -1449,6 +1494,48 @@ button.cell:hover {
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */
+
+/* Phones: the results modal is a full-screen sheet; the body scrolls under a
+ * sticky Play Again / Retry mistakes footer. */
+@media (max-width: 640px) {
+  .sheetScrim {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .sheet {
+    max-width: none;
+    height: 100dvh;
+    max-height: none;
+    display: flex;
+    flex-direction: column;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    animation-name: sheetIn;
+  }
+  .sheet > * {
+    flex-shrink: 0;
+  }
+  .sheet .resultHead {
+    border-radius: 0;
+  }
+  .sheet .closeX {
+    top: calc(12px + env(safe-area-inset-top));
+  }
+  .sheet .resultActions {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    background: var(--card);
+    border-top: 1px solid var(--border);
+  }
+}
+@keyframes sheetIn {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
 
 @media (max-width: 900px) {
   .layout {

@@ -167,6 +167,27 @@ export default function PositionPage() {
     }
   }, [currentSessionId, currentSession, fen, updateSessionFen]);
 
+  // `/position?fen=…` (board editor, Puzzle Rush "Analyze"): open that position
+  // in a fresh session so the session sync above doesn't swap it back out.
+  const urlFenApplied = useRef(false);
+  useEffect(() => {
+    if (!mounted || urlFenApplied.current || !ChessConstructor.current) return;
+    const urlFen = new URLSearchParams(window.location.search).get('fen');
+    if (!urlFen) {
+      urlFenApplied.current = true;
+      return;
+    }
+    try {
+      const urlGame = new ChessConstructor.current(urlFen);
+      setGame(urlGame);
+      setFen(urlGame.fen());
+      // Sessions may not be ready yet (empty id) — retry once they are.
+      urlFenApplied.current = createNewSession(urlGame.fen()) !== '';
+    } catch {
+      urlFenApplied.current = true;
+    }
+  }, [mounted, createNewSession]);
+
   // Load chat messages from current session when session changes
   useEffect(() => {
     if (currentSession) {
