@@ -69,12 +69,8 @@ interface CoachChatProps {
    * this to scope every question to the move currently under review.
    */
   contextNote?: string;
-  /** The game against the coach on the board, if any — the voice coach plays it (src/lib/coach/voice-game.ts). */
+  /** The game against the coach on the board, if any — the voice coach hears its moves (src/lib/coach/voice-game.ts). */
   game?: GameStateView | null;
-  /** Start that game from voice (the same as the «Play the coach» button). */
-  onVoiceStartGame?: (options: { color: 'white' | 'black' | 'random'; elo: number; comment_mode: 'quiet' }) => Promise<GameStateView>;
-  /** Play the student's spoken move (UCI) in the game. */
-  onVoiceGameMove?: (uci: string) => Promise<GameStateView>;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -150,8 +146,6 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onOpenGame,
     contextNote,
     game = null,
-    onVoiceStartGame,
-    onVoiceGameMove,
   },
   ref,
 ) {
@@ -341,29 +335,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     setVoiceQuotaExhausted(true);
   }, []);
 
-  // The game against the coach, for the voice coach: read through a ref (the hook keeps its
-  // options in one), started and played through the page.
+  // The game against the coach, for the voice coach: read through a ref (the hook keeps its options in one).
   const gameRef = useRef<GameStateView | null>(game);
   gameRef.current = game;
   const getGame = useCallback(() => gameRef.current, []);
-  const voiceStartGame = useCallback(
-    async (options: { color: 'white' | 'black' | 'random'; elo: number; comment_mode: 'quiet' }) => {
-      if (!onVoiceStartGame) throw new Error('A game cannot be started here.');
-      const view = await onVoiceStartGame(options);
-      gameRef.current = view;  // the next tool call in this turn sees it before the re-render
-      return view;
-    },
-    [onVoiceStartGame],
-  );
-  const voiceGameMove = useCallback(
-    async (uci: string) => {
-      if (!onVoiceGameMove) throw new Error('No game is on.');
-      const view = await onVoiceGameMove(uci);
-      gameRef.current = view;
-      return view;
-    },
-    [onVoiceGameMove],
-  );
 
   const {
     status: voiceStatus,
@@ -384,8 +359,6 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onToolResult: handleVoiceToolResult,
     onQuotaExhausted: handleVoiceQuotaExhausted,
     getGame,
-    startGame: voiceStartGame,
-    playGameMove: voiceGameMove,
   });
 
   // While voice mode is live, push every board change into the session so the

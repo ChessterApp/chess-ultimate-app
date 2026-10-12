@@ -1,147 +1,29 @@
 /**
- * The game against the coach, by voice (2026-10-10).
+ * The game against the coach and the famous games, as the voice coach hears about them.
  *
- * Voice had no game: on «спорим, я тебя надую» the Live coach "played" by talking — it said
- * «я пошёл e4» without putting anything on the board, and after 1.e4 d5 2.exd5 it wrote a FEN
- * of its own with both pawns gone (Alexander, chesster.io, 10.10). Now two tools the browser runs
- * itself start the same game as the «Сыграть с тренером» button and play the student's spoken
- * moves in it; the engine plays the coach's moves, the board shows them, and the voice coach
- * only says them aloud. Shared by the live-token route (declarations + prompt) and the voice
- * hook (the calls, the [Game] lines).
+ * The game itself is Hermes' (src/tools/game_play.py): start_game / make_game_move, called by the
+ * text coach and the voice coach alike, answer with a `game` board action carrying the game's state,
+ * which the page shows the way it shows a game started by its «Сыграть с тренером» button
+ * (2026-10-12; on 2026-10-10 voice "played" by talking and wrote a FEN of its own). What stays here
+ * is what the browser tells the Live model itself: the [Game] line after a move made on the board,
+ * and the verified score of a famous game the student named.
  */
-import { Chess } from 'chess.js';
-import { russianToSan } from '@/lib/russianNotation';
+import type { BoardAction } from '@/types/coach';
 import type { GameStateView } from '@/lib/coach/boards-api';
 
-export const VOICE_GAME_TOOL_NAMES = new Set(['start_game', 'make_game_move']);
-
-/** The engine strengths the site offers (GamePanel's GAME_STRENGTHS). */
-const STRENGTHS = [600, 800, 1000, 1200, 1500, 1800, 2000, 2200, 2500];
-
-export const VOICE_GAME_TOOLS = [
-  {
-    name: 'start_game',
-    description:
-      "Start a game against the student on the site's board — the same game as its «Play the coach» " +
-      "button. The engine plays the coach's moves at the chosen strength. The result says the student's " +
-      "colour, whose move it is and, when the student plays Black, the engine's first move.",
-    parameters: {
-      type: 'object',
-      properties: {
-        color: { type: 'string', enum: ['white', 'black', 'random'], description: "The student's colour (default white)." },
-        elo: { type: 'integer', description: 'Engine strength, 600–2500 (default 1200).' },
-      },
-    },
-  },
-  {
-    name: 'make_game_move',
-    description:
-      "Play the student's move in the game on the board. The result gives the engine's reply (say it " +
-      'aloud), the verdict on the student\'s move and whether the game is over.',
-    parameters: {
-      type: 'object',
-      properties: {
-        move: { type: 'string', description: "The student's move in SAN: e4, Nf3, exd5, O-O, e8=Q." },
-      },
-      required: ['move'],
-    },
-  },
-];
-
-export const VOICE_GAME_GUIDANCE = `
-
-## A game against the student (voice)
-- When the student wants to play a game with you — in any words: «давай сыграем», «спорим, я тебя обыграю», "let's play" — call start_game. The site starts the same game as its «Play the coach» button and the engine plays your moves. Pass the colour and strength the student named (colour white|black|random; elo 600–2500, default 1200); ask nothing first.
-- In a game you never choose or invent a move yourself and never say you made a move that the tools did not report. When the student says their move («е4», «конь эф три», «пешка бьёт на d5», "knight f3"), call make_game_move with it in SAN (e4, Nf3, exd5, O-O, e8=Q). Its result gives the engine's reply: say that move aloud in words («я отвечаю: конь эф шесть»), so the student can play without looking. If the move is illegal or it is not their turn, say so and ask for another.
-- The student may move on the board instead: you then get a [Game] line with their move and the engine's reply — say the reply aloud the same way.
-- During a game board_control may only draw arrows or highlight squares: the position belongs to the game. Give hints, never the best move unless the student asks for a hint; when a result marks their move a mistake or a blunder, you may say so in a word.
-- Outside a game, to show moves on the board use board_control load_pgn with the moves; never write a FEN by hand.`;
-
-export function nearestStrength(elo: unknown): number {
-  const n = typeof elo === 'number' && Number.isFinite(elo) ? elo : 1200;
-  return STRENGTHS.reduce((best, s) => (Math.abs(s - n) < Math.abs(best - n) ? s : best), STRENGTHS[0]);
-}
-
-export function gameColor(color: unknown): 'white' | 'black' | 'random' {
-  return color === 'black' || color === 'random' ? color : 'white';
-}
-
-/**
- * The student's move, as the model wrote it, played from *fen*: SAN, Russian notation
- * («Кf3», «е:д5»), from-to («e2e4», «e2-e4») or castling with zeros. Returns its UCI and SAN,
- * or why it cannot be played with the legal moves.
- */
-export function spokenMoveToUci(
-  fen: string,
-  move: unknown,
-): { uci: string; san: string } | { error: string; legal: string[] } {
-  const chess = new Chess(fen);
-  const legal = chess.moves();
-  const raw = typeof move === 'string' ? move.trim() : '';
-  if (!raw) return { error: 'no move given', legal };
-  const candidates = new Set<string>([raw, russianToSan(raw), raw.replace(/[+#!?]+$/, '')]);
-  for (const text of candidates) {
-    try {
-      const m = new Chess(fen).move(text);
-      if (m) return { uci: `${m.from}${m.to}${m.promotion ?? ''}`, san: m.san };
-    } catch {
-      /* not this spelling */
-    }
+/** The game's state carried by a `game` board action, if the actions have one (the last). */
+export function gameFromActions(actions: unknown): GameStateView | null {
+  if (!Array.isArray(actions)) return null;
+  let found: GameStateView | null = null;
+  for (const a of actions as BoardAction[]) {
+    if (a && a.type === 'game' && a.game && typeof a.game.fen === 'string') found = a.game;
   }
-  const coord = /^([a-h][1-8])\s*[-x:]?\s*([a-h][1-8])\s*=?\s*([qrbnQRBN])?$/.exec(raw);
-  if (coord) {
-    try {
-      const m = new Chess(fen).move({ from: coord[1], to: coord[2], promotion: coord[3]?.toLowerCase() });
-      if (m) return { uci: `${m.from}${m.to}${m.promotion ?? ''}`, san: m.san };
-    } catch {
-      /* illegal */
-    }
-  }
-  return { error: `${raw} is not a legal move here`, legal };
+  return found;
 }
 
 function sideToMove(view: GameStateView): string {
   if (view.status !== 'playing') return 'the game is over';
   return view.student_to_move ? "the student's move" : "the engine's move";
-}
-
-function over(view: GameStateView): Record<string, unknown> {
-  if (view.status === 'playing') return {};
-  return { game_over: true, result: view.result, termination: view.termination, winner: view.winner };
-}
-
-/** What the model hears after start_game. */
-export function gameStartResult(view: GameStateView): Record<string, unknown> {
-  return {
-    ok: true,
-    student_color: view.student_color,
-    engine_elo: view.engine_elo,
-    engine_first_move: view.engine?.san ?? null,
-    to_move: sideToMove(view),
-    fen: view.fen,
-    note: view.engine?.san
-      ? `The game is on. The engine opened with ${view.engine.san}: say it aloud, then wait for the student's move.`
-      : 'The game is on and the student moves first: ask for their move.',
-  };
-}
-
-/** What the model hears after make_game_move. */
-export function gameMoveResult(view: GameStateView): Record<string, unknown> {
-  const s = view.student;
-  const bad = s && (s.verdict === 'mistake' || s.verdict === 'blunder');
-  return {
-    ok: true,
-    student_move: s?.san ?? null,
-    verdict: s?.verdict ?? null,
-    ...(bad && s?.best ? { better_was: s.best } : {}),
-    engine_reply: view.engine?.san ?? null,
-    to_move: sideToMove(view),
-    fen: view.fen,
-    ...over(view),
-    note: view.engine?.san
-      ? `Say the engine's reply ${view.engine.san} aloud in words.`
-      : view.status === 'playing' ? '' : 'The game is over: say the result.',
-  };
 }
 
 /** The [Game] line the voice coach gets when the game's position changed on the board. */
@@ -159,6 +41,46 @@ export function gameNote(view: GameStateView): string {
   return (
     `[Game] A game against the student is on the board (the student plays ${view.student_color}, ` +
     `engine ${view.engine_elo}). ${moves}${end} Position (FEN): ${view.fen}. ` +
-    'Moves go only through make_game_move; never change the position with board_control.'
+    "The student's moves go through make_game_move; never change the position with board_control."
   );
+}
+
+/** Words that may name a famous game: Hermes decides which, if any (famous_game). */
+export function mentionsAGame(text: string): boolean {
+  return /парти|game|ойын/i.test(text || '');
+}
+
+/** The line the voice coach gets with a famous game's verified score (famous_game). */
+export function famousNote(result: { found?: boolean; facts?: string } | null): string | null {
+  if (!result?.found || !result.facts) return null;
+  return `[Game record] ${result.facts}`.replace(/\s+/g, ' ').trim();
+}
+
+/** Words that may ask for a game («давай сыграем», «спорим, я тебя обыграю», "let's play"): Hermes decides. */
+export function mayAskForAGame(text: string): boolean {
+  return /сыгра|поигра|партейк|обыгра|спорим|play|ойна/i.test(text || '');
+}
+
+/** The line after the site started the game for the student's words (start_game with `said`). */
+export function gameStartNote(result: { ok?: boolean; note?: string; student_color?: string } | null): string | null {
+  if (!result?.ok) return null;
+  return (
+    `[Game] The student asked to play and the game has started on the board (the system started it; ` +
+    `the student plays ${result.student_color ?? 'white'}). ${result.note ?? ''} Never play or invent a move ` +
+    'yourself: the student\'s moves go through make_game_move, the engine makes yours.'
+  ).replace(/\s+/g, ' ').trim();
+}
+
+/** The line after the site played the move the student said (make_game_move with `said`). */
+export function gameMoveNote(
+  result: { ok?: boolean; student_move?: string; verdict?: string; engine_reply?: string | null; game_over?: boolean; result?: string } | null,
+): string | null {
+  if (!result?.ok || !result.student_move) return null;
+  const verdict = result.verdict && result.verdict !== 'ok' ? ` (${result.verdict})` : '';
+  const reply = result.engine_reply ? `; the engine answered ${result.engine_reply} — say it aloud in words` : '';
+  const over = result.game_over ? ` The game is over: ${result.result ?? ''} — say the result.` : '';
+  return (
+    `[Game] The student's move ${result.student_move}${verdict} was played on the board (the system played it)` +
+    `${reply}.${over} Do not call make_game_move for this move.`
+  ).replace(/\s+/g, ' ').trim();
 }

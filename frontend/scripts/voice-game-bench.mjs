@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * voice-game-bench — a whole game against the coach by voice, the way the browser runs it
- * (src/lib/coach/voice-game.ts): the Live model gets Hermes' voice prompt and tools plus the
- * site's start_game / make_game_move; those two are played on a local Hermes through the same
- * game endpoints the page calls, every other tool through /api/coach/tool. The student's turns
- * are spoken with macOS `say` and streamed in real time.
+ * voice-game-bench — a whole game against the coach by voice, the way the browser runs it: the
+ * Live model gets Hermes' voice prompt and tools (start_game / make_game_move among them, 2026-10-12)
+ * and every tool runs on a local Hermes through /api/coach/tool with the session and the student's
+ * last words, as the site sends them. The student's turns are spoken with macOS `say` and streamed
+ * in real time.
  *
  *   cd frontend
  *   node scripts/voice-game-bench.mjs --hermes http://127.0.0.1:8690 --runs 2 --out /tmp/vg
@@ -18,18 +18,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, Modality } from '@google/genai';
-import { createJiti } from 'jiti';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FRONT = path.resolve(HERE, '..');
 const REPO = path.resolve(FRONT, '..');
-const jiti = createJiti(import.meta.url, { alias: { '@': path.join(FRONT, 'src') } });
-const vg = await jiti.import(path.join(FRONT, 'src/lib/coach/voice-game.ts'));
 
 // What 3.1 gets in production (VOICE_CORE_TOOLS in the live-token route).
 const CORE = new Set(['board_control', 'analyze_position', 'get_position_stats', 'get_opening_stats',
   'search_master_games', 'get_game_pgn', 'compare_variations', 'score_position_themes', 'check_moves',
-  'get_puzzle', 'get_topic', 'list_topics', 'get_lesson', 'get_learning_path', 'lookup_opening', 'review_game']);
+  'get_puzzle', 'get_topic', 'list_topics', 'get_lesson', 'get_learning_path', 'lookup_opening', 'review_game',
+  'start_game', 'make_game_move', 'famous_game']);
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const IN_RATE = 16000;
 const CHUNK_MS = 20;
@@ -96,15 +94,14 @@ async function run(ai, n) {
   const hermesTools = ((await hermes('/api/coach/tools', undefined, 'GET', user)).tools || []).filter((t) => CORE.has(t.name));
   const config = {
     responseModalities: [Modality.AUDIO],
-    systemInstruction: prompt.system_prompt + vg.VOICE_GAME_GUIDANCE,
+    systemInstruction: prompt.system_prompt,
     inputAudioTranscription: { languageCodes: ['ru-RU', 'kk-KZ', 'en-US'] },
     outputAudioTranscription: {},
-    tools: [{ functionDeclarations: [...hermesTools, ...vg.VOICE_GAME_TOOLS] }],
+    tools: [{ functionDeclarations: hermesTools }],
     thinkingConfig: { thinkingBudget: 0 },
   };
 
-  let game = null;
-  let told = null;  // the game FEN the model was told about
+  let game = null;  // the last game state a tool returned
   const log = [];
   let turn = null;
   let idleTimer = null;
@@ -114,42 +111,18 @@ async function run(ai, n) {
     idleTimer = setTimeout(() => resolveTurn(), IDLE_AFTER_TURN_MS);
   };
 
-  async function gameTool(name, args) {
-    try {
-      if (name === 'start_game') {
-        if (game && game.status === 'playing') return { ...vg.gameStartResult(game), ok: false, error: 'A game is already on.' };
-        game = await hermes(`/api/coach/sessions/${sid}/game`, { color: vg.gameColor(args.color), elo: vg.nearestStrength(args.elo), comment_mode: 'quiet' }, 'POST', user);
-        told = game.fen;
-        return vg.gameStartResult(game);
-      }
-      if (!game || game.status !== 'playing') return { error: 'No game is on: call start_game first.' };
-      if (!game.student_to_move) return { error: "It is not the student's move." };
-      const parsed = vg.spokenMoveToUci(game.fen, args.move);
-      if (parsed.error) return { error: parsed.error, legal_moves: parsed.legal.slice(0, 40) };
-      game = await hermes(`/api/coach/sessions/${sid}/game/${game.board_id}/move`, { move: parsed.uci }, 'POST', user);
-      told = game.fen;
-      return vg.gameMoveResult(game);
-    } catch (err) {
-      return { error: String(err.message || err) };
-    }
-  }
-
   async function onTool(session, calls) {
     const responses = [];
     for (const fc of calls) {
       let response;
-      const action = String(fc.args?.action_type ?? '');
-      if (vg.VOICE_GAME_TOOL_NAMES.has(fc.name)) {
-        response = await gameTool(fc.name, fc.args ?? {});
-      } else if (fc.name === 'board_control' && game?.status === 'playing' && ['set_fen', 'load_pgn', 'set_puzzle', 'clear_board', 'navigate'].includes(action)) {
-        response = { error: 'A game is on: the position belongs to the game, nothing was changed.' };
-      } else {
-        try {
-          const body = await hermes(`/api/coach/tool/${encodeURIComponent(fc.name)}`, { args: fc.args ?? {}, session_id: sid }, 'POST', user);
-          response = { result: body.result ?? body };
-        } catch (err) {
-          response = { error: String(err.message || err) };
-        }
+      try {
+        const body = await hermes(`/api/coach/tool/${encodeURIComponent(fc.name)}`,
+          { args: fc.args ?? {}, session_id: sid, utterance: turn.heard.trim() || undefined }, 'POST', user);
+        response = body.error ? { error: body.error } : { result: body.result ?? body };
+        const g = (body.board_actions || []).find((a) => a.type === 'game');
+        if (g) game = g.game;
+      } catch (err) {
+        response = { error: String(err.message || err) };
       }
       turn.tools.push({ name: fc.name, args: fc.args, response });
       responses.push({ id: fc.id, name: fc.name, response });
@@ -231,11 +204,6 @@ async function run(ai, n) {
     turn.board = game ? { fen: game.fen, moves: game.moves, status: game.status } : null;
     turn.timeout = !finished;
     log.push(turn);
-    // A [Game] line is what the page would send after a board change the model was not told about.
-    if (game && told !== game.fen) {
-      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: vg.gameNote(game) }] }], turnComplete: false });
-      told = game.fen;
-    }
   }
   try {
     session.close();

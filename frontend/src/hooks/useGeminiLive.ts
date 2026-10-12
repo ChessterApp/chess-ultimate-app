@@ -8,13 +8,13 @@ import type {
 } from '@google/genai';
 import type { GameStateView } from '@/lib/coach/boards-api';
 import {
-  VOICE_GAME_TOOL_NAMES,
-  gameColor,
-  gameMoveResult,
+  famousNote,
+  gameFromActions,
+  gameMoveNote,
   gameNote,
-  gameStartResult,
-  nearestStrength,
-  spokenMoveToUci,
+  gameStartNote,
+  mayAskForAGame,
+  mentionsAGame,
 } from '@/lib/coach/voice-game';
 
 /**
@@ -172,7 +172,9 @@ export function verdictNote(verdict: { kind?: string; headline?: string } | null
   ).replace(/\s+/g, ' ').trim();
 }
 // Tools the site calls itself from the student's words (see lookUpConcept).
-export const SITE_FETCHED_TOOLS = new Set(['get_topic', 'lookup_opening', 'get_puzzle', 'review_game']);
+export const SITE_FETCHED_TOOLS = new Set([
+  'get_topic', 'lookup_opening', 'get_puzzle', 'review_game', 'famous_game', 'start_game', 'make_game_move',
+]);
 
 // What the coach said is checked on the board sentence by sentence (the same
 // check the text coach's answers pass before they are shown — a spoken
@@ -336,10 +338,6 @@ export interface UseGeminiLiveOptions {
   onQuotaExhausted?: () => void;
   /** The game against the coach on the board, if any (src/lib/coach/voice-game.ts). */
   getGame?: () => GameStateView | null | undefined;
-  /** Start the same game as the «Play the coach» button; resolves to its state. */
-  startGame?: (options: { color: 'white' | 'black' | 'random'; elo: number; comment_mode: 'quiet' }) => Promise<GameStateView>;
-  /** Play the student's move (UCI) in that game; resolves to the state after the engine's reply. */
-  playGameMove?: (uci: string) => Promise<GameStateView>;
 }
 
 export interface UseGeminiLiveReturn {
@@ -532,29 +530,6 @@ export default function useGeminiLive(
   const gameToldFenRef = useRef<string | null>(null);
   const gameLive = () => optionsRef.current.getGame?.()?.status === 'playing';
 
-  /** start_game / make_game_move, run here: the same game as the «Play the coach» button. */
-  const runGameTool = useCallback(async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const opts = optionsRef.current;
-    const game = opts.getGame?.() ?? null;
-    try {
-      if (name === 'start_game') {
-        if (!opts.startGame) return { error: 'A game cannot be started here.' };
-        if (game && game.status === 'playing') return { ...gameStartResult(game), ok: false, error: 'A game is already on.' };
-        const view = await opts.startGame({ color: gameColor(args.color), elo: nearestStrength(args.elo), comment_mode: 'quiet' });
-        gameToldFenRef.current = view.fen;
-        return gameStartResult(view);
-      }
-      if (!game || game.status !== 'playing' || !opts.playGameMove) return { error: 'No game is on: call start_game first.' };
-      if (!game.student_to_move) return { error: "It is not the student's move." };
-      const parsed = spokenMoveToUci(game.fen, args.move);
-      if ('error' in parsed) return { error: parsed.error, legal_moves: parsed.legal.slice(0, 40) };
-      const view = await opts.playGameMove(parsed.uci);
-      gameToldFenRef.current = view.fen;
-      return gameMoveResult(view);
-    } catch (err) {
-      return { error: err instanceof Error ? err.message : 'the game call failed' };
-    }
-  }, []);
 
   const statusRef = useRef<LiveStatus>('idle');
   const sessionRef = useRef<Session | null>(null);
@@ -1006,32 +981,6 @@ export default function useGeminiLive(
           }
         }, TOOL_CALL_TIMEOUT_MS);
         try {
-          // The game tools are the site's own: the browser plays them (src/lib/coach/voice-game.ts).
-          if (fc.name && VOICE_GAME_TOOL_NAMES.has(fc.name)) {
-            clearTimeout(timeout);
-            const response = await runGameTool(fc.name, (fc.args ?? {}) as Record<string, unknown>);
-            if (response.error) {
-              toolOk = false;
-              toolErrorCode = 'game';
-            }
-            return { id: fc.id, name: fc.name, response };
-          }
-          // While a game is on the position belongs to it: the page keeps it anyway, and the
-          // model must not be told it set one (it said «я поставил e4» and nothing moved).
-          const action = String((fc.args as { action_type?: unknown } | undefined)?.action_type ?? '');
-          if (fc.name === 'board_control' && gameLive() && ['set_fen', 'load_pgn', 'set_puzzle', 'clear_board', 'navigate'].includes(action)) {
-            clearTimeout(timeout);
-            toolOk = false;
-            toolErrorCode = 'game_on';
-            return {
-              id: fc.id,
-              name: fc.name,
-              response: {
-                error: "A game is on: the position belongs to the game, nothing was changed. The student's moves go " +
-                  "through make_game_move and the engine makes the coach's; board_control may only draw arrows or highlight squares.",
-              },
-            };
-          }
           // The site already made this call for the student's words: the model
           // gets the same result — the board keeps what the student was told about.
           const siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
@@ -1051,6 +1000,8 @@ export default function useGeminiLive(
               name: fc.name,
               args: fc.args ?? {},
               session_id: sessionId,
+              // Hermes decides the board lock from the student's words, as for a text turn.
+              utterance: userUtteranceRef.current || undefined,
             }),
             signal: controller.signal,
           });
@@ -1070,6 +1021,10 @@ export default function useGeminiLive(
               },
             };
           }
+          // A game started or a move played (start_game / make_game_move): the model has the result,
+          // so the board change it brings is not reported again as a [Game] line.
+          const game = gameFromActions((data as { board_actions?: unknown[] }).board_actions);
+          if (game) gameToldFenRef.current = game.fen;
           try {
             optionsRef.current.onToolResult?.(fc.name ?? '', data);
           } catch {
@@ -1147,7 +1102,7 @@ export default function useGeminiLive(
     } catch {
       /* session may be closing */
     }
-  }, [reportMetric, ensureTurnId, runGameTool]);
+  }, [reportMetric, ensureTurnId]);
 
   // Gemini rarely marks a transcription `finished`, so an utterance also ends at
   // the turn's edges: the student's when the coach starts answering (speech or a
@@ -1221,7 +1176,12 @@ export default function useGeminiLive(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ name, args, session_id: optionsRef.current.getSessionId?.() ?? undefined }),
+        body: JSON.stringify({
+          name,
+          args,
+          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          utterance: userUtteranceRef.current || undefined,
+        }),
       });
       if (!res.ok) return false;
       const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
@@ -1230,6 +1190,8 @@ export default function useGeminiLive(
       if (!note) return false;
       if (sessionRef.current !== session) return false;
       siteResultsRef.current.set(name, data);
+      const game = gameFromActions(data.board_actions);
+      if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
       try {
         optionsRef.current.onToolResult?.(name, data);
       } catch {
@@ -1288,10 +1250,22 @@ export default function useGeminiLive(
   }, []);
 
   const lookUpConcept = useCallback(async (text: string) => {
-    if (conceptDoneRef.current || text.trim().split(/\s+/).length < 2) return;
-    if (gameLive()) return;  // the board is the game's: no example goes up
+    if (conceptDoneRef.current) return;
     const session = sessionRef.current;
     if (!session) return;
+    // A game asked for, or the student's move said on its own in the game: Hermes reads the words and
+    // does it (src/game_intent.py) — the Live model alone may play by talking (2026-10-10).
+    if (gameLive()) {
+      if (text.trim().split(/\s+/).length <= 6 && (await siteToolCall('make_game_move', { said: text }, session, gameMoveNote))) {
+        conceptDoneRef.current = true;
+      }
+      return;  // the board is the game's: no example goes up
+    }
+    if (mayAskForAGame(text) && (await siteToolCall('start_game', { said: text }, session, gameStartNote))) {
+      conceptDoneRef.current = true;
+      return;
+    }
+    if (text.trim().split(/\s+/).length < 2) return;
     // A puzzle or a review asked for: the site fetches it; the coach only talks.
     if (PUZZLE_REQUEST_RE.test(text)) {
       conceptDoneRef.current = true;
@@ -1301,6 +1275,12 @@ export default function useGeminiLive(
     if (REVIEW_REQUEST_RE.test(text)) {
       conceptDoneRef.current = true;
       if (await lookUpReview(text, session)) return;
+    }
+    // A famous game named («оперная партия Морфи»): its verified score goes up, as the text coach's
+    // pre-step puts it (Hermes decides which game; 2026-10-12).
+    if (mentionsAGame(text) && (await siteToolCall('famous_game', { text }, session, famousNote))) {
+      conceptDoneRef.current = true;
+      return;
     }
     // An opening named in the words wins over a concept («что такое жареная
     // печень» is the Fried Liver, not the knowledge base's «печень»).
@@ -1324,6 +1304,7 @@ export default function useGeminiLive(
           name: 'get_topic',
           args: { topic: text },
           session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          utterance: text,
         }),
       });
       if (!res.ok) return;
@@ -1344,7 +1325,7 @@ export default function useGeminiLive(
     } catch {
       /* unavailable — the coach can still call get_topic itself */
     }
-  }, [lookUpOpening, lookUpPuzzle, lookUpReview]);
+  }, [lookUpOpening, lookUpPuzzle, lookUpReview, siteToolCall]);
   // The student names a move: play it on the board at Hermes, let Stockfish look
   // at the position after it, and hand the model the "[Idea]" line — before it
   // answers from its head (text coach: src/hypothetical.py, same facts).
@@ -1363,7 +1344,8 @@ export default function useGeminiLive(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text, fen }),
+        // The game on the board: «на 8-м ходу» is judged at that move, as the text coach does.
+        body: JSON.stringify({ text, fen, pgn: optionsRef.current.getPgn?.() || undefined }),
       });
       if (!res.ok) return;
       const data = (await res.json().catch(() => null)) as

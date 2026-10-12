@@ -1346,8 +1346,8 @@ describe('useGeminiLive', () => {
   });
 });
 
-// ---- The game against the coach by voice (2026-10-10) ------------------------
-describe('useGeminiLive: a game by voice', () => {
+// ---- The game, the board lock, the famous games by voice (2026-10-10 / 10-12) ----
+describe('useGeminiLive: what the text coach has, by voice', () => {
   const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
   const AFTER = 'rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2';
   const game = (over: Record<string, unknown> = {}) => ({
@@ -1355,80 +1355,122 @@ describe('useGeminiLive: a game by voice', () => {
     result: null, termination: null, winner: null, fen: START, pgn: '', ply: 0, moves: [],
     student_to_move: true, in_check: false, student: null, engine: null, comment_wanted: false, ...over,
   }) as any;
-  const fetchCalls = () => (globalThis.fetch as any).mock.calls.map((c: any[]) => c[0]);
+  const AFTER_GAME = game({ fen: AFTER, student: { san: 'e4', uci: 'e2e4', verdict: 'ok', cp_loss: 0, eval_after: 0.3, best: null }, engine: { san: 'd5', uci: 'd7d5' } });
 
+  let toolReply: (body: any) => any = () => ({});
   async function connectWith(opts: Record<string, unknown>) {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => (url === '/api/coach/live-token'
-      ? { ok: true, json: async () => ({ token: 'auth_tokens/abc', model: 'gemini-3.1-flash-live-preview', expiresAt: '2026-01-01T00:00:00.000Z' }) }
-      : { ok: true, json: async () => ({}) })));
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+      if (url === '/api/coach/live-token') {
+        return { ok: true, json: async () => ({ token: 'auth_tokens/abc', model: 'gemini-3.1-flash-live-preview', expiresAt: '2026-01-01T00:00:00.000Z' }) };
+      }
+      if (url === '/api/coach/tool') return { ok: true, json: async () => toolReply(JSON.parse(init.body)) };
+      return { ok: true, json: async () => ({}) };
+    }));
     const hook = renderHook(() => useGeminiLive(opts as any));
     await act(async () => {
       await hook.result.current.connect();
     });
     return hook;
   }
+  const fetchCalls = () => (globalThis.fetch as any).mock.calls;
+  const bodiesTo = (url: string) => fetchCalls().filter((c: any[]) => c[0] === url).map((c: any[]) => JSON.parse(c[1].body));
+  const say = (text: string) => act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { inputTranscription: { text } } }));
   const call = async (name: string, args: Record<string, unknown>) => {
     await act(async () => {
       g.connectArgs.value.callbacks.onmessage({ toolCall: { functionCalls: [{ id: 'c1', name, args }] } });
       await new Promise((r) => setTimeout(r, 0));
     });
-    return g.session.sendToolResponse.mock.calls.at(-1)?.[0]?.functionResponses?.[0]?.response;
   };
+  const sent = () => g.session.sendClientContent.mock.calls.map((c: any[]) => c[0].turns[0].parts[0].text as string);
 
-  it('start_game starts the page\'s game, quiet, at a site strength — not through Hermes', async () => {
-    const startGame = vi.fn(async () => game({ student_color: 'black', engine: { san: 'e4', uci: 'e2e4' } }));
-    await connectWith({ getGame: () => null, startGame });
-    const response = await call('start_game', { color: 'black', elo: 1300 });
-    expect(startGame).toHaveBeenCalledWith({ color: 'black', elo: 1200, comment_mode: 'quiet' });
-    expect(response).toMatchObject({ ok: true, student_color: 'black', engine_first_move: 'e4' });
-    expect(fetchCalls()).not.toContain('/api/coach/tool');
+  it('a game move by the Hermes tool reaches the page, and its board change is not told twice', async () => {
+    toolReply = () => ({ result: { ok: true, engine_reply: 'd5' }, board_actions: [{ type: 'game', game: AFTER_GAME }] });
+    let current = game();
+    const onToolResult = vi.fn();
+    const { result } = await connectWith({ getGame: () => current, onToolResult });
+    await call('make_game_move', { move: 'e4' });
+    expect(onToolResult).toHaveBeenCalledWith('make_game_move', expect.objectContaining({ board_actions: [{ type: 'game', game: AFTER_GAME }] }));
+    g.session.sendClientContent.mockClear();
+    current = AFTER_GAME;  // the page applied it
+    act(() => result.current.sendBoardUpdate(AFTER));
+    expect(sent().some((t) => t.startsWith('[Game]'))).toBe(false);
   });
 
-  it('make_game_move plays the spoken move as UCI and returns the engine reply', async () => {
-    const playGameMove = vi.fn(async () => game({ fen: AFTER, student: { san: 'e4', uci: 'e2e4', verdict: 'ok', cp_loss: 0, eval_after: 0.3, best: null }, engine: { san: 'd5', uci: 'd7d5' } }));
-    await connectWith({ getGame: () => game(), playGameMove });
-    const response = await call('make_game_move', { move: 'е4' });  // Cyrillic «е»
-    expect(playGameMove).toHaveBeenCalledWith('e2e4');
-    expect(response).toMatchObject({ ok: true, student_move: 'e4', engine_reply: 'd5' });
-  });
-
-  it('an illegal or out-of-turn move is refused with the reason, nothing played', async () => {
-    const playGameMove = vi.fn();
-    await connectWith({ getGame: () => game(), playGameMove });
-    expect(await call('make_game_move', { move: 'Ke2' })).toMatchObject({ error: expect.stringMatching(/not a legal move/) });
-    expect(playGameMove).not.toHaveBeenCalled();
-  });
-
-  it('during a game board_control cannot change the position, and the model hears so', async () => {
-    await connectWith({ getGame: () => game() });
-    const response = await call('board_control', { action_type: 'set_fen', fen: AFTER });
-    expect(response.error).toMatch(/A game is on/);
-    expect(fetchCalls()).not.toContain('/api/coach/tool');
+  it("the student's words go with every tool call: Hermes locks the board from them", async () => {
+    toolReply = () => ({ result: { ok: true } });
+    await connectWith({ getFen: () => START });
+    say('Как здесь выиграть?');
+    await call('board_control', { action_type: 'set_fen', fen: AFTER });
+    expect(bodiesTo('/api/coach/tool').at(-1)).toMatchObject({ name: 'board_control', utterance: 'Как здесь выиграть?' });
   });
 
   it('a board change in the game goes in as a [Game] line, with no engine line', async () => {
     let current = game();
     const { result } = await connectWith({ getGame: () => current });
     g.session.sendClientContent.mockClear();
-    current = game({ fen: AFTER, student: { san: 'e4', uci: 'e2e4', verdict: 'ok', cp_loss: 0, eval_after: 0.3, best: null }, engine: { san: 'd5', uci: 'd7d5' } });
+    current = AFTER_GAME;  // the student moved on the board
     act(() => result.current.sendBoardUpdate(AFTER));
-    const text = g.session.sendClientContent.mock.calls.at(-1)[0].turns[0].parts[0].text;
-    expect(text).toMatch(/^\[Game\].*the engine answered d5/);
-    expect(fetchCalls()).not.toContain('/api/coach/voice/engine-note');
+    expect(sent().at(-1)).toMatch(/^\[Game\].*the engine answered d5/);
+    expect(fetchCalls().map((c: any[]) => c[0])).not.toContain('/api/coach/voice/engine-note');
   });
 
   it('a move said in the game is not looked up as an idea', async () => {
     await connectWith({ getGame: () => game(), getFen: () => START });
     vi.useFakeTimers();
     try {
-      act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { inputTranscription: { text: 'а если Кf3' } } }));
+      say('а если Кf3');
       await act(async () => {
         vi.advanceTimersByTime(2000);
       });
     } finally {
       vi.useRealTimers();
     }
-    expect(fetchCalls()).not.toContain('/api/coach/voice/idea');
+    expect(fetchCalls().map((c: any[]) => c[0])).not.toContain('/api/coach/voice/idea');
+  });
+
+  it('the idea check gets the game on the board, for «на 8-м ходу»', async () => {
+    await connectWith({ getFen: () => START, getPgn: () => '1. e4 e5 2. Nf3' });
+    say('а если Кf3');
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/idea')).toHaveLength(1));
+    expect(bodiesTo('/api/coach/voice/idea')[0]).toMatchObject({ text: 'а если Кf3', pgn: '1. e4 e5 2. Nf3' });
+  });
+
+  it('a famous game named: its verified score goes up and the coach gets the facts', async () => {
+    toolReply = (body) => (body.name === 'famous_game'
+      ? { result: { found: true, facts: '## The famous game … Morphy, ALREADY on the board' }, board_actions: [{ type: 'load_pgn', pgn: '1. e4 e5' }] }
+      : { result: {} });
+    const onToolResult = vi.fn();
+    await connectWith({ getFen: () => START, onToolResult });
+    say('Покажи оперную партию Морфи');
+    await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('famous_game', expect.anything()));
+    expect(bodiesTo('/api/coach/tool')[0]).toMatchObject({ name: 'famous_game', args: { text: 'Покажи оперную партию Морфи' } });
+    expect(sent().some((t) => t.startsWith('[Game record]') && t.includes('Morphy'))).toBe(true);
+  });
+
+  it('a move said in the game is played by Hermes for the words, and the model gets that result, not a second move', async () => {
+    toolReply = (body) => (body.name === 'make_game_move' && body.args.said === 'е4'
+      ? { result: { ok: true, student_move: 'e4', engine_reply: 'd5' }, board_actions: [{ type: 'game', game: AFTER_GAME }] }
+      : { result: {} });
+    const onToolResult = vi.fn();
+    await connectWith({ getGame: () => game(), onToolResult });
+    say('е4');
+    await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('make_game_move', expect.anything()));
+    expect(sent().some((t) => t.startsWith("[Game] The student's move e4") && t.includes('the engine answered d5'))).toBe(true);
+    await call('make_game_move', { move: 'e4' });  // the model plays it too
+    expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'make_game_move')).toHaveLength(1);
+    expect(g.session.sendToolResponse.mock.calls.at(-1)[0].functionResponses[0].response.result).toMatchObject({ student_move: 'e4' });
+  });
+
+  it('a game asked for in words is started by Hermes for the words', async () => {
+    toolReply = (body) => (body.name === 'start_game'
+      ? { result: { ok: true, student_color: 'black', note: 'The engine opened with e4.' }, board_actions: [{ type: 'game', game: game({ student_color: 'black' }) }] }
+      : { result: {} });
+    const onToolResult = vi.fn();
+    await connectWith({ getGame: () => null, getFen: () => START, onToolResult });
+    say('Спорим, я тебя обыграю? Давай сыграем, я чёрными');
+    await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('start_game', expect.anything()));
+    expect(bodiesTo('/api/coach/tool')[0]).toMatchObject({ name: 'start_game', args: { said: 'Спорим, я тебя обыграю? Давай сыграем, я чёрными' } });
+    expect(sent().some((t) => t.startsWith('[Game] The student asked to play') && t.includes('the student plays black'))).toBe(true);
   });
 
   it('stopping the voice saves what was said so far (open utterances close)', async () => {

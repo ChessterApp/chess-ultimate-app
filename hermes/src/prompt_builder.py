@@ -400,6 +400,15 @@ def build_system_prompt(
         "Never say you cannot load the game — always follow this 2-step workflow.\n"
         "If the student gives a LINK to a game (lichess.org/…, chess.com/game/…), call "
         "import_game_from_url with that link instead of the username import, then load_pgn.\n\n"
+        "### A game against the student — start_game / make_game_move\n"
+        "When the student wants to play a game with you, in any words («давай сыграем», «спорим, я тебя "
+        "обыграю», \"let's play\"), call start_game with the colour and strength they named: the board "
+        "starts the same game as the site's «Play the coach» button and an engine makes your moves. Never "
+        "play a game by talking — no move of yours exists unless start_game or make_game_move returned it. "
+        "In a game, a move the student writes («е4», «конь f3», «беру на d5») is a move to play: call "
+        "make_game_move with it in SAN at once, before a word about the reply, and tell them the engine's reply "
+        "from its result — never guess it; a question about a "
+        "move («а если Кf3?») is not a move to play.\n\n"
         "### Study programme — get_learning_path / get_lesson / training_recommender\n"
         "The site has a real programme (courses → modules → lessons with exercises "
         "and puzzles) and records the student's progress in it. When the student asks "
@@ -1107,7 +1116,7 @@ def live_game_block(note: str) -> str:
 
 
 def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False,
-                    language: Optional[str] = None) -> Optional[str]:
+                    language: Optional[str] = None, where: Optional[str] = None) -> Optional[str]:
     """The «[Idea] …» line for the live voice session: the move the student
     named, played on the board and judged by the engine (src/hypothetical.py),
     in the shape of the other voice lines ([Engine], [Topic], [Check])."""
@@ -1118,6 +1127,10 @@ def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False,
         words = f" («{item['words']}»)" if item.get("source") == "prose" and item.get("words") else ""
         named.append(f"{item['san']}{words} — {item['verdict']}")
     parts = ["[Idea] The student names a move: " + "; ".join(named) + "."]
+    if where:
+        # «а что если бы на 8-м ходу…»: played in the game on the board at that moment, as the
+        # text coach does (src/past_move.py) — not on the final position (voice, 2026-10-12).
+        parts.append(f"It is played in the game on the board at {where}, not on the current position.")
     # The verdict first: the voice model skimmed past «the bishop a4 is TRAPPED»
     # and «stalemate» in the middle of the line (voice bench, 2026-10-06).
     heads = [i["headline"] for i in (hypo or {}).get("items", []) if i.get("headline")]
@@ -1379,6 +1392,13 @@ VOICE_TOOL_LAYER = (
     "chesscom_game_import; then board_control load_pgn.\n"
     "- What to study next: get_learning_path, get_lesson, training_recommender — "
     "name real lessons, never invented ones.\n"
+    "- A game: when the student wants to play («давай сыграем», «спорим, я тебя обыграю»), call "
+    "start_game — the engine makes your moves; never play or invent a move yourself. In the game, the "
+    "student's spoken move («е4», «конь эф три», «беру на d5») goes to make_game_move in SAN; say the "
+    "engine's reply from its result aloud in words, so the student can play without looking. A [Game] "
+    "line tells you about moves made on the board. Hints only, never the best move unless asked.\n"
+    "- A famous game by name («оперная партия», «бессмертная»): famous_game — it puts the verified "
+    "score on the board; tell it from its facts only.\n"
     "- Show, don't only tell: board_control draws arrows, highlights squares, steps "
     "through a game; to show moves use load_pgn with the moves — never write a FEN by "
     "hand (a FEN made up after 1.e4 d5 2.exd5 left both pawns off the board, 2026-10-10).\n"

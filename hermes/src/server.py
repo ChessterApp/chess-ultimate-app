@@ -71,6 +71,7 @@ from src.answer_check import strip_leaning_start
 from src.fen_repair import repair_fen
 from src.coach_feedback import upsert_feedback, delete_feedback
 from src.identity import current_user_id
+from src.board_protocol import GAME_ACTION
 from src import config
 from src import coach_diagnostics as diag
 from src.processors.text_normalize import normalize_text
@@ -647,6 +648,104 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
+def _game_prestep(session, active_board, message: str) -> Optional[dict]:
+    """A game asked for, or the student's move written on its own in the game on the board
+    (src/game_intent.py): started / played here, before the model answers — left to the model, it
+    sometimes played by talking (stand, 2026-10-12). {"view", "block"} or None."""
+    from src import game_mode
+    from src.game_intent import bare_move, game_request
+    from src.tools.game_play import _strength, live_game_board
+
+    live = live_game_board(session)
+    if live is None:
+        req = game_request(message)
+        if not req:
+            return None
+        _, view = game_mode.start_game(session, req["color"], _strength(req["elo"]), "quiet")
+        engine = (view.get("engine") or {}).get("san")
+        block = (
+            "## The game has started on the board (the system started it)\n"
+            f"The student asked to play: the game is on — the student plays {view['student_color']}, the engine "
+            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {engine}. " if engine else
+                                                   "The student moves first. ")
+            + "Tell them it is on and whose move it is. Never play or invent a move of yours: every move of the "
+            "student goes through make_game_move, and the engine makes yours."
+        )
+        return {"view": view, "block": block}
+    if live.id != active_board.id or not live.game_state:
+        return None
+    board = game_mode._replay(live.game_state["moves"])
+    if not game_mode._student_to_move(live.game_state, board):
+        return None
+    san = bare_move(message, board)
+    if not san:
+        from src.move_matcher import named_moves
+
+        asked = [m["san"] for m in named_moves(message, board)] or [
+            m for m in (_parse_move_token(t, board) for t in re.findall(r"[^\s,.;:!?]+", message)) if m]
+        if not asked:
+            return None
+        # «А если Кf3?» in the game: the model played it, or answered with a move of its own (stand, 2026-10-12).
+        return {"view": None, "block": (
+            "## A question about a move in the game — not a move\n"
+            f"The student asks about {', '.join(dict.fromkeys(asked))}: the board did not change and nothing was "
+            "played. Answer the question as their coach in the game — what the move would do, a hint, not the best "
+            "move. Do not call make_game_move and never answer with a move of yours: they play it by writing it."
+        )}
+    view = game_mode.play_move(session, live, san)
+    student = view.get("student") or {}
+    engine = (view.get("engine") or {}).get("san")
+    facts = f"{student.get('san')} ({student.get('verdict')})" + (f"; the engine answered {engine}" if engine else "")
+    if student.get("verdict") in ("mistake", "blunder") and student.get("best"):
+        facts += f" (a better move was {student['best']})"
+    end = (f" The game is over: {view.get('result')} ({view.get('termination')})." if view.get("status") != "playing"
+           else "")
+    block = (
+        "## The student's move was played on the board (the system played it)\n"
+        f"{facts}.{end} Tell them the engine's reply in a sentence and comment as their coach in the game — a "
+        "hint, never the best move unless they ask. Do not call make_game_move for this move: it is played."
+    )
+    return {"view": view, "block": block}
+
+
+def _engine_moves(game: dict) -> list:
+    """The moves the engine made in a game (game_mode state or a game view): every other one."""
+    first = 0 if game.get("student_color") == "black" else 1
+    return [m for i, m in enumerate(game.get("moves") or []) if i % 2 == first]
+
+
+def _parse_move_token(token: str, board) -> Optional[str]:
+    """*token* as a legal SAN move of *board* (Russian notation too), else None."""
+    from src.notation import russian_to_san
+
+    for candidate in (token, russian_to_san(token)):
+        try:
+            return board.san(board.parse_san(candidate))
+        except ValueError:
+            continue
+    return None
+
+
+def _chat_in_session(agent, message: str, session_id: Optional[str], stream_callback=None,
+                     student_message: str = "", game_step: bool = False) -> str:
+    """agent.chat, with the turn's tools seeing the coach session (src/tools.turn_session): the
+    framework gives them only a task id, so the turn's task id is ours."""
+    import functools
+    from uuid import uuid4
+
+    from src.tools import turn_session
+
+    task_id = f"coach-turn-{uuid4().hex}"
+    run = getattr(agent, "run_conversation", None)
+    if callable(run):
+        agent.run_conversation = functools.partial(run, task_id=task_id)  # agent.chat calls it
+    kwargs = {"stream_callback": stream_callback} if stream_callback is not None else {}
+    if not session_id:
+        return agent.chat(message, **kwargs)
+    with turn_session(task_id, session_id, student_message, game_step):
+        return agent.chat(message, **kwargs)
+
+
 def _turn_fallback_model(routed_model: str) -> Optional[str]:
     """Fallback for this turn, or ``None`` when failover is switched off."""
     if not config.COACH_MODEL_FALLBACK_ENABLED:
@@ -684,65 +783,11 @@ _engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note
 
 
 _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
-# The student asks about the position in front of them…
-_ABOUT_POSITION = re.compile(
-    r"(?<![а-яa-z])(?:ход\w*|реши\w*|решени\w*|задач\w*|лучш\w*|играть|сыграть|сыграю|оцени\w*|позици(?!онн)\w*|"
-    r"здесь|тут|в\s+этой\s+позиции|move|moves|solve|solution|puzzle|best|play|position|here|жүріс\w*|есеп\w*|осы\s+жерде)"
-    r"(?![а-яa-z])", re.IGNORECASE)
-# …unless they ask for something new on the board (an example, a puzzle, a line).
-_WANTS_NEW_BOARD = re.compile(
-    r"(?<![а-яa-z])(?:покажи|пример\w*|что\s+такое|объясни\s+тем\w*|загрузи|поставь|расставь|дай\s+(?:мне\s+)?(?:ещё\s+|новую\s+)?задач\w*|"
-    r"другую\s+задач\w*|следующ\w+\s+задач\w*|show\s+me|example|load|set\s+up|give\s+me\s+a(?:nother)?\s+puzzle|"
-    r"what\s+is\s+an?\b)(?![а-яa-z])", re.IGNORECASE)
-# …or a new puzzle in their own words: «Дай мне тактическую задачу», «можно ещё одну задачу?»,
-# «Give me a tactical puzzle», «Маған тактикалық есеп бер» (the site's own chips, production
-# 2026-10-09: the adjective kept _WANTS_NEW_BOARD from matching, the board stayed as it was and
-# the coach said «задача уже на доске»). Not «дай подсказку к задаче», not «эту задачу».
-_NEW_PUZZLE_NOUN = (r"(?:задач(?:у|и|ку|ки)|задани[еяй]|упражнени[еяй]|пазл\w*|головоломк[уи]|"
-                    r"puzzles?|exercises?|tasks?|есеп\w*|жаттығу\w*)")
-_PUZZLE_SKIP_WORD = (r"(?!(?:эт\w*|тот|ту|this|that|the|осы|подсказк\w*|намёк\w*|hint\w*|решени\w*|"
-                     r"ответ\w*|к|по|в|о|об|для|про)(?![\w-]))[\w-]+")
-_WANTS_NEW_PUZZLE = re.compile(
-    r"(?<![\w-])(?:дай\w*|давай(?:те)?|хочу|хотел\w*|подбери\w*|предложи\w*|найди\w*|пришли\w*|загадай\w*|"
-    r"покажи\w*|ещё|еще|нов(?:ую|ые|ое|ая)|друг(?:ую|ие|ое|ая)|следующ\w+|какую-нибудь|любую|"
-    r"give|want|find|send|show|another|new|next|тағы|жаңа|басқа)"
-    rf"(?:\s+{_PUZZLE_SKIP_WORD}){{0,3}}?\s+{_NEW_PUZZLE_NOUN}(?![\w-])"
-    rf"|(?<![\w-]){_NEW_PUZZLE_NOUN}(?:\s+{_PUZZLE_SKIP_WORD}){{0,2}}?\s+бер\w*",
-    re.IGNORECASE)
-# The default board is nothing of the student's to keep: the start position, an empty board.
-_DEFAULT_BOARDS = frozenset({chess.STARTING_BOARD_FEN, "8/8/8/8/8/8/8/8"})
-# The question points at the board in front of the student — then nothing replaces it, not even a
-# puzzle: the coach answered «Задача из урока … Какой здесь первый ход?» with get_puzzle in 3 of
-# 1620 production turns. Words that only touch on a move or a puzzle («Есть задачка на мат в два?»,
-# «как ходит конь») lock out the examples of get_topic/get_lesson, not a puzzle (2026-10-09).
-_ABOUT_THIS_BOARD = re.compile(
-    r"(?<![\w-])(?:здесь|тут|сейчас|эт(?:а|у|ой|от|ом|и|их|им)\s+(?:[\w-]+\s+)?(?:позици\w*|задач\w*|ход\w*|доск\w*|"
-    r"парти\w*|вариант\w*)|в\s+этой\s+позиции|из\s+этой\s+позиции|на\s+доске|перв\w+\s+ход\w*|лучш\w+\s+ход\w*|"
-    r"следующ\w+\s+ход\w*|чей\s+ход|как(?:ой|ую|им)\s+(?:[\w-]+\s+)?ход\w*|which\s+move|what\s+move|жүріс\w*|"
-    r"как\s+(?:мне\s+|белым\s+|ч[её]рным\s+)?(?:выиграть|решить|спастись|защититься)|"
-    r"что\s+(?:мне\s+|белым\s+|ч[её]рным\s+)?(?:делать|играть|сыграть)|here|this\s+(?:position|puzzle|move|board)|"
-    r"on\s+the\s+board|best\s+move|first\s+move|what\s+should\s+i\s+play|оцени\w*|осы|бұл|мұнда|қазір|бағала\w*)(?![\w-])"
-    r"|(?<![\w-])(?:[KQRBNКФЛС]?[a-hасе][1-8]|[KQRBNКФЛС][a-h]?x?[a-h][1-8]|O-O(?:-O)?|0-0(?:-0)?)(?![\w-])",
-    re.IGNORECASE)
-
-
-def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> tuple[Optional[str], bool]:
-    """(the position to keep on the board this turn or None, whether the lock is strict)."""
-    if not fen:
-        return None, False
-    if live_game:
-        return fen, True
-    if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
-        return None, False
-    text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
-    if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
-        return fen, bool(_ABOUT_THIS_BOARD.search(text))
-    return None, False
-
-
-def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> Optional[str]:
-    """The position to keep on the board this turn, or None."""
-    return _board_lock_level(message, has_fen, live_game, fen)[0]
+# The board lock rule (_board_lock_level & co.) lives in src/board_lock.py: the voice tool calls use it too.
+from src.board_lock import (  # noqa: E402,F401 — the names tests and callers use
+    _ABOUT_POSITION, _ABOUT_THIS_BOARD, _DEFAULT_BOARDS, _WANTS_NEW_BOARD, _WANTS_NEW_PUZZLE,
+    _board_lock_for_turn, _board_lock_level,
+)
 
 
 def _idea_verdict(hypo: Optional[dict]) -> Optional[dict]:
@@ -1036,7 +1081,7 @@ def _run_bestofn_pipeline(
         agent.tool_complete_callback = (
             lambda _cid, _tn, _args, res: results.append(res)
         )
-        text = agent.chat(augmented_message)
+        text = _chat_in_session(agent, augmented_message, session_real_id)
         _record_turn_usage(agent, user_id, session_real_id, model, surface="text")
         agents[i] = agent
         tool_results_by_idx[i] = results
@@ -1699,6 +1744,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except ValueError:
             pass  # ignore invalid FEN, use existing board state
     active_board = session.ensure_board()
+    # A game asked for in words, or a move written on its own in the game: done here (src/game_intent.py).
+    game_step = None
+    if config.COACH_GAME_PRESTEP:
+        try:
+            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message)
+        except Exception:  # noqa: BLE001 — the model can still use the tools
+            logger.warning("game pre-step failed", exc_info=True)
+            game_step = None
+        if game_step:
+            active_board = session.ensure_board()  # a game just started is the active board
 
     # Small talk ("Привет", "спасибо") gets one fast tool-free reply instead of
     # the agent loop — see _small_talk_stream.
@@ -2033,6 +2088,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             student_color=student_color,
         )
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
+        # A game on the board: the coach's moves are the engine's — «я ответил Кc6» with no such move is
+        # not shown (src/answer_check._coach_move_issues; stand, 2026-10-12).
+        if active_board.kind == "game" and active_board.game_state:
+            check_ctx.game_engine_moves = _engine_moves(active_board.game_state)
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter(session.board_state)
@@ -2147,6 +2206,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     from src.board_truth import POSITION_ACTIONS, position_after
 
                     for action in actions:
+                        if isinstance(action, dict) and action.get("type") == GAME_ACTION and action.get("game"):
+                            check_ctx.game_engine_moves = _engine_moves(action["game"])  # a move played mid-answer
                         if isinstance(action, dict) and action.get("type") in POSITION_ACTIONS:
                             new_fen = position_after(action)
                             if (new_fen or "").split(" ")[0] != (board_moved["from"] or "").split(" ")[0]:
@@ -2203,6 +2264,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{opening_plan.block}"
                 if famous:
                     message = f"{message}\n\n{famous['block']}"
+                if game_step:
+                    message = f"{message}\n\n{game_step['block']}"
                 if note:
                     old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative)))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
@@ -2245,7 +2308,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{review_block(review)}"
                 message = f"{message}\n\n{lang_note}"
                 turn_msg["message"] = message
-                result = agent.chat(message, stream_callback=_on_delta)
+                result = _chat_in_session(agent, message, session.id, stream_callback=_on_delta,
+                                          student_message=body.message,
+                                          game_step=bool(game_step and game_step.get("view")))
                 loop.call_soon_threadsafe(queue.put_nowait, ("result", result))
             except Exception as exc:  # noqa: BLE001 — surfaced as an SSE error frame
                 loop.call_soon_threadsafe(queue.put_nowait, ("error", exc))
@@ -2410,6 +2475,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if famous:
             # The famous game the student named goes on the board before the first word.
             yield _sse({"board_actions": [{"type": "load_pgn", "pgn": famous["pgn"], "board_id": active_board.id}]})
+        if game_step and game_step.get("view"):
+            # The game started / the move played by the pre-step: on the page before the first word.
+            yield _sse({"board_actions": [{"type": GAME_ACTION, "game": game_step["view"]}]})
         if opening_plan and opening_plan.load:
             # So does the opening the student asked about — applied to the
             # session board already (before the engine note); this frame only
@@ -3373,6 +3441,7 @@ class VoiceIdeaRequest(BaseModel):
     text: str                      # the student's words (input transcription)
     fen: Annotated[str, AfterValidator(repair_fen)]  # the board at the time
     live_game: Optional[bool] = False
+    pgn: Optional[str] = None      # the game on the board, for «на 8-м ходу» (src/past_move.py)
 
 
 class VoiceHeartbeatRequest(BaseModel):
@@ -3579,7 +3648,22 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
     from src.prompt_builder import question_moves, voice_idea_note
 
     def _idea() -> dict:
-        moves = question_moves(body.text[:600], body.fen)
+        # «А что если бы на 8-м ходу я взял на g5?» — the moment of the game on the board, as the
+        # text coach finds it; the voice coach judged the idea on the final position (2026-10-12).
+        fen, past = body.fen, None
+        if body.pgn and not body.live_game:
+            try:
+                from src.past_move import past_position
+
+                past = past_position(body.text[:600], body.pgn)
+            except Exception:  # noqa: BLE001
+                past = None
+            if past:
+                fen = past["fen"]
+        moves = question_moves(body.text[:600], fen)
+        if past:
+            played = past["played"].rstrip("+#")
+            moves = [q for q in moves if q["san"].rstrip("+#") != played]  # the game's own move
         if not moves:
             return {"note": None, "moves": [], "fens": []}
         legal = [q for q in moves if q.get("legal")]
@@ -3587,9 +3671,10 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
         if legal and config.COACH_HYPOTHETICAL_NOTE:
             from src.hypothetical import hypothetical_notes
 
-            hypo = hypothetical_notes(body.fen, legal, config.COACH_VOICE_IDEA_MOVETIME_MS, not body.live_game)
+            hypo = hypothetical_notes(fen, legal, config.COACH_VOICE_IDEA_MOVETIME_MS, not body.live_game)
         return {
-            "note": voice_idea_note(moves, hypo, bool(body.live_game), language=_spoken_language(body.text)),
+            "note": voice_idea_note(moves, hypo, bool(body.live_game), language=_spoken_language(body.text),
+                                    where=past["label"] if past else None),
             "moves": [{"san": q["san"], "legal": q["legal"], "verdict": q["verdict"]} for q in moves],
             "fens": [q["after_fen"] for q in legal if q.get("after_fen")],
             # The point the student must hear (a blunder, a trapped piece, stalemate):

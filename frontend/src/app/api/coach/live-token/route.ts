@@ -3,7 +3,6 @@ import { requireCoachAccess } from '@/lib/coach-access';
 import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
-import { VOICE_GAME_GUIDANCE, VOICE_GAME_TOOLS } from '@/lib/coach/voice-game';
 
 // Region pin is load-bearing: Gemini mint calls are geo-blocked outside iad1.
 export const runtime = 'nodejs';
@@ -165,9 +164,11 @@ const VOICE_CORE_TOOLS = new Set<string>([
   'lookup_opening',
   // A game review by voice: the critical moments, as the text coach gets them.
   'review_game',
-  // The game against the coach by voice — run by the browser (src/lib/coach/voice-game.ts).
+  // The game against the coach (Hermes' src/tools/game_play.py, the text coach has them too) and a
+  // famous game by name with its verified score (2026-10-12).
   'start_game',
   'make_game_move',
+  'famous_game',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or
@@ -561,10 +562,7 @@ export async function POST(request: Request) {
   }
 
   const model = liveModel();
-  // The game tools are the site's own (the browser runs them), so they are there even when Hermes'
-  // declarations are not. COACH_VOICE_GAME=0 leaves them out.
-  const gameTools = (process.env.COACH_VOICE_GAME ?? '1').trim() === '0' ? [] : VOICE_GAME_TOOLS;
-  const functionDeclarations = filterVoiceTools([...rawTools, ...gameTools], model);
+  const functionDeclarations = filterVoiceTools(rawTools, model);
 
   // Prefer Hermes' single-source prompt (persona + spoken style + profile + FEN
   // + spoken tool directives, all rendered from SOUL.md). Fall back to the
@@ -582,7 +580,6 @@ export async function POST(request: Request) {
     }
   }
 
-  if (gameTools.length > 0) systemInstruction += VOICE_GAME_GUIDANCE;
   // Hermes' prompt asked for «"let me check that"» before a tool until 10.10, and the coach said
   // it in English in the middle of Russian speech; this holds until every Hermes has the fix.
   systemInstruction += ACK_LANGUAGE_NOTE;
