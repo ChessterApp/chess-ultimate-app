@@ -96,6 +96,13 @@ export default function PuzzleRush() {
     setMode(state.mode);
     rush.reset();
   }, [rush, state.mode]);
+  // Results modal → review drawer on that puzzle (Phase 2 retargets this to Retry mode).
+  const { open: openReview } = review;
+  const openPuzzle = useCallback((index: number) => {
+    closeResults();
+    setTab('play');
+    openReview(index);
+  }, [closeResults, openReview]);
 
   const inRun = state.phase === 'starting' || state.phase === 'countdown' || state.phase === 'playing';
   const turnSide = state.puzzle?.color;
@@ -266,6 +273,7 @@ export default function PuzzleRush() {
         <ResultsModal
           mode={state.mode}
           score={state.score}
+          tiles={tiles}
           results={state.results}
           endReason={state.endReason}
           isPb={isPb}
@@ -275,6 +283,7 @@ export default function PuzzleRush() {
           onPlayAgain={playAgain}
           onNewRush={newRush}
           onClose={closeResults}
+          onOpenPuzzle={openPuzzle}
           signInHref={SIGN_IN_HREF}
         />
       )}

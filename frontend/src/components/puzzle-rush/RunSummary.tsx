@@ -87,6 +87,12 @@ export function useRunReview(runId: string | null, attempts: ReviewAttempt[]) {
     setStep((s) => Math.min(Math.max(s + delta, 1), Math.max(maxStep, 1)));
   }, [maxStep]);
 
+  /** Unlike `select`, never toggles off: the results modal opens a puzzle directly. */
+  const open = useCallback((index: number) => {
+    setSelected(index);
+    setStep(1);
+  }, []);
+
   const close = useCallback(() => setSelected(null), []);
 
   // ← / → step through the solution while the drawer is open.
@@ -105,7 +111,7 @@ export function useRunReview(runId: string | null, attempts: ReviewAttempt[]) {
     ? { fen: line.fens[step], lastMove: line.lastMoves[step], orientation: line.orientation }
     : null;
 
-  return { selected, select, close, attempt, line, step, maxStep, stepBy, board };
+  return { selected, select, open, close, attempt, line, step, maxStep, stepBy, board };
 }
 
 type Review = ReturnType<typeof useRunReview>;

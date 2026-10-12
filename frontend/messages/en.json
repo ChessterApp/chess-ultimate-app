@@ -3030,7 +3030,11 @@
         "strikes": "Three strikes",
         "timeout": "Time's up",
         "quit": "You ended the run"
-      }
+      },
+      "tabSummary": "Summary",
+      "tabPuzzles": "Puzzles",
+      "missBadge": "{n} ✕",
+      "retryMistakes": "Retry mistakes ({n})"
     },
     "summary": {
       "hint": "Tap a puzzle to review its solution",

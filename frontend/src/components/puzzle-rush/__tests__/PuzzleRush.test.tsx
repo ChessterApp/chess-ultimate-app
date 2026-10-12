@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Puzzle Rush UI: results modal PB / tough states, the ✓/✕ results grid, the
+ * Puzzle Rush UI: results modal PB / tough states and Summary | Puzzles tabs, the ✓/✕ results grid, the
  * mode preselect on the real page component, and en/ru/kz key coverage.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -37,12 +37,20 @@ function withIntl(node: React.ReactNode, locale = 'en', messages: Record<string,
   return render(<NextIntlClientProvider locale={locale} messages={messages}>{node}</NextIntlClientProvider>);
 }
 
+const TILES = [
+  { index: 0, rating: 400, solved: true },
+  { index: 1, rating: 461, solved: false },
+  { index: 2, rating: 523, solved: true },
+  { index: 3, rating: 588, solved: false },
+];
+
 function modal(props: Partial<React.ComponentProps<typeof ResultsModal>> = {}) {
-  const handlers = { onPlayAgain: vi.fn(), onNewRush: vi.fn(), onClose: vi.fn() };
+  const handlers = { onPlayAgain: vi.fn(), onNewRush: vi.fn(), onClose: vi.fn(), onOpenPuzzle: vi.fn() };
   withIntl(
     <ResultsModal
       mode="3min"
       score={14}
+      tiles={TILES}
       results={RESULTS}
       endReason="timeout"
       isPb
@@ -129,6 +137,53 @@ describe('ResultsModal', () => {
     expect(h.onPlayAgain).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(h.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Summary | Puzzles tabs switch on click and with the arrow keys', () => {
+    modal();
+    const summary = screen.getByRole('tab', { name: 'Summary' });
+    const puzzles = screen.getByRole('tab', { name: /^Puzzles/ });
+    expect(summary.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel')).toBe(screen.getByTestId('rush-ranks').parentElement);
+
+    fireEvent.click(puzzles);
+    expect(puzzles.getAttribute('aria-selected')).toBe('true');
+    const panel = screen.getByRole('tabpanel');
+    expect(panel.getAttribute('aria-labelledby')).toBe(puzzles.id);
+    expect(within(panel).getAllByRole('button', { name: /^Puzzle \d$/ })).toHaveLength(4);
+    expect(within(panel).getByText('588')).toBeTruthy();
+
+    fireEvent.keyDown(puzzles, { key: 'ArrowRight' });
+    expect(summary.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(summary);
+    expect(summary.tabIndex).toBe(0);
+    expect(puzzles.tabIndex).toBe(-1);
+    fireEvent.keyDown(summary, { key: 'ArrowLeft' });
+    expect(puzzles.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(puzzles);
+  });
+
+  it('misses: Puzzles badge + Retry mistakes (first miss); New Rush moves to the link row', () => {
+    const h = modal();
+    expect(screen.getByTestId('rush-miss-badge').textContent).toBe('2 ✕');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry mistakes (2)' }));
+    expect(h.onOpenPuzzle).toHaveBeenCalledWith(1);
+    fireEvent.click(screen.getByRole('button', { name: 'New Rush' }));
+    expect(h.onNewRush).toHaveBeenCalledTimes(1);
+  });
+
+  it('a clean run has no badge and no Retry mistakes', () => {
+    modal({ tiles: TILES.map((tile) => ({ ...tile, solved: true })) });
+    expect(screen.queryByTestId('rush-miss-badge')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Retry mistakes/ })).toBeNull();
+    expect(screen.getByRole('button', { name: 'New Rush' })).toBeTruthy();
+  });
+
+  it('tapping a tile in the Puzzles tab opens that puzzle', () => {
+    const h = modal();
+    fireEvent.click(screen.getByRole('tab', { name: /^Puzzles/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Puzzle 4' }));
+    expect(h.onOpenPuzzle).toHaveBeenCalledWith(3);
   });
 
   it('resultTone thresholds', () => {
