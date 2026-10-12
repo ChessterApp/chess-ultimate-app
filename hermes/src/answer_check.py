@@ -294,6 +294,9 @@ class CheckContext:
     # move) — src/answer_check_rules.py judges «это выигрыш», «мат в два» by them.
     tablebase: Optional[str] = None
     engine_mate: Optional[int] = None
+    # A game against the coach on the board: the moves the engine made in it (src/server.py). The coach
+    # plays only through the engine — «я ответил Кc6» names one of them or is not shown (2026-10-12).
+    game_engine_moves: Optional[list] = None
     # The student's message: «можно мне рокироваться?» makes «нет, нельзя» a claim about this board.
     question: str = ""
     question_raw: str = ""
@@ -2422,6 +2425,36 @@ def _echoes_question(sentence: str, ctx: CheckContext) -> bool:
     return any(norm(q) == s for q in re.split(r"(?<=[.!?])\s+", ctx.question_raw or "") if q)
 
 
+# The coach says it made a move: «я ответил Кc6», «отвечаю e5», «мой ход — d5», "I play Nf6".
+_COACH_MOVE = re.compile(
+    r"(?:(?<![\w-])я\s+(?:тоже\s+|сразу\s+|просто\s+)?(?:отвечаю|ответил[аи]?|играю|сыграл[аи]?|пош[её]л|хожу|делаю\s+ход)"
+    r"|(?:^|[.!—–:]\s*)(?:отвечаю|ответил[аи]?)"
+    r"|(?<![\w-])мой\s+(?:ответ|ход)\s*(?:[—–:-]|это|будет)?"
+    r"|(?<![\w-])i\s+(?:play|played|answer|answered|reply|replied)"
+    r"|(?<![\w-])my\s+(?:reply|move|answer)\s+(?:is|was)?)"
+    r"(?![^.!?]*\bбы\b)(?P<rest>[^.!?;]{0,40})",
+    re.IGNORECASE,
+)
+
+
+def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
+    """In a game, a move the coach says it made must be one the engine made."""
+    played = ctx.game_engine_moves
+    if played is None:
+        return []
+    out = []
+    norm = {m.rstrip("+#") for m in played}
+    for m in _COACH_MOVE.finditer(text):
+        sans, _ = _to_san(m.group("rest"))
+        named = [x.group("san").rstrip("+#") for x in _MOVE.finditer(sans)]
+        if named and not any(n in norm for n in named):
+            last = played[-1] if played else None
+            out.append(f"in this game the engine plays your moves and it did not play {named[0]}"
+                       + (f" (its last move was {last})" if last else "")
+                       + ": never say you made a move the game did not record")
+    return out
+
+
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:
     """The reasons *sentence* is wrong on the board; [] when nothing checkable is wrong."""
     ctx = ctx or CheckContext.from_fens()
@@ -2449,7 +2482,7 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
               + _opening_issues(text) + _fact_issues(lowered, text, ctx) + _plan_move_issues(lowered, text, ctx)
-              + rules_issues(lowered, ctx))
+              + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)
     squares = _SQ_RE.findall(lowered)

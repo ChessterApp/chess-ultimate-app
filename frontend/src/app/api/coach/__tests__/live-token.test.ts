@@ -41,6 +41,27 @@ describe('POST /api/coach/live-token', () => {
     vi.restoreAllMocks();
   });
 
+  it('3.1 keeps the game tools and famous games from Hermes; the acknowledgment is in the student\'s language', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const decls = ['start_game', 'make_game_move', 'famous_game', 'opponent_prep'].map((name) => ({ name }));
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/tools')) return { ok: true, json: async () => ({ tools: decls }) };
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen' }));
+
+    expect(response.status).toBe(200);
+    const config = createMock.mock.calls[0][0].config.liveConnectConstraints.config;
+    expect(config.tools[0].functionDeclarations.map((d: any) => d.name)).toEqual(['start_game', 'make_game_move', 'famous_game']);
+    // 2026-10-10: «let me check that» in English in the middle of Russian speech.
+    expect(config.systemInstruction).not.toContain('"let me check that"');
+    expect(config.systemInstruction).toContain("in the student's");
+  });
+
   it('returns 401 when not authenticated', async () => {
     (auth as any).mockResolvedValue({ userId: null });
 

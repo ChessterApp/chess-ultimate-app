@@ -277,6 +277,9 @@ COACH_EXECUTOR_THREADS = int(os.environ.get("COACH_EXECUTOR_THREADS", "32"))
 # position — before the model is called (src/opening_knowledge.py).
 #   COACH_OPENING_PRESTEP — kill switch (default ON).
 COACH_OPENING_PRESTEP = _env_flag("COACH_OPENING_PRESTEP", True)
+# A game asked for in words, or the student's move written on its own during a game: the server
+# starts the game / plays the move before the model answers (src/game_intent.py, 2026-10-12).
+COACH_GAME_PRESTEP = _env_flag("COACH_GAME_PRESTEP", True)
 
 # Answer check (2026-09-30): each finished sentence of a text answer is checked
 # on the board before it is shown (src/answer_check.py) — a piece moving or

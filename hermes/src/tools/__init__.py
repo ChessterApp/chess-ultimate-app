@@ -5,6 +5,7 @@ and registers them with the Hermes ToolRegistry.
 """
 
 import importlib
+from contextlib import contextmanager
 import logging
 import pkgutil
 from pathlib import Path
@@ -88,8 +89,28 @@ def _hint_on_error() -> None:
         entry.handler = handler
 
 
+# The coach session of a text turn, by the task id the server gives the agent (src/server.py,
+# _chat_in_session). The framework calls the tools with task_id and user_task, never the session
+# (2026-10-12): the board lock, the board truth and the game looked for ``session_id`` in kwargs and
+# found none in the text coach — only the server's filter of the streamed actions held the board.
+_turn_sessions: dict = {}
+
+
+@contextmanager
+def turn_session(task_id: str, session_id: str, student_message: str = "", game_step: bool = False):
+    """While the agent runs a turn under *task_id*, its tools see the coach session *session_id*, the
+    student's own words and whether the server already started the game / played the move."""
+    _turn_sessions[task_id] = {"session_id": session_id, "student_message": student_message,
+                               "turn_game_step": game_step}
+    try:
+        yield
+    finally:
+        _turn_sessions.pop(task_id, None)
+
+
 def _tell_the_board() -> None:
-    """What a tool put on the board is what the model hears, for every tool (src/board_truth.py)."""
+    """Every tool sees its coach session, and what it put on the board is what the model hears
+    (src/board_truth.py)."""
     from src.board_truth import board_truth
 
     for name in get_registered_tools():
@@ -98,6 +119,10 @@ def _tell_the_board() -> None:
             continue
 
         def handler(args, _inner=entry.handler, **kwargs):
+            if not kwargs.get("session_id"):
+                turn = _turn_sessions.get(kwargs.get("task_id") or "")
+                if turn:
+                    kwargs = {**kwargs, **turn}
             return board_truth(_inner(args, **kwargs), kwargs)
 
         handler._tells_board = True

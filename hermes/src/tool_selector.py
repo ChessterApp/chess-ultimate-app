@@ -21,6 +21,8 @@ import re
 CORE_TOOLS = frozenset({
     "board_control", "analyze_position", "check_moves",
     "get_topic", "get_puzzle", "get_learning_path", "get_lesson",
+    # A game asked for in any words, a move typed in a game («е4» carries no keyword): 2026-10-12.
+    "start_game", "make_game_move",
 })
 
 # Board-render / FEN-parse tools that are redundant when the board is already

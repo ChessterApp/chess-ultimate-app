@@ -10,12 +10,12 @@ import logging
 import re
 from typing import Any
 
-from src.board_protocol import ActionType, ResponseEnvelope
+from src.board_protocol import GAME_ACTION, ActionType, ResponseEnvelope
 
 logger = logging.getLogger(__name__)
 
 # Pattern to detect JSON board actions in tool output
-_BOARD_ACTION_TYPES = {e.value for e in ActionType}
+_BOARD_ACTION_TYPES = {e.value for e in ActionType} | {GAME_ACTION}
 
 
 def extract_board_actions(text: str) -> tuple[str, list[dict]]:
@@ -174,10 +174,13 @@ def wrap_response(message: str, tool_results: list[Any] = None) -> dict:
     clean_message, embedded_actions = extract_board_actions(message)
     board_actions.extend(embedded_actions)
 
+    # A game's state is not a board_control action: it skips the action models and goes out as it came.
+    games = [a for a in board_actions if isinstance(a, dict) and a.get("type") == GAME_ACTION]
     envelope = ResponseEnvelope(
         message=clean_message if embedded_actions else message,
-        board_actions=board_actions,
+        board_actions=[a for a in board_actions if not (isinstance(a, dict) and a.get("type") == GAME_ACTION)],
     )
     result = envelope.model_dump()
+    result["board_actions"] = result.get("board_actions", []) + games
     result["game_results"] = extract_game_results(tool_results)
     return result

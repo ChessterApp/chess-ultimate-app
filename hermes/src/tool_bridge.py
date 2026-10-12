@@ -15,6 +15,7 @@ tool schema is ever hand-copied here.
 import asyncio
 import json
 import logging
+import threading
 import time
 from typing import Any, Optional
 
@@ -24,7 +25,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src import config
-from src.board_protocol import ActionType
+from src.board_protocol import GAME_ACTION, ActionType
 from src.cost_monitor import record_voice_event
 from src.event_logger import log_event
 from src.middleware.rate_limiter import enforce_rate_limit, voice_tool_rate_limiter
@@ -57,7 +58,7 @@ _UNSUPPORTED_SCHEMA_KEYS = frozenset(
 # these — they are always overridden server-side with the authenticated user.
 _IDENTITY_ARG_KEYS = frozenset({"user_id"})
 
-_BOARD_ACTION_TYPES = frozenset(e.value for e in ActionType)
+_BOARD_ACTION_TYPES = frozenset({e.value for e in ActionType} | {GAME_ACTION})
 
 
 def clean_gemini_schema(node: Any) -> Any:
@@ -268,7 +269,7 @@ def _classify_tool_result(name: str, args: dict, raw: Any) -> tuple[bool, Option
     return ok, error_code, payload
 
 
-def dispatch_tool_safely(name: str, args: dict) -> str:
+def dispatch_tool_safely(name: str, args: dict, **kwargs) -> str:
     """Dispatch a tool, converting any raised exception into a structured error.
 
     ``registry.dispatch`` already catches most handler exceptions and returns a
@@ -278,7 +279,7 @@ def dispatch_tool_safely(name: str, args: dict) -> str:
     dispatch is returned verbatim — behavior is unchanged on the happy path.
     """
     try:
-        return registry.dispatch(name, args)
+        return registry.dispatch(name, args, **kwargs)
     except Exception as exc:  # noqa: BLE001 - deliberately broad, never re-raise
         logger.warning("Tool dispatch raised for %s: %s", name, exc, exc_info=True)
         return json.dumps(_tool_error_payload(name, exc))
@@ -287,6 +288,45 @@ def dispatch_tool_safely(name: str, args: dict) -> str:
 class ToolDispatchRequest(BaseModel):
     args: dict[str, Any] = {}
     session_id: Optional[str] = None
+    # The student's last words (voice): the board lock is decided from them, as the text coach's
+    # turn decides it from the message (src/board_lock.py).
+    utterance: Optional[str] = None
+
+
+# The board lock a voice tool call runs under. Calls of one model turn come in parallel: the lock
+# stays until the last of them is done (a text turn of the same session keeps its own lock).
+_voice_locks: dict[str, int] = {}
+_voice_locks_guard = threading.Lock()
+
+
+def _dispatch_voice(name: str, args: dict, session, utterance: Optional[str]) -> str:
+    """The tool in the student's coach session, under the board lock their words call for."""
+    if session is None:
+        return dispatch_tool_safely(name, args)
+    from src.board_lock import _board_lock_level
+    from src.tools.game_play import live_game_board
+
+    live = live_game_board(session) is not None
+    fen, strict = _board_lock_level(utterance or "", True, live, session.board_state)
+    owned = False
+    with _voice_locks_guard:
+        depth = _voice_locks.get(session.id, 0)
+        if fen and (depth or session.board_lock is None):
+            if not depth:
+                session.lock_board(fen, strict=strict)
+            _voice_locks[session.id] = depth + 1
+            owned = True
+    try:
+        return dispatch_tool_safely(name, args, session_id=session.id, student_message=utterance or "")
+    finally:
+        if owned:
+            with _voice_locks_guard:
+                left = _voice_locks.get(session.id, 1) - 1
+                if left <= 0:
+                    _voice_locks.pop(session.id, None)
+                    session.lock_board(None)
+                else:
+                    _voice_locks[session.id] = left
 
 
 def _get_user_id(request: Request) -> str:
@@ -341,8 +381,17 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     # don't freeze concurrent requests such as /health. dispatch_tool_safely
     # additionally converts any raised exception into a structured error
     # envelope so a malformed tool call never bubbles a fatal 500.
+    # The coach session (when it is the caller's): the tools see it as the text coach's do — the
+    # board lock, the game on the board (src/tools/game_play.py). Before 2026-10-12 the voice
+    # calls ran without it.
+    session = None
+    if body.session_id:
+        try:
+            session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
+        except Exception:  # noqa: BLE001 — the tool still runs, without the session
+            session = None
     started = time.monotonic()
-    raw = await run_in_threadpool(dispatch_tool_safely, name, args)
+    raw = await run_in_threadpool(_dispatch_voice, name, args, session, body.utterance)
     duration_ms = int((time.monotonic() - started) * 1000)
 
     # Persist the voice tool execution to coach_events (Phase 2, Task 3). This is

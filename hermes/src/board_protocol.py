@@ -28,6 +28,12 @@ class ActionType(str, Enum):
     CLEAR_BOARD = "clear_board"
 
 
+# A game against the coach changed (started, a move played): the action carries the game's
+# state (game_mode._payload) for the page to show. Not a board_control action — the game tools
+# (src/tools/game_play.py) send it, for the text and the voice coach alike (2026-10-12).
+GAME_ACTION = "game"
+
+
 class NavigateDirection(str, Enum):
     FIRST = "first"
     PREV = "prev"
