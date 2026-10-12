@@ -3037,16 +3037,20 @@
       "retryMistakes": "Retry mistakes ({n})"
     },
     "summary": {
-      "hint": "Tap a puzzle to review its solution",
+      "hint": "Tap a puzzle to try it again",
       "puzzle": "Puzzle {n}",
       "solvedTag": "Solved",
       "missedTag": "Missed",
-      "yourMoves": "Your moves: {moves}",
       "solution": "Solution",
       "prev": "Previous move",
       "next": "Next move",
-      "closeReview": "Close review",
-      "step": "{n} / {total}"
+      "step": "{n} / {total}",
+      "tile": {
+        "solved": "Puzzle {n}, solved",
+        "missed": "Puzzle {n}, missed",
+        "retried": "Puzzle {n}, solved on retry",
+        "retriedHelp": "Puzzle {n}, solved on retry with help"
+      }
     },
     "leaderboard": {
       "global": "Global",
@@ -3069,6 +3073,26 @@
       "title": "Puzzle Rush",
       "desc": "Race the clock — solve as many puzzles as you can before three strikes.",
       "cta": "Play Puzzle Rush"
+    },
+    "retry": {
+      "findWhite": "Find the best move for White",
+      "findBlack": "Find the best move for Black",
+      "incorrect": "Incorrect — try again",
+      "solved": "Solved!",
+      "revealed": "Solution",
+      "rating": "Rating {rating}",
+      "youPlayed": "In the run you played: {moves}",
+      "actions": "Puzzle actions",
+      "hint": "Hint",
+      "solution": "Solution",
+      "retry": "Retry",
+      "nextMistake": "Next mistake",
+      "exit": "Exit",
+      "allReviewed": "All mistakes reviewed",
+      "retriedTag": "Solved on retry",
+      "retriedHelpTag": "Solved with help",
+      "helpMark": "Hint or solution used",
+      "panelHint": "Play the move on the board. Unlimited tries — your run score stays the same."
     }
   }
 }

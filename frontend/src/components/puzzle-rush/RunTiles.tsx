@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useTranslations } from 'next-intl';
 import type { ResultTile } from '@/lib/puzzle-rush/runReducer';
 import { MAX_STRIKES } from '@/lib/puzzle-rush/runReducer';
+import type { RetryOutcome, RetryOutcomes } from '@/lib/puzzle-rush/retryReducer';
 import { MODE_SECONDS, type RushMode } from '@/lib/puzzle-rush/types';
 import styles from './PuzzleRush.module.css';
 
@@ -94,27 +95,48 @@ export function StrikesTile({ strikes }: { strikes: number }) {
   );
 }
 
+/** A tile's state for its accessible label: run result, or a ✕ solved in Retry mode. */
+export type TileState = 'solved' | 'missed' | 'retried' | 'retriedHelp';
+
+export function tileState(tile: ResultTile, outcome?: RetryOutcome): TileState {
+  if (tile.solved) return 'solved';
+  if (outcome === 'solved') return 'retried';
+  return outcome === 'solved_with_help' ? 'retriedHelp' : 'missed';
+}
+
 interface GridProps {
   tiles: ResultTile[];
   /** Summary layout: 10 per row, every tile clickable. */
   summary?: boolean;
   selected?: number | null;
+  /** Retry-mode outcomes: a ✕ solved on retry renders amber ↻✓. */
+  outcomes?: RetryOutcomes;
   onSelect?: (index: number) => void;
-  puzzleLabel?: (n: number) => string;
+  puzzleLabel?: (n: number, state: TileState) => string;
+  /** Tooltip for the "hint / solution used" marker. */
+  helpTitle?: string;
 }
 
-export function ResultsGrid({ tiles, summary = false, selected = null, onSelect, puzzleLabel }: GridProps) {
+export function ResultsGrid({ tiles, summary = false, selected = null, outcomes, onSelect, puzzleLabel, helpTitle }: GridProps) {
   if (tiles.length === 0) return null;
   return (
     <div className={`${styles.grid} ${summary ? styles.gridSummary : ''}`} data-testid="rush-grid">
       {tiles.map((tile) => {
-        const cls = `${styles.cell} ${tile.solved ? styles.cellOk : styles.cellFail} ${selected === tile.index ? styles.cellSelected : ''}`;
+        const outcome = outcomes?.[tile.index];
+        const state = tileState(tile, outcome);
+        const retried = state === 'retried' || state === 'retriedHelp';
+        const tone = tile.solved ? styles.cellOk : retried ? styles.cellRetry : styles.cellFail;
+        const cls = `${styles.cell} ${tone} ${selected === tile.index ? styles.cellSelected : ''}`;
         const inner = (
           <>
-            <span className={styles.cellMark}>{tile.solved ? '✓' : '✕'}</span>
+            <span className={styles.cellMark}>{tile.solved ? '✓' : retried ? '↻✓' : '✕'}</span>
             <span className={styles.cellRating}>{tile.rating}</span>
+            {state === 'retriedHelp' && (
+              <span className={styles.cellHelp} title={helpTitle} aria-hidden="true" data-testid="cell-help" />
+            )}
           </>
         );
+        const data = { 'data-result': tile.solved ? 'solved' : 'failed', 'data-retry': retried ? outcome : undefined };
         return onSelect ? (
           <button
             key={tile.index}
@@ -122,13 +144,13 @@ export function ResultsGrid({ tiles, summary = false, selected = null, onSelect,
             className={cls}
             onClick={() => onSelect(tile.index)}
             aria-pressed={selected === tile.index}
-            aria-label={puzzleLabel?.(tile.index + 1)}
-            data-result={tile.solved ? 'solved' : 'failed'}
+            aria-label={puzzleLabel?.(tile.index + 1, state)}
+            {...data}
           >
             {inner}
           </button>
         ) : (
-          <span key={tile.index} className={cls} data-result={tile.solved ? 'solved' : 'failed'}>
+          <span key={tile.index} className={cls} {...data}>
             {inner}
           </span>
         );

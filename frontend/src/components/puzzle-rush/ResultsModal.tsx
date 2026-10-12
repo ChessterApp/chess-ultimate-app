@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useTranslations } from 'next-intl';
 import type { ResultTile } from '@/lib/puzzle-rush/runReducer';
+import type { RetryOutcomes } from '@/lib/puzzle-rush/retryReducer';
 import type { EndReason, ModeBests, RushMode, RushResults } from '@/lib/puzzle-rush/types';
 import { formatClock, ResultsGrid } from './RunTiles';
 import styles from './PuzzleRush.module.css';
@@ -25,6 +26,8 @@ interface Props {
   score: number;
   /** The run's ✓/✕ tiles, for the Puzzles tab. */
   tiles: ResultTile[];
+  /** Retry-mode outcomes so far (✕ tiles solved on retry render amber). */
+  outcomes?: RetryOutcomes;
   results: RushResults | null;
   endReason: EndReason | null;
   isPb: boolean;
@@ -49,7 +52,7 @@ interface Props {
  * tiles (and Retry mistakes) hand off to `onOpenPuzzle`.
  */
 export default function ResultsModal({
-  mode, score, tiles, results, endReason, isPb, isGuest, guestBests = null, ranksPending = false,
+  mode, score, tiles, outcomes, results, endReason, isPb, isGuest, guestBests = null, ranksPending = false,
   onPlayAgain, onNewRush, onClose, onOpenPuzzle, signInHref,
 }: Props) {
   const t = useTranslations('puzzleRush');
@@ -221,8 +224,10 @@ export default function ResultsModal({
           <ResultsGrid
             tiles={tiles}
             summary
+            outcomes={outcomes}
             onSelect={onOpenPuzzle}
-            puzzleLabel={(n) => t('summary.puzzle', { n })}
+            puzzleLabel={(n, state) => t(`summary.tile.${state}`, { n })}
+            helpTitle={t('retry.helpMark')}
           />
         </div>
 

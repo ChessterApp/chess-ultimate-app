@@ -728,6 +728,28 @@ button.cell:hover {
 .cellFail .cellRating {
   color: var(--red);
 }
+/* A ✕ solved in Retry mode: amber ↻✓, plus a dot when a hint / the solution was used. */
+.cellRetry {
+  position: relative;
+}
+.cellRetry .cellMark {
+  background: var(--amber);
+  font-size: 9px;
+  letter-spacing: -0.5px;
+}
+.cellRetry .cellRating {
+  color: var(--amber);
+}
+.cellHelp {
+  position: absolute;
+  top: 0;
+  right: calc(50% - 13px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tp);
+  box-shadow: 0 0 0 1.5px var(--card);
+}
 
 .coach {
   display: flex;
@@ -853,6 +875,10 @@ button.cell:hover {
   color: var(--red);
   background: var(--red-soft);
 }
+.tagRetry {
+  color: var(--amber);
+  background: var(--amber-soft);
+}
 .drawerLine {
   font-size: 13px;
   color: var(--ts);
@@ -912,6 +938,155 @@ button.cell:hover {
   font-variant-numeric: tabular-nums;
   min-width: 48px;
   text-align: center;
+}
+
+/* ── Retry mode (post-run) ──────────────────────────────────── */
+
+.retryBanner {
+  max-width: 520px;
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--tp);
+  font-weight: 800;
+  font-size: 15px;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.retryBanner[data-tone='wrong'] {
+  background: var(--red-soft);
+  border-color: transparent;
+  color: var(--red);
+  animation: retryNudge 260ms var(--ease-out);
+}
+.retryBanner[data-tone='solved'] {
+  background: var(--green-soft);
+  border-color: transparent;
+  color: var(--green);
+}
+.retryBanner[data-tone='revealed'] {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent-text);
+}
+.retryBannerText {
+  white-space: normal;
+  min-width: 0;
+}
+.retryBannerRating {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ts);
+  font-variant-numeric: tabular-nums;
+}
+@keyframes retryNudge {
+  30% {
+    transform: translateX(-4px);
+  }
+  60% {
+    transform: translateX(3px);
+  }
+}
+
+.retryControls {
+  max-width: 520px;
+  margin: 0 auto;
+}
+.retryPlayed {
+  text-align: center;
+  margin: 12px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ts);
+  white-space: normal;
+  min-height: 1.4em;
+}
+.retryBar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 12px;
+}
+.retryAction {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--tp);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.retryAction > span {
+  font-size: 16px;
+  line-height: 1;
+}
+.retryAction:hover {
+  background: var(--card-2);
+}
+.retryAction:active {
+  transform: translateY(1px);
+}
+.retryAction:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+.retryActionMain {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.retryActionMain:hover {
+  background: var(--accent-soft);
+  filter: brightness(1.04);
+}
+.retryDone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 10px 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--green-soft);
+  color: var(--green);
+  font-weight: 800;
+  font-size: 14px;
+  animation: drawerIn var(--dur-modal) var(--ease-out);
+}
+.retryDone .retryDoneCta {
+  margin-top: 0;
+  width: auto;
+  font-size: 15px;
+  padding: 10px 20px;
+}
+
+@media (max-width: 480px) {
+  .retryBar {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .retryAction {
+    grid-column: span 2;
+  }
+  .retryActionMain {
+    grid-column: span 4;
+  }
 }
 
 /* ── Leaderboard (S11) ──────────────────────────────────────── */

@@ -8,7 +8,7 @@
  * between a move and its ✓/✕: the reducer judges the move in the same update.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import type { Key } from 'chessground/types';
 import { rushApi, type RushAuth } from '@/lib/puzzle-rush/api';
@@ -274,12 +274,14 @@ export function usePuzzleRush(initialMode: RushMode) {
   const isGuest = !isSignedIn;
   const over = state.phase === 'over';
   const closeResults = useCallback(() => setResultsClosed(true), []);
+  // Stable while the finished run sits still: Retry mode derives its board from these.
+  const review = useMemo(() => (over ? reviewAttempts(state) : []), [over, state]);
   const guestResult = isGuest && over && guestBefore ? applyGuestScore(guestBefore[state.mode], state.score) : null;
 
   return {
     state,
     tiles: resultTiles(state),
-    review: over ? reviewAttempts(state) : [],
+    review,
     countdown,
     showResults: over && !resultsClosed,
     closeResults,

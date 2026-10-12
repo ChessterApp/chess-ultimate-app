@@ -20,6 +20,7 @@ vi.mock('../fonts', () => ({ fraunces: { variable: 'font-fraunces' } }));
 
 import ResultsModal, { resultTone } from '../ResultsModal';
 import { ResultsGrid } from '../RunTiles';
+import type { ResultTile } from '@/lib/puzzle-rush/runReducer';
 import PuzzleRush from '../PuzzleRush';
 
 const RESULTS = {
@@ -150,7 +151,7 @@ describe('ResultsModal', () => {
     expect(puzzles.getAttribute('aria-selected')).toBe('true');
     const panel = screen.getByRole('tabpanel');
     expect(panel.getAttribute('aria-labelledby')).toBe(puzzles.id);
-    expect(within(panel).getAllByRole('button', { name: /^Puzzle \d$/ })).toHaveLength(4);
+    expect(within(panel).getAllByRole('button', { name: /^Puzzle \d, (solved|missed)$/ })).toHaveLength(4);
     expect(within(panel).getByText('588')).toBeTruthy();
 
     fireEvent.keyDown(puzzles, { key: 'ArrowRight' });
@@ -182,7 +183,7 @@ describe('ResultsModal', () => {
   it('tapping a tile in the Puzzles tab opens that puzzle', () => {
     const h = modal();
     fireEvent.click(screen.getByRole('tab', { name: /^Puzzles/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Puzzle 4' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Puzzle 4, / }));
     expect(h.onOpenPuzzle).toHaveBeenCalledWith(3);
   });
 
@@ -217,6 +218,27 @@ describe('ResultsGrid', () => {
     withIntl(<ResultsGrid tiles={tiles} summary onSelect={onSelect} puzzleLabel={(n) => `Puzzle ${n}`} />);
     fireEvent.click(screen.getByRole('button', { name: 'Puzzle 2' }));
     expect(onSelect).toHaveBeenCalledWith(1);
+  });
+
+  it('a ✕ solved on retry renders amber ↻✓, with a help marker when hint / solution was used', () => {
+    const misses: ResultTile[] = [...tiles, { index: 3, rating: 600, solved: false }];
+    withIntl(
+      <ResultsGrid
+        tiles={misses}
+        summary
+        outcomes={{ 1: 'solved', 3: 'solved_with_help' }}
+        onSelect={vi.fn()}
+        puzzleLabel={(n, state) => `Puzzle ${n} ${state}`}
+        helpTitle="Hint or solution used"
+      />,
+    );
+    const retried = screen.getByRole('button', { name: 'Puzzle 2 retried' });
+    expect(retried.getAttribute('data-retry')).toBe('solved');
+    expect(within(retried).getByText('↻✓')).toBeTruthy();
+    expect(within(retried).queryByTestId('cell-help')).toBeNull();
+    const helped = screen.getByRole('button', { name: 'Puzzle 4 retriedHelp' });
+    expect(within(helped).getByTestId('cell-help').getAttribute('title')).toBe('Hint or solution used');
+    expect(screen.getByRole('button', { name: 'Puzzle 1 solved' }).getAttribute('data-retry')).toBeNull();
   });
 
   it('renders nothing before the first puzzle is finished', () => {

@@ -15,7 +15,7 @@ import ModeSelect from './ModeSelect';
 import RulesModal from './RulesModal';
 import ResultsModal from './ResultsModal';
 import Leaderboard from './Leaderboard';
-import RunSummary, { useRunReview } from './RunSummary';
+import RunSummary, { RetryBanner, RetryControls, useRetry } from './RunSummary';
 import RushBoard from './RushBoard';
 import { CoachToast, LOGO_SRC, ResultsGrid, ScoreTile, StrikesTile, TimerTile } from './RunTiles';
 import styles from './PuzzleRush.module.css';
@@ -53,7 +53,7 @@ export default function PuzzleRush() {
 
   const rush = usePuzzleRush(DEFAULT_MODE);
   const { state, tiles, countdown, showResults, closeResults, isPb, isGuest, auth } = rush;
-  const review = useRunReview(state.phase === 'over' ? state.runId : null, rush.review);
+  const review = useRetry(state.phase === 'over' ? state.runId : null, rush.review, tiles);
 
   // localStorage-backed choices only after mount (SSR renders the defaults, so
   // reading them during render would cause a hydration mismatch).
@@ -96,7 +96,7 @@ export default function PuzzleRush() {
     setMode(state.mode);
     rush.reset();
   }, [rush, state.mode]);
-  // Results modal → review drawer on that puzzle (Phase 2 retargets this to Retry mode).
+  // Results modal → Retry mode on that puzzle.
   const { open: openReview } = review;
   const openPuzzle = useCallback((index: number) => {
     closeResults();
@@ -189,20 +189,24 @@ export default function PuzzleRush() {
       </div>
     );
   } else if (runOver) {
-    // S8 / S10: frozen board (or the puzzle under review) + summary.
+    // S8 / S10: frozen board (or the puzzle in Retry mode) + summary.
     const rb = review.board;
     body = (
       <div className={styles.layout}>
         <div className={styles.boardCol}>
+          {rb && <RetryBanner review={review} />}
           <RushBoard
             fen={rb?.fen ?? state.fen}
             orientation={rb?.orientation ?? state.orientation}
             boardKey={state.boardKey * 1000 + (review.selected ?? -1) + 1}
             lastMove={rb ? rb.lastMove : state.lastMove}
-            movable={false}
-            badge={rb ? null : state.badge}
+            movable={rb?.movable ?? false}
+            badge={rb ? rb.badge : state.badge}
+            hintMove={rb?.hintMove}
+            hintSquare={rb?.hintSquare}
+            onMove={review.move}
           />
-          {rb ? <p className={styles.turn} aria-hidden="true" /> : turnLine}
+          {rb ? <RetryControls review={review} onPlayAgain={playAgain} /> : turnLine}
         </div>
         <section className={styles.panel}>
           <Brand compact />
@@ -274,6 +278,7 @@ export default function PuzzleRush() {
           mode={state.mode}
           score={state.score}
           tiles={tiles}
+          outcomes={review.outcomes}
           results={state.results}
           endReason={state.endReason}
           isPb={isPb}
