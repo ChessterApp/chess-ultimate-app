@@ -3,7 +3,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 
 import en from '../../../../messages/en.json';
@@ -72,7 +72,6 @@ describe('GamePanel', () => {
     const onHint = vi.fn();
     const onTakeback = vi.fn();
     const onResign = vi.fn();
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
     wrap(
       <GamePanel
         game={view({ ply: 2, in_check: true })}
@@ -89,11 +88,36 @@ describe('GamePanel', () => {
     expect(screen.getByText(/Your move · Check!/)).toBeTruthy();
     fireEvent.click(screen.getByText(coach.gameHint));
     fireEvent.click(screen.getByText(coach.gameTakeback));
-    fireEvent.click(screen.getByText(coach.gameResign));
     expect(onHint).toHaveBeenCalled();
     expect(onTakeback).toHaveBeenCalled();
-    expect(onResign).toHaveBeenCalled();
+    expect(onResign).not.toHaveBeenCalled();
     expect(screen.queryByText(coach.gameReview)).toBeNull();
+  });
+
+  it('asks in a styled dialog before resigning — Esc keeps playing, confirm resigns', async () => {
+    const onResign = vi.fn();
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    wrap(
+      <GamePanel
+        game={view()}
+        thinking={false}
+        onHint={vi.fn()} onTakeback={vi.fn()} onResign={onResign} onReview={vi.fn()} onNewGame={vi.fn()} onClose={vi.fn()}
+      />,
+    );
+    const panel = within(screen.getByTestId('game-panel'));
+    fireEvent.click(panel.getByText(coach.gameResign));
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.textContent).toContain(coach.gameResignConfirm);
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(onResign).not.toHaveBeenCalled();
+
+    fireEvent.click(panel.getByText(coach.gameResign));
+    const confirm = within(screen.getByRole('dialog')).getByRole('button', { name: coach.gameResign });
+    expect(document.activeElement).toBe(confirm);
+    fireEvent.click(confirm);
+    expect(onResign).toHaveBeenCalledTimes(1);
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
   it('shows the verdict of the last move with the better one', () => {

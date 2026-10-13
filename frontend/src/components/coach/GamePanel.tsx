@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { GameCommentMode, GameStateView } from '@/lib/coach/boards-api';
+import CoachDialog from './CoachDialog';
 
 /** Opponent strengths offered in the start dialog (Stockfish Elo). */
 export const GAME_STRENGTHS = [600, 800, 1000, 1200, 1500, 1800, 2000, 2200, 2500];
@@ -127,6 +128,7 @@ const TERMINATION_KEY: Record<string, string> = {
 /** Status line and controls of the live game under the board. */
 export default function GamePanel({ game, thinking, onHint, onTakeback, onResign, onReview, onNewGame, onClose }: GamePanelProps) {
   const t = useTranslations('coach');
+  const [confirmResign, setConfirmResign] = useState(false);
   const finished = game.status === 'finished';
   const verdict = game.student?.verdict;
   const showVerdict = verdict && verdict !== 'ok';
@@ -172,9 +174,7 @@ export default function GamePanel({ game, thinking, onHint, onTakeback, onResign
             </button>
             <button
               type="button"
-              onClick={() => {
-                if (window.confirm(t('gameResignConfirm'))) onResign();
-              }}
+              onClick={() => setConfirmResign(true)}
               disabled={thinking}
               className="rounded px-2 py-1 text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 disabled:opacity-40"
             >
@@ -195,6 +195,17 @@ export default function GamePanel({ game, thinking, onHint, onTakeback, onResign
           </>
         )}
       </div>
+      <CoachDialog
+        open={confirmResign}
+        title={t('gameResignConfirm')}
+        confirmLabel={t('gameResign')}
+        danger
+        onCancel={() => setConfirmResign(false)}
+        onConfirm={() => {
+          setConfirmResign(false);
+          onResign();
+        }}
+      />
     </div>
   );
 }
