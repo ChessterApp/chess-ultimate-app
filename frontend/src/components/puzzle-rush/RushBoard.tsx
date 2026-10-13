@@ -21,7 +21,6 @@ export function badgePosition(square: Key, orientation: 'white' | 'black') {
 interface Props {
   fen: string;
   orientation: 'white' | 'black';
-  boardKey: number;
   lastMove: [Key, Key] | null;
   movable: boolean;
   covered?: boolean;
@@ -37,13 +36,13 @@ interface Props {
 }
 
 export default function RushBoard({
-  fen, orientation, boardKey, lastMove, movable, covered = false, badge = null, countdown = null, goLabel = 'Go!',
+  fen, orientation, lastMove, movable, covered = false, badge = null, countdown = null, goLabel = 'Go!',
   waiting = false, onMove, hintMove = null, hintSquare = null,
 }: Props) {
   return (
     <div className={styles.boardFrame} data-testid="rush-board">
+      {/* One instance for the whole run: new puzzles arrive as props, never a remount. */}
       <ChessgroundBoard
-        key={boardKey}
         fen={fen}
         orientation={orientation}
         lastMove={lastMove}
