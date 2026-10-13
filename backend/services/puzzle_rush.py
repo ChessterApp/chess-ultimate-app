@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import chess
 
+from services import puzzle_rush_school as school
 from services.puzzle_rush_source import NoPuzzleAvailable, get_puzzle_source
 from services.supabase_client import supabase
 
@@ -347,6 +348,7 @@ def _finish(run: dict, reason: str, ended_at: datetime, changes: dict | None = N
             'display_name': run.get('display_name'),
             'achieved_at': run['ended_at'],
         }, on_conflict='user_id,mode').execute()
+    run['school'] = school.maybe_push(run)
     return run
 
 
@@ -633,6 +635,10 @@ def finish_run(user_id: str, body: dict, tz: ZoneInfo, now: datetime | None = No
         raise RushError('conflict', 409)
 
     stored = res.get('run') or {}
+    school_run = run
+    if mode == 'survival' and res['status'] == 'duplicate':
+        # A retry starts from the stored row so a 'pushed' outcome is not redone.
+        school_run = load_run(run_id) or run
     return {
         'run_id': run_id,
         'duplicate': res['status'] == 'duplicate',
@@ -644,6 +650,7 @@ def finish_run(user_id: str, body: dict, tz: ZoneInfo, now: datetime | None = No
         'duration_ms': stored.get('duration_ms', run['duration_ms']),
         'personal_rank': res.get('personal_rank'),
         'global_rank': res.get('global_rank'),
+        'school': school.maybe_push(school_run),
     }
 
 
@@ -692,6 +699,7 @@ def results(run: dict, tz: ZoneInfo) -> dict:
         'duration_ms': run.get('duration_ms'),
         'personal_rank': None,
         'global_rank': None,
+        'school': run['school'] if 'school' in run else school.stored(run),
     }
     if run.get('user_id'):  # guests never touch ranks (§7.6)
         out['personal_rank'] = personal_rank(run)
