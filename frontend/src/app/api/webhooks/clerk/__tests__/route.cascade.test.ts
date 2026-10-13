@@ -5,7 +5,7 @@
  * the `delete_user_data` RPC (migration 053, single transaction):
  *   - rpc called with the Clerk id; success → 200.
  *   - rpc error → 500, so Svix retries the delivery.
- *   - DB deletion runs before Listmonk / PostHog, which stay best-effort.
+ *   - DB deletion runs before the best-effort PostHog delete.
  *   - a replay (zero-row counts) still returns 200.
  *   - no user id → no rpc.
  */
@@ -55,16 +55,6 @@ vi.mock('@/lib/chess-empire-member', () => ({
   getMembershipStateForUser: vi.fn(),
 }));
 
-const blocklistSubscriber = vi.fn();
-vi.mock('@/lib/listmonk', () => ({
-  createSubscriber: vi.fn(),
-  blocklistSubscriber: (...args: unknown[]) => {
-    calls.push('blocklist');
-    return blocklistSubscriber(...args);
-  },
-  LISTS: { ALL_USERS: 3, WELCOME_SEQUENCE: 4 },
-}));
-
 const deletePostHogPerson = vi.fn();
 vi.mock('@/lib/analytics/person-delete', () => ({
   deletePostHogPerson: (...args: unknown[]) => {
@@ -87,14 +77,8 @@ function makeRequest(event: unknown): Request {
   });
 }
 
-function deletedEvent(id: string | undefined, email = 'gone@example.com'): unknown {
-  return {
-    type: 'user.deleted',
-    data: {
-      id,
-      email_addresses: email ? [{ email_address: email }] : [],
-    },
-  };
+function deletedEvent(id: string | undefined): unknown {
+  return { type: 'user.deleted', data: { id } };
 }
 
 beforeEach(() => {
@@ -102,7 +86,6 @@ beforeEach(() => {
   calls.length = 0;
   rpc.mockReset();
   rpc.mockResolvedValue({ data: { coach_sessions: 2, user_games: 5 }, error: null });
-  blocklistSubscriber.mockReset();
   deletePostHogPerson.mockReset();
 });
 
@@ -112,20 +95,18 @@ describe('POST /api/webhooks/clerk — user.deleted cascade', () => {
     expect(res.status).toBe(200);
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith('delete_user_data', { p_clerk_id: 'user_del_1' });
-    expect(blocklistSubscriber).toHaveBeenCalledWith('gone@example.com');
     expect(deletePostHogPerson).toHaveBeenCalledWith('user_del_1');
   });
 
-  it('deletes DB data before the best-effort Listmonk + PostHog calls', async () => {
+  it('deletes DB data before the best-effort PostHog call', async () => {
     await POST(makeRequest(deletedEvent('user_del_2')));
-    expect(calls).toEqual(['rpc', 'blocklist', 'posthog']);
+    expect(calls).toEqual(['rpc', 'posthog']);
   });
 
   it('rpc error → 500 so Svix retries; best-effort steps are not reached', async () => {
     rpc.mockResolvedValue({ data: null, error: { message: 'deadlock detected' } });
     const res = await POST(makeRequest(deletedEvent('user_del_3')));
     expect(res.status).toBe(500);
-    expect(blocklistSubscriber).not.toHaveBeenCalled();
     expect(deletePostHogPerson).not.toHaveBeenCalled();
   });
 
@@ -142,13 +123,6 @@ describe('POST /api/webhooks/clerk — user.deleted cascade', () => {
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
     expect(rpc).toHaveBeenCalledTimes(2);
-  });
-
-  it('Listmonk failure after a successful delete still returns 200', async () => {
-    blocklistSubscriber.mockRejectedValue(new Error('listmonk down'));
-    const res = await POST(makeRequest(deletedEvent('user_del_6')));
-    expect(res.status).toBe(200);
-    expect(deletePostHogPerson).toHaveBeenCalledWith('user_del_6');
   });
 
   it('no user id → no rpc, still 200', async () => {
