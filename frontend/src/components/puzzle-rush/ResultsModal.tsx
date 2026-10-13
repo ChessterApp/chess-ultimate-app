@@ -4,8 +4,10 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent }
 import { useTranslations } from 'next-intl';
 import type { ResultTile } from '@/lib/puzzle-rush/runReducer';
 import type { RetryOutcomes } from '@/lib/puzzle-rush/retryReducer';
+import type { RushAuth } from '@/lib/puzzle-rush/api';
 import type { EndReason, ModeBests, RushMode, RushResults } from '@/lib/puzzle-rush/types';
 import { formatClock, ResultsGrid } from './RunTiles';
+import SchoolResult from './SchoolResult';
 import styles from './PuzzleRush.module.css';
 
 /** Below this a non-PB run gets the red "Tough One" header (chess.com S9). */
@@ -42,6 +44,8 @@ interface Props {
   /** Leave the modal for puzzle `index` (a tile, or the first miss via Retry mistakes). */
   onOpenPuzzle: (index: number) => void;
   signInHref: string;
+  /** Signed-in: what the school block needs once `results.school` arrives. */
+  school?: { runId: string; auth: () => RushAuth; onOpenBoard: () => void };
 }
 
 /**
@@ -53,7 +57,7 @@ interface Props {
  */
 export default function ResultsModal({
   mode, score, tiles, outcomes, results, endReason, isPb, isGuest, guestBests = null, ranksPending = false,
-  onPlayAgain, onNewRush, onClose, onOpenPuzzle, signInHref,
+  onPlayAgain, onNewRush, onClose, onOpenPuzzle, signInHref, school,
 }: Props) {
   const t = useTranslations('puzzleRush');
   const [copied, setCopied] = useState(false);
@@ -195,6 +199,16 @@ export default function ResultsModal({
               {' — '}
               {t('results.guestRanks')}
             </p>
+          )}
+
+          {school && results?.school && (
+            <SchoolResult
+              key={school.runId}
+              runId={school.runId}
+              outcome={results.school}
+              auth={school.auth}
+              onOpenBoard={school.onOpenBoard}
+            />
           )}
 
           <ul className={styles.stats}>

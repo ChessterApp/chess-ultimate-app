@@ -57,6 +57,35 @@ describe('rushApi', () => {
     expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
+  it('schoolLeaderboard: survival school/branch board with period and optional student_id', async () => {
+    respond(200, { entries: [] });
+    await rushApi.schoolLeaderboard({ getToken: async () => 't' }, 'branch', 'month', 'stu-2');
+    let { url } = lastCall();
+    expect(url.pathname).toBe('/api/puzzlerush/leaderboard');
+    expect(url.searchParams.get('mode')).toBe('survival');
+    expect(url.searchParams.get('scope')).toBe('branch');
+    expect(url.searchParams.get('period')).toBe('month');
+    expect(url.searchParams.get('student_id')).toBe('stu-2');
+
+    respond(200, { entries: [] });
+    await rushApi.schoolLeaderboard({ getToken: async () => 't' }, 'school', 'all');
+    ({ url } = lastCall());
+    expect(url.searchParams.get('scope')).toBe('school');
+    expect(url.searchParams.get('period')).toBe('all');
+    expect(url.searchParams.has('student_id')).toBe(false);
+  });
+
+  it('schoolClaim: POSTs the student to the run and returns the school outcome', async () => {
+    respond(200, { school: { status: 'pushed', student_id: 'stu-1', beaten: ['week'] } });
+    const res = await rushApi.schoolClaim({ getToken: async () => 'jwt' }, FINISH.run_id, 'stu-1');
+    const { url, init } = lastCall();
+    expect(url.pathname).toBe(`/api/puzzlerush/runs/${FINISH.run_id}/school-claim`);
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ student_id: 'stu-1' });
+    expect(init.headers).toMatchObject({ Authorization: 'Bearer jwt' });
+    expect(res).toEqual({ status: 'pushed', student_id: 'stu-1', beaten: ['week'] });
+  });
+
   it('surfaces the error code + body and never retries', async () => {
     respond(409, { error: 'conflict' });
     const err = await rushApi.finish({ getToken: async () => 't' }, FINISH).catch((e) => e);
