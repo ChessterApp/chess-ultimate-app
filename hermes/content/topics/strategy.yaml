@@ -123,7 +123,7 @@
     - Менять хорошего слона на коня, оставляя себе плохого.
   lichess_themes: [middlegame, endgame]
   eco_codes: [C02]
-  lesson_stems: [плох, хорош, слон, bad bishop, good bishop]
+  lesson_stems: [плохой слон, хороший слон, плохого слона, хорошего слона, bad bishop, good bishop]
   positions:
     - title_ru: Плохой слон c8 во Французской
       moves: "1. e4 e6 2. d4 d5 3. e5 c5 4. c3 Nc6 5. Nf3 Qb6"
@@ -149,7 +149,7 @@
     - Разменивать ладьи на открытой линии, когда у вас более активные фигуры.
     - Открывать линию для соперника собственными разменами пешек.
   lichess_themes: [rookEndgame, middlegame]
-  lesson_stems: [открыт, лини, седьм, seventh, open file]
+  lesson_stems: [открытая линия, открытые линии, открытой линии, открытых линий, седьмая горизонталь, седьмой горизонтал, seventh rank, open file]
   positions:
     - title_ru: Ладья на седьмой горизонтали
       fen: "r5k1/pp3ppp/8/8/8/6P1/PP3P1P/3R2K1 w - - 0 1"
@@ -178,7 +178,7 @@
     - Фианкетто без слона: после размена слона g7 поля f6, h6 становятся дырами.
     - Ходы ...h6 и ...g5 у собственного короля ради атаки на слона.
   lichess_themes: [middlegame, kingsideAttack]
-  lesson_stems: [слаб, пол, цвет, weak square]
+  lesson_stems: [слабые поля, слабое поле, слабых полей, слабый цвет, слабость цвета, weak square, colour complex, color complex]
 
 - slug: prophylaxis
   phase: strategy
@@ -259,7 +259,7 @@
     - Жертвовать «на общих основаниях» без конкретных вариантов.
   lichess_themes: [sacrifice, attackingF2F7, kingsideAttack]
   eco_codes: [C52, D20]
-  lesson_stems: [инициатив, initiative, жертв]
+  lesson_stems: [инициатив, initiative]
   positions:
     - title_ru: Гамбит Эванса — пешка за темпы и центр
       moves: "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. b4"

@@ -19,7 +19,7 @@
     - Оставлять короля на g1/g8 после размена ферзей.
     - Идти королём к пешкам соперника, бросая свои.
   lichess_themes: [endgame, kingEndgame]
-  lesson_stems: [корол, king, активн]
+  lesson_stems: [активный король, активного короля, активность короля, king activity, active king]
   positions:
     - title_ru: "Оппозиция: король ведёт пешку"
       fen: "8/8/4k3/8/4K3/4P3/8/8 b - - 0 1"
@@ -46,7 +46,7 @@
     - Двигать пешку вперёд, пока король не обеспечил ключевое поле.
     - Слабейшей стороне уходить королём в сторону вместо позиции перед пешкой.
   lichess_themes: [pawnEndgame, kingEndgame, zugzwang]
-  lesson_stems: [оппозиц, ключев, opposition, key square, пешечн]
+  lesson_stems: [оппозиц, ключевые поля, ключевых полей, opposition, key square]
   positions:
     - title_ru: Оппозиция при ходе чёрных — белые выигрывают
       fen: "8/8/4k3/8/4K3/4P3/8/8 b - - 0 1"
@@ -131,7 +131,7 @@
     - Защищать пешку ладьёй спереди или сбоку.
     - Держаться за пешку ценой пассивной ладьи.
   lichess_themes: [rookEndgame, advancedPawn]
-  lesson_stems: [ладья за проходн, позади, behind, ладейн]
+  lesson_stems: [ладья за проходн, ладья позади, позади проходн, rook behind]
   positions:
     - title_ru: Ладья за проходной, король идёт к пешке
       fen: "r5k1/5ppp/8/P7/8/8/5PPP/R5K1 w - - 0 1"
@@ -213,7 +213,7 @@
     - Не видеть прорыва соперника и пускать пешки вперёд.
     - Делать прорыв, когда чужой король в квадрате.
   lichess_themes: [pawnEndgame, promotion, sacrifice]
-  lesson_stems: [прорыв, breakthrough, пешечн]
+  lesson_stems: [прорыв, breakthrough]
   positions:
     - title_ru: Классический прорыв трёх пешек
       fen: "7k/ppp5/8/PPP5/8/8/8/7K w - - 0 1"
@@ -240,7 +240,7 @@
     - Тратить пешечные темпы раньше времени.
     - Не замечать, что после размена ходов у соперника не остаётся.
   lichess_themes: [zugzwang, pawnEndgame]
-  lesson_stems: [цугцванг, zugzwang, темп]
+  lesson_stems: [цугцванг, zugzwang]
   positions:
     - title_ru: Оппозиция как цугцванг
       fen: "8/8/4k3/8/4K3/4P3/8/8 b - - 0 1"
@@ -266,4 +266,4 @@
     - Переходить в эндшпиль «конь против слона» с пешками на обоих флангах.
     - Ставить свои пешки на цвет своего слона.
   lichess_themes: [bishopEndgame, knightEndgame, endgame]
-  lesson_stems: [слон против кон, bishop, knight, лёгкие фигур]
+  lesson_stems: [слон против кон, конь против слон, bishop vs knight, bishop versus knight, лёгкие фигуры в эндшпиле]

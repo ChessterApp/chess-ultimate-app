@@ -121,17 +121,60 @@ def castling_facts(board: chess.Board) -> list[str]:
     if not king_home:
         return []
     st = castling_status(board, color)
-    parts = []
+    parts, blocked = [], []
     for wing, label, rook_file in (("O-O", "short castling (O-O)", 7), ("O-O-O", "long castling (O-O-O)", 0)):
         legal, why = st[wing]
         rook_home = board.piece_at(chess.square(rook_file, rank)) == chess.Piece(chess.ROOK, color)
         if legal:
-            parts.append(f"{label} is legal now")
-        elif why.startswith("pieces stand between") or not rook_home:
+            # «Поле b1 же бьёт ладья» — the rook's square, not the king's: it does not matter (prod, 2026-10-13).
+            rook_path = [chess.square(f, rank) for f in ((1,) if wing == "O-O-O" else ())]
+            hit = [s for s in rook_path if board.is_attacked_by(not color, s)]
+            note = (f" ({', '.join(chess.square_name(s) for s in hit)} is attacked, but only the rook passes it — "
+                    "that does not matter)") if hit else ""
+            parts.append(f"{label} is legal now{note}")
+        elif not rook_home:
             continue
+        elif why.startswith("pieces stand between"):
+            # Obvious alone; said exactly next to the other wing — the coach added «and b1 — the knight»
+            # with b1 empty (prod, 2026-10-13).
+            blocked.append(f"{label} is NOT possible now — {why}, and nothing else stands there")
         else:
-            parts.append(f"{label} is NOT possible now — {why}")
+            parts.append(f"{label} is NOT possible now — {why}" + _chased_still_attacks(board, why, color))
+    if parts:
+        parts += blocked
     return [f"{_color(color)}: " + "; ".join(parts)] if parts else []
+
+
+def _chased_still_attacks(board: chess.Board, why: str, color: chess.Color) -> str:
+    """For castling barred by an attacked square: where the attacker, once chased, still attacks it.
+
+    «Сыграй b3 — слон уйдёт, и рокировка станет возможна» (prod, 2026-10-06 and 2026-10-13): after b3 the
+    bishop c4 retreats to a6 or b5 and still hits f1."""
+    import re as _re
+
+    m = _re.match(r"([a-h][1-8]) is attacked by", why)
+    if not m:
+        return ""
+    target = chess.parse_square(m.group(1))
+    b = board.copy(stack=False)
+    b.turn = not color
+    b.ep_square = None
+    keeps = []
+    for attacker in board.attackers(not color, target):
+        piece = board.piece_at(attacker)
+        if piece is None or piece.piece_type in (chess.PAWN, chess.KING):
+            continue
+        for mv in b.pseudo_legal_moves:
+            if mv.from_square != attacker or b.piece_at(mv.to_square) is not None:
+                continue
+            after = b.copy(stack=False)
+            after.push(mv)
+            if mv.to_square in after.attackers(not color, target) or target in after.attacks(mv.to_square):
+                keeps.append(piece.symbol().upper() + chess.square_name(mv.to_square))
+    if not keeps:
+        return ""
+    return (f"; chasing the attacker away does not by itself allow it — it can step to {', '.join(keeps[:5])} "
+            f"and still attack {chess.square_name(target)}")
 
 
 # ── En passant ──────────────────────────────────────────────────────────────
@@ -334,7 +377,10 @@ def tablebase(board: chess.Board) -> Optional[dict]:
         moves = data.get("moves") or []
         best = moves[0] if moves else {}
         out = {"category": cat, "dtz": data.get("dtz"), "dtm": data.get("dtm"),
-               "best_san": best.get("san"), "best_category": best.get("category")}
+               "best_san": best.get("san"), "best_category": best.get("category"),
+               # Every move that keeps the result, not the best one alone: «1...Kd6 — и пешка проходит» with
+               # Kd6 as good a draw as Kd5 (stand, 2026-10-13).
+               "keeping": [m.get("san") for m in moves if m.get("category") == best.get("category") and m.get("san")]}
     with _tb_lock:
         if len(_tb_cache) > 2000:
             _tb_cache.clear()
@@ -356,11 +402,18 @@ def tablebase_facts(board: chess.Board, tb: Optional[dict]) -> list[str]:
         return []
     result = tablebase_white_result(board, tb)
     text = f"endgame tablebase (exact, perfect play): {result.upper()}"
+    keeping = [m for m in (tb.get("keeping") or []) if m]
+    total = board.legal_moves.count()
     if result == "draw":
         text += " — whatever the engine's evaluation shows, this is not a win"
+        if keeping and len(keeping) < total:
+            text += (f"; the moves that hold the draw for {_color(board.turn)}: {', '.join(keeping[:8])} "
+                     f"— every other move loses")
     elif tb.get("best_san"):
-        text += f"; the winning move here is {tb['best_san']}" if result.startswith(_color(board.turn)) \
-            else f"; the best defence is {tb['best_san']}"
+        mover_wins = result.startswith(_color(board.turn))
+        text += f"; the winning move here is {tb['best_san']}" if mover_wins else f"; the best defence is {tb['best_san']}"
+        if mover_wins and len(keeping) > 1:
+            text += f" (moves that also win: {', '.join(k for k in keeping[:8] if k != tb['best_san'])})"
     return [text]
 
 

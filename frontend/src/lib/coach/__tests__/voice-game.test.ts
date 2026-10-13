@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { famousNote, gameFromActions, gameMoveNote, gameNote, gameStartNote, mayAskForAGame, mentionsAGame } from '../voice-game';
+import { famousNote, gameActionNote, gameFromActions, gameMoveNote, gameNote, gameStartNote, mayAskForAGame, mayCommandTheGame, mentionsAGame } from '../voice-game';
 import type { GameStateView } from '../boards-api';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -65,5 +65,22 @@ describe('voice: the game asked for or the move said, done by Hermes for the wor
     expect(gameMoveNote({ ok: true, student_move: 'Qh5', verdict: 'blunder', engine_reply: 'Nf6' })).toContain('Qh5 (blunder)');
     expect(gameStartNote(null)).toBeNull();
     expect(gameMoveNote({ ok: false })).toBeNull();
+  });
+});
+
+describe('voice: the game\'s buttons said in words (Hermes game_action)', () => {
+  it('only words that may ask the game for something go to game_action', () => {
+    for (const t of ['Сдаюсь', 'Ой, верни ход назад', 'давай заново', 'Предлагаю ничью', 'I resign', 'take back', 'new game']) {
+      expect(mayCommandTheGame(t)).toBe(true);
+    }
+    expect(mayCommandTheGame('конь f3')).toBe(false);
+    expect(mayCommandTheGame('почему здесь связка')).toBe(false);
+  });
+
+  it('the note says what the system did, and nothing without an action', () => {
+    expect(gameActionNote({ action: 'resign', done: true, note: 'Result 0-1.' })).toMatch(/^\[Game\] The student resigned/);
+    expect(gameActionNote({ action: 'draw', done: false, note: 'Declined because it is too early.' })).toContain('offered a draw');
+    expect(gameActionNote(null)).toBeNull();
+    expect(gameActionNote({})).toBeNull();
   });
 });

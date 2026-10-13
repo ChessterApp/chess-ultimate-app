@@ -216,6 +216,118 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     return _reply(view, summary)
 
 
+def game_command_step(session, board_rec, command: str) -> Optional[dict]:
+    """Resign / take back / draw / a new game, asked for in words: done here as the game's buttons do it
+    (src/game_mode.py), and the model is told what happened. {"view", "block"}."""
+    from src import game_mode
+
+    state = board_rec.game_state or {}
+    try:
+        if command == "resign":
+            view = game_mode.resign(session, board_rec)
+            return {"view": view, "block": (
+                "## The student resigned — the system ended the game\n"
+                f"Result {view.get('result')} (resignation). Say the game is over in one kind sentence, without "
+                "talking them out of it, and offer to review it or to play again."
+            )}
+        if command == "takeback":
+            view = game_mode.takeback(session, board_rec)
+            return {"view": view, "block": (
+                "## The student's last move was taken back (the system did it)\n"
+                f"Their move and the engine's reply to it are undone; the position is {view.get('fen')} and it is "
+                "the student's move again. Say it in one sentence and let them move."
+            )}
+        if command == "draw":
+            accepted, cp = game_mode.draw_decision(board_rec)
+            if accepted:
+                view = game_mode.agree_draw(session, board_rec)
+                return {"view": view, "block": (
+                    "## The student offered a draw and the engine accepted — the game is over, ½–½\n"
+                    "Say the draw is agreed and offer a review or a new game."
+                )}
+            why = ("it is too early — the game has barely begun" if len(state.get("moves") or []) < game_mode.DRAW_MIN_PLIES
+                   else f"the engine judges its position better ({cp / 100:+.1f} for it)")
+            return {"view": None, "block": (
+                "## The student offered a draw — the engine declined, the game goes on\n"
+                f"Declined because {why}. Say so honestly in a sentence; the game is still on and it is their move."
+            )}
+        if command == "restart":
+            # The site offers «New game» only once a game is over: a game still on is resigned first, so two
+            # games are never on at once (the old one would come back as «the game» after the new one ends).
+            abandoned = state.get("status") == "playing"
+            if abandoned:
+                game_mode.resign(session, board_rec)
+            _, view = game_mode.start_game(session, state.get("student_color") or "white",
+                                           int(state.get("engine_elo") or 1200), state.get("comment_mode") or "quiet")
+            engine = (view.get("engine") or {}).get("san")
+            return {"view": view, "block": (
+                "## A new game has started on the board (the system started it)\n"
+                + ("The previous game was still on: it is counted as resigned. " if abandoned else "")
+                + f"The student plays {view['student_color']} again, the engine about {view['engine_elo']} Elo. "
+                + (f"The engine opened with {engine}. " if engine else "The student moves first. ")
+                + "Tell them it is on and whose move it is."
+            )}
+    except game_mode.GameError as exc:
+        return {"view": None, "block": f"## The game could not do that: {exc}\nSay so plainly in one sentence."}
+    return None
+
+
+GAME_ACTION_SCHEMA = {
+    "name": "game_action",
+    "description": (
+        "Do what the game's buttons do, when the student asks for it in words during a game: resign («сдаюсь»), "
+        "take back their last move («верни ход»), offer a draw («предлагаю ничью» — the engine decides) or start a "
+        "new game («давай заново»). Never pretend: no game ends, no move is undone and no new game starts unless "
+        "this tool did it."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart"]},
+            "said": {"type": "string", "description": "Leave empty (the site passes the student's words here)."},
+        },
+    },
+}
+
+
+def _handle_game_action(args: dict, **kwargs) -> str:
+    from src.game_intent import game_command
+    session = _session(kwargs)
+    if session is None:
+        return json.dumps({"error": "No coach session."})
+    if kwargs.get("turn_game_step"):
+        return json.dumps({"error": "The game already did what the student asked this turn: tell them."})
+    action = args.get("action")
+    if args.get("said"):
+        # The site's call with the student's words (voice): only words that ask for it.
+        action = game_command(str(args["said"]))
+        if action is None:
+            return json.dumps({"error": "The student's words do not ask the game for anything."})
+    if action not in ("resign", "takeback", "draw", "restart"):
+        return json.dumps({"error": "action must be resign, takeback, draw or restart."})
+    board_rec = live_game_board(session)
+    if board_rec is None and action == "restart":
+        board_rec = next((b for b in reversed(session.boards or []) if b.kind == "game" and b.game_state), None)
+    if board_rec is None:
+        return json.dumps({"error": "No game is on: start_game starts one."})
+    step = game_command_step(session, board_rec, action)
+    if not step:
+        return json.dumps({"error": "Nothing was done."})
+    note = step["block"].split("\n", 1)[-1]
+    if step.get("view") is None:
+        return json.dumps({"ok": action == "draw", "action": action, "done": False, "note": note}, ensure_ascii=False)
+    return _reply(step["view"], {"ok": True, "action": action, "done": True, "note": note})
+
+
+registry.register(
+    name="game_action",
+    toolset="chess",
+    schema=GAME_ACTION_SCHEMA,
+    handler=_handle_game_action,
+    description="Resign, take back, offer a draw or start a new game — the game's buttons, in words.",
+    emoji="♟️",
+)
+
 registry.register(
     name="start_game",
     toolset="chess",

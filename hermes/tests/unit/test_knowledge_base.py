@@ -229,7 +229,7 @@ def test_get_topic_prefers_the_sites_own_lesson(topics, monkeypatch):
     import src.tools.learning_path as lp
     import src.tools.knowledge_topics as kt
 
-    lesson_fen = "6k1/5ppp/8/8/8/8/5PPP/3N2K1 w - - 0 1"
+    lesson_fen = "r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1"  # Nc7+ forks the king and the rook
     seen = {}
     monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [
         {"lesson_id": "l-fork", "slug": "knight-fork", "title": "Вилка конём", "course": "Тактика"}])
@@ -240,7 +240,7 @@ def test_get_topic_prefers_the_sites_own_lesson(topics, monkeypatch):
         return {
             "lesson_id": "l-fork", "title": "Вилка конём", "course": {"slug": "tactics-101", "title": "Тактика"},
             "url": "https://chesster.io/learn/tactics-101/knight-fork",
-            "exercise": {"fen": lesson_fen, "solution": ["Ne3"], "hint": "Ищите прыжок коня"},
+            "exercise": {"fen": lesson_fen, "solution": ["Nc7+"], "hint": "Ищите прыжок коня"},
             "puzzles": [{"n": 1, "fen": "7k/6rp/4R3/4B2K/8/8/8/8 w - - 0 1", "solution": ["Re8#"], "hint": ""}],
         }
 
@@ -250,14 +250,14 @@ def test_get_topic_prefers_the_sites_own_lesson(topics, monkeypatch):
     assert seen == {"key": "l-fork", "show": False}
     ex = out["example"]
     assert ex["source"] == "site_lesson" and ex["url"].endswith("/knight-fork")
-    assert ex["course"] == "Тактика" and ex["tasks"] == 2 and ex["kind"] == "exercise" and ex["solution"] == ["Ne3"]
+    assert ex["course"] == "Тактика" and ex["tasks"] == 2 and ex["kind"] == "exercise" and ex["solution"] == ["Nc7+"]
     # A task of the site's lesson goes on as a puzzle, with no arrow giving the answer away.
-    assert out["board_actions"] == [{"type": "set_puzzle", "fen": lesson_fen, "solution": ["Ne3"]}]
+    assert out["board_actions"] == [{"type": "set_puzzle", "fen": lesson_fen, "solution": ["Nc7+"]}]
     hint = out["board_hint"]
     assert "the site's lesson «Вилка конём» (course «Тактика»)" in hint and "2 tasks" in hint
     assert "END the answer by inviting the student to go through the whole lesson" in hint
     assert "https://chesster.io/learn/tactics-101/knight-fork" in hint
-    assert "do NOT reveal it" in hint and "Ne3" in hint
+    assert "do NOT reveal it" in hint and "Nc7+" in hint
 
 
 @pytest.mark.unit
@@ -271,16 +271,16 @@ def test_get_topic_teaches_from_the_lessons_own_diagram_and_text(topics, monkeyp
         "lesson_id": "l-fork", "title": "Вилка конём", "course": {"slug": "tactics-101", "title": "Тактика"},
         "url": "https://chesster.io/learn/tactics-101/knight-fork",
         "lesson_text": "Двойной удар – нападение одной фигурой на две фигуры противника.",
-        "diagrams": [{"fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "context": "Конь нападает на две фигуры"}],
+        "diagrams": [{"fen": "2r3k1/8/8/3N4/8/8/8/6K1 w - - 0 1", "context": "Конь нападает на две фигуры"}],
         "puzzles": [{"n": 1, "fen": "7k/6rp/4R3/4B2K/8/8/8/8 w - - 0 1", "solution": ["Re8#"], "hint": ""}],
     })
     out = get_topic("fork", locale="ru", topics=topics)
     ex = out["example"]
     assert ex["source"] == "site_lesson" and ex["kind"] == "diagram" and ex["tasks"] == 1
-    assert ex["fen"] == "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1" and ex["solution"] == []
+    assert ex["fen"] == "2r3k1/8/8/3N4/8/8/8/6K1 w - - 0 1" and ex["solution"] == []
     assert ex["explanation"].startswith("Двойной удар – нападение")
     # A diagram goes on as a position to explain, not as a puzzle.
-    assert out["board_actions"][0] == {"type": "set_fen", "fen": "6k1/8/8/3N4/8/8/8/6K1 w - - 0 1"}
+    assert out["board_actions"][0] == {"type": "set_fen", "fen": "2r3k1/8/8/3N4/8/8/8/6K1 w - - 0 1"}
     hint = out["board_hint"]
     assert "an explanatory diagram of the site's lesson «Вилка конём» (course «Тактика»), which has 1 tasks" in hint
     assert "«Конь нападает на две фигуры»" in hint and "teach in ITS words" in hint
@@ -418,3 +418,48 @@ def test_a_topic_the_base_lacks_is_taught_from_the_sites_programme(topics, monke
     monkeypatch.setattr(lp, "fetch_programme", lambda *a, **k: programme)
     out = get_topic("квантовая хромодинамика", locale="ru", user_id="u1", topics=topics)
     assert "error" in out and out["topics"]
+
+
+@pytest.mark.unit
+def test_get_topic_passes_over_a_lesson_position_without_the_motif(topics, monkeypatch):
+    # «Покажи пример вилки» put the site's «Двойной шах» diagram up — K, Q and K, no fork (prod, 2026-10-13).
+    import src.tools.learning_path as lp
+    import src.tools.knowledge_topics as kt
+
+    monkeypatch.setattr(kt, "_related_lessons", lambda *a, **k: [
+        {"lesson_id": "l-dc", "slug": "double-check", "title": "Двойной шах", "course": "Основы шахмат"}])
+    monkeypatch.setattr(lp, "get_lesson", lambda key, **kw: {
+        "lesson_id": "l-dc", "title": "Двойной шах", "course": {"slug": "chess-basics", "title": "Основы шахмат"},
+        "diagrams": [{"fen": "8/8/4k3/8/8/8/4K3/4Q3 w - - 0 1", "context": "Крd2+ открывает ферзя"}],
+    })
+    out = get_topic("fork", locale="ru", topics=topics)
+    assert out["example"]["source"] == "knowledge_base"
+    assert out["example"]["fen"] != "8/8/4k3/8/8/8/4K3/4Q3 w - - 0 1"
+
+
+@pytest.mark.unit
+def test_motifs_are_read_on_the_position():
+    from src.motifs import shows_motif
+
+    assert shows_motif("r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1", "fork") is True          # Nc7+
+    assert shows_motif("8/8/4k3/8/8/8/4K3/4Q3 w - - 0 1", "fork") is False
+    assert shows_motif("8/8/4k3/8/8/8/4K3/4Q3 w - - 0 1", "discovered-attack") is True  # Kd2+
+    assert shows_motif("rnbqk1nr/pppp1ppp/4p3/8/1b1P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3", "pin") is True
+    assert shows_motif(chess.STARTING_FEN, "pin") is False
+    assert shows_motif(chess.STARTING_FEN, "zugzwang") is None                         # not checked here
+
+
+@pytest.mark.unit
+def test_lesson_stems_match_from_the_start_of_a_word():
+    from src.tools.training_recommender import match_lessons
+
+    programme = {"courses": [{"title": "Тактика", "modules": [
+        {"title": "Уроки защиты", "lessons": [{"id": "a", "title": "Промежуточный шах"}]},
+        {"title": "Нотация", "lessons": [{"id": "b", "title": "Шахматная нотация"}]},
+        {"title": "Двойной удар", "lessons": [{"id": "c", "title": "Двойной удар"}]},
+        {"title": "Открытый и двойной шах", "lessons": [{"id": "d", "title": "Двойной шах"}]},
+    ]}]}
+    assert match_lessons(programme, ("еж", "hedgehog"), {}) == []          # not inside «промежуточный»
+    assert match_lessons(programme, ("мат",), {}) == []                   # not inside «шахматная»
+    fork = [l["id"] for _, _, l in match_lessons(programme, tuple(kb.load_topics()["fork"]["lesson_stems"]), {})]
+    assert fork == ["c"]                                                  # «Двойной удар», not «Двойной шах»

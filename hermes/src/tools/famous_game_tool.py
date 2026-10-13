@@ -30,7 +30,11 @@ def _handle_famous_game(args: dict, **kwargs) -> str:
 
     found = famous_game(str(args.get("text") or ""))
     if not found:
-        return json.dumps({"found": False})
+        # «6-я партия Карлсен — Непомнящий» came back «d4 Nf6 c4 e6…» from memory (stand, 2026-10-13).
+        return json.dumps({"found": False, "note": (
+            "This game has no verified record here. Do not tell or show its moves from memory, not even the "
+            "opening: say you have no exact record of it, give only what you are sure of (who, when, the result), "
+            "and offer something you can show.")})
     return json.dumps({
         "found": True,
         "name": found["name"],

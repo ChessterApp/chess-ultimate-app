@@ -123,8 +123,10 @@ _COMMA_CLAUSE = r"(?:,(?=\s*(?:котор\w+|что|which|that|who|[а-яa-z]+(?
 _ATTACK_CLAIMS = []
 for _ptype, _pat in _RU_SUBJECTS:
     _ATTACK_CLAIMS.append((_ptype, re.compile(
+        # (Not «с d5»: «конь с g8 сразу бьёт в e4» is the knight that leaves g8.)
         _W + "(?:" + _pat + ")" + _E + rf"\s+{_RU_PLACED}(?:на\s+)?(?P<a>{SQ})(?![0-9]){_COMMA_CLAUSE}(?P<mid>{_STOP_MID}{{0,40}}?)"
-        rf"(?P<verb>{_RU_VERBS})(?P<targets>{_STOP}{{0,90}})")))
+        # «бьёт сразу две фигуры: короля на e8 и ладью на a8» — a colon after a count opens the list of targets
+        rf"(?P<verb>{_RU_VERBS})(?P<targets>(?:{_STOP}{{0,30}}?(?:сразу|обе|оба|две|два|двух|три|фигур\w*|цел\w*){_STOP}{{0,20}}:\s*)?{_STOP}{{0,90}})")))
 for _ptype, _pat in _EN_PIECES:
     _ATTACK_CLAIMS.append((_ptype, re.compile(
         _W + "(?:" + _pat + ")" + _E + rf"\s+{_EN_PLACED}(?:(?:on|to|at|onto|from)\s+)?(?P<a>{SQ})(?![0-9]){_COMMA_CLAUSE}(?P<mid>{_STOP_MID}{{0,40}}?)"
@@ -943,6 +945,14 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
     return issues
 
 
+def _parses(board: chess.Board, san: str) -> bool:
+    try:
+        board.parse_san(san)
+        return True
+    except ValueError:
+        return False
+
+
 def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     converted, cyr_k = _to_san(text)
     converted = _MATE_WORD.sub(lambda mm: mm.group("san") + "#" + mm.group("rest"), converted)
@@ -983,6 +993,16 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         else:
             colors = [chess.WHITE, chess.BLACK]
         full = san + (m["check"] or "")
+        # «Правильно было 5. Nxd4» about the game on the board: the move numbered N starts a line at move N of
+        # that game, not wherever such a move happens to be legal (4.Nxd4 was, 5.Nxd4 was not — stand,
+        # 2026-10-13). Only for a line's first move, with the game's position at that move given to the turn.
+        if num and prev is None and not list_item and dots in (".", "...", "…") and getattr(ctx, "game_lines", 0):
+            want = chess.WHITE if dots == "." else chess.BLACK
+            at_n = [b for b in ctx.boards if b.fullmove_number == int(num) and b.turn == want and ctx.is_given(b)]
+            if at_n and not any(_parses(b, full) for b in at_n):
+                issues.append(f"{num}{dots}{full} is not possible at move {num} of the game "
+                              f"(position {at_n[0].fen()})")
+                continue
         legal_somewhere = False
         # «Rxd6#» parses as a legal move whether or not it mates: the suffix is
         # judged where the move is really meant — the line's own continuation
@@ -2628,7 +2648,10 @@ _SELF_CORRECTION = re.compile(r"^\W*(?:нет|стоп|хм|то\s+есть|то
 # opened what was left of the answer (lucena, the newest code, 2026-10-08).
 _LEANS_BACK = re.compile(
     r"^(\s*(?:[>#-]+\s*)?)([*_]{0,2})(?:затем|потом|после\s+этого|дальше|далее|следом|кроме\s+того|также|тоже|then|"
-    r"after\s+that|next|also|besides)(?![а-яёa-z])([*_]{0,2})[\s,—–-]*", re.IGNORECASE)
+    # «Зато есть сильный ход…», «Дело в том, что…», «Но ничья наступает…» — the answer began mid-thought
+    # once its first sentence was left out (prod curriculum and stand, 2026-10-13).
+    r"но|зато|однако|тем\s+не\s+менее|при\s+этом|а\s+вот|так\s+что|дело\s+в\s+том,?\s+что|"
+    r"after\s+that|next|also|besides|but|however|still|yet)(?![а-яёa-z])([*_]{0,2})[\s,—–-]*", re.IGNORECASE)
 
 
 def strip_leaning_start(text: str) -> str:
@@ -2829,8 +2852,30 @@ _LEAKS = re.compile(
     rf"|<\s*/?\s*{_DSML}[^>]*>"                                                        # any other DSML tag
     r"|(?:<[^>\n]{0,40})?\b[\w-]{0,40}\"\s*string=\"(?:true|false)\"\s*>[A-Za-z0-9_.:/-]{0,60}"
     r"(?:<\s*/[^>\n]{0,40}>)?"                                                         # a cut-off fragment
+    r"|(?<![\w])[\w-]{0,40}=\"(?:true|false)\"\s*>[A-Za-z0-9_.:/-]{0,60}"                # «="true">Nepomniachtchi» (2026-10-13)
     r"|<\s*/?\s*(?:function_calls|invoke|parameter)\b[^>\n]{0,80}>"
     r"|(?m:^[ \t]*(?:parameter\s+)?name=\"[^\n]{0,60}$)", re.IGNORECASE)                    # a stray « name="» line
+
+
+# «епископ» is the bishop of a church, not of the board: «У белых епископ и конь» (prod, 2026-10-09, 2026-10-13).
+# Masculine for masculine, so the words around it still agree.
+_BISHOP_FORMS = {"епископ": "слон", "епископа": "слона", "епископу": "слону", "епископом": "слоном",
+                 "епископе": "слоне", "епископы": "слоны", "епископов": "слонов", "епископам": "слонам",
+                 "епископами": "слонами", "епископах": "слонах"}
+_BISHOP_RE = re.compile(r"(?<![\w-])(" + "|".join(sorted(_BISHOP_FORMS, key=len, reverse=True)) + r")(?![\w-])",
+                        re.IGNORECASE)
+
+
+def chess_terms(text: str) -> str:
+    """*text* with the Russian chess words where the model used others («епископ» → «слон»)."""
+    if not text or "пископ" not in text.lower():
+        return text
+
+    def swap(m: "re.Match") -> str:
+        word = _BISHOP_FORMS[m.group(1).lower()]
+        return word.capitalize() if m.group(1)[0].isupper() else word
+
+    return _BISHOP_RE.sub(swap, text)
 
 
 def strip_leaks(text: str) -> str:

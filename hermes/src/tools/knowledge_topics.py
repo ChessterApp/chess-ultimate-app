@@ -148,9 +148,16 @@ def _arrow(fen: str, move: Optional[str]) -> Optional[dict]:
     return {"from": chess.square_name(mv.from_square), "to": chess.square_name(mv.to_square), "brush": "green"}
 
 
-def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: Optional[str]) -> Optional[dict]:
+def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: Optional[str],
+                          motif: Optional[str] = None) -> Optional[dict]:
     """A position from the site's own lessons on the topic: the lesson's exercise,
-    else its first puzzle (fail-open — the programme is optional)."""
+    else its first puzzle (fail-open — the programme is optional). With *motif*
+    (a base topic's slug) a position that does not show it is passed over."""
+    from src.motifs import shows_motif
+
+    def _fits(fen: str) -> bool:
+        return _legal_fen(fen) and (motif is None or shows_motif(fen, motif) is not False)
+
     try:
         from src.tools.learning_path import get_lesson
     except Exception:  # noqa: BLE001
@@ -170,7 +177,7 @@ def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: O
         # The lesson's own explanatory diagram first (the programme's text goes
         # with it); its tasks are for the end of the answer.
         for d in full.get("diagrams") or []:
-            if _legal_fen(d.get("fen")):
+            if _fits(d.get("fen")):
                 return {
                     "source": "site_lesson",
                     "kind": "diagram",
@@ -193,7 +200,7 @@ def _example_from_lessons(lessons: list[dict], user_id: Optional[str], locale: O
             candidates.append((pz.get("fen"), pz.get("solution") or [], pz.get("hint") or "", "task"))
         tasks = len([c for c in candidates if _legal_fen(c[0])])
         for fen, solution, note, kind in candidates:
-            if _legal_fen(fen):
+            if _fits(fen):
                 course = full.get("course") or {}
                 return {
                     "source": "site_lesson",
@@ -489,7 +496,8 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         out["site_lessons"] = lessons
     if show:
         # The site's own lesson first — it is the customer's curriculum — then the base.
-        example = _example_from_lessons(lessons, user_id, locale) or _example_from_base(t)
+        # A lesson's position that does not show the motif is no example of it (src/motifs.py).
+        example = _example_from_lessons(lessons, user_id, locale, motif=t["slug"]) or _example_from_base(t)
         if example:
             side = "White" if chess.Board(example["fen"]).turn == chess.WHITE else "Black"
             out["example"] = {**example, "side_to_move": side}

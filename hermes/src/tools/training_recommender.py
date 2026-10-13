@@ -19,6 +19,7 @@ the coach still has something to say.
 from __future__ import annotations
 
 import json
+import re
 import logging
 import os
 from typing import Optional
@@ -203,6 +204,12 @@ def _title_blob(*rows: dict) -> str:
     return " ".join(parts)
 
 
+def _starts_word(stem: str, text: str) -> bool:
+    """*stem* at the start of a word of *text* (a phrase stem as a phrase). Inside a word it is another
+    word: «еж» (hedgehog) matched «промЕЖуточный шах», «мат» — «шахМАТная нотация» (2026-10-13)."""
+    return re.search(r"(?<![\w])" + re.escape(stem), text) is not None
+
+
 def match_lessons(programme: dict, stems: tuple, progress: dict, limit: int = LESSONS_PER_THEME) -> list[tuple]:
     """Lessons whose own or module title contains one of *stems*, not-completed
     first, in study order. Multi-word stems match as phrases."""
@@ -214,9 +221,9 @@ def match_lessons(programme: dict, stems: tuple, progress: dict, limit: int = LE
         blob = own + " " + _title_blob(m)
         score = 0
         for s in stems:
-            if s in own:
+            if _starts_word(s, own):
                 score += 2
-            elif s in blob:
+            elif _starts_word(s, blob):
                 score += 1
         if score:
             done = (progress.get(l["id"]) or {}).get("status") == "completed"

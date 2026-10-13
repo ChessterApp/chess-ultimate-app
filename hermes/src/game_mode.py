@@ -264,6 +264,37 @@ def resign(session, board_rec: Board) -> dict:
     return _payload(board_rec, state, board)
 
 
+# A draw offered in words (2026-10-13): the engine agrees only when it is not better — and never in the
+# first moves, where «ничья» is a joke, not an offer.
+DRAW_MIN_PLIES = 20
+DRAW_ENGINE_WORSE_CP = -150
+
+
+def draw_decision(board_rec: Board) -> tuple[bool, int]:
+    """(accepted, the engine's evaluation in centipawns from its own side) for a draw the student offers."""
+    state = board_rec.game_state
+    board = _replay(state["moves"])
+    engine_color = chess.BLACK if state["student_color"] == "white" else chess.WHITE
+    cp, _ = _evaluate(board.fen(), engine_color)
+    accepted = cp <= DRAW_ENGINE_WORSE_CP or (len(state["moves"]) >= DRAW_MIN_PLIES and cp <= 30)
+    return accepted, cp
+
+
+def agree_draw(session, board_rec: Board) -> dict:
+    """End the game as a draw by agreement."""
+    state = board_rec.game_state
+    if board_rec.kind != "game" or not state:
+        raise GameError("This board is not a game.")
+    if state["status"] != "playing":
+        raise GameError("The game is over.")
+    board = _replay(state["moves"])
+    state.update({"status": "finished", "result": "1/2-1/2", "termination": "draw", "winner": None,
+                  "finished_at": time.time()})
+    _sync_board(board_rec, state, board)
+    session.save_board(board_rec)
+    return _payload(board_rec, state, board)
+
+
 def takeback(session, board_rec: Board) -> dict:
     """Undo the student's last move (and the engine's reply to it)."""
     state = board_rec.game_state
