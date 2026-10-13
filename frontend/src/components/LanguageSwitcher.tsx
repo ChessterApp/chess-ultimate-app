@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { locales, localeNames, localeFlags, type Locale } from '@/i18n/config'
 import { setLocale } from '@/app/actions/setLocale'
+import { persistPreferredLocale } from '@/lib/preferred-locale'
 
 interface LanguageSwitcherProps {
   currentLocale: string
@@ -33,8 +34,12 @@ export default function LanguageSwitcher({
   }, [])
 
   const handleLocaleChange = async (newLocale: Locale) => {
+    // Clerk write runs alongside the cookie write; it never rejects and is
+    // capped, so the switch is never blocked on it.
+    const persisted = persistPreferredLocale(newLocale)
     // Use server action to ensure cookie is set properly
     await setLocale(newLocale)
+    await persisted
     setIsOpen(false)
     // Full reload so client components consuming NextIntlClientProvider re-mount with the new messages
     window.location.reload()

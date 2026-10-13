@@ -13,6 +13,7 @@ import { translateOpeningName } from "@/lib/openings/openingNamesI18n";
 import { usePhaseHistory } from "@/hooks/usePhaseHistory";
 import { deriveTier, type PuzzleTheme } from "@/lib/onboarding/deriveTier";
 import { writePendingAnswers } from "@/lib/onboarding/pendingAnswers";
+import { parseStepParam, type StepParam } from "@/lib/onboarding/stepParam";
 
 // Client-only: chessground touches the DOM at load, so defer it past SSR.
 const AnimatedChessBoard = dynamic(
@@ -148,16 +149,30 @@ export default function OnboardingPage() {
 
   const restore = useCallback(
     (
-      target: { step: number },
-      meta: { initial: boolean; replace: (p: { step: number }) => void },
+      target: { step: StepParam },
+      meta: { initial: boolean; replace: (p: { step: StepParam }) => void },
     ) => {
       if (meta.initial) {
+        // Legacy Whop return URL (`?step=complete`) — the payer belongs on the
+        // post-checkout confirmation page, not back in the wizard.
+        if (target.step === "complete") {
+          router.replace("/upgrade/success");
+          return;
+        }
         // Refresh / deep-link: restore answers, then clamp the URL step to the
         // earliest step the answers actually justify (guards `?step=12` links).
         const stored = readStoredAnswers();
         if (stored) setAnswers((a) => ({ ...a, ...stored }));
         hydratedRef.current = true;
         const allowed = earliestIncompleteStep(stored);
+        // A non-numeric step must not reset progress: resume where the saved
+        // answers leave off (a fresh visitor still starts at step 1).
+        if (target.step === "resume") {
+          const next = stored ? allowed : 1;
+          setStep(next);
+          meta.replace({ step: next });
+          return;
+        }
         let next = clampStep(target.step);
         if (next > allowed) next = allowed;
         setStep(next);
@@ -166,19 +181,17 @@ export default function OnboardingPage() {
         return;
       }
       // Browser/in-app Back or Forward: animate to the entry's step.
+      if (typeof target.step !== "number") return;
       const next = clampStep(target.step);
       const prev = stepRef.current;
       if (next === prev) return;
       animateTo(next, next < prev ? "back" : "forward");
     },
-    [animateTo],
+    [animateTo, router],
   );
 
-  const history = usePhaseHistory<{ step: number }>({
-    parse: (params) => {
-      const raw = parseInt(params.get("step") ?? "", 10);
-      return { step: Number.isFinite(raw) && raw >= 1 ? raw : 1 };
-    },
+  const history = usePhaseHistory<{ step: StepParam }>({
+    parse: (params) => ({ step: parseStepParam(params.get("step")) }),
     serialize: (p) => ({ step: p.step }),
     onRestore: restore,
   });
