@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid plan" }, { status: 400 });
     }
 
-    const redirectUrl = encodeURIComponent("https://chesster.io/onboarding?step=complete");
+    const redirectUrl = encodeURIComponent("https://chesster.io/upgrade/success");
     
     // Try to get Clerk user ID to pass as metadata
     let checkoutUrl = `https://whop.com/checkout/${planId}?d=${redirectUrl}`;

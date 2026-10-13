@@ -19,8 +19,9 @@ vi.mock('next-intl', () => ({
   useLocale: () => 'en',
 }));
 
+const { routerReplace } = vi.hoisted(() => ({ routerReplace: vi.fn() }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: routerReplace }),
 }));
 
 vi.mock('@/lib/onboarding/GameDataContext', () => ({
@@ -42,6 +43,7 @@ function flushAnimation() {
 
 describe('Onboarding wizard URL history sync', () => {
   beforeEach(() => {
+    routerReplace.mockClear();
     window.sessionStorage.clear();
     window.history.replaceState(null, '', '/onboarding');
     vi.useFakeTimers();
@@ -120,5 +122,43 @@ describe('Onboarding wizard URL history sync', () => {
     const persisted = JSON.parse(window.sessionStorage.getItem(STORAGE_KEY) || '{}');
     expect(persisted.attribution).toBe('friend');
     expect(persisted.focusAreas).toEqual(['tactics']);
+  });
+
+  const COMPLETED_ANSWERS = {
+    attribution: 'friend',
+    experience: 'beginner',
+    platform: 'none',
+    platformUsername: '',
+    focusAreas: ['tactics'],
+    challenge: 'blunder',
+    practiceTime: '5min',
+    goal: 'beatFriends',
+    timeline: '1month',
+  };
+
+  it('sends the legacy ?step=complete Whop return to /upgrade/success', () => {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(COMPLETED_ANSWERS));
+    window.history.replaceState(null, '', '/onboarding?step=complete');
+    render(<OnboardingPage />);
+    flushAnimation();
+    expect(routerReplace).toHaveBeenCalledWith('/upgrade/success');
+  });
+
+  it('does not reset a completed user to step 1 on a non-numeric step', () => {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(COMPLETED_ANSWERS));
+    window.history.replaceState(null, '', '/onboarding?step=abc');
+    const { queryByText } = render(<OnboardingPage />);
+    flushAnimation();
+    expect(window.location.search).toBe('?step=16');
+    expect(queryByText('welcome.getStarted')).toBeNull();
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it('starts a fresh visitor at step 1 on a non-numeric step', () => {
+    window.history.replaceState(null, '', '/onboarding?step=NaN');
+    const { queryByText } = render(<OnboardingPage />);
+    flushAnimation();
+    expect(window.location.search).toBe('?step=1');
+    expect(queryByText('welcome.getStarted')).toBeTruthy();
   });
 });
