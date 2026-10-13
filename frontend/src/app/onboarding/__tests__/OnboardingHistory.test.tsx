@@ -14,6 +14,7 @@ vi.mock('next-intl', () => ({
   useTranslations: () => {
     const t = (k: string, opts?: any) => (opts ? `${k}:${JSON.stringify(opts)}` : k);
     (t as any).has = () => false;
+    (t as any).rich = (k: string) => k;
     return t;
   },
   useLocale: () => 'en',

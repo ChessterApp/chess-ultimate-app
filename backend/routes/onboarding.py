@@ -15,6 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, jsonify, request
 
+from services.analytics_posthog import LEVEL_ASSIGNED, capture
+
 logger = logging.getLogger(__name__)
 
 onboarding_bp = Blueprint('onboarding', __name__, url_prefix='/api/onboarding')
@@ -182,7 +184,27 @@ def save_onboarding_profile():
         row, on_conflict='clerk_user_id'
     ).execute()
 
+    if answers.get('parentConsent') is True:
+        _save_parent_consent(supabase, user_id, answers.get('parentConsentVersion'))
+
+    capture(user_id, LEVEL_ASSIGNED, {
+        'starting_level': derived['starting_level'],
+        'skill_tier': derived['skill_tier'],
+    })
+
     return jsonify(derived), 200
+
+
+def _save_parent_consent(supabase, user_id: str, version) -> None:
+    """Best-effort consent stamp (migration 051). A separate update so a missing
+    column (migration not yet applied) never fails the onboarding save."""
+    try:
+        supabase.table('user_onboarding').update({
+            'parent_consent_at': datetime.now(timezone.utc).isoformat(),
+            'parent_consent_version': str(version)[:32] if version else None,
+        }).eq('clerk_user_id', user_id).execute()
+    except Exception as exc:
+        logger.warning('parent consent write failed for %s: %s', user_id, exc)
 
 
 @onboarding_bp.route('/profile', methods=['GET'])

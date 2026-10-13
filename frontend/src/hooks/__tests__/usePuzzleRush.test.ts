@@ -11,6 +11,11 @@ const play = vi.fn();
 vi.mock('@/hooks/useSoundEffects', () => ({ useSoundEffects: () => ({ play }) }));
 const clerk = { isSignedIn: false, userId: null as string | null, getToken: async () => null as string | null };
 vi.mock('@clerk/nextjs', () => ({ useAuth: () => clerk }));
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics/events', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/analytics/events')>()),
+  track: trackMock,
+}));
 
 import { usePuzzleRush, TIMINGS } from '../usePuzzleRush';
 
@@ -147,6 +152,12 @@ describe('usePuzzleRush', () => {
     expect(JSON.parse(localStorage.getItem('puzzleRush.guestBests')!)['3min'].top).toBe(1);
     expect(result.current.tiles.map((t) => t.solved)).toEqual([true, false, false, false]);
     expect(urls()).toHaveLength(before);
+    expect(trackMock).toHaveBeenCalledWith('puzzle_rush_started', { mode: '3min' });
+    expect(trackMock).toHaveBeenCalledWith('puzzle_rush_finished', {
+      mode: '3min',
+      score: 1,
+      end_reason: 'strikes',
+    });
 
     act(() => result.current.closeResults());
     expect(result.current.showResults).toBe(false);

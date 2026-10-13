@@ -1,6 +1,8 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, after } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { requireCoachAccess } from '@/lib/coach-access';
+import { captureServer } from '@/lib/analytics/server';
+import { ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
 
@@ -47,6 +49,12 @@ export async function POST(request: NextRequest) {
 
   const locale = request.cookies.get('NEXT_LOCALE')?.value || 'ru';
   const tier = await resolveUserTier(userId);
+
+  // Tracking plan §4 B — counts the message, never its content. Runs after the
+  // response so the PostHog round trip never delays the stream.
+  after(() =>
+    captureServer(userId, ANALYTICS_EVENTS.COACH_MESSAGE_SENT, { surface: 'coach', plan: tier }),
+  );
 
   const encoder = new TextEncoder();
 

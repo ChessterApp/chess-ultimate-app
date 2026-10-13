@@ -396,6 +396,7 @@ function ApexHomePage() {
 
               <CTAButton
                 href="/sign-up"
+                location="footer"
                 className="bg-white text-purple-600 hover:bg-purple-50 px-12 py-4 rounded-2xl font-bold text-lg transition-all duration-200 transform hover:scale-105 shadow-xl hover:shadow-2xl active:scale-95"
               >
                 {t('landing.cta.button')}

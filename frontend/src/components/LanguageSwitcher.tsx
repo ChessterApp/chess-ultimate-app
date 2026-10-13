@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { locales, localeNames, localeFlags, type Locale } from '@/i18n/config'
 import { setLocale } from '@/app/actions/setLocale'
 import { persistPreferredLocale } from '@/lib/preferred-locale'
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events'
 
 interface LanguageSwitcherProps {
   currentLocale: string
@@ -34,6 +35,13 @@ export default function LanguageSwitcher({
   }, [])
 
   const handleLocaleChange = async (newLocale: Locale) => {
+    if (newLocale !== currentLocale) {
+      track(ANALYTICS_EVENTS.LANGUAGE_SWITCHED, {
+        from: currentLocale,
+        to: newLocale,
+        surface: window.location.pathname === '/' ? 'landing' : window.location.pathname.split('/')[1],
+      })
+    }
     // Clerk write runs alongside the cookie write; it never rejects and is
     // capped, so the switch is never blocked on it.
     const persisted = persistPreferredLocale(newLocale)

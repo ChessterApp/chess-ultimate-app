@@ -11,7 +11,13 @@ vi.mock('next/navigation', () => ({
 
 const startReview = vi.fn();
 vi.mock('../reviewApi', () => ({
-  startReview: (pgn: string) => startReview(pgn),
+  startReview: (pgn: string, source?: string) => startReview(pgn, source),
+}));
+
+const track = vi.fn();
+vi.mock('@/lib/analytics/events', () => ({
+  ANALYTICS_EVENTS: { GAME_REVIEW_REQUESTED: 'game_review_requested' },
+  track: (...a: unknown[]) => track(...a),
 }));
 
 import StartReviewButton, { canReview } from '../StartReviewButton';
@@ -21,6 +27,7 @@ afterEach(() => {
   cleanup();
   push.mockReset();
   startReview.mockReset();
+  track.mockReset();
 });
 
 describe('canReview (gating rule)', () => {
@@ -58,7 +65,8 @@ describe('StartReviewButton', () => {
     const btn = getByTestId('start-review-button') as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
     fireEvent.click(btn);
-    await waitFor(() => expect(startReview).toHaveBeenCalledWith('1. e4 e5'));
+    await waitFor(() => expect(startReview).toHaveBeenCalledWith('1. e4 e5', 'bot'));
+    expect(track).toHaveBeenCalledWith('game_review_requested', { source: 'bot' });
     await waitFor(() =>
       expect(push).toHaveBeenCalledWith('/review/abc123?source=bot&orientation=black'),
     );

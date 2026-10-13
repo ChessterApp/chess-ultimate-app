@@ -29,6 +29,7 @@ rich  # For better logging
 # - Stockfish analysis now handled by frontend WASM
 # - Voice features deferred to future phase
 requests
+posthog>=7,<8  # server-side analytics (services/analytics_posthog.py)
 
 # Server-side Maia bot fallback (frontend plays instantly before ONNX download finishes)
 # Pinned to versions with a stable numpy/protobuf ABI (newer combos segfault on model load).

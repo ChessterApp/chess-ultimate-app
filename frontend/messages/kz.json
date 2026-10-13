@@ -1393,6 +1393,8 @@
       "calculation": "Есептеу және визуализация",
       "startFree": "Бастау",
       "freeNoCard": "Тегін. Карта қажет емес.",
+      "parentConsent": "Мен ата-анамын/қамқоршымын және <terms>Шарттар</terms> мен <privacy>Құпиялылық саясатын</privacy> қабылдаймын",
+      "parentConsentRequired": "Жалғастыру үшін растаңыз",
       "haveAccount": "Аккаунтыңыз бар ма?",
       "signIn": "Кіру"
     },

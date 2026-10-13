@@ -1393,6 +1393,8 @@
       "calculation": "Расчёт и визуализация",
       "startFree": "Начать",
       "freeNoCard": "Бесплатно. Карта не нужна.",
+      "parentConsent": "Я родитель/опекун и принимаю <terms>Условия</terms> и <privacy>Политику конфиденциальности</privacy>",
+      "parentConsentRequired": "Подтвердите, чтобы продолжить",
       "haveAccount": "Уже есть аккаунт?",
       "signIn": "Войти"
     },

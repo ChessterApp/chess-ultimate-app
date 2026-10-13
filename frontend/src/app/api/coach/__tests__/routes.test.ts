@@ -5,6 +5,16 @@ vi.mock('@clerk/nextjs/server', () => ({
   auth: vi.fn(),
 }));
 
+// `after()` throws outside a Next request scope; run its callback inline.
+vi.mock('next/server', async () => {
+  const actual = await vi.importActual<typeof import('next/server')>('next/server');
+  return { ...actual, after: (fn: () => unknown) => { fn(); } };
+});
+
+vi.mock('@/lib/analytics/server', () => ({
+  captureServer: vi.fn(),
+}));
+
 import { auth } from '@clerk/nextjs/server';
 
 describe('Coach API Routes', () => {

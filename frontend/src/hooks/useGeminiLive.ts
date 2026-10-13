@@ -7,6 +7,7 @@ import type {
   Session,
 } from '@google/genai';
 import type { GameStateView } from '@/lib/coach/boards-api';
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 import {
   famousNote,
   gameActionNote,
@@ -422,6 +423,13 @@ type LiveMetricEvent =
   | 'usage';
 /** Why a voice session ended, carried on the 'session_end' beacon. */
 type SessionEndReason = 'user_stop' | 'quota_exhausted' | 'error' | 'drop';
+/** Tracking-plan `ended_reason` enum (user/quota/error) for each end reason. */
+const VOICE_ENDED_REASON: Record<SessionEndReason, 'user' | 'quota' | 'error'> = {
+  user_stop: 'user',
+  quota_exhausted: 'quota',
+  error: 'error',
+  drop: 'error',
+};
 interface LiveMetricRecord {
   sessionId?: string;
   turn: number;
@@ -729,6 +737,12 @@ export default function useGeminiLive(
       const session_ms = Math.round(elapsedMs);
       reportMetric({ event: 'end', session_ms });
       reportMetric({ event: 'session_end', session_ms, end_reason: reason });
+      // Tracking plan §4 B / §6 activation (duration_s >= 60). No transcript.
+      track(ANALYTICS_EVENTS.VOICE_SESSION_ENDED, {
+        surface: 'coach',
+        duration_s: Math.floor(elapsedMs / 1000),
+        ended_reason: VOICE_ENDED_REASON[reason],
+      });
       sessionStartRef.current = null;
     },
     [postHeartbeat, reportMetric],
@@ -1890,6 +1904,7 @@ export default function useGeminiLive(
       // start (session_ms reflects the whole conversation, not the last leg).
       if (sessionStartRef.current === null) {
         sessionStartRef.current = performance.now();
+        track(ANALYTICS_EVENTS.VOICE_SESSION_STARTED, { surface: 'coach' });
       }
 
       // Record connect-phase latency (token mint + WebSocket setup). Off the
