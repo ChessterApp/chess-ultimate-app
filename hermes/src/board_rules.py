@@ -377,7 +377,10 @@ def tablebase(board: chess.Board) -> Optional[dict]:
         moves = data.get("moves") or []
         best = moves[0] if moves else {}
         out = {"category": cat, "dtz": data.get("dtz"), "dtm": data.get("dtm"),
-               "best_san": best.get("san"), "best_category": best.get("category")}
+               "best_san": best.get("san"), "best_category": best.get("category"),
+               # Every move that keeps the result, not the best one alone: «1...Kd6 — и пешка проходит» with
+               # Kd6 as good a draw as Kd5 (stand, 2026-10-13).
+               "keeping": [m.get("san") for m in moves if m.get("category") == best.get("category") and m.get("san")]}
     with _tb_lock:
         if len(_tb_cache) > 2000:
             _tb_cache.clear()
@@ -399,11 +402,18 @@ def tablebase_facts(board: chess.Board, tb: Optional[dict]) -> list[str]:
         return []
     result = tablebase_white_result(board, tb)
     text = f"endgame tablebase (exact, perfect play): {result.upper()}"
+    keeping = [m for m in (tb.get("keeping") or []) if m]
+    total = board.legal_moves.count()
     if result == "draw":
         text += " — whatever the engine's evaluation shows, this is not a win"
+        if keeping and len(keeping) < total:
+            text += (f"; the moves that hold the draw for {_color(board.turn)}: {', '.join(keeping[:8])} "
+                     f"— every other move loses")
     elif tb.get("best_san"):
-        text += f"; the winning move here is {tb['best_san']}" if result.startswith(_color(board.turn)) \
-            else f"; the best defence is {tb['best_san']}"
+        mover_wins = result.startswith(_color(board.turn))
+        text += f"; the winning move here is {tb['best_san']}" if mover_wins else f"; the best defence is {tb['best_san']}"
+        if mover_wins and len(keeping) > 1:
+            text += f" (moves that also win: {', '.join(k for k in keeping[:8] if k != tb['best_san'])})"
     return [text]
 
 

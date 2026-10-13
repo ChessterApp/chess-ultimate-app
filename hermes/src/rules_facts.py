@@ -70,4 +70,6 @@ def rules_block(message: str) -> str:
         return ""
     return ("## The rules this question is about (FIDE Laws of Chess, verified)\n"
             + "\n".join(f"- {r}" for r in found)
-            + "\nAnswer by these rules — the first word is the verdict they give.")
+            + "\nAnswer by these rules — the first word is the verdict they give. They answer the rule asked about; "
+              "do not apply them to the board on the screen unless the question is about that position "
+              "(«в начальной позиции рокировка доступна» is false: pieces stand between).")

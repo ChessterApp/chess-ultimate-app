@@ -945,6 +945,14 @@ def _san_issues(text: str, ctx: CheckContext) -> list[str]:
     return issues
 
 
+def _parses(board: chess.Board, san: str) -> bool:
+    try:
+        board.parse_san(san)
+        return True
+    except ValueError:
+        return False
+
+
 def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     converted, cyr_k = _to_san(text)
     converted = _MATE_WORD.sub(lambda mm: mm.group("san") + "#" + mm.group("rest"), converted)
@@ -985,6 +993,16 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
         else:
             colors = [chess.WHITE, chess.BLACK]
         full = san + (m["check"] or "")
+        # «Правильно было 5. Nxd4» about the game on the board: the move numbered N starts a line at move N of
+        # that game, not wherever such a move happens to be legal (4.Nxd4 was, 5.Nxd4 was not — stand,
+        # 2026-10-13). Only for a line's first move, with the game's position at that move given to the turn.
+        if num and prev is None and not list_item and dots in (".", "...", "…") and getattr(ctx, "game_lines", 0):
+            want = chess.WHITE if dots == "." else chess.BLACK
+            at_n = [b for b in ctx.boards if b.fullmove_number == int(num) and b.turn == want and ctx.is_given(b)]
+            if at_n and not any(_parses(b, full) for b in at_n):
+                issues.append(f"{num}{dots}{full} is not possible at move {num} of the game "
+                              f"(position {at_n[0].fen()})")
+                continue
         legal_somewhere = False
         # «Rxd6#» parses as a legal move whether or not it mates: the suffix is
         # judged where the move is really meant — the line's own continuation
