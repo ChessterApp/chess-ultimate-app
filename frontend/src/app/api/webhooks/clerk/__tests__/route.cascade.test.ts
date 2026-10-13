@@ -1,88 +1,27 @@
 /**
- * Tests for the Clerk `user.deleted` coach-data cascade (Phase 3, Task 3).
+ * Tests for the Clerk `user.deleted` account-deletion cascade (P1).
  *
- * On `user.deleted` the webhook must best-effort delete the user's coach data
- * across every telemetry / conversation table:
- *   - coach_messages (via the user's coach_sessions ids — no user_id column)
- *   - coach_sessions (by user_id)
- *   - coach_events, token_usage, voice_usage, analytics_events (by user_id)
- * One table's failure must not abort the rest, and the webhook still returns 200.
- *
- * This file carries its own Supabase mock (supporting select + delete + eq + in)
- * so it stays independent of the user.created suite's select/limit-only mock.
+ * On `user.deleted` the webhook deletes all of the user's data with ONE call to
+ * the `delete_user_data` RPC (migration 053, single transaction):
+ *   - rpc called with the Clerk id; success → 200.
+ *   - rpc error → 500, so Svix retries the delivery.
+ *   - DB deletion runs before Listmonk / PostHog, which stay best-effort.
+ *   - a replay (zero-row counts) still returns 200.
+ *   - no user id → no rpc.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-type Delete = { table: string; filters: Array<[string, unknown]>; inFilter: [string, unknown[]] | null };
-
-const state: {
-  sessions: Array<{ id: string }>;
-  deletes: Delete[];
-  fromCalls: string[];
-  selectError: { message: string } | null;
-  deleteErrors: Record<string, { message: string } | null>;
-} = {
-  sessions: [],
-  deletes: [],
-  fromCalls: [],
-  selectError: null,
-  deleteErrors: {},
-};
-
-function resetState(overrides: Partial<typeof state> = {}) {
-  state.sessions = overrides.sessions ?? [];
-  state.deletes = [];
-  state.fromCalls = [];
-  state.selectError = overrides.selectError ?? null;
-  state.deleteErrors = overrides.deleteErrors ?? {};
-}
-
-function makeBuilder(table: string) {
-  const rec = {
-    mode: 'select' as 'select' | 'delete',
-    filters: [] as Array<[string, unknown]>,
-    inFilter: null as [string, unknown[]] | null,
-  };
-  const resolve = () => {
-    if (rec.mode === 'select') {
-      if (table === 'coach_sessions') {
-        return { data: state.sessions, error: state.selectError };
-      }
-      return { data: [], error: null };
-    }
-    // delete
-    state.deletes.push({ table, filters: rec.filters, inFilter: rec.inFilter });
-    return { data: null, error: state.deleteErrors[table] ?? null };
-  };
-  const chain: Record<string, unknown> = {
-    select(_cols: string) {
-      rec.mode = 'select';
-      return chain;
-    },
-    delete() {
-      rec.mode = 'delete';
-      return chain;
-    },
-    eq(col: string, val: unknown) {
-      rec.filters.push([col, val]);
-      return chain;
-    },
-    in(col: string, vals: unknown[]) {
-      rec.inFilter = [col, vals];
-      return chain;
-    },
-    then(onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) {
-      return Promise.resolve(resolve()).then(onFulfilled, onRejected);
-    },
-  };
-  return chain;
-}
+const calls: string[] = [];
+const rpc = vi.fn();
 
 vi.mock('@/lib/supabase-admin', () => ({
   supabaseAdmin: {
     from: (table: string) => {
-      state.fromCalls.push(table);
-      return makeBuilder(table);
+      throw new Error(`unexpected supabaseAdmin.from(${table})`);
+    },
+    rpc: (...args: unknown[]) => {
+      calls.push('rpc');
+      return rpc(...args);
     },
   },
 }));
@@ -119,8 +58,19 @@ vi.mock('@/lib/chess-empire-member', () => ({
 const blocklistSubscriber = vi.fn();
 vi.mock('@/lib/listmonk', () => ({
   createSubscriber: vi.fn(),
-  blocklistSubscriber: (...args: unknown[]) => blocklistSubscriber(...args),
+  blocklistSubscriber: (...args: unknown[]) => {
+    calls.push('blocklist');
+    return blocklistSubscriber(...args);
+  },
   LISTS: { ALL_USERS: 3, WELCOME_SEQUENCE: 4 },
+}));
+
+const deletePostHogPerson = vi.fn();
+vi.mock('@/lib/analytics/person-delete', () => ({
+  deletePostHogPerson: (...args: unknown[]) => {
+    calls.push('posthog');
+    return deletePostHogPerson(...args);
+  },
 }));
 
 vi.mock('@/lib/chess-empire-client', () => ({
@@ -149,125 +99,62 @@ function deletedEvent(id: string | undefined, email = 'gone@example.com'): unkno
 
 beforeEach(() => {
   process.env.CLERK_WEBHOOK_SECRET = 'whsec_test';
+  calls.length = 0;
+  rpc.mockReset();
+  rpc.mockResolvedValue({ data: { coach_sessions: 2, user_games: 5 }, error: null });
   blocklistSubscriber.mockReset();
-  resetState();
+  deletePostHogPerson.mockReset();
 });
 
-function deletesFor(table: string) {
-  return state.deletes.filter((d) => d.table === table);
-}
-
 describe('POST /api/webhooks/clerk — user.deleted cascade', () => {
-  it('cascades across every user-scoped coach table and deletes messages via sessions', async () => {
-    resetState({ sessions: [{ id: 's1' }, { id: 's2' }] });
-
+  it('calls delete_user_data with the Clerk id and returns 200', async () => {
     const res = await POST(makeRequest(deletedEvent('user_del_1')));
     expect(res.status).toBe(200);
-
-    // Blocklist still runs.
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith('delete_user_data', { p_clerk_id: 'user_del_1' });
     expect(blocklistSubscriber).toHaveBeenCalledWith('gone@example.com');
-
-    // coach_messages deleted via the user's session ids.
-    const msgDeletes = deletesFor('coach_messages');
-    expect(msgDeletes).toHaveLength(1);
-    expect(msgDeletes[0].inFilter).toEqual(['session_id', ['s1', 's2']]);
-
-    // coach_sessions + the four user_id-keyed tables each deleted by user_id.
-    for (const table of [
-      'coach_sessions',
-      'coach_events',
-      'token_usage',
-      'voice_usage',
-      'analytics_events',
-    ]) {
-      const dels = deletesFor(table);
-      expect(dels, `expected a delete on ${table}`).toHaveLength(1);
-      expect(dels[0].filters).toContainEqual(['user_id', 'user_del_1']);
-    }
+    expect(deletePostHogPerson).toHaveBeenCalledWith('user_del_1');
   });
 
-  it('cascades the personal user_id-keyed tables added for account deletion', async () => {
-    resetState({ sessions: [] });
-
-    const res = await POST(makeRequest(deletedEvent('user_del_p')));
-    expect(res.status).toBe(200);
-
-    for (const table of [
-      'live_game_logs',
-      'lesson_chat_history',
-      'player_ratings',
-      'player_fide_ratings',
-      'rating_history',
-      'tournament_registrations',
-      'tournament_standings',
-      'organization_members',
-      'link_attempts',
-    ]) {
-      const dels = deletesFor(table);
-      expect(dels, `expected a delete on ${table}`).toHaveLength(1);
-      expect(dels[0].filters).toContainEqual(['user_id', 'user_del_p']);
-    }
+  it('deletes DB data before the best-effort Listmonk + PostHog calls', async () => {
+    await POST(makeRequest(deletedEvent('user_del_2')));
+    expect(calls).toEqual(['rpc', 'blocklist', 'posthog']);
   });
 
-  it('cascades the clerk_user_id-keyed tables (subscriptions, pending_onboarding)', async () => {
-    resetState({ sessions: [] });
-
-    const res = await POST(makeRequest(deletedEvent('user_del_c')));
-    expect(res.status).toBe(200);
-
-    for (const table of ['subscriptions', 'pending_onboarding']) {
-      const dels = deletesFor(table);
-      expect(dels, `expected a delete on ${table}`).toHaveLength(1);
-      expect(dels[0].filters).toContainEqual(['clerk_user_id', 'user_del_c']);
-    }
-  });
-
-  it('skips coach_messages delete when the user has no sessions', async () => {
-    resetState({ sessions: [] });
-
-    const res = await POST(makeRequest(deletedEvent('user_del_2')));
-    expect(res.status).toBe(200);
-
-    expect(deletesFor('coach_messages')).toHaveLength(0);
-    // Other tables still purged.
-    expect(deletesFor('coach_events')).toHaveLength(1);
-  });
-
-  it('one table failure does not abort the rest (best-effort)', async () => {
-    resetState({
-      sessions: [{ id: 's1' }],
-      deleteErrors: { coach_events: { message: 'boom' } },
-    });
-
+  it('rpc error → 500 so Svix retries; best-effort steps are not reached', async () => {
+    rpc.mockResolvedValue({ data: null, error: { message: 'deadlock detected' } });
     const res = await POST(makeRequest(deletedEvent('user_del_3')));
-    expect(res.status).toBe(200);
-
-    // The failing table was attempted, and later tables still ran.
-    expect(deletesFor('coach_events')).toHaveLength(1);
-    expect(deletesFor('token_usage')).toHaveLength(1);
-    expect(deletesFor('voice_usage')).toHaveLength(1);
-    expect(deletesFor('analytics_events')).toHaveLength(1);
+    expect(res.status).toBe(500);
+    expect(blocklistSubscriber).not.toHaveBeenCalled();
+    expect(deletePostHogPerson).not.toHaveBeenCalled();
   });
 
-  it('a thrown session lookup does not block the user_id-keyed purges', async () => {
-    resetState({
-      sessions: [],
-      selectError: { message: 'select down' },
-    });
-
+  it('rpc rejection → 500', async () => {
+    rpc.mockRejectedValue(new Error('network down'));
     const res = await POST(makeRequest(deletedEvent('user_del_4')));
-    expect(res.status).toBe(200);
-
-    // coach_messages skipped (lookup failed) but the rest still purge.
-    expect(deletesFor('coach_messages')).toHaveLength(0);
-    expect(deletesFor('coach_events')).toHaveLength(1);
-    expect(deletesFor('analytics_events')).toHaveLength(1);
+    expect(res.status).toBe(500);
   });
 
-  it('no user id → cascade skipped, still 200', async () => {
-    resetState();
+  it('replay with zero-row counts is idempotent → 200', async () => {
+    rpc.mockResolvedValue({ data: { coach_sessions: 0, user_games: 0 }, error: null });
+    const first = await POST(makeRequest(deletedEvent('user_del_5')));
+    const replay = await POST(makeRequest(deletedEvent('user_del_5')));
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect(rpc).toHaveBeenCalledTimes(2);
+  });
+
+  it('Listmonk failure after a successful delete still returns 200', async () => {
+    blocklistSubscriber.mockRejectedValue(new Error('listmonk down'));
+    const res = await POST(makeRequest(deletedEvent('user_del_6')));
+    expect(res.status).toBe(200);
+    expect(deletePostHogPerson).toHaveBeenCalledWith('user_del_6');
+  });
+
+  it('no user id → no rpc, still 200', async () => {
     const res = await POST(makeRequest(deletedEvent(undefined)));
     expect(res.status).toBe(200);
-    expect(state.deletes).toHaveLength(0);
+    expect(rpc).not.toHaveBeenCalled();
+    expect(deletePostHogPerson).not.toHaveBeenCalled();
   });
 });

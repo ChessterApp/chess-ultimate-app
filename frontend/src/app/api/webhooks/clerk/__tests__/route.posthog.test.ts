@@ -4,25 +4,19 @@
  *     $set_once signup_date).
  *   - user.deleted → PostHog person lookup + delete (F11). Real
  *     `deletePostHogPerson` with fetch mocked; the webhook must return 200 and
- *     keep running the existing cascade whatever PostHog does.
+ *     keep running the delete_user_data cascade whatever PostHog does.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const deletes: string[] = [];
+const rpcCalls: Array<[string, unknown]> = [];
 
-function makeBuilder(table: string) {
-  let mode: 'select' | 'delete' = 'select';
+function makeBuilder() {
   const chain: Record<string, unknown> = {
     select: () => chain,
-    delete: () => {
-      mode = 'delete';
-      return chain;
-    },
     eq: () => chain,
     in: () => chain,
     limit: () => chain,
     then(onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) {
-      if (mode === 'delete') deletes.push(table);
       return Promise.resolve({ data: [], error: null }).then(onFulfilled, onRejected);
     },
   };
@@ -30,7 +24,13 @@ function makeBuilder(table: string) {
 }
 
 vi.mock('@/lib/supabase-admin', () => ({
-  supabaseAdmin: { from: (table: string) => makeBuilder(table) },
+  supabaseAdmin: {
+    from: () => makeBuilder(),
+    rpc: async (fn: string, args: unknown) => {
+      rpcCalls.push([fn, args]);
+      return { data: {}, error: null };
+    },
+  },
 }));
 
 vi.mock('svix', () => ({
@@ -87,7 +87,7 @@ function deleted(id = 'user_del') {
 
 beforeEach(() => {
   process.env.CLERK_WEBHOOK_SECRET = 'whsec_test';
-  deletes.length = 0;
+  rpcCalls.length = 0;
   captureServer.mockReset();
   blocklistSubscriber.mockReset();
   fetchMock.mockReset();
@@ -152,7 +152,7 @@ describe('user.deleted → PostHog person delete', () => {
     );
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
     expect(blocklistSubscriber).toHaveBeenCalledWith('g@x.io');
-    expect(deletes).toContain('coach_sessions');
+    expect(rpcCalls).toEqual([['delete_user_data', { p_clerk_id: 'user_del' }]]);
   });
 
   it('not found → no DELETE', async () => {
@@ -167,7 +167,7 @@ describe('user.deleted → PostHog person delete', () => {
     const res = await post(deleted());
     expect(res.status).toBe(200);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(deletes).toContain('subscriptions');
+    expect(rpcCalls).toEqual([['delete_user_data', { p_clerk_id: 'user_del' }]]);
   });
 
   it('API error → webhook still returns success', async () => {
@@ -175,6 +175,6 @@ describe('user.deleted → PostHog person delete', () => {
     const res = await post(deleted());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ received: true });
-    expect(deletes).toContain('coach_sessions');
+    expect(rpcCalls).toEqual([['delete_user_data', { p_clerk_id: 'user_del' }]]);
   });
 });
