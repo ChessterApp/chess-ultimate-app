@@ -1537,9 +1537,24 @@ button.cell:hover {
   }
 }
 
-@media (max-width: 900px) {
+/* Tablet (iPad portrait): a side-by-side column squeezes the board, so give
+   it its own full row (capped by .boardFrame at 520px) above the panel. */
+@media (min-width: 769px) and (max-width: 1023px) {
   .layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 560px);
+    justify-content: center;
+  }
+  .runLayout {
+    grid-template-columns: minmax(0, 560px);
+    grid-template-areas:
+      'board'
+      'tiles'
+      'extras';
+    grid-template-rows: auto;
+  }
+  .runTiles {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 

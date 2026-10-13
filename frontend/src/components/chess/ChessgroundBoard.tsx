@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useCallback, useState } from 'react';
 import { Chessground as ChessgroundApi } from 'chessground';
 import { Api } from 'chessground/api';
 import { Config } from 'chessground/config';
@@ -54,6 +54,9 @@ interface ChessgroundBoardProps {
   onSizeChange?: (px: number) => void;
 }
 
+// useLayoutEffect warns during SSR; fall back to useEffect on the server.
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
+
 function hintShapes(hintMove: [Key, Key] | null, hintSquare: Key | null) {
   const shapes: { orig: Key; dest?: Key; brush: string }[] = [];
   if (hintMove) shapes.push({ orig: hintMove[0], dest: hintMove[1], brush: 'green' });
@@ -105,40 +108,92 @@ export default function ChessgroundBoard({
   const MAX_DEFAULT_BOARD_SIZE = 520;
 
   // When no explicit boardSize is passed, size the board to fit its actual
-  // parent container (measured with a ResizeObserver) rather than the raw
-  // window width. This keeps the full board visible inside chrome (page
-  // padding, card padding, board border) instead of clipping the right edge.
-  // Callers that pass an explicit boardSize keep full control and are
-  // unaffected.
+  // parent container rather than the raw window width. This keeps the full
+  // board visible inside chrome (page padding, card padding, board border)
+  // instead of clipping the right edge. Callers that pass an explicit
+  // boardSize keep full control and are unaffected.
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
 
-  useEffect(() => {
+  const measureContainer = useCallback(() => {
     if (boardSize !== undefined) return;
-    if (typeof window === 'undefined' || typeof ResizeObserver === 'undefined') return;
-
     const el = wrapperRef.current?.parentElement;
-    if (!el) return;
-
-    const measure = () => setContainerWidth(el.clientWidth);
-    measure();
-
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
+    if (el) setContainerWidth(el.clientWidth);
   }, [boardSize]);
 
-  // Chessground memoizes the board's getBoundingClientRect() and only clears
-  // it on window resize — a pure layout shift (async content above the board
-  // pushing it down without resizing it) leaves the pointer→square mapping
-  // offset by the shift amount, so taps register one rank off. Re-measure on
-  // any document-level layout change.
+  // Measure before first paint so chessground is never laid out at a size the
+  // board doesn't have; then keep following the container.
+  useIsomorphicLayoutEffect(() => {
+    if (boardSize !== undefined) return;
+    measureContainer();
+    const el = wrapperRef.current?.parentElement;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measureContainer);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [boardSize, measureContainer]);
+
+  // Chessground positions pieces in absolute px and memoizes the board's
+  // getBoundingClientRect(); it only re-measures on its own resize
+  // notifications, which iPad Safari can deliver late or not at all (tab
+  // switch, rotation, Split View, bfcache restore). Redraw ourselves, at most
+  // once per frame. `force` redraws even if the board rect looks unchanged.
+  const lastRectRef = useRef<string | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const forceRef = useRef(false);
+
+  const redraw = useCallback(() => {
+    if (!cgRef.current || !boardRef.current) return;
+    cgRef.current.redrawAll();
+    const r = boardRef.current.getBoundingClientRect();
+    lastRectRef.current = `${r.left},${r.top},${r.width},${r.height}`;
+  }, []);
+
+  const scheduleRedraw = useCallback((force: boolean) => {
+    forceRef.current = forceRef.current || force;
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const forced = forceRef.current;
+      forceRef.current = false;
+      if (!boardRef.current) return;
+      const r = boardRef.current.getBoundingClientRect();
+      if (forced || `${r.left},${r.top},${r.width},${r.height}` !== lastRectRef.current) redraw();
+    });
+  }, [redraw]);
+
+  // A pure layout shift (async content above the board pushing it down
+  // without resizing it) also leaves the pointer→square mapping offset, so
+  // watch document-level layout changes too — redrawing only if the board moved.
   useEffect(() => {
     if (typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(() => {
-      cgRef.current?.redrawAll();
-    });
+    const observer = new ResizeObserver(() => scheduleRedraw(false));
     observer.observe(document.body);
     return () => observer.disconnect();
+  }, [scheduleRedraw]);
+
+  useEffect(() => {
+    const refresh = () => {
+      measureContainer();
+      scheduleRedraw(true);
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', refresh);
+    window.addEventListener('orientationchange', refresh);
+    window.addEventListener('resize', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', refresh);
+      window.removeEventListener('orientationchange', refresh);
+      window.removeEventListener('resize', refresh);
+    };
+  }, [measureContainer, scheduleRedraw]);
+
+  useEffect(() => () => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
   }, []);
 
   const responsiveBoardSize =
@@ -147,6 +202,22 @@ export default function ChessgroundBoard({
       : MAX_DEFAULT_BOARD_SIZE;
 
   const effectiveBoardSize = boardSize ?? responsiveBoardSize;
+
+  // Chessground is created once a real size is known (explicit or measured).
+  // Latched so a later boardSize/measurement change never tears it down.
+  const readyRef = useRef(false);
+  if (boardSize !== undefined || containerWidth !== null) readyRef.current = true;
+  const ready = readyRef.current;
+
+  // The board's px size changed after init: re-place the pieces now rather
+  // than waiting on the browser's resize notification.
+  const drawnSizeRef = useRef<number | null>(null);
+  useIsomorphicLayoutEffect(() => {
+    if (!cgRef.current) return;
+    if (drawnSizeRef.current === effectiveBoardSize) return;
+    drawnSizeRef.current = effectiveBoardSize;
+    redraw();
+  }, [effectiveBoardSize, redraw]);
 
   // Surface the real rendered pixel size upward whenever it changes so callers
   // can size siblings from a measured number (guard against redundant calls).
@@ -221,7 +292,8 @@ export default function ChessgroundBoard({
 
   // Initialize chessground
   useEffect(() => {
-    if (!boardRef.current) return;
+    if (!ready || !boardRef.current) return;
+    drawnSizeRef.current = effectiveBoardSize;
 
     // Free-placement editor mode: pieces move anywhere, dragging off the board
     // deletes, and every change is reported back via onChange as a placement FEN.
@@ -319,6 +391,7 @@ export default function ChessgroundBoard({
 
     // Create chessground instance
     cgRef.current = ChessgroundApi(boardRef.current, config);
+    lastRectRef.current = null;
 
     // Set last move highlight
     if (lastMove) {
@@ -330,9 +403,11 @@ export default function ChessgroundBoard({
       cgRef.current?.destroy();
       cgRef.current = null;
     };
-  }, []); // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]); // Only run once, when the board size is known
 
   // Update position when FEN changes
+  const hadLastMoveRef = useRef(!!lastMove);
   useEffect(() => {
     if (!cgRef.current) return;
 
@@ -361,7 +436,14 @@ export default function ChessgroundBoard({
 
     if (lastMove) {
       cgRef.current.set({ lastMove });
+    } else if (hadLastMoveRef.current) {
+      // The caller dropped its highlight (e.g. a new puzzle): clear the stale one.
+      cgRef.current.set({ lastMove: undefined });
     }
+    hadLastMoveRef.current = !!lastMove;
+
+    // A board that can't be moved on mustn't keep a stale selection.
+    if (!movable || viewOnly) cgRef.current.selectSquare(null);
   }, [fen, movable, viewOnly, check, lastMove, editable, getLegalMoves, getTurnColor, isInCheck]);
 
   // Update orientation

@@ -155,7 +155,6 @@ export default function PuzzleRush() {
           <RushBoard
             fen={state.fen}
             orientation={state.orientation}
-            boardKey={state.boardKey}
             lastMove={state.lastMove}
             movable={state.phase === 'playing' && !state.inputLocked}
             covered={state.covered}
@@ -198,7 +197,6 @@ export default function PuzzleRush() {
           <RushBoard
             fen={rb?.fen ?? state.fen}
             orientation={rb?.orientation ?? state.orientation}
-            boardKey={state.boardKey * 1000 + (review.selected ?? -1) + 1}
             lastMove={rb ? rb.lastMove : state.lastMove}
             movable={rb?.movable ?? false}
             badge={rb ? rb.badge : state.badge}
@@ -230,7 +228,7 @@ export default function PuzzleRush() {
     body = (
       <div className={styles.layout}>
         <div className={`${styles.boardCol} ${styles.hideOnMobile}`}>
-          <RushBoard fen={STARTING_FEN} orientation="white" boardKey={state.boardKey} lastMove={null} movable={false} />
+          <RushBoard fen={STARTING_FEN} orientation="white" lastMove={null} movable={false} />
         </div>
         <section className={styles.panel}>
           <Brand />
