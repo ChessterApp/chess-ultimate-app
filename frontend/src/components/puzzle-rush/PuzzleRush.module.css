@@ -1169,6 +1169,12 @@ button.cell:hover {
   color: var(--tp);
   box-shadow: var(--shadow);
 }
+/* Four survival scopes (Global | Personal | School | Branch) on a 320px phone. */
+@media (max-width: 400px) {
+  .segButton {
+    padding: 6px 8px;
+  }
+}
 .lbList {
   list-style: none;
   margin: 14px 0 0;
@@ -1243,6 +1249,40 @@ button.cell:hover {
   font-size: 13px;
   color: var(--ts);
   text-align: center;
+}
+/* School / Branch boards: name + muted branch, family student pills. */
+.lbLine {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lbSub {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ts);
+}
+.lbStudents {
+  margin-top: 10px;
+}
+.lbPick {
+  padding: 18px 14px;
+  text-align: center;
+}
+.lbPickLabel {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--ts);
+}
+.studentSeg {
+  flex-wrap: wrap;
+  max-width: 100%;
+  border-radius: var(--radius-lg);
+}
+.studentButton {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Modals (S2, S9) ────────────────────────────────────────── */
@@ -1444,6 +1484,48 @@ button.cell:hover {
 .stat b {
   color: var(--tp);
   font-variant-numeric: tabular-nums;
+}
+/* Results: Chess Empire school outcome (survival). */
+.school {
+  padding: 14px 24px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.schoolTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--tp);
+}
+.schoolHint {
+  margin: 4px 0 10px;
+  font-size: 12.5px;
+  color: var(--ts);
+}
+.school .schoolHint:only-child {
+  margin: 0;
+}
+.schoolError {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--red);
+}
+.schoolActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.schoolActions .ghostButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.schoolStats {
+  padding: 0;
+  margin: 6px 0 4px;
+  text-align: left;
 }
 .guestRanks {
   margin: 0;

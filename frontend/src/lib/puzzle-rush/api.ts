@@ -18,6 +18,10 @@ import type {
   RushMode,
   RushPeriod,
   RushScope,
+  SchoolLeaderboardResponse,
+  SchoolOutcome,
+  SchoolPeriod,
+  SchoolScope,
 } from './types';
 import { PACK_SIZE } from './pack';
 
@@ -86,6 +90,17 @@ export function createRushApi(base = '/api/puzzlerush') {
     bests: (auth: RushAuth) => request<BestsResponse>(auth, '/bests'),
     leaderboard: (auth: RushAuth, mode: RushMode, period: RushPeriod, scope: RushScope) =>
       request<LeaderboardResponse>(auth, '/leaderboard', { query: { mode, period, scope } }),
+    /** Chess Empire school / branch survival board; `studentId` picks a family member. */
+    schoolLeaderboard: (auth: RushAuth, scope: SchoolScope, period: SchoolPeriod, studentId?: string | null) =>
+      request<SchoolLeaderboardResponse>(auth, '/leaderboard', {
+        query: { mode: 'survival', scope, period, ...(studentId ? { student_id: studentId } : {}) },
+      }),
+    /** Family accounts: push a finished survival run for the student who played it. */
+    schoolClaim: (auth: RushAuth, runId: string, studentId: string) =>
+      request<{ school: SchoolOutcome }>(auth, `/runs/${encodeURIComponent(runId)}/school-claim`, {
+        method: 'POST',
+        body: { student_id: studentId },
+      }).then((r) => r.school),
   };
 }
 

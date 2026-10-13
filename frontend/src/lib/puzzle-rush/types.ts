@@ -12,6 +12,9 @@ export const MODE_SECONDS: Record<RushMode, number | null> = { '3min': 180, '5mi
 
 export type RushPeriod = 'daily' | 'weekly' | 'all';
 export type RushScope = 'global' | 'personal';
+/** Chess Empire school boards (survival only). */
+export type SchoolScope = 'school' | 'branch';
+export type SchoolPeriod = 'week' | 'month' | 'all';
 export type EndReason = 'strikes' | 'timeout' | 'quit';
 
 type File = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h';
@@ -72,7 +75,28 @@ export interface RushResults {
   duration_ms: number | null;
   personal_rank: number | null;
   global_rank: Record<RushPeriod, number> | null;
+  /** Chess Empire push outcome; null for non-survival runs. Absent until `/runs/finish` answers. */
+  school?: SchoolOutcome | null;
 }
+
+/** A Chess Empire student linked to the account. */
+export interface SchoolStudent {
+  student_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  branch_id: string | null;
+}
+
+/** The student's CE survival bests per period (null when none). */
+export type SchoolBest = Partial<Record<SchoolPeriod, number | null>>;
+
+export type SchoolOutcome =
+  | { status: 'pushed'; student_id: string; beaten?: SchoolPeriod[]; best?: SchoolBest | null }
+  | { status: 'not_best'; student_id: string | null; best?: SchoolBest | null }
+  | { status: 'needs_student'; candidates: SchoolStudent[]; last_student_id: string | null }
+  | { status: 'unlinked' }
+  | { status: 'error'; student_id?: string | null }
+  | { status: 'disabled'; student_id?: string | null };
 
 export interface FinishResponse extends RushResults {
   run_id: string;
@@ -104,4 +128,27 @@ export interface LeaderboardResponse {
   scope: RushScope;
   entries: LeaderboardEntry[];
   me?: { score: number; rank: number } | null;
+}
+
+export interface SchoolLeaderboardEntry {
+  rank: number;
+  /** "First L." */
+  name: string;
+  branch_name: string | null;
+  score: number;
+  achieved_at: string | null;
+  is_self: boolean;
+  source: string | null;
+}
+
+export interface SchoolLeaderboardResponse {
+  mode: 'survival';
+  period: SchoolPeriod;
+  scope: SchoolScope;
+  student_id: string;
+  branch_id: string | null;
+  window_start: string | null;
+  total_count: number | null;
+  entries: SchoolLeaderboardEntry[];
+  me: { score: number; rank: number } | null;
 }

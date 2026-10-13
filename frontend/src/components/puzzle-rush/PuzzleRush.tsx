@@ -14,7 +14,7 @@ import { fraunces } from './fonts';
 import ModeSelect from './ModeSelect';
 import RulesModal from './RulesModal';
 import ResultsModal from './ResultsModal';
-import Leaderboard from './Leaderboard';
+import Leaderboard, { type BoardScope } from './Leaderboard';
 import RunSummary, { RetryBanner, RetryControls, useRetry } from './RunSummary';
 import RushBoard from './RushBoard';
 import { CoachToast, LOGO_SRC, ResultsGrid, ScoreTile, StrikesTile, TimerTile } from './RunTiles';
@@ -48,6 +48,7 @@ export default function PuzzleRush() {
   const { userId } = useAuth();
   const [mode, setMode] = useState<RushMode>(DEFAULT_MODE);
   const [tab, setTab] = useState<'play' | 'leaderboard'>('play');
+  const [boardScope, setBoardScope] = useState<BoardScope>('global');
   const [rulesOpen, setRulesOpen] = useState(false);
   const [bests, setBests] = useState<BestsResponse | null>(null);
 
@@ -103,6 +104,12 @@ export default function PuzzleRush() {
     setTab('play');
     openReview(index);
   }, [closeResults, openReview]);
+  // Results modal → School tab of the leaderboard.
+  const openSchoolBoard = useCallback(() => {
+    closeResults();
+    setBoardScope('school');
+    setTab('leaderboard');
+  }, [closeResults]);
 
   const inRun = state.phase === 'starting' || state.phase === 'countdown' || state.phase === 'playing';
   const turnSide = state.puzzle?.color;
@@ -132,8 +139,11 @@ export default function PuzzleRush() {
     </div>
   );
 
+  const school = state.results?.school;
   const leaderboard = (
     <Leaderboard
+      initialScope={boardScope}
+      students={school?.status === 'needs_student' ? school.candidates : undefined}
       mode={runOver ? state.mode : mode}
       auth={auth}
       isGuest={isGuest}
@@ -288,6 +298,7 @@ export default function PuzzleRush() {
           onClose={closeResults}
           onOpenPuzzle={openPuzzle}
           signInHref={SIGN_IN_HREF}
+          school={isGuest || !state.runId ? undefined : { runId: state.runId, auth, onOpenBoard: openSchoolBoard }}
         />
       )}
     </div>

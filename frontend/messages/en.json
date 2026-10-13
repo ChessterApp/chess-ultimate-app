@@ -3036,7 +3036,20 @@
       "tabSummary": "Summary",
       "tabPuzzles": "Puzzles",
       "missBadge": "{n} ✕",
-      "retryMistakes": "Retry mistakes ({n})"
+      "retryMistakes": "Retry mistakes ({n})",
+      "school": {
+        "whoPlayed": "Who played?",
+        "whoPlayedHint": "Pick the student to add this run to their school ranking.",
+        "confirm": "Confirm",
+        "saving": "Saving…",
+        "skip": "Skip",
+        "claimError": "Couldn't save — try again.",
+        "newBest": "{period, select, week {New school best this week!} month {New school best this month!} other {New all-time school best!}}",
+        "schoolRank": "School rank this week",
+        "branchRank": "Branch rank this week",
+        "openBoard": "See the school leaderboard",
+        "notBest": "School best this week: {score}"
+      }
     },
     "summary": {
       "hint": "Tap a puzzle to try it again",
@@ -3067,7 +3080,16 @@
       "loading": "Loading…",
       "error": "Couldn't load the leaderboard.",
       "player": "Player",
-      "run": "Run {n}"
+      "run": "Run {n}",
+      "school": "School",
+      "branch": "Branch",
+      "week": "Week",
+      "month": "Month",
+      "schoolSignIn": "Sign in to see school rankings.",
+      "notLinked": "Link your Chess Empire student to see school ranks.",
+      "pickStudent": "Whose ranking?",
+      "unavailable": "School ranking unavailable right now.",
+      "student": "Student"
     },
     "errors": {
       "start": "Couldn't start a rush. Try again."
