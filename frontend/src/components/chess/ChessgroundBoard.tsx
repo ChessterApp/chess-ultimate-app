@@ -191,6 +191,28 @@ export default function ChessgroundBoard({
     };
   }, [measureContainer, scheduleRedraw]);
 
+  // The board can also move without resizing and without any resize/scroll
+  // event (e.g. a sibling layout swap), leaving chessground's memoized bounds
+  // stale so clicks land on the wrong square. Before chessground handles a
+  // press, drop the cached bounds if the board is no longer where it was.
+  useEffect(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    const checkBounds = () => {
+      const dom = cgRef.current?.state?.dom;
+      if (!dom) return;
+      const cached = dom.bounds();
+      const r = dom.elements.board.getBoundingClientRect();
+      if (r.left !== cached.left || r.top !== cached.top || r.width !== cached.width || r.height !== cached.height) {
+        dom.bounds.clear();
+      }
+    };
+    const opts = { capture: true, passive: true };
+    const names = ['pointerdown', 'mousedown', 'touchstart'] as const;
+    names.forEach((n) => wrapper.addEventListener(n, checkBounds, opts));
+    return () => names.forEach((n) => wrapper.removeEventListener(n, checkBounds, opts));
+  }, []);
+
   useEffect(() => () => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     frameRef.current = null;

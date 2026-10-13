@@ -153,6 +153,7 @@ export default function PuzzleRush() {
       <div className={styles.runLayout}>
         <div className={styles.runBoard}>
           <RushBoard
+            key="run"
             fen={state.fen}
             orientation={state.orientation}
             lastMove={state.lastMove}
@@ -195,6 +196,7 @@ export default function PuzzleRush() {
         <div className={styles.boardCol}>
           {rb && <RetryBanner review={review} />}
           <RushBoard
+            key="summary"
             fen={rb?.fen ?? state.fen}
             orientation={rb?.orientation ?? state.orientation}
             lastMove={rb ? rb.lastMove : state.lastMove}
@@ -228,7 +230,7 @@ export default function PuzzleRush() {
     body = (
       <div className={styles.layout}>
         <div className={`${styles.boardCol} ${styles.hideOnMobile}`}>
-          <RushBoard fen={STARTING_FEN} orientation="white" lastMove={null} movable={false} />
+          <RushBoard key="menu" fen={STARTING_FEN} orientation="white" lastMove={null} movable={false} />
         </div>
         <section className={styles.panel}>
           <Brand />
