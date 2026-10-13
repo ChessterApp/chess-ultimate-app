@@ -277,7 +277,8 @@ def _mate_in_issues(text: str, ctx) -> list[str]:
             continue
         neg = bool(m["neg"]) or bool(re.search(r"(?:нет|не\s+\w+|no|isn'?t|is\s+not|there'?s\s+no)\s*$",
                                                text[max(0, m.start() - 25):m.start()], re.IGNORECASE)) \
-            or bool(re.match(r"\s*(?:ход\w*\s+)?(?:—\s*)?(?:здесь\s+|тут\s+)?нет", m["after"] or "", re.IGNORECASE))
+            or bool(re.match(r"\s*(?:ход\w*\s+)?(?:—\s*)?(?:здесь\s+|тут\s+|сейчас\s+|пока\s+)?(?:нет|не\s+\w+)",
+                             m["after"] or "", re.IGNORECASE))  # «мат в два тут не форсируется» (2026-10-13)
         before = text[:m.start()]
         if _GENERAL.search(before) and not _NOW.search(text):
             continue

@@ -113,7 +113,8 @@ def test_famous_game_puts_the_verified_score_up():
     session = session_store.create(user_id="famous-voice")
     out = _call("famous_game", {"text": "Покажи оперную партию Морфи"}, session)
     assert out["found"] and "Morphy" in out["board_actions"][0]["pgn"] and "ALREADY on the board" in out["facts"]
-    assert _call("famous_game", {"text": "как ходит конь"}, session) == {"found": False}
+    missing = _call("famous_game", {"text": "как ходит конь"}, session)
+    assert missing["found"] is False and "Do not tell or show its moves from memory" in missing["note"]
 
 
 # ── «на 8-м ходу» by voice ───────────────────────────────────────────────────

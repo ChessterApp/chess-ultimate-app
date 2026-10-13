@@ -1892,6 +1892,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # hint toward Qe2 for a puzzle solved by Qxf1+ — the solution was only in the turn that set it (prod,
     # 2026-10-13).
     puzzle_note = _puzzle_block(active_board)
+    # The Laws of Chess a rules question is about (src/rules_facts.py): «кончилось время, у соперника один король»
+    # went «ничья» in one run and «победил соперник» in the next (2026-10-13).
+    try:
+        from src.rules_facts import rules_block
+
+        rules_note = rules_block(body.message)
+    except Exception:  # noqa: BLE001
+        rules_note = ""
     _mark("opening")
     # Under load (several students' engines at work) the searches are shorter, so
     # the lines are ready within the wait instead of missing it altogether.
@@ -2341,6 +2349,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{game_step['block']}"
                 if puzzle_note:
                     message = f"{message}\n\n{puzzle_note}"
+                if rules_note:
+                    message = f"{message}\n\n{rules_note}"
                 if note:
                     old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen')))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
@@ -2505,8 +2515,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                         fix["dropped"].append({"sentence": sentence.strip()[:300], "issues": issues})
                         fix["after_drop"] = True
                     continue
-                if fix.pop("after_drop", False):
-                    text = strip_leaning_start(text)  # «Затем…» after the sentence left out
+                if fix.pop("after_drop", False) or not "".join(answer_parts).strip():
+                    # «Затем…» after the sentence left out — or the answer's very first words
+                    text = strip_leaning_start(text)
                 frames.extend(_answer_frames(text))
             return frames
 

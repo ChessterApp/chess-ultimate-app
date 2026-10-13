@@ -2630,7 +2630,10 @@ _SELF_CORRECTION = re.compile(r"^\W*(?:нет|стоп|хм|то\s+есть|то
 # opened what was left of the answer (lucena, the newest code, 2026-10-08).
 _LEANS_BACK = re.compile(
     r"^(\s*(?:[>#-]+\s*)?)([*_]{0,2})(?:затем|потом|после\s+этого|дальше|далее|следом|кроме\s+того|также|тоже|then|"
-    r"after\s+that|next|also|besides)(?![а-яёa-z])([*_]{0,2})[\s,—–-]*", re.IGNORECASE)
+    # «Зато есть сильный ход…», «Дело в том, что…», «Но ничья наступает…» — the answer began mid-thought
+    # once its first sentence was left out (prod curriculum and stand, 2026-10-13).
+    r"но|зато|однако|тем\s+не\s+менее|при\s+этом|а\s+вот|так\s+что|дело\s+в\s+том,?\s+что|"
+    r"after\s+that|next|also|besides|but|however|still|yet)(?![а-яёa-z])([*_]{0,2})[\s,—–-]*", re.IGNORECASE)
 
 
 def strip_leaning_start(text: str) -> str:

@@ -126,7 +126,12 @@ def castling_facts(board: chess.Board) -> list[str]:
         legal, why = st[wing]
         rook_home = board.piece_at(chess.square(rook_file, rank)) == chess.Piece(chess.ROOK, color)
         if legal:
-            parts.append(f"{label} is legal now")
+            # «Поле b1 же бьёт ладья» — the rook's square, not the king's: it does not matter (prod, 2026-10-13).
+            rook_path = [chess.square(f, rank) for f in ((1,) if wing == "O-O-O" else ())]
+            hit = [s for s in rook_path if board.is_attacked_by(not color, s)]
+            note = (f" ({', '.join(chess.square_name(s) for s in hit)} is attacked, but only the rook passes it — "
+                    "that does not matter)") if hit else ""
+            parts.append(f"{label} is legal now{note}")
         elif not rook_home:
             continue
         elif why.startswith("pieces stand between"):

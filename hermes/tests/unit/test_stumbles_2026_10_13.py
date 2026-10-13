@@ -213,3 +213,65 @@ def test_bishop_is_a_bishop():
 
     assert chess_terms("У белых епископ и конь; матовать конём и епископом. Епископы сильны.") == \
         "У белых слон и конь; матовать конём и слоном. Слоны сильны."
+
+
+def test_a_pinned_piece_is_named_as_pinned_not_as_unable_to_reach():
+    from src.prompt_builder import moves_in_question_block
+
+    block = moves_in_question_block("Могу я пойти конём на e4?",
+                                    "rnbqk1nr/pppp1ppp/4p3/8/1b1P4/2N5/PPP1PPPP/R1BQKBNR w KQkq - 2 3")
+    assert "the knight on c3 could go there, but it is pinned to its king by the bishop on b4" in block
+
+
+def test_castling_said_without_its_word_is_checked():
+    from src.prompt_builder import moves_in_question_block
+
+    assert "O-O-O: NOT legal — pieces stand between" in moves_in_question_block("А в длинную можно?", CASTLE)
+    assert moves_in_question_block("Как играть в длинную партию?", CASTLE) == ""
+
+
+@pytest.mark.parametrize("question,rule", [
+    ("У меня кончилось время, а у соперника остался только король. Кто победил?", "Time:"),
+    ("Позиция повторилась три раза, но не подряд. Это ничья?", "Repetition:"),
+    ("Можно ли рокироваться, если раньше мне уже давали шах, но король не двигался?", "Castling is illegal only"),
+    ("Можно рокироваться в длинную? Поле b1 же бьёт чёрная ладья.", "Castling is illegal only"),
+    ("Можно ли взять на проходе слоном или конём?", "En passant:"),
+    ("Можно ли превратить пешку во второго ферзя, если мой ферзь ещё на доске?", "Promotion:"),
+    ("Что такое правило 50 ходов?", "Fifty moves:"),
+])
+def test_a_rules_question_gets_the_rule(question, rule):
+    from src.rules_facts import rules_block
+
+    assert rule in rules_block(question)
+
+
+@pytest.mark.parametrize("question", ["Какой ход лучше?", "Покажи пример связки", "Повтори, пожалуйста, можно?",
+                                      "Патша қай жерде? Бұл ереже ме?"])
+def test_other_questions_get_no_rule(question):
+    from src.rules_facts import rules_block
+
+    assert "Repetition" not in rules_block(question) and "Stalemate" not in rules_block(question)
+
+
+def test_an_attacked_rook_square_does_not_bar_long_castling():
+    from src.board_rules import castling_facts
+
+    assert "b1 is attacked, but only the rook passes it" in castling_facts(chess.Board("1r2k3/8/8/8/8/8/8/R3K2R w KQ - 0 1"))[0]
+
+
+def test_an_answer_never_starts_on_a_dangling_connective():
+    from src.answer_check import strip_leaning_start
+
+    assert strip_leaning_start("Зато есть сильный ход Nc3: он нападает на коня.").startswith("Есть сильный ход")
+    assert strip_leaning_start("Но ничья наступает не сама по себе.").startswith("Ничья наступает")
+    assert strip_leaning_start("Дело в том, что пешка h3 нападала на коня.").startswith("Пешка h3")
+    assert strip_leaning_start("Новый план — играть d4.") == "Новый план — играть d4."
+
+
+def test_mate_in_n_denied_with_a_verb_is_a_denial():
+    from src.answer_check import CheckContext
+    from src.answer_check_rules import _mate_in_issues
+
+    ctx = CheckContext.from_fens("r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8")
+    ctx.engine_eval = 0.9
+    assert _mate_in_issues("Мат в два тут не форсируется — король на e6 пока хорошо прикрыт.", ctx) == []

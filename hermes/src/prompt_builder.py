@@ -1035,7 +1035,9 @@ def _bare_pawn_move(converted: str, m, board) -> bool:
 
 
 _CASTLING_WORDS = re.compile(
-    r"(?<![а-яa-z])(?:рок[иеі]р\w*|castl\w*)(?![а-яa-z])", re.IGNORECASE)  # «рокеровка», «рокіровка»: speech transcripts
+    # «а в длинную можно?» — the castling said without its word (prod chain, 2026-10-13)
+    r"(?<![а-яa-z])(?:рок[иеі]р\w*|castl\w*|в\s+(?:длинную|короткую)(?=\s*(?:сторону\s*)?(?:можно|нельзя|получится|\?|$)))(?![а-яa-z])",
+    re.IGNORECASE)  # «рокеровка», «рокіровка»: speech transcripts  # «рокеровка», «рокіровка»: speech transcripts
 
 
 def _castling_named(message: str) -> list[str]:
@@ -1285,6 +1287,20 @@ def _move_verdict(board, san: str) -> str:
         return f"NOT legal — your own {chess.piece_name(target.piece_type)} stands on {dest_name}"
     if board.is_check():
         return "NOT legal — the king is in check and this move does not answer it"
+    # The piece gets there but may not go: pinned, or it would leave the king attacked. «Могу я пойти конём на
+    # e4?» with Nc3 pinned by Bb4 was told «no knight can reach e4», and the coach said so (2026-10-13).
+    for mv in board.pseudo_legal_moves:
+        if mv.to_square != dest or board.piece_type_at(mv.from_square) != ptype:
+            continue
+        frm = chess.square_name(mv.from_square)
+        if board.is_pinned(board.turn, mv.from_square):
+            pinner = next((a for a in board.attackers(not board.turn, mv.from_square)
+                           if board.piece_type_at(a) in (chess.BISHOP, chess.ROOK, chess.QUEEN)
+                           and board.king(board.turn) in chess.SquareSet.ray(a, mv.from_square)), None)
+            by = f" by the {chess.piece_name(board.piece_type_at(pinner))} on {chess.square_name(pinner)}" if pinner is not None else ""
+            return (f"NOT legal — the {chess.piece_name(ptype)} on {frm} could go there, but it is pinned to its "
+                    f"king{by}: moving it would expose the king")
+        return f"NOT legal — the {chess.piece_name(ptype)} on {frm} could go there, but the move would leave the king in check"
     return f"NOT legal — no {chess.piece_name(ptype)} of the side to move can reach {dest_name}"
 
 
