@@ -9,12 +9,15 @@ from __future__ import annotations
 
 from unittest.mock import patch, MagicMock
 
+import httpx
 import pytest
 
 from services.chess_empire_client import (
     CE_DEFAULT_SUPABASE_URL,
+    STUDENTS_API_TIMEOUT,
     ChessEmpireAPIError,
     ChessEmpireClient,
+    survival_external_ref,
 )
 
 
@@ -173,3 +176,111 @@ class TestDefaultBaseUrl:
             c.get_branches()
         url = mock_req.call_args.args[1]
         assert url.startswith(f'{CE_DEFAULT_SUPABASE_URL}/rest/v1/branches')
+
+
+class TestStudentsApiSurvival:
+    @pytest.fixture
+    def writer(self):
+        return ChessEmpireClient(
+            service_key='ce-test-key',
+            base_url='https://ce.example.com',
+            write_key='ce-write-key',
+        )
+
+    def test_survival_best(self, writer):
+        best = {'week': 3, 'month': None, 'all': 9}
+        with patch(
+            'services.chess_empire_client.httpx.request',
+            return_value=_resp(200, {'ok': True, 'best': best}),
+        ) as mock_req:
+            assert writer.survival_best('stu-1') == best
+        args, kwargs = mock_req.call_args
+        assert args == (
+            'GET',
+            'https://ce.example.com/functions/v1/students-api?action=survival-best&student_id=stu-1',
+        )
+        assert kwargs['headers']['x-api-key'] == 'ce-write-key'
+        assert 'Authorization' not in kwargs['headers']
+        assert kwargs['timeout'] == STUDENTS_API_TIMEOUT == 4.0
+        assert kwargs['json'] is None
+
+    def test_push_survival_score(self, writer):
+        with patch(
+            'services.chess_empire_client.httpx.request',
+            return_value=_resp(200, {'ok': True, 'id': 'row-1'}),
+        ) as mock_req:
+            writer.push_survival_score('stu-1', 250, 'run-1', '2026-10-13T10:00:00+00:00')
+        args, kwargs = mock_req.call_args
+        assert args == ('POST', 'https://ce.example.com/functions/v1/students-api?action=survival-score')
+        assert kwargs['json'] == {
+            'student_id': 'stu-1',
+            'score': 200,  # CE caps survival scores at 200
+            'external_ref': 'chesster-rush:run-1',
+            'achieved_at': '2026-10-13T10:00:00+00:00',
+        }
+        assert survival_external_ref('run-1') == 'chesster-rush:run-1'
+
+    def test_survival_leaderboard(self, writer):
+        with patch(
+            'services.chess_empire_client.httpx.request',
+            return_value=_resp(200, {'ok': True, 'rows': []}),
+        ) as mock_req:
+            writer.survival_leaderboard('branch', 'month', 'br-1', 'stu-1', limit=20)
+        url = mock_req.call_args.args[1]
+        assert url == (
+            'https://ce.example.com/functions/v1/students-api?action=survival-leaderboard'
+            '&scope=branch&period=month&limit=20&branch_id=br-1&student_id=stu-1'
+        )
+
+    def test_short_timeout_never_exceeds_client_timeout(self):
+        c = ChessEmpireClient(base_url='https://ce.example.com', write_key='k', timeout=1.0)
+        with patch(
+            'services.chess_empire_client.httpx.request', return_value=_resp(200, {'best': {}}),
+        ) as mock_req:
+            c.survival_best('stu-1')
+        assert mock_req.call_args.kwargs['timeout'] == 1.0
+
+    def test_missing_key_disables(self, monkeypatch, caplog):
+        monkeypatch.delenv('CHESS_EMPIRE_WRITE_KEY', raising=False)
+        monkeypatch.setattr('services.chess_empire_client._write_key_warned', False)
+        c = ChessEmpireClient(base_url='https://ce.example.com')
+        with caplog.at_level('WARNING'):
+            assert c.write_enabled() is False
+            assert c.write_enabled() is False
+        assert caplog.text.count('CHESS_EMPIRE_WRITE_KEY not configured') == 1
+        with patch('services.chess_empire_client.httpx.request') as mock_req:
+            with pytest.raises(ChessEmpireAPIError) as exc:
+                c.survival_best('stu-1')
+        assert exc.value.status_code == 503
+        mock_req.assert_not_called()
+
+    def test_key_read_from_env(self, monkeypatch):
+        monkeypatch.setenv('CHESS_EMPIRE_WRITE_KEY', 'env-key')
+        assert ChessEmpireClient().write_enabled() is True
+
+    def test_non_2xx_and_network_errors_raise(self, writer):
+        with patch(
+            'services.chess_empire_client.httpx.request',
+            return_value=_resp(409, {'ok': False, 'reason': 'student_inactive'}),
+        ):
+            with pytest.raises(ChessEmpireAPIError) as exc:
+                writer.push_survival_score('stu-1', 5, 'run-1')
+        assert exc.value.status_code == 409
+        with patch(
+            'services.chess_empire_client.httpx.request',
+            side_effect=httpx.ConnectTimeout('slow'),
+        ):
+            with pytest.raises(ChessEmpireAPIError) as exc:
+                writer.survival_best('stu-1')
+        assert exc.value.status_code == 502
+
+    def test_get_students(self, client):
+        with patch(
+            'services.chess_empire_client.httpx.request',
+            return_value=_resp(200, [{'id': 'a'}]),
+        ) as mock_req:
+            assert client.get_students(['a', 'b']) == [{'id': 'a'}]
+        url = mock_req.call_args.args[1]
+        assert url.startswith('https://ce.example.com/rest/v1/students?')
+        assert 'id=in.%28a%2Cb%29' in url
+        assert client.get_students([]) == []

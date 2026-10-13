@@ -21,6 +21,7 @@ import logging
 from flask import Blueprint, jsonify, request
 
 from services import puzzle_rush as rush
+from services import puzzle_rush_school as school
 from services.rate_limiter import RateLimiter
 from utils.auth import _caller_user_id
 
@@ -82,6 +83,7 @@ def _owned_run(run_id: str):
 
 
 @puzzle_rush_bp.errorhandler(rush.RushError)
+@puzzle_rush_bp.errorhandler(school.SchoolError)
 def _handle_rush_error(e):
     return _error(e)
 
@@ -150,6 +152,18 @@ def get_run(run_id):
     return jsonify(rush.get_summary(run, _tz()))
 
 
+@puzzle_rush_bp.route('/api/puzzlerush/runs/<run_id>/school-claim', methods=['POST'])
+def school_claim(run_id):
+    """Family accounts: push a finished survival run for one linked student."""
+    user_id = _optional_user()
+    if not user_id:
+        raise rush.RushError('auth_required', 401)
+    run = rush.load_run(run_id)
+    if not run:
+        raise rush.RushError('not_found', 404)
+    return jsonify({'school': school.claim(run, user_id, _body().get('student_id'))})
+
+
 @puzzle_rush_bp.route('/api/puzzlerush/bests', methods=['GET'])
 def get_bests():
     # Not @verify_clerk_token: its catch-all would turn our 4xx errors into 500s.
@@ -161,10 +175,17 @@ def get_bests():
 
 @puzzle_rush_bp.route('/api/puzzlerush/leaderboard', methods=['GET'])
 def get_leaderboard():
+    scope = request.args.get('scope', 'global')
+    if scope in school.SCOPES:  # CE boards: survival only, week / month / all
+        if request.args.get('mode', 'survival') != 'survival':
+            raise rush.RushError('invalid_mode')
+        return jsonify(school.leaderboard(
+            scope, request.args.get('period', 'week'), _optional_user(), request.args.get('student_id'),
+        ))
     return jsonify(rush.leaderboard(
         request.args.get('mode', '5min'),
         request.args.get('period', 'daily'),
-        request.args.get('scope', 'global'),
+        scope,
         _optional_user(),
         _tz(),
     ))

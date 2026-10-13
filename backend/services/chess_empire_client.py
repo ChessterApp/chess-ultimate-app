@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 CE_DEFAULT_SUPABASE_URL = 'https://papgcizhfkngubwofjuo.supabase.co'
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_SEARCH_LIMIT = 20
+# students-api (Puzzle Rush school ranking) sits on the run-finish path: keep it short.
+STUDENTS_API_TIMEOUT = 4.0
+SURVIVAL_SCORE_MAX = 200
+
+_write_key_warned = False
 
 
 class ChessEmpireAPIError(Exception):
@@ -48,8 +53,10 @@ class ChessEmpireClient:
         service_key: str | None = None,
         base_url: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
+        write_key: str | None = None,
     ) -> None:
         self._service_key_override = service_key
+        self._write_key_override = write_key
         self._base_url_override = base_url
         self.timeout = timeout
 
@@ -134,7 +141,93 @@ class ChessEmpireClient:
         except ValueError:
             return 0
 
+    def get_students(self, student_ids: list[str]) -> list[dict]:
+        """Names + branch for a handful of students (one REST call)."""
+        if not student_ids:
+            return []
+        params = urlencode([
+            ('id', f'in.({",".join(student_ids)})'),
+            ('select', 'id,first_name,last_name,branch_id'),
+        ])
+        url = f'{self._rest_base()}/students?{params}'
+        return self._request_json('GET', url, rest=True)
+
+    # ── students-api: Puzzle Rush survival (CHESS_EMPIRE_WRITE_KEY) ───────
+
+    def write_enabled(self) -> bool:
+        """False when CHESS_EMPIRE_WRITE_KEY is unset (school ranking is off)."""
+        global _write_key_warned
+        if self._write_key():
+            return True
+        if not _write_key_warned:
+            logger.warning('CHESS_EMPIRE_WRITE_KEY not configured: Puzzle Rush school ranking disabled')
+            _write_key_warned = True
+        return False
+
+    def survival_best(self, student_id: str) -> dict:
+        """The student's CE survival bests: ``{week, month, all}`` (None when none)."""
+        body = self._students_api('GET', 'survival-best', params={'student_id': student_id})
+        best = body.get('best') if isinstance(body, dict) else None
+        return best if isinstance(best, dict) else {}
+
+    def push_survival_score(
+        self, student_id: str, score: int, run_id: str, achieved_at: str | None = None,
+    ) -> dict:
+        """Push one survival run. Idempotent on the run id (``external_ref``)."""
+        payload: dict[str, Any] = {
+            'student_id': student_id,
+            'score': max(0, min(int(score), SURVIVAL_SCORE_MAX)),
+            'external_ref': survival_external_ref(run_id),
+        }
+        if achieved_at:
+            payload['achieved_at'] = achieved_at
+        return self._students_api('POST', 'survival-score', json=payload)
+
+    def survival_leaderboard(
+        self,
+        scope: str,
+        period: str,
+        branch_id: str | None = None,
+        student_id: str | None = None,
+        limit: int = 50,
+    ) -> dict:
+        params = {'scope': scope, 'period': period, 'limit': str(max(1, min(limit, 500)))}
+        if branch_id:
+            params['branch_id'] = branch_id
+        if student_id:
+            params['student_id'] = student_id
+        return self._students_api('GET', 'survival-leaderboard', params=params)
+
     # ── internal ──────────────────────────────────────────────────────────
+
+    def _write_key(self) -> str:
+        if self._write_key_override is not None:
+            return self._write_key_override
+        return os.getenv('CHESS_EMPIRE_WRITE_KEY', '')
+
+    def _students_api(
+        self, method: str, action: str, params: dict | None = None, json: dict | None = None,
+    ) -> Any:
+        key = self._write_key()
+        if not key:
+            raise ChessEmpireAPIError(503, 'CHESS_EMPIRE_WRITE_KEY not configured')
+        query = urlencode([('action', action), *(params or {}).items()])
+        url = f'{self._functions_base()}/students-api?{query}'
+        headers = {'x-api-key': key, 'Accept': 'application/json'}
+        try:
+            resp = httpx.request(method, url, headers=headers, json=json,
+                                 timeout=min(self.timeout, STUDENTS_API_TIMEOUT))
+        except httpx.HTTPError as exc:
+            logger.warning('Chess Empire students-api network error: %s %s: %s', method, action, exc)
+            raise ChessEmpireAPIError(502, str(exc)) from exc
+        try:
+            body = resp.json() if resp.content else {}
+        except ValueError:
+            body = resp.text
+        if not (200 <= resp.status_code < 300):
+            raise ChessEmpireAPIError(resp.status_code, body)
+        return body if isinstance(body, dict) else {}
+
 
     def _service_key(self) -> str:
         key = (
@@ -196,6 +289,11 @@ class ChessEmpireClient:
         except ValueError:
             body = resp.text
         raise ChessEmpireAPIError(resp.status_code, body)
+
+
+def survival_external_ref(run_id: str) -> str:
+    """CE ``external_ref`` for a Chesster run — the same on every retry."""
+    return f'chesster-rush:{run_id}'
 
 
 _default_client: ChessEmpireClient | None = None
