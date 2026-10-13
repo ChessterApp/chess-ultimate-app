@@ -1,7 +1,8 @@
 /**
  * Account-deletion manifest — the single, reviewable decision for every column
- * that holds a Clerk user id. `supabase/migrations/20261013_053_delete_user_data.sql`
- * (`public.delete_user_data`) implements exactly this; the manifest test keeps
+ * that holds a Clerk user id. `public.delete_user_data` (created in
+ * `supabase/migrations/20261013_053_delete_user_data.sql`, last re-created in
+ * `20261013_055_welcome_emails.sql`) implements exactly this; the manifest test keeps
  * the two in sync and fails when a migration adds a user-id column that has no
  * decision here.
  *
@@ -78,6 +79,9 @@ export const DELETE_TABLES: DeleteTable[] = [
   { table: 'pending_onboarding', columns: ['clerk_user_id'] },
   { table: 'platform_user_cache', columns: ['clerk_id'] },
   { table: 'platform_user_status', columns: ['clerk_id'] },
+  // Welcome drip.
+  { table: 'welcome_emails', columns: ['user_id'] },
+  { table: 'email_opt_outs', columns: ['user_id'] },
   { table: 'subscriptions', columns: ['clerk_user_id'], alsoRemoves: ['whop_user_id'] },
   { table: 'user_onboarding', columns: ['clerk_user_id'] },
   { table: 'user_profiles', columns: ['user_id'] },

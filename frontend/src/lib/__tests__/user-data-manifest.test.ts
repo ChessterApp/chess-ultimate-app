@@ -1,5 +1,5 @@
 /**
- * Keeps the account-deletion manifest, the 053 `delete_user_data` migration and
+ * Keeps the account-deletion manifest, the latest `delete_user_data` migration and
  * every Clerk-id column created by supabase/migrations in agreement. A migration
  * that adds a new user-id column without a delete / nullify / keep decision in
  * `user-data-manifest.ts` fails here.
@@ -16,7 +16,8 @@ import {
 } from '@/lib/user-data-manifest';
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../../../supabase/migrations');
-const DELETE_MIGRATION = '20261013_053_delete_user_data.sql';
+/** Latest migration that (re)creates `public.delete_user_data`. */
+const DELETE_MIGRATION = '20261013_055_welcome_emails.sql';
 
 /** Lower-cased SQL with `--` comments removed and whitespace collapsed. */
 function normalize(sql: string): string {
@@ -87,7 +88,7 @@ function guardedDeletes(table: string, column: string): boolean {
   return deleteSql.includes(`'${table}', '${column}')`);
 }
 
-describe('user-data manifest ↔ 053 delete_user_data migration', () => {
+describe('user-data manifest ↔ latest delete_user_data migration', () => {
   it('every DELETE_TABLES entry is deleted by the SQL', () => {
     for (const { table, columns, via } of DELETE_TABLES) {
       if (via) {
