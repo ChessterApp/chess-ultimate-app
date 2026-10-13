@@ -30,7 +30,13 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { message: string; fen?: string; session_id?: string; context_note?: string };
+  let body: {
+    message: string;
+    fen?: string;
+    session_id?: string;
+    context_note?: string;
+    board_id?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -81,6 +87,10 @@ export async function POST(request: NextRequest) {
               typeof body.context_note === 'string' && body.context_note.trim()
                 ? body.context_note
                 : undefined,
+            // The tab the student is looking at — without it the coach acts on
+            // the session's last active board, not the one on screen.
+            board_id:
+              typeof body.board_id === 'string' && body.board_id ? body.board_id : undefined,
           }),
           signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });
