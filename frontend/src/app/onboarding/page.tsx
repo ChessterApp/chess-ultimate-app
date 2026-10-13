@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import Image from "next/image";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -12,7 +12,9 @@ import { getMostPlayedOpenings } from "@/lib/onboarding/gameFetcher";
 import { translateOpeningName } from "@/lib/openings/openingNamesI18n";
 import { usePhaseHistory } from "@/hooks/usePhaseHistory";
 import { deriveTier, type PuzzleTheme } from "@/lib/onboarding/deriveTier";
-import { writePendingAnswers } from "@/lib/onboarding/pendingAnswers";
+import { writePendingAnswers, PARENT_CONSENT_VERSION } from "@/lib/onboarding/pendingAnswers";
+import { answerBucket, onboardingEntry, stepCompletedProps } from "@/lib/onboarding/analytics";
+import { track, ANALYTICS_EVENTS } from "@/lib/analytics/events";
 import { parseStepParam, type StepParam } from "@/lib/onboarding/stepParam";
 
 // Client-only: chessground touches the DOM at load, so defer it past SSR.
@@ -196,8 +198,19 @@ export default function OnboardingPage() {
     onRestore: restore,
   });
 
+  // Step being left by a forward advance. `onboarding_step_completed` fires once
+  // the step actually changes, so answers set in the same click are included.
+  const completedStepRef = useRef<number | null>(null);
+  useEffect(() => {
+    const done = completedStepRef.current;
+    if (done === null || done === step) return;
+    completedStepRef.current = null;
+    track(ANALYTICS_EVENTS.ONBOARDING_STEP_COMPLETED, stepCompletedProps(done, answers));
+  }, [step, answers]);
+
   // Advance to a specific step and push a matching history entry.
   const advanceTo = useCallback((target: number) => {
+    completedStepRef.current = stepRef.current;
     animateTo(target, "forward");
     history.push({ step: target });
   }, [animateTo, history]);
@@ -213,6 +226,13 @@ export default function OnboardingPage() {
     advanceTo(computeNext(step));
   }, [phase, step, router, advanceTo, computeNext]);
 
+  const handleGetStarted = useCallback(() => {
+    track(ANALYTICS_EVENTS.ONBOARDING_STARTED, {
+      entry: onboardingEntry(window.location.search, document.referrer, window.location.origin),
+    });
+    goNext();
+  }, [goNext]);
+
   const goBack = useCallback(() => {
     if (phase !== "idle" || step <= 1) return;
     // Pop one history entry; the popstate restore animates to the prior step.
@@ -223,8 +243,17 @@ export default function OnboardingPage() {
   // /onboarding/complete claim page can attach them, then hand off to Clerk
   // sign-up with a redirect_url so the new account lands on the claim page.
   // The invite (?invite=) flow is untouched — it never sets redirect_url.
+  // Only reachable with the parent/guardian consent box ticked (F8).
   const handleStartPlan = useCallback(() => {
-    writePendingAnswers(answers);
+    const { skillTier, startingLevel } = deriveTier(answers);
+    track(ANALYTICS_EVENTS.ONBOARDING_STEP_COMPLETED, stepCompletedProps(TOTAL_STEPS, answers));
+    track(ANALYTICS_EVENTS.PARENT_CONSENT_GIVEN, { consent_version: PARENT_CONSENT_VERSION });
+    track(ANALYTICS_EVENTS.ONBOARDING_COMPLETED, {
+      starting_level: startingLevel,
+      skill_tier: skillTier,
+      goal: answerBucket(10, answers),
+    });
+    writePendingAnswers({ ...answers, parentConsent: true });
     const redirect = encodeURIComponent("/onboarding/complete");
     router.push(`/sign-up?redirect_url=${redirect}`);
   }, [answers, router]);
@@ -284,7 +313,7 @@ export default function OnboardingPage() {
         style={isEntering ? { transition: 'none' } : undefined}
       >
         <div className="flex-1 flex flex-col justify-center max-w-md mx-auto w-full px-6 pt-16 pb-8">
-          {step === 1 && <StepWelcome t={t} onNext={goNext} />}
+          {step === 1 && <StepWelcome t={t} onNext={handleGetStarted} />}
           {step === 2 && <StepAttribution t={t} onSelect={(v: string) => { setAnswers(a => ({ ...a, attribution: v })); goNext(); }} />}
           {step === 3 && <StepExperience t={t} onSelect={(v: string) => { setAnswers(a => ({ ...a, experience: v })); goNext(); }} />}
           {step === 4 && <StepPlatform t={t} onSelect={(v: "chessdotcom" | "lichess" | "none") => { setAnswers(a => ({ ...a, platform: v })); if (v === "none") { advanceTo(6); } else { goNext(); } }} />}
@@ -1152,6 +1181,7 @@ function StepBuildingPlan({ t, answers, onComplete, isFetchingGames = false }: {
  * existing plan card, roman headers, single accent CTA, micro-trust line, and a
  * secondary sign-in link. No invented metrics beyond the pre-existing copy. */
 function StepCustomPlan({ t, answers, onStart }: { t: any; answers: any; onStart: () => void }) {
+  const [consent, setConsent] = useState(false);
   const gameData = (answers as any).gameData || null;
   const stats = gameData?.stats;
   const focusAreas: string[] = answers.focusAreas || [];
@@ -1248,9 +1278,31 @@ function StepCustomPlan({ t, answers, onStart }: { t: any; answers: any; onStart
 
       {/* Free-account gate: free framing + micro-trust + sign-in fallback. */}
       <div className="flex flex-col gap-2.5 pt-1">
+        {/* F8 — parent/guardian consent, required to continue. */}
+        <label className="flex items-start gap-3 text-left text-sm text-white/90">
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            className="mt-0.5 h-5 w-5 flex-shrink-0 accent-green-500"
+            data-testid="parent-consent"
+          />
+          <span>
+            {t.rich("customPlan.parentConsent", {
+              terms: (chunks: ReactNode) => (
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline font-semibold">{chunks}</a>
+              ),
+              privacy: (chunks: ReactNode) => (
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline font-semibold">{chunks}</a>
+              ),
+            })}
+          </span>
+        </label>
         <button
           onClick={onStart}
-          className="bg-green-500 text-white font-bold text-lg py-4 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform"
+          disabled={!consent}
+          title={consent ? undefined : t("customPlan.parentConsentRequired")}
+          className="bg-green-500 text-white font-bold text-lg py-4 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed"
         >
           {t("customPlan.startFree")}
         </button>

@@ -859,3 +859,30 @@ class TestSubscriptionsMigrationShape:
 
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
+
+
+# ─── ANALYTICS (tracking plan §4 B) ────────────────────────────────────────────
+
+class TestDatabaseAnalytics:
+    def test_create_captures_database_created(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb, \
+                patch('api.user_databases.analytics.capture') as cap:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})
+            resp = client.post('/api/databases', data=json.dumps({'name': 'Blitz'}),
+                               headers=auth_headers)
+        assert resp.status_code == 201
+        cap.assert_called_once_with(USER_A, 'database_created')
+
+    def test_first_share_captures_database_shared(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb, \
+                patch('api.user_databases.analytics.capture') as cap:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [DB_OPENINGS]}})
+            client.post(f'/api/databases/{DB_OPENINGS["id"]}/share', headers=auth_headers)
+        cap.assert_called_once_with(USER_A, 'database_shared')
+
+    def test_idempotent_share_does_not_recapture(self, client, auth_headers):
+        with patch('api.user_databases.supabase') as mock_sb, \
+                patch('api.user_databases.analytics.capture') as cap:
+            mock_sb.table = make_table({DATABASES_TABLE: {'data': [DB_OPENINGS_SHARED]}})
+            client.post(f'/api/databases/{DB_OPENINGS["id"]}/share', headers=auth_headers)
+        cap.assert_not_called()

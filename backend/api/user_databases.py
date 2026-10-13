@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify
 
 from services.supabase_client import supabase
+from services import analytics_posthog as analytics
 from utils.auth import verify_clerk_token, get_current_user_id
 from api.user_games import _public_game, _owner_display_name, ALLOWED_FIELDS
 
@@ -219,6 +220,7 @@ def create_database():
 
         row = dict(result.data[0])
         row['game_count'] = 0
+        analytics.capture(user_id, analytics.DATABASE_CREATED)
         return jsonify(row), 201
 
     except Exception as e:
@@ -391,6 +393,7 @@ def share_database(database_id):
             .eq('user_id', user_id) \
             .execute()
 
+        analytics.capture(user_id, analytics.DATABASE_SHARED)
         return jsonify({'share_token': token}), 200
 
     except Exception as e:

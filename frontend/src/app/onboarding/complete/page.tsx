@@ -9,6 +9,8 @@ import {
   clearPendingAnswers,
   type PendingOnboardingAnswers,
 } from '@/lib/onboarding/pendingAnswers';
+import { setPersonProperties } from '@/lib/analytics/events';
+import { answerBucket } from '@/lib/onboarding/analytics';
 
 /**
  * Post-signup claim page. A new consumer account lands here (Clerk
@@ -46,11 +48,21 @@ export default function OnboardingCompletePage() {
 
       if (answers) {
         try {
-          await fetch('/api/onboarding/profile', {
+          const res = await fetch('/api/onboarding/profile', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(answers),
           });
+          // Tracking plan §3 person props, from the server-derived level.
+          const derived = res.ok ? await res.json() : null;
+          if (user) {
+            setPersonProperties(user.id, {
+              self_reported_source: answerBucket(2, answers as Record<string, unknown>),
+              ...(derived
+                ? { starting_level: derived.starting_level, skill_tier: derived.skill_tier }
+                : {}),
+            });
+          }
         } catch {
           /* best-effort — progressive unlock still works without it */
         }

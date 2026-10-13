@@ -28,9 +28,14 @@ vi.mock('next-intl', () => ({
   },
 }));
 
+const trackMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/analytics/events', () => ({
-  ANALYTICS_EVENTS: { PLAY_ENGINE_WAIT: 'play_engine_wait' },
-  track: vi.fn(),
+  ANALYTICS_EVENTS: {
+    PLAY_ENGINE_WAIT: 'play_engine_wait',
+    BOT_GAME_STARTED: 'bot_game_started',
+    BOT_GAME_FINISHED: 'bot_game_finished',
+  },
+  track: trackMock,
 }));
 
 vi.mock('@/hooks/useMaia', () => ({
@@ -182,5 +187,23 @@ describe('PlayPage URL history sync', () => {
     await act(async () => { vi.advanceTimersByTime(1000); });
 
     expect(evaluatePositionMock).toHaveBeenCalled();
+  });
+});
+
+describe('PlayPage — bot game analytics', () => {
+  afterEach(() => cleanup());
+
+  it('tracks bot_game_started on Play and bot_game_finished on resign', () => {
+    window.history.replaceState(null, '', '/play');
+    trackMock.mockClear();
+    const { getByTestId } = render(<PlayPage />);
+    act(() => { fireEvent.click(getByTestId('pick-bot')); });
+    act(() => { fireEvent.click(getByTestId('play')); });
+    const started = trackMock.mock.calls.find((c) => c[0] === 'bot_game_started');
+    expect(started?.[1]).toMatchObject({ bot_id: expect.any(String), bot_level: expect.any(Number) });
+
+    act(() => { fireEvent.click(getByTestId('resign')); });
+    const finished = trackMock.mock.calls.find((c) => c[0] === 'bot_game_finished');
+    expect(finished?.[1]).toMatchObject({ result: 'botWin', moves_count: 0 });
   });
 });

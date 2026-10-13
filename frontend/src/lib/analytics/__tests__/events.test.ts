@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ANALYTICS_EVENTS, PII_DENYLIST, stripPii, track } from '../events';
+import { ANALYTICS_EVENTS, PII_DENYLIST, setPersonProperties, stripPii, track } from '../events';
 
-const { capture } = vi.hoisted(() => ({ capture: vi.fn() }));
-vi.mock('posthog-js', () => ({ default: { capture } }));
+const { capture, identify } = vi.hoisted(() => ({ capture: vi.fn(), identify: vi.fn() }));
+vi.mock('posthog-js', () => ({ default: { capture, identify } }));
 
 describe('ANALYTICS_EVENTS', () => {
   it('exposes wizard events with snake_case names', () => {
@@ -78,6 +78,28 @@ describe('stripPii()', () => {
     });
   });
 
+  it('drops the extended contact / DOB / free-text keys (tracking plan §3)', () => {
+    const scrubbed = stripPii({
+      email: 'kid@example.com',
+      Phone: '+77001234567',
+      dob: '2016-05-01',
+      birthday: '2016-05-01',
+      birth_date: '2016-05-01',
+      transcript: 'hello coach',
+      message: 'what is a fork?',
+      content: 'free text',
+      learner_profile_id: 'lp_1',
+      learner_age_band: '6-8',
+    });
+    expect(scrubbed).toEqual({ learner_profile_id: 'lp_1', learner_age_band: '6-8' });
+  });
+
+  it('scrubs nested person props ($set / $set_once)', () => {
+    expect(
+      stripPii({ $set: { path: 'kids', email: 'x@y.z' }, $set_once: { birthdate: 'x', signup_date: 'd' } }),
+    ).toEqual({ $set: { path: 'kids' }, $set_once: { signup_date: 'd' } });
+  });
+
   it('passes undefined through untouched', () => {
     expect(stripPii(undefined)).toBeUndefined();
   });
@@ -113,5 +135,26 @@ describe('track()', () => {
       throw new Error('boom');
     });
     expect(() => track(ANALYTICS_EVENTS.SCHOOL_ONBOARDING_STARTED)).not.toThrow();
+  });
+});
+
+describe('setPersonProperties()', () => {
+  it('identifies with scrubbed $set props', () => {
+    identify.mockReset();
+    setPersonProperties('user_1', { skill_tier: 'beginner', email: 'x@y.z' });
+    expect(identify).toHaveBeenCalledWith('user_1', { skill_tier: 'beginner' });
+  });
+});
+
+describe('§4 registry', () => {
+  it('registers the T1 activation-funnel events', () => {
+    const registered = new Set<string>(Object.values(ANALYTICS_EVENTS));
+    for (const e of [
+      'user_signed_up', 'onboarding_started', 'onboarding_step_completed', 'onboarding_completed',
+      'parent_consent_given', 'level_assigned', 'lesson_completed', 'game_review_completed',
+      'voice_session_ended',
+    ]) {
+      expect(registered.has(e), e).toBe(true);
+    }
   });
 });

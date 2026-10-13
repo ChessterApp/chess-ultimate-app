@@ -123,3 +123,80 @@ class TestComplete:
             )
             assert resp.status_code == 200
             assert builder.last_args[0] == 'delete'
+
+
+class _ProfileSupabase:
+    """Records user_onboarding writes; `update_error` simulates migration 051
+    not being applied (the consent columns don't exist yet)."""
+
+    def __init__(self, update_error=None):
+        self.upserts = []
+        self.updates = []
+        self.update_error = update_error
+
+    def table(self, name):
+        sb = self
+
+        class _B(FakeBuilder):
+            def upsert(self, data, **kw):
+                sb.upserts.append((name, data))
+                return self
+
+            def update(self, data, **kw):
+                sb.updates.append((name, data))
+                if sb.update_error:
+                    raise sb.update_error
+                return self
+
+        return _B(data=[{'id': 1}, {'id': 2}, {'id': 3}] if name == 'courses' else None)
+
+
+class TestProfileAnalyticsAndConsent:
+    def _post(self, client, sb, body):
+        with patch('routes.onboarding._get_supabase', return_value=sb), \
+                patch('routes.onboarding.capture') as cap:
+            resp = client.post('/api/onboarding/profile', json=body,
+                               headers={'X-User-Id': USER_ID})
+        return resp, cap
+
+    def test_fires_level_assigned_with_derived_values(self, client):
+        sb = _ProfileSupabase()
+        resp, cap = self._post(client, sb, {'experience': 'beginner', 'noRating': True})
+        assert resp.status_code == 200
+        body = resp.get_json()
+        cap.assert_called_once_with(USER_ID, 'level_assigned', {
+            'starting_level': body['starting_level'],
+            'skill_tier': body['skill_tier'],
+        })
+
+    def test_persists_parent_consent_when_given(self, client):
+        sb = _ProfileSupabase()
+        resp, _ = self._post(client, sb, {
+            'experience': 'beginner', 'parentConsent': True,
+            'parentConsentVersion': '2026-10-12',
+        })
+        assert resp.status_code == 200
+        assert len(sb.updates) == 1
+        table, data = sb.updates[0]
+        assert table == 'user_onboarding'
+        assert data['parent_consent_version'] == '2026-10-12'
+        assert data['parent_consent_at']
+        # Consent never rides on the main upsert (column may not exist yet).
+        assert 'parent_consent_at' not in sb.upserts[0][1]
+
+    def test_no_consent_write_without_consent(self, client):
+        sb = _ProfileSupabase()
+        resp, _ = self._post(client, sb, {'experience': 'beginner'})
+        assert resp.status_code == 200
+        assert sb.updates == []
+
+    def test_missing_consent_column_does_not_fail_onboarding(self, client):
+        sb = _ProfileSupabase(update_error=Exception(
+            'column "parent_consent_at" of relation "user_onboarding" does not exist'))
+        resp, cap = self._post(client, sb, {
+            'experience': 'beginner', 'parentConsent': True,
+            'parentConsentVersion': '2026-10-12',
+        })
+        assert resp.status_code == 200
+        assert sb.upserts and sb.upserts[0][0] == 'user_onboarding'
+        cap.assert_called_once()

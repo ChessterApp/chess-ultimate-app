@@ -64,6 +64,45 @@ export const ANALYTICS_EVENTS = {
   // Whop checkout return (/upgrade/success)
   CHECKOUT_RETURN_VIEWED: 'checkout_return_viewed',
   SUBSCRIPTION_ACTIVATED_CLIENT: 'subscription_activated_client',
+
+  // Tracking plan §4 A — acquisition & onboarding. `user_signed_up` and
+  // `level_assigned` are also captured server-side (lib/analytics/server.ts,
+  // backend/services/analytics_posthog.py) — same names, single registry.
+  //
+  // `user_signed_up` dedupe: the Clerk webhook copy (`signup_source: 'server'`)
+  // is authoritative. PostHogIdentify adds at most one client copy per device
+  // (`signup_source: 'client'`, localStorage-flagged) to carry the browser
+  // session's UTMs/referrer. Funnels count persons, so the pair never double
+  // counts there; total-count trends must filter `signup_source = server`.
+  USER_SIGNED_UP: 'user_signed_up',
+  LANDING_CTA_CLICKED: 'landing_cta_clicked',
+  LANGUAGE_SWITCHED: 'language_switched',
+  ONBOARDING_STARTED: 'onboarding_started',
+  ONBOARDING_STEP_COMPLETED: 'onboarding_step_completed',
+  ONBOARDING_COMPLETED: 'onboarding_completed',
+  PARENT_CONSENT_GIVEN: 'parent_consent_given',
+  LEVEL_ASSIGNED: 'level_assigned',
+
+  // Tracking plan §4 B — core value. Activation (§6) = lesson_completed,
+  // game_review_completed, or voice_session_ended with duration_s >= 60.
+  // Server-captured ones: lesson_*, level_completed, game_review_completed,
+  // database_* (Flask), coach_message_sent (Next API).
+  LESSON_STARTED: 'lesson_started',
+  LESSON_COMPLETED: 'lesson_completed',
+  LEVEL_COMPLETED: 'level_completed',
+  GAME_REVIEW_REQUESTED: 'game_review_requested',
+  GAME_REVIEW_COMPLETED: 'game_review_completed',
+  COACH_MESSAGE_SENT: 'coach_message_sent',
+  VOICE_SESSION_STARTED: 'voice_session_started',
+  VOICE_SESSION_ENDED: 'voice_session_ended',
+  BOT_GAME_STARTED: 'bot_game_started',
+  BOT_GAME_FINISHED: 'bot_game_finished',
+  PUZZLE_RUSH_STARTED: 'puzzle_rush_started',
+  PUZZLE_RUSH_FINISHED: 'puzzle_rush_finished',
+  TUG_OF_WAR_STARTED: 'tug_of_war_started',
+  TUG_OF_WAR_FINISHED: 'tug_of_war_finished',
+  DATABASE_CREATED: 'database_created',
+  DATABASE_SHARED: 'database_shared',
 } as const;
 
 /**
@@ -89,23 +128,57 @@ export const PII_DENYLIST: readonly string[] = [
   'prompt',
   'hint',
   'text',
+  'phone',
+  'dob',
+  'transcript',
+  'message',
+  'content',
 ] as const;
 
-/** Drop any PII/raw-chess-text keys from a tracked-event prop bag. */
+/** Key prefixes dropped wholesale (birthday, birth_date, birthdate, …). */
+export const PII_DENYLIST_PREFIXES: readonly string[] = ['birth'] as const;
+
+function isPiiKey(key: string): boolean {
+  const k = key.toLowerCase();
+  return PII_DENYLIST.includes(k) || PII_DENYLIST_PREFIXES.some((p) => k.startsWith(p));
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Drop any PII/raw-chess-text keys from a tracked-event prop bag. Nested
+ * objects (e.g. `$set` / `$set_once` person props) are scrubbed too.
+ */
 export function stripPii(
   props?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   if (!props) return props;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(props)) {
-    if (PII_DENYLIST.includes(k.toLowerCase())) continue;
-    out[k] = v;
+    if (isPiiKey(k)) continue;
+    out[k] = isPlainObject(v) ? stripPii(v) : v;
   }
   return out;
 }
 
 export type AnalyticsEvent =
   (typeof ANALYTICS_EVENTS)[keyof typeof ANALYTICS_EVENTS];
+
+/**
+ * `$set` person properties on the signed-in user. Goes through identify() so it
+ * works right after sign-up, before PostHogIdentify's own effect has run (and
+ * because `$set` on an anonymous event is dropped under identified_only).
+ */
+export function setPersonProperties(userId: string, props: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    posthog.identify(userId, stripPii(props));
+  } catch {
+    // swallow — analytics never breaks the call site
+  }
+}
 
 /**
  * Thin wrapper around posthog.capture so call sites never touch the SDK

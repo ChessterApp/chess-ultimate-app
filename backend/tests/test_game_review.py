@@ -272,3 +272,50 @@ def test_status_sidecar_removed_when_done(client, fast_engine):
 
     assert game_review._read_status(rid) is None
     assert game_review._read_cache(rid) is not None
+
+
+# ─── analytics: game_review_completed (tracking plan §4 B) ─────────────────────
+
+def _wait_for(pred, timeout=5.0):
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline and not pred():
+        time.sleep(0.02)
+
+
+def test_completed_review_captures_event_for_requester(client, fast_engine, monkeypatch):
+    from services import analytics_posthog
+    with game_review._JOBS_LOCK:
+        game_review._JOBS.clear()
+    calls = []
+    monkeypatch.setattr(analytics_posthog, "capture", lambda *a: calls.append(a))
+    persisted = []
+    monkeypatch.setattr(game_review, "_persist_insight", lambda *a: persisted.append(a))
+
+    resp = client.post("/api/review", json={
+        "pgn": SCHOLARS_MATE_PGN, "analytics_user_id": "user_rev", "source": "bot",
+    })
+    assert resp.status_code == 200
+    _wait_for(lambda: calls)
+    assert calls == [("user_rev", "game_review_completed", {"cached": False, "source": "bot"})]
+    # Analytics id never becomes the insight-persistence user id.
+    assert persisted and persisted[0][1] is None
+
+    # A second submit of the same game is a cache hit → captured as cached.
+    with game_review._JOBS_LOCK:
+        game_review._JOBS.clear()
+    client.post("/api/review", json={
+        "pgn": SCHOLARS_MATE_PGN, "analytics_user_id": "user_rev", "source": "nope",
+    })
+    assert calls[-1] == ("user_rev", "game_review_completed", {"cached": True})
+
+
+def test_anonymous_review_captures_nothing(client, fast_engine, monkeypatch):
+    from services import analytics_posthog
+    with game_review._JOBS_LOCK:
+        game_review._JOBS.clear()
+    calls = []
+    monkeypatch.setattr(analytics_posthog, "capture", lambda *a: calls.append(a))
+    rid = client.post("/api/review", json={"pgn": SCHOLARS_MATE_PGN}).get_json()["review_id"]
+    _wait_for(lambda: (game_review.get_review(rid) or {}).get("status") == "done")
+    assert calls == []

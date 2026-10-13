@@ -220,6 +220,7 @@ export default function PlayPage() {
     setLastMove(undefined)
     engineWaitTracked.current = false
     history.push({ phase: 'playing', bot: bot.id })
+    track(ANALYTICS_EVENTS.BOT_GAME_STARTED, { bot_id: bot.id, bot_level: bot.rating })
 
     // If player is black, bot moves first
     if (actualColor === 'b') {
@@ -357,17 +358,26 @@ export default function PlayPage() {
 
   // `ended` shares `playing`'s history slot (replace, not push) so Back from a
   // finished game returns to `setup` rather than into the dead game.
-  const enterEndedPhase = () => {
+  const enterEndedPhase = (outcome: GameOutcome | null) => {
     setGamePhase('ended')
-    if (selectedBot) history.replace({ phase: 'ended', bot: selectedBot.id })
+    if (selectedBot) {
+      history.replace({ phase: 'ended', bot: selectedBot.id })
+      track(ANALYTICS_EVENTS.BOT_GAME_FINISHED, {
+        bot_id: selectedBot.id,
+        bot_level: selectedBot.rating,
+        result: outcome,
+        moves_count: chess.history().length,
+      })
+    }
   }
 
   const checkGameOver = () => {
     if (chess.isCheckmate()) {
       setGameResult(chess.turn() === 'w' ? 'Black wins by checkmate!' : 'White wins by checkmate!')
-      setGameOutcome(outcomeFromPosition(chess, actualPlayerColor))
+      const outcome = outcomeFromPosition(chess, actualPlayerColor)
+      setGameOutcome(outcome)
       setResigned(false)
-      enterEndedPhase()
+      enterEndedPhase(outcome)
     } else if (chess.isDraw()) {
       if (chess.isStalemate()) {
         setGameResult('Draw by stalemate')
@@ -380,7 +390,7 @@ export default function PlayPage() {
       }
       setGameOutcome('draw')
       setResigned(false)
-      enterEndedPhase()
+      enterEndedPhase('draw')
     }
   }
 
@@ -411,7 +421,7 @@ export default function PlayPage() {
     )
     setGameOutcome('botWin')
     setResigned(true)
-    enterEndedPhase()
+    enterEndedPhase('botWin')
   }
 
   // Hint: ask the strong engine for the player's best move and draw it as a

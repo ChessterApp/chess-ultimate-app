@@ -18,6 +18,7 @@ import { finishRequest, initialRunState, resultTiles, reviewAttempts, runReducer
 import { applyGuestScore, loadGuestBests, localStore, recordGuestScore, saveLastMode } from '@/lib/puzzle-rush/storage';
 import type { ModeBests, RushMode, RushPuzzle } from '@/lib/puzzle-rush/types';
 import { useSoundEffects } from '@/hooks/useSoundEffects';
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 // §3 implementation targets.
 export const TIMINGS = {
@@ -135,6 +136,7 @@ export function usePuzzleRush(initialMode: RushMode) {
       return;
     }
     dispatch({ type: 'RUN_STARTED', runId: newRunId(), seed: pack.seed, puzzles });
+    track(ANALYTICS_EVENTS.PUZZLE_RUSH_STARTED, { mode });
     // Play Again's pack, fetched during the countdown (never mid-run).
     nextPackRef.current = fetchPack();
 
@@ -241,6 +243,11 @@ export function usePuzzleRush(initialMode: RushMode) {
     const runId = state.runId;
     finishedRef.current = runId;
     clearTimers();
+    track(ANALYTICS_EVENTS.PUZZLE_RUSH_FINISHED, {
+      mode: state.mode,
+      score: state.score,
+      end_reason: state.endReason,
+    });
     /* eslint-disable react-hooks/set-state-in-effect -- run-over sync with localStorage */
     setCountdown(null);
     if (!isSignedIn) {

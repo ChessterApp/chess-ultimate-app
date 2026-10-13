@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import type { ReviewSource } from './types';
 import { startReview } from './reviewApi';
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 export interface ReviewGame {
   /** Full PGN of the game (built by the calling surface). */
@@ -60,8 +61,9 @@ export default function StartReviewButton({
   async function handleClick() {
     if (!allowed || loading) return;
     setLoading(true);
+    track(ANALYTICS_EVENTS.GAME_REVIEW_REQUESTED, { source });
     try {
-      const { review_id } = await startReview(game.pgn);
+      const { review_id } = await startReview(game.pgn, source);
       const params = new URLSearchParams({ source });
       if (game.orientation) params.set('orientation', game.orientation);
       router.push(`/review/${review_id}?${params.toString()}`);

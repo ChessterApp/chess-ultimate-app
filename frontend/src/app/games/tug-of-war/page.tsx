@@ -14,6 +14,7 @@ import SetupScreen, { type StartConfig } from '@/components/tug-of-war/SetupScre
 import MatchScreen from '@/components/tug-of-war/MatchScreen';
 import { gameReducer, initialState } from '@/lib/tug-of-war/gameReducer';
 import { prefetchPuzzles } from '@/lib/tug-of-war/prefetch';
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 export default function TugOfWarPage() {
   const t = useTranslations('tugOfWar');
@@ -46,6 +47,7 @@ export default function TugOfWarPage() {
       setOffline(usedFallback);
       setThemesUnavailable(themesMissing);
       dispatch({ type: 'START_MATCH', teamAName: teamA, teamBName: teamB, queueA, queueB });
+      track(ANALYTICS_EVENTS.TUG_OF_WAR_STARTED, { level });
     } finally {
       setLoading(false);
     }

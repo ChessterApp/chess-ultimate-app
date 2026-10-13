@@ -22,6 +22,7 @@ import type { GameState, GameAction } from '@/lib/tug-of-war/gameReducer';
 import type { TeamSide } from '@/lib/tug-of-war/types';
 import { TugSound, loadMuted, saveMuted } from '@/lib/tug-of-war/sound';
 import { fireWinConfetti, resetConfetti } from '@/lib/tug-of-war/confetti';
+import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 type Feedback = 'idle' | 'correct' | 'wrong';
 
@@ -144,6 +145,8 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
   const prevOver = useRef(false);
   useEffect(() => {
     if (over && !prevOver.current) {
+      // Side only — team names are typed by kids and never leave the device.
+      track(ANALYTICS_EVENTS.TUG_OF_WAR_FINISHED, { winner_side: state.winner });
       soundRef.current?.win();
       if (state.winner) fireWinConfetti(state.winner).catch(() => {});
     }

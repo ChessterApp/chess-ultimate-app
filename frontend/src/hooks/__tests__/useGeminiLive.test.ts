@@ -17,6 +17,12 @@ const g = vi.hoisted(() => ({
   ctorArgs: { value: null as any },
 }));
 
+const trackMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/analytics/events', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/analytics/events')>()),
+  track: trackMock,
+}));
+
 vi.mock('@google/genai', () => {
   class GoogleGenAI {
     live: { connect: (params: any) => Promise<any> };
@@ -1294,6 +1300,31 @@ describe('useGeminiLive', () => {
     expect(end.end_reason).toBe('user_stop');
     // The metering 'end' beacon is still emitted alongside it.
     expect(metrics.find((m) => m.event === 'end')).toBeTruthy();
+  });
+
+  it('tracks voice_session_started once and voice_session_ended with duration + reason', async () => {
+    let t = 0;
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => t);
+    vi.stubGlobal('fetch', metricsCapturingFetch([], { remainingSeconds: null }));
+    trackMock.mockClear();
+
+    const { result } = renderHook(() => useGeminiLive({ getSessionId: () => 's1' }));
+    await act(async () => {
+      await result.current.connect();
+    });
+    expect(trackMock).toHaveBeenCalledWith('voice_session_started', { surface: 'coach' });
+    t = 75_400;
+    act(() => {
+      result.current.disconnect();
+    });
+
+    expect(trackMock).toHaveBeenCalledWith('voice_session_ended', {
+      surface: 'coach',
+      duration_s: 75,
+      ended_reason: 'user',
+    });
+    expect(trackMock.mock.calls.filter((c) => c[0] === 'voice_session_started')).toHaveLength(1);
+    nowSpy.mockRestore();
   });
 
   it('reconnect after an unexpected drop emits a reconnect (not connect) beacon', async () => {

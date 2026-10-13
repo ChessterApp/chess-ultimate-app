@@ -428,9 +428,23 @@ def _persist_insight(review_id: str, user_id: str | None, result: dict) -> None:
         logger.debug("persist_review_insight hook failed for %s", review_id, exc_info=True)
 
 
+def _capture_completed(analytics_ctx: dict | None, *, cached: bool) -> None:
+    """Tracking plan §4 B ``game_review_completed`` for the requesting Clerk
+    user (``analytics_ctx`` = {distinct_id, source}). Deliberately separate from
+    ``user_id`` so analytics never switches on coach-insight persistence."""
+    if not analytics_ctx:
+        return
+    from services import analytics_posthog as analytics
+
+    props = {'cached': cached}
+    if analytics_ctx.get('source'):
+        props['source'] = analytics_ctx['source']
+    analytics.capture(analytics_ctx.get('distinct_id'), analytics.GAME_REVIEW_COMPLETED, props)
+
+
 def _worker_loop() -> None:
     while True:
-        review_id, pgn, depth, user_id = _QUEUE.get()
+        review_id, pgn, depth, user_id, analytics_ctx = _QUEUE.get()
         try:
             _set_job(review_id, status="running", progress=0.0)
             _write_status(review_id, "running", 0.0)
@@ -453,6 +467,7 @@ def _worker_loop() -> None:
             _set_job(review_id, status="done", progress=1.0, result=result)
             _delete_status(review_id)  # full cache is now the source of truth
             _persist_insight(review_id, user_id, result)  # fail-open, off-path
+            _capture_completed(analytics_ctx, cached=False)  # never raises
         except Exception as exc:  # noqa: BLE001 — surface any analysis failure
             logger.exception("Game review %s failed", review_id)
             _set_job(review_id, status="error", error=str(exc))
@@ -465,12 +480,19 @@ _WORKER = threading.Thread(target=_worker_loop, name="game-review-worker", daemo
 _WORKER.start()
 
 
-def submit_review(pgn: str, depth: int = DEPTH, user_id: str | None = None) -> tuple[str, str]:
+def submit_review(
+    pgn: str,
+    depth: int = DEPTH,
+    user_id: str | None = None,
+    analytics_ctx: dict | None = None,
+) -> tuple[str, str]:
     """
     Validate + dedupe a PGN and enqueue analysis.
 
     ``user_id`` (optional) is carried on the job so the completed review can be
     persisted as a coach insight for that student; anonymous submits skip it.
+    ``analytics_ctx`` (optional, {distinct_id, source}) fires
+    ``game_review_completed`` when this submit's analysis finishes.
 
     Returns ``(review_id, status)`` where status is ``"done"`` on a cache hit or
     ``"queued"`` otherwise. Raises ``ValueError`` for an invalid PGN.
@@ -482,6 +504,7 @@ def submit_review(pgn: str, depth: int = DEPTH, user_id: str | None = None) -> t
     if cached is not None:
         _set_job(review_id, status="done", progress=1.0, result=cached)
         _persist_insight(review_id, user_id, cached)  # fail-open, off-path
+        _capture_completed(analytics_ctx, cached=True)
         return review_id, "done"
 
     with _JOBS_LOCK:
@@ -502,7 +525,7 @@ def submit_review(pgn: str, depth: int = DEPTH, user_id: str | None = None) -> t
         }
 
     _write_status(review_id, "queued", 0.0)
-    _QUEUE.put((review_id, pgn, depth, user_id))
+    _QUEUE.put((review_id, pgn, depth, user_id, analytics_ctx))
     return review_id, "queued"
 
 

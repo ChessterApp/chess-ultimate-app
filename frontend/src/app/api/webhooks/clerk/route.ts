@@ -8,6 +8,9 @@ import { findCoachesByEmail } from '@/lib/chess-empire-client';
 import { getMembershipStateForUser } from '@/lib/chess-empire-member';
 import { logLinkAttempt, upsertMemberLink, linkMemberViaInviteJwt } from '@/lib/chess-empire-jwt-link';
 import { verifyInviteJwt } from '@/lib/invite-jwt';
+import { captureServer } from '@/lib/analytics/server';
+import { deletePostHogPerson } from '@/lib/analytics/person-delete';
+import { ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 type ClerkWebhookEvent = {
   type: string;
@@ -23,6 +26,9 @@ type ClerkUserData = {
   first_name?: string | null;
   last_name?: string | null;
   unsafe_metadata?: Record<string, unknown> | null;
+  external_accounts?: Array<{ provider?: string }> | null;
+  phone_numbers?: unknown[] | null;
+  created_at?: number | null;
 };
 
 function extractPrimaryEmail(data: ClerkUserData): string | null {
@@ -66,6 +72,33 @@ function extractInviteName(data: ClerkUserData): string | null {
   } catch {
     return null;
   }
+}
+
+/** Sign-up method for analytics — an enum only, never the address itself. */
+function signupMethod(data: ClerkUserData): 'google' | 'email' | 'phone' | 'other' {
+  const providers = (data.external_accounts || []).map((a) => a?.provider || '');
+  if (providers.some((p) => p.includes('google'))) return 'google';
+  if (data.email_addresses?.length) return 'email';
+  if (data.phone_numbers?.length) return 'phone';
+  return 'other';
+}
+
+/**
+ * Authoritative `user_signed_up` (tracking plan §4 A). The client also fires a
+ * once-per-device copy tagged `signup_source: 'client'` (PostHogIdentify) to
+ * carry the browser session's UTMs/referrer; funnels count persons, and
+ * total-count trends filter on `signup_source = server`.
+ */
+async function captureUserSignedUp(data: ClerkUserData): Promise<void> {
+  if (!data.id) return;
+  const createdAt = typeof data.created_at === 'number' ? new Date(data.created_at) : new Date();
+  const hasInvite = typeof (data.unsafe_metadata || {})['inviteJwt'] === 'string';
+  await captureServer(data.id, ANALYTICS_EVENTS.USER_SIGNED_UP, {
+    method: signupMethod(data),
+    ...(hasInvite ? { path: 'school' } : {}),
+    signup_source: 'server',
+    $set_once: { signup_date: createdAt.toISOString().slice(0, 10) },
+  });
 }
 
 async function syncListmonkUserCreated(data: ClerkUserData): Promise<void> {
@@ -441,6 +474,7 @@ export async function POST(req: Request) {
         } catch (err) {
           console.error('[clerk-webhook] Listmonk sync failed:', err);
         }
+        await captureUserSignedUp(data);
         await completeChessEmpireOnboarding(data);
         break;
       }
@@ -469,6 +503,9 @@ export async function POST(req: Request) {
         } else {
           console.warn('[clerk-webhook] user.deleted with no user id, skipping cascade');
         }
+
+        // F11 — drop the PostHog person + events (never throws).
+        if (deletedUserId) await deletePostHogPerson(deletedUserId);
         break;
       }
 

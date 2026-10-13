@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 review_bp = Blueprint("review", __name__, url_prefix="/api")
 
+_REVIEW_SOURCES = ("bot", "online", "database", "import")
+
 
 @review_bp.route("/review", methods=["POST"])
 def create_review():
@@ -36,8 +38,21 @@ def create_review():
     if not isinstance(user_id, str) or not user_id.strip():
         user_id = None
 
+    # Analytics only (tracking plan §4 B): the Clerk-authenticated Next proxy
+    # forwards the caller's id + review source. Never enables insight persistence.
+    analytics_ctx = None
+    analytics_user_id = body.get("analytics_user_id")
+    if isinstance(analytics_user_id, str) and analytics_user_id.strip():
+        source = body.get("source")
+        analytics_ctx = {
+            "distinct_id": analytics_user_id,
+            "source": source if source in _REVIEW_SOURCES else None,
+        }
+
     try:
-        review_id, status = game_review.submit_review(pgn, user_id=user_id)
+        review_id, status = game_review.submit_review(
+            pgn, user_id=user_id, analytics_ctx=analytics_ctx
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 

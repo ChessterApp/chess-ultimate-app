@@ -5,6 +5,7 @@ Endpoints for fetching courses, modules, and lessons
 
 from flask import Blueprint, jsonify, request
 from services.supabase_client import supabase
+from services import analytics_posthog as analytics
 from utils.auth import (
     verify_clerk_token,
     get_current_user_id,
@@ -641,6 +642,49 @@ def get_lesson_by_slug(course_slug, lesson_slug):
         return jsonify({"error": f"Failed to fetch lesson: {str(e)}"}), 500
 
 
+def _course_level(course_id):
+    """1-based course position by order_index — the Learn "level"."""
+    ordered = sorted(get_cached_courses(), key=lambda c: c.get('order_index', 0))
+    for idx, c in enumerate(ordered):
+        if c['id'] == course_id:
+            return idx + 1
+    return None
+
+
+def _capture_lesson_progress(user_id, course, lesson_id, data, first_start, prev):
+    """Tracking plan §4 B: lesson_started (first start only), lesson_completed,
+    and level_completed when this first completion finishes the course.
+    Best-effort — analytics never fails the progress write."""
+    try:
+        status = data.get('status')
+        if not first_start and status != 'completed':
+            return
+        props = {
+            'course': course.get('slug') or course['id'],
+            'lesson_id': lesson_id,
+            'level': _course_level(course['id']),
+        }
+        if first_start:
+            analytics.capture(user_id, analytics.LESSON_STARTED, props)
+            return
+        first_completion = not (prev and prev.get('status') == 'completed')
+        duration = data.get('time_spent_seconds')
+        analytics.capture(user_id, analytics.LESSON_COMPLETED, {
+            **props,
+            'first_completion': first_completion,
+            **({'duration_s': duration} if isinstance(duration, (int, float)) else {}),
+        })
+        if first_completion:
+            course_progress = compute_progress_by_course(user_id).get(course['id']) or {}
+            if course_progress.get('progress') == 100:
+                analytics.capture(user_id, analytics.LEVEL_COMPLETED, {
+                    'course': props['course'],
+                    'level': props['level'],
+                })
+    except Exception as exc:
+        logger.warning('lesson analytics failed: %s', exc)
+
+
 @lessons_bp.route('/api/learn/<course_slug>/<lesson_slug>/progress', methods=['POST'])
 @verify_clerk_token
 def update_lesson_progress_by_slug(course_slug, lesson_slug):
@@ -676,19 +720,23 @@ def update_lesson_progress_by_slug(course_slug, lesson_slug):
         if 'score' in data:
             update_data['score'] = data['score']
 
-        if data.get('status') == 'in_progress':
+        status = data.get('status')
+        prev = None
+        if status in ('in_progress', 'completed'):
             existing = retry_supabase_query(
                 lambda: supabase.table('user_progress')
-                    .select('started_at')
+                    .select('started_at, status')
                     .eq('user_id', user_id)
                     .eq('lesson_id', lesson_id)
                     .execute()
             )
+            prev = existing.data[0] if existing.data else None
 
-            if not existing.data or not existing.data[0].get('started_at'):
-                update_data['started_at'] = 'now()'
+        first_start = status == 'in_progress' and not (prev and prev.get('started_at'))
+        if first_start:
+            update_data['started_at'] = 'now()'
 
-        if data.get('status') == 'completed':
+        if status == 'completed':
             update_data['completed_at'] = 'now()'
 
         result = retry_supabase_query(
@@ -696,6 +744,8 @@ def update_lesson_progress_by_slug(course_slug, lesson_slug):
                 .upsert(update_data, on_conflict='user_id,lesson_id')
                 .execute()
         )
+
+        _capture_lesson_progress(user_id, course, lesson_id, data, first_start, prev)
 
         return jsonify(result.data[0]), 200
 
