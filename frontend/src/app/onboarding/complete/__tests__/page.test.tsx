@@ -28,7 +28,7 @@ describe('/onboarding/complete', () => {
     vi.stubGlobal('fetch', fetchMock);
     localStorage.setItem(
       PENDING_ANSWERS_KEY,
-      JSON.stringify({ attribution: 'youtube', experience: 'beginner', parentConsent: true, parentConsentVersion: '2026-10-12' }),
+      JSON.stringify({ attribution: 'youtube', experience: 'beginner' }),
     );
   });
 
@@ -38,15 +38,15 @@ describe('/onboarding/complete', () => {
     localStorage.clear();
   });
 
-  it('posts answers incl. consent, then $sets the server-derived person props', async () => {
+  it('posts answers, then $sets the server-derived person props', async () => {
     fetchMock.mockResolvedValue(
       new Response(JSON.stringify({ skill_tier: 'beginner', starting_level: 1 }), { status: 200 }),
     );
     render(<OnboardingCompletePage />);
     await waitFor(() => expect(replace).toHaveBeenCalledWith('/learn'));
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-      parentConsent: true,
-      parentConsentVersion: '2026-10-12',
+      attribution: 'youtube',
+      experience: 'beginner',
     });
     expect(setPersonProperties).toHaveBeenCalledWith('user_p', {
       self_reported_source: 'youtube',

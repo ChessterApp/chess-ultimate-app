@@ -1,8 +1,7 @@
 /**
  * @vitest-environment jsdom
  *
- * Onboarding funnel analytics (tracking plan §4 A) + the F8 parent/guardian
- * consent gate on the final step.
+ * Onboarding funnel analytics (tracking plan §4 A).
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import React from 'react';
@@ -12,13 +11,6 @@ vi.mock('next-intl', () => ({
   useTranslations: () => {
     const t = (k: string) => k;
     (t as any).has = () => false;
-    (t as any).rich = (k: string, tags: Record<string, (c: React.ReactNode) => React.ReactNode>) => (
-      <>
-        {k}
-        {tags.terms('terms')}
-        {tags.privacy('privacy')}
-      </>
-    );
     return t;
   },
   useLocale: () => 'en',
@@ -40,7 +32,7 @@ vi.mock('@/lib/analytics/events', async (importOriginal) => ({
 }));
 
 import OnboardingPage from '../page';
-import { PENDING_ANSWERS_KEY, PARENT_CONSENT_VERSION } from '@/lib/onboarding/pendingAnswers';
+import { PENDING_ANSWERS_KEY } from '@/lib/onboarding/pendingAnswers';
 
 const COMPLETED_ANSWERS = {
   attribution: 'friend',
@@ -63,7 +55,7 @@ function flushAnimation() {
 
 const calls = (event: string) => trackMock.mock.calls.filter((c) => c[0] === event).map((c) => c[1]);
 
-describe('Onboarding analytics + parent consent', () => {
+describe('Onboarding analytics', () => {
   beforeEach(() => {
     trackMock.mockReset();
     routerPush.mockReset();
@@ -108,31 +100,24 @@ describe('Onboarding analytics + parent consent', () => {
     expect(trackMock).not.toHaveBeenCalled();
   });
 
-  it('requires parent consent, then fires consent + completed and carries consent to signup', () => {
+  it('custom-plan continue is enabled with no checkbox, fires completed and hands off to signup', () => {
     window.sessionStorage.setItem('chesster_onboarding_answers', JSON.stringify(COMPLETED_ANSWERS));
     window.history.replaceState(null, '', '/onboarding?step=16');
-    const { getByText, getByTestId } = render(<OnboardingPage />);
+    const { getByText, queryByRole } = render(<OnboardingPage />);
     flushAnimation();
 
-    expect(getByText('terms').getAttribute('href')).toBe('/terms');
-    expect(getByText('privacy').getAttribute('href')).toBe('/privacy');
-
+    expect(queryByRole('checkbox')).toBeNull();
     const start = getByText('customPlan.startFree') as HTMLButtonElement;
-    expect(start.disabled).toBe(true);
-    fireEvent.click(start);
-    expect(routerPush).not.toHaveBeenCalled();
-
-    fireEvent.click(getByTestId('parent-consent'));
     expect(start.disabled).toBe(false);
     fireEvent.click(start);
 
-    expect(calls('parent_consent_given')).toEqual([{ consent_version: PARENT_CONSENT_VERSION }]);
+    expect(trackMock.mock.calls.map((c) => c[0])).toEqual(['onboarding_step_completed', 'onboarding_completed']);
     expect(calls('onboarding_completed')).toEqual([
       { starting_level: 1, skill_tier: 'beginner', goal: 'beatFriends' },
     ]);
     expect(calls('onboarding_step_completed')).toEqual([{ step_index: 16, step_name: 'custom_plan' }]);
     const pending = JSON.parse(window.localStorage.getItem(PENDING_ANSWERS_KEY)!);
-    expect(pending).toMatchObject({ parentConsent: true, parentConsentVersion: PARENT_CONSENT_VERSION });
+    expect(pending).toMatchObject({ experience: 'beginner', goal: 'beatFriends' });
     expect(routerPush).toHaveBeenCalledWith('/sign-up?redirect_url=%2Fonboarding%2Fcomplete');
   });
 });
