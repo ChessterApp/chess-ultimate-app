@@ -34,8 +34,16 @@ describe('Coach Components - File Structure', () => {
     expect(existsSync(resolve(componentsDir, 'BoardControls.tsx'))).toBe(true);
   });
 
-  it('PuzzleOverlay.tsx exists', () => {
-    expect(existsSync(resolve(componentsDir, 'PuzzleOverlay.tsx'))).toBe(true);
+  it('PuzzleFlow.tsx exists (puzzles run on StepFlow, not the old flashing overlay)', () => {
+    expect(existsSync(resolve(componentsDir, 'PuzzleFlow.tsx'))).toBe(true);
+    expect(existsSync(resolve(componentsDir, 'StepFlow.tsx'))).toBe(true);
+    expect(existsSync(resolve(componentsDir, 'PuzzleOverlay.tsx'))).toBe(false);
+  });
+
+  it('PlayStrip.tsx and PlaySetupSheet.tsx exist (GamePanel replaced)', () => {
+    expect(existsSync(resolve(componentsDir, 'PlayStrip.tsx'))).toBe(true);
+    expect(existsSync(resolve(componentsDir, 'PlaySetupSheet.tsx'))).toBe(true);
+    expect(existsSync(resolve(componentsDir, 'GamePanel.tsx'))).toBe(false);
   });
 
   it('ToolIndicator.tsx exists', () => {

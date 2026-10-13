@@ -28,10 +28,10 @@ describe('CoachChat - onOpenGame callback', () => {
 });
 
 describe('CoachPage - Game Tabs', () => {
-  it('imports GameViewerPanel', () => {
-    expect(coachPageContent).toContain(
-      "import GameViewerPanel from '@/components/openings/GameViewerPanel'"
-    );
+  it('shows game tabs with the coach\'s own viewer pieces, not the MUI GameViewerPanel', () => {
+    expect(coachPageContent).not.toContain('<GameViewerPanel');
+    expect(coachPageContent).toContain("import ViewerTabsSheet from '@/components/coach/ViewerTabsSheet'");
+    expect(coachPageContent).toContain("import ViewerMoveList from '@/components/coach/ViewerMoveList'");
   });
 
   it('imports OpenedGame type', () => {
@@ -54,8 +54,9 @@ describe('CoachPage - Game Tabs', () => {
     expect(coachPageContent).toContain('useState<OpenedGame[]>([])');
   });
 
-  it('has activeGameId state', () => {
-    expect(coachPageContent).toContain('useState<string | null>(null)');
+  it('takes the active game tab from the mode reducer', () => {
+    expect(coachPageContent).toContain('useReducer(coachMode, initialCoachMode)');
+    expect(coachPageContent).toContain('const activeGameId = modeState.viewerId');
   });
 
   it('has gameMoveIndices state', () => {
@@ -66,13 +67,15 @@ describe('CoachPage - Game Tabs', () => {
     expect(coachPageContent).toContain('onOpenGame={handleOpenGame}');
   });
 
-  it('renders tab bar when games are open', () => {
-    expect(coachPageContent).toContain("{t('coachBoard')}");
-    expect(coachPageContent).toContain('{game.white} vs {game.black}');
+  it('renders the tabs stack chip when games are open', () => {
+    expect(coachPageContent).toContain('openedGames.length > 0 && (');
+    expect(coachPageContent).toContain('<ViewerTabsSheet');
+    expect(coachPageContent).toContain('title: `${g.white} vs ${g.black}`');
   });
 
-  it('renders GameViewerPanel when a game tab is active', () => {
-    expect(coachPageContent).toContain('<GameViewerPanel');
+  it('renders the tap-to-jump move list when a game tab is active', () => {
+    expect(coachPageContent).toContain('<ViewerMoveList');
+    expect(coachPageContent).toContain('onJump={(index) => jumpTab(activeGameId, () => index)}');
   });
 
   it('renders CoachBoard when no game tab is active', () => {
@@ -114,8 +117,17 @@ describe('CoachPage - Game Tabs', () => {
     expect(coachPageContent).toContain('restoreHistory');
   });
 
-  it('routes navigate actions addressed to a game tab to that tab', () => {
-    expect(coachPageContent).toContain("tab && action.type === 'navigate'");
+  it('routes actions addressed to a game tab to that tab (navigate, arrows, highlights)', () => {
+    expect(coachPageContent).toContain('routeBoardActions(actions, openedGames.map((g) => g.id))');
+    expect(coachPageContent).toContain('applyTabActions(');
+  });
+
+  it('draws the coach\'s arrows and highlights on viewer boards (no forced empty lists)', () => {
+    const activeGameBranch = coachPageContent.split('activeGameId && activeGame ?')[1];
+    const trueBranch = activeGameBranch.substring(0, activeGameBranch.indexOf(') : game ? ('));
+    expect(trueBranch).not.toContain('arrows={[]}');
+    expect(trueBranch).not.toContain('highlights={[]}');
+    expect(trueBranch).toContain('viewerAnnotations.arrows');
   });
 
   it('offers the sessions panel', () => {
@@ -123,21 +135,19 @@ describe('CoachPage - Game Tabs', () => {
     expect(coachPageContent).toContain('onSelect={handleSelectSession}');
   });
 
-  it('has a close button for each game tab', () => {
-    expect(coachPageContent).toContain('handleCloseGame(game.id)');
+  it('closes game tabs from the tabs sheet', () => {
+    expect(coachPageContent).toContain('onClose={handleCloseGame}');
   });
 
   it('conditionally renders game viewer or coach board', () => {
     expect(coachPageContent).toContain('activeGameId && activeGame ?');
   });
 
-  it('renders CoachBoard alongside GameViewerPanel when game tab is active', () => {
-    // The ternary branch for activeGame should contain BOTH components
+  it('renders CoachBoard alongside the move list when game tab is active', () => {
     const activeGameBranch = coachPageContent.split('activeGameId && activeGame ?')[1];
-    const elseIndex = activeGameBranch.indexOf(') : (');
-    const trueBranch = activeGameBranch.substring(0, elseIndex);
+    const trueBranch = activeGameBranch.substring(0, activeGameBranch.indexOf(') : game ? ('));
     expect(trueBranch).toContain('<CoachBoard');
-    expect(trueBranch).toContain('<GameViewerPanel');
+    expect(trueBranch).toContain('<ViewerMoveList');
   });
 
   it('wires CoachBoard FEN to activeGame when game tab is active', () => {
@@ -148,14 +158,14 @@ describe('CoachPage - Game Tabs', () => {
   });
 
   it('wires CoachBoard navigation to gameMoveIndices for active game', () => {
-    // onFirst sets index to -1 (starting position)
-    expect(coachPageContent).toContain("[activeGameId]: -1");
-    // onPrev decrements with Math.max(-1, ...)
-    expect(coachPageContent).toContain("Math.max(-1, (prev[activeGameId] ?? -1) - 1)");
-    // onNext increments with Math.min(moves.length - 1, ...)
-    expect(coachPageContent).toContain("Math.min(activeGame.moves.length - 1, (prev[activeGameId] ?? -1) + 1)");
-    // onLast sets to last move
-    expect(coachPageContent).toContain("[activeGameId]: activeGame.moves.length - 1");
+    expect(coachPageContent).toContain('onFirst={() => jumpTab(activeGameId, () => -1)}');
+    expect(coachPageContent).toContain('onPrev={() => jumpTab(activeGameId, (i) => Math.max(-1, i - 1))}');
+    expect(coachPageContent).toContain(
+      'onNext={() => jumpTab(activeGameId, (i) => Math.min(activeGame.moves.length - 1, i + 1))}'
+    );
+    expect(coachPageContent).toContain('onLast={() => jumpTab(activeGameId, () => activeGame.moves.length - 1)}');
+    // The student's own navigation clears the coach's arrows for the old position.
+    expect(coachPageContent).toContain('[id]: EMPTY_ANNOTATIONS');
   });
 
   it('sets onMove to a no-op when viewing a game', () => {
@@ -163,19 +173,16 @@ describe('CoachPage - Game Tabs', () => {
     expect(coachPageContent).toContain('onMove={() => {}}');
   });
 
-  it('disables puzzle mode when viewing a game', () => {
-    // The game-viewing CoachBoard should have puzzleMode={false}
+  it('never runs a puzzle on a viewed game', () => {
     const activeGameBranch = coachPageContent.split('activeGameId && activeGame ?')[1];
-    const elseIndex = activeGameBranch.indexOf(') : (');
-    const trueBranch = activeGameBranch.substring(0, elseIndex);
-    expect(trueBranch).toContain('puzzleMode={false}');
-    expect(trueBranch).toContain('puzzleState={null}');
+    const trueBranch = activeGameBranch.substring(0, activeGameBranch.indexOf(') : game ? ('));
+    expect(trueBranch).not.toContain('puzzle');
   });
 
-  it('wraps GameViewerPanel in a scrollable light card sized to the board area', () => {
+  it('puts the move list beside the board or under it, sized to the board area', () => {
     // Beside the board when it keeps >= 440 px that way, else under it; the size
     // follows the measured board area, not the window (overflow on laptops, 2026-09-29).
-    expect(coachPageContent).toContain('overflow-y-auto bg-white rounded-lg');
+    expect(coachPageContent).toContain("layout={gameLayout.beside ? 'list' : 'strip'}");
     expect(coachPageContent).toContain('gameLayout.beside');
     expect(coachPageContent).toContain('ref={measureBoardArea}');
   });
