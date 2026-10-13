@@ -23,6 +23,8 @@ CORE_TOOLS = frozenset({
     "get_topic", "get_puzzle", "get_learning_path", "get_lesson",
     # A game asked for in any words, a move typed in a game («е4» carries no keyword): 2026-10-12.
     "start_game", "make_game_move",
+    # Resign / take back / draw / new game in words (2026-10-13).
+    "game_action",
 })
 
 # Board-render / FEN-parse tools that are redundant when the board is already

@@ -500,6 +500,27 @@ def build_system_prompt(
                 board_lines.append(analysis)
         except Exception:
             logger.debug("Board analysis injection failed", exc_info=True)
+        # The opening's name from the ECO book, by the position (any move order): the voice coach had
+        # it in its engine line, the text coach named 1.d4 d5 2.c4 e6 «французская защита» (prod,
+        # 2026-10-13).
+        try:
+            from src.voice_engine_note import _opening
+
+            opening = _opening(board_fen)
+            if opening:
+                board_lines.append(opening + " Name the opening by this, never from memory.")
+        except Exception:
+            logger.debug("opening name by position failed", exc_info=True)
+    if move_history and not any(line.startswith("Opening (ECO book)") for line in board_lines):
+        try:
+            from src.openings_book import get_book
+
+            found = get_book().identify(list(move_history))
+            if found:
+                board_lines.append(f"Opening (ECO book, by the moves): {found['eco']} {found['name']} — the game "
+                                   f"left the book after half-move {found['book_plies']}.")
+        except Exception:
+            logger.debug("opening name by moves failed", exc_info=True)
     if move_history:
         moves_str = " ".join(
             f"{i // 2 + 1}. {move}" if i % 2 == 0 else move
@@ -592,7 +613,14 @@ def attach_turn_context(message: str, turn_context: str) -> str:
 # speaks Russian, Kazakh and English only).
 _KAZAKH_LETTERS = frozenset("әғқңөұүһіӘҒҚҢӨҰҮҺІ")
 # Chess notation is Latin but not English: "Nf3", "e4", "O-O", "Kxe5".
-_NOTATION_TOKEN = re.compile(r"^(?:[KQRBNOkqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?|O-O(?:-O)?|0-0(?:-0)?)$")
+# A move, not an English word: SAN, the long form «e2-e4» / «Ng1-f3» / «e7-e8=Q» and UCI «g1f3» (a
+# student who wrote «e2-e4» in a game was answered in English, prod 2026-10-13).
+_NOTATION_TOKEN = re.compile(
+    r"^(?:[KQRBNOkqrbn]?[a-h]?[1-8]?x?[a-h][1-8](?:=?[QRBNqrbn])?[+#]?[!?]*"
+    r"|[KQRBN]?[a-h][1-8][-x:][a-h][1-8](?:=?[QRBNqrbn])?[+#]?[!?]*"
+    r"|[a-h][1-8][a-h][1-8][qrbn]?"
+    r"|O-O(?:-O)?[+#]?|0-0(?:-0)?[+#]?)$"
+)
 
 
 # Kazakh words spelt with Russian letters only («Мен не ойнауым керек?» has no
@@ -1061,6 +1089,17 @@ def moves_in_question_block(message: str, fen: Optional[str], moves: Optional[li
                 after = board.copy(stack=False)
                 after.push(item["move"])
                 line += " — after it: " + "; ".join(moved_piece_facts(board, after, item["move"]))
+                if _CASTLING_WORDS.search(message or "") and not after.is_game_over():
+                    # «А если сначала b3, потом рокировка будет?» — «да, слон уйдёт» (prod, 2026-10-13):
+                    # castling right after the move, and where a chased attacker still bars it.
+                    from src.board_rules import castling_facts
+
+                    mover_view = after.copy(stack=False)
+                    mover_view.turn = board.turn
+                    mover_view.ep_square = None
+                    castle = castling_facts(mover_view)
+                    if castle:
+                        line += "; castling after it (if the opponent changes nothing): " + castle[0].split(": ", 1)[-1]
             except Exception:  # noqa: BLE001
                 pass
         lines.append(line)
@@ -1296,13 +1335,30 @@ def lesson_engine_block(note: str) -> str:
     )
 
 
-def engine_note_block(note: str, opening: bool = False) -> str:
+def _mate_headline(mate_in: Optional[int], fen: Optional[str]) -> str:
+    """A forced mate of the side to move, said first: «Чёрные забрали ферзя — я проиграл?» with Legal's mate
+    on the board was answered «вернёшь материал вилкой» — the mate was in the middle of the engine
+    line (prod, 2026-10-13)."""
+    if not mate_in or mate_in <= 0 or mate_in > 4:
+        return ""
+    side = "the side to move"
+    if fen:
+        side = "White" if fen.split()[1:2] == ["w"] else "Black"
+    return (f"!! FORCED MATE IN {mate_in} for {side} on this board (the Best line below). When the question is "
+            "about this position — what to play, whether it is lost or won, what is best — the mate is the "
+            "answer: say it first, with its moves.\n")
+
+
+def engine_note_block(note: str, opening: bool = False, mate_in: Optional[int] = None,
+                      fen: Optional[str] = None) -> str:
     """The turn's engine line (src/voice_engine_note.py) as a turn-context block.
 
     With *opening* the board shows the opening the student asked about (see
     src/opening_knowledge.py), so the block is part of that answer, not a
-    position to ignore for a general opening question.
+    position to ignore for a general opening question. A forced mate of the side
+    to move (*mate_in* > 0) heads the block.
     """
+    note = _mate_headline(mate_in, fen) + note
     if opening:
         return (
             "## Engine analysis of the board (the opening line above, its final position)\n"

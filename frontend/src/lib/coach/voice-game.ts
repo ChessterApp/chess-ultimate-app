@@ -84,3 +84,32 @@ export function gameMoveNote(
     `${reply}.${over} Do not call make_game_move for this move.`
   ).replace(/\s+/g, ' ').trim();
 }
+
+/**
+ * Words that may ask the game for what its buttons do — resign, take back, a draw, a new game
+ * (2026-10-13: the text coach talked «Сдаюсь» out and said «в партии отмены не бывает»). Hermes
+ * decides (src/game_intent.py game_command) and does it (game_action).
+ */
+export function mayCommandTheGame(text: string): boolean {
+  return /сда[юёт]|верн|отмен|переход|заново|сначала|нов\S*\s+парти|ещ[её]\s+(?:раз|партию|одну)|реванш|ничь|resign|give\s+up|take\s*back|undo|new\s+game|start\s+over|again|rematch|draw|қайтар|жаңа\s+ойын|берілемін/i.test(
+    text || '',
+  );
+}
+
+/** The line after the site did what the student asked the game for (game_action with `said`). */
+export function gameActionNote(
+  result: { action?: string; done?: boolean; note?: string } | null,
+): string | null {
+  if (!result?.action) return null;
+  const what: Record<string, string> = {
+    resign: 'resigned — the game is over',
+    takeback: 'asked to take back their move — it is undone',
+    draw: 'offered a draw',
+    restart: 'asked for a new game — it has started',
+  };
+  const head = what[result.action] ?? result.action;
+  return (
+    `[Game] The student ${head} (the system did it on the board). ${result.note ?? ''} ` +
+    'Never pretend the game did something it did not.'
+  ).replace(/\s+/g, ' ').trim();
+}

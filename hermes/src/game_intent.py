@@ -80,3 +80,52 @@ def bare_move(text: str, board: chess.Board) -> Optional[str]:
         if len(fits) == 1:
             return board.san(fits[0])
     return _student_move(board, t)
+
+
+# What the game's buttons do, said in words (2026-10-13: «Сдаюсь» was talked out of, «Ой, верни ход назад» got
+# «в партии отмены не бывает», «Давай начнём заново» got «считай, что предыдущая аннулирована» with the old
+# game still on the board). Short messages only: «сдаюсь, покажи решение» on a puzzle is no game command.
+_COMMANDS = (
+    ("takeback", re.compile(
+        r"(?<![\w-])(?:верн\w*\s+(?:мой\s+|мне\s+|пожалуйста\s+)?(?:ход|назад)|отмен\w*\s+(?:мой\s+|последний\s+)?ход"
+        r"|(?:можно|дай(?:те)?|давай)\s+переход\w*|перехожу|переходить|ход\s+назад"
+        r"|take\s*(?:it\s+)?back|undo(?:\s+(?:my\s+|the\s+|last\s+)?move)?"
+        r"|жүрісті\s+қайтар\w*|қайтар\w*\s+жүріс\w*)", re.IGNORECASE)),
+    ("restart", re.compile(
+        r"(?<![\w-])(?:(?:начн\w*|начать|давай)\s+(?:лучше\s+)?(?:вс[её]\s+)?(?:заново|сначала|с\s+начала)"
+        r"|(?:давай|начн\w*|начать|сыгра\w*|хочу)\s+(?:лучше\s+|ещ[её]\s+)?нов\w+\s+парти\w*|^нов\w+\s+парти\w*\s*[.!]?$"
+        r"|(?:сыгра\w*|ещ[её])\s+(?:ещ[её]\s+)?(?:раз|одну|партию)|ещ[её]\s+партию|реванш"
+        r"|new\s+game|start\s+(?:over|again|a\s+new\s+game)|play\s+again|rematch"
+        r"|жаңа\s+ойын|қайта\s+бастай\w*)", re.IGNORECASE)),
+    ("resign", re.compile(
+        r"(?<![\w-])(?:(?:я\s+)?сда[юё]\w*|сдаться|сдалс\w*|i\s+resign|resign|i\s+give\s+up"
+        r"|берілемін|жеңілдім)(?![\w-])", re.IGNORECASE)),
+    ("draw", re.compile(
+        r"(?<![\w-])(?:предлага\w*\s+ничь\w*|(?:давай|согласен\s+на|согласишься\s+на|может)\s+ничь\w*|^ничью\s*[?!.]?$"
+        r"|(?:i\s+)?offer\s+(?:you\s+)?(?:a\s+)?draw|let'?s\s+(?:call\s+it\s+a\s+)?draw|тең\s+ойын\w*\s+ұсын\w*)",
+        re.IGNORECASE)),
+)
+
+
+def game_command(text: str) -> Optional[str]:
+    """«resign» | «takeback» | «restart» | «draw» when a short message asks the game for that, else None."""
+    t = (text or "").replace("ё", "е").replace("Ё", "Е").strip()
+    if not t or len(t.split()) > 8:
+        return None
+    for name, rx in _COMMANDS:
+        if rx.search(t):
+            return name
+    return None
+
+
+# A move written to be played that is no legal move: «Кe5» from the start, «конь d5» with no knight there.
+_MOVE_LIKE = re.compile(
+    r"^(?:[КСЛФKQRBN]р?|кр)?[a-hасе]?[1-8]?[x:-]?[a-hасе][1-8](?:=?[QRBNФЛСК])?[+#!?]*$"
+    r"|^(?:кон\w*|слон\w*|лад\w*|ферз\w*|корол\w*|пешк\w*|knight|bishop|rook|queen|king|pawn)\s+(?:на\s+|to\s+)?[a-hасе][1-8]$",
+    re.IGNORECASE,
+)
+
+
+def move_attempt(text: str) -> bool:
+    """*text* is written as one move to play (legal or not)."""
+    return bool(_MOVE_LIKE.match((text or "").strip().rstrip(".!")))

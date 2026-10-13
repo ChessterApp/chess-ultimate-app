@@ -121,17 +121,55 @@ def castling_facts(board: chess.Board) -> list[str]:
     if not king_home:
         return []
     st = castling_status(board, color)
-    parts = []
+    parts, blocked = [], []
     for wing, label, rook_file in (("O-O", "short castling (O-O)", 7), ("O-O-O", "long castling (O-O-O)", 0)):
         legal, why = st[wing]
         rook_home = board.piece_at(chess.square(rook_file, rank)) == chess.Piece(chess.ROOK, color)
         if legal:
             parts.append(f"{label} is legal now")
-        elif why.startswith("pieces stand between") or not rook_home:
+        elif not rook_home:
             continue
+        elif why.startswith("pieces stand between"):
+            # Obvious alone; said exactly next to the other wing — the coach added «and b1 — the knight»
+            # with b1 empty (prod, 2026-10-13).
+            blocked.append(f"{label} is NOT possible now — {why}, and nothing else stands there")
         else:
-            parts.append(f"{label} is NOT possible now — {why}")
+            parts.append(f"{label} is NOT possible now — {why}" + _chased_still_attacks(board, why, color))
+    if parts:
+        parts += blocked
     return [f"{_color(color)}: " + "; ".join(parts)] if parts else []
+
+
+def _chased_still_attacks(board: chess.Board, why: str, color: chess.Color) -> str:
+    """For castling barred by an attacked square: where the attacker, once chased, still attacks it.
+
+    «Сыграй b3 — слон уйдёт, и рокировка станет возможна» (prod, 2026-10-06 and 2026-10-13): after b3 the
+    bishop c4 retreats to a6 or b5 and still hits f1."""
+    import re as _re
+
+    m = _re.match(r"([a-h][1-8]) is attacked by", why)
+    if not m:
+        return ""
+    target = chess.parse_square(m.group(1))
+    b = board.copy(stack=False)
+    b.turn = not color
+    b.ep_square = None
+    keeps = []
+    for attacker in board.attackers(not color, target):
+        piece = board.piece_at(attacker)
+        if piece is None or piece.piece_type in (chess.PAWN, chess.KING):
+            continue
+        for mv in b.pseudo_legal_moves:
+            if mv.from_square != attacker or b.piece_at(mv.to_square) is not None:
+                continue
+            after = b.copy(stack=False)
+            after.push(mv)
+            if mv.to_square in after.attackers(not color, target) or target in after.attacks(mv.to_square):
+                keeps.append(piece.symbol().upper() + chess.square_name(mv.to_square))
+    if not keeps:
+        return ""
+    return (f"; chasing the attacker away does not by itself allow it — it can step to {', '.join(keeps[:5])} "
+            f"and still attack {chess.square_name(target)}")
 
 
 # ── En passant ──────────────────────────────────────────────────────────────

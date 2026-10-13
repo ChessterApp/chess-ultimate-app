@@ -110,7 +110,9 @@ def famous_game(message: str) -> Optional[dict]:
     """{"key", "name", "pgn", "block"} for a famous game the message names, or None."""
     text = (message or "").lower().replace("ё", "е")
     for g in GAMES:
-        if re.search(g["match"].replace("ё", "е"), text):
+        # From the start of a word: «опер…» found the Opera game inside «сОПЕРНика» and put it on the
+        # board for «у соперника остался только король — кто победил?» (prod, 2026-10-13).
+        if re.search(r"(?<![\w-])(?:" + g["match"].replace("ё", "е") + ")", text):
             pgn = _pgn(g)
             block = (
                 f"## The famous game the student asked about — {g['name']}, verified score, ALREADY on the board\n"

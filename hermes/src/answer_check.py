@@ -123,8 +123,10 @@ _COMMA_CLAUSE = r"(?:,(?=\s*(?:котор\w+|что|which|that|who|[а-яa-z]+(?
 _ATTACK_CLAIMS = []
 for _ptype, _pat in _RU_SUBJECTS:
     _ATTACK_CLAIMS.append((_ptype, re.compile(
+        # (Not «с d5»: «конь с g8 сразу бьёт в e4» is the knight that leaves g8.)
         _W + "(?:" + _pat + ")" + _E + rf"\s+{_RU_PLACED}(?:на\s+)?(?P<a>{SQ})(?![0-9]){_COMMA_CLAUSE}(?P<mid>{_STOP_MID}{{0,40}}?)"
-        rf"(?P<verb>{_RU_VERBS})(?P<targets>{_STOP}{{0,90}})")))
+        # «бьёт сразу две фигуры: короля на e8 и ладью на a8» — a colon after a count opens the list of targets
+        rf"(?P<verb>{_RU_VERBS})(?P<targets>(?:{_STOP}{{0,30}}?(?:сразу|обе|оба|две|два|двух|три|фигур\w*|цел\w*){_STOP}{{0,20}}:\s*)?{_STOP}{{0,90}})")))
 for _ptype, _pat in _EN_PIECES:
     _ATTACK_CLAIMS.append((_ptype, re.compile(
         _W + "(?:" + _pat + ")" + _E + rf"\s+{_EN_PLACED}(?:(?:on|to|at|onto|from)\s+)?(?P<a>{SQ})(?![0-9]){_COMMA_CLAUSE}(?P<mid>{_STOP_MID}{{0,40}}?)"
@@ -2829,8 +2831,30 @@ _LEAKS = re.compile(
     rf"|<\s*/?\s*{_DSML}[^>]*>"                                                        # any other DSML tag
     r"|(?:<[^>\n]{0,40})?\b[\w-]{0,40}\"\s*string=\"(?:true|false)\"\s*>[A-Za-z0-9_.:/-]{0,60}"
     r"(?:<\s*/[^>\n]{0,40}>)?"                                                         # a cut-off fragment
+    r"|(?<![\w])[\w-]{0,40}=\"(?:true|false)\"\s*>[A-Za-z0-9_.:/-]{0,60}"                # «="true">Nepomniachtchi» (2026-10-13)
     r"|<\s*/?\s*(?:function_calls|invoke|parameter)\b[^>\n]{0,80}>"
     r"|(?m:^[ \t]*(?:parameter\s+)?name=\"[^\n]{0,60}$)", re.IGNORECASE)                    # a stray « name="» line
+
+
+# «епископ» is the bishop of a church, not of the board: «У белых епископ и конь» (prod, 2026-10-09, 2026-10-13).
+# Masculine for masculine, so the words around it still agree.
+_BISHOP_FORMS = {"епископ": "слон", "епископа": "слона", "епископу": "слону", "епископом": "слоном",
+                 "епископе": "слоне", "епископы": "слоны", "епископов": "слонов", "епископам": "слонам",
+                 "епископами": "слонами", "епископах": "слонах"}
+_BISHOP_RE = re.compile(r"(?<![\w-])(" + "|".join(sorted(_BISHOP_FORMS, key=len, reverse=True)) + r")(?![\w-])",
+                        re.IGNORECASE)
+
+
+def chess_terms(text: str) -> str:
+    """*text* with the Russian chess words where the model used others («епископ» → «слон»)."""
+    if not text or "пископ" not in text.lower():
+        return text
+
+    def swap(m: "re.Match") -> str:
+        word = _BISHOP_FORMS[m.group(1).lower()]
+        return word.capitalize() if m.group(1)[0].isupper() else word
+
+    return _BISHOP_RE.sub(swap, text)
 
 
 def strip_leaks(text: str) -> str:

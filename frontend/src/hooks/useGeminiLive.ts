@@ -9,11 +9,13 @@ import type {
 import type { GameStateView } from '@/lib/coach/boards-api';
 import {
   famousNote,
+  gameActionNote,
   gameFromActions,
   gameMoveNote,
   gameNote,
   gameStartNote,
   mayAskForAGame,
+  mayCommandTheGame,
   mentionsAGame,
 } from '@/lib/coach/voice-game';
 
@@ -174,6 +176,7 @@ export function verdictNote(verdict: { kind?: string; headline?: string } | null
 // Tools the site calls itself from the student's words (see lookUpConcept).
 export const SITE_FETCHED_TOOLS = new Set([
   'get_topic', 'lookup_opening', 'get_puzzle', 'review_game', 'famous_game', 'start_game', 'make_game_move',
+  'game_action',
 ]);
 
 // What the coach said is checked on the board sentence by sentence (the same
@@ -1255,11 +1258,23 @@ export default function useGeminiLive(
     if (!session) return;
     // A game asked for, or the student's move said on its own in the game: Hermes reads the words and
     // does it (src/game_intent.py) — the Live model alone may play by talking (2026-10-10).
+    // Resign, take back, a draw, a new game said in words: the game's buttons, pressed by Hermes.
+    const commandTheGame = async () =>
+      mayCommandTheGame(text) && text.trim().split(/\s+/).length <= 8
+      && (await siteToolCall('game_action', { said: text }, session, gameActionNote));
     if (gameLive()) {
+      if (await commandTheGame()) {
+        conceptDoneRef.current = true;
+        return;
+      }
       if (text.trim().split(/\s+/).length <= 6 && (await siteToolCall('make_game_move', { said: text }, session, gameMoveNote))) {
         conceptDoneRef.current = true;
       }
       return;  // the board is the game's: no example goes up
+    }
+    if (await commandTheGame()) {  // «давай ещё раз» after the game ended
+      conceptDoneRef.current = true;
+      return;
     }
     if (mayAskForAGame(text) && (await siteToolCall('start_game', { said: text }, session, gameStartNote))) {
       conceptDoneRef.current = true;

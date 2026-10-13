@@ -417,27 +417,42 @@ class OpeningBook:
 
         if self._by_position is None:
             index: dict[str, tuple[str, str, str]] = {}
+            # A position inside a line that no line ends in («1.e4 Nf6 2.e5» — the coach named it Nimzowitsch,
+            # prod 2026-10-13) takes the shortest line through it: its family, never a guess.
+            through: dict[str, tuple[str, str, str]] = {}
             for entry in self.entries:
                 board = chess.Board()
+                length = len(_split_moves(entry[2]))
                 try:
                     for san in _split_moves(entry[2]):
                         board.push_san(san)
+                        mid = _position_key(board)
+                        held = through.get(mid)
+                        if held is None or length < len(_split_moves(held[2])):
+                            through[mid] = entry
                 except ValueError:
                     continue
                 key = _position_key(board)
                 old = index.get(key)
-                if old is None or len(_split_moves(entry[2])) < len(_split_moves(old[2])):
+                if old is None or length < len(_split_moves(old[2])):
                     index[key] = entry
             self._by_position = index
+            self._through_position = through
         try:
             key = _position_key(chess.Board(fen))
         except ValueError:
             return None
         entry = self._by_position.get(key)
+        inside = False
+        if entry is None:
+            entry = (getattr(self, "_through_position", None) or {}).get(key)
+            inside = entry is not None
         if entry is None:
             return None
         family = entry[1].split(":")[0].strip()
-        found = {"eco": entry[0], "name": entry[1], "book_line": entry[2]}
+        found = {"eco": entry[0], "name": entry[1] if not inside else family, "book_line": entry[2]}
+        if inside:
+            found["inside_line"] = True
         if family in RU_FAMILY:
             found["name_ru"] = RU_FAMILY[family]
         return found

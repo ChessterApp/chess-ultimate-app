@@ -653,10 +653,15 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
     (src/game_intent.py): started / played here, before the model answers — left to the model, it
     sometimes played by talking (stand, 2026-10-12). {"view", "block"} or None."""
     from src import game_mode
-    from src.game_intent import bare_move, game_request
-    from src.tools.game_play import _strength, live_game_board
+    from src.game_intent import bare_move, game_command, game_request, move_attempt
+    from src.tools.game_play import _strength, game_command_step, live_game_board
 
     live = live_game_board(session)
+    command = game_command(message)
+    if live is None and command == "restart" and active_board is not None and active_board.kind == "game" \
+            and active_board.game_state:
+        # «Давай ещё раз» after a game: the same game again, as the panel's «New game» button does.
+        return game_command_step(session, active_board, "restart")
     if live is None:
         req = game_request(message)
         if not req:
@@ -674,6 +679,8 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
         return {"view": view, "block": block}
     if live.id != active_board.id or not live.game_state:
         return None
+    if command:
+        return game_command_step(session, live, command)
     board = game_mode._replay(live.game_state["moves"])
     if not game_mode._student_to_move(live.game_state, board):
         return None
@@ -683,6 +690,15 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
 
         asked = [m["san"] for m in named_moves(message, board)] or [
             m for m in (_parse_move_token(t, board) for t in re.findall(r"[^\s,.;:!?]+", message)) if m]
+        if not asked and move_attempt(message):
+            # «Кe5» from the start: the model said «путь к нему закрыт» about a knight that cannot get there.
+            legal = sorted(board.san(m) for m in board.legal_moves)
+            return {"view": None, "block": (
+                "## Not a legal move — nothing was played\n"
+                f"The student wrote «{message.strip()}», which is not a legal move in the game's position "
+                f"({board.fen()}). Say so plainly, with the true reason read from the position (which piece could "
+                f"go there, if any), and ask for another move. Legal moves: {', '.join(legal[:40])}."
+            )}
         if not asked:
             return None
         # «А если Кf3?» in the game: the model played it, or answered with a move of its own (stand, 2026-10-12).
@@ -706,6 +722,56 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
         "hint, never the best move unless they ask. Do not call make_game_move for this move: it is played."
     )
     return {"view": view, "block": block}
+
+
+def _puzzle_block(board) -> str:
+    """The puzzle on *board* — its solution and how far the student got — while the board still shows
+    it or a position along its solution; "" otherwise (a board set to something else since)."""
+    import chess
+
+    pz = getattr(board, "puzzle", None) or {}
+    solution = [str(m) for m in (pz.get("solution") or [])]
+    if getattr(board, "kind", None) != "puzzle" or not pz.get("fen") or not solution:
+        return ""
+    try:
+        line = chess.Board(pz["fen"])
+        now = chess.Board(board.fen)
+    except (ValueError, IndexError):
+        return ""
+
+    def key(b):
+        return b.board_fen() + (" w" if b.turn else " b")
+
+    sans, reached = [], None
+    for i in range(len(solution) + 1):
+        if reached is None and key(line) == key(now):
+            reached = i
+        if i == len(solution):
+            break
+        try:
+            mv = line.parse_san(solution[i])
+        except ValueError:
+            try:
+                mv = chess.Move.from_uci(solution[i])
+                if mv not in line.legal_moves:
+                    return ""
+            except ValueError:
+                return ""
+        sans.append(line.san(mv))
+        line.push(mv)
+    if reached is None:
+        return ""
+    solver = "White" if chess.Board(pz["fen"]).turn else "Black"
+    progress = ("not started — the student has not moved yet" if reached == 0
+                else f"the student is {reached} half-move(s) into it; next is {sans[reached]}" if reached < len(sans)
+                else "solved — the board shows the final position")
+    return (
+        "## The puzzle on the board (private — its solution)\n"
+        f"{solver} to move in {pz['fen']}; solution: {' '.join(sans)}. Progress: {progress}.\n"
+        "A hint leads to THIS solution — the idea, the target or the piece first, never another move as the "
+        "answer; say the whole solution only when the student asks for it or gives up. A move they propose is "
+        "right only if it is the next move of this solution."
+    )
 
 
 def _engine_moves(game: dict) -> list:
@@ -1822,6 +1888,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         except Exception:  # noqa: BLE001 — the pre-step is best-effort
             logger.debug("famous game pre-step failed", exc_info=True)
             famous = None
+    # The puzzle on the board, with its solution, on every turn it stays there: «Не знаю, дай подсказку» got a
+    # hint toward Qe2 for a puzzle solved by Qxf1+ — the solution was only in the turn that set it (prod,
+    # 2026-10-13).
+    puzzle_note = _puzzle_block(active_board)
     _mark("opening")
     # Under load (several students' engines at work) the searches are shorter, so
     # the lines are ready within the wait instead of missing it altogether.
@@ -2034,7 +2104,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     bestofn_message = f"{bestofn_message}\n\n{opening_plan.block}"
                 if note:
                     bestofn_message = (f"{bestofn_message}\n\n"
-                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative))}")
+                                       f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen'))}")
                 bestofn_message = f"{bestofn_message}\n\n{lang_note}"
                 async for frame in _bestofn_event_stream(
                     base_agent=agent, model=model, system_prompt=system_prompt,
@@ -2062,7 +2132,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # belong to (the board, the opening line, the game, what tools put on the
         # board), a gate that holds each sentence until it is checked, and one
         # rewrite of the rest of the answer after a wrong sentence.
-        from src.answer_check import CheckContext, SentenceGate, fix_messages, proposed_move, strip_leaks
+        from src.answer_check import CheckContext, SentenceGate, chess_terms, fix_messages, proposed_move, strip_leaks
 
         # Every board of the session counts (a capture named for the second
         # board was cut as impossible on the first, 2026-10-02), and in a game
@@ -2118,7 +2188,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # first stage can only ever make the reply feel faster, never later.
         from src.quick_reply import wants_reaction
 
-        two_stage = bool(config.COACH_TWO_STAGE) and wants_reaction(body.message, bool(body.fen))
+        # A move played or a game command done by the system this turn needs no «сейчас посмотрю» first:
+        # «Сейчас откачу ход назад» came before an answer that refused it (prod, 2026-10-13).
+        two_stage = (bool(config.COACH_TWO_STAGE) and wants_reaction(body.message, bool(body.fen))
+                     and not game_step)
         quick = {
             "shown": False,      # at least one reaction delta went to the client
             "finished": not two_stage,  # reaction done / abandoned / disabled
@@ -2266,8 +2339,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{famous['block']}"
                 if game_step:
                     message = f"{message}\n\n{game_step['block']}"
+                if puzzle_note:
+                    message = f"{message}\n\n{puzzle_note}"
                 if note:
-                    old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative)))
+                    old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen')))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
                 elif engine_future is not None and session.board_state:
                     # The engine was late (load, a slow lookup): the board's own facts — what hangs,
@@ -2384,7 +2459,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         def _answer_frames(text: str) -> list:
             """Frames for answer text that passed the check (the stream as before)."""
             nonlocal streamed_chars
-            text = strip_leaks(text)  # DeepSeek's tool-call markup written as text
+            text = chess_terms(strip_leaks(text))  # DeepSeek's tool-call markup written as text; «епископ»
             # A mark on a line of its own leaves an empty paragraph behind.
             if text.startswith("\n") and answer_parts and answer_parts[-1].endswith("\n\n"):
                 text = text.lstrip("\n")

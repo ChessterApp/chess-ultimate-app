@@ -169,6 +169,8 @@ const VOICE_CORE_TOOLS = new Set<string>([
   'start_game',
   'make_game_move',
   'famous_game',
+  // Resign / take back / draw / new game in words (2026-10-13).
+  'game_action',
 ]);
 
 // Recap caps: keep the injected memory small so it never dominates the prompt or

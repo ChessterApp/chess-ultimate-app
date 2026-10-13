@@ -20,7 +20,7 @@
     - Ходить «по ощущениям» без вопроса «какая слабость у соперника?».
     - Начинать атаку на короля, когда структура требует игры на другом фланге.
   lichess_themes: [middlegame, quietMove]
-  lesson_stems: [план, planning, структур, оцен]
+  lesson_stems: [план по пешечной, планирован, planning, пешечная структура, пешечной структур]
   positions:
     - title_ru: Выбор плана в карлсбадской структуре
       moves: "1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. cxd5 exd5 5. Bg5 Be7 6. e3 O-O 7. Bd3 Nbd7 8. Qc2 c6 9. Nf3 Re8 10. O-O Nf8"
@@ -48,7 +48,7 @@
     - Жертвовать раньше, чем подведены резервы.
   lichess_themes: [kingsideAttack, attackingF2F7, sacrifice, mate]
   eco_codes: [C14, B78]
-  lesson_stems: [атак, attack, король]
+  lesson_stems: [атака на корол, атаки на корол, атаку на корол, attack on the king, king attack, kingside attack]
   positions:
     - title_ru: Расстановка для греческого дара (Bxh7+)
       moves: "1. e4 e6 2. d4 d5 3. Nc3 Nf6 4. Bg5 Be7 5. e5 Nfd7 6. Bxe7 Qxe7 7. f4 O-O 8. Nf3 c5 9. Bd3"
@@ -100,7 +100,7 @@
     - Менять ферзей «чтобы не рисковать» и попадать в худший эндшпиль.
     - Держать короля в углу после размена ферзей.
   lichess_themes: [endgame]
-  lesson_stems: [переход, эндшпил, transition]
+  lesson_stems: [переход в эндшпил, transition to the endgame]
 
 - slug: two-weaknesses
   aliases: ["две слабости", "вторая слабость"]
@@ -123,4 +123,4 @@
     - Долбить одну слабость, которую соперник надёжно защитил.
     - Прорываться раньше, чем первая слабость зафиксирована.
   lichess_themes: [endgame, middlegame]
-  lesson_stems: [двух слабост, two weaknesses, слабост]
+  lesson_stems: [двух слабост, two weaknesses]

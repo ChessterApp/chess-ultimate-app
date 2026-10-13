@@ -21,7 +21,7 @@
     - Чёрным допускать b5 без ...a5 и без контригры.
   lichess_themes: [middlegame]
   eco_codes: [D35, D36]
-  lesson_stems: [карлсбад, carlsbad, разменн]
+  lesson_stems: [карлсбад, carlsbad]
   positions:
     - title_ru: "Карлсбад: исходная расстановка"
       moves: "1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. cxd5 exd5 5. Bg5 Be7 6. e3 O-O 7. Bd3 Nbd7 8. Qc2 c6 9. Nf3 Re8 10. O-O Nf8"
@@ -101,7 +101,7 @@
     - Белым брать на c5 (dxc5) и отдать центр.
   lichess_themes: [middlegame]
   eco_codes: [C02, C05, C11]
-  lesson_stems: [французск, french, цеп]
+  lesson_stems: [французск, french, пешечная цепь, pawn chain]
   positions:
     - title_ru: Французская, вариант продвижения
       moves: "1. e4 e6 2. d4 d5 3. e5 c5 4. c3 Nc6 5. Nf3 Qb6 6. a3 Nh6 7. b4 cxd4 8. cxd4 Nf5"
@@ -131,7 +131,7 @@
     - Двигать пешки перед своим королём, когда атака соперника уже вскрыла линии.
   lichess_themes: [kingsideAttack, queensideAttack, attackingF2F7, sacrifice]
   eco_codes: [B76, B78, B99]
-  lesson_stems: [разносторон, opposite, рокировк]
+  lesson_stems: [разносторонн, opposite-side, opposite castl, opposite side castl]
   positions:
     - title_ru: Югославская атака в Драконе
       moves: "1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 g6 6. Be3 Bg7 7. f3 O-O 8. Qd2 Nc6 9. Bc4 Bd7 10. O-O-O"
@@ -159,6 +159,6 @@
     - Держать короля в центре ради «выигрыша пешки».
     - Атакующему меняться ферзями и снимать давление.
   lichess_themes: [attackingF2F7, exposedKing]
-  lesson_stems: [центр, корол, king in the centre]
+  lesson_stems: [король в центре, короля в центре, king in the centre, king in the center]
   model_games:
     - {white: "Morphy", black: "Duke of Brunswick and Count Isouard", year: 1858, note_ru: "Париж: чёрный король остаётся в центре, и все фигуры белых бьют по линиям d и e."}
