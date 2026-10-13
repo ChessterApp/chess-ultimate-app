@@ -2141,7 +2141,12 @@
     "reviewMessage": "Review our game: where did I go wrong and what should I have played?",
     "gameTab": "You — Coach",
     "youLabel": "You",
-    "coachLabel": "Coach"
+    "coachLabel": "Coach",
+    "newMessages": "New messages",
+    "sessionActions": "Session actions",
+    "deleteSessionConfirm": "“{title}” and its messages will be deleted. This can’t be undone.",
+    "save": "Save",
+    "delete": "Delete"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

@@ -2141,7 +2141,12 @@
     "reviewMessage": "Разбери нашу партию: где я ошибся и что стоило играть.",
     "gameTab": "Вы — Тренер",
     "youLabel": "Вы",
-    "coachLabel": "Тренер"
+    "coachLabel": "Тренер",
+    "newMessages": "Новые сообщения",
+    "sessionActions": "Действия с сессией",
+    "deleteSessionConfirm": "«{title}» и все её сообщения будут удалены. Это нельзя отменить.",
+    "save": "Сохранить",
+    "delete": "Удалить"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

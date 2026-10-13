@@ -857,3 +857,114 @@ describe('CoachChat — own and imported games as cards', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('CoachChat — composer, chips and scrolling', () => {
+  /** /api/coach/chat answers with a stream the test pushes SSE frames into. */
+  function streamingFetch() {
+    let push: (frame: string) => void = () => {};
+    let end: () => void = () => {};
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url) === '/api/coach/chat') {
+        return {
+          ok: true,
+          body: new ReadableStream({
+            start(controller) {
+              push = (frame) => controller.enqueue(new TextEncoder().encode(`data: ${frame}\n\n`));
+              end = () => controller.close();
+            },
+          }),
+        };
+      }
+      return { ok: true, json: async () => ({ messages: [] }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const chatBodies = () =>
+      fetchMock.mock.calls
+        .filter(([u]) => String(u) === '/api/coach/chat')
+        .map(([, init]) => JSON.parse(String(init?.body)));
+    return { fetchMock, chatBodies, push: (f: string) => push(f), end: () => end() };
+  }
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('a starter chip sends its prompt at once', async () => {
+    const chat = streamingFetch();
+    renderChat();
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.click(screen.getByText(coach.promptSicilian));
+    await vi.waitFor(() => expect(chat.chatBodies()).toHaveLength(1));
+    expect(chat.chatBodies()[0].message).toBe(coach.promptSicilian);
+    expect(input.value).toBe('');
+    // The prompt shows as the student's bubble; the starter chips are gone.
+    expect(screen.queryByText(coach.promptAnalyze)).toBeNull();
+    await act(async () => chat.end());
+  });
+
+  it('Enter sends, Shift+Enter does not', async () => {
+    const chat = streamingFetch();
+    renderChat();
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'line one' } });
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true });
+    expect(chat.chatBodies()).toHaveLength(0);
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await vi.waitFor(() => expect(chat.chatBodies()).toHaveLength(1));
+    await act(async () => chat.end());
+  });
+
+  it('on a touch keyboard Enter is a newline and the send button sends', async () => {
+    const chat = streamingFetch();
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(pointer: coarse)' }));
+    renderChat();
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'from my phone' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(chat.chatBodies()).toHaveLength(0);
+    fireEvent.click(screen.getByTitle(coach.sendTooltip));
+    await vi.waitFor(() => expect(chat.chatBodies()).toHaveLength(1));
+    await act(async () => chat.end());
+  });
+
+  it('the composer sizes itself to its content', () => {
+    renderChat();
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'a\nb\nc' } });
+    expect(input.style.height).toMatch(/px$/);
+    expect(input.style.overflowY).toBe('hidden');
+  });
+
+  it('follows the stream at the bottom; scrolled up it offers a jump-down pill instead', async () => {
+    const chat = streamingFetch();
+    renderChat();
+    const list = screen.getByTestId('coach-messages');
+    let scrollHeight = 1000;
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    Object.defineProperty(list, 'clientHeight', { configurable: true, get: () => 400 });
+
+    const input = screen.getByPlaceholderText(coach.inputPlaceholder) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'explain' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await vi.waitFor(() => expect(chat.chatBodies()).toHaveLength(1));
+    // Sending pins the view to the bottom.
+    expect(list.scrollTop).toBe(1000);
+
+    await act(async () => chat.push('{"delta": "First"}'));
+    await vi.waitFor(() => expect(screen.getByText('First')).toBeTruthy());
+    expect(screen.queryByTestId('new-messages-pill')).toBeNull();
+
+    // The student scrolls up to read; more tokens arrive.
+    list.scrollTop = 100;
+    fireEvent.scroll(list);
+    scrollHeight = 1400;
+    await act(async () => chat.push('{"delta": " and more"}'));
+    await vi.waitFor(() => expect(screen.getByText('First and more')).toBeTruthy());
+    expect(list.scrollTop).toBe(100);
+    const pill = screen.getByTestId('new-messages-pill');
+    expect(pill.textContent).toContain(coach.newMessages);
+
+    fireEvent.click(pill);
+    expect(list.scrollTop).toBe(1400);
+    expect(screen.queryByTestId('new-messages-pill')).toBeNull();
+    await act(async () => chat.end());
+  });
+});

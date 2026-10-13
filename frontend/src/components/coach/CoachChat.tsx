@@ -5,6 +5,7 @@ import React, {
   useRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   forwardRef,
   useImperativeHandle,
 } from 'react';
@@ -18,6 +19,7 @@ import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
+import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -133,6 +135,21 @@ function dataUrlToBase64(dataUrl: string): string {
   return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
 }
 
+/**
+ * Markdown in an assistant bubble: typography's dark scale, sized for a chat
+ * bubble — tight block margins, no edge margins, inline code as a chip.
+ */
+const MARKDOWN_CLASSES = [
+  'prose prose-invert prose-sm max-w-none text-gray-200',
+  'prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-blockquote:my-2',
+  'prose-headings:mt-3 prose-headings:mb-1 prose-headings:text-gray-100 prose-h1:text-base prose-h2:text-base prose-h3:text-sm',
+  'prose-strong:text-gray-100 prose-a:text-blue-300',
+  'prose-code:font-normal prose-code:before:content-none prose-code:after:content-none',
+  '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5',
+  'prose-pre:my-2 prose-pre:bg-black/30 prose-pre:px-3 prose-pre:py-2',
+  '[&>:first-child]:mt-0 [&>:last-child]:mb-0',
+].join(' ');
+
 const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat(
   {
     currentFen,
@@ -160,6 +177,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     if (!restoreHistory) return;
     if (!sessionId) {
       restoredForRef.current = null;
+      stickRef.current = true;
       setMessages([]);
       return;
     }
@@ -169,6 +187,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     void (async () => {
       const data = await coachApi.loadMessages(sessionId);
       if (cancelled || !data) return;
+      stickRef.current = true;
       setMessages(
         data.messages.map((m, i) => ({
           id: `restored-${sessionId}-${i}`,
@@ -188,7 +207,12 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // Set when the monthly voice quota is exhausted, so we show the "minutes used
   // up — text is unlimited" message in place of a connection error.
   const [voiceQuotaExhausted, setVoiceQuotaExhausted] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Follow the stream only while the student is at the bottom; once they
+  // scroll up to read, leave them there and offer a jump-down pill instead.
+  const stickRef = useRef(true);
+  const [hasUnseen, setHasUnseen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Voice mode (Gemini Live) ──────────────────────────────────────────────
@@ -444,12 +468,27 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   }, [voiceDisconnect]);
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    stickRef.current = true;
+    setHasUnseen(false);
   }, []);
 
-  useEffect(() => {
-    scrollToBottom();
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickRef.current = isNearBottom(el);
+    if (stickRef.current) setHasUnseen(false);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (stickRef.current) scrollToBottom();
+    else setHasUnseen(true);
   }, [messages, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (textareaRef.current) fitTextarea(textareaRef.current);
+  }, [input]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -625,6 +664,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       timestamp: new Date(),
     };
 
+    stickRef.current = true;
     setMessages((prev) => [...prev, userMessage]);
     // Only clear the composer when the send came from it (not a starter chip).
     if (typeof overrideText !== 'string') setInput('');
@@ -844,7 +884,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      const coarse = typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+      if (shouldSendOnEnter(e.nativeEvent, coarse)) {
         e.preventDefault();
         sendMessage();
       }
@@ -860,7 +901,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     // ph-no-capture: masks the chat + voice-mode UI from PostHog session replay (kids' privacy).
     <div className="ph-no-capture flex flex-col h-full" style={{ background: '#16213e' }}>
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+      <div className="relative flex-1 min-h-0">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        data-testid="coach-messages"
+        className="h-full overflow-y-auto px-4 py-3 space-y-4"
+      >
         {messages.length === 0 && (
           <div className="text-center text-gray-500 mt-8">
             <div className="text-4xl mb-3">♞</div>
@@ -877,8 +924,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               ].map((prompt) => (
                 <button
                   key={prompt}
-                  onClick={() => setInput(prompt)}
-                  className="px-3 py-1.5 text-sm bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 transition-colors"
+                  type="button"
+                  onClick={() => void sendMessage(prompt)}
+                  disabled={isStreaming}
+                  className="px-3 py-1.5 text-sm disabled:opacity-40 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 transition-colors"
                 >
                   {prompt}
                 </button>
@@ -900,7 +949,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               }`}
             >
               {msg.role === 'assistant' ? (
-                <div className="prose prose-invert prose-sm max-w-none">
+                <div className={MARKDOWN_CLASSES}>
                   <ReactMarkdown>{msg.content || '...'}</ReactMarkdown>
                 </div>
               ) : (
@@ -980,7 +1029,17 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         ))}
 
         <ToolIndicator toolName={toolActive || ''} visible={!!toolActive} />
-        <div ref={messagesEndRef} />
+      </div>
+      {hasUnseen && (
+        <button
+          type="button"
+          onClick={scrollToBottom}
+          data-testid="new-messages-pill"
+          className="absolute bottom-3 left-1/2 -translate-x-1/2 min-h-9 rounded-full border border-white/10 bg-[#1b1b1f] px-3 text-xs text-gray-200 shadow-lg hover:bg-[#26262c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
+        >
+          ↓ {t('newMessages')}
+        </button>
+      )}
       </div>
 
       {/* Input */}
@@ -1042,7 +1101,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             </span>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex items-end gap-2">
           {/* Load a .pgn file straight onto the board — no model call needed. */}
           <input
             ref={fileInputRef}
@@ -1121,6 +1180,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             )}
           </div>
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -1132,7 +1192,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               }
             }}
             // The keyboard slides up for ~300 ms; then show the latest message.
-            onFocus={() => setTimeout(() => messagesEndRef.current?.scrollIntoView({ block: 'end' }), 350)}
+            onFocus={() => setTimeout(scrollToBottom, 350)}
             placeholder={t('inputPlaceholder')}
             rows={1}
             // 16px on phones: iOS Safari zooms the whole page into a smaller field.
