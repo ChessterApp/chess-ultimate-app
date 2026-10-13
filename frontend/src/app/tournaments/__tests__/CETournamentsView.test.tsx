@@ -274,6 +274,27 @@ describe('CETournamentsView — one-click registration', () => {
     });
   });
 
+  it('shows the localized weekly_limit message when the student already has a tournament this week', async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: 'weekly_limit', message: 'server copy' }),
+    });
+    renderView({ state: 'verified', studentName: 'Nurlan Sat' }, [makeCard()]);
+    expandBranch();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: en.ceTournaments.register }),
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(en.ceTournaments.errors.weekly_limit),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByText('server copy')).toBeNull();
+  });
+
   it('prompts sign-in for a logged-out visitor instead of registering', () => {
     renderView({ state: 'logged_out' }, [makeCard()]);
     expandBranch();

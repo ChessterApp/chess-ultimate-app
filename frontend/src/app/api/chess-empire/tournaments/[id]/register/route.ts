@@ -80,6 +80,13 @@ function mapRegisterError(reason: string): {
           'You already hold the 3rd category (разряд) or higher, so you can no longer register for League B.',
         status: 409,
       };
+    case 'weekly_limit':
+      return {
+        code: 'weekly_limit',
+        message:
+          "You're already registered for another tournament this week. Students can play one tournament per week (Mon–Sun) — cancel that registration to switch.",
+        status: 409,
+      };
     case 'not_found':
       return { code: 'not_found', message: 'Tournament not found.', status: 404 };
     case 'invalid_input':

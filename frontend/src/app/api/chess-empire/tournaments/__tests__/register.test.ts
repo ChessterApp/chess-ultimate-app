@@ -211,6 +211,7 @@ describe('POST /api/chess-empire/tournaments/[id]/register', () => {
     ['duplicate', 409],
     ['ineligible', 409],
     ['no_razryad', 409],
+    ['weekly_limit', 409],
     ['not_found', 404],
   ])('maps CE reason %s → HTTP %i with a message', async (reason, status) => {
     registerMock.mockRejectedValue(
@@ -234,6 +235,21 @@ describe('POST /api/chess-empire/tournaments/[id]/register', () => {
     expect(body.message).toBe(
       'Registration is only available to students with a razryad (chess rating category).',
     );
+  });
+
+  it('maps CE reason weekly_limit → 409 with the one-per-week copy', async () => {
+    registerMock.mockRejectedValue(
+      new ChessEmpireAPIError(409, {
+        ok: false,
+        reason: 'weekly_limit',
+        conflict_tournament: { id: 't-other', name: 'C Debut', date: '2026-10-24' },
+      }),
+    );
+    const res = await POST(postReq(), ctx());
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe('weekly_limit');
+    expect(body.message).toMatch(/one tournament per week/);
   });
 
   it('500 when the membership lookup throws', async () => {
