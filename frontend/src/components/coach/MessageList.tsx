@@ -30,8 +30,11 @@ export function useStarterPrompts(): string[] {
   return [t('promptAnalyze'), t('promptSicilian'), t('promptPuzzle'), t('promptPawnStructures')];
 }
 
-const chipClass =
-  'min-h-11 shrink-0 rounded-full border border-(--coach-border) bg-(--coach-surface-2) px-3.5 text-[13.5px] font-medium text-(--coach-text) transition-colors hover:border-(--coach-accent) focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--coach-accent) disabled:opacity-40';
+const chipBase =
+  'min-h-11 shrink-0 rounded-full border bg-(--coach-surface-2) px-3.5 text-[13.5px] font-medium transition-colors hover:border-(--coach-accent) focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--coach-accent) disabled:opacity-40';
+const chipClass = `${chipBase} border-(--coach-border) text-(--coach-text)`;
+/** The first chip is the suggested one. */
+const chipLead = `${chipBase} border-(--coach-accent)/60 text-(--coach-accent-text)`;
 
 /** One row of prompt chips, scrolling sideways; tap sends. */
 export function ChipRow({ prompts, disabled, onSend }: { prompts: string[]; disabled: boolean; onSend: (prompt: string) => void }) {
@@ -43,7 +46,7 @@ export function ChipRow({ prompts, disabled, onSend }: { prompts: string[]; disa
           type="button"
           onClick={() => onSend(prompt)}
           disabled={disabled}
-          className={`${chipClass} ${i === 0 ? 'border-(--coach-accent)/60 text-(--coach-accent-text)' : ''}`}
+          className={i === 0 ? chipLead : chipClass}
         >
           {prompt}
         </button>

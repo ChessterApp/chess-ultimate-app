@@ -162,7 +162,10 @@ export default function Composer({
           aria-label={placeholder}
           rows={1}
           // 16px on phones: iOS Safari zooms the whole page into a smaller field.
-          className="min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base leading-6 text-(--coach-text) placeholder-(--coach-muted) focus:outline-none sm:text-[15px]"
+          className="min-w-0 flex-1 resize-none bg-transparent px-1 py-2.5 text-base leading-6 text-(--coach-text) placeholder-(--coach-muted) sm:text-[15px]"
+          // The pill's accent border shows focus; inline, because the app's
+          // unlayered *:focus-visible ring outranks layered utilities.
+          style={{ outline: 'none' }}
           disabled={isStreaming}
         />
 

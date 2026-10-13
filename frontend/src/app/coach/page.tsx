@@ -41,7 +41,7 @@ import { sanMoves } from '@/lib/coach/move-strip';
 import type { Key } from 'chessground/types';
 
 /** The play strip's rows around the board in the mobile shell (px; the sheet's peek leaves them room). */
-const PLAY_COACH_ROW_PX = 88;
+const PLAY_COACH_ROW_PX = 80;
 const PLAY_STUDENT_ROW_PX = 44;
 
 /** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */

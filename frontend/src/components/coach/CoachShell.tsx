@@ -74,8 +74,9 @@ export default function CoachShell({ bar, above, board, below, stageChrome, dete
   return (
     <div
       ref={shellRef}
-      className="coach-shell fixed inset-x-0 top-0 z-40 flex h-[100dvh] flex-col overflow-hidden bg-(--coach-bg) [container-type:size]"
+      className="coach-shell fixed inset-x-0 top-0 z-[45] flex h-[100dvh] flex-col overflow-hidden bg-(--coach-bg) [container-type:size]"
       style={keyboard.open ? { top: keyboard.top, height: keyboard.height } : undefined}
+      // z-45: over the app's fixed sync dot (z-40), under sheets and dialogs (z-60+).
       data-testid="coach-shell"
       data-detent={detent}
     >
