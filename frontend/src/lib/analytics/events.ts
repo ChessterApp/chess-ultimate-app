@@ -80,7 +80,6 @@ export const ANALYTICS_EVENTS = {
   ONBOARDING_STARTED: 'onboarding_started',
   ONBOARDING_STEP_COMPLETED: 'onboarding_step_completed',
   ONBOARDING_COMPLETED: 'onboarding_completed',
-  PARENT_CONSENT_GIVEN: 'parent_consent_given',
   LEVEL_ASSIGNED: 'level_assigned',
 
   // Tracking plan §4 B — core value. Activation (§6) = lesson_completed,

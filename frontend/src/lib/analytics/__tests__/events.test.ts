@@ -151,7 +151,7 @@ describe('§4 registry', () => {
     const registered = new Set<string>(Object.values(ANALYTICS_EVENTS));
     for (const e of [
       'user_signed_up', 'onboarding_started', 'onboarding_step_completed', 'onboarding_completed',
-      'parent_consent_given', 'level_assigned', 'lesson_completed', 'game_review_completed',
+      'level_assigned', 'lesson_completed', 'game_review_completed',
       'voice_session_ended',
     ]) {
       expect(registered.has(e), e).toBe(true);

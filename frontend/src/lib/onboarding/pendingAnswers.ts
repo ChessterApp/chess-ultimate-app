@@ -16,11 +16,6 @@
 
 export const PENDING_ANSWERS_KEY = "chesster_onboarding_pending";
 
-// Terms/Privacy revision the parent/guardian consent checkbox (F8) refers to.
-// Bump when either document changes materially; stored as
-// user_onboarding.parent_consent_version.
-export const PARENT_CONSENT_VERSION = "2026-10-12";
-
 // Compact, backend-facing subset (camelCase — matches `_pick` in
 // backend/routes/onboarding.py `save_onboarding_profile`).
 export interface PendingOnboardingAnswers {
@@ -36,8 +31,6 @@ export interface PendingOnboardingAnswers {
   practiceTime?: string;
   goal?: string;
   timeline?: string;
-  parentConsent?: boolean;
-  parentConsentVersion?: string;
 }
 
 /** Strip transient/bulky fields down to the backend-facing answer set. */
@@ -56,8 +49,6 @@ export function compactAnswers(answers: Record<string, unknown> | null | undefin
     practiceTime: a.practiceTime as string | undefined,
     goal: a.goal as string | undefined,
     timeline: a.timeline as string | undefined,
-    parentConsent: a.parentConsent === true ? true : undefined,
-    parentConsentVersion: a.parentConsent === true ? PARENT_CONSENT_VERSION : undefined,
   };
   return out;
 }

@@ -1393,8 +1393,6 @@
       "calculation": "Calculation & Visualization",
       "startFree": "Start",
       "freeNoCard": "Free. No card needed.",
-      "parentConsent": "I'm the parent/guardian and I agree to the <terms>Terms</terms> & <privacy>Privacy Policy</privacy>",
-      "parentConsentRequired": "Please confirm to continue",
       "haveAccount": "Already have an account?",
       "signIn": "Sign in"
     },
