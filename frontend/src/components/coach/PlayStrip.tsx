@@ -40,7 +40,8 @@ interface PlayStripProps {
 /**
  * The game against the coach: coach row with a speech bubble, the board, the
  * student row, and an action bar (or the result card once the game is over).
- * Self-contained — the host only places it.
+ * Self-contained — the host only places it. The mobile shell places the parts
+ * itself (rows around the board, the action bar in the coach sheet).
  */
 export default function PlayStrip({
   game,
@@ -57,10 +58,67 @@ export default function PlayStrip({
   onRematch,
   onClose,
 }: PlayStripProps) {
+  return (
+    <div className="flex flex-col gap-2" style={{ width }} data-testid="play-strip">
+      <PlayCoachRow game={game} thinking={thinking} comment={comment} />
+      {children}
+      <PlayStudentRow game={game} thinking={thinking} />
+      <PlayActionBar
+        game={game}
+        thinking={thinking}
+        chatOpen={chatOpen}
+        onHint={onHint}
+        onTakeback={onTakeback}
+        onResign={onResign}
+        onToggleChat={onToggleChat}
+        onReview={onReview}
+        onRematch={onRematch}
+        onClose={onClose}
+      />
+    </div>
+  );
+}
+
+const coachToMoveOf = (game: GameStateView, thinking: boolean) =>
+  game.status !== 'finished' && (thinking || !game.student_to_move);
+
+/** The coach: avatar, strength, a pulse while it moves, and its latest remark as a speech bubble. */
+export function PlayCoachRow({ game, thinking, comment }: Pick<PlayStripProps, 'game' | 'thinking' | 'comment'>) {
   const t = useTranslations('coach');
-  const [confirmResign, setConfirmResign] = useState(false);
+  return (
+    <div className="flex items-start gap-2 px-1">
+      <CoachAvatar size={40} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-1.5 text-sm">
+          <span className="font-semibold text-(--coach-text)">{t('coachLabel')}</span>
+          <span className="text-(--coach-muted)">
+            {game.engine_elo} · {t(LEVEL_KEY[eloLevel(game.engine_elo)])}
+          </span>
+          {coachToMoveOf(game, thinking) && (
+            <span className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-(--coach-accent)" aria-hidden />
+          )}
+        </div>
+        {comment && (
+          <p
+            // Speech bubble with a tail pointing at the avatar.
+            className="animate-fade-in relative mt-1 w-fit max-w-full rounded-2xl rounded-tl-sm bg-(--coach-text) px-3 py-1.5 text-sm leading-snug text-(--coach-bg) line-clamp-2"
+            aria-live="polite"
+            data-testid="coach-bubble"
+            key={comment}
+          >
+            {comment}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** The student: whose move it is, check. */
+export function PlayStudentRow({ game, thinking }: Pick<PlayStripProps, 'game' | 'thinking'>) {
+  const t = useTranslations('coach');
   const finished = game.status === 'finished';
-  const coachToMove = !finished && (thinking || !game.student_to_move);
+  const coachToMove = coachToMoveOf(game, thinking);
 
   let status: string;
   if (finished) status = '';
@@ -69,50 +127,38 @@ export default function PlayStrip({
   if (!finished && !thinking && game.in_check) status += ` · ${t('gameCheck')}`;
 
   return (
-    <div className="flex flex-col gap-2" style={{ width }} data-testid="play-strip">
-      {/* Coach row */}
-      <div className="flex items-start gap-2 px-1">
-        <CoachAvatar size={40} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-1.5 text-sm">
-            <span className="font-semibold text-(--coach-text)">{t('coachLabel')}</span>
-            <span className="text-(--coach-muted)">
-              {game.engine_elo} · {t(LEVEL_KEY[eloLevel(game.engine_elo)])}
-            </span>
-            {coachToMove && (
-              <span className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-(--coach-accent)" aria-hidden />
-            )}
-          </div>
-          {comment && (
-            <p
-              // Speech bubble with a tail pointing at the avatar.
-              className="animate-fade-in relative mt-1 w-fit max-w-full rounded-2xl rounded-tl-sm bg-(--coach-text) px-3 py-1.5 text-sm leading-snug text-(--coach-bg) line-clamp-2"
-              aria-live="polite"
-              data-testid="coach-bubble"
-              key={comment}
-            >
-              {comment}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {children}
-
-      {/* Student row */}
-      <div className="flex items-center gap-2 px-1 text-sm">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--coach-surface-2) text-(--coach-muted)">
-          <User size={16} aria-hidden />
+    <div className="flex items-center gap-2 px-1 text-sm">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--coach-surface-2) text-(--coach-muted)">
+        <User size={16} aria-hidden />
+      </span>
+      <span className="font-semibold text-(--coach-text)">{t('youLabel')}</span>
+      {status && (
+        <span className={coachToMove ? 'text-(--coach-muted)' : 'text-(--coach-success)'} data-testid="play-status">
+          · {status}
         </span>
-        <span className="font-semibold text-(--coach-text)">{t('youLabel')}</span>
-        {status && (
-          <span className={coachToMove ? 'text-(--coach-muted)' : 'text-(--coach-success)'} data-testid="play-status">
-            · {status}
-          </span>
-        )}
-      </div>
+      )}
+    </div>
+  );
+}
 
-      {finished ? (
+/** Hint · takeback · resign (confirmed) · chat — or the result card once the game is over. */
+export function PlayActionBar({
+  game,
+  thinking,
+  chatOpen,
+  onHint,
+  onTakeback,
+  onResign,
+  onToggleChat,
+  onReview,
+  onRematch,
+  onClose,
+}: Omit<PlayStripProps, 'comment' | 'width' | 'children'>) {
+  const t = useTranslations('coach');
+  const [confirmResign, setConfirmResign] = useState(false);
+  return (
+    <>
+      {game.status === 'finished' ? (
         <ResultCard game={game} onReview={onReview} onRematch={onRematch} onClose={onClose} />
       ) : (
         <div role="toolbar" aria-label={t('playActions')} className="grid grid-cols-4 gap-2">
@@ -139,7 +185,7 @@ export default function PlayStrip({
           onResign();
         }}
       />
-    </div>
+    </>
   );
 }
 

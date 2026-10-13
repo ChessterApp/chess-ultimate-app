@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Layers, Sparkles, X } from 'lucide-react';
 
@@ -16,6 +16,11 @@ interface ViewerTabsSheetProps {
   activeId: string | null;
   onSelect: (id: string | null) => void;
   onClose: (id: string) => void;
+  /** Icon + count only, for the mobile context bar. */
+  compact?: boolean;
+  /** Controlled open state (the context bar's ⋯ menu opens it too). */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--coach-accent)';
@@ -24,9 +29,25 @@ const focusRing = 'focus-visible:outline focus-visible:outline-2 focus-visible:o
  * Opened games as a stack chip (`▣ 3`) that opens a sheet: the coach's board
  * plus every opened game — tap to switch, × to close.
  */
-export default function ViewerTabsSheet({ tabs, activeId, onSelect, onClose }: ViewerTabsSheetProps) {
+export default function ViewerTabsSheet({
+  tabs,
+  activeId,
+  onSelect,
+  onClose,
+  compact = false,
+  open: openProp,
+  onOpenChange,
+}: ViewerTabsSheetProps) {
   const t = useTranslations('coach');
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
   const sheetRef = useRef<HTMLDivElement>(null);
   const active = tabs.find((g) => g.id === activeId);
 
@@ -38,7 +59,7 @@ export default function ViewerTabsSheet({ tabs, activeId, onSelect, onClose }: V
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
+  }, [open, setOpen]);
 
   const pick = (id: string | null) => {
     onSelect(id);
@@ -54,11 +75,23 @@ export default function ViewerTabsSheet({ tabs, activeId, onSelect, onClose }: V
         aria-expanded={open}
         aria-label={t('viewerTabsCount', { count: tabs.length + 1 })}
         data-testid="viewer-tabs-chip"
-        className={`flex min-h-11 max-w-full items-center gap-2 rounded-full border border-(--coach-border) bg-(--coach-surface) px-3 text-sm text-(--coach-text) transition-colors hover:bg-(--coach-surface-2) ${focusRing}`}
+        className={
+          compact
+            ? `relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-(--coach-text) transition-colors hover:bg-white/5 ${focusRing}`
+            : `flex min-h-11 max-w-full items-center gap-2 rounded-full border border-(--coach-border) bg-(--coach-surface) px-3 text-sm text-(--coach-text) transition-colors hover:bg-(--coach-surface-2) ${focusRing}`
+        }
       >
-        <Layers size={16} aria-hidden className="shrink-0 text-(--coach-accent)" />
-        <span className="tabular-nums">{tabs.length + 1}</span>
-        <span className="truncate text-(--coach-muted)">{active ? active.title : t('coachBoard')}</span>
+        <Layers size={compact ? 20 : 16} aria-hidden className="shrink-0 text-(--coach-accent)" />
+        {compact ? (
+          <span className="absolute top-1 right-0.5 min-w-4 rounded-full bg-(--coach-accent) px-1 text-[10px] font-semibold leading-4 tabular-nums text-white">
+            {tabs.length + 1}
+          </span>
+        ) : (
+          <>
+            <span className="tabular-nums">{tabs.length + 1}</span>
+            <span className="truncate text-(--coach-muted)">{active ? active.title : t('coachBoard')}</span>
+          </>
+        )}
       </button>
 
       {open && (

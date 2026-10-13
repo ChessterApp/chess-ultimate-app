@@ -47,6 +47,8 @@ export function resolveSolutionMove(
 }
 
 interface UseCoachBoardReturn extends CoachBoardState {
+  /** The positions of the loaded history; `moveIndex` points into it. */
+  fens: string[];
   applyBoardAction: (action: BoardAction) => void;
   applyBoardActions: (actions: BoardAction[]) => void;
   nextMove: () => void;
@@ -339,6 +341,7 @@ export function useCoachBoard(): UseCoachBoardReturn {
     fen,
     pgn,
     moveIndex,
+    fens: pgnFens,
     arrows,
     highlights,
     orientation,
