@@ -271,95 +271,19 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
 }
 
 /**
- * GDPR-style cascade: when Clerk deletes a user, remove that user's own data
- * from every Chesster table keyed by the Clerk user id. Best-effort per table —
- * one table's failure never aborts the rest — with a per-table outcome logged.
- *
- * `coach_messages` has no `user_id` column (it FK-references `coach_sessions`),
- * so it is purged via the user's session ids first; `coach_sessions` is then
- * deleted directly. The remaining tables each carry a Clerk-id column (name
- * varies — `user_id` or `clerk_user_id`), listed in `userKeyedTables` below.
- *
- * Intentionally NOT purged here:
- *   - `games` / `tournament_games` / `tournaments`: shared, multi-party records
- *     (two player ids / registrants). Hard-deleting one player's row would
- *     destroy the opponents' game/tournament history too.
- *   - Gamification (xp/coin ledgers, inventory, legions, seasons …): keyed by the
- *     CE `external_student_id`, not the Clerk id, and is org-scoped economy data;
- *     reaching it requires an `organization_members` lookup — out of scope here.
- *   - `platform_admin_audit_log`: append-only (a trigger blocks DELETE).
- * Owned organizations are handled upstream: the delete API route blocks a user
- * who still owns an org (role='owner'), so no org is orphaned by this cascade.
+ * Account deletion: remove every row of the user's data in ONE transaction via
+ * `public.delete_user_data` (migration 053; per-table decisions in
+ * `@/lib/user-data-manifest`). Any failure throws so the webhook returns 500
+ * and Svix retries; the RPC is idempotent, so a replay returns zero counts.
  */
 async function cascadeDeleteUserData(clerkUserId: string): Promise<void> {
-  // 1) coach_messages — resolve the user's session ids, delete their messages.
-  try {
-    const { data: sessions, error: selErr } = await supabaseAdmin
-      .from('coach_sessions')
-      .select('id')
-      .eq('user_id', clerkUserId);
-    if (selErr) throw selErr;
-    const sessionIds = (sessions || []).map((s) => s.id as string);
-    if (sessionIds.length > 0) {
-      const { error } = await supabaseAdmin
-        .from('coach_messages')
-        .delete()
-        .in('session_id', sessionIds);
-      if (error) throw error;
-    }
-    console.info(
-      `[clerk-webhook] cascade coach_messages ok user=${clerkUserId} sessions=${sessionIds.length}`,
-    );
-  } catch (err) {
-    console.error('[clerk-webhook] cascade coach_messages failed:', err);
+  const { data, error } = await supabaseAdmin.rpc('delete_user_data', {
+    p_clerk_id: clerkUserId,
+  });
+  if (error) {
+    throw new Error(`delete_user_data failed for user=${clerkUserId}: ${error.message}`);
   }
-
-  // 2) coach_sessions — delete directly by user_id.
-  try {
-    const { error } = await supabaseAdmin
-      .from('coach_sessions')
-      .delete()
-      .eq('user_id', clerkUserId);
-    if (error) throw error;
-    console.info(`[clerk-webhook] cascade coach_sessions ok user=${clerkUserId}`);
-  } catch (err) {
-    console.error('[clerk-webhook] cascade coach_sessions failed:', err);
-  }
-
-  // 3) Tables keyed directly by the Clerk user id — each best-effort and
-  //    independent. The keying column name differs per table.
-  const userKeyedTables: Array<{ table: string; column: string }> = [
-    // Coach telemetry / conversation.
-    { table: 'coach_events', column: 'user_id' },
-    { table: 'token_usage', column: 'user_id' },
-    { table: 'voice_usage', column: 'user_id' },
-    { table: 'analytics_events', column: 'user_id' },
-    // Personal gameplay / learning data.
-    { table: 'live_game_logs', column: 'user_id' },
-    { table: 'lesson_chat_history', column: 'user_id' },
-    { table: 'player_ratings', column: 'user_id' },
-    { table: 'player_fide_ratings', column: 'user_id' },
-    { table: 'rating_history', column: 'user_id' },
-    { table: 'tournament_registrations', column: 'user_id' },
-    { table: 'tournament_standings', column: 'user_id' },
-    // Membership / identity / linking plumbing.
-    { table: 'organization_members', column: 'user_id' },
-    { table: 'link_attempts', column: 'user_id' },
-    { table: 'pending_onboarding', column: 'clerk_user_id' },
-    { table: 'subscriptions', column: 'clerk_user_id' },
-  ];
-  for (const { table, column } of userKeyedTables) {
-    try {
-      const { error } = await supabaseAdmin
-        .from(table)
-        .delete()
-        .eq(column, clerkUserId);
-      if (error) throw error;
-      console.info(`[clerk-webhook] cascade ${table} ok user=${clerkUserId}`);
-    } catch (err) {
-      console.error(`[clerk-webhook] cascade ${table} failed:`, err);
-    }
-  }
+  console.info(`[clerk-webhook] delete_user_data ok user=${clerkUserId} counts=${JSON.stringify(data)}`);
 }
 
 type ClerkSessionData = {
@@ -490,18 +414,23 @@ export async function POST(req: Request) {
           email_addresses?: { email_address: string }[];
         };
 
-        const email = email_addresses?.[0]?.email_address;
-        if (email) {
-          await blocklistSubscriber(email);
-        } else {
-          console.warn('[clerk-webhook] user.deleted with no email');
-        }
-
-        // Cascade-delete the user's own data (best-effort, per-table).
+        // DB deletion first and it must succeed — a throw returns 500 so Svix
+        // retries. Listmonk + PostHog below stay best-effort.
         if (deletedUserId) {
           await cascadeDeleteUserData(deletedUserId);
         } else {
           console.warn('[clerk-webhook] user.deleted with no user id, skipping cascade');
+        }
+
+        const email = email_addresses?.[0]?.email_address;
+        if (email) {
+          try {
+            await blocklistSubscriber(email);
+          } catch (err) {
+            console.error('[clerk-webhook] Listmonk blocklist failed:', err);
+          }
+        } else {
+          console.warn('[clerk-webhook] user.deleted with no email');
         }
 
         // F11 — drop the PostHog person + events (never throws).
