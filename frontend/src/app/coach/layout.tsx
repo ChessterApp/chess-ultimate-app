@@ -9,7 +9,8 @@ export default async function CoachLayout({
   return (
     // Phones: the page sizes itself between the app bars (see coach/page.tsx);
     // a full-screen minimum here would push it past them again.
-    <div className="md:min-h-screen" style={{ background: '#1a1a2e' }}>
+    // coach-theme: the page's colour variables (--coach-*, app/globals.css).
+    <div className="coach-theme md:min-h-screen bg-(--coach-bg)">
       {children}
     </div>
   );

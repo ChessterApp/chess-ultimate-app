@@ -73,6 +73,10 @@ interface CoachChatProps {
   contextNote?: string;
   /** The game against the coach on the board, if any — the voice coach hears its moves (src/lib/coach/voice-game.ts). */
   game?: GameStateView | null;
+  /** Hide the composer (a game's action bar stands in for it); voice controls stay while voice is on. */
+  composerHidden?: boolean;
+  /** A finished assistant answer or remark — the play strip quotes it in the coach's bubble. */
+  onAssistantReply?: (text: string) => void;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -163,10 +167,14 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onOpenGame,
     contextNote,
     game = null,
+    composerHidden = false,
+    onAssistantReply,
   },
   ref,
 ) {
   const t = useTranslations('coach');
+  const onAssistantReplyRef = useRef(onAssistantReply);
+  onAssistantReplyRef.current = onAssistantReply;
   const [messages, setMessages] = useState<CoachMessage[]>([]);
 
   // Restore the conversation when the page opens on a saved session or the
@@ -797,6 +805,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           }
         }
       }
+      if (fullContent) onAssistantReplyRef.current?.(fullContent);
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === 'AbortError') {
         // User cancelled
@@ -861,6 +870,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           }
         }
         if (!content) setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        else onAssistantReplyRef.current?.(content);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('unknownError');
         patch(`*${t('connectionErrorLabel')}: ${message}*`);
@@ -1043,7 +1053,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       </div>
 
       {/* Input */}
-      <div className="border-t border-white/10 p-3">
+      <div className={`border-t border-white/10 p-3 ${composerHidden && !voiceActive ? 'hidden' : ''}`} data-testid="coach-composer">
         {(voiceStatus === 'connecting' ||
           voiceStatus === 'listening' ||
           voiceStatus === 'speaking') && (

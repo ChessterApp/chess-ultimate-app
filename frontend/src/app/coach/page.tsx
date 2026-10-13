@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useCallback, useState, useMemo, useReducer, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { useTranslations } from 'next-intl';
@@ -14,12 +14,25 @@ import CoachChat, { type CoachChatHandle } from '@/components/coach/CoachChat';
 import LoadingScreen from '@/components/LoadingScreen';
 import UpgradePrompt from '@/components/UpgradePrompt';
 import type { BoardAction, GameResult } from '@/types/coach';
-import GameViewerPanel from '@/components/openings/GameViewerPanel';
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
 import CoachSessions from '@/components/coach/CoachSessions';
-import GamePanel, { GameStartDialog, type GameStartOptions } from '@/components/coach/GamePanel';
+import PlayStrip from '@/components/coach/PlayStrip';
+import PlaySetupSheet from '@/components/coach/PlaySetupSheet';
+import PuzzleFlow, { usePuzzleStep } from '@/components/coach/PuzzleFlow';
+import { VerdictBadge, VerdictToast } from '@/components/coach/VerdictBadge';
+import ViewerTabsSheet from '@/components/coach/ViewerTabsSheet';
+import ViewerMoveList from '@/components/coach/ViewerMoveList';
 import { coachApi, CoachApiError, type BoardRecord, type GameStateView } from '@/lib/coach/boards-api';
+import { coachMode, currentMode, initialCoachMode } from '@/lib/coach/coach-mode';
+import { moveVerdict, oneLineComment, rematchOptions, type GameStartOptions, type MoveVerdict } from '@/lib/coach/play';
+import {
+  applyTabActions,
+  EMPTY_ANNOTATIONS,
+  routeBoardActions,
+  type ViewerAnnotations,
+} from '@/lib/coach/route-board-actions';
+import type { Key } from 'chessground/types';
 
 /** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */
 function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: string }): OpenedGame | null {
@@ -112,16 +125,33 @@ export default function CoachPage() {
 
   const board = useCoachBoard();
 
+  // What the board is doing (explore / play / puzzle / viewer): one reducer.
+  // The viewer's tab id is the active game tab.
+  const [modeState, dispatchMode] = useReducer(coachMode, initialCoachMode);
+  const mode = currentMode(modeState);
+  const activeGameId = modeState.viewerId;
+  const setActiveGameId = useCallback(
+    (id: string | null) => dispatchMode(id ? { type: 'view_tab', id } : { type: 'view_study' }),
+    [],
+  );
+
   // Game tabs state (ids are server board ids)
   const [openedGames, setOpenedGames] = useState<OpenedGame[]>([]);
-  const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [gameMoveIndices, setGameMoveIndices] = useState<Record<string, number>>({});
+  // The coach's arrows / highlights on each game tab (routed by board_id).
+  const [tabAnnotations, setTabAnnotations] = useState<Record<string, ViewerAnnotations>>({});
 
-  // A game against the coach, played on the study board (see GamePanel).
+  // A game against the coach, played on the study board (see PlayStrip).
   const [game, setGame] = useState<GameStateView | null>(null);
   const [gameThinking, setGameThinking] = useState(false);
   const [gameDialogOpen, setGameDialogOpen] = useState(false);
   const [gameError, setGameError] = useState<string | null>(null);
+  const [lastGameOptions, setLastGameOptions] = useState<GameStartOptions | null>(null);
+  // The coach's latest remark in the game, one line, for the play strip's bubble.
+  const [coachLine, setCoachLine] = useState<string | null>(null);
+  const [verdictToast, setVerdictToast] = useState<MoveVerdict | null>(null);
+  // The composer is swapped for the game's action bar; «Чат» brings it back.
+  const [playChatOpen, setPlayChatOpen] = useState(false);
   const gameRef = useRef<GameStateView | null>(null);
   // applyGameView, for the board actions handled above it (a `game` action from the coach).
   const applyGameViewRef = useRef<((view: GameStateView) => void) | null>(null);
@@ -198,11 +228,8 @@ export default function CoachPage() {
     contentObserver.current = new ResizeObserver(measure);
     contentObserver.current.observe(el);
   }, []);
-  const MOBILE_GAME_LIST = 90;
-  // On a phone the move list under a master game fit only its header in the
-  // height left over, squeezing the chat: the tab names the players and the
-  // board's own controls step through the moves.
-  const showGameList = windowWidth >= 768;
+  // Height the mode's strip takes under the board (moves, play rows, step panel).
+  const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : 0;
 
   const responsiveBoardSize = useMemo(() => {
     if (windowWidth < 1024) {
@@ -215,23 +242,23 @@ export default function CoachPage() {
         const CONTROLS = 44;
         const PADDING = 16;
         const chatMin = Math.max(180, Math.round(contentHeight * 0.36));
-        const tabs = openedGames.length > 0 ? 36 : 0;
-        // A phone shows no move list under a master game (see showGameList).
-        const below = activeGameId ? (windowWidth >= 768 ? MOBILE_GAME_LIST + 8 : 0) : game ? 110 : 0;
+        const tabs = openedGames.length > 0 ? 52 : 0;
         const byHeight = contentHeight - chatMin - CONTROLS - PADDING - tabs - below;
         size = Math.min(size, Math.max(200, byHeight));
       }
       return snapTo8(size);
     }
     if (!boardArea.width) return 520;
-    return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8)));
-  }, [windowWidth, boardArea.width, contentHeight, openedGames.length, activeGameId, game]);
+    // Desktop: the mode's strip renders under the board too.
+    const byHeight = boardArea.height ? boardArea.height - 44 - below : 520;
+    return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8, byHeight)));
+  }, [windowWidth, boardArea.width, boardArea.height, contentHeight, openedGames.length, below]);
 
   // An opened master game: the move list sits beside the board when the board
   // keeps at least MIN_BESIDE px that way, else under it — with the board sized
   // so board, controls and list fit the height.
   const gameLayout = useMemo(() => {
-    const PANEL = 280;
+    const PANEL = 220;
     const GAP = 8;
     const CONTROLS = 56;
     const LIST = 150;
@@ -260,40 +287,27 @@ export default function CoachPage() {
   }, [isLoaded, isSignedIn, router]);
 
   // Handle board actions from chat. Actions addressed to a master-game tab
-  // (board_id) only navigate that tab; everything else goes to the study
+  // (board_id) navigate it or draw on it; everything else goes to the study
   // board, which the server keeps in step (see Session.apply_board_actions).
   const handleBoardActions = useCallback(
     (actions: BoardAction[]) => {
-      const forStudy: BoardAction[] = [];
-      for (const action of actions) {
-        // A game the coach started or moved on (start_game / make_game_move, text or voice): shown
-        // exactly as a game started with the button (2026-10-12).
-        if (action.type === 'game') {
-          applyGameViewRef.current?.(action.game);
-          continue;
-        }
-        const target = action.board_id;
-        const tab = target ? openedGames.find((g) => g.id === target) : undefined;
-        if (tab && action.type === 'navigate') {
-          setGameMoveIndices((prev) => {
-            const cur = prev[tab.id] ?? -1;
-            const last = tab.moves.length - 1;
-            const next =
-              action.direction === 'first' ? -1
-              : action.direction === 'last' ? last
-              : action.direction === 'prev' ? Math.max(-1, cur - 1)
-              : Math.min(last, cur + 1);
-            return { ...prev, [tab.id]: next };
-          });
-          setActiveGameId(tab.id);
-        } else if (tab) {
-          // A position change on a game tab: show it on the study board.
-          setActiveGameId(null);
-          forStudy.push(action);
-        } else {
-          forStudy.push(action);
-        }
+      const routed = routeBoardActions(actions, openedGames.map((g) => g.id));
+      // A game the coach started or moved on (start_game / make_game_move, text or voice): shown
+      // exactly as a game started with the button (2026-10-12).
+      if (routed.game) applyGameViewRef.current?.(routed.game);
+      for (const [id, tabActions] of Object.entries(routed.tabs)) {
+        const last = (openedGames.find((g) => g.id === id)?.moves.length ?? 0) - 1;
+        setGameMoveIndices((prev) => ({
+          ...prev,
+          [id]: applyTabActions({ index: prev[id] ?? -1, annotations: EMPTY_ANNOTATIONS }, tabActions, last).index,
+        }));
+        setTabAnnotations((prev) => ({
+          ...prev,
+          [id]: applyTabActions({ index: -1, annotations: prev[id] ?? EMPTY_ANNOTATIONS }, tabActions, last).annotations,
+        }));
       }
+      if (routed.focusTab) setActiveGameId(routed.focusTab);
+      const forStudy = routed.study;
       if (forStudy.length) {
         // While a game is on, the study board IS the game: the coach may draw
         // on it but never change the position under the student.
@@ -317,7 +331,7 @@ export default function CoachPage() {
         }
       }
     },
-    [board.applyBoardActions, openedGames, sessionId, studyBoardId]
+    [board.applyBoardActions, openedGames, sessionId, studyBoardId, setActiveGameId]
   );
 
   // The coach's actions may switch the active board server-side.
@@ -325,7 +339,7 @@ export default function CoachPage() {
     (id: string) => {
       setActiveGameId(openedGames.some((g) => g.id === id) ? id : null);
     },
-    [openedGames]
+    [openedGames, setActiveGameId]
   );
 
   // Keyboard shortcuts
@@ -399,6 +413,7 @@ export default function CoachPage() {
       const study = data.boards.find((b) => b.kind === 'study' || b.kind === 'puzzle') ?? data.boards[0];
       const games: OpenedGame[] = [];
       const indices: Record<string, number> = {};
+      const annotations: Record<string, ViewerAnnotations> = {};
       const labels = { you: t('youLabel'), coach: t('coachLabel') };
       for (const b of data.boards) {
         if (b.id === study?.id) continue;
@@ -406,10 +421,12 @@ export default function CoachPage() {
         if (g) {
           games.push(g);
           indices[g.id] = b.ply - 1; // viewer index: -1 = start position
+          annotations[g.id] = { arrows: b.annotations?.arrows ?? [], highlights: b.annotations?.highlights ?? [] };
         }
       }
       setOpenedGames(games);
       setGameMoveIndices(indices);
+      setTabAnnotations(annotations);
 
       // A game in progress comes back onto the study board, student's colour up.
       const liveBoard = data.boards.find((b) => gameViewFromBoard(b) !== null);
@@ -440,12 +457,14 @@ export default function CoachPage() {
       }
       if (liveGame) {
         setGame(liveGame);
+        dispatchMode({ type: 'game_started' });
         board.resetBoard();
         if (liveGame.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: liveGame.pgn });
         board.setOrientation(liveGame.student_color);
         setActiveGameId(null);
       } else {
         setGame(null);
+        dispatchMode({ type: 'game_closed' });
         setActiveGameId(
           data.active_board_id && games.some((g) => g.id === data.active_board_id) ? data.active_board_id : null,
         );
@@ -482,10 +501,10 @@ export default function CoachPage() {
     (view: GameStateView) => {
       setGame(view);
       setGameError(null);
+      dispatchMode({ type: 'game_started' });
       if (view.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: view.pgn });
       else board.applyBoardAction({ type: 'set_fen', fen: view.fen });
       board.setOrientation(view.student_color);
-      setActiveGameId(null);
     },
     [board],
   );
@@ -514,7 +533,11 @@ export default function CoachPage() {
         }
         const view = await coachApi.startGame(sid, options);
         if (!view) throw new Error('start');
+        setLastGameOptions(options);
         setGameDialogOpen(false);
+        setCoachLine(null);
+        setVerdictToast(null);
+        setPlayChatOpen(false);
         board.resetBoard();
         applyGameView(view);
       } catch (err: unknown) {
@@ -535,6 +558,7 @@ export default function CoachPage() {
       try {
         const view = await coachApi.gameMove(sessionId, current.board_id, uci);
         applyGameView(view);
+        setVerdictToast(moveVerdict(view.student));
         if (view.comment_wanted) requestGameComment(sessionId, view);
       } catch (err: unknown) {
         const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
@@ -579,6 +603,9 @@ export default function CoachPage() {
   const handleGameClose = useCallback(() => {
     setGame(null);
     setGameError(null);
+    setCoachLine(null);
+    setVerdictToast(null);
+    dispatchMode({ type: 'game_closed' });
     if (sessionId && studyBoardId) void coachApi.updateSession(sessionId, { active_board_id: studyBoardId });
   }, [sessionId, studyBoardId]);
 
@@ -589,7 +616,8 @@ export default function CoachPage() {
       board.resetBoard();
       setOpenedGames([]);
       setGameMoveIndices({});
-      setActiveGameId(null);
+      setTabAnnotations({});
+      dispatchMode({ type: 'reset' });
       setStudyBoardId(null);
       setGame(null);
       lastSyncedFenRef.current = null;
@@ -603,7 +631,8 @@ export default function CoachPage() {
     setGame(null);
     setOpenedGames([]);
     setGameMoveIndices({});
-    setActiveGameId(null);
+    setTabAnnotations({});
+    dispatchMode({ type: 'reset' });
     setStudyBoardId(null);
     lastSyncedFenRef.current = null;
     restoredSessionRef.current = null;
@@ -712,7 +741,7 @@ export default function CoachPage() {
     } catch (err) {
       console.error('Failed to load game PGN:', err);
     }
-  }, [openedGames, getToken, sessionId]);
+  }, [openedGames, getToken, sessionId, setActiveGameId]);
 
   // Close a game tab
   const handleCloseGame = useCallback((gameId: string) => {
@@ -722,9 +751,9 @@ export default function CoachPage() {
       delete next[gameId];
       return next;
     });
-    if (activeGameId === gameId) setActiveGameId(null);
+    dispatchMode({ type: 'tab_closed', id: gameId });
     if (sessionId && !gameId.startsWith('local-')) void coachApi.deleteBoard(sessionId, gameId);
-  }, [activeGameId, sessionId]);
+  }, [sessionId]);
 
   // Tell the server which tab is active; the coach's next turn targets it.
   const selectTab = useCallback(
@@ -735,7 +764,7 @@ export default function CoachPage() {
         void coachApi.updateSession(sessionId, { active_board_id: boardId });
       }
     },
-    [sessionId, studyBoardId]
+    [sessionId, studyBoardId, setActiveGameId]
   );
 
   // Persist a game tab's ply (debounced) so reopening lands on the same move.
@@ -753,6 +782,28 @@ export default function CoachPage() {
   // the game), the tab being viewed, or the study board.
   const activeBoardId = activeGameId ?? (gameLive && game ? game.board_id : null) ?? studyBoardId;
 
+  // A puzzle the coach sets is solved step by step (PuzzleFlow); the mode follows the board hook.
+  useEffect(() => {
+    dispatchMode({ type: board.puzzleMode ? 'puzzle_started' : 'puzzle_ended' });
+  }, [board.puzzleMode]);
+  const puzzle = usePuzzleStep(board.puzzleState, board.fen, board.validatePuzzleMove);
+
+  // The student stepping through a game tab: the coach's arrows were for another position.
+  const jumpTab = useCallback((id: string, index: (prev: number) => number) => {
+    setGameMoveIndices((prev) => ({ ...prev, [id]: index(prev[id] ?? -1) }));
+    setTabAnnotations((prev) => (prev[id] ? { ...prev, [id]: EMPTY_ANNOTATIONS } : prev));
+  }, []);
+
+  const verdict = game?.status === 'playing' ? moveVerdict(game.student) : null;
+  const clearVerdictToast = useCallback(() => setVerdictToast(null), []);
+  const closeGameDialog = useCallback(() => {
+    setGameDialogOpen(false);
+    setGameError(null);
+  }, []);
+  const handleAssistantReply = useCallback((text: string) => {
+    if (gameRef.current) setCoachLine(oneLineComment(text) || null);
+  }, []);
+
   if (!isLoaded || subscription.loading) {
     return <LoadingScreen isVisible={true} />;
   }
@@ -765,6 +816,36 @@ export default function CoachPage() {
     return <UpgradePrompt feature={t('feature')} />;
   }
 
+  const viewerAnnotations = (activeGameId && tabAnnotations[activeGameId]) || EMPTY_ANNOTATIONS;
+  const onPuzzle = modeState.base === 'puzzle' && board.puzzleState !== null;
+
+  const studyBoard = (
+    <CoachBoard
+      fen={onPuzzle ? puzzle.boardFen : board.fen}
+      arrows={board.arrows}
+      highlights={board.highlights}
+      orientation={board.orientation}
+      movable={!onPuzzle || !puzzle.boardLocked}
+      flash={onPuzzle ? puzzle.flash : null}
+      overlay={
+        game && (
+          <>
+            {verdict && <VerdictBadge verdict={verdict} orientation={board.orientation} />}
+            {verdictToast && <VerdictToast verdict={verdictToast} onDone={clearVerdictToast} />}
+          </>
+        )
+      }
+      onMove={onPuzzle ? puzzle.move : handleStudyMove}
+      onReset={gameLive ? () => {} : board.resetBoard}
+      onFirst={board.firstMove}
+      onPrev={board.prevMove}
+      onNext={board.nextMove}
+      onLast={board.lastMove}
+      onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
+      boardSize={responsiveBoardSize}
+    />
+  );
+
   return (
     <div
       className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col"
@@ -773,13 +854,14 @@ export default function CoachPage() {
         typingOnPhone
           ? {
               position: 'fixed', left: 0, right: 0, top: keyboard.top, height: keyboard.height, zIndex: 40,
-              background: '#1a1a2e', // the layout's colour — pinned, the page no longer sits on it
+              background: 'var(--coach-bg)', // the layout's colour — pinned, the page no longer sits on it
             }
           : withBottomNav
             ? { height: `calc(100dvh - ${pageTop}px - 4rem - env(safe-area-inset-bottom))` }
             : undefined
       }
       data-testid="coach-page"
+      data-mode={mode}
     >
       {/* Header */}
       <header className="flex items-center justify-between gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-white/10">
@@ -836,44 +918,33 @@ export default function CoachPage() {
         </div>
       </header>
 
+      {gameDialogOpen && (
+        <PlaySetupSheet
+          busy={gameThinking}
+          initial={lastGameOptions}
+          error={gameError}
+          onStart={(options) => void handleStartGame(options)}
+          onCancel={closeGameDialog}
+        />
+      )}
+
       {/* Main content: Board + Chat split */}
       <div ref={measureContent} className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
         <div className={`lg:w-[55%] flex flex-col p-2 sm:p-4 relative ${typingOnPhone ? 'hidden' : ''}`}>
-          {gameDialogOpen && (
-            <GameStartDialog
-              busy={gameThinking}
-              onStart={(options) => void handleStartGame(options)}
-              onCancel={() => setGameDialogOpen(false)}
-            />
-          )}
           {openedGames.length > 0 && (
-            <div className="flex items-center gap-1 px-2 py-1 border-b border-white/10 overflow-x-auto">
-              <button
-                onClick={() => selectTab(null)}
-                className={`px-3 py-1 text-xs rounded-t ${!activeGameId ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'}`}
-              >
-                {t('coachBoard')}
-              </button>
-              {openedGames.map((game) => (
-                <div key={game.id} className="flex items-center">
-                  <button
-                    onClick={() => selectTab(game.id)}
-                    className={`px-3 py-1 text-xs rounded-t truncate max-w-[200px] ${
-                      activeGameId === game.id ? 'bg-white/10 text-white' : 'text-gray-400 hover:text-white'
-                    }`}
-                  >
-                    {game.white} vs {game.black}
-                  </button>
-                  <button
-                    onClick={() => handleCloseGame(game.id)}
-                    className="text-gray-500 hover:text-white ml-1 text-xs"
-                    title={t('closeTab')}
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+            // Opened games: one stack chip; the sheet lists, switches and closes them.
+            <div className="flex justify-center pb-2">
+              <ViewerTabsSheet
+                tabs={openedGames.map((g) => ({
+                  id: g.id,
+                  title: `${g.white} vs ${g.black}`,
+                  subtitle: [g.result, g.event, g.date].filter(Boolean).join(' · '),
+                }))}
+                activeId={activeGameId}
+                onSelect={selectTab}
+                onClose={handleCloseGame}
+              />
             </div>
           )}
           <div ref={measureBoardArea} className="flex-1 min-h-0 flex items-center justify-center">
@@ -885,98 +956,65 @@ export default function CoachPage() {
                       ? activeGame.startingFen
                       : activeGame.fens[gameMoveIndices[activeGameId]]
                   }
-                  arrows={[]}
-                  highlights={[]}
+                  arrows={viewerAnnotations.arrows as Array<{ from: Key; to: Key; brush: string }>}
+                  highlights={viewerAnnotations.highlights as Key[]}
                   orientation={board.orientation}
-                  puzzleMode={false}
-                  puzzleState={null}
-                  moveIndex={gameMoveIndices[activeGameId] ?? -1}
-                  pgnLength={activeGame.moves.length}
                   onMove={() => {}}
-                  onReset={() => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: -1 }))}
-                  onFirst={() => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: -1 }))}
-                  onPrev={() =>
-                    setGameMoveIndices((prev) => ({
-                      ...prev,
-                      [activeGameId]: Math.max(-1, (prev[activeGameId] ?? -1) - 1),
-                    }))
-                  }
-                  onNext={() =>
-                    setGameMoveIndices((prev) => ({
-                      ...prev,
-                      [activeGameId]: Math.min(activeGame.moves.length - 1, (prev[activeGameId] ?? -1) + 1),
-                    }))
-                  }
-                  onLast={() =>
-                    setGameMoveIndices((prev) => ({
-                      ...prev,
-                      [activeGameId]: activeGame.moves.length - 1,
-                    }))
-                  }
+                  onReset={() => jumpTab(activeGameId, () => -1)}
+                  onFirst={() => jumpTab(activeGameId, () => -1)}
+                  onPrev={() => jumpTab(activeGameId, (i) => Math.max(-1, i - 1))}
+                  onNext={() => jumpTab(activeGameId, (i) => Math.min(activeGame.moves.length - 1, i + 1))}
+                  onLast={() => jumpTab(activeGameId, () => activeGame.moves.length - 1)}
                   onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
-                  onPuzzleMove={() => 'wrong' as const}
                   boardSize={gameLayout.size}
                 />
-{/* The panel is MUI in the site's light theme (dark text): on the
-                    dark coach page it needs its light card, like the board's controls. */}
-                {showGameList && (
-                <div
-                  className="overflow-y-auto bg-white rounded-lg"
-                  style={{
-                    width: gameLayout.panelWidth,
-                    maxHeight: gameLayout.beside ? gameLayout.size + 56 : windowWidth < 1024 ? MOBILE_GAME_LIST : 150,
-                  }}
-                  data-testid="game-viewer-side"
-                >
-                  <GameViewerPanel
-                    game={activeGame}
-                    currentMoveIndex={gameMoveIndices[activeGameId] ?? -1}
-                    onMoveIndexChange={(idx) => setGameMoveIndices((prev) => ({ ...prev, [activeGameId]: idx }))}
+                <div style={{ width: gameLayout.panelWidth }} data-testid="game-viewer-side">
+                  <ViewerMoveList
+                    moves={activeGame.moves}
+                    currentIndex={gameMoveIndices[activeGameId] ?? -1}
+                    onJump={(index) => jumpTab(activeGameId, () => index)}
+                    layout={gameLayout.beside ? 'list' : 'strip'}
+                    maxHeight={gameLayout.size + 38}
                   />
                 </div>
-                )}
               </div>
-            ) : (
-              <div className="flex flex-col items-center w-full">
-                <CoachBoard
-                  fen={board.fen}
-                  arrows={board.arrows}
-                  highlights={board.highlights}
-                  orientation={board.orientation}
-                  puzzleMode={board.puzzleMode}
-                  puzzleState={board.puzzleState}
-                  moveIndex={board.moveIndex}
-                  pgnLength={board.pgn ? board.moveIndex + 1 : 0}
-                  onMove={handleStudyMove}
-                  onReset={gameLive ? () => {} : board.resetBoard}
-                  onFirst={board.firstMove}
-                  onPrev={board.prevMove}
-                  onNext={board.nextMove}
-                  onLast={board.lastMove}
-                  onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
-                  onPuzzleMove={board.validatePuzzleMove}
-                  boardSize={responsiveBoardSize}
-                />
-                {game && (
-                  <div style={{ width: responsiveBoardSize }}>
-                    <GamePanel
-                      game={game}
-                      thinking={gameThinking}
-                      onHint={() => chatRef.current?.send(t('hintMessage'))}
-                      onTakeback={() => void handleGameTakeback()}
-                      onResign={() => void handleGameResign()}
-                      onReview={() => chatRef.current?.send(t('reviewMessage'))}
-                      onNewGame={() => setGameDialogOpen(true)}
-                      onClose={handleGameClose}
-                    />
-                    {gameError && (
-                      <div className="mt-1 text-xs text-red-300" data-testid="game-error">
-                        {gameError}
-                      </div>
-                    )}
+            ) : game ? (
+              <div className="flex flex-col items-center gap-1">
+                <PlayStrip
+                  game={game}
+                  thinking={gameThinking}
+                  comment={coachLine}
+                  chatOpen={playChatOpen}
+                  width={responsiveBoardSize}
+                  onHint={() => chatRef.current?.send(t('hintMessage'))}
+                  onTakeback={() => void handleGameTakeback()}
+                  onResign={() => void handleGameResign()}
+                  onToggleChat={() => setPlayChatOpen((open) => !open)}
+                  onReview={() => chatRef.current?.send(t('reviewMessage'))}
+                  onRematch={() => void handleStartGame(rematchOptions(game, lastGameOptions))}
+                  onClose={handleGameClose}
+                >
+                  {studyBoard}
+                </PlayStrip>
+                {gameError && !gameDialogOpen && (
+                  <div className="text-xs text-(--coach-danger)" role="alert" data-testid="game-error">
+                    {gameError}
                   </div>
                 )}
               </div>
+            ) : onPuzzle && board.puzzleState ? (
+              <div className="flex flex-col items-center gap-2" style={{ width: responsiveBoardSize }}>
+                {studyBoard}
+                <PuzzleFlow
+                  controls={puzzle}
+                  puzzle={board.puzzleState}
+                  onAsk={(message) => chatRef.current?.send(message)}
+                  onNextPuzzle={() => chatRef.current?.send(t('promptPuzzle'))}
+                  onExit={() => board.applyBoardAction({ type: 'set_fen', fen: board.fen })}
+                />
+              </div>
+            ) : (
+              studyBoard
             )}
           </div>
         </div>
@@ -995,6 +1033,8 @@ export default function CoachPage() {
             onActiveBoardChanged={handleActiveBoardChanged}
             onOpenGame={handleOpenGame}
             game={game}
+            composerHidden={gameLive && !playChatOpen}
+            onAssistantReply={handleAssistantReply}
           />
         </div>
       </div>

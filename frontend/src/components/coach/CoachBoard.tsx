@@ -1,10 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard';
 import CoachBoardControls from './BoardControls';
-import PuzzleOverlay from './PuzzleOverlay';
-import type { CoachBoardState, PuzzleState } from '@/types/coach';
 import { Key } from 'chessground/types';
 
 interface CoachBoardProps {
@@ -12,11 +10,13 @@ interface CoachBoardProps {
   arrows: Array<{ from: Key; to: Key; brush: string }>;
   highlights: Key[];
   orientation: 'white' | 'black';
-  puzzleMode: boolean;
-  puzzleState: PuzzleState | null;
-  moveIndex: number;
-  pgnLength: number;
   boardSize?: number;
+  /** False locks the pieces (a puzzle move waiting to be checked). */
+  movable?: boolean;
+  /** Laid over the board, which is its positioning box (verdict badge, toast). */
+  overlay?: React.ReactNode;
+  /** A colour wash after a checked answer; a new key replays it. */
+  flash?: { result: 'correct' | 'wrong'; key: number } | null;
   onMove: (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => void;
   onReset: () => void;
   onFirst: () => void;
@@ -24,7 +24,6 @@ interface CoachBoardProps {
   onNext: () => void;
   onLast: () => void;
   onFlip: () => void;
-  onPuzzleMove: (from: string, to: string) => 'correct' | 'wrong' | 'solved';
 }
 
 export default function CoachBoard({
@@ -32,8 +31,9 @@ export default function CoachBoard({
   arrows,
   highlights,
   orientation,
-  puzzleMode,
-  puzzleState,
+  movable = true,
+  overlay,
+  flash,
   onMove,
   onReset,
   onFirst,
@@ -41,41 +41,34 @@ export default function CoachBoard({
   onNext,
   onLast,
   onFlip,
-  onPuzzleMove,
   boardSize = 520,
 }: CoachBoardProps) {
-  const [puzzleResult, setPuzzleResult] = useState<'correct' | 'wrong' | 'solved' | null>(null);
-
-  const handleMove = useCallback(
-    (from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {
-      if (puzzleMode && puzzleState && !puzzleState.solved) {
-        const result = onPuzzleMove(from as string, to as string);
-        setPuzzleResult(result);
-      } else {
-        onMove(from, to, promotion);
-      }
-    },
-    [puzzleMode, puzzleState, onPuzzleMove, onMove]
-  );
-
-  const handleDismissPuzzle = useCallback(() => {
-    setPuzzleResult(null);
-  }, []);
-
   return (
     <div className="flex flex-col items-center">
-      <div className="relative">
+      <div className="relative" style={{ width: boardSize, height: boardSize }}>
         <ChessgroundBoard
           fen={fen}
           orientation={orientation}
-          onMove={handleMove}
+          onMove={onMove}
           arrows={arrows}
           highlightSquares={highlights}
-          movable={true}
+          movable={movable}
           viewOnly={false}
           boardSize={boardSize}
         />
-        <PuzzleOverlay result={puzzleResult} onDismiss={handleDismissPuzzle} />
+        {flash && (
+          <div
+            key={flash.key}
+            aria-hidden
+            data-testid="board-flash"
+            className={`coach-board-flash pointer-events-none absolute inset-0 z-10 ring-4 ring-inset ${
+              flash.result === 'correct'
+                ? 'bg-(--coach-success-soft) ring-(--coach-success)'
+                : 'bg-(--coach-danger-soft) ring-(--coach-danger)'
+            }`}
+          />
+        )}
+        {overlay}
       </div>
       <CoachBoardControls
         onReset={onReset}
