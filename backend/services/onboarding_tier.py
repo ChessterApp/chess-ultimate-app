@@ -18,14 +18,17 @@ Effective rating:
   i.e. a platform rating wins; otherwise the self-rated slider applies unless the
   user explicitly has no rating, in which case experience decides the tier.
 
-Derivation table (first match wins; rating bands beat experience):
+Derivation table (first match wins; ratings >= 1400 beat experience):
   rating >= 1600                         -> elo_1600    level 6   mateIn3
   rating 1500-1599                       -> elo_1500    level 5   mateIn3
   rating 1400-1499                       -> elo_1400    level 4   mateIn3
-  rating 1-1399 (has some rating)        -> advanced    level 3   mateIn2
-  no rating, experience == advanced      -> advanced    level 3   mateIn2
-  no rating, experience == intermediate  -> knows_rules level 2   mateIn1
-  otherwise (beginner / unknown)         -> beginner    level 1   level-1 lesson
+  rating < 1400 or no rating:
+    experience == advanced               -> advanced    level 3   mateIn2
+    experience == intermediate           -> knows_rules level 2   mateIn1
+    otherwise (beginner / unknown)       -> beginner    level 1   level-1 lesson
+
+Ratings below 1400 never override experience, so the untouched 800 slider
+default cannot lift a beginner to level 3.
 
 starting_level is clamped server-side to [1, num_levels] (never below 1).
 """
@@ -94,8 +97,6 @@ def derive_tier_and_level(answers: dict, num_levels: int) -> dict:
         skill_tier, level = 'elo_1500', 5
     elif rating is not None and 1400 <= rating <= 1499:
         skill_tier, level = 'elo_1400', 4
-    elif rating is not None and rating >= 1:
-        skill_tier, level = 'advanced', 3
     elif experience == 'advanced':
         skill_tier, level = 'advanced', 3
     elif experience == 'intermediate':

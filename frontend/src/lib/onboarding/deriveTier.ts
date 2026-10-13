@@ -17,14 +17,17 @@
  *   i.e. a platform rating wins; otherwise the self-rated slider applies unless
  *   the user explicitly has no rating, in which case experience decides the tier.
  *
- * Derivation table (first match wins; rating bands beat experience):
+ * Derivation table (first match wins; ratings >= 1400 beat experience):
  *   rating >= 1600                         -> elo_1600    level 6   mateIn3
  *   rating 1500-1599                       -> elo_1500    level 5   mateIn3
  *   rating 1400-1499                       -> elo_1400    level 4   mateIn3
- *   rating 1-1399 (has some rating)        -> advanced    level 3   mateIn2
- *   no rating, experience == advanced      -> advanced    level 3   mateIn2
- *   no rating, experience == intermediate  -> knows_rules level 2   mateIn1
- *   otherwise (beginner / unknown)         -> beginner    level 1   beginner
+ *   rating < 1400 or no rating:
+ *     experience == advanced               -> advanced    level 3   mateIn2
+ *     experience == intermediate           -> knows_rules level 2   mateIn1
+ *     otherwise (beginner / unknown)       -> beginner    level 1   beginner
+ *
+ * Ratings below 1400 never override experience, so the untouched 800 slider
+ * default cannot lift a beginner to level 3.
  *
  * startingLevel is clamped server-side to [1, numLevels] (never below 1). This
  * client mirror does NOT clamp (the funnel has no course count) — the backend
@@ -110,9 +113,6 @@ export function deriveTier(answers: DeriveTierAnswers | null | undefined): Deriv
   } else if (rating !== null && rating >= 1400 && rating <= 1499) {
     skillTier = "elo_1400";
     level = 4;
-  } else if (rating !== null && rating >= 1) {
-    skillTier = "advanced";
-    level = 3;
   } else if (experience === "advanced") {
     skillTier = "advanced";
     level = 3;

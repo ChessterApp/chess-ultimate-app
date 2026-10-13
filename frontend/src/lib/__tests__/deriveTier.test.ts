@@ -1,10 +1,16 @@
 /**
  * Unit tests for the onboarding tier derivation. Mirrors the Python test
  * `backend/tests/test_onboarding_tier.py` — the two derivations MUST agree on
- * every boundary (rating bands beat experience; slider default = 800).
+ * every boundary (ratings >= 1400 beat experience; below 1400 experience
+ * decides; slider default = 800).
  */
 import { describe, it, expect } from "vitest";
-import { deriveTier, DEFAULT_ELO_RATING } from "../onboarding/deriveTier";
+import {
+  deriveTier,
+  DEFAULT_ELO_RATING,
+  PUZZLE_THEME_BY_TIER,
+  type SkillTier,
+} from "../onboarding/deriveTier";
 
 describe("deriveTier — rating bands", () => {
   it("1600+ -> elo_1600 / level 6 / mateIn3", () => {
@@ -42,18 +48,31 @@ describe("deriveTier — rating bands", () => {
     });
   });
 
-  it("boundary 1399 -> advanced, 1400 -> elo_1400", () => {
-    expect(deriveTier({ onlineRating: 1399 }).skillTier).toBe("advanced");
+  it("boundary 1399 -> experience decides, 1400 -> elo_1400", () => {
+    expect(deriveTier({ onlineRating: 1399, experience: "beginner" })).toEqual({
+      skillTier: "beginner",
+      startingLevel: 1,
+      puzzleTheme: "beginner",
+    });
     expect(deriveTier({ onlineRating: 1400 }).skillTier).toBe("elo_1400");
   });
 
-  it("1-1399 with a rating -> advanced / level 3 / mateIn2", () => {
-    expect(deriveTier({ onlineRating: 1 })).toEqual({
-      skillTier: "advanced",
-      startingLevel: 3,
-      puzzleTheme: "mateIn2",
+  it("ratings below 1400 never override experience", () => {
+    expect(deriveTier({ onlineRating: 1, experience: "intermediate" })).toEqual({
+      skillTier: "knows_rules",
+      startingLevel: 2,
+      puzzleTheme: "mateIn1",
     });
-    expect(deriveTier({ onlineRating: 1399 }).skillTier).toBe("advanced");
+  });
+
+  it("slider 1450 -> elo_1400 / level 4 regardless of experience", () => {
+    for (const experience of ["beginner", "intermediate", "advanced", ""]) {
+      expect(deriveTier({ eloRating: 1450, experience })).toEqual({
+        skillTier: "elo_1400",
+        startingLevel: 4,
+        puzzleTheme: "mateIn3",
+      });
+    }
   });
 });
 
@@ -70,9 +89,20 @@ describe("deriveTier — effective rating selection", () => {
     );
   });
 
-  it("default slider (800) -> advanced when no online rating / no noRating", () => {
-    expect(deriveTier({ experience: "beginner" }).skillTier).toBe("advanced");
-    expect(deriveTier({ eloRating: DEFAULT_ELO_RATING }).skillTier).toBe("advanced");
+  it("default slider (800) defers to experience", () => {
+    expect(deriveTier({ experience: "beginner" })).toMatchObject({
+      skillTier: "beginner",
+      startingLevel: 1,
+    });
+    expect(deriveTier({ experience: "intermediate" })).toMatchObject({
+      skillTier: "knows_rules",
+      startingLevel: 2,
+    });
+    expect(deriveTier({ experience: "advanced" })).toMatchObject({
+      skillTier: "advanced",
+      startingLevel: 3,
+    });
+    expect(deriveTier({ eloRating: DEFAULT_ELO_RATING }).skillTier).toBe("beginner");
   });
 });
 
@@ -115,11 +145,11 @@ describe("deriveTier — no rating falls through to experience", () => {
 });
 
 describe("deriveTier — robustness", () => {
-  it("empty / null answers -> beginner (slider default pushes to advanced only without noRating)", () => {
-    // No experience, no noRating => slider defaults to 800 => advanced.
-    expect(deriveTier({}).skillTier).toBe("advanced");
-    expect(deriveTier(null).skillTier).toBe("advanced");
-    expect(deriveTier(undefined).skillTier).toBe("advanced");
+  it("empty / null answers -> beginner", () => {
+    // No experience, no noRating => slider defaults to 800 (< 1400) => beginner.
+    expect(deriveTier({}).skillTier).toBe("beginner");
+    expect(deriveTier(null).skillTier).toBe("beginner");
+    expect(deriveTier(undefined).skillTier).toBe("beginner");
   });
 
   it("startingLevel is never below 1", () => {
@@ -127,4 +157,43 @@ describe("deriveTier — robustness", () => {
       expect(deriveTier({ onlineRating: r }).startingLevel).toBeGreaterThanOrEqual(1);
     }
   });
+});
+
+// Shared mirror table — IDENTICAL to SHARED_CASES in
+// backend/tests/test_onboarding_tier.py. If you edit one, edit the other so the
+// Python/TS mirrors can't drift.
+// [experience, onlineRating, eloRating, noRating] -> [skillTier, level]
+const SHARED_CASES: [string, number, number | null, boolean, SkillTier, number][] = [
+  ["beginner", 0, null, false, "beginner", 1],
+  ["intermediate", 0, null, false, "knows_rules", 2],
+  ["advanced", 0, null, false, "advanced", 3],
+  ["beginner", 1399, null, false, "beginner", 1],
+  ["intermediate", 1, null, false, "knows_rules", 2],
+  ["beginner", 1400, null, false, "elo_1400", 4],
+  ["beginner", 1500, null, false, "elo_1500", 5],
+  ["beginner", 1600, null, false, "elo_1600", 6],
+  ["beginner", 0, 1450, false, "elo_1400", 4],
+  ["advanced", 0, 1450, false, "elo_1400", 4],
+  ["advanced", 0, 1399, false, "advanced", 3],
+  ["intermediate", 0, 2000, true, "knows_rules", 2],
+  ["beginner", 1700, 200, true, "elo_1600", 6],
+];
+
+describe("deriveTier — shared mirror table", () => {
+  it.each(SHARED_CASES)(
+    "%s / online %i / slider %s / noRating %s -> %s level %i",
+    (experience, onlineRating, eloRating, noRating, skillTier, level) => {
+      const result = deriveTier({
+        experience,
+        onlineRating,
+        noRating,
+        ...(eloRating !== null ? { eloRating } : {}),
+      });
+      expect(result).toEqual({
+        skillTier,
+        startingLevel: level,
+        puzzleTheme: PUZZLE_THEME_BY_TIER[skillTier],
+      });
+    },
+  );
 });
