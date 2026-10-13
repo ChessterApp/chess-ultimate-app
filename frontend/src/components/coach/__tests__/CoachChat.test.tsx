@@ -768,7 +768,7 @@ describe('CoachChat — a photo of the board or a scoresheet', () => {
         <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
       </NextIntlClientProvider>,
     );
-    fireEvent.click(screen.getByLabelText(coach.attachPhoto));
+    fireEvent.click(screen.getByLabelText(coach.attachMenu));
     fireEvent.click(screen.getByText(coach.photoToPosition));
     const input = screen.getByTestId('photo-input') as HTMLInputElement;
     await act(async () => {
@@ -791,7 +791,7 @@ describe('CoachChat — a photo of the board or a scoresheet', () => {
         <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
       </NextIntlClientProvider>,
     );
-    fireEvent.click(screen.getByLabelText(coach.attachPhoto));
+    fireEvent.click(screen.getByLabelText(coach.attachMenu));
     fireEvent.click(screen.getByText(coach.scoresheetToGame));
     await act(async () => {
       fireEvent.change(screen.getByTestId('photo-input'), { target: { files: [pngFile()] } });
@@ -812,7 +812,7 @@ describe('CoachChat — a photo of the board or a scoresheet', () => {
         <CoachChat currentFen="fen" sessionId={null} onBoardActions={onBoardActions} />
       </NextIntlClientProvider>,
     );
-    fireEvent.click(screen.getByLabelText(coach.attachPhoto));
+    fireEvent.click(screen.getByLabelText(coach.attachMenu));
     fireEvent.click(screen.getByText(coach.photoToPosition));
     await act(async () => {
       fireEvent.change(screen.getByTestId('photo-input'), { target: { files: [pngFile()] } });
@@ -966,5 +966,40 @@ describe('CoachChat — composer, chips and scrolling', () => {
     expect(list.scrollTop).toBe(1400);
     expect(screen.queryByTestId('new-messages-pill')).toBeNull();
     await act(async () => chat.end());
+  });
+});
+
+describe('CoachChat — the mobile sheet views', () => {
+  function renderPeek(props: Partial<React.ComponentProps<typeof CoachChat>> = {}) {
+    return render(
+      <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
+        <CoachChat currentFen="startpos-fen" sessionId={null} onBoardActions={() => {}} view="peek" {...props} />
+      </NextIntlClientProvider>
+    );
+  }
+
+  it('peek shows the greeting, one chip row and the composer; the thread is hidden', () => {
+    const onExpand = vi.fn();
+    renderPeek({ onExpand });
+    expect(screen.getByTestId('coach-peek').textContent).toContain(coach.emptyTitle);
+    expect(screen.getByTestId('coach-chips').textContent).toContain(coach.promptAnalyze);
+    expect(screen.getByTestId('coach-messages').parentElement!.className).toContain('hidden');
+    fireEvent.click(screen.getByTestId('coach-peek'));
+    expect(onExpand).toHaveBeenCalledOnce();
+  });
+
+  it('focusing the composer tells the host (the sheet goes full)', () => {
+    const onComposerFocus = vi.fn();
+    renderPeek({ onComposerFocus });
+    fireEvent.focus(screen.getByPlaceholderText(coach.inputPlaceholder));
+    expect(onComposerFocus).toHaveBeenCalledOnce();
+  });
+
+  it('a footer (game actions, puzzle steps) takes the peek’s place above the composer', () => {
+    renderPeek({ footer: <div data-testid="footer">actions</div> });
+    expect(screen.getByTestId('footer')).toBeTruthy();
+    expect(screen.queryByTestId('coach-peek')).toBeNull();
+    expect(screen.queryByTestId('coach-chips')).toBeNull();
+    expect(screen.getByTestId('coach-composer')).toBeTruthy();
   });
 });

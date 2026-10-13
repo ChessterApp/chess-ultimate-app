@@ -1195,15 +1195,22 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
    AI COACH — focus theme (scoped to /coach, see app/coach/layout.tsx)
    ======================================== */
 
+/* Direction A «Сцена»: a dark, slightly violet stage; brand purple accent. */
 .coach-theme {
-  --coach-bg: #1a1a2e;
-  --coach-surface: #23233a;
-  --coach-surface-2: #2c2c47;
-  --coach-border: rgba(255, 255, 255, 0.1);
-  --coach-text: #f3f4f6;
-  --coach-muted: #9ca3af;
+  --coach-bg: #0e0c14;
+  --coach-surface: #17141f;
+  --coach-surface-2: #211d2c;
+  --coach-border: #2c2738;
+  --coach-text: #efedf5;
+  --coach-muted: #9b94ad;
   --coach-accent: #9333ea;
   --coach-accent-soft: rgba(147, 51, 234, 0.18);
+  /* Accent as text / outline on the dark surfaces (chips, links). */
+  --coach-accent-text: #d8b4fe;
+  --coach-grabber: #3d3650;
+  --coach-shadow: 0 -12px 30px rgba(0, 0, 0, 0.4);
+  /* The context bar with the top safe area; the shell's detents use it. */
+  --coach-bar-h: calc(48px + env(safe-area-inset-top));
   --coach-success: #22c55e;
   --coach-success-soft: rgba(34, 197, 94, 0.14);
   --coach-danger: #ef4444;
@@ -1242,7 +1249,15 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
   animation: coach-badge-pop 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+/* The coach sheet glides between detents (not while dragged). */
+.coach-sheet-glide {
+  transition: height 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .coach-sheet-glide {
+    transition: none;
+  }
   .animate-fade-in,
   .coach-badge-pop {
     animation: coach-fade-in 120ms linear both;

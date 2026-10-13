@@ -12,14 +12,14 @@ import React, {
 import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
 import { russianToSan } from '@/lib/russianNotation';
-import ReactMarkdown from 'react-markdown';
-import ToolIndicator from './ToolIndicator';
-import FeedbackButtons from './FeedbackButtons';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
 import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
+import Composer from './Composer';
+import type { AttachKind } from './AttachSheet';
+import MessageList, { ChipRow, PeekMessage, useStarterPrompts } from './MessageList';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -77,6 +77,17 @@ interface CoachChatProps {
   composerHidden?: boolean;
   /** A finished assistant answer or remark — the play strip quotes it in the coach's bubble. */
   onAssistantReply?: (text: string) => void;
+  /**
+   * 'peek' (the mobile sheet's low detent): the coach's latest line, one row of
+   * chips and the composer; 'thread' (default): the whole conversation.
+   */
+  view?: 'thread' | 'peek';
+  /** The peek's line was tapped: the host opens the history. */
+  onExpand?: () => void;
+  /** The composer got focus (the mobile sheet makes room for the keyboard). */
+  onComposerFocus?: () => void;
+  /** Shown above the composer: the game's action bar, the puzzle's steps. In peek it replaces the line and chips. */
+  footer?: React.ReactNode;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -88,6 +99,8 @@ export interface CoachChatHandle {
    * `url` with `body`, reads `delta` SSE frames into one assistant bubble.
    */
   streamAssistant: (url: string, body: Record<string, unknown>) => Promise<void>;
+  /** Open the composer's attach sheet (paste / upload / photo / link). */
+  openAttach: () => void;
 }
 
 /** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
@@ -139,21 +152,6 @@ function dataUrlToBase64(dataUrl: string): string {
   return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl;
 }
 
-/**
- * Markdown in an assistant bubble: typography's dark scale, sized for a chat
- * bubble — tight block margins, no edge margins, inline code as a chip.
- */
-const MARKDOWN_CLASSES = [
-  'prose prose-invert prose-sm max-w-none text-gray-200',
-  'prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-blockquote:my-2',
-  'prose-headings:mt-3 prose-headings:mb-1 prose-headings:text-gray-100 prose-h1:text-base prose-h2:text-base prose-h3:text-sm',
-  'prose-strong:text-gray-100 prose-a:text-blue-300',
-  'prose-code:font-normal prose-code:before:content-none prose-code:after:content-none',
-  '[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-white/10 [&_:not(pre)>code]:px-1 [&_:not(pre)>code]:py-0.5',
-  'prose-pre:my-2 prose-pre:bg-black/30 prose-pre:px-3 prose-pre:py-2',
-  '[&>:first-child]:mt-0 [&>:last-child]:mb-0',
-].join(' ');
-
 const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat(
   {
     currentFen,
@@ -169,6 +167,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     game = null,
     composerHidden = false,
     onAssistantReply,
+    view = 'thread',
+    onExpand,
+    onComposerFocus,
+    footer,
   },
   ref,
 ) {
@@ -572,7 +574,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // site's existing vision routes; the result lands on the board like a paste.
   const photoInputRef = useRef<HTMLInputElement>(null);
   const [photoMode, setPhotoMode] = useState<'position' | 'scoresheet' | null>(null);
-  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   // A photo does not show whose move it is: the board gets White to move and the
   // next short «ход чёрных» / "black to move" switches it instead of going to the
@@ -581,7 +583,6 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
   const pickPhoto = useCallback((mode: 'position' | 'scoresheet') => {
     setPhotoMode(mode);
-    setPhotoMenuOpen(false);
     // Let React apply the mode before the native picker opens.
     setTimeout(() => photoInputRef.current?.click(), 0);
   }, []);
@@ -888,6 +889,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         void sendMessage(text);
       },
       streamAssistant,
+      openAttach: () => setAttachOpen(true),
     }),
     [sendMessage, streamAssistant],
   );
@@ -907,392 +909,137 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     abortRef.current?.abort();
   }, []);
 
+  // «Paste PGN/FEN» and «Link» in the attach sheet: read the clipboard when the
+  // browser allows it; otherwise the field asks for a paste (onPaste loads it).
+  const [pasteHint, setPasteHint] = useState(false);
+  const pasteFromClipboard = useCallback(async () => {
+    let text = '';
+    try {
+      text = (await navigator.clipboard?.readText?.()) ?? '';
+    } catch {
+      text = '';
+    }
+    if (text && classifyPastedText(text)) {
+      loadPastedGame(text);
+      return;
+    }
+    setPasteHint(true);
+    textareaRef.current?.focus();
+  }, [loadPastedGame]);
+
+  const handleAttach = useCallback(
+    (kind: AttachKind) => {
+      if (kind === 'upload') fileInputRef.current?.click();
+      else if (kind === 'photo-position') pickPhoto('position');
+      else if (kind === 'photo-scoresheet') pickPhoto('scoresheet');
+      else void pasteFromClipboard();
+    },
+    [pickPhoto, pasteFromClipboard],
+  );
+
+  // The history comes into view (peek → thread): start at the latest message.
+  useLayoutEffect(() => {
+    if (view === 'thread') scrollToBottom();
+  }, [view, scrollToBottom]);
+
+  const prompts = useStarterPrompts();
+  const peek = view === 'peek';
+
   return (
     // ph-no-capture: masks the chat + voice-mode UI from PostHog session replay (kids' privacy).
-    <div className="ph-no-capture flex flex-col h-full" style={{ background: '#16213e' }}>
-      {/* Messages */}
-      <div className="relative flex-1 min-h-0">
-      <div
-        ref={scrollRef}
+    // coach-theme: the colour variables, also where the chat is hosted outside /coach (review drawer).
+    <div className="coach-theme ph-no-capture flex h-full flex-col bg-(--coach-surface)">
+      <MessageList
+        messages={messages}
+        sessionId={sessionId}
+        toolActive={toolActive}
+        isStreaming={isStreaming}
+        onOpenGame={onOpenGame}
+        onSend={(prompt) => void sendMessage(prompt)}
+        scrollRef={scrollRef}
         onScroll={handleScroll}
-        data-testid="coach-messages"
-        className="h-full overflow-y-auto px-4 py-3 space-y-4"
-      >
-        {messages.length === 0 && (
-          <div className="text-center text-gray-500 mt-8">
-            <div className="text-4xl mb-3">♞</div>
-            <p className="text-lg font-medium text-gray-400">{t('emptyTitle')}</p>
-            <p className="text-sm mt-1">
-              {t('emptySubtitle')}
-            </p>
-            <div className="mt-6 flex flex-wrap gap-2 justify-center">
-              {[
-                t('promptAnalyze'),
-                t('promptSicilian'),
-                t('promptPuzzle'),
-                t('promptPawnStructures'),
-              ].map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => void sendMessage(prompt)}
-                  disabled={isStreaming}
-                  className="px-3 py-1.5 text-sm disabled:opacity-40 bg-white/5 hover:bg-white/10 rounded-lg text-gray-400 transition-colors"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div
-              className={`max-w-[85%] rounded-xl px-4 py-2.5 ${
-                msg.role === 'user'
-                  ? 'bg-blue-600/30 text-gray-100'
-                  : 'bg-white/5 text-gray-200'
-              }`}
-            >
-              {msg.role === 'assistant' ? (
-                <div className={MARKDOWN_CLASSES}>
-                  <ReactMarkdown>{msg.content || '...'}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
-              )}
-              {msg.boardActions && msg.boardActions.length > 0 && (
-                <div className="mt-1.5 text-xs text-gray-500 flex items-center gap-1">
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm1 12H7V7h2v5zm0-7H7V3h2v2z" />
-                  </svg>
-                  {t('boardUpdated')}
-                </div>
-              )}
-              {msg.gameResults && msg.gameResults.length > 0 && (
-                <div className="mt-3 rounded-lg overflow-hidden border border-white/10">
-                  {/* Own / imported games say where they come from; TWIC cards stay as before. */}
-                  {msg.gameResults[0].source && msg.gameResults[0].source !== 'twic' && (
-                    <div className="px-2 py-1 text-[11px] uppercase tracking-wide text-gray-500 bg-white/5">
-                      {msg.gameResults[0].source === 'user'
-                        ? t('sourceUser')
-                        : msg.gameResults[0].source === 'lichess'
-                          ? t('sourceLichess')
-                          : msg.gameResults[0].source === 'chesscom'
-                            ? t('sourceChesscom')
-                            : msg.gameResults[0].source}
-                    </div>
-                  )}
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-white/5 text-gray-400">
-                        <th className="px-2 py-1.5 text-left">{t('tableDate')}</th>
-                        <th className="px-2 py-1.5 text-left">{t('tableWhite')}</th>
-                        <th className="px-2 py-1.5 text-left">{t('tableBlack')}</th>
-                        <th className="px-2 py-1.5 text-center">{t('tableResult')}</th>
-                        <th className="px-2 py-1.5 text-left">{t('tableEco')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {msg.gameResults.map((game) => (
-                        <tr
-                          key={game.id}
-                          onClick={() => onOpenGame?.(game)}
-                          className="hover:bg-white/10 cursor-pointer transition-colors border-t border-white/5"
-                        >
-                          <td className="px-2 py-1.5 text-gray-400">{game.date}</td>
-                          <td className="px-2 py-1.5 text-gray-200">
-                            {game.white_name} <span className="text-gray-500">{game.white_elo}</span>
-                          </td>
-                          <td className="px-2 py-1.5 text-gray-200">
-                            {game.black_name} <span className="text-gray-500">{game.black_elo}</span>
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
-                            <span className={
-                              game.result === '1-0' ? 'text-green-400' :
-                              game.result === '0-1' ? 'text-red-400' :
-                              'text-gray-400'
-                            }>{game.result}</span>
-                          </td>
-                          <td className="px-2 py-1.5 text-gray-400">{game.eco}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-              {/* 👍/👎 under a COMPLETED assistant answer (turnId arrives on the
-                  final SSE frame) — never on user messages, never while streaming. */}
-              {msg.role === 'assistant' && msg.turnId && (
-                <FeedbackButtons
-                  turnId={msg.turnId}
-                  sessionId={sessionId}
-                  surface="text"
-                />
-              )}
-            </div>
-          </div>
-        ))}
-
-        <ToolIndicator toolName={toolActive || ''} visible={!!toolActive} />
-      </div>
-      {hasUnseen && (
-        <button
-          type="button"
-          onClick={scrollToBottom}
-          data-testid="new-messages-pill"
-          className="absolute bottom-3 left-1/2 -translate-x-1/2 min-h-9 rounded-full border border-white/10 bg-[#1b1b1f] px-3 text-xs text-gray-200 shadow-lg hover:bg-[#26262c] focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400"
-        >
-          ↓ {t('newMessages')}
-        </button>
-      )}
-      </div>
-
-      {/* Input */}
-      <div className={`border-t border-white/10 p-3 ${composerHidden && !voiceActive ? 'hidden' : ''}`} data-testid="coach-composer">
-        {(voiceStatus === 'connecting' ||
-          voiceStatus === 'listening' ||
-          voiceStatus === 'speaking') && (
-          <div className="mb-2 flex justify-center">
-            <span
-              data-testid="voice-pill"
-              className="px-3 py-1 rounded-full text-xs bg-white/5 text-gray-300"
-            >
-              {voiceStatus === 'connecting'
-                ? t('voiceConnecting')
-                : voiceStatus === 'listening'
-                  ? t('voiceListening')
-                  : t('voiceSpeaking')}
-            </span>
-          </div>
-        )}
-        {/* Error state is surfaced visibly here (not only in the mic tooltip,
-            which is invisible on touch devices). Shows the real error + a
-            tap-to-retry hint. */}
-        {voiceStatus === 'error' && (
-          <div className="mb-2 flex justify-center">
-            <span
-              data-testid="voice-pill"
-              className="px-3 py-1 rounded-full text-xs bg-red-500/10 text-red-300 text-center"
-            >
-              {(voiceError || t('voiceError')) + ' · ' + t('voiceRetryHint')}
-            </span>
-          </div>
-        )}
-        {/* Monthly voice minutes ran out — text chat stays unlimited. */}
-        {voiceQuotaExhausted && (
-          <div className="mb-2 flex justify-center">
-            <span
-              data-testid="voice-quota-pill"
-              className="px-3 py-1 rounded-full text-xs bg-amber-500/10 text-amber-300 text-center"
-            >
-              {t('voiceQuotaExhausted')}
-            </span>
-          </div>
-        )}
-        {/* Remaining voice minutes near the toggle; warns at ≤5 min left. */}
-        {voiceActive && voiceRemainingSeconds !== null && (
-          <div className="mb-2 flex justify-center">
-            <span
-              data-testid="voice-minutes-left"
-              className={`px-3 py-1 rounded-full text-xs ${
-                voiceRemainingSeconds <= 5 * 60
-                  ? 'bg-amber-500/10 text-amber-300'
-                  : 'bg-white/5 text-gray-300'
-              }`}
-            >
-              {t('voiceMinutesLeft', {
-                minutes: Math.ceil(voiceRemainingSeconds / 60),
-              })}
-            </span>
-          </div>
-        )}
-        <div className="flex items-end gap-2">
-          {/* Load a .pgn file straight onto the board — no model call needed. */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pgn,text/plain"
-            className="hidden"
-            data-testid="pgn-file-input"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (!file) return;
-              const text = await file.text();
-              loadPastedGame(text);
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isStreaming}
-            className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-30"
-            title={t('loadPgnFile')}
-            aria-label={t('loadPgnFile')}
-          >
-            📎
-          </button>
-          {/* A photo of the board → position, or of a scoresheet → game, via the
-              site's vision routes. Same result as a paste: the board changes and
-              one line in the thread says what happened. */}
-          <input
-            ref={photoInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            data-testid="photo-input"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (!file || !photoMode) return;
-              await recognizePhoto(file, photoMode);
-            }}
-          />
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setPhotoMenuOpen((open) => !open)}
-              disabled={isStreaming || photoBusy}
-              className="px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 rounded-lg transition-colors disabled:opacity-30"
-              title={t('attachPhoto')}
-              aria-label={t('attachPhoto')}
-              aria-expanded={photoMenuOpen}
-            >
-              📷
-            </button>
-            {photoMenuOpen && (
-              <div
-                role="menu"
-                className="absolute bottom-full left-0 mb-2 w-56 rounded-lg border border-white/10 bg-[#1b1b24] shadow-lg overflow-hidden z-10"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => pickPhoto('position')}
-                  className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10"
-                >
-                  {t('photoToPosition')}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => pickPhoto('scoresheet')}
-                  className="w-full px-3 py-2 text-left text-sm text-gray-200 hover:bg-white/10 border-t border-white/5"
-                >
-                  {t('scoresheetToGame')}
-                </button>
-              </div>
-            )}
-          </div>
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={(e) => {
-              const text = e.clipboardData.getData('text');
-              if (classifyPastedText(text)) {
-                e.preventDefault();
-                loadPastedGame(text);
-              }
-            }}
-            // The keyboard slides up for ~300 ms; then show the latest message.
-            onFocus={() => setTimeout(scrollToBottom, 350)}
-            placeholder={t('inputPlaceholder')}
-            rows={1}
-            // 16px on phones: iOS Safari zooms the whole page into a smaller field.
-            className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-base sm:text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-blue-500/50"
-            disabled={isStreaming}
-          />
-          {isStreaming ? (
-            <button
-              onClick={handleAbort}
-              className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-lg transition-colors"
-              title={t('stopTooltip')}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="3" y="3" width="10" height="10" rx="1" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={() => sendMessage()}
-              disabled={!input.trim()}
-              className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title={t('sendTooltip')}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1 1l14 7-14 7V9l10-1-10-1V1z" />
-              </svg>
-            </button>
-          )}
-          {voiceSupported && (
-            <button
-              onClick={toggleVoice}
-              onPointerEnter={prefetchVoice}
-              onPointerDown={prefetchVoice}
-              onFocus={prefetchVoice}
-              disabled={voiceStatus === 'connecting'}
-              data-testid="voice-toggle"
-              data-status={voiceStatus}
-              aria-label={voiceActive ? t('voiceStop') : t('voiceStart')}
-              title={
-                voiceStatus === 'error' && voiceError
-                  ? voiceError
-                  : voiceActive
-                    ? t('voiceStop')
-                    : t('voiceStart')
-              }
-              className={`px-4 py-2 rounded-lg transition-colors disabled:cursor-not-allowed ${
-                voiceStatus === 'listening'
-                  ? 'bg-green-500/20 text-green-400 ring-2 ring-green-400/50 animate-pulse'
-                  : voiceStatus === 'speaking'
-                    ? 'bg-blue-500/20 text-blue-300 ring-2 ring-blue-400/50 animate-pulse'
-                    : voiceStatus === 'connecting'
-                      ? 'bg-white/10 text-gray-400 animate-pulse'
-                      : voiceStatus === 'error'
-                        ? 'bg-red-500/20 text-red-400'
-                        : 'bg-white/5 hover:bg-white/10 text-gray-400'
-              }`}
-            >
-              {voiceStatus === 'connecting' ? (
-                <svg
-                  className="animate-spin"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 16 16"
-                  fill="none"
-                >
-                  <circle
-                    cx="8"
-                    cy="8"
-                    r="6"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeOpacity="0.25"
-                  />
-                  <path
-                    d="M14 8a6 6 0 00-6-6"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-                  <path d="M8 10a2.5 2.5 0 002.5-2.5v-4a2.5 2.5 0 00-5 0v4A2.5 2.5 0 008 10z" />
-                  <path d="M12 7.5a.5.5 0 00-1 0 3 3 0 01-6 0 .5.5 0 00-1 0 4 4 0 003.5 3.97V13H6a.5.5 0 000 1h4a.5.5 0 000-1H8.5v-1.53A4 4 0 0012 7.5z" />
-                </svg>
-              )}
-            </button>
-          )}
+        hasUnseen={hasUnseen}
+        onJumpDown={scrollToBottom}
+        hidden={peek}
+      />
+      {peek && !footer && (
+        <div className="flex min-h-0 flex-1 flex-col justify-between gap-3 px-4 pt-1">
+          <PeekMessage messages={messages} onExpand={() => onExpand?.()} />
+          <ChipRow prompts={prompts} disabled={isStreaming} onSend={(prompt) => void sendMessage(prompt)} />
         </div>
-      </div>
+      )}
+      {footer && <div className={`shrink-0 px-3 pt-2 ${peek ? 'min-h-0 flex-1 overflow-y-auto' : ''}`}>{footer}</div>}
+
+      {/* Load a .pgn file straight onto the board — no model call needed. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pgn,text/plain"
+        className="hidden"
+        data-testid="pgn-file-input"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (!file) return;
+          const text = await file.text();
+          loadPastedGame(text);
+        }}
+      />
+      {/* A photo of the board → position, or of a scoresheet → game, via the
+          site's vision routes. Same result as a paste: the board changes and
+          one line in the thread says what happened. */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        data-testid="photo-input"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (!file || !photoMode) return;
+          await recognizePhoto(file, photoMode);
+        }}
+      />
+      <Composer
+        input={input}
+        onInputChange={(value) => {
+          setInput(value);
+          setPasteHint(false);
+        }}
+        textareaRef={textareaRef}
+        placeholder={pasteHint ? t('attachPastePlaceholder') : t('inputPlaceholder')}
+        onKeyDown={handleKeyDown}
+        onPasteText={(text) => {
+          setPasteHint(false);
+          if (!classifyPastedText(text)) return false;
+          loadPastedGame(text);
+          return true;
+        }}
+        onFocus={() => {
+          onComposerFocus?.();
+          // The keyboard slides up for ~300 ms; then show the latest message.
+          setTimeout(scrollToBottom, 350);
+        }}
+        isStreaming={isStreaming}
+        onSend={() => void sendMessage()}
+        onAbort={handleAbort}
+        attachOpen={attachOpen}
+        onAttachOpenChange={setAttachOpen}
+        attachDisabled={isStreaming || photoBusy}
+        onAttach={handleAttach}
+        voice={{
+          supported: voiceSupported,
+          status: voiceStatus,
+          active: voiceActive,
+          error: voiceError,
+          quotaExhausted: voiceQuotaExhausted,
+          remainingSeconds: voiceRemainingSeconds,
+          onToggle: () => void toggleVoice(),
+          onPrefetch: prefetchVoice,
+        }}
+        hidden={composerHidden}
+      />
     </div>
   );
 });
