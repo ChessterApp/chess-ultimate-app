@@ -2,10 +2,8 @@ import { getRequestConfig } from 'next-intl/server';
 import { cookies, headers } from 'next/headers';
 
 import { substituteAppName } from '@/lib/i18n-substitute';
+import { resolveLocale } from './detect';
 
-export const locales = ['en', 'ru', 'kz'] as const;
-export type Locale = (typeof locales)[number];
-export const defaultLocale: Locale = 'ru';
 
 async function resolveAppName(): Promise<string> {
   try {
@@ -27,7 +25,11 @@ async function resolveAppName(): Promise<string> {
 
 export default getRequestConfig(async () => {
   const cookieStore = await cookies();
-  const locale = (cookieStore.get('NEXT_LOCALE')?.value as Locale) || defaultLocale;
+  const headerStore = await headers();
+  const locale = resolveLocale(
+    cookieStore.get('NEXT_LOCALE')?.value,
+    headerStore.get('accept-language'),
+  );
 
   const rawMessages = (await import(`../../messages/${locale}.json`)).default;
   const appName = await resolveAppName();

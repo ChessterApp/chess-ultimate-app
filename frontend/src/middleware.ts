@@ -27,6 +27,7 @@ const isPublicRoute = createRouteMatcher([
   '/games/puzzlerush(.*)',  // Puzzle Rush — guests can play (runs are client-side; scores stay on device)
   '/games/tug-of-war(.*)',  // Classroom tug-of-war prototype — public per PRD (zero-friction smartboard use)
   '/family/join(.*)',  // Family invite links — page has its own sign-in fallback; must be reachable signed-out
+  '/privacy',  // Linked from sign-up (Clerk legal consent); must be readable signed-out
   '/delete-account',  // Google Play requires this URL reachable signed-out; deletion API still auth-checks server-side
   '/g/(.*)',  // Shared-game short links — must be crawlable signed-out for OG previews; the game itself stays gated (PGN endpoint requires auth)
   '/api/(.*)',  // Allow all API routes without auth

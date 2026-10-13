@@ -60,6 +60,10 @@ export const ANALYTICS_EVENTS = {
   COMPANION_MASTERY_UPDATED: 'mastery_updated',
   COMPANION_REWARD_GRANTED: 'reward_granted',
   COMPANION_WEEKLY_GOAL_UPDATED: 'weekly_goal_updated',
+
+  // Whop checkout return (/upgrade/success)
+  CHECKOUT_RETURN_VIEWED: 'checkout_return_viewed',
+  SUBSCRIPTION_ACTIVATED_CLIENT: 'subscription_activated_client',
 } as const;
 
 /**

@@ -168,3 +168,27 @@ describe('middleware matcher config', () => {
     expect(config.matcher[0]).toContain('webmanifest');
   });
 });
+
+describe('middleware public routes (T0b)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  async function run(url: string) {
+    const middleware = (await import('../middleware')).default;
+    const req = makeRequest(url, { host: 'chesster.io' });
+    const event = { waitUntil: () => {} } as unknown as Parameters<typeof middleware>[1];
+    return middleware(req, event);
+  }
+
+  it('/privacy is reachable signed-out', async () => {
+    const res = await run('https://chesster.io/privacy');
+    expect(res!.status).toBe(200);
+  });
+
+  it('/upgrade/success requires sign-in', async () => {
+    const res = await run('https://chesster.io/upgrade/success');
+    expect(res!.status).toBe(307);
+    expect(res!.headers.get('location')).toContain('/sign-in');
+  });
+});

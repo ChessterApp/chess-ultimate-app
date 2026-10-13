@@ -3099,5 +3099,68 @@
       "revealedMark": "Solution viewed",
       "panelHint": "Play the move on the board. Unlimited tries — your run score stays the same."
     }
+  },
+  "upgradeSuccess": {
+    "loadingTitle": "Confirming your payment…",
+    "loadingBody": "This usually takes a few seconds. Please keep this page open.",
+    "successTitle": "Welcome to Chesster Premium!",
+    "successBody": "Your subscription is active. Enjoy every lesson, puzzle and coach session.",
+    "successPlan": "Your {plan} plan is active. Enjoy every lesson, puzzle and coach session.",
+    "plans": {
+      "weekly": "weekly",
+      "monthly": "monthly",
+      "yearly": "yearly"
+    },
+    "startLearning": "Start learning",
+    "redirecting": "Taking you to your lessons in a few seconds…",
+    "timeoutTitle": "Payment received",
+    "timeoutBody": "Activation can take a minute. Try again shortly — you won’t be charged twice.",
+    "retry": "Check again",
+    "supportPrompt": "Still not active? Write to us at"
+  },
+  "privacy": {
+    "metaTitle": "Privacy Policy — Chesster",
+    "metaDescription": "How Chesster collects, uses and protects your data and your child’s data.",
+    "title": "Privacy Policy",
+    "lastUpdated": "Last updated: {date}",
+    "intro": "This policy explains what data Chesster collects, why, who processes it, and how you can delete it.",
+    "whoWeAre": {
+      "title": "Who we are",
+      "body": "Chesster is a chess learning app available at chesster.io. In this policy, “we” means the Chesster team."
+    },
+    "collect": {
+      "title": "What we collect",
+      "intro": "We collect only what we need to run the app:",
+      "account": "Your account email and sign-in details, handled by Clerk.",
+      "progress": "Learning progress: games, lessons, puzzles, ratings and achievements.",
+      "coach": "Use of the AI coach: chat messages and voice session usage.",
+      "payment": "Subscription and payment status from Whop. We never see or store card numbers."
+    },
+    "children": {
+      "title": "Children",
+      "body": "Children aged 5–15 use Chesster under a parent’s account. The parent creates the account and gives consent on the child’s behalf, and can review or delete the child’s data at any time."
+    },
+    "analytics": {
+      "title": "Analytics",
+      "body": "We use PostHog to understand how the app is used. Events are linked to pseudonymous IDs only: we never send your email, name or phone number, and IP addresses are not stored. Session recording is disabled on children’s learning screens."
+    },
+    "processors": {
+      "title": "Who processes your data",
+      "intro": "We rely on these service providers, each only for its stated purpose:",
+      "clerk": "Clerk — sign-in and account management.",
+      "supabase": "Supabase — database hosting for your progress.",
+      "whop": "Whop — payments and subscriptions.",
+      "posthog": "PostHog — product analytics.",
+      "vercel": "Vercel — website hosting.",
+      "ai": "AI providers — generating the coach’s replies and voice."
+    },
+    "retention": {
+      "title": "Retention and deletion",
+      "body": "We keep your data while your account exists. You can delete your account at any time on the <link>Delete account</link> page, which removes your data."
+    },
+    "contact": {
+      "title": "Contact",
+      "body": "Questions about privacy? Email us at"
+    }
   }
 }
