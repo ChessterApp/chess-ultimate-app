@@ -4,6 +4,7 @@
 
 import { Key } from 'chessground/types';
 import type { GameStateView } from '@/lib/coach/boards-api';
+import type { ToolSummary } from '@/lib/coach/tool-summary';
 
 // ─── Board Actions (matches Hermes board_protocol.py) ────────────────────
 
@@ -125,6 +126,14 @@ export interface CoachMessage {
    * SSE frame. Used to attach 👍/👎 feedback; absent while streaming.
    */
   turnId?: string;
+  /** Typed tool summaries of the turn (the rich cards), in arrival order. */
+  summaries?: ToolSummary[];
+  /**
+   * A two-part answer: the quick reaction, shown as its own line above
+   * `content` (the full answer). `stage` is where the stream is now.
+   */
+  quick?: string;
+  stage?: 'quick' | 'answer';
 }
 
 // ─── Puzzle State ────────────────────────────────────────────────────────
