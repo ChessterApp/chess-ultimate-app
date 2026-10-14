@@ -188,10 +188,10 @@ describe('useSubscription', () => {
       mockQueryResult.mockReturnValue({
         data: [{
           id: 'sub-1',
-          active: 1,
-          plan: 'pro',
+          plan_type: 'pro',
           status: 'active',
           trial_end: null,
+          current_period_end: '2999-01-01T00:00:00Z',
         }],
         isLoading: false,
         error: undefined,
@@ -202,6 +202,57 @@ describe('useSubscription', () => {
       expect(result.current.active).toBe(true);
       expect(result.current.plan).toBe('pro');
       expect(result.current.status).toBe('active');
+    });
+
+    // Regression: the hook used to read a non-existent `active` column, so a
+    // real synced row (which never has it) always came out inactive.
+    it('treats a real synced row without an `active` column as active', () => {
+      mockQueryResult.mockReturnValue({
+        data: [{
+          id: 'sub-1',
+          clerk_user_id: 'user_1',
+          plan_type: 'manual',
+          status: 'active',
+          trial_end: null,
+          current_period_end: '2999-09-28T00:00:00Z',
+        }],
+        isLoading: false,
+        error: undefined,
+      });
+
+      const { result } = renderHook(() => useSubscriptionFetch());
+      expect(result.current.active).toBe(true);
+      expect(result.current.plan).toBe('manual');
+    });
+
+    it('treats a row whose billing period has elapsed as inactive', () => {
+      mockQueryResult.mockReturnValue({
+        data: [{
+          id: 'sub-1',
+          plan_type: 'pro',
+          status: 'active',
+          trial_end: null,
+          current_period_end: '2000-01-01T00:00:00Z',
+        }],
+        isLoading: false,
+        error: undefined,
+      });
+
+      const { result } = renderHook(() => useSubscriptionFetch());
+      expect(result.current.loading).toBe(false);
+      expect(result.current.active).toBe(false);
+      expect(result.current.plan).toBeNull();
+    });
+
+    it('treats a canceled row as inactive', () => {
+      mockQueryResult.mockReturnValue({
+        data: [{ id: 'sub-1', plan_type: 'pro', status: 'canceled', trial_end: null, current_period_end: null }],
+        isLoading: false,
+        error: undefined,
+      });
+
+      const { result } = renderHook(() => useSubscriptionFetch());
+      expect(result.current.active).toBe(false);
     });
 
     it('should return inactive when no subscription row exists', () => {

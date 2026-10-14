@@ -113,13 +113,14 @@ const lesson_puzzles = new Table({
   created_at: column.text,
 });
 
+// Mirrors public.subscriptions. There is no `active` column: activeness is
+// derived from status + current_period_end (see lib/subscription-status.ts).
 const subscriptions = new Table({
-  user_id: column.text,
   clerk_user_id: column.text,
-  active: column.integer, // SQLite boolean: 0 | 1
-  plan: column.text,
+  plan_type: column.text,
   status: column.text,
   trial_end: column.text,
+  current_period_end: column.text,
   created_at: column.text,
   updated_at: column.text,
 });

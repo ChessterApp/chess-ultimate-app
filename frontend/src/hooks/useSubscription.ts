@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { LOCAL_FIRST_SUBSCRIPTION } from '@/lib/feature-flags';
 import { useQuery } from '@powersync/react';
+import { isSubscriptionActive } from '@/lib/subscription-status';
 
 export interface SubscriptionState {
   loading: boolean;
@@ -33,7 +34,7 @@ export { SubscriptionContext };
  */
 function useSubscriptionPowerSync(isLoaded: boolean | undefined, userId: string | undefined): SubscriptionState {
   const { data, isLoading } = useQuery(
-    'SELECT * FROM subscriptions WHERE clerk_user_id = ?',
+    'SELECT * FROM subscriptions WHERE clerk_user_id = ? ORDER BY updated_at DESC LIMIT 1',
     [userId ?? ''],
   );
 
@@ -49,15 +50,23 @@ function useSubscriptionPowerSync(isLoaded: boolean | undefined, userId: string 
     return { loading: true, active: false, plan: null, status: null, trialEnd: null };
   }
 
-  const row = data?.[0] as { id: string; active: number | null; plan: string | null; status: string | null; trial_end: string | null } | undefined;
+  const row = data?.[0] as {
+    id: string;
+    plan_type: string | null;
+    status: string | null;
+    trial_end: string | null;
+    current_period_end: string | null;
+  } | undefined;
   if (!row) {
     return { loading: false, active: false, plan: null, status: null, trialEnd: null };
   }
 
+  const active = isSubscriptionActive(row.status, row.current_period_end);
   return {
     loading: false,
-    active: row.active === 1,
-    plan: row.plan ?? null,
+    active,
+    // Same shape as /api/subscription/status: no plan for an inactive row.
+    plan: active ? row.plan_type ?? null : null,
     status: row.status ?? null,
     trialEnd: row.trial_end ?? null,
   };

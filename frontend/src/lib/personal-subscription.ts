@@ -20,6 +20,7 @@
  */
 import 'server-only';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { isSubscriptionActive } from '@/lib/subscription-status';
 
 export interface PersonalSubscription {
   active: boolean;
@@ -27,9 +28,6 @@ export interface PersonalSubscription {
   status: string;
   currentPeriodEnd: string | null;
 }
-
-/** Statuses that count as a live, paying (or trialing) subscription. */
-const ACTIVE_STATUSES = new Set(['active', 'trialing']);
 
 const INACTIVE: PersonalSubscription = {
   active: false,
@@ -64,10 +62,7 @@ export async function getPersonalSubscription(
     const status = (data.status as string | null) || 'none';
     const currentPeriodEnd = (data.current_period_end as string | null) ?? null;
 
-    const notExpired = currentPeriodEnd
-      ? new Date(currentPeriodEnd).getTime() > Date.now()
-      : true;
-    const active = ACTIVE_STATUSES.has(status) && notExpired;
+    const active = isSubscriptionActive(status, currentPeriodEnd);
 
     if (!active) {
       return { active: false, plan: null, status, currentPeriodEnd };
