@@ -24,6 +24,8 @@ import ContextBar from '@/components/coach/ContextBar';
 import MoveStrip from '@/components/coach/MoveStrip';
 import PlaySetupSheet from '@/components/coach/PlaySetupSheet';
 import PuzzleFlow, { usePuzzleStep } from '@/components/coach/PuzzleFlow';
+import MomentsFlow, { useMomentsFlow } from '@/components/coach/MomentsFlow';
+import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 import { VerdictBadge, VerdictToast } from '@/components/coach/VerdictBadge';
 import ViewerTabsSheet from '@/components/coach/ViewerTabsSheet';
 import ViewerMoveList from '@/components/coach/ViewerMoveList';
@@ -139,6 +141,11 @@ export default function CoachPage() {
   // The viewer's tab id is the active game tab.
   const [modeState, dispatchMode] = useReducer(coachMode, initialCoachMode);
   const mode = currentMode(modeState);
+  // «Моменты»: the game review being replayed on the study board (the board's own position stays underneath).
+  const [review, setReview] = useState<ReviewMomentsSummary | null>(null);
+  const moments = useMomentsFlow(review);
+  const momentsOn = modeState.base === 'moments' && review !== null;
+  const momentFen = momentsOn ? moments.board?.fen ?? null : null;
   const activeGameId = modeState.viewerId;
   const setActiveGameId = useCallback(
     (id: string | null) => dispatchMode(id ? { type: 'view_tab', id } : { type: 'view_study' }),
@@ -208,7 +215,7 @@ export default function CoachPage() {
     boardAreaObserver.current.observe(el);
   }, []);
   // Height the mode's strip takes under the board (moves, play rows, step panel).
-  const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : 0;
+  const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : mode === 'moments' ? 230 : 0;
 
   // Desktop: the mode's strip renders under the board too.
   const responsiveBoardSize = useMemo(() => {
@@ -604,8 +611,9 @@ export default function CoachPage() {
   );
 
   // The position the chat asks about: the open master game's current move, else the board.
-  const chatFen =
-    activeGameId && activeGame
+  const chatFen = momentFen
+    ? momentFen
+    : activeGameId && activeGame
       ? (gameMoveIndices[activeGameId] ?? -1) === -1
         ? activeGame.startingFen
         : activeGame.fens[gameMoveIndices[activeGameId]]
@@ -745,6 +753,16 @@ export default function CoachPage() {
   }, [board.puzzleMode]);
   const puzzle = usePuzzleStep(board.puzzleState, board.fen, board.validatePuzzleMove);
 
+  const startMoments = useCallback((summary: ReviewMomentsSummary) => {
+    setReview(summary);
+    dispatchMode({ type: 'moments_started' });
+  }, []);
+  const exitMoments = useCallback(() => dispatchMode({ type: 'moments_ended' }), []);
+  // The review ended, or a puzzle / game took the board: drop it.
+  useEffect(() => {
+    if (modeState.base !== 'moments') setReview(null);
+  }, [modeState.base]);
+
   // The student stepping through a game tab: the coach's arrows were for another position.
   const jumpTab = useCallback((id: string, index: (prev: number) => number) => {
     setGameMoveIndices((prev) => ({ ...prev, [id]: index(prev[id] ?? -1) }));
@@ -798,14 +816,15 @@ export default function CoachPage() {
   const viewerAnnotations = (activeGameId && tabAnnotations[activeGameId]) || EMPTY_ANNOTATIONS;
   const onPuzzle = modeState.base === 'puzzle' && board.puzzleState !== null;
 
+  const momentBoard = momentsOn ? moments.board : null;
   const studyBoard = (
     <CoachBoard
-      fen={onPuzzle ? puzzle.boardFen : board.fen}
-      arrows={board.arrows}
-      highlights={board.highlights}
-      orientation={board.orientation}
-      movable={!onPuzzle || !puzzle.boardLocked}
-      flash={onPuzzle ? puzzle.flash : null}
+      fen={momentBoard ? momentBoard.fen : onPuzzle ? puzzle.boardFen : board.fen}
+      arrows={momentBoard ? (momentBoard.arrows as Array<{ from: Key; to: Key; brush: string }>) : board.arrows}
+      highlights={momentBoard ? (momentBoard.highlights as Key[]) : board.highlights}
+      orientation={momentBoard ? momentBoard.orientation : board.orientation}
+      movable={momentBoard ? momentBoard.movable : !onPuzzle || !puzzle.boardLocked}
+      flash={momentsOn ? moments.flash : onPuzzle ? puzzle.flash : null}
       overlay={
         game && (
           <>
@@ -814,7 +833,7 @@ export default function CoachPage() {
           </>
         )
       }
-      onMove={onPuzzle ? puzzle.move : handleStudyMove}
+      onMove={momentsOn ? moments.move : onPuzzle ? puzzle.move : handleStudyMove}
       onReset={gameLive ? () => {} : board.resetBoard}
       onFirst={board.firstMove}
       onPrev={board.prevMove}
@@ -855,6 +874,10 @@ export default function CoachPage() {
     />
   );
 
+  const momentsFlow = momentsOn && (
+    <MomentsFlow controls={moments} onAsk={(message) => chatRef.current?.send(message)} onExit={exitMoments} />
+  );
+
   const gameErrorLine = gameError && !gameDialogOpen && (
     <div className="text-xs text-(--coach-danger)" role="alert" data-testid="game-error">
       {gameError}
@@ -890,10 +913,11 @@ export default function CoachPage() {
       view={!isDesktop && sheetDetent === 'peek' ? 'peek' : 'thread'}
       onExpand={() => dispatchSheet({ type: 'expand' })}
       onComposerFocus={isDesktop ? undefined : () => dispatchSheet({ type: 'composer_focus' })}
-      footer={isDesktop ? undefined : playActions ? <PlayActionBar {...playActions} /> : puzzleFlow || undefined}
+      footer={isDesktop ? undefined : playActions ? <PlayActionBar {...playActions} /> : momentsFlow || puzzleFlow || undefined}
       mode={mode}
       // Phones: a card put something on the board — drop the sheet so it shows.
       onShowBoard={isDesktop ? undefined : () => dispatchSheet({ type: 'snap', detent: 'peek' })}
+      onStartMoments={startMoments}
     />
   );
 
@@ -903,6 +927,7 @@ export default function CoachPage() {
       explore: t('modeExplore'),
       play: t('gameDialogTitle'),
       puzzle: t('puzzleTitle'),
+      moments: t('momentsTitle'),
       viewer: t('modeViewer'),
     }[mode];
     const subtitle =
@@ -1122,10 +1147,10 @@ export default function CoachPage() {
                 </PlayStrip>
                 {gameErrorLine}
               </div>
-            ) : puzzleFlow ? (
+            ) : momentsFlow || puzzleFlow ? (
               <div className="flex flex-col items-center gap-2" style={{ width: responsiveBoardSize }}>
                 {studyBoard}
-                {puzzleFlow}
+                {momentsFlow || puzzleFlow}
               </div>
             ) : (
               studyBoard

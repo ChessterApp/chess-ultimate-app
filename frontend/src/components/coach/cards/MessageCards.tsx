@@ -4,10 +4,11 @@ import React from 'react';
 import { useTranslations } from 'next-intl';
 import { ArrowUp } from 'lucide-react';
 import type { BoardAction, CoachMessage, GameResult } from '@/types/coach';
-import type { ToolSummary } from '@/lib/coach/tool-summary';
+import type { ReviewMomentsSummary, ToolSummary } from '@/lib/coach/tool-summary';
 import { engineLineActions, gameToOpen, puzzleAction, resultToGame } from '@/lib/coach/card-actions';
 import EngineLineCard from './EngineLineCard';
 import GameList from './GameList';
+import MomentsCard from './MomentsCard';
 import OpeningCard from './OpeningCard';
 import PuzzleCard from './PuzzleCard';
 
@@ -20,6 +21,8 @@ export interface CardHandlers {
   onShowBoard?: () => void;
   onOpenGame?: (game: GameResult) => void;
   onSend: (prompt: string) => void;
+  /** «Начать» on a game review: its moments are replayed on the board. */
+  onStartMoments?: (review: ReviewMomentsSummary) => void;
 }
 
 /** The latest summary of each kind, in the order the kinds first came. */
@@ -125,8 +128,17 @@ export default function MessageCards({ message, ...h }: { message: CoachMessage 
                 />
               );
             }
+            case 'review_moments':
+              return (
+                <MomentsCard
+                  key={s.kind}
+                  summary={s}
+                  disabled={h.disabled}
+                  onStart={h.onStartMoments ? () => h.onStartMoments?.(s) : undefined}
+                />
+              );
             default:
-              // game_list renders below; critical_moments gets its card with «Моменты» (P3b).
+              // game_list renders below; critical_moments (no better moves to find) has no card.
               return null;
           }
         })}

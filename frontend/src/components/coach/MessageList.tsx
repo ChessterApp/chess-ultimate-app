@@ -4,6 +4,7 @@ import React from 'react';
 import { useTranslations } from 'next-intl';
 import ReactMarkdown from 'react-markdown';
 import type { BoardAction, CoachMessage, GameResult } from '@/types/coach';
+import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 import { messageText } from '@/lib/coach/message-stream';
 import CoachAvatar from './CoachAvatar';
 import FeedbackButtons from './FeedbackButtons';
@@ -68,6 +69,8 @@ interface MessageListProps {
   onBoardActions?: (actions: BoardAction[]) => void;
   /** Bring the board into view (phones: the sheet drops to peek). */
   onShowBoard?: () => void;
+  /** «Начать» on a game review card. */
+  onStartMoments?: (review: ReviewMomentsSummary) => void;
   /** Contextual chips under the conversation once it has started. */
   chips: string[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -88,6 +91,7 @@ export default function MessageList({
   boardFen,
   onBoardActions,
   onShowBoard,
+  onStartMoments,
   chips,
   scrollRef,
   onScroll,
@@ -159,6 +163,7 @@ export default function MessageList({
                     onShowBoard={onShowBoard}
                     onOpenGame={onOpenGame}
                     onSend={onSend}
+                    onStartMoments={onStartMoments}
                   />
                 </>
               ) : (

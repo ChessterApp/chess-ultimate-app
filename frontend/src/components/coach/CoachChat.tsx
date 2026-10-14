@@ -23,6 +23,7 @@ import MessageList, { ChipRow, PeekMessage, useStarterPrompts } from './MessageL
 import { applyStreamFrame } from '@/lib/coach/message-stream';
 import { contextChips } from '@/lib/coach/context-chips';
 import type { CoachMode } from '@/lib/coach/coach-mode';
+import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -95,6 +96,8 @@ interface CoachChatProps {
   mode?: CoachMode;
   /** Bring the board into view after a card put something on it (phones: the sheet drops to peek). */
   onShowBoard?: () => void;
+  /** «Начать» on a game review card: the host replays its moments on the board. */
+  onStartMoments?: (review: ReviewMomentsSummary) => void;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -180,6 +183,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     footer,
     mode = 'explore',
     onShowBoard,
+    onStartMoments,
   },
   ref,
 ) {
@@ -946,6 +950,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         boardFen={currentFen}
         onBoardActions={onBoardActions}
         onShowBoard={onShowBoard}
+        onStartMoments={onStartMoments}
         chips={lastAnswer ? prompts : []}
         scrollRef={scrollRef}
         onScroll={handleScroll}

@@ -25,7 +25,7 @@ function renderCards(message: CoachMessage, handlers: Partial<React.ComponentPro
     ...handlers,
   };
   render(
-    <NextIntlClientProvider locale="en" messages={messages as Record<string, unknown>}>
+    <NextIntlClientProvider locale={messages === ru ? 'ru' : 'en'} messages={messages as Record<string, unknown>}>
       <MessageCards message={message} {...h} />
     </NextIntlClientProvider>,
   );
@@ -117,5 +117,25 @@ describe('MessageCards', () => {
     });
     expect(screen.getAllByTestId('card-engine-line')).toHaveLength(1);
     expect(screen.getByTestId('eval-pill').textContent).toBe('+0.3');
+  });
+
+  it('review_moments: «Разбор партии · N моментов», «Начать» hands the review to the host', () => {
+    const review = {
+      kind: 'review_moments' as const,
+      game: { white: '?', black: 'Bot', result: '0-1' },
+      moments: [1, 2, 3, 4, 5].map((ply) => ({
+        ply, fen: START, played: 'a3', best: 'e4', best_uci: 'e2e4', question: 'q', explanation: 'e',
+      })),
+    };
+    const onStartMoments = vi.fn();
+    renderCards({ ...base, summaries: [review] }, { onStartMoments }, ru);
+    expect(screen.getByText('Разбор партии · 5 моментов')).toBeTruthy();
+    expect(screen.getByText('Белые – Bot · 0-1')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('card-moments-start'));
+    expect(onStartMoments).toHaveBeenCalledWith(review);
+    cleanup();
+    renderCards({ ...base, summaries: [review] });
+    expect(screen.getByText('Game review · 5 moments')).toBeTruthy();
+    expect(screen.queryByTestId('card-moments-start')).toBeNull();
   });
 });

@@ -41,6 +41,7 @@ const BY_MODE: Record<CoachMode, ChipKey[]> = {
   explore: ['chipEvaluate', 'chipPlanHere'],
   play: ['chipPlayPlan', 'chipThreats'],
   puzzle: ['chipPuzzleHint', 'chipPuzzleIdea'],
+  moments: ['chipPuzzleIdea', 'chipTurningPoint'],
   viewer: ['chipReviewGame', 'chipTurningPoint'],
 };
 

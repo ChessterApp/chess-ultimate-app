@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
 import type { PuzzleState } from '@/types/coach';
 import { useHaptic } from '@/hooks/useHaptic';
-import { useStepFlow, type StepComplete, type StepFlowControls } from '@/hooks/useStepFlow';
+import { creditStepXp, useStepFlow, type StepComplete, type StepFlowControls } from '@/hooks/useStepFlow';
 import StepFlow, { type StepFeedback } from './StepFlow';
 
 interface PendingMove {
@@ -45,10 +45,8 @@ export function usePuzzleStep(
   const [lastSan, setLastSan] = useState<string | null>(null);
   const [flash, setFlash] = useState<PuzzleStepControls['flash']>(null);
 
-  // TODO(coach-xp): there is no client→server path for crediting puzzle XP yet
-  // (XP comes from the server-side sync jobs and companion assignments only).
-  // Wire the gamification call here once one exists; until then XP is not shown.
-  const onStepComplete = useCallback((_result: StepComplete) => {}, []);
+  // XP goes through the one credit path (creditStepXp); it credits nothing yet, so none is shown.
+  const onStepComplete = useCallback((result: StepComplete) => void creditStepXp(result), []);
   const flow = useStepFlow(puzzle?.solution.length ?? 0, onStepComplete);
 
   // A new puzzle (the coach sent one, or a session was restored): start over.
