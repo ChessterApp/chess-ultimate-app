@@ -7,7 +7,7 @@ import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-li
 import { NextIntlClientProvider } from 'next-intl';
 
 import en from '../../../../messages/en.json';
-import PlayStrip from '../PlayStrip';
+import PlayStrip, { PlayCoachRow } from '../PlayStrip';
 import PlaySetupSheet from '../PlaySetupSheet';
 import ResultCard from '../ResultCard';
 import type { GameStateView } from '@/lib/coach/boards-api';
@@ -80,6 +80,8 @@ describe('PlayStrip', () => {
     expect(screen.getByTestId('coach-bubble').textContent).toBe('Too early for Ng5.');
     expect(screen.getByTestId('board')).toBeTruthy();
     expect(screen.getByTestId('play-status').textContent).toBe(`· ${coach.gameYourMove} · ${coach.gameCheck}`);
+    // After 1.e4 e5 it is move 2.
+    expect(screen.getByTestId('play-move-number').textContent).toBe('Move 2');
   });
 
   it('the action bar is wired to hint / take back / chat', () => {
@@ -131,6 +133,60 @@ describe('PlayStrip', () => {
     expect(screen.queryByRole('toolbar')).toBeNull();
     fireEvent.click(screen.getByText(coach.resultRematch));
     expect(h.onRematch).toHaveBeenCalled();
+  });
+});
+
+describe('PlayCoachRow in the mobile shell', () => {
+  const long = 'You develop the knight and hold the centre — the right plan. '.repeat(5).trim();
+
+  /** jsdom lays nothing out: give the bubble a box that is shorter than its text. */
+  function overflowing(scrollHeight: number) {
+    vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(scrollHeight);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(40);
+  }
+  afterEach(() => vi.restoreAllMocks());
+
+  it('keeps the whole remark — no line cap, it scrolls', () => {
+    wrap(<PlayCoachRow game={view()} thinking={false} comment={long} onExpand={() => {}} />);
+    const bubble = screen.getByTestId('coach-bubble');
+    expect(bubble.textContent).toBe(long);
+    expect(bubble.className).not.toContain('line-clamp');
+    expect(bubble.className).toContain('overflow-y-auto');
+  });
+
+  it('a remark that overflows fades out with «more»; tapping opens the thread', () => {
+    overflowing(200);
+    const onExpand = vi.fn();
+    wrap(<PlayCoachRow game={view()} thinking={false} comment={long} onExpand={onExpand} />);
+    const bubble = screen.getByTestId('coach-bubble');
+    expect(bubble.dataset.overflow).toBe('true');
+    fireEvent.click(screen.getByTestId('coach-bubble-more'));
+    fireEvent.click(bubble);
+    expect(onExpand).toHaveBeenCalledTimes(2);
+  });
+
+  it('scrolled to its end, the fade and «more» go away', () => {
+    overflowing(200);
+    wrap(<PlayCoachRow game={view()} thinking={false} comment={long} onExpand={() => {}} />);
+    const bubble = screen.getByTestId('coach-bubble');
+    bubble.scrollTop = 160;
+    fireEvent.scroll(bubble);
+    expect(bubble.dataset.overflow).toBeUndefined();
+    expect(screen.queryByTestId('coach-bubble-more')).toBeNull();
+  });
+
+  it('a short remark: no fade, no «more»', () => {
+    overflowing(40);
+    wrap(<PlayCoachRow game={view()} thinking={false} comment="Good move." onExpand={() => {}} />);
+    expect(screen.getByTestId('coach-bubble').dataset.overflow).toBeUndefined();
+    expect(screen.queryByTestId('coach-bubble-more')).toBeNull();
+  });
+
+  it('on desktop the bubble keeps ~5 lines and has no «more»', () => {
+    overflowing(200);
+    wrap(<PlayCoachRow game={view()} thinking={false} comment={long} />);
+    expect(screen.getByTestId('coach-bubble').className).toContain('max-h-[6.75rem]');
+    expect(screen.queryByTestId('coach-bubble-more')).toBeNull();
   });
 });
 

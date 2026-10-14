@@ -7,19 +7,21 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { NextIntlClientProvider } from 'next-intl';
 import en from '../../../../messages/en.json';
 import CoachShell from '../CoachShell';
-import { sheetReducer, MOVE_STRIP_PX } from '@/lib/coach/sheet-detent';
+import { sheetReducer, MOVE_STRIP_PX, PEEK_MIN_PX, PLAY_PEEK_PX } from '@/lib/coach/sheet-detent';
 
 const coach = en.coach;
 
-function Harness() {
+function Harness({ peekPx }: { peekPx?: number }) {
   const [detent, dispatch] = useReducer(sheetReducer, 'peek');
   return (
     <NextIntlClientProvider locale="en" messages={en as Record<string, unknown>}>
       <CoachShell
         bar={<header>bar</header>}
+        above={peekPx === undefined ? undefined : <div data-testid="coach-row" />}
         board={<div data-testid="board" />}
         below={<div data-testid="strip" />}
         stageChrome={MOVE_STRIP_PX}
+        peekPx={peekPx}
         detent={detent}
         onSheet={dispatch}
         sheet={<textarea aria-label="composer" onFocus={() => dispatch({ type: 'composer_focus' })} />}
@@ -67,5 +69,26 @@ describe('CoachShell', () => {
     fireEvent.keyDown(grabber, { key: 'ArrowDown' });
     fireEvent.keyDown(grabber, { key: 'ArrowDown' });
     expect(detent()).toBe('peek');
+  });
+
+  it('explore keeps the 232 peek floor and a flexible board', () => {
+    render(<Harness />);
+    expect(screen.getByTestId('coach-sheet').style.height).toContain(`${PEEK_MIN_PX}px`);
+    expect(screen.getByTestId('coach-board-box').style.height).toBe('');
+    expect(screen.getByTestId('sheet-grabber').className).toContain('h-11');
+  });
+
+  it('play: the peek hugs the action bar, a 20 px grabber, the board box is sized by CSS', () => {
+    render(<Harness peekPx={PLAY_PEEK_PX} />);
+    const sheet = screen.getByTestId('coach-sheet');
+    expect(sheet.style.height).toContain(`${PLAY_PEEK_PX}px`);
+    expect(sheet.style.height).not.toContain(`${PEEK_MIN_PX}px`);
+    expect(screen.getByTestId('sheet-grabber').className).toContain('h-5');
+    expect(screen.getByTestId('coach-board-box').style.height).toContain('100cqw');
+    // The coach row flexes into what the board leaves, never under its minimum.
+    expect((screen.getByTestId('coach-row').parentElement as HTMLElement).style.minHeight).toBe('88px');
+    // At half the grabber is full height again.
+    fireEvent.click(screen.getByTestId('sheet-grabber'));
+    expect(screen.getByTestId('sheet-grabber').className).toContain('h-11');
   });
 });

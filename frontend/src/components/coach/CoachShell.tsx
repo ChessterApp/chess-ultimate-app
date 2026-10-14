@@ -4,12 +4,21 @@ import React, { useCallback, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, type PanInfo } from 'framer-motion';
 import type { OnScreenKeyboard } from '@/hooks/useOnScreenKeyboard';
-import { detentCss, detentHeights, snapDetent, type Detent, type SheetAction } from '@/lib/coach/sheet-detent';
+import {
+  PLAY_COACH_MIN_PX,
+  PLAY_SHEET_PAD_CSS,
+  detentCss,
+  detentHeights,
+  playStageCss,
+  snapDetent,
+  type Detent,
+  type SheetAction,
+} from '@/lib/coach/sheet-detent';
 
 interface CoachShellProps {
   /** The context bar. */
   bar: React.ReactNode;
-  /** Over the board (the play strip's coach row); hidden while the sheet is full. */
+  /** Over the board (the play strip's coach row); hidden while the sheet is full. With `peekPx` it flexes into what the board leaves. */
   above?: React.ReactNode;
   /** The board, fluid: it fills the stage's free square. */
   board: React.ReactNode;
@@ -17,6 +26,11 @@ interface CoachShellProps {
   below?: React.ReactNode;
   /** px that `above` + `below` take, so peek leaves the board the full width. */
   stageChrome: number;
+  /**
+   * Play: the peek hugs its content (px, without the bottom pad), the board's
+   * box is sized by `playStageCss` and the coach row (`above`) takes the rest.
+   */
+  peekPx?: number;
   detent: Detent;
   onSheet: (action: SheetAction) => void;
   /** The coach: the chat in its peek / thread view. */
@@ -32,11 +46,23 @@ interface CoachShellProps {
  * measured to lay it out, so the first paint is the final one. A drag
  * measures the shell once, at release, to pick the detent.
  */
-export default function CoachShell({ bar, above, board, below, stageChrome, detent, onSheet, sheet, keyboard }: CoachShellProps) {
+export default function CoachShell({
+  bar,
+  above,
+  board,
+  below,
+  stageChrome,
+  peekPx,
+  detent,
+  onSheet,
+  sheet,
+  keyboard,
+}: CoachShellProps) {
   const t = useTranslations('coach');
   const shellRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
   const full = detent === 'full';
+  const play = peekPx !== undefined;
 
   // While dragged the sheet follows the finger in px; released it snaps to a detent.
   const [dragHeight, setDragHeight] = useState<number | null>(null);
@@ -46,13 +72,16 @@ export default function CoachShell({ bar, above, board, below, stageChrome, dete
   const heights = useCallback(() => {
     const shell = shellRef.current;
     const barEl = shell?.firstElementChild as HTMLElement | null;
+    // The play peek's bottom pad holds the safe area: only the page knows it.
+    const pad = play && sheetRef.current ? parseFloat(getComputedStyle(sheetRef.current).paddingBottom) || 0 : 0;
     return detentHeights({
       height: shell?.clientHeight ?? 0,
       width: shell?.clientWidth ?? 0,
       bar: barEl?.offsetHeight ?? 0,
       stageChrome: full ? 0 : stageChrome,
+      peekPx: play ? peekPx + pad : undefined,
     });
-  }, [full, stageChrome]);
+  }, [full, stageChrome, play, peekPx]);
 
   const onPanStart = () => {
     dragged.current = true;
@@ -69,7 +98,7 @@ export default function CoachShell({ bar, above, board, below, stageChrome, dete
     setDragHeight(null);
   };
 
-  const css = detentCss(stageChrome);
+  const css = detentCss(stageChrome, peekPx);
 
   return (
     <div
@@ -83,8 +112,20 @@ export default function CoachShell({ bar, above, board, below, stageChrome, dete
       {bar}
 
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {!full && above}
-        <div className="relative min-h-0 flex-1">
+        {!full &&
+          (play ? (
+            <div className="flex flex-1 flex-col overflow-hidden" style={{ minHeight: PLAY_COACH_MIN_PX }}>
+              {above}
+            </div>
+          ) : (
+            above
+          ))}
+        <div
+          className={`relative min-h-0 ${play ? '' : 'flex-1'}`}
+          // Play: a fixed box, so a long remark never resizes the board mid-move; the sheet's half and full shrink it.
+          style={play ? { height: playStageCss(peekPx).board } : undefined}
+          data-testid="coach-board-box"
+        >
           {board}
           {full && (
             // The pinned mini-board: one tap brings the board back.
@@ -106,7 +147,11 @@ export default function CoachShell({ bar, above, board, below, stageChrome, dete
         className={`relative z-10 flex shrink-0 flex-col overflow-hidden rounded-t-[22px] border-t border-(--coach-border) bg-(--coach-surface) pb-[env(safe-area-inset-bottom)] shadow-(--coach-shadow) ${
           dragHeight === null ? 'coach-sheet-glide' : ''
         }`}
-        style={{ height: dragHeight === null ? css[detent] : dragHeight }}
+        style={{
+          height: dragHeight === null ? css[detent] : dragHeight,
+          // Play: the action bar keeps clear of the browser's bottom toolbar.
+          paddingBottom: play ? PLAY_SHEET_PAD_CSS : undefined,
+        }}
         data-testid="coach-sheet"
       >
         <motion.button
@@ -133,7 +178,7 @@ export default function CoachShell({ bar, above, board, below, stageChrome, dete
           aria-label={detent === 'peek' ? t('sheetExpand') : t('sheetCollapse')}
           aria-expanded={detent !== 'peek'}
           data-testid="sheet-grabber"
-          className="flex h-11 w-full shrink-0 touch-none cursor-grab items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--coach-accent) active:cursor-grabbing"
+          className={`flex ${play && detent === 'peek' ? 'h-5' : 'h-11'} w-full shrink-0 touch-none cursor-grab items-center justify-center focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--coach-accent) active:cursor-grabbing`}
         >
           <span className="h-[5px] w-[38px] rounded-full bg-(--coach-grabber)" aria-hidden />
         </motion.button>

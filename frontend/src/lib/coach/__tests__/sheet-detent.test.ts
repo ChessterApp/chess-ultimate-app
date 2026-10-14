@@ -4,8 +4,13 @@ import {
   MINI_BOARD_PX,
   MOVE_STRIP_PX,
   PEEK_MIN_PX,
+  PLAY_COACH_MIN_PX,
+  PLAY_COMPOSER_PX,
+  PLAY_PEEK_PX,
+  PLAY_STUDENT_ROW_PX,
   detentCss,
   detentHeights,
+  playStageCss,
   sheetReducer,
   snapDetent,
   type Detent,
@@ -54,6 +59,84 @@ describe('detentCss', () => {
     expect(css.peek).toContain(`${PEEK_MIN_PX}px`);
     expect(css.peek).toContain(`${MOVE_STRIP_PX}px - 100cqw`);
     expect(css.half).toContain('60cqh');
+  });
+});
+
+/** Evaluates one of our CSS lengths for a shell (no safe areas: the pad is its 8 px floor). */
+function cssPx(css: string, { height, width }: { height: number; width: number }): number {
+  const js = css
+    .replace(/max\(env\(safe-area-inset-bottom\), 8px\)/g, '8')
+    .replace(/var\(--coach-bar-h\)/g, String(CONTEXT_BAR_PX))
+    .replace(/100cqh/g, String(height))
+    .replace(/100cqw/g, String(width))
+    .replace(/(\d)cqh/g, `$1*${height / 100}`)
+    .replace(/px/g, '')
+    .replace(/calc\(/g, '(')
+    .replace(/clamp\(/g, 'clamp(')
+    .replace(/\bmin\(/g, 'Math.min(')
+    .replace(/\bmax\(/g, 'Math.max(');
+  const clamp = (lo: number, v: number, hi: number) => Math.min(hi, Math.max(lo, v));
+  return new Function('clamp', `return ${js}`)(clamp) as number;
+}
+
+describe('play peek', () => {
+  const play = { height: 678, width: 393, bar: CONTEXT_BAR_PX, stageChrome: PLAY_STUDENT_ROW_PX + PLAY_COACH_MIN_PX };
+  const pad = 8;
+
+  it('hugs the action bar: far under the 232 floor', () => {
+    const h = detentHeights({ ...play, peekPx: PLAY_PEEK_PX + pad });
+    expect(h.peek).toBe(92);
+    expect(h.peek).toBeLessThan(PEEK_MIN_PX);
+    expect(h.half).toBe(Math.round(678 * 0.6));
+  });
+
+  it('the JS and CSS twins agree on every detent', () => {
+    for (const box of [play, { ...play, height: 560, width: 375 }, { ...play, height: 800, width: 430 }]) {
+      for (const peekPx of [PLAY_PEEK_PX, PLAY_PEEK_PX + PLAY_COMPOSER_PX]) {
+        const js = detentHeights({ ...box, peekPx: peekPx + pad });
+        const css = detentCss(box.stageChrome, peekPx);
+        for (const d of ['peek', 'half', 'full'] as const) expect(Math.abs(cssPx(css[d], box) - js[d])).toBeLessThan(1); // JS rounds half
+      }
+    }
+  });
+
+  it('explore, puzzle and moments keep the 232 floor', () => {
+    expect(detentCss(MOVE_STRIP_PX).peek).toContain(`${PEEK_MIN_PX}px`);
+    expect(detentCss(MOVE_STRIP_PX, PLAY_PEEK_PX).peek).not.toContain(`${PEEK_MIN_PX}px`);
+  });
+});
+
+describe('playStageCss', () => {
+  const stage = (height: number, width: number, peekPx = PLAY_PEEK_PX) => {
+    const css = playStageCss(peekPx);
+    const board = cssPx(css.board, { height, width });
+    const strip = cssPx(css.moveStrip, { height, width });
+    const coach = height - CONTEXT_BAR_PX - (peekPx + 8) - PLAY_STUDENT_ROW_PX - board - strip;
+    return { board, strip, coach };
+  };
+
+  it('a 393×678 phone: a full-width board, the coach row takes the rest', () => {
+    expect(stage(678, 393)).toEqual({ board: 393, strip: 0, coach: 113 });
+  });
+
+  it('chat on: the composer takes from the board, the coach row keeps its minimum', () => {
+    const { board, coach } = stage(678, 393, PLAY_PEEK_PX + PLAY_COMPOSER_PX);
+    expect(board).toBe(354);
+    expect(coach).toBe(PLAY_COACH_MIN_PX);
+  });
+
+  it('an iPhone SE 375×560: the board shrinks first, the coach row keeps 2 lines', () => {
+    const { board, coach } = stage(560, 375);
+    expect(board).toBe(300);
+    expect(coach).toBe(PLAY_COACH_MIN_PX);
+  });
+
+  it('a tall phone 430×800 fills its slack with the move strip', () => {
+    expect(stage(800, 430)).toEqual({ board: 430, strip: MOVE_STRIP_PX, coach: 162 });
+  });
+
+  it('the move strip is whole or gone, never a sliver', () => {
+    for (let h = 678; h < 760; h++) expect([0, MOVE_STRIP_PX]).toContain(stage(h, 393).strip);
   });
 });
 

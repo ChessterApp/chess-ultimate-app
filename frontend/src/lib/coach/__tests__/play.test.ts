@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { GAME_STRENGTHS, eloLevel, moveVerdict, nearestStrengthIndex, oneLineComment, rematchOptions } from '../play';
+import { GAME_STRENGTHS, eloLevel, moveVerdict, coachRemark, nearestStrengthIndex, rematchOptions } from '../play';
 import type { GameStateView } from '../boards-api';
 
 describe('eloLevel', () => {
@@ -50,19 +50,26 @@ describe('rematchOptions', () => {
   });
 });
 
-describe('oneLineComment', () => {
-  it('keeps the first sentence without markdown', () => {
-    expect(oneLineComment('**Рановато** для Ng5. Отвечу d5!')).toBe('Рановато для Ng5.');
+describe('coachRemark', () => {
+  it('keeps every sentence, without markdown', () => {
+    expect(coachRemark('**Рановато** для Ng5. Отвечу d5!\n\nСмотри [сюда](https://x.y).')).toBe(
+      'Рановато для Ng5. Отвечу d5! Смотри сюда.'
+    );
   });
-  it('does not split SAN like 5.Ng5', () => {
-    expect(oneLineComment('After 5.Ng5 the knight is loose. More text')).toBe('After 5.Ng5 the knight is loose.');
+
+  it('caps a long remark at a word boundary', () => {
+    const out = coachRemark('слово '.repeat(200));
+    expect(out.length).toBeLessThanOrEqual(600);
+    expect(out.endsWith('слово…')).toBe(true);
   });
-  it('caps long lines', () => {
-    const out = oneLineComment('a'.repeat(200), 20);
-    expect(out).toHaveLength(20);
-    expect(out.endsWith('…')).toBe(true);
+
+  it('a 300-char remark is kept whole', () => {
+    const text = 'Ты верно развиваешь коня. '.repeat(11).trim();
+    expect(text.length).toBeGreaterThan(280);
+    expect(coachRemark(text)).toBe(text);
   });
-  it('empty in, empty out', () => {
-    expect(oneLineComment('  ')).toBe('');
+
+  it('nothing but markdown is empty', () => {
+    expect(coachRemark('```\ncode\n```')).toBe('');
   });
 });

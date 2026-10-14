@@ -2176,6 +2176,8 @@
     "playTakebackShort": "Take back",
     "playChat": "Chat",
     "playCoachTurn": "Coach's move",
+    "playMoveNumber": "Move {number}",
+    "playCommentMore": "more",
     "playActions": "Game actions",
     "commentsQuietShort": "Quiet",
     "commentsMistakesShort": "Mistakes",

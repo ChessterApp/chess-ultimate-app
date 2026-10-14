@@ -32,20 +32,24 @@ import ViewerMoveList from '@/components/coach/ViewerMoveList';
 import { coachApi, CoachApiError, SESSION_NOT_FOUND, type BoardRecord, type GameStateView } from '@/lib/coach/boards-api';
 import { clearSessionId, loadSessionId, saveSessionId } from '@/lib/coach/session-storage';
 import { coachMode, currentMode, initialCoachMode } from '@/lib/coach/coach-mode';
-import { moveVerdict, oneLineComment, rematchOptions, type GameStartOptions, type MoveVerdict } from '@/lib/coach/play';
+import { coachRemark, moveVerdict, rematchOptions, type GameStartOptions, type MoveVerdict } from '@/lib/coach/play';
 import {
   applyTabActions,
   EMPTY_ANNOTATIONS,
   routeBoardActions,
   type ViewerAnnotations,
 } from '@/lib/coach/route-board-actions';
-import { MOVE_STRIP_PX, sheetReducer } from '@/lib/coach/sheet-detent';
+import {
+  MOVE_STRIP_PX,
+  PLAY_COACH_MIN_PX,
+  PLAY_COMPOSER_PX,
+  PLAY_PEEK_PX,
+  PLAY_STUDENT_ROW_PX,
+  playStageCss,
+  sheetReducer,
+} from '@/lib/coach/sheet-detent';
 import { sanMoves } from '@/lib/coach/move-strip';
 import type { Key } from 'chessground/types';
-
-/** The play strip's rows around the board in the mobile shell (px; the sheet's peek leaves them room). */
-const PLAY_COACH_ROW_PX = 80;
-const PLAY_STUDENT_ROW_PX = 44;
 
 /** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */
 function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: string }): OpenedGame | null {
@@ -797,7 +801,7 @@ export default function CoachPage() {
     setGameError(null);
   }, []);
   const handleAssistantReply = useCallback((text: string) => {
-    if (gameRef.current) setCoachLine(oneLineComment(text) || null);
+    if (gameRef.current) setCoachLine(coachRemark(text) || null);
   }, []);
 
   // The study board's moves for the mobile move strip (the hook keeps positions).
@@ -969,6 +973,7 @@ export default function CoachPage() {
       />
     );
     let stageChrome = MOVE_STRIP_PX;
+    let peekPx: number | undefined;
     if (viewing && activeGameId) {
       const index = gameMoveIndices[activeGameId] ?? -1;
       stageBoard = (
@@ -996,18 +1001,34 @@ export default function CoachPage() {
         />
       );
     } else if (game) {
+      // The sheet hugs the action bar (+ the composer while «Чат» is on); the board
+      // takes the full width and the coach row the rest (see playStageCss).
+      peekPx = PLAY_PEEK_PX + (playChatOpen ? PLAY_COMPOSER_PX : 0);
       above = (
-        <div className="shrink-0 px-2 pt-1 pb-2" style={{ height: PLAY_COACH_ROW_PX }}>
-          <PlayCoachRow game={game} thinking={gameThinking} comment={coachLine} />
-        </div>
-      );
-      belowBoard = (
-        <div className="flex shrink-0 flex-col justify-center px-2" style={{ height: PLAY_STUDENT_ROW_PX }}>
-          <PlayStudentRow game={game} thinking={gameThinking} />
+        <div className="flex h-full flex-col px-2 pt-1 pb-2">
+          <div className="min-h-0 flex-1">
+            <PlayCoachRow
+              game={game}
+              thinking={gameThinking}
+              comment={coachLine}
+              onExpand={() => dispatchSheet({ type: 'snap', detent: 'half' })}
+            />
+          </div>
           {gameErrorLine}
         </div>
       );
-      stageChrome = PLAY_COACH_ROW_PX + PLAY_STUDENT_ROW_PX;
+      belowBoard = (
+        <>
+          {/* Tall phones: the move strip fills the slack; elsewhere its box is 0 tall. */}
+          <div className="shrink-0 overflow-hidden" style={{ height: playStageCss(peekPx).moveStrip }}>
+            {belowBoard}
+          </div>
+          <div className="flex shrink-0 flex-col justify-center px-2" style={{ height: PLAY_STUDENT_ROW_PX }}>
+            <PlayStudentRow game={game} thinking={gameThinking} />
+          </div>
+        </>
+      );
+      stageChrome = PLAY_COACH_MIN_PX + PLAY_STUDENT_ROW_PX;
     }
 
     return (
@@ -1045,6 +1066,7 @@ export default function CoachPage() {
           board={stageBoard}
           below={belowBoard}
           stageChrome={stageChrome}
+          peekPx={peekPx}
           detent={sheetDetent}
           onSheet={dispatchSheet}
           sheet={coachChat}

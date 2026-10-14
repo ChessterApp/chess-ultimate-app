@@ -68,17 +68,16 @@ export function rematchOptions(game: GameStateView, last: GameStartOptions | nul
   return { color: game.student_color, elo: game.engine_elo, comment_mode: game.comment_mode };
 }
 
-/** One short line of a coach answer for the speech bubble: no markdown, first sentence, capped. */
-export function oneLineComment(markdown: string, max = 90): string {
+/** The coach's whole remark for the play bubble: no markdown, every sentence, capped at a word. */
+export function coachRemark(markdown: string, max = 600): string {
   const plain = markdown
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/[*_`#>|]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!plain) return '';
-  // A sentence ends at . ! ? followed by a space — but not inside "5.Ng5" or "e4!?".
-  const end = plain.search(/[.!?…](?=\s+[^\s\d.])/);
-  const first = end >= 0 ? plain.slice(0, end + 1) : plain;
-  return first.length > max ? `${first.slice(0, max - 1).trimEnd()}…` : first;
+  if (plain.length <= max) return plain;
+  const cut = plain.slice(0, max - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > max / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
 }

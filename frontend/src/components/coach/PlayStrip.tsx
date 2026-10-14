@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Flag, Lightbulb, MessageCircle, Undo2, User } from 'lucide-react';
+import { ChevronDown, Flag, Lightbulb, MessageCircle, Undo2, User } from 'lucide-react';
 import type { GameStateView } from '@/lib/coach/boards-api';
 import { eloLevel } from '@/lib/coach/play';
 import CoachAvatar from './CoachAvatar';
@@ -20,7 +20,7 @@ const LEVEL_KEY = {
 interface PlayStripProps {
   game: GameStateView;
   thinking: boolean;
-  /** The coach's latest remark, one line, for the speech bubble. */
+  /** The coach's latest remark for the speech bubble. */
   comment: string | null;
   /** Whether the chat composer is shown (the Chat button toggles it). */
   chatOpen: boolean;
@@ -82,13 +82,23 @@ export default function PlayStrip({
 const coachToMoveOf = (game: GameStateView, thinking: boolean) =>
   game.status !== 'finished' && (thinking || !game.student_to_move);
 
-/** The coach: avatar, strength, a pulse while it moves, and its latest remark as a speech bubble. */
-export function PlayCoachRow({ game, thinking, comment }: Pick<PlayStripProps, 'game' | 'thinking' | 'comment'>) {
+/**
+ * The coach: avatar, strength, a pulse while it moves, and its latest remark
+ * as a speech bubble. With `onExpand` (the mobile shell) the row fills its box,
+ * the bubble takes what is left and a tap on it opens the whole thread.
+ */
+export function PlayCoachRow({
+  game,
+  thinking,
+  comment,
+  onExpand,
+}: Pick<PlayStripProps, 'game' | 'thinking' | 'comment'> & { onExpand?: () => void }) {
   const t = useTranslations('coach');
+  const fill = onExpand !== undefined;
   return (
-    <div className="flex items-start gap-2 px-1">
-      <CoachAvatar size={40} />
-      <div className="min-w-0 flex-1">
+    <div className={`flex items-start gap-2 px-1 ${fill ? 'h-full' : ''}`}>
+      <CoachAvatar size={fill ? 32 : 40} />
+      <div className={`flex min-w-0 flex-1 flex-col ${fill ? 'min-h-0 self-stretch' : ''}`}>
         <div className="flex items-baseline gap-1.5 text-sm">
           <span className="font-semibold text-(--coach-text)">{t('coachLabel')}</span>
           <span className="text-(--coach-muted)">
@@ -98,23 +108,65 @@ export function PlayCoachRow({ game, thinking, comment }: Pick<PlayStripProps, '
             <span className="ml-auto h-2 w-2 shrink-0 animate-pulse rounded-full bg-(--coach-accent)" aria-hidden />
           )}
         </div>
-        {comment && (
-          <p
-            // Speech bubble with a tail pointing at the avatar.
-            className="animate-fade-in relative mt-1 w-fit max-w-full rounded-2xl rounded-tl-sm bg-(--coach-text) px-3 py-1.5 text-sm leading-snug text-(--coach-bg) line-clamp-2"
-            aria-live="polite"
-            data-testid="coach-bubble"
-            key={comment}
-          >
-            {comment}
-          </p>
-        )}
+        {comment && <CoachBubble key={comment} comment={comment} fill={fill} onExpand={onExpand} />}
       </div>
     </div>
   );
 }
 
-/** The student: whose move it is, check. */
+const FADE = 'linear-gradient(to bottom, black calc(100% - 28px), transparent)';
+
+/** Speech bubble with a tail pointing at the avatar; scrolls, fading out (with «more») while text is left below. */
+function CoachBubble({ comment, fill, onExpand }: { comment: string; fill: boolean; onExpand?: () => void }) {
+  const t = useTranslations('coach');
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [more, setMore] = useState(false);
+  const check = useCallback(() => {
+    const el = ref.current;
+    if (el) setMore(el.scrollHeight - el.scrollTop - el.clientHeight > 1);
+  }, []);
+  useLayoutEffect(() => {
+    check();
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [check]);
+
+  return (
+    <div className="animate-fade-in relative mt-1 flex min-h-0 max-w-full flex-col self-start">
+      <p
+        ref={ref}
+        onScroll={check}
+        onClick={onExpand}
+        // Desktop: up to ~5 lines; the shell: whatever the row has left.
+        className={`min-h-0 overflow-y-auto overscroll-contain rounded-2xl rounded-tl-sm bg-(--coach-text) px-3 py-1.5 text-sm leading-snug text-(--coach-bg) ${
+          fill ? 'cursor-pointer' : 'max-h-[6.75rem]'
+        }`}
+        style={more ? { maskImage: FADE, WebkitMaskImage: FADE } : undefined}
+        aria-live="polite"
+        data-testid="coach-bubble"
+        data-overflow={more || undefined}
+      >
+        {comment}
+      </p>
+      {more && onExpand && (
+        <button
+          type="button"
+          onClick={onExpand}
+          data-testid="coach-bubble-more"
+          className="absolute right-2 bottom-1 flex items-center gap-0.5 rounded-full bg-(--coach-text) px-2 text-xs font-semibold text-(--coach-accent) focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--coach-accent)"
+        >
+          {t('playCommentMore')}
+          <ChevronDown size={12} aria-hidden />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The student: whose move it is, check, and the move number. */
 export function PlayStudentRow({ game, thinking }: Pick<PlayStripProps, 'game' | 'thinking'>) {
   const t = useTranslations('coach');
   const finished = game.status === 'finished';
@@ -128,8 +180,8 @@ export function PlayStudentRow({ game, thinking }: Pick<PlayStripProps, 'game' |
 
   return (
     <div className="flex items-center gap-2 px-1 text-sm">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-(--coach-surface-2) text-(--coach-muted)">
-        <User size={16} aria-hidden />
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-(--coach-surface-2) text-(--coach-muted)">
+        <User size={14} aria-hidden />
       </span>
       <span className="font-semibold text-(--coach-text)">{t('youLabel')}</span>
       {status && (
@@ -137,6 +189,9 @@ export function PlayStudentRow({ game, thinking }: Pick<PlayStripProps, 'game' |
           · {status}
         </span>
       )}
+      <span className="ml-auto shrink-0 text-xs text-(--coach-muted)" data-testid="play-move-number">
+        {t('playMoveNumber', { number: Math.floor(game.ply / 2) + 1 })}
+      </span>
     </div>
   );
 }

@@ -3,6 +3,7 @@
  * detents over a full-bleed board.
  *
  * - peek: the latest coach line, chips and the composer; the board keeps the full width.
+ *   In a live game it hugs its content instead (`PLAY_PEEK_PX`: the action bar).
  * - half: the chat history; the board shrinks but stays whole above it.
  * - full: the composer is in use (keyboard open) — the board collapses to a
  *   pinned mini-board; tapping it returns to peek. The board never disappears.
@@ -24,6 +25,18 @@ export const MOVE_STRIP_PX = 36;
 export const MINI_BOARD_PX = 120;
 /** Peek never gets smaller than this (line + chips + composer). */
 export const PEEK_MIN_PX = 232;
+/** The play peek: a 20 px grabber + the action bar (8 pad + 56). */
+export const PLAY_PEEK_PX = 84;
+/** The composer under the action bar while «Чат» is on. */
+export const PLAY_COMPOSER_PX = 64;
+/** The play peek's bottom pad: the safe area, at least 8 px (mobile browsers' bottom toolbars). */
+export const PLAY_SHEET_PAD_CSS = 'max(env(safe-area-inset-bottom), 8px)';
+/** The coach row never gets smaller than this: its name line + 2 bubble lines. */
+export const PLAY_COACH_MIN_PX = 88;
+/** The student's row under the board. */
+export const PLAY_STUDENT_ROW_PX = 32;
+/** Tall phones show the move strip in play when the coach row keeps at least this much after it. */
+export const PLAY_ROOMY_COACH_PX = 124;
 /** Half is this share of the shell's height. */
 export const HALF_RATIO = 0.6;
 /** A release faster than this (px/s) moves one detent in its direction. */
@@ -37,25 +50,48 @@ export interface ShellBox {
   bar: number;
   /** What the stage shows besides the board (move strip, play rows), px. */
   stageChrome: number;
+  /** A content-hugging peek (play), px with its bottom pad; else peek fills what the board leaves. */
+  peekPx?: number;
 }
 
 /** Each detent's sheet height in px for a shell — the JS twin of `detentCss`. */
-export function detentHeights({ height, width, bar, stageChrome }: ShellBox): Record<Detent, number> {
+export function detentHeights({ height, width, bar, stageChrome, peekPx }: ShellBox): Record<Detent, number> {
   const full = Math.max(0, height - bar - MINI_BOARD_PX);
-  const peek = Math.min(full, Math.max(PEEK_MIN_PX, height - bar - stageChrome - width));
+  const peek = Math.min(full, peekPx ?? Math.max(PEEK_MIN_PX, height - bar - stageChrome - width));
   const half = Math.min(full, Math.max(peek, Math.round(height * HALF_RATIO)));
   return { peek, half, full };
 }
 
+/** The play peek's height as CSS: its content plus the bottom pad. */
+const playPeekCss = (peekPx: number) => `calc(${peekPx}px + ${PLAY_SHEET_PAD_CSS})`;
+
 /**
  * The sheet height of each detent as CSS, in the shell's container units.
- * `--coach-bar-h` is the context bar's height with the safe area.
+ * `--coach-bar-h` is the context bar's height with the safe area. `peekPx`
+ * (play) makes peek hug its content; the pad is added here.
  */
-export function detentCss(stageChrome: number): Record<Detent, string> {
+export function detentCss(stageChrome: number, peekPx?: number): Record<Detent, string> {
   const full = `calc(100cqh - var(--coach-bar-h) - ${MINI_BOARD_PX}px)`;
-  const peek = `min(${full}, max(${PEEK_MIN_PX}px, calc(100cqh - var(--coach-bar-h) - ${stageChrome}px - 100cqw)))`;
+  const peek =
+    peekPx === undefined
+      ? `min(${full}, max(${PEEK_MIN_PX}px, calc(100cqh - var(--coach-bar-h) - ${stageChrome}px - 100cqw)))`
+      : `min(${full}, ${playPeekCss(peekPx)})`;
   const half = `min(${full}, max(${peek}, ${HALF_RATIO * 100}cqh))`;
   return { peek, half, full };
+}
+
+/**
+ * The play stage as CSS, for a play peek of `peekPx`: the board's box is the
+ * full width when the coach row keeps its minimum, else what is left; the
+ * coach row flexes into the rest. `moveStrip` is the move strip's height:
+ * 36 px when the coach row stays roomy after it (tall phones), else 0 — a
+ * step, so the strip is whole or gone.
+ */
+export function playStageCss(peekPx: number): { board: string; moveStrip: string } {
+  const rest = `100cqh - var(--coach-bar-h) - ${playPeekCss(peekPx)} - ${PLAY_STUDENT_ROW_PX}px`;
+  const board = `min(100cqw, calc(${rest} - ${PLAY_COACH_MIN_PX}px))`;
+  const slack = `calc(${rest} - ${board} - ${PLAY_ROOMY_COACH_PX + MOVE_STRIP_PX}px)`;
+  return { board, moveStrip: `clamp(0px, calc(${slack} * 1000), ${MOVE_STRIP_PX}px)` };
 }
 
 /**
