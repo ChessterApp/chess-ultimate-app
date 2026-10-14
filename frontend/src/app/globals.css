@@ -1217,6 +1217,9 @@ html.dark .divide-gray-200 > :not(:last-child) { border-color: #333 !important; 
   --coach-danger-soft: rgba(239, 68, 68, 0.14);
   --coach-warning: #f59e0b;
   --coach-info: #eab308;
+  /* The board's squares (chessground brown), for the cards' mini-boards. */
+  --coach-board-light: #f0d9b5;
+  --coach-board-dark: #b58863;
 }
 
 @keyframes coach-fade-in {
