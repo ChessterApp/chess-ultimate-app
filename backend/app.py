@@ -280,11 +280,25 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import game review API: {e}")
 
 try:
+    from routes.email_unsubscribe import email_unsubscribe_bp
+    app.register_blueprint(email_unsubscribe_bp)
+    logger.info("✅ Email unsubscribe API registered (welcome drip)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import email unsubscribe API: {e}")
+
+try:
     from commands.lifecycle_emails_cli import register_cli as register_lifecycle_cli
     register_lifecycle_cli(app)
     logger.info("✅ Lifecycle-emails CLI registered (flask lifecycle-emails send-due)")
 except ImportError as e:
     logger.warning(f"⚠️  Could not register lifecycle-emails CLI: {e}")
+
+try:
+    from commands.welcome_emails_cli import register_cli as register_welcome_cli
+    register_welcome_cli(app)
+    logger.info("✅ Welcome-emails CLI registered (flask welcome-emails send-due)")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not register welcome-emails CLI: {e}")
 
 try:
     from commands.cleanup_deleted_databases import register_cli as register_db_cleanup_cli

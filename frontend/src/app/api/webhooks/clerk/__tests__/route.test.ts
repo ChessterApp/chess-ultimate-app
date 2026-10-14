@@ -19,7 +19,8 @@
  *     so with no coach match the email fallback records no_match.
  *   - Clerk 5xx: non-fatal — the DB link is already committed, so consumption
  *     + success attempt still run and the webhook returns 200.
- *   - Listmonk failure: swallowed.
+ *   - every user.created hands the payload to scheduleWelcomeDrip (which
+ *     skips invite signups itself — see lib/__tests__/welcome-drip.test.ts).
  *
  * The JWT linking logic now lives in the shared `chess-empire-jwt-link` module
  * (reused by the client claim endpoint). Consumption is a duplicate-tolerant
@@ -180,13 +181,10 @@ vi.mock('@/lib/chess-empire-member', () => ({
   getMembershipStateForUser: (...args: unknown[]) => membershipState(...args),
 }));
 
-// ---- Listmonk mock ---------------------------------------------------------
-const createSubscriber = vi.fn();
-const blocklistSubscriber = vi.fn();
-vi.mock('@/lib/listmonk', () => ({
-  createSubscriber: (...args: unknown[]) => createSubscriber(...args),
-  blocklistSubscriber: (...args: unknown[]) => blocklistSubscriber(...args),
-  LISTS: { ALL_USERS: 3, WELCOME_SEQUENCE: 4 },
+// ---- Welcome drip mock -----------------------------------------------------
+const scheduleWelcomeDrip = vi.fn();
+vi.mock('@/lib/welcome-drip', () => ({
+  scheduleWelcomeDrip: (...args: unknown[]) => scheduleWelcomeDrip(...args),
 }));
 
 // ---- CE client mock --------------------------------------------------------
@@ -279,9 +277,8 @@ beforeEach(() => {
     memberId: null,
     role: 'student',
   });
-  createSubscriber.mockReset();
-  createSubscriber.mockResolvedValue({ id: 1, created: true });
-  blocklistSubscriber.mockReset();
+  scheduleWelcomeDrip.mockReset();
+  scheduleWelcomeDrip.mockResolvedValue(undefined);
   findCoaches.mockReset();
   findCoaches.mockResolvedValue([]);
   resetState();
@@ -307,7 +304,10 @@ describe('POST /api/webhooks/clerk — user.created — JWT path', () => {
     const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
     expect(res.status).toBe(200);
 
-    expect(createSubscriber).toHaveBeenCalledTimes(1);
+    expect(scheduleWelcomeDrip).toHaveBeenCalledTimes(1);
+    expect(scheduleWelcomeDrip.mock.calls[0][0]).toMatchObject({
+      unsafe_metadata: { inviteJwt: jwt },
+    });
 
     // Exactly one organization_members upsert with the expected linkage
     const memberUpserts = state.upserts.filter(
@@ -413,8 +413,8 @@ describe('POST /api/webhooks/clerk — user.created — replay', () => {
     expect(replayed).toHaveLength(1);
     expect(replayed[0].attempted_source).toBe('jwt');
 
-    // Listmonk still runs
-    expect(createSubscriber).toHaveBeenCalledTimes(1);
+    // Welcome drip scheduling still runs
+    expect(scheduleWelcomeDrip).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -596,27 +596,6 @@ describe('POST /api/webhooks/clerk — user.created — bubbling / retries', () 
     ).toHaveLength(1);
     expect(attemptsForStatus('success')).toHaveLength(1);
   });
-
-  it('Listmonk failure does not block CE flow', async () => {
-    const jwt = signValidInvite();
-    resetState({
-      tokenRow: { id: 'tok-uuid', revoked_at: null },
-      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
-    });
-    createSubscriber.mockRejectedValue(new Error('listmonk down'));
-    createMembership.mockResolvedValue({});
-
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
-    expect(res.status).toBe(200);
-    expect(
-      state.upserts.filter((u) => u.table === 'organization_members'),
-    ).toHaveLength(1);
-    expect(
-      state.upserts.filter((u) => u.table === 'invite_jwts_consumed'),
-    ).toHaveLength(1);
-    expect(attemptsForStatus('success')).toHaveLength(1);
-    expect(createMembership).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe('POST /api/webhooks/clerk — session.created (sign-in backstop)', () => {
@@ -709,69 +688,5 @@ describe('POST /api/webhooks/clerk — session.created (sign-in backstop)', () =
     expect(
       state.upserts.filter((u) => u.table === 'organization_members'),
     ).toEqual([]);
-  });
-});
-
-describe('POST /api/webhooks/clerk — user.created — subscriber display name fallback', () => {
-  it('prefers the invite JWT first_name over the Clerk profile name', async () => {
-    // Event carries Clerk first/last 'Kirill Ivanov' AND an invite JWT whose
-    // first_name claim is 'Sam' → the JWT wins.
-    const jwt = signValidInvite({ first_name: 'Sam' });
-    resetState({
-      tokenRow: { id: 'tok-uuid', revoked_at: null },
-      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
-    });
-    createMembership.mockResolvedValue({});
-
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
-    expect(res.status).toBe(200);
-    expect(createSubscriber).toHaveBeenCalledTimes(1);
-    expect(createSubscriber.mock.calls[0][1]).toBe('Sam');
-  });
-
-  it('falls back to the Clerk first/last name when the JWT has no name', async () => {
-    // Valid JWT but no first_name claim → Clerk 'Kirill Ivanov'.
-    const jwt = signValidInvite();
-    resetState({
-      tokenRow: { id: 'tok-uuid', revoked_at: null },
-      orgRow: { id: 'org-uuid', clerk_org_id: 'clerk-org-abc' },
-    });
-    createMembership.mockResolvedValue({});
-
-    const res = await POST(makeRequest(makeEvent({ inviteJwt: jwt })));
-    expect(res.status).toBe(200);
-    expect(createSubscriber.mock.calls[0][1]).toBe('Kirill Ivanov');
-  });
-
-  it('falls back to the email local-part when neither JWT nor Clerk name exist', async () => {
-    resetState();
-    const event = {
-      type: 'user.created',
-      data: {
-        id: 'user_noname',
-        email_addresses: [{ id: 'em_1', email_address: 'nameless@example.com' }],
-        primary_email_address_id: 'em_1',
-        first_name: null,
-        last_name: null,
-        unsafe_metadata: {},
-      },
-    };
-    const res = await POST(makeRequest(event));
-    expect(res.status).toBe(200);
-    expect(createSubscriber.mock.calls[0][1]).toBe('nameless');
-  });
-});
-
-describe('POST /api/webhooks/clerk — user.deleted', () => {
-  it('blocklists subscriber by email', async () => {
-    const event = {
-      type: 'user.deleted',
-      data: {
-        email_addresses: [{ email_address: 'gone@example.com' }],
-      },
-    };
-    const res = await POST(makeRequest(event));
-    expect(res.status).toBe(200);
-    expect(blocklistSubscriber).toHaveBeenCalledWith('gone@example.com');
   });
 });

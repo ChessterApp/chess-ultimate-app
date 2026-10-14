@@ -140,11 +140,12 @@ export default function SignUpPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPendingAnswers(readPendingAnswers())
   }, [])
+  // `preferred_locale` picks the welcome-email language (see lib/welcome-drip).
   const unsafeMetadata = {
+    preferred_locale: locale,
     ...(hasValidInvite && inviteJwt ? { inviteJwt } : {}),
     ...(pendingAnswers ? { onboardingAnswers: pendingAnswers } : {}),
   }
-  const hasUnsafeMetadata = Object.keys(unsafeMetadata).length > 0
 
   const heading = isWhiteLabel
     ? `${t('auth.signUpTitle')} · ${branding.name}`
@@ -522,7 +523,7 @@ export default function SignUpPage() {
         )}
 
         <SignUp
-          {...(hasUnsafeMetadata ? { unsafeMetadata } : {})}
+          unsafeMetadata={unsafeMetadata}
           appearance={{
             layout: {
               socialButtonsPlacement: 'bottom',

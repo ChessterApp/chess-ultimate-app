@@ -56,12 +56,7 @@ vi.mock('@/lib/chess-empire-jwt-link', () => ({
   upsertMemberLink: vi.fn(),
   linkMemberViaInviteJwt: vi.fn(),
 }));
-const blocklistSubscriber = vi.fn();
-vi.mock('@/lib/listmonk', () => ({
-  createSubscriber: vi.fn(async () => ({ id: 1, created: true })),
-  blocklistSubscriber: (...a: unknown[]) => blocklistSubscriber(...a),
-  LISTS: { ALL_USERS: 3, WELCOME_SEQUENCE: 4 },
-}));
+vi.mock('@/lib/welcome-drip', () => ({ scheduleWelcomeDrip: vi.fn() }));
 
 const captureServer = vi.fn();
 vi.mock('@/lib/analytics/server', () => ({
@@ -82,14 +77,13 @@ function post(event: unknown) {
 }
 
 function deleted(id = 'user_del') {
-  return { type: 'user.deleted', data: { id, email_addresses: [{ email_address: 'g@x.io' }] } };
+  return { type: 'user.deleted', data: { id } };
 }
 
 beforeEach(() => {
   process.env.CLERK_WEBHOOK_SECRET = 'whsec_test';
   rpcCalls.length = 0;
   captureServer.mockReset();
-  blocklistSubscriber.mockReset();
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
   vi.stubEnv('POSTHOG_PERSONAL_API_KEY', 'phx_test');
@@ -151,7 +145,6 @@ describe('user.deleted → PostHog person delete', () => {
       'https://us.posthog.com/api/projects/7/persons/p-uuid/?delete_events=true',
     );
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: 'DELETE' });
-    expect(blocklistSubscriber).toHaveBeenCalledWith('g@x.io');
     expect(rpcCalls).toEqual([['delete_user_data', { p_clerk_id: 'user_del' }]]);
   });
 

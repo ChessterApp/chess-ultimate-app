@@ -2,7 +2,6 @@ import { Webhook } from 'svix';
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { clerkClient } from '@clerk/nextjs/server';
-import { createSubscriber, blocklistSubscriber, LISTS } from '@/lib/listmonk';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { findCoachesByEmail } from '@/lib/chess-empire-client';
 import { getMembershipStateForUser } from '@/lib/chess-empire-member';
@@ -11,6 +10,7 @@ import { verifyInviteJwt } from '@/lib/invite-jwt';
 import { captureServer } from '@/lib/analytics/server';
 import { deletePostHogPerson } from '@/lib/analytics/person-delete';
 import { ANALYTICS_EVENTS } from '@/lib/analytics/events';
+import { scheduleWelcomeDrip } from '@/lib/welcome-drip';
 
 type ClerkWebhookEvent = {
   type: string;
@@ -99,25 +99,6 @@ async function captureUserSignedUp(data: ClerkUserData): Promise<void> {
     signup_source: 'server',
     $set_once: { signup_date: createdAt.toISOString().slice(0, 10) },
   });
-}
-
-async function syncListmonkUserCreated(data: ClerkUserData): Promise<void> {
-  const primaryEmail = extractPrimaryEmail(data);
-  if (!primaryEmail) {
-    console.warn('[clerk-webhook] user.created with no email, skipping listmonk');
-    return;
-  }
-  // Prefer the invite JWT's name (online members) → Clerk profile name → email
-  // local-part. Never an empty name.
-  const name =
-    extractInviteName(data) || extractName(data) || primaryEmail.split('@')[0];
-  const result = await createSubscriber(
-    primaryEmail,
-    name,
-    [LISTS.ALL_USERS, LISTS.WELCOME_SEQUENCE],
-    { clerk_id: data.id ?? '', source: 'clerk_webhook' },
-  );
-  console.log(`[clerk-webhook] Subscriber ${primaryEmail}: id=${result.id}, new=${result.created}`);
 }
 
 async function tryEmailAutoMatch(
@@ -393,11 +374,7 @@ export async function POST(req: Request) {
     switch (evt.type) {
       case 'user.created': {
         const data = evt.data as ClerkUserData;
-        try {
-          await syncListmonkUserCreated(data);
-        } catch (err) {
-          console.error('[clerk-webhook] Listmonk sync failed:', err);
-        }
+        await scheduleWelcomeDrip(data);
         await captureUserSignedUp(data);
         await completeChessEmpireOnboarding(data);
         break;
@@ -409,28 +386,14 @@ export async function POST(req: Request) {
       }
 
       case 'user.deleted': {
-        const { id: deletedUserId, email_addresses } = evt.data as {
-          id?: string;
-          email_addresses?: { email_address: string }[];
-        };
+        const { id: deletedUserId } = evt.data as { id?: string };
 
-        // DB deletion first and it must succeed — a throw returns 500 so Svix
-        // retries. Listmonk + PostHog below stay best-effort.
+        // DB deletion must succeed — a throw returns 500 so Svix retries. It
+        // also removes the welcome drip rows. PostHog below stays best-effort.
         if (deletedUserId) {
           await cascadeDeleteUserData(deletedUserId);
         } else {
           console.warn('[clerk-webhook] user.deleted with no user id, skipping cascade');
-        }
-
-        const email = email_addresses?.[0]?.email_address;
-        if (email) {
-          try {
-            await blocklistSubscriber(email);
-          } catch (err) {
-            console.error('[clerk-webhook] Listmonk blocklist failed:', err);
-          }
-        } else {
-          console.warn('[clerk-webhook] user.deleted with no email');
         }
 
         // F11 — drop the PostHog person + events (never throws).
