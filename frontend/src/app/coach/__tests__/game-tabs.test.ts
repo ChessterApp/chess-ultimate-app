@@ -8,6 +8,11 @@ const coachChatContent = readFileSync(
   resolve(__dirname, '../../../components/coach/CoachChat.tsx'),
   'utf-8'
 );
+// The conversation (and its game cards) renders in MessageList since the P1 split.
+const messageListContent = readFileSync(
+  resolve(__dirname, '../../../components/coach/MessageList.tsx'),
+  'utf-8'
+);
 
 describe('CoachChat - onOpenGame callback', () => {
   it('accepts onOpenGame prop in interface', () => {
@@ -19,11 +24,13 @@ describe('CoachChat - onOpenGame callback', () => {
   });
 
   it('calls onOpenGame instead of window.open on game click', () => {
-    expect(coachChatContent).toContain('onClick={() => onOpenGame?.(game)}');
+    expect(coachChatContent).toContain('onOpenGame={onOpenGame}');
+    expect(messageListContent).toContain('onClick={() => onOpenGame?.(game)}');
   });
 
   it('does not use window.open for game results', () => {
     expect(coachChatContent).not.toContain('window.open');
+    expect(messageListContent).not.toContain('window.open');
   });
 });
 

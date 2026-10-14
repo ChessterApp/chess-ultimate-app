@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
 import { useCoachBoard } from '@/hooks/useCoachBoard';
 import useOnScreenKeyboard from '@/hooks/useOnScreenKeyboard';
+import useMediaQuery from '@/hooks/useMediaQuery';
 import { useChromeVisibility } from '@/components/ChromeVisibilityContext';
 import CoachBoard from '@/components/coach/CoachBoard';
 import CoachChat, { type CoachChatHandle } from '@/components/coach/CoachChat';
@@ -17,7 +18,10 @@ import type { BoardAction, GameResult } from '@/types/coach';
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
 import CoachSessions from '@/components/coach/CoachSessions';
-import PlayStrip from '@/components/coach/PlayStrip';
+import PlayStrip, { PlayActionBar, PlayCoachRow, PlayStudentRow } from '@/components/coach/PlayStrip';
+import CoachShell from '@/components/coach/CoachShell';
+import ContextBar from '@/components/coach/ContextBar';
+import MoveStrip from '@/components/coach/MoveStrip';
 import PlaySetupSheet from '@/components/coach/PlaySetupSheet';
 import PuzzleFlow, { usePuzzleStep } from '@/components/coach/PuzzleFlow';
 import { VerdictBadge, VerdictToast } from '@/components/coach/VerdictBadge';
@@ -32,7 +36,13 @@ import {
   routeBoardActions,
   type ViewerAnnotations,
 } from '@/lib/coach/route-board-actions';
+import { MOVE_STRIP_PX, sheetReducer } from '@/lib/coach/sheet-detent';
+import { sanMoves } from '@/lib/coach/move-strip';
 import type { Key } from 'chessground/types';
+
+/** The play strip's rows around the board in the mobile shell (px; the sheet's peek leaves them room). */
+const PLAY_COACH_ROW_PX = 80;
+const PLAY_STUDENT_ROW_PX = 44;
 
 /** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */
 function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: string }): OpenedGame | null {
@@ -159,38 +169,26 @@ export default function CoachPage() {
   const gameLive = game?.status === 'playing';
   const chatRef = useRef<CoachChatHandle>(null);
 
-  // Responsive board sizing
-  const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  // ≥ 1024px keeps the split desktop layout (P4 redesigns it); below it the
+  // immersive CoachShell, sized by CSS alone. Only the media query is read.
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
 
-  useEffect(() => {
-    const onResize = () => setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  const snapTo8 = (size: number) => Math.floor(size / 8) * 8;
-
-  // Typing on a phone: the keyboard takes half the screen, so the board and
-  // the app bars step aside and the page pins itself to what is left — the
-  // thread and the input stay visible (live site 2026-09-25: the keyboard
-  // opened and neither the chat nor the typed text could be seen).
+  // The coach is a focus mode on phones: no app NavBar or bottom tab bar while
+  // it is open, exit with ✕ (both bars are md:hidden — the desktop is untouched).
   const keyboard = useOnScreenKeyboard();
-  const typingOnPhone = keyboard.open && windowWidth < 1024;
   const { setChromeHidden } = useChromeVisibility();
   useEffect(() => {
-    setChromeHidden(typingOnPhone);
+    setChromeHidden(true);
     return () => setChromeHidden(false);
-  }, [typingOnPhone, setChromeHidden]);
+  }, [setChromeHidden]);
 
-  // On a phone the page sits between the app's top bar (in the flow above it)
-  // and the fixed bottom navigation. A plain 100dvh pushed the chat input below
-  // the screen edge, under the bottom bar, until the page was scrolled. The
-  // top offset is measured, the bottom bar is 4rem + the safe area.
-  const [pageTop, setPageTop] = useState(0);
-  const measurePageTop = useCallback((el: HTMLDivElement | null) => {
-    if (el) setPageTop(Math.round(el.getBoundingClientRect().top + window.scrollY));
-  }, []);
-  const withBottomNav = windowWidth < 768 && !typingOnPhone;
+  // The mobile coach sheet: peek / half / full (see lib/coach/sheet-detent.ts).
+  const [sheetDetent, dispatchSheet] = useReducer(sheetReducer, 'peek');
+  // A game, a puzzle or a viewed game starting (or ending) shows the board.
+  useEffect(() => dispatchSheet({ type: 'mode_changed' }), [mode]);
+  const [tabsOpen, setTabsOpen] = useState(false);
+
+  const snapTo8 = (size: number) => Math.floor(size / 8) * 8;
 
   // Beside the chat the board gets 55% of what the sidebar leaves, so on a
   // desktop its size follows that area, not the window: a fixed 520 px board
@@ -203,56 +201,21 @@ export default function CoachPage() {
     boardAreaObserver.current = null;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
-      // A hidden column (typing on a phone) measures 0: keep the last size.
       if (el.clientWidth > 0) setBoardArea({ width: el.clientWidth, height: el.clientHeight });
     };
     measure();
     boardAreaObserver.current = new ResizeObserver(measure);
     boardAreaObserver.current.observe(el);
   }, []);
-
-  // On a phone board and chat share one column: sized by width alone the board
-  // left the chat 3 px on a 390x664 viewport (Chrome on an iPhone) and its top
-  // rank slid under the header (2026-09-29). The chat keeps at least a third of
-  // the height; the board takes what is left.
-  const [contentHeight, setContentHeight] = useState(0);
-  const contentObserver = useRef<ResizeObserver | null>(null);
-  const measureContent = useCallback((el: HTMLDivElement | null) => {
-    contentObserver.current?.disconnect();
-    contentObserver.current = null;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-    const measure = () => {
-      if (el.clientHeight > 0) setContentHeight(el.clientHeight);
-    };
-    measure();
-    contentObserver.current = new ResizeObserver(measure);
-    contentObserver.current.observe(el);
-  }, []);
   // Height the mode's strip takes under the board (moves, play rows, step panel).
   const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : 0;
 
+  // Desktop: the mode's strip renders under the board too.
   const responsiveBoardSize = useMemo(() => {
-    if (windowWidth < 1024) {
-      let size: number;
-      if (windowWidth < 400) size = windowWidth - 8;
-      else if (windowWidth < 600) size = windowWidth - 12;
-      else if (windowWidth < 768) size = Math.min(windowWidth - 24, 440);
-      else size = Math.min(windowWidth - 48, 500);
-      if (contentHeight > 0) {
-        const CONTROLS = 44;
-        const PADDING = 16;
-        const chatMin = Math.max(180, Math.round(contentHeight * 0.36));
-        const tabs = openedGames.length > 0 ? 52 : 0;
-        const byHeight = contentHeight - chatMin - CONTROLS - PADDING - tabs - below;
-        size = Math.min(size, Math.max(200, byHeight));
-      }
-      return snapTo8(size);
-    }
     if (!boardArea.width) return 520;
-    // Desktop: the mode's strip renders under the board too.
     const byHeight = boardArea.height ? boardArea.height - 44 - below : 520;
     return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8, byHeight)));
-  }, [windowWidth, boardArea.width, boardArea.height, contentHeight, openedGames.length, below]);
+  }, [boardArea.width, boardArea.height, below]);
 
   // An opened master game: the move list sits beside the board when the board
   // keeps at least MIN_BESIDE px that way, else under it — with the board sized
@@ -263,13 +226,7 @@ export default function CoachPage() {
     const CONTROLS = 56;
     const LIST = 150;
     const MIN_BESIDE = 440;
-    if (windowWidth < 1024 || !boardArea.width) {
-      return {
-        beside: windowWidth >= 1024,
-        size: responsiveBoardSize,
-        panelWidth: windowWidth >= 1024 ? PANEL : responsiveBoardSize,
-      };
-    }
+    if (!boardArea.width) return { beside: true, size: responsiveBoardSize, panelWidth: PANEL };
     const besideSize = Math.min(520, boardArea.width - PANEL - GAP, boardArea.height - CONTROLS - GAP);
     if (besideSize >= MIN_BESIDE) {
       return { beside: true, size: snapTo8(besideSize), panelWidth: PANEL };
@@ -277,7 +234,7 @@ export default function CoachPage() {
     const underSize = Math.min(520, boardArea.width - GAP, boardArea.height - CONTROLS - LIST - 2 * GAP);
     const size = snapTo8(Math.max(280, underSize));
     return { beside: false, size, panelWidth: size };
-  }, [windowWidth, boardArea.width, boardArea.height, responsiveBoardSize]);
+  }, [boardArea.width, boardArea.height, responsiveBoardSize]);
 
   // Redirect unauthenticated users to sign-in
   useEffect(() => {
@@ -804,6 +761,28 @@ export default function CoachPage() {
     if (gameRef.current) setCoachLine(oneLineComment(text) || null);
   }, []);
 
+  // The study board's moves for the mobile move strip (the hook keeps positions).
+  const studyMoves = useMemo(() => sanMoves(board.fens), [board.fens]);
+
+  // The mobile context bar's title: the session's name, or its first question.
+  // Re-read when the sessions sheet closes (it may have been renamed there).
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null);
+  useEffect(() => {
+    if (isDesktop || sessionsOpen) return;
+    if (!sessionId) {
+      setSessionTitle(null);
+      return;
+    }
+    let cancelled = false;
+    void coachApi.listSessions().then((list) => {
+      const current = list?.find((x) => x.id === sessionId);
+      if (!cancelled) setSessionTitle(current ? current.title || current.preview || null : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isDesktop, sessionId, sessionsOpen]);
+
   if (!isLoaded || subscription.loading) {
     return <LoadingScreen isVisible={true} />;
   }
@@ -842,27 +821,199 @@ export default function CoachPage() {
       onNext={board.nextMove}
       onLast={board.lastMove}
       onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
-      boardSize={responsiveBoardSize}
+      // Phones: fluid — the shell's CSS sizes the board's box.
+      boardSize={isDesktop ? responsiveBoardSize : undefined}
     />
   );
 
+  const viewerTabs = openedGames.map((g) => ({
+    id: g.id,
+    title: `${g.white} vs ${g.black}`,
+    subtitle: [g.result, g.event, g.date].filter(Boolean).join(' · '),
+  }));
+
+  const playActions = game && {
+    game,
+    thinking: gameThinking,
+    chatOpen: playChatOpen,
+    onHint: () => chatRef.current?.send(t('hintMessage')),
+    onTakeback: () => void handleGameTakeback(),
+    onResign: () => void handleGameResign(),
+    onToggleChat: () => setPlayChatOpen((open) => !open),
+    onReview: () => chatRef.current?.send(t('reviewMessage')),
+    onRematch: () => void handleStartGame(rematchOptions(game, lastGameOptions)),
+    onClose: handleGameClose,
+  };
+
+  const puzzleFlow = onPuzzle && board.puzzleState && (
+    <PuzzleFlow
+      controls={puzzle}
+      puzzle={board.puzzleState}
+      onAsk={(message) => chatRef.current?.send(message)}
+      onNextPuzzle={() => chatRef.current?.send(t('promptPuzzle'))}
+      onExit={() => board.applyBoardAction({ type: 'set_fen', fen: board.fen })}
+    />
+  );
+
+  const gameErrorLine = gameError && !gameDialogOpen && (
+    <div className="text-xs text-(--coach-danger)" role="alert" data-testid="game-error">
+      {gameError}
+    </div>
+  );
+
+  const playSetup = gameDialogOpen && (
+    <PlaySetupSheet
+      busy={gameThinking}
+      initial={lastGameOptions}
+      error={gameError}
+      onStart={(options) => void handleStartGame(options)}
+      onCancel={closeGameDialog}
+    />
+  );
+
+  const coachChat = (
+    <CoachChat
+      ref={chatRef}
+      currentFen={chatFen}
+      currentPgn={board.pgn}
+      sessionId={sessionId}
+      boardId={activeBoardId && !activeBoardId.startsWith('local-') ? activeBoardId : null}
+      restoreHistory
+      onBoardActions={handleBoardActions}
+      onSessionCreated={handleSessionCreated}
+      onActiveBoardChanged={handleActiveBoardChanged}
+      onOpenGame={handleOpenGame}
+      game={game}
+      composerHidden={gameLive && !playChatOpen}
+      onAssistantReply={handleAssistantReply}
+      // Phones: the sheet hosts the chat — its peek, the game's actions or the puzzle's steps.
+      view={!isDesktop && sheetDetent === 'peek' ? 'peek' : 'thread'}
+      onExpand={() => dispatchSheet({ type: 'expand' })}
+      onComposerFocus={isDesktop ? undefined : () => dispatchSheet({ type: 'composer_focus' })}
+      footer={isDesktop ? undefined : playActions ? <PlayActionBar {...playActions} /> : puzzleFlow || undefined}
+    />
+  );
+
+  if (!isDesktop) {
+    const viewing = activeGameId ? activeGame : null;
+    const modeLabel = {
+      explore: t('modeExplore'),
+      play: t('gameDialogTitle'),
+      puzzle: t('puzzleTitle'),
+      viewer: t('modeViewer'),
+    }[mode];
+    const subtitle =
+      openedGames.length > 0 ? `${modeLabel} · ${t('boardsCount', { count: openedGames.length + 1 })}` : modeLabel;
+
+    let stageBoard: React.ReactNode = studyBoard;
+    let above: React.ReactNode = null;
+    let belowBoard: React.ReactNode = (
+      <MoveStrip
+        moves={studyMoves}
+        currentIndex={board.moveIndex - 1}
+        onJump={(i) => board.goToMove(i + 1)}
+        onPrev={board.prevMove}
+        onNext={board.nextMove}
+      />
+    );
+    let stageChrome = MOVE_STRIP_PX;
+    if (viewing && activeGameId) {
+      const index = gameMoveIndices[activeGameId] ?? -1;
+      stageBoard = (
+        <CoachBoard
+          fen={index === -1 ? viewing.startingFen : viewing.fens[index]}
+          arrows={viewerAnnotations.arrows as Array<{ from: Key; to: Key; brush: string }>}
+          highlights={viewerAnnotations.highlights as Key[]}
+          orientation={board.orientation}
+          onMove={() => {}}
+          onReset={() => jumpTab(activeGameId, () => -1)}
+          onFirst={() => jumpTab(activeGameId, () => -1)}
+          onPrev={() => jumpTab(activeGameId, (i) => Math.max(-1, i - 1))}
+          onNext={() => jumpTab(activeGameId, (i) => Math.min(viewing.moves.length - 1, i + 1))}
+          onLast={() => jumpTab(activeGameId, () => viewing.moves.length - 1)}
+          onFlip={() => board.applyBoardAction({ type: 'flip_board' })}
+        />
+      );
+      belowBoard = (
+        <MoveStrip
+          moves={viewing.moves}
+          currentIndex={index}
+          onJump={(i) => jumpTab(activeGameId, () => i)}
+          onPrev={() => jumpTab(activeGameId, (i) => Math.max(-1, i - 1))}
+          onNext={() => jumpTab(activeGameId, (i) => Math.min(viewing.moves.length - 1, i + 1))}
+        />
+      );
+    } else if (game) {
+      above = (
+        <div className="shrink-0 px-2 pt-1 pb-2" style={{ height: PLAY_COACH_ROW_PX }}>
+          <PlayCoachRow game={game} thinking={gameThinking} comment={coachLine} />
+        </div>
+      );
+      belowBoard = (
+        <div className="flex shrink-0 flex-col justify-center px-2" style={{ height: PLAY_STUDENT_ROW_PX }}>
+          <PlayStudentRow game={game} thinking={gameThinking} />
+          {gameErrorLine}
+        </div>
+      );
+      stageChrome = PLAY_COACH_ROW_PX + PLAY_STUDENT_ROW_PX;
+    }
+
+    return (
+      <div data-testid="coach-page" data-mode={mode}>
+        <CoachShell
+          bar={
+            <ContextBar
+              title={sessionTitle || t('title')}
+              subtitle={subtitle}
+              sessionsOpen={sessionsOpen}
+              onOpenSessions={() => setSessionsOpen(true)}
+              trailing={
+                openedGames.length > 0 && (
+                  <ViewerTabsSheet
+                    compact
+                    tabs={viewerTabs}
+                    activeId={activeGameId}
+                    onSelect={selectTab}
+                    onClose={handleCloseGame}
+                    open={tabsOpen}
+                    onOpenChange={setTabsOpen}
+                  />
+                )
+              }
+              menu={{
+                onPlay: gameLive ? null : () => setGameDialogOpen(true),
+                onImport: () => chatRef.current?.openAttach(),
+                onFlip: () => board.applyBoardAction({ type: 'flip_board' }),
+                onBoardTabs: openedGames.length > 0 ? () => setTabsOpen(true) : null,
+                onNewSession: handleNewSession,
+              }}
+            />
+          }
+          above={above}
+          board={stageBoard}
+          below={belowBoard}
+          stageChrome={stageChrome}
+          detent={sheetDetent}
+          onSheet={dispatchSheet}
+          sheet={coachChat}
+          keyboard={keyboard}
+        />
+        {sessionsOpen && (
+          <CoachSessions
+            variant="sheet"
+            currentSessionId={sessionId}
+            onSelect={handleSelectSession}
+            onNew={handleNewSession}
+            onClose={() => setSessionsOpen(false)}
+          />
+        )}
+        {playSetup}
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col"
-      ref={measurePageTop}
-      style={
-        typingOnPhone
-          ? {
-              position: 'fixed', left: 0, right: 0, top: keyboard.top, height: keyboard.height, zIndex: 40,
-              background: 'var(--coach-bg)', // the layout's colour — pinned, the page no longer sits on it
-            }
-          : withBottomNav
-            ? { height: `calc(100dvh - ${pageTop}px - 4rem - env(safe-area-inset-bottom))` }
-            : undefined
-      }
-      data-testid="coach-page"
-      data-mode={mode}
-    >
+    <div className="h-screen supports-[height:100dvh]:h-[100dvh] flex flex-col" data-testid="coach-page" data-mode={mode}>
       {/* Header */}
       <header className="flex items-center justify-between gap-2 px-2 sm:px-4 py-1.5 sm:py-2 border-b border-white/10">
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
@@ -918,33 +1069,16 @@ export default function CoachPage() {
         </div>
       </header>
 
-      {gameDialogOpen && (
-        <PlaySetupSheet
-          busy={gameThinking}
-          initial={lastGameOptions}
-          error={gameError}
-          onStart={(options) => void handleStartGame(options)}
-          onCancel={closeGameDialog}
-        />
-      )}
+      {playSetup}
 
       {/* Main content: Board + Chat split */}
-      <div ref={measureContent} className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Board panel */}
-        <div className={`lg:w-[55%] flex flex-col p-2 sm:p-4 relative ${typingOnPhone ? 'hidden' : ''}`}>
+        <div className="lg:w-[55%] flex flex-col p-2 sm:p-4 relative">
           {openedGames.length > 0 && (
             // Opened games: one stack chip; the sheet lists, switches and closes them.
             <div className="flex justify-center pb-2">
-              <ViewerTabsSheet
-                tabs={openedGames.map((g) => ({
-                  id: g.id,
-                  title: `${g.white} vs ${g.black}`,
-                  subtitle: [g.result, g.event, g.date].filter(Boolean).join(' · '),
-                }))}
-                activeId={activeGameId}
-                onSelect={selectTab}
-                onClose={handleCloseGame}
-              />
+              <ViewerTabsSheet tabs={viewerTabs} activeId={activeGameId} onSelect={selectTab} onClose={handleCloseGame} />
             </div>
           )}
           <div ref={measureBoardArea} className="flex-1 min-h-0 flex items-center justify-center">
@@ -980,38 +1114,15 @@ export default function CoachPage() {
               </div>
             ) : game ? (
               <div className="flex flex-col items-center gap-1">
-                <PlayStrip
-                  game={game}
-                  thinking={gameThinking}
-                  comment={coachLine}
-                  chatOpen={playChatOpen}
-                  width={responsiveBoardSize}
-                  onHint={() => chatRef.current?.send(t('hintMessage'))}
-                  onTakeback={() => void handleGameTakeback()}
-                  onResign={() => void handleGameResign()}
-                  onToggleChat={() => setPlayChatOpen((open) => !open)}
-                  onReview={() => chatRef.current?.send(t('reviewMessage'))}
-                  onRematch={() => void handleStartGame(rematchOptions(game, lastGameOptions))}
-                  onClose={handleGameClose}
-                >
+                <PlayStrip comment={coachLine} width={responsiveBoardSize} {...playActions!}>
                   {studyBoard}
                 </PlayStrip>
-                {gameError && !gameDialogOpen && (
-                  <div className="text-xs text-(--coach-danger)" role="alert" data-testid="game-error">
-                    {gameError}
-                  </div>
-                )}
+                {gameErrorLine}
               </div>
-            ) : onPuzzle && board.puzzleState ? (
+            ) : puzzleFlow ? (
               <div className="flex flex-col items-center gap-2" style={{ width: responsiveBoardSize }}>
                 {studyBoard}
-                <PuzzleFlow
-                  controls={puzzle}
-                  puzzle={board.puzzleState}
-                  onAsk={(message) => chatRef.current?.send(message)}
-                  onNextPuzzle={() => chatRef.current?.send(t('promptPuzzle'))}
-                  onExit={() => board.applyBoardAction({ type: 'set_fen', fen: board.fen })}
-                />
+                {puzzleFlow}
               </div>
             ) : (
               studyBoard
@@ -1021,21 +1132,7 @@ export default function CoachPage() {
 
         {/* Chat panel */}
         <div className="flex-1 lg:flex-none lg:w-[45%] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col min-h-0">
-          <CoachChat
-            ref={chatRef}
-            currentFen={chatFen}
-            currentPgn={board.pgn}
-            sessionId={sessionId}
-            boardId={activeBoardId && !activeBoardId.startsWith('local-') ? activeBoardId : null}
-            restoreHistory
-            onBoardActions={handleBoardActions}
-            onSessionCreated={handleSessionCreated}
-            onActiveBoardChanged={handleActiveBoardChanged}
-            onOpenGame={handleOpenGame}
-            game={game}
-            composerHidden={gameLive && !playChatOpen}
-            onAssistantReply={handleAssistantReply}
-          />
+          {coachChat}
         </div>
       </div>
     </div>
