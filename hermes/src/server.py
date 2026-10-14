@@ -101,6 +101,7 @@ from src.voice_metrics import (
 )
 from src.voice_quota import voice_quota_ledger
 from src.voice_engine_note import engine_note
+from src.transcript_sweep import delete_session_files
 from src.board_markup import MarkupFilter, strip_markup, prune_arrows
 
 # Set HERMES_HOME so the agent picks up the chess coach profile
@@ -3840,6 +3841,8 @@ async def coach_delete_session(session_id: str, request: Request):
     user_id = _get_user_id(request)
     if not session_store.delete(session_id, user_id):
         raise HTTPException(status_code=404, detail="Session not found")
+    # Also drop the agent's on-disk transcript (UUID ids only; best effort).
+    await asyncio.to_thread(delete_session_files, session_id)
     return {"deleted": session_id}
 
 
