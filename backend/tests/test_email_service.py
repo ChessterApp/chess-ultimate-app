@@ -127,3 +127,19 @@ class TestSendInviteEmail:
                 org_id='org-1', to_email='kid@x.com', role='student'
             )
             assert 'almaty.chesster.io/sign-up?invite=kid@x.com' in captured['body']['html']
+
+
+def test_post_json_sends_custom_user_agent():
+    """Cloudflare in front of Resend 403s the default Python-urllib UA."""
+    from unittest.mock import MagicMock, patch
+    from services import email as email_svc
+
+    resp = MagicMock()
+    resp.read.return_value = b'{"id": "abc"}'
+    resp.__enter__.return_value = resp
+    with patch('services.email.urllib.request.urlopen', return_value=resp) as mock_open:
+        out = email_svc._post_json('https://api.resend.com/emails', {'Authorization': 'Bearer x'}, {'a': 1})
+    req = mock_open.call_args[0][0]
+    assert out == {'id': 'abc'}
+    assert req.get_header('User-agent') == email_svc.USER_AGENT
+    assert req.get_header('Authorization') == 'Bearer x'

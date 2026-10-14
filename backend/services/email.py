@@ -108,11 +108,16 @@ def _render_html(org: dict[str, Any], invite_link: str, role: str) -> str:
 </body></html>"""
 
 
+# Resend sits behind Cloudflare, which rejects the default ``Python-urllib``
+# User-Agent with 403 (error code 1010). Always send our own.
+USER_AGENT = 'chesster-backend/1.0'
+
+
 def _post_json(url: str, headers: dict[str, str], body: dict[str, Any]) -> dict[str, Any]:
     req = urllib.request.Request(
         url,
         data=json.dumps(body).encode('utf-8'),
-        headers=headers,
+        headers={'User-Agent': USER_AGENT, **headers},
         method='POST',
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
