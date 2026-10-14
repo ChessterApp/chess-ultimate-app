@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
     session_id?: string;
     context_note?: string;
     board_id?: string;
+    review_game_id?: string;
   };
   try {
     body = await request.json();
@@ -91,6 +92,9 @@ export async function POST(request: NextRequest) {
             // the session's last active board, not the one on screen.
             board_id:
               typeof body.board_id === 'string' && body.board_id ? body.board_id : undefined,
+            // The daily plan's «review my last game»: Hermes loads that saved game and reviews it.
+            review_game_id:
+              typeof body.review_game_id === 'string' && body.review_game_id ? body.review_game_id : undefined,
           }),
           signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });

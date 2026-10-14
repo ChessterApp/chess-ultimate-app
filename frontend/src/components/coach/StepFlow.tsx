@@ -19,45 +19,72 @@ export interface StepFeedback {
 
 interface StepFlowProps {
   title: string;
+  /** Replaces «Шаг N из M» under the title (e.g. «Момент 4 из 10»). */
+  stepLabel?: string;
   state: StepFlowState;
   /** The question for the current step. */
   prompt: string;
   /** What to show once the step was checked (correct / wrong). */
   feedback?: StepFeedback | null;
   onHint?: () => void;
+  /** «Спросить»: a question about the step goes to the chat. With it, hint and ask sit on their own row. */
+  onAsk?: () => void;
   onUndo?: () => void;
   onCheck: () => void;
   onRetry: () => void;
   onNext: () => void;
   onFollowUp?: (message: string) => void;
   onClose?: () => void;
+  /** The ✕ button's label (default «Выйти из задачи»). */
+  closeLabel?: string;
 }
 
 const focusRing =
   'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--coach-accent)';
+const secondaryButton = `flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 truncate rounded-xl border border-(--coach-border) px-3 text-sm text-(--coach-text) transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40 ${focusRing}`;
 
 /**
  * A guided step (question → move on the board → «Проверить» → feedback →
- * «Дальше»). Generic: puzzles use it now, game-review moments later. The host
+ * «Дальше»). Generic: puzzles and the game review's «Моменты» use it. The host
  * owns the board and feeds `state` from useStepFlow.
  */
 export default function StepFlow({
   title,
+  stepLabel,
   state,
   prompt,
   feedback,
   onHint,
+  onAsk,
   onUndo,
   onCheck,
   onRetry,
   onNext,
   onFollowUp,
   onClose,
+  closeLabel,
 }: StepFlowProps) {
   const t = useTranslations('coach');
   const { phase, total } = state;
   const step = Math.min(state.index, total - 1);
   const checked = phase === 'correct' || phase === 'wrong';
+  const hintButton = onHint && (
+    <button type="button" onClick={onHint} disabled={phase === 'checking'} className={secondaryButton}>
+      <Lightbulb size={16} aria-hidden />
+      {t('gameHint')}
+    </button>
+  );
+  const undoButton = onUndo && phase === 'moved' && (
+    <button
+      type="button"
+      onClick={onUndo}
+      aria-label={t('stepUndo')}
+      title={t('stepUndo')}
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-(--coach-border) text-(--coach-muted) transition-colors hover:bg-white/5 hover:text-(--coach-text) ${focusRing}`}
+    >
+      <RotateCcw size={16} aria-hidden />
+    </button>
+  );
 
   return (
     <section
@@ -73,7 +100,7 @@ export default function StepFlow({
             {title}
           </h2>
           {total > 1 && (
-            <p className="text-xs text-(--coach-muted)">{t('stepOf', { n: step + 1, total })}</p>
+            <p className="text-xs text-(--coach-muted)">{stepLabel ?? t('stepOf', { n: step + 1, total })}</p>
           )}
         </div>
         {total > 1 && <ProgressDots index={step} total={total} done={phase === 'correct'} label={t('stepProgress')} />}
@@ -81,7 +108,7 @@ export default function StepFlow({
           <button
             type="button"
             onClick={onClose}
-            aria-label={t('puzzleExit')}
+            aria-label={closeLabel ?? t('puzzleExit')}
             className={`-mr-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-(--coach-muted) hover:bg-white/5 hover:text-(--coach-text) ${focusRing}`}
           >
             <X size={18} aria-hidden />
@@ -100,28 +127,21 @@ export default function StepFlow({
           <p className="text-xs text-(--coach-muted)" aria-live="polite">
             {phase === 'checking' ? t('stepChecking') : phase === 'moved' ? t('stepMoved') : t('stepMakeMove')}
           </p>
-          <div className="mt-2 flex gap-2">
-            {onHint && (
-              <button
-                type="button"
-                onClick={onHint}
-                disabled={phase === 'checking'}
-                className={`flex min-h-11 flex-1 items-center justify-center gap-1.5 truncate rounded-xl border border-(--coach-border) px-3 text-sm text-(--coach-text) transition-colors hover:bg-white/5 active:bg-white/10 disabled:opacity-40 ${focusRing}`}
-              >
-                <Lightbulb size={16} aria-hidden />
-                {t('gameHint')}
-              </button>
-            )}
-            {onUndo && phase === 'moved' && (
-              <button
-                type="button"
-                onClick={onUndo}
-                aria-label={t('stepUndo')}
-                title={t('stepUndo')}
-                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-(--coach-border) text-(--coach-muted) transition-colors hover:bg-white/5 hover:text-(--coach-text) ${focusRing}`}
-              >
-                <RotateCcw size={16} aria-hidden />
-              </button>
+          <div className={`mt-2 flex gap-2 ${onAsk ? 'flex-col' : ''}`}>
+            {onAsk ? (
+              <div className="flex gap-2">
+                {hintButton}
+                <button type="button" onClick={onAsk} disabled={phase === 'checking'} className={secondaryButton}>
+                  <MessageCircle size={16} aria-hidden />
+                  {t('stepAsk')}
+                </button>
+                {undoButton}
+              </div>
+            ) : (
+              <>
+                {hintButton}
+                {undoButton}
+              </>
             )}
             <button
               type="button"

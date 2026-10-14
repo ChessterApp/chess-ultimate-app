@@ -5,8 +5,11 @@
  *
  * `parseToolSummary` is the runtime guard: anything that is not one of the
  * known kinds in a usable shape gives null, so a newer server never breaks an
- * older client.
+ * older client. `parseDailyPlan` guards the home screen's plan
+ * (GET /api/coach/daily-plan, hermes/src/daily_plan.py) the same way.
  */
+
+import { Chess } from 'chess.js';
 
 export type Score = { eval_cp: number; mate?: undefined } | { mate: number; eval_cp?: undefined };
 
@@ -55,12 +58,37 @@ export interface CriticalMomentsSummary {
   moments: Array<{ ply: number; san: string; eval_before: number; eval_after: number; label: string }>;
 }
 
+/** One step of the «Моменты» review (hermes/src/review_moments.py). */
+export interface ReviewMoment {
+  /** 1-based ply of the move played. */
+  ply: number;
+  /** The position before the move; the side to move is the player who erred. */
+  fen: string;
+  /** The move played and the better one, SAN; `best_uci` is what a board move is checked against. */
+  played: string;
+  best: string;
+  best_uci: string;
+  /** Short slug: mate, fork, discovered_attack, pin, skewer, hanging_piece. */
+  motif?: string;
+  question: string;
+  explanation: string;
+  eval_before?: number;
+  eval_after?: number;
+}
+
+export interface ReviewMomentsSummary {
+  kind: 'review_moments';
+  game: { white: string; black: string; result?: string; id?: number | string };
+  moments: ReviewMoment[];
+}
+
 export type ToolSummary =
   | EngineLineSummary
   | GameListSummary
   | OpeningSummary
   | PuzzleSummary
-  | CriticalMomentsSummary;
+  | CriticalMomentsSummary
+  | ReviewMomentsSummary;
 
 export type ToolSummaryKind = ToolSummary['kind'];
 
@@ -162,6 +190,50 @@ function criticalMoments(o: Obj): CriticalMomentsSummary | null {
   return moments.length ? { kind: 'critical_moments', moments } : null;
 }
 
+const UCI_RE = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
+
+/** A moment whose better move is legal in its position (the board checks the student's move against it). */
+function reviewMoment(m: Obj): ReviewMoment | null {
+  if (!isNum(m.ply) || !isStr(m.fen) || !isStr(m.played) || !isStr(m.best) || !isStr(m.best_uci)) return null;
+  if (!isStr(m.question) || !isStr(m.explanation) || !UCI_RE.test(m.best_uci)) return null;
+  try {
+    const chess = new Chess(m.fen);
+    chess.move({ from: m.best_uci.slice(0, 2), to: m.best_uci.slice(2, 4), promotion: m.best_uci[4] });
+  } catch {
+    return null;
+  }
+  return compact({
+    ply: m.ply,
+    fen: m.fen,
+    played: m.played,
+    best: m.best,
+    best_uci: m.best_uci,
+    motif: optStr(m.motif),
+    question: m.question,
+    explanation: m.explanation,
+    eval_before: optNum(m.eval_before),
+    eval_after: optNum(m.eval_after),
+  });
+}
+
+function reviewMoments(o: Obj): ReviewMomentsSummary | null {
+  if (!isObj(o.game) || !Array.isArray(o.moments)) return null;
+  const g = o.game;
+  const moments = o.moments
+    .filter(isObj)
+    .map(reviewMoment)
+    .filter((m): m is ReviewMoment => m !== null)
+    .slice(0, MAX_MOMENTS);
+  if (!moments.length) return null;
+  const game = compact({
+    white: optStr(g.white) ?? '?',
+    black: optStr(g.black) ?? '?',
+    result: optStr(g.result),
+    id: isNum(g.id) || isStr(g.id) ? (g.id as number | string) : undefined,
+  });
+  return { kind: 'review_moments', game, moments };
+}
+
 /** A known, well-formed summary — or null (unknown kind, junk, missing fields). */
 export function parseToolSummary(value: unknown): ToolSummary | null {
   if (!isObj(value)) return null;
@@ -176,6 +248,8 @@ export function parseToolSummary(value: unknown): ToolSummary | null {
       return puzzle(value);
     case 'critical_moments':
       return criticalMoments(value);
+    case 'review_moments':
+      return reviewMoments(value);
     default:
       return null;
   }
@@ -202,4 +276,59 @@ export function numberedLine(fen: string, san: string[]): string {
     white = !white;
   });
   return out.join(' ');
+}
+
+export type DailyPlanCard =
+  | { type: 'review_last_game'; game_id: string; title: string; moments_count?: number }
+  /** No theme: puzzles on any theme. `stat`: reviewed games with a blunder on the theme, of how many. */
+  | { type: 'weak_spot'; puzzles: number; theme?: string; stat?: { games_with: number; games: number } }
+  | { type: 'opening_lesson'; eco: string; name: string }
+  | { type: 'play_coach'; level?: number };
+
+export interface DailyPlan {
+  kind: 'daily_plan';
+  greeting_name?: string;
+  cards: DailyPlanCard[];
+}
+
+const MAX_PLAN_CARDS = 4;
+
+function planCard(c: Obj): DailyPlanCard | null {
+  switch (c.type) {
+    case 'review_last_game':
+      if (!isStr(c.game_id) || !isStr(c.title)) return null;
+      return compact({
+        type: 'review_last_game' as const,
+        game_id: c.game_id,
+        title: c.title,
+        moments_count: isNum(c.moments_count) && c.moments_count >= 0 ? c.moments_count : undefined,
+      });
+    case 'weak_spot': {
+      if (!isNum(c.puzzles) || c.puzzles < 1) return null;
+      const s = isObj(c.stat) ? c.stat : null;
+      const stat =
+        s && isNum(s.games_with) && isNum(s.games) && s.games_with > 0 && s.games_with <= s.games
+          ? { games_with: s.games_with, games: s.games }
+          : undefined;
+      return compact({ type: 'weak_spot' as const, puzzles: c.puzzles, theme: optStr(c.theme), stat });
+    }
+    case 'opening_lesson':
+      return isStr(c.eco) && isStr(c.name) ? { type: 'opening_lesson', eco: c.eco, name: c.name } : null;
+    case 'play_coach':
+      return compact({ type: 'play_coach' as const, level: optNum(c.level) });
+    default:
+      return null;
+  }
+}
+
+/** The home screen's plan — or null (junk, or no card this client knows). */
+export function parseDailyPlan(value: unknown): DailyPlan | null {
+  if (!isObj(value) || value.kind !== 'daily_plan' || !Array.isArray(value.cards)) return null;
+  const cards = value.cards
+    .filter(isObj)
+    .map(planCard)
+    .filter((c): c is DailyPlanCard => c !== null)
+    .slice(0, MAX_PLAN_CARDS);
+  if (!cards.length) return null;
+  return compact({ kind: 'daily_plan' as const, greeting_name: optStr(value.greeting_name), cards });
 }

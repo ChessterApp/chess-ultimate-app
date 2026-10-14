@@ -57,4 +57,10 @@ describe('POST /api/coach/chat — upstream body', () => {
     const sent = await upstreamBody({ message: 'hi' });
     expect(sent).not.toHaveProperty('board_id');
   });
+
+  it('forwards review_game_id (a string only)', async () => {
+    expect(await upstreamBody({ message: 'review', review_game_id: 'g-1' })).toMatchObject({ review_game_id: 'g-1' });
+    fetchMock.mockClear();
+    expect(await upstreamBody({ message: 'review', review_game_id: 7 })).not.toHaveProperty('review_game_id');
+  });
 });

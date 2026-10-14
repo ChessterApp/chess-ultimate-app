@@ -8,7 +8,7 @@
  * a master game).
  */
 
-export type CoachMode = 'explore' | 'play' | 'puzzle' | 'viewer';
+export type CoachMode = 'explore' | 'play' | 'puzzle' | 'moments' | 'viewer';
 type BaseMode = Exclude<CoachMode, 'viewer'>;
 
 export interface CoachModeState {
@@ -22,6 +22,9 @@ export type CoachModeEvent =
   | { type: 'game_closed' }
   | { type: 'puzzle_started' }
   | { type: 'puzzle_ended' }
+  /** «Моменты»: a game review replayed step by step on the study board. */
+  | { type: 'moments_started' }
+  | { type: 'moments_ended' }
   | { type: 'view_tab'; id: string }
   | { type: 'view_study' }
   | { type: 'tab_closed'; id: string }
@@ -41,6 +44,11 @@ export function coachMode(state: CoachModeState, event: CoachModeEvent): CoachMo
       return state.base === 'play' ? state : { ...state, base: 'puzzle' };
     case 'puzzle_ended':
       return state.base === 'puzzle' ? { ...state, base: 'explore' } : state;
+    case 'moments_started':
+      // Like a puzzle: not over a live game; the study board comes to the front.
+      return state.base === 'play' ? state : { base: 'moments', viewerId: null };
+    case 'moments_ended':
+      return state.base === 'moments' ? { ...state, base: 'explore' } : state;
     case 'view_tab':
       return state.viewerId === event.id ? state : { ...state, viewerId: event.id };
     case 'view_study':

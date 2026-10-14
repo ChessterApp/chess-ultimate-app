@@ -779,6 +779,57 @@ class TestCoachChatToolFrames:
         }
 
 
+    @patch("src.tools.critical_moments.find_critical_moments")
+    @patch("src.tools.user_data.get_user_game_pgn")
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_review_game_id_sends_review_moments(self, mock_profile, mock_agent, mock_pgn, mock_scan):
+        """The daily plan's «review my last game»: the saved game is loaded and its moments come typed."""
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        pgn = '[White "Student"]\n[Black "Bot"]\n[Result "0-1"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 0-1'
+        mock_pgn.return_value = pgn
+        mock_scan.return_value = {"total_moves": 8, "engine_depth": 12, "critical_moments": [{
+            "move_number": 13, "side": "white", "move": "Ke2", "eval_before": 4.8, "eval_after": 0.1,
+            "type": "blunder", "fen_before": "r3k3/8/8/1N6/8/8/8/4K3 w - - 0 13", "best_move": "Nc7+"}]}
+        agent_instance = MagicMock()
+        seen = {}
+
+        def _chat(message, stream_callback=None):
+            seen["message"] = message
+            return "Let's go through it."
+
+        agent_instance.chat.side_effect = _chat
+        mock_agent.return_value = agent_instance
+
+        resp = self.client.post("/api/coach/chat", headers=USER_HEADERS,
+                                json={"message": "Разбери мою последнюю партию", "review_game_id": "g-1"})
+        events = _parse_sse(resp.text)
+        mock_pgn.assert_called_once_with("test-user-123", "g-1")
+        assert any(a.get("type") == "load_pgn" for e in events for a in e.get("board_actions") or [])
+        frame = next(e["tool_result"] for e in events if "tool_result" in e)
+        assert frame["tool"] == "find_critical_moments" and frame["ok"] is True
+        summary = frame["summary"]
+        assert summary["kind"] == "review_moments"
+        assert summary["game"] == {"white": "Student", "black": "Bot", "result": "0-1"}
+        assert summary["moments"][0]["best_uci"] == "b5c7" and summary["moments"][0]["motif"] == "fork"
+        assert "Critical moments of the student's game" in seen["message"]
+
+    @patch("src.tools.critical_moments.find_critical_moments")
+    @patch("src.tools.user_data.get_user_game_pgn", return_value=None)
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_unknown_review_game_id_is_a_plain_turn(self, mock_profile, mock_agent, _pgn, mock_scan):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        agent_instance.chat.return_value = "Which game?"
+        mock_agent.return_value = agent_instance
+        resp = self.client.post("/api/coach/chat", headers=USER_HEADERS,
+                                json={"message": "Разбери мою последнюю партию", "review_game_id": "nope"})
+        events = _parse_sse(resp.text)
+        mock_scan.assert_not_called()
+        assert not [e for e in events if "tool_result" in e]
+        assert any(e.get("done") for e in events)
+
 @pytest.mark.unit
 class TestVoicePromptEndpoint:
     """POST /api/coach/voice/prompt (Task 2/3): single-source prompt + profile."""

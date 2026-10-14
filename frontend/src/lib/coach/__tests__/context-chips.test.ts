@@ -10,6 +10,7 @@ describe('contextChips', () => {
       'chipPlanHere',
     ]);
     expect(contextChips({ mode: 'explore', lastSummaryKind: 'game_list', gameLoaded: false })[0]).toBe('chipReviewFirst');
+    expect(contextChips({ mode: 'explore', lastSummaryKind: 'review_moments', gameLoaded: true })[0]).toBe('chipBiggestMistake');
     expect(contextChips({ mode: 'explore', lastSummaryKind: 'opening', gameLoaded: false }).slice(0, 2)).toEqual([
       'chipTypicalPlans',
       'chipOpeningTraps',
@@ -28,7 +29,7 @@ describe('contextChips', () => {
   });
 
   it('never repeats a chip and never shows more than four', () => {
-    for (const kind of ['engine_line', 'game_list', 'opening', 'puzzle', 'critical_moments', null] as const) {
+    for (const kind of ['engine_line', 'game_list', 'opening', 'puzzle', 'critical_moments', 'review_moments', null] as const) {
       for (const mode of ['explore', 'play', 'puzzle', 'viewer'] as const) {
         const chips = contextChips({ mode, lastSummaryKind: kind, gameLoaded: true });
         expect(chips.length).toBeLessThanOrEqual(MAX_CHIPS);

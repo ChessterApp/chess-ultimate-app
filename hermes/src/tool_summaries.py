@@ -2,7 +2,9 @@
 
 The text loop sends ``{"tool", "ok", "summary"?}`` in each SSE ``tool_result`` frame; the
 frontend draws an engine line, a game list, an opening, a puzzle or a game's critical
-moments from ``summary`` instead of throwing the tool output away. The field is additive:
+moments from ``summary`` instead of throwing the tool output away. A game review becomes
+``review_moments`` (src/review_moments.py), the steps of the «Моменты» flow; the plain
+``critical_moments`` list is the fallback when no moment has a checkable better move. The field is additive:
 clients that do not know it ignore it.
 
 ``build_summary`` is pure and never raises: an unknown tool, an error result or output it
@@ -43,8 +45,10 @@ PUZZLE_TOOLS = frozenset({"get_puzzle"})
 MOMENT_TOOLS = frozenset({"find_critical_moments", "review_game"})
 
 
-def build_summary(tool_name: str, args: Any, raw: Any) -> Optional[dict]:
-    """The card summary of one tool result, or None (unknown tool, error, unreadable)."""
+def build_summary(tool_name: str, args: Any, raw: Any, language: Optional[str] = None) -> Optional[dict]:
+    """The card summary of one tool result, or None (unknown tool, error, unreadable).
+
+    *language* is the turn's language, for the texts of ``review_moments``."""
     try:
         data = json.loads(raw) if isinstance(raw, str) else raw
         if isinstance(data, dict) and "error" in data:
@@ -59,7 +63,11 @@ def build_summary(tool_name: str, args: Any, raw: Any) -> Optional[dict]:
         if tool_name in PUZZLE_TOOLS:
             return _puzzle(data)
         if tool_name in MOMENT_TOOLS:
-            return _critical_moments(data)
+            from src.review_moments import build_review_moments
+
+            return build_review_moments(
+                data, pgn=args.get("pgn"), side=args.get("side"), language=language,
+            ) or _critical_moments(data)
     except Exception:  # noqa: BLE001 — a summary must never break a turn
         logger.debug("tool summary failed for %s", tool_name, exc_info=True)
     return None

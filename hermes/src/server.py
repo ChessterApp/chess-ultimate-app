@@ -1338,6 +1338,9 @@ class CoachChatRequest(BaseModel):
     # The board (tab) the student is looking at; becomes the session's active
     # board and the target of the coach's board actions this turn.
     board_id: Optional[str] = None
+    # One of the student's saved games (user_games.id) to review this turn — the daily plan's
+    # «review my last game» card. The server loads it and finds its critical moments up front.
+    review_game_id: Optional[str] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -1849,11 +1852,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # that (2-3.5 s). COACH_REVIEW_PRESTEP=0 leaves it to the model.
     review_pgn = None
     review_future = None
-    if config.COACH_REVIEW_PRESTEP and route.get("reason") == "pgn_in_message" and not live_game:
+    if config.COACH_REVIEW_PRESTEP and not live_game:
         from src.model_router import extract_game_pgn
         from src.tools.critical_moments import find_critical_moments
+        from src.tools.user_data import get_user_game_pgn
 
-        review_pgn = extract_game_pgn(body.message)
+        if body.review_game_id:
+            review_pgn = await asyncio.to_thread(get_user_game_pgn, user_id, body.review_game_id)
+        elif route.get("reason") == "pgn_in_message":
+            review_pgn = extract_game_pgn(body.message)
         if review_pgn:
             review_future = _engine_pool.submit(find_critical_moments, review_pgn)
     review_state = {"used": False, "ms": None, "moments": None}
@@ -2332,7 +2339,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             )
             frame = {"tool": tool_name, "ok": ok}
             # A typed summary the client draws a card from (src/tool_summaries.py); additive.
-            summary = build_summary(tool_name, args, result) if ok else None
+            summary = build_summary(tool_name, args, result, language=turn_language) if ok else None
             if summary:
                 frame["summary"] = summary
             loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", frame))
@@ -2396,6 +2403,13 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 review = _await_review(review_future, engine_started, review_state)
                 if review:
                     message = f"{message}\n\n{review_block(review)}"
+                    # The «Моменты» card of the review (src/review_moments.py): the scan ran
+                    # here, not as a tool, so its tool_result frame is sent from here.
+                    summary = build_summary("find_critical_moments", {"pgn": review_pgn}, review,
+                                            language=turn_language)
+                    if summary:
+                        loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
+                            "tool": "find_critical_moments", "ok": True, "summary": summary}))
                 message = f"{message}\n\n{lang_note}"
                 turn_msg["message"] = message
                 result = _chat_in_session(agent, message, session.id, stream_callback=_on_delta,
@@ -4612,6 +4626,16 @@ async def coach_get_profile(request: Request):
     user_id = _get_user_id(request)
     profile = await asyncio.to_thread(_get_voice_profile, user_id)
     return profile.model_dump()
+
+
+@app.get("/api/coach/daily-plan")
+async def coach_daily_plan(request: Request):
+    """Today's plan for the coach's home screen (src/daily_plan.py): stored data only, no model
+    call; a source that is not read within the budget is left out."""
+    from src.daily_plan import load_daily_plan
+
+    user_id = _get_user_id(request)
+    return await asyncio.to_thread(load_daily_plan, user_id)
 
 
 @app.put("/api/coach/profile")

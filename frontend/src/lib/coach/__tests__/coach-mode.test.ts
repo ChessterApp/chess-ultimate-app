@@ -30,6 +30,17 @@ describe('coachMode reducer', () => {
     expect(coachMode(playing, { type: 'puzzle_ended' })).toBe(playing);
   });
 
+  it('«Моменты» take the study board and give it back; never over a live game', () => {
+    const s = run([{ type: 'view_tab', id: 't1' }, { type: 'moments_started' }]);
+    expect(s).toEqual({ base: 'moments', viewerId: null });
+    expect(currentMode(coachMode(s, { type: 'moments_ended' }))).toBe('explore');
+    const playing = run([{ type: 'game_started' }]);
+    expect(coachMode(playing, { type: 'moments_started' })).toBe(playing);
+    expect(coachMode(playing, { type: 'moments_ended' })).toBe(playing);
+    // A puzzle the coach sets replaces the review.
+    expect(currentMode(coachMode(s, { type: 'puzzle_started' }))).toBe('puzzle');
+  });
+
   it('closing a game while solving a puzzle keeps the puzzle', () => {
     const s = run([{ type: 'puzzle_started' }, { type: 'game_closed' }]);
     expect(currentMode(s)).toBe('puzzle');

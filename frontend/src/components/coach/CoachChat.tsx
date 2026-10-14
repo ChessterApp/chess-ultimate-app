@@ -20,9 +20,13 @@ import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
 import Composer from './Composer';
 import type { AttachKind } from './AttachSheet';
 import MessageList, { ChipRow, PeekMessage, useStarterPrompts } from './MessageList';
+import DailyPlan, { DailyPlanSkeleton } from './DailyPlan';
+import { useDailyPlan, type DailyPlanState } from '@/hooks/useDailyPlan';
+import { playablePlan, type PlanAction } from '@/lib/coach/daily-plan';
 import { applyStreamFrame } from '@/lib/coach/message-stream';
 import { contextChips } from '@/lib/coach/context-chips';
 import type { CoachMode } from '@/lib/coach/coach-mode';
+import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -95,6 +99,15 @@ interface CoachChatProps {
   mode?: CoachMode;
   /** Bring the board into view after a card put something on it (phones: the sheet drops to peek). */
   onShowBoard?: () => void;
+  /** «Начать» on a game review card: the host replays its moments on the board. */
+  onStartMoments?: (review: ReviewMomentsSummary) => void;
+  /**
+   * The /coach home: an empty session shows today's plan (GET /api/coach/daily-plan)
+   * instead of the starter prompts. Off elsewhere (the review drawer keeps the starters).
+   */
+  dailyPlan?: { greetingName?: string | null };
+  /** The plan's «play the coach» card: open the play setup. Without it the card is not shown. */
+  onPlayCoach?: () => void;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -180,6 +193,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     footer,
     mode = 'explore',
     onShowBoard,
+    onStartMoments,
+    dailyPlan,
+    onPlayCoach,
   },
   ref,
 ) {
@@ -650,7 +666,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     [addLocalLine, replaceLocalLine, onBoardActions, t],
   );
 
-  const sendMessage = useCallback(async (overrideText?: string) => {
+  const sendMessage = useCallback(async (overrideText?: string, options?: { reviewGameId?: string }) => {
     const source = typeof overrideText === 'string' ? overrideText : input;
     const trimmed = source.trim();
     if (!trimmed || isStreaming) return;
@@ -711,6 +727,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           fen: currentFen,
           session_id: sessionId,
           board_id: boardId || undefined,
+          // The daily plan's «review my last game»: the server loads and reviews that saved game.
+          review_game_id: options?.reviewGameId,
         }),
         signal: controller.signal,
       });
@@ -932,6 +950,17 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     : starterPrompts;
   const peek = view === 'peek';
 
+  // The home on an empty session: today's plan. «Play the coach» needs the host's play sheet.
+  const planState = useDailyPlan(!!dailyPlan);
+  const playable = planState.status === 'ready' ? playablePlan(planState.plan, !!onPlayCoach) : null;
+  const shownPlan: DailyPlanState =
+    planState.status !== 'ready' ? planState : playable ? { status: 'ready', plan: playable } : { status: 'error' };
+  const onPlanAction = (action: PlanAction) => {
+    if (action.kind === 'play') onPlayCoach?.();
+    else void sendMessage(action.text, { reviewGameId: action.reviewGameId });
+  };
+  const planHome = messages.length === 0 && (shownPlan.status === 'loading' || shownPlan.status === 'ready');
+
   return (
     // ph-no-capture: masks the chat + voice-mode UI from PostHog session replay (kids' privacy).
     // coach-theme: the colour variables, also where the chat is hosted outside /coach (review drawer).
@@ -946,6 +975,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         boardFen={currentFen}
         onBoardActions={onBoardActions}
         onShowBoard={onShowBoard}
+        onStartMoments={onStartMoments}
+        plan={shownPlan}
+        greetingName={dailyPlan?.greetingName}
+        onPlanAction={onPlanAction}
         chips={lastAnswer ? prompts : []}
         scrollRef={scrollRef}
         onScroll={handleScroll}
@@ -953,7 +986,22 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         onJumpDown={scrollToBottom}
         hidden={peek}
       />
-      {peek && !footer && (
+      {peek && !footer && planHome && (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-1">
+          {shownPlan.status === 'ready' ? (
+            <DailyPlan
+              plan={shownPlan.plan}
+              variant="peek"
+              greetingName={dailyPlan?.greetingName}
+              disabled={isStreaming}
+              onAction={onPlanAction}
+            />
+          ) : (
+            <DailyPlanSkeleton variant="peek" />
+          )}
+        </div>
+      )}
+      {peek && !footer && !planHome && (
         <div className="flex min-h-0 flex-1 flex-col justify-between gap-3 px-4 pt-1">
           <PeekMessage messages={messages} onExpand={() => onExpand?.()} />
           <ChipRow prompts={prompts} disabled={isStreaming} onSend={(prompt) => void sendMessage(prompt)} />

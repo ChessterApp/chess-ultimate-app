@@ -20,6 +20,19 @@ export interface StepFlowControls {
   restart: (total: number) => void;
 }
 
+/**
+ * Credit a checked step's XP to the one gamification economy; returns the XP
+ * really credited, which is all a step may show.
+ *
+ * TODO(coach-xp): there is no client→server path for crediting step XP yet
+ * (XP comes from the server-side sync jobs and companion assignments only).
+ * Wire the gamification call here once one exists; until then nothing is
+ * credited and no step shows XP.
+ */
+export function creditStepXp(_result: StepComplete): number {
+  return 0;
+}
+
 /** The StepFlow state machine as a hook, with the XP hook on every checked answer. */
 export function useStepFlow(total: number, onStepComplete?: (result: StepComplete) => void): StepFlowControls {
   const [state, dispatch] = useReducer(stepFlow, total, initialStepFlow);
