@@ -14,7 +14,10 @@ interface PuzzleCardProps {
   disabled?: boolean;
 }
 
-/** A puzzle: mini-board thumbnail, rating and themes, «Решить». */
+/**
+ * A puzzle: mini-board thumbnail, rating, «Решить». The summary's themes are
+ * Lichess keys with no translation in the app yet, so they are not shown.
+ */
 export default function PuzzleCard({ summary, onSolve, disabled }: PuzzleCardProps) {
   const t = useTranslations('coach');
   return (
@@ -24,15 +27,6 @@ export default function PuzzleCard({ summary, onSolve, disabled }: PuzzleCardPro
         <h3 className={cardTitle}>{t('cardPuzzleTitle')}</h3>
         {summary.rating && (
           <p className="mt-0.5 text-[14px] tabular-nums text-(--coach-text)">{t('cardPuzzleRating', { rating: summary.rating })}</p>
-        )}
-        {summary.themes && (
-          <ul className="mt-1 flex flex-wrap gap-1">
-            {summary.themes.slice(0, 3).map((theme) => (
-              <li key={theme} className="rounded-md bg-white/5 px-1.5 py-0.5 text-[11.5px] text-(--coach-muted)">
-                {theme}
-              </li>
-            ))}
-          </ul>
         )}
         {onSolve && (
           <div className="mt-auto pt-2">

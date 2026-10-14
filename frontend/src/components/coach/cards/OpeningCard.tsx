@@ -4,7 +4,7 @@ import React from 'react';
 import { useTranslations } from 'next-intl';
 import { GraduationCap } from 'lucide-react';
 import { numberedLine, type OpeningSummary } from '@/lib/coach/tool-summary';
-import { cardAction, cardShell, cardTitle } from './card-styles';
+import { cardAction, cardShell } from './card-styles';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -54,7 +54,7 @@ export default function OpeningCard({ summary, onLearn, disabled }: OpeningCardP
               </div>
             ))}
           </dl>
-          <p className={`mt-1 ${cardTitle} normal-case tracking-normal font-normal`}>{t('cardGamesCount', { count: stats.games })}</p>
+          <p className="mt-1 text-[12px] text-(--coach-muted)">{t('cardGamesCount', { count: stats.games })}</p>
         </div>
       )}
       {onLearn && (
