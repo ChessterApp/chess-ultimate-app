@@ -12,6 +12,7 @@ import pytest
 
 from src.tools.user_data import (
     _handle_get_user_games,
+    get_user_game_pgn,
     get_user_games,
     get_user_repertoire,
 )
@@ -141,3 +142,32 @@ class TestUserGames:
             out = json.loads(_handle_get_user_games({"user_id": "user123"}))
         assert out["count"] == 1
         assert out["games"][0]["opening_name"] == "Italian Game"
+
+
+@pytest.mark.unit
+class TestUserGamePgn:
+    """One saved game for the daily plan's «review my last game» (P3b)."""
+
+    def test_owner_scoped_query(self):
+        fake = _routed_get({"user_games": [{"pgn": "1. e4 e5 1-0"}]})
+        with patch("src.tools.user_data.httpx.get", fake), \
+             patch("src.tools.user_data.SUPABASE_URL", URL), \
+             patch("src.tools.user_data.SUPABASE_KEY", KEY):
+            assert get_user_game_pgn("user123", "6f1c-42") == "1. e4 e5 1-0"
+        table, params = fake.calls[0]
+        assert table == "user_games"
+        assert params["id"] == "eq.6f1c-42" and params["user_id"] == "eq.user123"
+        assert params["deleted_at"] == "is.null"
+
+    @pytest.mark.parametrize("game_id", ["", "a,b", "x)or(id.gt.0", None, 5, "a" * 65])
+    def test_bad_id_is_not_queried(self, game_id):
+        with patch("src.tools.user_data.httpx.get") as get:
+            assert get_user_game_pgn("user123", game_id) is None
+        get.assert_not_called()
+
+    def test_missing_or_empty_game(self):
+        for rows in ([], [{"pgn": ""}], [{"pgn": None}]):
+            with patch("src.tools.user_data.httpx.get", _routed_get({"user_games": rows})), \
+                 patch("src.tools.user_data.SUPABASE_URL", URL), \
+                 patch("src.tools.user_data.SUPABASE_KEY", KEY):
+                assert get_user_game_pgn("user123", "g1") is None

@@ -12,6 +12,7 @@ Table shapes follow the backend migrations, not an idealised schema:
 import json
 import logging
 import os
+import re
 from typing import Optional
 
 import httpx
@@ -248,6 +249,24 @@ def get_user_games(
     handler below reports failures explicitly instead.
     """
     return _query_user_games(user_id, limit, supabase_url, supabase_key) or []
+
+
+_GAME_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+
+def get_user_game_pgn(user_id: str, game_id: str) -> Optional[str]:
+    """The PGN of one of the user's own saved (not deleted) games, or None."""
+    if not user_id or not isinstance(game_id, str) or not _GAME_ID_RE.match(game_id):
+        return None
+    rows = _supabase_query("user_games", {
+        "id": f"eq.{game_id}",
+        "user_id": f"eq.{user_id}",
+        "deleted_at": "is.null",
+        "select": "pgn",
+        "limit": "1",
+    })
+    pgn = (rows[0] or {}).get("pgn") if rows else None
+    return pgn if isinstance(pgn, str) and pgn.strip() else None
 
 
 def _handle_get_user_games(args: dict, **kwargs) -> str:
