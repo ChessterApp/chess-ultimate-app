@@ -1,4 +1,4 @@
-const CACHE_VERSION = '16';
+const CACHE_VERSION = '17';
 const CACHE_NAME = 'chesster-v' + CACHE_VERSION;
 const STALE_CACHE = 'chesster-stale-v' + CACHE_VERSION;
 
@@ -28,13 +28,27 @@ self.addEventListener('activate', (event) => {
 
 function cacheFirst(event) {
   event.respondWith(
-    caches.match(event.request).then((cached) =>
-      cached || fetch(event.request).then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        return response;
-      })
-    ).catch(() => new Response('', { status: 404 }))
+    caches.match(event.request).then((cached) => {
+      // A cached 4xx/5xx (persisted by older SW versions) is never served —
+      // it pinned iPad users to an unstyled Puzzle Rush page. Refetch instead.
+      if (cached && cached.ok) return cached;
+      return fetch(event.request)
+        .then((response) =>
+          // Retry a failed fetch once bypassing the HTTP cache: Vercel marks
+          // even 404s under /_next/static immutable, so the browser can hold
+          // onto a transient error too.
+          response.ok ? response : fetch(event.request, { cache: 'reload' })
+        )
+        .then((response) => {
+          // Only cache successful responses — a persisted error would be
+          // served forever by this cache-first path.
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        });
+    }).catch(() => new Response('', { status: 404 }))
   );
 }
 

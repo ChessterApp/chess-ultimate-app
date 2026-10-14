@@ -5,8 +5,8 @@ import { resolve } from 'path';
 describe('Service Worker', () => {
   const swContent = readFileSync(resolve(__dirname, '../../../public/sw.js'), 'utf-8');
 
-  it('should have cache version 16', () => {
-    expect(swContent).toContain("const CACHE_VERSION = '16'");
+  it('should have cache version 17', () => {
+    expect(swContent).toContain("const CACHE_VERSION = '17'");
   });
 
   it('should only cache successful responses in networkFirst (no 4xx/5xx)', () => {
