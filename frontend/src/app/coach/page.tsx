@@ -2,7 +2,7 @@
 
 import React, { useEffect, useCallback, useState, useMemo, useReducer, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useSubscription } from '@/hooks/useSubscription';
@@ -125,6 +125,7 @@ function gameViewFromBoard(b: BoardRecord): GameStateView | null {
 
 export default function CoachPage() {
   const { isSignedIn, isLoaded, getToken } = useAuth();
+  const { user } = useUser();
   const subscription = useSubscription();
   const router = useRouter();
   const t = useTranslations('coach');
@@ -918,6 +919,9 @@ export default function CoachPage() {
       // Phones: a card put something on the board — drop the sheet so it shows.
       onShowBoard={isDesktop ? undefined : () => dispatchSheet({ type: 'snap', detent: 'peek' })}
       onStartMoments={startMoments}
+      // The empty session's home: today's plan (its «play the coach» opens the play setup).
+      dailyPlan={{ greetingName: user?.firstName }}
+      onPlayCoach={gameLive ? undefined : () => setGameDialogOpen(true)}
     />
   );
 

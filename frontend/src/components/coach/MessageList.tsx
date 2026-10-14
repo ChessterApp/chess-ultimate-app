@@ -5,6 +5,9 @@ import { useTranslations } from 'next-intl';
 import ReactMarkdown from 'react-markdown';
 import type { BoardAction, CoachMessage, GameResult } from '@/types/coach';
 import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
+import type { PlanAction } from '@/lib/coach/daily-plan';
+import type { DailyPlanState } from '@/hooks/useDailyPlan';
+import DailyPlan, { DailyPlanSkeleton } from './DailyPlan';
 import { messageText } from '@/lib/coach/message-stream';
 import CoachAvatar from './CoachAvatar';
 import FeedbackButtons from './FeedbackButtons';
@@ -71,6 +74,10 @@ interface MessageListProps {
   onShowBoard?: () => void;
   /** «Начать» on a game review card. */
   onStartMoments?: (review: ReviewMomentsSummary) => void;
+  /** The empty session's home: today's plan (loading → skeleton, none → the starter prompts). */
+  plan?: DailyPlanState;
+  greetingName?: string | null;
+  onPlanAction?: (action: PlanAction) => void;
   /** Contextual chips under the conversation once it has started. */
   chips: string[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -92,6 +99,9 @@ export default function MessageList({
   onBoardActions,
   onShowBoard,
   onStartMoments,
+  plan,
+  greetingName,
+  onPlanAction,
   chips,
   scrollRef,
   onScroll,
@@ -105,7 +115,11 @@ export default function MessageList({
   return (
     <div className={`relative min-h-0 flex-1 ${hidden ? 'hidden' : ''}`}>
       <div ref={scrollRef} onScroll={onScroll} data-testid="coach-messages" className="h-full space-y-4 overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
+        {messages.length === 0 && plan?.status === 'loading' && <DailyPlanSkeleton variant="thread" />}
+        {messages.length === 0 && plan?.status === 'ready' && onPlanAction && (
+          <DailyPlan plan={plan.plan} variant="thread" greetingName={greetingName} disabled={isStreaming} onAction={onPlanAction} />
+        )}
+        {messages.length === 0 && !(plan?.status === 'loading' || (plan?.status === 'ready' && onPlanAction)) && (
           <div className="mt-8 text-center">
             <div className="mb-3 flex justify-center">
               <CoachAvatar size={56} />
