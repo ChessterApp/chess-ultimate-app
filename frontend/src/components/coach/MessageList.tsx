@@ -3,11 +3,12 @@
 import React from 'react';
 import { useTranslations } from 'next-intl';
 import ReactMarkdown from 'react-markdown';
-import { Check } from 'lucide-react';
-import type { CoachMessage, GameResult } from '@/types/coach';
+import type { BoardAction, CoachMessage, GameResult } from '@/types/coach';
+import { messageText } from '@/lib/coach/message-stream';
 import CoachAvatar from './CoachAvatar';
 import FeedbackButtons from './FeedbackButtons';
 import ToolIndicator from './ToolIndicator';
+import MessageCards from './cards/MessageCards';
 
 /**
  * Markdown in an assistant answer: typography's dark scale, sized for chat —
@@ -62,6 +63,13 @@ interface MessageListProps {
   isStreaming: boolean;
   onOpenGame?: (game: GameResult) => void;
   onSend: (prompt: string) => void;
+  /** The study board's position (cards draw on it), and the path their actions take. */
+  boardFen: string;
+  onBoardActions?: (actions: BoardAction[]) => void;
+  /** Bring the board into view (phones: the sheet drops to peek). */
+  onShowBoard?: () => void;
+  /** Contextual chips under the conversation once it has started. */
+  chips: string[];
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onScroll: () => void;
   hasUnseen: boolean;
@@ -77,6 +85,10 @@ export default function MessageList({
   isStreaming,
   onOpenGame,
   onSend,
+  boardFen,
+  onBoardActions,
+  onShowBoard,
+  chips,
   scrollRef,
   onScroll,
   hasUnseen,
@@ -106,7 +118,7 @@ export default function MessageList({
           </div>
         )}
 
-        {messages.map((msg) => (
+        {messages.map((msg, i) => (
           <div key={msg.id} className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role === 'assistant' && (
               <span className="mt-0.5">
@@ -121,77 +133,36 @@ export default function MessageList({
               }
             >
               {msg.role === 'assistant' ? (
-                <div className={MARKDOWN_CLASSES}>
-                  <ReactMarkdown>{msg.content || '...'}</ReactMarkdown>
-                </div>
+                <>
+                  {/* A two-part answer: the quick reaction is its own line; the answer streams below it. */}
+                  {msg.quick && (
+                    <p className="text-[15px] font-medium leading-snug text-(--coach-text)" data-testid="quick-reaction">
+                      {msg.quick.trim()}
+                    </p>
+                  )}
+                  {msg.content ? (
+                    <div className={`${MARKDOWN_CLASSES} ${msg.quick ? 'mt-2' : ''}`} data-testid="answer-text">
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    (!msg.quick || (isStreaming && i === messages.length - 1)) && (
+                      <p className={`text-(--coach-muted) ${msg.quick ? 'mt-1' : ''}`} aria-hidden>
+                        ...
+                      </p>
+                    )
+                  )}
+                  <MessageCards
+                    message={msg}
+                    boardFen={boardFen}
+                    disabled={isStreaming}
+                    onBoardActions={onBoardActions}
+                    onShowBoard={onShowBoard}
+                    onOpenGame={onOpenGame}
+                    onSend={onSend}
+                  />
+                </>
               ) : (
                 <p className="whitespace-pre-wrap text-[15px] leading-snug">{msg.content}</p>
-              )}
-              {msg.boardActions && msg.boardActions.length > 0 && (
-                <div className="mt-1.5 flex items-center gap-1 text-xs text-(--coach-muted)">
-                  <Check size={14} aria-hidden className="text-(--coach-success)" />
-                  {t('boardUpdated')}
-                </div>
-              )}
-              {msg.gameResults && msg.gameResults.length > 0 && (
-                <div className="mt-3 overflow-hidden rounded-xl border border-(--coach-border)">
-                  {/* Own / imported games say where they come from; TWIC cards stay as before. */}
-                  {msg.gameResults[0].source && msg.gameResults[0].source !== 'twic' && (
-                    <div className="bg-(--coach-surface-2) px-2 py-1 text-[11px] uppercase tracking-wide text-(--coach-muted)">
-                      {msg.gameResults[0].source === 'user'
-                        ? t('sourceUser')
-                        : msg.gameResults[0].source === 'lichess'
-                          ? t('sourceLichess')
-                          : msg.gameResults[0].source === 'chesscom'
-                            ? t('sourceChesscom')
-                            : msg.gameResults[0].source}
-                    </div>
-                  )}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-(--coach-surface-2) text-(--coach-muted)">
-                          <th className="px-2 py-1.5 text-left">{t('tableDate')}</th>
-                          <th className="px-2 py-1.5 text-left">{t('tableWhite')}</th>
-                          <th className="px-2 py-1.5 text-left">{t('tableBlack')}</th>
-                          <th className="px-2 py-1.5 text-center">{t('tableResult')}</th>
-                          <th className="px-2 py-1.5 text-left">{t('tableEco')}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {msg.gameResults.map((game) => (
-                          <tr
-                            key={game.id}
-                            onClick={() => onOpenGame?.(game)}
-                            className="cursor-pointer border-t border-(--coach-border) transition-colors hover:bg-white/5"
-                          >
-                            <td className="px-2 py-1.5 text-(--coach-muted)">{game.date}</td>
-                            <td className="px-2 py-1.5 text-(--coach-text)">
-                              {game.white_name} <span className="text-(--coach-muted)">{game.white_elo}</span>
-                            </td>
-                            <td className="px-2 py-1.5 text-(--coach-text)">
-                              {game.black_name} <span className="text-(--coach-muted)">{game.black_elo}</span>
-                            </td>
-                            <td className="px-2 py-1.5 text-center">
-                              <span
-                                className={
-                                  game.result === '1-0'
-                                    ? 'text-(--coach-success)'
-                                    : game.result === '0-1'
-                                      ? 'text-(--coach-danger)'
-                                      : 'text-(--coach-muted)'
-                                }
-                              >
-                                {game.result}
-                              </span>
-                            </td>
-                            <td className="px-2 py-1.5 text-(--coach-muted)">{game.eco}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
               )}
               {/* 👍/👎 under a COMPLETED assistant answer (turnId arrives on the
                   final SSE frame) — never on user messages, never while streaming. */}
@@ -201,6 +172,12 @@ export default function MessageList({
             </div>
           </div>
         ))}
+
+        {messages.length > 0 && !isStreaming && chips.length > 0 && (
+          <div className="pl-[38px]">
+            <ChipRow prompts={chips} disabled={isStreaming} onSend={onSend} />
+          </div>
+        )}
 
         <ToolIndicator toolName={toolActive || ''} visible={!!toolActive} />
       </div>
@@ -224,7 +201,7 @@ export default function MessageList({
  */
 export function PeekMessage({ messages, onExpand }: { messages: CoachMessage[]; onExpand: () => void }) {
   const t = useTranslations('coach');
-  const latest = [...messages].reverse().find((m) => m.role === 'assistant' && m.content);
+  const latest = [...messages].reverse().find((m) => m.role === 'assistant' && messageText(m));
   return (
     <button
       type="button"
@@ -240,7 +217,7 @@ export function PeekMessage({ messages, onExpand }: { messages: CoachMessage[]; 
         {latest ? (
           // Plain text: markdown's block margins would break the clamp.
           <span className="line-clamp-3 text-[15px] leading-snug text-(--coach-text)">
-            {latest.content.replace(/[*_`#>]/g, '')}
+            {messageText(latest).replace(/[*_`#>]/g, '')}
           </span>
         ) : (
           <>

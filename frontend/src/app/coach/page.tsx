@@ -891,6 +891,9 @@ export default function CoachPage() {
       onExpand={() => dispatchSheet({ type: 'expand' })}
       onComposerFocus={isDesktop ? undefined : () => dispatchSheet({ type: 'composer_focus' })}
       footer={isDesktop ? undefined : playActions ? <PlayActionBar {...playActions} /> : puzzleFlow || undefined}
+      mode={mode}
+      // Phones: a card put something on the board — drop the sheet so it shows.
+      onShowBoard={isDesktop ? undefined : () => dispatchSheet({ type: 'snap', detent: 'peek' })}
     />
   );
 

@@ -747,6 +747,36 @@ class TestCoachChatToolFrames:
         events = _parse_sse(resp.text)
         results = [e for e in events if "tool_result" in e]
         assert results and results[0]["tool_result"]["ok"] is False
+        assert "summary" not in results[0]["tool_result"]
+
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_tool_result_carries_typed_summary(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        raw = json.dumps({"lines": [{"pv": "e2e4 e7e5", "score": 0.3, "depth": 16}]})
+
+        def _chat(message, stream_callback=None):
+            agent_instance.tool_start_callback("c1", "analyze_position", {"fen": fen})
+            agent_instance.tool_complete_callback("c1", "analyze_position", {"fen": fen}, raw)
+            return "e4 is best."
+
+        agent_instance.chat.side_effect = _chat
+        mock_agent.return_value = agent_instance
+
+        resp = self.client.post(
+            "/api/coach/chat", headers=USER_HEADERS, json={"message": "analyze"}
+        )
+        results = [e for e in _parse_sse(resp.text) if "tool_result" in e]
+        assert results[0]["tool_result"] == {
+            "tool": "analyze_position",
+            "ok": True,
+            "summary": {
+                "kind": "engine_line", "fen": fen, "eval_cp": 30, "depth": 16,
+                "lines": [{"san": ["e4", "e5"], "eval_cp": 30}],
+            },
+        }
 
 
 @pytest.mark.unit

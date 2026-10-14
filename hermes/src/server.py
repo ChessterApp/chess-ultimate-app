@@ -70,6 +70,7 @@ from src.event_logger import log_event, new_turn_id
 from src.answer_check import strip_leaning_start
 from src.fen_repair import repair_fen
 from src.coach_feedback import upsert_feedback, delete_feedback
+from src.tool_summaries import build_summary
 from src.identity import current_user_id
 from src.board_protocol import GAME_ACTION
 from src import config
@@ -2328,9 +2329,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 error_code=error_code,
                 payload=payload,
             )
-            loop.call_soon_threadsafe(
-                queue.put_nowait, ("tool_result", {"tool": tool_name, "ok": ok})
-            )
+            frame = {"tool": tool_name, "ok": ok}
+            # A typed summary the client draws a card from (src/tool_summaries.py); additive.
+            summary = build_summary(tool_name, args, result) if ok else None
+            if summary:
+                frame["summary"] = summary
+            loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", frame))
 
         agent.tool_start_callback = _on_tool_start
         agent.tool_complete_callback = _on_tool_complete

@@ -20,6 +20,9 @@ import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
 import Composer from './Composer';
 import type { AttachKind } from './AttachSheet';
 import MessageList, { ChipRow, PeekMessage, useStarterPrompts } from './MessageList';
+import { applyStreamFrame } from '@/lib/coach/message-stream';
+import { contextChips } from '@/lib/coach/context-chips';
+import type { CoachMode } from '@/lib/coach/coach-mode';
 
 /** «ход чёрных», "black to move", «қаралардың жүрісі» → 'b' (and White likewise); else null. */
 export function sideToMoveCommand(text: string): 'w' | 'b' | null {
@@ -88,6 +91,10 @@ interface CoachChatProps {
   onComposerFocus?: () => void;
   /** Shown above the composer: the game's action bar, the puzzle's steps. In peek it replaces the line and chips. */
   footer?: React.ReactNode;
+  /** What the board is doing — the contextual chips follow it. */
+  mode?: CoachMode;
+  /** Bring the board into view after a card put something on it (phones: the sheet drops to peek). */
+  onShowBoard?: () => void;
 }
 
 /** Imperative handle so a host (e.g. the Review Coach Drawer) can send a
@@ -171,6 +178,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onExpand,
     onComposerFocus,
     footer,
+    mode = 'explore',
+    onShowBoard,
   },
   ref,
 ) {
@@ -732,14 +741,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           try {
             const data = JSON.parse(line.slice(6));
 
-            if (data.delta) {
-              fullContent += data.delta;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId ? { ...m, content: fullContent } : m
-                )
-              );
-            }
+            // The message's own data (text, stages, cards, board actions, turn id).
+            setMessages((prev) => prev.map((m) => (m.id === assistantId ? applyStreamFrame(m, data) : m)));
+            if (data.delta) fullContent += data.delta;
 
             if (data.tool_call) {
               setToolActive(data.tool_call);
@@ -751,23 +755,6 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
             if (data.board_actions) {
               onBoardActions(data.board_actions);
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, boardActions: data.board_actions }
-                    : m
-                )
-              );
-            }
-
-            if (data.game_results) {
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, gameResults: data.game_results }
-                    : m
-                )
-              );
             }
 
             if (data.session_id && onSessionCreated) {
@@ -782,23 +769,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               if (data.active_board_id && onActiveBoardChanged) {
                 onActiveBoardChanged(data.active_board_id);
               }
-              // Attach the turn id to the completed answer so its 👍/👎 feedback
-              // can reference this exact turn.
-              if (data.turn_id) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId ? { ...m, turnId: data.turn_id } : m
-                  )
-                );
-              }
             }
 
             if (data.error) {
-              fullContent += `\n\n*${t('errorLabel')}: ${data.error}*`;
+              const note = `\n\n*${t('errorLabel')}: ${data.error}*`;
+              fullContent += note;
               setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId ? { ...m, content: fullContent } : m
-                )
+                prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + note } : m))
               );
             }
           } catch {
@@ -942,7 +919,17 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     if (view === 'thread') scrollToBottom();
   }, [view, scrollToBottom]);
 
-  const prompts = useStarterPrompts();
+  // Before the first answer: the starter prompts. After it: chips from the
+  // latest answer's card, the mode and the board (lib/coach/context-chips.ts).
+  const starterPrompts = useStarterPrompts();
+  const lastAnswer = [...messages].reverse().find((m) => m.role === 'assistant');
+  const prompts = lastAnswer
+    ? contextChips({
+        mode,
+        lastSummaryKind: lastAnswer.summaries?.at(-1)?.kind ?? null,
+        gameLoaded: !!currentPgn?.trim(),
+      }).map((key) => t(key))
+    : starterPrompts;
   const peek = view === 'peek';
 
   return (
@@ -956,6 +943,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         isStreaming={isStreaming}
         onOpenGame={onOpenGame}
         onSend={(prompt) => void sendMessage(prompt)}
+        boardFen={currentFen}
+        onBoardActions={onBoardActions}
+        onShowBoard={onShowBoard}
+        chips={lastAnswer ? prompts : []}
         scrollRef={scrollRef}
         onScroll={handleScroll}
         hasUnseen={hasUnseen}
