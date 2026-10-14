@@ -1223,9 +1223,12 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
     )
     user_id = request.headers.get("x-clerk-user-id", "anonymous")
 
-    # Get or create session
+    # Get or create session — never over another user's session (the store is
+    # keyed by id alone, so create() would overwrite it).
     session = await asyncio.to_thread(session_store.get, session_id, user_id)
     if session is None:
+        if await asyncio.to_thread(session_store.get, session_id) is not None:
+            raise HTTPException(status_code=404, detail="Session not found")
         session = await asyncio.to_thread(session_store.create, user_id=user_id, session_id=session_id)
 
     # Build the user message from the last message in the conversation

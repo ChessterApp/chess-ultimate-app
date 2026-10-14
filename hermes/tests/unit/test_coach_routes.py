@@ -253,6 +253,27 @@ class TestCoachSessionMessages:
 
 
 @pytest.mark.unit
+class TestChatCompletionsOwnership:
+    """/v1/chat/completions must not take over another user's session."""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+
+    @patch("src.server.get_api_key", return_value="")
+    def test_other_users_session_is_refused(self, _key):
+        session = session_store.create(user_id="test-user-123")
+        resp = self.client.post(
+            "/v1/chat/completions",
+            headers={"x-clerk-user-id": "other-user"},
+            json={"session_id": session.id, "messages": [{"role": "user", "content": "intruder"}]},
+        )
+        assert resp.status_code == 404
+        owner_session = session_store.get(session.id, "test-user-123")
+        assert owner_session is not None
+        assert len(owner_session.messages) == 0
+
+
+@pytest.mark.unit
 class TestCoachProfile:
     """Tests for GET/PUT /api/coach/profile."""
 

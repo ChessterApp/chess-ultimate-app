@@ -111,6 +111,40 @@ async function callWithError<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Hermes's 404 for a session that doesn't exist or isn't the caller's. */
+export const SESSION_NOT_FOUND = 'session_not_found' as const;
+
+/**
+ * Like `call`, but reports Hermes's own "Session not found" 404 as
+ * SESSION_NOT_FOUND. Any other failure — a 404 from a Hermes without the
+ * route, a 5xx, a network error — is still `null`, so callers can forget a
+ * dead session id without forgetting a live one on a hiccup.
+ */
+async function callOrSessionNotFound<T>(path: string): Promise<T | typeof SESSION_NOT_FOUND | null> {
+  try {
+    const res = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      if (await handleRestrictedResponse(res)) return null;
+      if (res.status === 404) {
+        try {
+          // The proxy wraps Hermes's body: { error, detail: { detail } }.
+          const data = (await res.json()) as { detail?: { detail?: unknown } };
+          if (data.detail?.detail === 'Session not found') return SESSION_NOT_FOUND;
+        } catch {
+          // not JSON — treat as a plain failure
+        }
+      }
+      return null;
+    }
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 async function call<T>(path: string, init?: RequestInit): Promise<T | null> {
   try {
     const res = await fetch(path, {
@@ -144,7 +178,7 @@ export const coachApi = {
     call<{ deleted: string }>(`/api/coach/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
   listBoards: (sessionId: string) =>
-    call<{ active_board_id: string | null; boards: BoardRecord[] }>(
+    callOrSessionNotFound<{ active_board_id: string | null; boards: BoardRecord[] }>(
       `/api/coach/sessions/${encodeURIComponent(sessionId)}/boards`,
     ),
 

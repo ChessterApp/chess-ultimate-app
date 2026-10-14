@@ -31,11 +31,15 @@ export { SubscriptionContext };
  * PowerSync-backed subscription fetch.
  * Reads subscription status from local SQLite via @powersync/react useQuery.
  */
-function useSubscriptionPowerSync(userId: string | undefined): SubscriptionState {
+function useSubscriptionPowerSync(isLoaded: boolean | undefined, userId: string | undefined): SubscriptionState {
   const { data, isLoading } = useQuery(
     'SELECT * FROM subscriptions WHERE clerk_user_id = ?',
     [userId ?? ''],
   );
+
+  if (!isLoaded) {
+    return { loading: true, active: false, plan: null, status: null, trialEnd: null };
+  }
 
   if (!userId) {
     return { loading: false, active: false, plan: null, status: null, trialEnd: null };
@@ -59,50 +63,64 @@ function useSubscriptionPowerSync(userId: string | undefined): SubscriptionState
   };
 }
 
+const LOADING: SubscriptionState = { loading: true, active: false, plan: null, status: null, trialEnd: null };
+const INACTIVE: SubscriptionState = { loading: false, active: false, plan: null, status: null, trialEnd: null };
+
 /**
  * Legacy fetch-based subscription fetch.
+ *
+ * The state is derived per render: until Clerk has loaded, and until
+ * /api/subscription/status has answered for the current user, it is
+ * `loading`. Before, the effect stored "not loading, inactive" while Clerk was
+ * still loading, so the first signed-in render showed the paywall to premium
+ * users until the status call returned (2026-10-14).
  */
-function useSubscriptionLegacy(isSignedIn: boolean | undefined): SubscriptionState {
-  const [state, setState] = useState<SubscriptionState>({
-    loading: true,
-    active: false,
-    plan: null,
-    status: null,
-    trialEnd: null,
-  });
+function useSubscriptionLegacy(
+  isLoaded: boolean | undefined,
+  isSignedIn: boolean | undefined,
+  userId: string | null | undefined,
+): SubscriptionState {
+  const [result, setResult] = useState<{ userId: string; state: SubscriptionState } | null>(null);
 
   useEffect(() => {
-    if (!isSignedIn) {
-      setState({ loading: false, active: false, plan: null, status: null, trialEnd: null });
-      return;
-    }
-
+    if (!isLoaded || !isSignedIn || !userId) return;
+    let cancelled = false;
     fetch('/api/subscription/status')
       .then(res => res.json())
       .then(data => {
-        setState({
-          loading: false,
-          active: data.active || false,
-          plan: data.plan || null,
-          status: data.status || null,
-          trialEnd: data.trialEnd || null,
+        if (cancelled) return;
+        setResult({
+          userId,
+          state: {
+            loading: false,
+            active: data.active || false,
+            plan: data.plan || null,
+            status: data.status || null,
+            trialEnd: data.trialEnd || null,
+          },
         });
       })
       .catch(() => {
-        setState({ loading: false, active: false, plan: null, status: null, trialEnd: null });
+        if (!cancelled) setResult({ userId, state: INACTIVE });
       });
-  }, [isSignedIn]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn, userId]);
 
-  return state;
+  if (!isLoaded) return LOADING;
+  if (!isSignedIn || !userId) return INACTIVE;
+  if (!result || result.userId !== userId) return LOADING;
+  return result.state;
 }
 
 export function useSubscriptionFetch(): SubscriptionState {
-  const { isSignedIn, userId } = useAuth();
+  const { isLoaded, isSignedIn, userId } = useAuth();
   // Feature flag is a module-level constant, so hook order is stable across renders.
   if (LOCAL_FIRST_SUBSCRIPTION) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useSubscriptionPowerSync(userId ?? undefined);
+    return useSubscriptionPowerSync(isLoaded, userId ?? undefined);
   }
   // eslint-disable-next-line react-hooks/rules-of-hooks
-  return useSubscriptionLegacy(isSignedIn);
+  return useSubscriptionLegacy(isLoaded, isSignedIn, userId);
 }

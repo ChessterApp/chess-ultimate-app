@@ -29,7 +29,8 @@ import type { ReviewMomentsSummary } from '@/lib/coach/tool-summary';
 import { VerdictBadge, VerdictToast } from '@/components/coach/VerdictBadge';
 import ViewerTabsSheet from '@/components/coach/ViewerTabsSheet';
 import ViewerMoveList from '@/components/coach/ViewerMoveList';
-import { coachApi, CoachApiError, type BoardRecord, type GameStateView } from '@/lib/coach/boards-api';
+import { coachApi, CoachApiError, SESSION_NOT_FOUND, type BoardRecord, type GameStateView } from '@/lib/coach/boards-api';
+import { clearSessionId, loadSessionId, saveSessionId } from '@/lib/coach/session-storage';
 import { coachMode, currentMode, initialCoachMode } from '@/lib/coach/coach-mode';
 import { moveVerdict, oneLineComment, rematchOptions, type GameStartOptions, type MoveVerdict } from '@/lib/coach/play';
 import {
@@ -124,7 +125,7 @@ function gameViewFromBoard(b: BoardRecord): GameStateView | null {
 }
 
 export default function CoachPage() {
-  const { isSignedIn, isLoaded, getToken } = useAuth();
+  const { isSignedIn, isLoaded, getToken, userId } = useAuth();
   const { user } = useUser();
   const subscription = useSubscription();
   const router = useRouter();
@@ -350,25 +351,30 @@ export default function CoachPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [board]);
 
-  // Load session from localStorage on mount
+  // Load the signed-in user's session from localStorage. The restore waits for
+  // the subscription check, so a paywalled visit never calls Hermes.
+  const canUseCoach = !!userId && !subscription.loading && subscription.active;
   useEffect(() => {
-    const saved = localStorage.getItem('coach-session-id');
+    if (!canUseCoach || !userId) return;
+    const saved = loadSessionId(userId);
     if (saved) setSessionId(saved);
-  }, []);
+  }, [canUseCoach, userId]);
 
   // Save session to localStorage
-  const handleSessionCreated = useCallback((id: string) => {
-    setSessionId(id);
-    localStorage.setItem('coach-session-id', id);
-  }, []);
+  const handleSessionCreated = useCallback(
+    (id: string) => {
+      setSessionId(id);
+      if (userId) saveSessionId(userId, id);
+    },
+    [userId],
+  );
 
   // Restore the session's boards from the server: the study board's position,
   // history and orientation, and every master-game tab. Runs once per session
-  // id. A failed restore changes nothing: the session id is kept, because a
-  // Hermes without the boards API (404), a Hermes hiccup and an unknown
-  // session all look alike here — and forgetting the id wiped the chat right
-  // after the first answer on the live site (2026-09-25). An unknown id costs
-  // nothing: the next chat turn recreates the session under it.
+  // id. Only Hermes's own "Session not found" forgets the id — a session that
+  // is gone or belongs to another account. Any other failure keeps it: a
+  // Hermes without the boards API (404) or a hiccup must not wipe the chat, as
+  // it did right after the first answer on the live site (2026-09-25).
   useEffect(() => {
     if (!sessionId || restoredSessionRef.current === sessionId) return;
     restoredSessionRef.current = sessionId;
@@ -376,6 +382,12 @@ export default function CoachPage() {
     void (async () => {
       const data = await coachApi.listBoards(sessionId);
       if (cancelled || !data) return;
+      if (data === SESSION_NOT_FOUND) {
+        restoredSessionRef.current = null;
+        setSessionId((current) => (current === sessionId ? null : current));
+        if (userId) clearSessionId(userId);
+        return;
+      }
       const study = data.boards.find((b) => b.kind === 'study' || b.kind === 'puzzle') ?? data.boards[0];
       const games: OpenedGame[] = [];
       const indices: Record<string, number> = {};
@@ -603,8 +615,8 @@ export default function CoachPage() {
     lastSyncedFenRef.current = null;
     restoredSessionRef.current = null;
     setSessionId(null);
-    localStorage.removeItem('coach-session-id');
-  }, [board]);
+    if (userId) clearSessionId(userId);
+  }, [board, userId]);
 
   // Active game derived from state
   const activeGame = useMemo(
