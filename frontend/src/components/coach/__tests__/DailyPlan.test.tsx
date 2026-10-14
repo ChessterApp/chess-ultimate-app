@@ -59,7 +59,7 @@ describe('DailyPlan', () => {
     expect(screen.getByText('Hi, Alex!')).toBeTruthy();
     const review = screen.getByTestId('plan-review_last_game');
     expect(review.textContent).toContain(coach.planReviewTitle);
-    expect(review.textContent).toContain('Student – Bot · 3 key moments');
+    expect(review.textContent).toContain('3 key moments · Student – Bot');
     expect(screen.getByTestId('plan-weak_spot').textContent).toContain('Weak spot: the endgame');
     expect(screen.getByTestId('plan-weak_spot').textContent).toContain('Mistakes in 4 of 10 reviewed games');
     expect(screen.getByTestId('plan-opening_lesson').textContent).toContain('Italian Game');

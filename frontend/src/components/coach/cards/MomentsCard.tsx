@@ -19,26 +19,29 @@ export default function MomentsCard({ summary, onStart, disabled }: MomentsCardP
   const { game, moments } = summary;
   const players = `${game.white === '?' ? t('momentsWhite') : game.white} – ${game.black === '?' ? t('momentsBlack') : game.black}`;
   return (
-    <section className={`${cardShell} flex items-center gap-3`} data-testid="card-moments" aria-label={t('momentsTitle')}>
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-(--coach-accent-soft) text-(--coach-accent-text)">
-        <Target size={20} aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        <h3 className="text-[15px] font-semibold leading-snug text-(--coach-text)">
-          {t('momentsCardTitle', { count: moments.length })}
-        </h3>
-        <p className="truncate text-[13px] text-(--coach-muted)">
-          {players}
-          {game.result ? ` · ${game.result}` : ''}
-        </p>
+    <section className={cardShell} data-testid="card-moments" aria-label={t('momentsTitle')}>
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-(--coach-accent-soft) text-(--coach-accent-text)">
+          <Target size={20} aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-[15px] font-semibold leading-snug text-(--coach-text)">
+            {t('momentsCardTitle', { count: moments.length })}
+          </h3>
+          <p className="truncate text-[13px] text-(--coach-muted)">
+            {players}
+            {game.result ? ` · ${game.result}` : ''}
+          </p>
+        </div>
       </div>
+      {/* «Начать» on its own row: beside the text it squeezed the RU title onto two lines at 390px. */}
       {onStart && (
         <button
           type="button"
           onClick={onStart}
           disabled={disabled}
           data-testid="card-moments-start"
-          className="min-h-11 shrink-0 rounded-full bg-(--coach-accent) px-5 text-sm font-semibold text-white transition hover:brightness-110 active:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--coach-accent) disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
+          className="mt-3 min-h-11 w-full rounded-full bg-(--coach-accent) px-5 text-sm font-semibold text-white transition hover:brightness-110 active:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--coach-accent) disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:brightness-100"
         >
           {t('momentsStart')}
         </button>

@@ -216,7 +216,8 @@ export default function CoachPage() {
     boardAreaObserver.current.observe(el);
   }, []);
   // Height the mode's strip takes under the board (moves, play rows, step panel).
-  const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : mode === 'moments' ? 230 : 0;
+  // «Моменты» sit in the chat column's footer, not under the board.
+  const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : 0;
 
   // Desktop: the mode's strip renders under the board too.
   const responsiveBoardSize = useMemo(() => {
@@ -759,6 +760,13 @@ export default function CoachPage() {
     dispatchMode({ type: 'moments_started' });
   }, []);
   const exitMoments = useCallback(() => dispatchMode({ type: 'moments_ended' }), []);
+  // Phones: a verdict opens the sheet to half so the feedback panel fits; the next moment drops it to peek.
+  const momentPhase = momentsOn ? moments.state.step.phase : null;
+  useEffect(() => {
+    if (isDesktop || !momentPhase) return;
+    if (momentPhase === 'correct' || momentPhase === 'wrong') dispatchSheet({ type: 'snap', detent: 'half' });
+    else if (momentPhase === 'idle') dispatchSheet({ type: 'snap', detent: 'peek' });
+  }, [momentPhase, isDesktop]);
   // The review ended, or a puzzle / game took the board: drop it.
   useEffect(() => {
     if (modeState.base !== 'moments') setReview(null);
@@ -914,7 +922,7 @@ export default function CoachPage() {
       view={!isDesktop && sheetDetent === 'peek' ? 'peek' : 'thread'}
       onExpand={() => dispatchSheet({ type: 'expand' })}
       onComposerFocus={isDesktop ? undefined : () => dispatchSheet({ type: 'composer_focus' })}
-      footer={isDesktop ? undefined : playActions ? <PlayActionBar {...playActions} /> : momentsFlow || puzzleFlow || undefined}
+      footer={isDesktop ? momentsFlow || undefined : playActions ? <PlayActionBar {...playActions} /> : momentsFlow || puzzleFlow || undefined}
       mode={mode}
       // Phones: a card put something on the board — drop the sheet so it shows.
       onShowBoard={isDesktop ? undefined : () => dispatchSheet({ type: 'snap', detent: 'peek' })}
@@ -1151,10 +1159,10 @@ export default function CoachPage() {
                 </PlayStrip>
                 {gameErrorLine}
               </div>
-            ) : momentsFlow || puzzleFlow ? (
+            ) : puzzleFlow ? (
               <div className="flex flex-col items-center gap-2" style={{ width: responsiveBoardSize }}>
                 {studyBoard}
-                {momentsFlow || puzzleFlow}
+                {puzzleFlow}
               </div>
             ) : (
               studyBoard

@@ -35,7 +35,8 @@ function useCardText() {
       case 'review_last_game':
         return {
           title: t('planReviewTitle'),
-          sub: card.moments_count ? `${card.title} · ${t('planReviewMoments', { count: card.moments_count })}` : card.title,
+          // The count first: on a phone the players' names are what gets cut.
+          sub: card.moments_count ? `${t('planReviewMoments', { count: card.moments_count })} · ${card.title}` : card.title,
           chip: t('planReviewTitle'),
         };
       case 'weak_spot': {
@@ -175,7 +176,9 @@ export default function DailyPlan({ plan, variant, greetingName, disabled, onAct
       <Greeting name={greetingName} size={44} />
       <PrimaryCard card={primary} compact={false} disabled={disabled} onTap={tap(primary)} />
       {spot && <RowCard card={spot} disabled={disabled} onTap={tap(spot)} />}
-      {tiles.length > 0 && (
+      {/* One secondary card is a full row, not a lone half-width tile. */}
+      {tiles.length === 1 && <RowCard card={tiles[0]} disabled={disabled} onTap={tap(tiles[0])} />}
+      {tiles.length > 1 && (
         <div className="grid grid-cols-2 gap-2">
           {tiles.map((card) => (
             <Tile key={card.type} card={card} disabled={disabled} onTap={tap(card)} />
