@@ -4628,6 +4628,16 @@ async def coach_get_profile(request: Request):
     return profile.model_dump()
 
 
+@app.get("/api/coach/daily-plan")
+async def coach_daily_plan(request: Request):
+    """Today's plan for the coach's home screen (src/daily_plan.py): stored data only, no model
+    call; a source that is not read within the budget is left out."""
+    from src.daily_plan import load_daily_plan
+
+    user_id = _get_user_id(request)
+    return await asyncio.to_thread(load_daily_plan, user_id)
+
+
 @app.put("/api/coach/profile")
 async def coach_update_profile(request: Request):
     """Update the user's coaching profile."""
