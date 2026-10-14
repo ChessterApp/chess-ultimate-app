@@ -77,6 +77,15 @@ describe('POST /api/coach/feedback', () => {
     });
   });
 
+  it('forwards the 👎 comment to Hermes', async () => {
+    (auth as never as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1' });
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, persisted: true }) }));
+    global.fetch = fetchMock as never;
+    await postFeedback({ turn_id: 't1', rating: -1, comment: 'wrong: the bishop is on c4' });
+    const [, opts] = fetchMock.mock.calls[0] as never as [string, Record<string, never>];
+    expect(JSON.parse(opts.body as never).comment).toBe('wrong: the bishop is on c4');
+  });
+
   it('accepts rating 0 (retraction)', async () => {
     (auth as never as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1' });
     global.fetch = vi.fn(async () => ({

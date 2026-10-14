@@ -3,6 +3,7 @@
 import React, { useCallback, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ThumbsUp, ThumbsDown } from 'lucide-react';
+import FeedbackSheet from './FeedbackSheet';
 
 type Rating = 1 | -1 | 0;
 
@@ -18,7 +19,8 @@ interface FeedbackButtonsProps {
  * immediately and the verdict POSTs to `/api/coach/feedback`. Clicking the same
  * thumb retracts (rating 0); clicking the other switches. A network failure
  * silently reverts — feedback is a LOG-ONLY signal and must never interrupt the
- * chat flow (no error toast).
+ * chat flow (no error toast). A 👎 also opens «Что не так?» (FeedbackSheet):
+ * its optional comment re-sends the 👎 with `comment` (Hermes upserts the turn).
  */
 export default function FeedbackButtons({
   turnId,
@@ -28,9 +30,10 @@ export default function FeedbackButtons({
   const t = useTranslations('coach');
   // Verdict shown in the UI (optimistic). 0 = no verdict.
   const [rating, setRating] = useState<Rating>(0);
+  const [askWhy, setAskWhy] = useState(false);
 
   const send = useCallback(
-    async (next: Rating, previous: Rating) => {
+    async (next: Rating, previous: Rating, comment?: string) => {
       try {
         const res = await fetch('/api/coach/feedback', {
           method: 'POST',
@@ -40,6 +43,7 @@ export default function FeedbackButtons({
             session_id: sessionId ?? undefined,
             rating: next,
             surface,
+            ...(comment ? { comment } : {}),
           }),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -58,15 +62,28 @@ export default function FeedbackButtons({
       const next: Rating = rating === choice ? 0 : choice;
       setRating(next); // optimistic
       void send(next, previous);
+      if (next === -1) setAskWhy(true);
     },
     [rating, send]
   );
 
-  const base = 'p-1 rounded transition-colors text-gray-500 hover:text-gray-300';
+  const closeSheet = useCallback(() => setAskWhy(false), []);
+  const sendComment = useCallback(
+    (comment: string) => {
+      setAskWhy(false);
+      void send(-1, -1, comment);
+    },
+    [send]
+  );
+
+  // 44px targets; the icons keep their 14px look.
+  const base =
+    'flex h-11 w-11 items-center justify-center rounded-full transition-colors text-(--coach-muted) hover:text-(--coach-text) focus-visible:outline focus-visible:outline-2 focus-visible:outline-(--coach-accent)';
+  const active = 'text-(--coach-accent-text) hover:text-(--coach-accent-text)';
 
   return (
     <div
-      className="mt-1.5 flex items-center gap-1"
+      className="-ml-3 flex items-center"
       data-testid="feedback-buttons"
     >
       <button
@@ -76,7 +93,7 @@ export default function FeedbackButtons({
         aria-pressed={rating === 1}
         title={t('feedbackGood')}
         data-testid="feedback-up"
-        className={`${base} ${rating === 1 ? 'text-blue-400 hover:text-blue-400' : ''}`}
+        className={`${base} ${rating === 1 ? active : ''}`}
       >
         <ThumbsUp size={14} />
       </button>
@@ -87,10 +104,11 @@ export default function FeedbackButtons({
         aria-pressed={rating === -1}
         title={t('feedbackBad')}
         data-testid="feedback-down"
-        className={`${base} ${rating === -1 ? 'text-blue-400 hover:text-blue-400' : ''}`}
+        className={`${base} ${rating === -1 ? active : ''}`}
       >
         <ThumbsDown size={14} />
       </button>
+      {askWhy && <FeedbackSheet onSend={sendComment} onClose={closeSheet} />}
     </div>
   );
 }
