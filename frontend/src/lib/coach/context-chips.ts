@@ -34,6 +34,7 @@ const BY_SUMMARY: Record<ToolSummaryKind, ChipKey[]> = {
   opening: ['chipTypicalPlans', 'chipOpeningTraps'],
   puzzle: ['chipAnotherPuzzle'],
   critical_moments: ['chipBiggestMistake'],
+  review_moments: ['chipBiggestMistake'],
 };
 
 const BY_MODE: Record<CoachMode, ChipKey[]> = {
