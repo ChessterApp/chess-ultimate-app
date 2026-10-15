@@ -33,12 +33,45 @@ _PLAY = re.compile(
 _BLACK = re.compile(r"(?<![\w-])(?:за\s+ч[её]рн\w*|ч[её]рными|black|қаралар\w*мен|қарамен)(?![\w-])", re.IGNORECASE)
 _WHITE = re.compile(r"(?<![\w-])(?:за\s+бел\w*|белыми|white|ақтар\w*мен|ақпен)(?![\w-])", re.IGNORECASE)
 _ELO = re.compile(r"(?<!\d)([5-9]\d\d|1\d\d\d|2[0-5]\d\d)(?!\d)")
-# A question about a move is not a move to play: «а если Кf3?», «можно e4?», «стоит ли брать?»
+# A question about a move is not played by the server on its own: «а если Кf3?», «можно ли e4?», «стоит ли
+# брать?». Not «Хорошо, слон c4», «Давай лучше слон c4» — moves (voice, 2026-10-14: they were refused).
 _QUESTION = re.compile(
-    r"\?|(?<![\w-])(?:если|а\s+что|что\s+если|можно|стоит|почему|зачем|как|лучше|хорош\w*|плох\w*|"
-    r"what\s+if|should|could|why|how|better|егер|қалай)(?![\w-])",
+    r"\?|(?<![\w-])(?:если|а\s+что|что\s+если|можно\s+ли|стоит\s+ли|лучше\s+ли|почему|зачем|как|"
+    r"what\s+if|should|could|why|how|егер|қалай)(?![\w-])",
     re.IGNORECASE,
 )
+# What makes a move only an idea even when the model plays it: «а если Кf3?», "what if Nf3" — not a «?» alone:
+# speech recognition puts one after a move said with a rising voice («Слон c4?»), and the student who asks
+# «Можно слон c4?» in a game wants to play it (voice, 2026-10-14: «система почему-то не принимает ход»).
+HYPOTHETICAL = re.compile(
+    r"(?<![\w-])(?:если|а\s+вдруг|что\s+будет|what\s+if|if|егер)(?![\w-])", re.IGNORECASE)
+
+# Squares said aloud, as speech recognition writes them: «си четыре», «це 4», «эф три», «е два е четыре»
+# (voice, 2026-10-14: «слон си четыре» and «сичи» were no move to the game).
+_SPOKEN_FILE = {
+    "a": ("а", "эй"), "b": ("бэ", "бе", "би"), "c": ("цэ", "це", "си", "сэ"), "d": ("дэ", "де", "ди"),
+    "e": ("е", "э"), "f": ("эф", "эфф"), "g": ("гэ", "ге", "же", "джи"), "h": ("аш", "аша", "ха", "эйч"),
+}
+_SPOKEN_RANK = {"один": "1", "одна": "1", "раз": "1", "два": "2", "две": "2", "три": "3", "четыре": "4",
+                "четыри": "4", "пять": "5", "шесть": "6", "семь": "7", "восемь": "8"}
+_FILE_WORD = {w: f for f, words in _SPOKEN_FILE.items() for w in words}
+_SPOKEN_SQUARE = re.compile(
+    r"(?<![\w-])(" + "|".join(sorted(list(_FILE_WORD) + list("abcdefgh"), key=len, reverse=True)) + r")[\s-]*("
+    + "|".join(sorted(_SPOKEN_RANK, key=len, reverse=True)) + r"|[1-8])(?![\w-])",
+    re.IGNORECASE)
+
+
+def spoken_squares(text: str) -> str:
+    """*text* with squares said in words written as squares («слон си четыре» → «слон c4»)."""
+    def sub(m: "re.Match") -> str:
+        word = m.group(1).lower().replace("ё", "е")
+        file = word if word in "abcdefgh" else _FILE_WORD.get(word)
+        rank = _SPOKEN_RANK.get(m.group(2).lower(), m.group(2))
+        return f"{file}{rank}" if file and rank else m.group(0)
+
+    t = _SPOKEN_SQUARE.sub(sub, text or "")
+    # «e2 e4», «e2 - e4» — a move said from square to square
+    return re.sub(r"(?<![\w-])([a-h][1-8])\s*[-–—]?\s+([a-h][1-8])(?![\w-])", r"\1\2", t)
 
 
 def game_request(text: str) -> Optional[dict]:
@@ -58,7 +91,7 @@ _PIECE_WORDS = {"кон": chess.KNIGHT, "слон": chess.BISHOP, "лад": ches
                 "queen": chess.QUEEN, "king": chess.KING, "ат": chess.KNIGHT, "піл": chess.BISHOP,
                 "тура": chess.ROOK, "уәзір": chess.QUEEN, "патша": chess.KING}
 _PIECE_TO = re.compile(r"(?<![\w-])(кон\w*|слон\w*|лад\w*|ферз\w*|корол\w*|knight|bishop|rook|queen|king|"
-                       r"ат|піл\w*|тура\w*|уәзір\w*|патша\w*)\s+(?:на\s+|to\s+)?([a-hасе])\s*([1-8])(?![\w-])",
+                       r"ат|піл\w*|тура\w*|уәзір\w*|патша\w*),?\s+(?:на\s+|to\s+)?([a-hасе])\s*([1-8])(?![\w-])",
                        re.IGNORECASE)
 _LATIN = {"а": "a", "с": "c", "е": "e"}
 
@@ -68,7 +101,7 @@ def bare_move(text: str, board: chess.Board) -> Optional[str]:
     question about a move or for words that are not one legal move."""
     from src.tools.game_play import _student_move
 
-    t = (text or "").strip().rstrip(".!")
+    t = spoken_squares((text or "").strip().rstrip(".!"))
     if not t or _QUESTION.search(t) or len(t.split()) > 6:
         return None
     m = _PIECE_TO.search(t)

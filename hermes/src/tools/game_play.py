@@ -104,7 +104,9 @@ def _student_move(board: chess.Board, text: str) -> Optional[str]:
     from src.move_matcher import named_moves
     from src.notation import russian_to_san
 
-    raw = (text or "").strip()
+    from src.game_intent import spoken_squares
+
+    raw = spoken_squares((text or "").strip())
     for candidate in (raw, raw.rstrip("+#!?"), russian_to_san(raw)):
         try:
             return board.san(board.parse_san(candidate))
@@ -159,45 +161,55 @@ def _handle_start_game(args: dict, **kwargs) -> str:
     })
 
 
+def _refused(error: str, **extra) -> str:
+    """A move not played, said so the model cannot take it for one: after «система почему-то не принимает ход»
+    the voice coach drew an arrow, «будем считать, что слон c4 сыграно», and answered «конь на c6» — a move of
+    its own the engine never made (voice, 2026-10-14)."""
+    return json.dumps({"error": error, **extra,
+                       "board": "Nothing was played and the game did not change. Never say the move was played, "
+                                "never draw it as if it were, and never answer with a move of yours — the engine "
+                                "makes your moves only through make_game_move."}, ensure_ascii=False)
+
+
 def _handle_make_game_move(args: dict, **kwargs) -> str:
     from src import game_mode
 
     session = _session(kwargs)
     board_rec = live_game_board(session) if session is not None else None
     if board_rec is None:
-        return json.dumps({"error": "No game is on: call start_game first."})
+        return _refused("No game is on: call start_game first.")
     if kwargs.get("turn_game_step"):
         # The server already played the move the student wrote this turn (src/server._game_prestep).
         return json.dumps({"error": "The student's move of this turn is already played: tell them the engine's reply."})
     board = game_mode._replay(board_rec.game_state["moves"])
     student_message = str(kwargs.get("student_message") or kwargs.get("utterance") or "")
     if student_message and not args.get("said"):
-        from src.game_intent import _QUESTION, bare_move
+        from src.game_intent import HYPOTHETICAL, bare_move
 
-        if _QUESTION.search(student_message) and bare_move(student_message, board) is None:
-            # «А если Кf3?» was played as a move (stand, 2026-10-12): a question is answered, not played.
-            return json.dumps({"error": "The student asked about a move, they did not play it: answer the question "
-                                        "as a hint and do not play it — they play a move by writing it."})
+        if HYPOTHETICAL.search(student_message) and bare_move(student_message, board) is None:
+            # «А если Кf3?» was played as a move (stand, 2026-10-12): an idea is answered, not played. Only an
+            # «if» makes it one — «Хорошо, слон c4» and «Слон c4?» are moves (voice, 2026-10-14).
+            return _refused("The student asked what a move would do, they did not play it: answer as a hint. "
+                            "They play a move by saying or writing it on its own.")
     if args.get("said") and not args.get("move"):
         # The site's call with the student's words (voice): only a move said on its own is played.
         from src.game_intent import bare_move
 
         san = bare_move(str(args["said"]), board)
         if san is None:
-            return json.dumps({"error": "The student's words are not a move to play."})
+            return _refused("The student's words are not a move to play.")
     else:
         san = _student_move(board, str(args.get("move") or ""))
     if san is None:
         legal = sorted(board.san(m) for m in board.legal_moves)
-        return json.dumps({"error": f"{args.get('move')!r} is not a legal move here.", "legal_moves": legal[:40]},
-                          ensure_ascii=False)
+        return _refused(f"{args.get('move')!r} is not a legal move here.", legal_moves=legal[:40])
     try:
         view = game_mode.play_move(session, board_rec, san)
     except game_mode.GameError as exc:
-        return json.dumps({"error": str(exc)})
+        return _refused(str(exc))
     except Exception as exc:  # noqa: BLE001
         logger.warning("make_game_move failed: %s", exc)
-        return json.dumps({"error": f"The move could not be played: {exc}"})
+        return _refused(f"The move could not be played: {exc}")
     student = view.get("student") or {}
     engine = (view.get("engine") or {}).get("san")
     summary = {
