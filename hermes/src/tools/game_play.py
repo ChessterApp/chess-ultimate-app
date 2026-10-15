@@ -100,26 +100,10 @@ def _reply(view: dict, summary: dict) -> str:
 
 
 def _student_move(board: chess.Board, text: str) -> Optional[str]:
-    """*text* as a legal move of *board* (SAN, UCI, Russian notation, words), in SAN; None if not one."""
-    from src.move_matcher import named_moves
-    from src.notation import russian_to_san
+    """*text* as a legal move of *board* (any notation or words, src/move_text.py), in SAN; None if not one."""
+    from src.move_text import one_move
 
-    from src.game_intent import spoken_squares
-
-    raw = spoken_squares((text or "").strip())
-    for candidate in (raw, raw.rstrip("+#!?"), russian_to_san(raw)):
-        try:
-            return board.san(board.parse_san(candidate))
-        except ValueError:
-            pass
-        try:
-            move = chess.Move.from_uci(candidate.replace("-", "").lower())
-            if move in board.legal_moves:
-                return board.san(move)
-        except ValueError:
-            pass
-    found = named_moves(raw, board)
-    return found[0]["san"] if len(found) == 1 else None
+    return one_move(text, board)
 
 
 def _handle_start_game(args: dict, **kwargs) -> str:

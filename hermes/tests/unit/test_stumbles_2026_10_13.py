@@ -272,7 +272,7 @@ def test_mate_in_n_denied_with_a_verb_is_a_denial():
     from src.answer_check import CheckContext
     from src.answer_check_rules import _mate_in_issues
 
-    ctx = CheckContext.from_fens("r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8")
+    ctx = CheckContext.from_fens(["r1bq1b1r/ppp3pp/2n1k3/3np3/2B5/5Q2/PPPP1PPP/RNB1K2R w KQ - 2 8"])
     ctx.engine_eval = 0.9
     assert _mate_in_issues("Мат в два тут не форсируется — король на e6 пока хорошо прикрыт.", ctx) == []
 
@@ -280,7 +280,7 @@ def test_mate_in_n_denied_with_a_verb_is_a_denial():
 def test_a_numbered_move_is_checked_at_that_move_of_the_game():
     from src.answer_check import CheckContext, check_sentence
 
-    ctx = CheckContext.from_fens("r1b1kbnr/pppp1Npp/8/8/4q3/5n2/PPPPBP1P/RNBQKR2 w Qkq - 2 8")
+    ctx = CheckContext.from_fens(["r1b1kbnr/pppp1Npp/8/8/4q3/5n2/PPPPBP1P/RNBQKR2 w Qkq - 2 8"])
     ctx.add_line("1. e4 e5 2. Nf3 Nc6 3. Bc4 Nd4 4. Nxe5 Qg5 5. Nxf7 Qxg2 6. Rf1 Qxe4+ 7. Be2 Nf3#")
     assert "not possible at move 5" in check_sentence("Правильный ход на 5-м: **5. Nxd4!**", ctx)[0]
     assert check_sentence("Надо было **4. Nxd4 exd4** и спокойная игра.", ctx) == []

@@ -928,6 +928,8 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     from src.fen_repair import repair_fen
     from src.move_words import prose_moves
 
+    from src.move_text import normalize
+
     fen = repair_fen(fen)
     try:
         board = chess.Board(fen)
@@ -935,6 +937,9 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
         return []
     if not board.is_valid():
         return []
+    # One spelling of moves for every reader (src/move_text.py): «а если слон си четыре?» named nothing here
+    # while the game read it (inventory 2026-10-15).
+    message = normalize(message)
     out: list[dict] = []
     seen: set[str] = set()
 
@@ -963,6 +968,11 @@ def question_moves(message: str, fen: Optional[str]) -> list[dict]:
     converted, _ = _to_san(message_z)
     for m in _MOVE.finditer(converted):
         san = m["san"]
+        if re.match(r"\s?[-–—:]\s?[a-h][1-8]", converted[m.end():]) and "x" not in san and not san.startswith("O"):
+            continue  # «Ng1» of «Ng1-f3»: the square the piece leaves, not a move to it
+        if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"] and "x" not in san \
+                and re.search(r"(?:[a-h][1-8]\s?[-–—:x]?\s?|(?<![А-Яа-яA-Za-z])(?:кр|[кслфКСЛФC]))$", converted[:m.start()]):
+            continue  # the end of «g1-f3» or «кf3», not a pawn move to f3 (inventory 2026-10-15)
         if san[0] not in "KQRBNO" and not m["num"] and not m["bdots"] and "x" not in san:
             # A bare square («e4») is not a move the student names — unless it is
             # a pawn move asked about: «А если b3?», «если пешка пойдёт b3»

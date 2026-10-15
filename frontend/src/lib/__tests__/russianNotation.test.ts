@@ -15,4 +15,8 @@ describe('russianToSan', () => {
     expect(russianToSan(fen)).toBe(fen);
     expect(russianToSan('https://lichess.org/kAdOQKeh')).toBe('https://lichess.org/kAdOQKeh');
   });
+
+  it('«Кхе5» is a capture, not a knight from the h-file', () => {
+    expect(russianToSan('4.Кхе5 Кхе5')).toBe('4.Nxe5 Nxe5');
+  });
 });

@@ -46,32 +46,8 @@ _QUESTION = re.compile(
 HYPOTHETICAL = re.compile(
     r"(?<![\w-])(?:если|а\s+вдруг|что\s+будет|what\s+if|if|егер)(?![\w-])", re.IGNORECASE)
 
-# Squares said aloud, as speech recognition writes them: «си четыре», «це 4», «эф три», «е два е четыре»
-# (voice, 2026-10-14: «слон си четыре» and «сичи» were no move to the game).
-_SPOKEN_FILE = {
-    "a": ("а", "эй"), "b": ("бэ", "бе", "би"), "c": ("цэ", "це", "си", "сэ"), "d": ("дэ", "де", "ди"),
-    "e": ("е", "э"), "f": ("эф", "эфф"), "g": ("гэ", "ге", "же", "джи"), "h": ("аш", "аша", "ха", "эйч"),
-}
-_SPOKEN_RANK = {"один": "1", "одна": "1", "раз": "1", "два": "2", "две": "2", "три": "3", "четыре": "4",
-                "четыри": "4", "пять": "5", "шесть": "6", "семь": "7", "восемь": "8"}
-_FILE_WORD = {w: f for f, words in _SPOKEN_FILE.items() for w in words}
-_SPOKEN_SQUARE = re.compile(
-    r"(?<![\w-])(" + "|".join(sorted(list(_FILE_WORD) + list("abcdefgh"), key=len, reverse=True)) + r")[\s-]*("
-    + "|".join(sorted(_SPOKEN_RANK, key=len, reverse=True)) + r"|[1-8])(?![\w-])",
-    re.IGNORECASE)
-
-
-def spoken_squares(text: str) -> str:
-    """*text* with squares said in words written as squares («слон си четыре» → «слон c4»)."""
-    def sub(m: "re.Match") -> str:
-        word = m.group(1).lower().replace("ё", "е")
-        file = word if word in "abcdefgh" else _FILE_WORD.get(word)
-        rank = _SPOKEN_RANK.get(m.group(2).lower(), m.group(2))
-        return f"{file}{rank}" if file and rank else m.group(0)
-
-    t = _SPOKEN_SQUARE.sub(sub, text or "")
-    # «e2 e4», «e2 - e4» — a move said from square to square
-    return re.sub(r"(?<![\w-])([a-h][1-8])\s*[-–—]?\s+([a-h][1-8])(?![\w-])", r"\1\2", t)
+# Squares said aloud («си четыре») and every other spelling of a move: one reading for all paths.
+from src.move_text import FILES, spoken_squares  # noqa: E402,F401 — spoken_squares re-exported
 
 
 def game_request(text: str) -> Optional[dict]:
@@ -91,9 +67,9 @@ _PIECE_WORDS = {"кон": chess.KNIGHT, "слон": chess.BISHOP, "лад": ches
                 "queen": chess.QUEEN, "king": chess.KING, "ат": chess.KNIGHT, "піл": chess.BISHOP,
                 "тура": chess.ROOK, "уәзір": chess.QUEEN, "патша": chess.KING}
 _PIECE_TO = re.compile(r"(?<![\w-])(кон\w*|слон\w*|лад\w*|ферз\w*|корол\w*|knight|bishop|rook|queen|king|"
-                       r"ат|піл\w*|тура\w*|уәзір\w*|патша\w*),?\s+(?:на\s+|to\s+)?([a-hасе])\s*([1-8])(?![\w-])",
+                       r"ат|піл\w*|тура\w*|уәзір\w*|патша\w*),?\s+(?:на\s+|to\s+)?([a-hабвсцдеэфгх])\s*([1-8])(?![\w-])",
                        re.IGNORECASE)
-_LATIN = {"а": "a", "с": "c", "е": "e"}
+_LATIN = FILES
 
 
 def bare_move(text: str, board: chess.Board) -> Optional[str]:

@@ -29,7 +29,11 @@ def _token(tok: str) -> str:
         return tok
     piece = _PIECES.get(m["p"], m["p"] or "")
     promo = _PIECES.get(m["promo"], m["promo"]) if m["promo"] else ""
-    return (piece + (_file(m["ff"]) if m["ff"] else "") + (m["fr"] or "") + ("x" if m["x"] else "")
+    ff, x = m["ff"], m["x"]
+    if ff == "х" and not m["fr"] and not x:
+        # «Кхе5» is a capture, not a knight from the h-file: it came out «Nhe5» (inventory 2026-10-15).
+        ff, x = None, "х"
+    return (piece + (_file(ff) if ff else "") + (m["fr"] or "") + ("x" if x else "")
             + _file(m["tf"]) + m["tr"] + (f"={promo}" if promo else "") + m["tail"])
 
 
