@@ -1790,8 +1790,8 @@ export default function useGeminiLive(
     // The board shows the game against the coach: its moves go in as a [Game] line, and no engine
     // line — that would hand the voice coach the best move to tell (the text coach hints too).
     const game = optionsRef.current.getGame?.();
-    if (game && game.fen.split(' ')[0] === fen.split(' ')[0]) {
-      engineNoteAbortRef.current?.abort();
+    const inGame = !!game && game.fen.split(' ')[0] === fen.split(' ')[0];
+    if (inGame) {
       if (gameToldFenRef.current === game.fen) return;  // the tool result already said it
       gameToldFenRef.current = game.fen;
       try {
@@ -1799,9 +1799,9 @@ export default function useGeminiLive(
       } catch {
         /* session may be closing */
       }
-      return;
+      // The engine facts for the game (evaluation and threat, no best move) follow, as the text coach gets them.
     }
-    try {
+    if (!inGame) try {
       session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text: boardUpdateText(fen) }] }],
         turnComplete: false,
@@ -1816,11 +1816,13 @@ export default function useGeminiLive(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ fen }),
+      // The session: Hermes answers with the game's facts (no best move) or the puzzle's solution, as the
+      // text coach's turn has them (parity, 2026-10-15).
+      body: JSON.stringify({ fen, session_id: optionsRef.current.getSessionId?.() ?? undefined }),
       signal: controller.signal,
     })
       .then((res) => (res.ok ? res.json() : null))
-      .then((data: { note?: unknown } | null) => {
+      .then((data: { note?: unknown; kind?: string } | null) => {
         const note = data?.note;
         // Drop a note for a position the board has already left.
         if (typeof note !== 'string' || !note || boardFenRef.current !== fen) return;
@@ -1828,7 +1830,7 @@ export default function useGeminiLive(
         // 3.1 Live called analyze_position for a position it had this line for
         // (+1.5 s before the first word on «what should I play»); the line says
         // so itself now, where the model reads it.
-        const directive = ' This IS the analysis of the current position: answer from it — do not call analyze_position for this FEN.';
+        const directive = data?.kind === 'game' ? '' : ' This IS the analysis of the current position: answer from it — do not call analyze_position for this FEN.';
         session.sendClientContent({
           turns: [{ role: 'user', parts: [{ text: note + directive }] }],
           turnComplete: false,

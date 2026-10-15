@@ -3536,6 +3536,7 @@ class VoicePromptRequest(BaseModel):
 
 class VoiceEngineNoteRequest(BaseModel):
     fen: Annotated[str, AfterValidator(repair_fen)]
+    session_id: Optional[str] = None  # the game or the puzzle on the board come from the session
 
 
 class VoiceCheckRequest(BaseModel):
@@ -3690,11 +3691,46 @@ async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request
     Same per-user limiter as voice tool calls. 422 when the FEN is not a legal
     position or the engine fails — the client simply sends no note.
     """
-    _get_user_id(request)
+    user_id = _get_user_id(request)
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
-    note = await asyncio.to_thread(engine_note, body.fen)
+    note = await asyncio.to_thread(_voice_board_note, body.fen, body.session_id, user_id)
     if note is None:
         raise HTTPException(status_code=422, detail="position cannot be analysed")
+    return note
+
+
+def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Optional[dict]:
+    """What the text coach's turn gets about the board, for the voice coach (parity, 2026-10-15): in a live
+    game the evaluation and the opponent's threat with no best move (src/hypothetical.live_game_note), on a
+    puzzle its solution (_puzzle_block), on any other board the engine line with a forced mate said first
+    (prompt_builder._mate_headline). The voice coach had the bare engine line only."""
+    from src.prompt_builder import _mate_headline
+    from src.tools.game_play import live_game_board
+
+    session = session_store.get(session_id, user_id) if session_id else None
+    board_rec = session.get_board(session.active_board_id) if session and session.active_board_id else None
+    game = live_game_board(session) if session else None
+    if game is not None and game.fen.split()[0] == fen.split()[0]:
+        from src.hypothetical import live_game_note
+
+        live = live_game_note(fen)
+        if not live:
+            return {"fen": fen, "note": None, "kind": "game"}
+        return {"fen": fen, "kind": "game", "eval": live.get("eval"), "threat": live.get("threat"),
+                "note": ("[Game] Engine facts for the game (no best move for the student): " + live["note"].replace("\n", " ")
+                         + " Say who stands better in words only, warn about the threat when it matters, and never name "
+                           "the best move unless the student insists twice — hint. Never claim a threat that is not here.")}
+    note = engine_note(fen)
+    if note is None:
+        return None
+    head = _mate_headline(note.get("mate_in"), fen).replace("\n", " ").strip()
+    if head:
+        note["note"] = f"{head} {note['note']}"
+    if board_rec is not None and board_rec.kind == "puzzle" and board_rec.fen.split()[0] == fen.split()[0]:
+        puzzle = _puzzle_block(board_rec)
+        if puzzle:
+            note["note"] = note["note"] + " " + puzzle.replace("\n", " ")
+            note["kind"] = "puzzle"
     return note
 
 

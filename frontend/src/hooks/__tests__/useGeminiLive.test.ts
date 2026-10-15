@@ -1435,14 +1435,15 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(bodiesTo('/api/coach/tool').at(-1)).toMatchObject({ name: 'board_control', utterance: 'Как здесь выиграть?' });
   });
 
-  it('a board change in the game goes in as a [Game] line, with no engine line', async () => {
+  it('a board change in the game goes in as a [Game] line, and the game facts are asked with the session', async () => {
     let current = game();
-    const { result } = await connectWith({ getGame: () => current });
+    const { result } = await connectWith({ getGame: () => current, getSessionId: () => 's1' });
     g.session.sendClientContent.mockClear();
     current = AFTER_GAME;  // the student moved on the board
     act(() => result.current.sendBoardUpdate(AFTER));
     expect(sent().at(-1)).toMatch(/^\[Game\].*the engine answered d5/);
-    expect(fetchCalls().map((c: any[]) => c[0])).not.toContain('/api/coach/voice/engine-note');
+    // Hermes answers with the evaluation and the threat for the game, no best move (as the text coach gets).
+    expect(bodiesTo('/api/coach/voice/engine-note').at(-1)).toMatchObject({ fen: AFTER, session_id: 's1' });
   });
 
   it('a move said in the game is not looked up as an idea', async () => {
