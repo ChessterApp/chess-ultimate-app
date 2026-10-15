@@ -112,6 +112,7 @@ def named_moves(text: str, board: chess.Board) -> list[dict]:
     toks = _tokens(text)
     found: list[dict] = []
     used: set[int] = set()  # token indexes already read as part of a move
+    short = len(re.findall(r"\w+", low)) <= 4  # «конь ф3», «слон c4»: said on its own, a move (2026-10-15)
 
     def take(ptype, to, frm, at, words, *, capture=False, describe_ok=False):
         if not describe_ok and not capture and frm is None and _describes(board, ptype, to):
@@ -125,6 +126,15 @@ def named_moves(text: str, board: chess.Board) -> list[dict]:
         found.append({"move": mv, "san": board.san(mv), "at": at, "words": words.strip()})
         return True
 
+    # 0. castling written as castling: «O-O», «0-0-0», «О-О» (src/move_text.normalize spells them O-O)
+    for cm in re.finditer(r"(?<![\w-])O-O(?P<long>-O)?(?![\w-])", text):
+        wing = "O-O-O" if cm["long"] else "O-O"
+        try:
+            mv = board.parse_san(wing)
+        except ValueError:
+            continue
+        if not any(f["move"] == mv for f in found):
+            found.append({"move": mv, "san": board.san(mv), "at": cm.start(), "words": cm.group(0)})
     # 1. from-to: «c1-e3», «c1e3», «Сс1-е3», «e2—e4», «c1:e3»
     for i, (a, b) in enumerate(zip(toks, toks[1:])):
         gap = text[a["end"]:b["at"]]
@@ -160,7 +170,8 @@ def named_moves(text: str, board: chess.Board) -> list[dict]:
         # A piece word right before a square names the piece standing there unless the student is asking about a
         # move («если», «пойду», «хочу», «?»): «конь f6 висит» stays a piece.
         cue = bool(_CUE.search(low[max(0, wm.start() - 40):wm.start()]) or _CUE.search(between)
-                   or capture or re.search(r"(?:на|в|to|on|onto)\s*$", between) or "?" in low[t["end"]:t["end"] + 3])
+                   or capture or re.search(r"(?:на|в|to|on|onto)\s*$", between) or "?" in low[t["end"]:t["end"] + 3]
+                   or (short and re.fullmatch(r"[\s.!?,]*", low[t["end"]:])))
         if not cue:
             continue
         if take(ptype, t["square"], frm, wm.start(), low[wm.start():t["end"]], capture=capture):

@@ -20,7 +20,11 @@ const file = (ch: string) => FILES[ch] ?? ch;
 function token(tok: string): string {
   const m = TOKEN.exec(tok);
   if (!m) return tok;
-  const [, p, ff, fr, x, tf, tr, promo, tail] = m;
+  const [, p, ffRaw, fr, xRaw, tf, tr, promo, tail] = m;
+  // «Кхе5» is a capture, not a knight from the h-file: it came out «Nhe5» (inventory 2026-10-15).
+  const hCapture = ffRaw === 'х' && !fr && !xRaw;
+  const ff = hCapture ? undefined : ffRaw;
+  const x = hCapture ? 'х' : xRaw;
   const piece = p ? (PIECES[p] ?? p) : '';
   const pr = promo ? `=${PIECES[promo] ?? promo}` : '';
   return `${piece}${ff ? file(ff) : ''}${fr ?? ''}${x ? 'x' : ''}${file(tf)}${tr}${pr}${tail}`;

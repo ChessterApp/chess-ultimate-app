@@ -190,8 +190,10 @@ _FIGURINES = str.maketrans({"♔": "K", "♚": "K", "♕": "Q", "♛": "Q", "♖
 # Russian notation typed in Cyrillic throughout: «Се3», «Кс3», «Фа4», «Кре1», «С:е3» (the client's
 # question «Что если я пойду Се3?» named no move — production 2026-10-07). The file letters а, с, е
 # after a piece letter become a, c, e and «:» a capture; the length of the text is kept.
-_CYR_PIECE_FILE = re.compile(r"(?<![А-Яа-яЁёA-Za-z])(Кр|[КСЛФKQRBN])([x:×]?)([асе])(?=[1-8](?![0-9]))")
-_CYR_FILE = {"а": "a", "с": "c", "е": "e"}
+# Every Cyrillic file the student or the coach types (а б в с ц д е э ф г х), «х» as a capture too:
+# the coach's «Сб5», «Кхе5» went unchecked (inventory 2026-10-15). The table is src/move_text.FILES.
+_CYR_PIECE_FILE = re.compile(r"(?<![А-Яа-яЁёA-Za-z])(Кр|[КСЛФKQRBN])([x:×х]?)([абвсцдеэфгх])(?=[1-8](?![0-9]))")
+_CYR_FILE = {k: v for k, v in __import__("src.move_text", fromlist=["FILES"]).FILES.items() if not k.isascii()}
 
 
 def _cyrillic_files(text: str) -> str:

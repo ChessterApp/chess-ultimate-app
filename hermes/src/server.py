@@ -663,7 +663,7 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
     if live is None and command == "restart" and active_board is not None and active_board.kind == "game" \
             and active_board.game_state:
         # «Давай ещё раз» after a game: the same game again, as the panel's «New game» button does.
-        return game_command_step(session, active_board, "restart")
+        return game_command_step(session, active_board, "restart", message)
     if live is None:
         req = game_request(message)
         if not req:
@@ -682,7 +682,7 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
     if live.id != active_board.id or not live.game_state:
         return None
     if command:
-        return game_command_step(session, live, command)
+        return game_command_step(session, live, command, message)
     board = game_mode._replay(live.game_state["moves"])
     if not game_mode._student_to_move(live.game_state, board):
         return None
@@ -3536,6 +3536,7 @@ class VoicePromptRequest(BaseModel):
 
 class VoiceEngineNoteRequest(BaseModel):
     fen: Annotated[str, AfterValidator(repair_fen)]
+    session_id: Optional[str] = None  # the game or the puzzle on the board come from the session
 
 
 class VoiceCheckRequest(BaseModel):
@@ -3550,6 +3551,13 @@ class VoiceIdeaRequest(BaseModel):
     fen: Annotated[str, AfterValidator(repair_fen)]  # the board at the time
     live_game: Optional[bool] = False
     pgn: Optional[str] = None      # the game on the board, for «на 8-м ходу» (src/past_move.py)
+
+
+class VoiceIntentRequest(BaseModel):
+    text: str                      # the student's words (input transcription)
+    session_id: Optional[str] = None
+    fen: Optional[str] = None      # the board at the time
+    pgn: Optional[str] = None      # the game on the board (a review needs one)
 
 
 class VoiceHeartbeatRequest(BaseModel):
@@ -3683,11 +3691,46 @@ async def coach_voice_engine_note(body: VoiceEngineNoteRequest, request: Request
     Same per-user limiter as voice tool calls. 422 when the FEN is not a legal
     position or the engine fails — the client simply sends no note.
     """
-    _get_user_id(request)
+    user_id = _get_user_id(request)
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
-    note = await asyncio.to_thread(engine_note, body.fen)
+    note = await asyncio.to_thread(_voice_board_note, body.fen, body.session_id, user_id)
     if note is None:
         raise HTTPException(status_code=422, detail="position cannot be analysed")
+    return note
+
+
+def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Optional[dict]:
+    """What the text coach's turn gets about the board, for the voice coach (parity, 2026-10-15): in a live
+    game the evaluation and the opponent's threat with no best move (src/hypothetical.live_game_note), on a
+    puzzle its solution (_puzzle_block), on any other board the engine line with a forced mate said first
+    (prompt_builder._mate_headline). The voice coach had the bare engine line only."""
+    from src.prompt_builder import _mate_headline
+    from src.tools.game_play import live_game_board
+
+    session = session_store.get(session_id, user_id) if session_id else None
+    board_rec = session.get_board(session.active_board_id) if session and session.active_board_id else None
+    game = live_game_board(session) if session else None
+    if game is not None and game.fen.split()[0] == fen.split()[0]:
+        from src.hypothetical import live_game_note
+
+        live = live_game_note(fen)
+        if not live:
+            return {"fen": fen, "note": None, "kind": "game"}
+        return {"fen": fen, "kind": "game", "eval": live.get("eval"), "threat": live.get("threat"),
+                "note": ("[Game] Engine facts for the game (no best move for the student): " + live["note"].replace("\n", " ")
+                         + " Say who stands better in words only, warn about the threat when it matters, and never name "
+                           "the best move unless the student insists twice — hint. Never claim a threat that is not here.")}
+    note = engine_note(fen)
+    if note is None:
+        return None
+    head = _mate_headline(note.get("mate_in"), fen).replace("\n", " ").strip()
+    if head:
+        note["note"] = f"{head} {note['note']}"
+    if board_rec is not None and board_rec.kind == "puzzle" and board_rec.fen.split()[0] == fen.split()[0]:
+        puzzle = _puzzle_block(board_rec)
+        if puzzle:
+            note["note"] = note["note"] + " " + puzzle.replace("\n", " ")
+            note["kind"] = "puzzle"
     return note
 
 
@@ -3741,6 +3784,36 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     issues = await asyncio.to_thread(_check)
     return {"issues": issues}
+
+
+@app.post("/api/coach/voice/intent")
+async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
+    """What the student's words ask for (src/intent.py), for the voice coach's browser — which kept its own
+    copies of these rules and saw «Дай мне тактическую задачу» as nothing (inventory 2026-10-15). The game,
+    the puzzle on the board and the position come from the session when there is one."""
+    user_id = _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    from src.intent import read_intent
+    from src.tools.game_play import live_game_board
+
+    def _read() -> dict:
+        fen, pgn, live, finished, puzzle = body.fen, body.pgn, False, False, False
+        session = session_store.get(body.session_id, user_id) if body.session_id else None
+        if session is not None:
+            board = session.get_board(session.active_board_id) if session.active_board_id else None
+            game = live_game_board(session)
+            live = game is not None
+            if live:
+                fen = game.fen
+            elif board is not None:
+                finished = board.kind == "game" and bool(board.game_state)
+                puzzle = board.kind == "puzzle"
+                fen = fen or board.fen
+                pgn = pgn or board.pgn
+        return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
+                           puzzle_on_board=puzzle)
+
+    return await asyncio.to_thread(_read)
 
 
 @app.post("/api/coach/voice/idea")

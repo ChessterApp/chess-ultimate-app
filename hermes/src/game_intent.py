@@ -33,45 +33,45 @@ _PLAY = re.compile(
 _BLACK = re.compile(r"(?<![\w-])(?:за\s+ч[её]рн\w*|ч[её]рными|black|қаралар\w*мен|қарамен)(?![\w-])", re.IGNORECASE)
 _WHITE = re.compile(r"(?<![\w-])(?:за\s+бел\w*|белыми|white|ақтар\w*мен|ақпен)(?![\w-])", re.IGNORECASE)
 _ELO = re.compile(r"(?<!\d)([5-9]\d\d|1\d\d\d|2[0-5]\d\d)(?!\d)")
-# A question about a move is not played by the server on its own: «а если Кf3?», «можно ли e4?», «стоит ли
-# брать?». Not «Хорошо, слон c4», «Давай лучше слон c4» — moves (voice, 2026-10-14: they were refused).
-_QUESTION = re.compile(
-    r"\?|(?<![\w-])(?:если|а\s+что|что\s+если|можно\s+ли|стоит\s+ли|лучше\s+ли|почему|зачем|как|"
-    r"what\s+if|should|could|why|how|егер|қалай)(?![\w-])",
+# One rule for «is this a move to play or a question about one», on every path — the server's own
+# play of the student's words (text pre-step, voice), and the move the model passes to make_game_move.
+# Two rules disagreed: the server would not play «Слон c4?» while the model's call of it was played;
+# «Хорошо, слон c4» was refused as a question (voice, 2026-10-14; inventory 2026-10-15). An idea is a
+# move asked about: «а если Кf3?», «стоит ли брать?», "what if Nf3", "why not Bc4?". A move said with a
+# rising voice («Слон c4?»), with «хорошо», «давай лучше», «можно слон c4» is a move.
+_IDEA = re.compile(
+    r"(?<![\w-])(?:если|а\s+вдруг|что\s+будет|а\s+что|что\s+если|можно\s+ли|стоит\s+ли|лучше\s+ли|хорош\w*\s+ли|"
+    r"плох\w*\s+ли|почему|зачем|как\s+(?:насч[её]т|думаешь|считаешь)|what\s+if|what\s+about|how\s+about|why|"
+    r"should|could|would|if|егер|қалай|неге)(?![\w-])"
+    # «e4 хорош?», "Bc4 good?" — asked how good a move is
+    r"|(?<![\w-])(?:хорош\w*|плох\w*|нормальн\w*|сильн\w*|слаб\w*|good|bad|ok|okay|strong|weak)\s*\?",
     re.IGNORECASE,
 )
-# What makes a move only an idea even when the model plays it: «а если Кf3?», "what if Nf3" — not a «?» alone:
-# speech recognition puts one after a move said with a rising voice («Слон c4?»), and the student who asks
-# «Можно слон c4?» in a game wants to play it (voice, 2026-10-14: «система почему-то не принимает ход»).
-HYPOTHETICAL = re.compile(
-    r"(?<![\w-])(?:если|а\s+вдруг|что\s+будет|what\s+if|if|егер)(?![\w-])", re.IGNORECASE)
-
-# Squares said aloud, as speech recognition writes them: «си четыре», «це 4», «эф три», «е два е четыре»
-# (voice, 2026-10-14: «слон си четыре» and «сичи» were no move to the game).
-_SPOKEN_FILE = {
-    "a": ("а", "эй"), "b": ("бэ", "бе", "би"), "c": ("цэ", "це", "си", "сэ"), "d": ("дэ", "де", "ди"),
-    "e": ("е", "э"), "f": ("эф", "эфф"), "g": ("гэ", "ге", "же", "джи"), "h": ("аш", "аша", "ха", "эйч"),
-}
-_SPOKEN_RANK = {"один": "1", "одна": "1", "раз": "1", "два": "2", "две": "2", "три": "3", "четыре": "4",
-                "четыри": "4", "пять": "5", "шесть": "6", "семь": "7", "восемь": "8"}
-_FILE_WORD = {w: f for f, words in _SPOKEN_FILE.items() for w in words}
-_SPOKEN_SQUARE = re.compile(
-    r"(?<![\w-])(" + "|".join(sorted(list(_FILE_WORD) + list("abcdefgh"), key=len, reverse=True)) + r")[\s-]*("
-    + "|".join(sorted(_SPOKEN_RANK, key=len, reverse=True)) + r"|[1-8])(?![\w-])",
-    re.IGNORECASE)
+# Kept for older imports: both names now mean the one rule.
+_QUESTION = HYPOTHETICAL = _IDEA
 
 
-def spoken_squares(text: str) -> str:
-    """*text* with squares said in words written as squares («слон си четыре» → «слон c4»)."""
-    def sub(m: "re.Match") -> str:
-        word = m.group(1).lower().replace("ё", "е")
-        file = word if word in "abcdefgh" else _FILE_WORD.get(word)
-        rank = _SPOKEN_RANK.get(m.group(2).lower(), m.group(2))
-        return f"{file}{rank}" if file and rank else m.group(0)
+def is_idea(text: str) -> bool:
+    """*text* asks what a move would do rather than plays it."""
+    return bool(_IDEA.search(text or ""))
 
-    t = _SPOKEN_SQUARE.sub(sub, text or "")
-    # «e2 e4», «e2 - e4» — a move said from square to square
-    return re.sub(r"(?<![\w-])([a-h][1-8])\s*[-–—]?\s+([a-h][1-8])(?![\w-])", r"\1\2", t)
+
+# Squares said aloud («си четыре») and every other spelling of a move: one reading for all paths.
+from src.move_text import FILES, spoken_squares  # noqa: E402,F401 — spoken_squares re-exported
+
+
+def game_wish(text: str) -> dict:
+    """The colour and strength the words name, whatever they ask for: {"color"?, "elo"?}."""
+    t = (text or "").replace("ё", "е").replace("Ё", "Е")
+    out = {}
+    if _BLACK.search(t):
+        out["color"] = "black"
+    elif _WHITE.search(t):
+        out["color"] = "white"
+    elo = _ELO.search(t)
+    if elo:
+        out["elo"] = int(elo.group(1))
+    return out
 
 
 def game_request(text: str) -> Optional[dict]:
@@ -91,9 +91,9 @@ _PIECE_WORDS = {"кон": chess.KNIGHT, "слон": chess.BISHOP, "лад": ches
                 "queen": chess.QUEEN, "king": chess.KING, "ат": chess.KNIGHT, "піл": chess.BISHOP,
                 "тура": chess.ROOK, "уәзір": chess.QUEEN, "патша": chess.KING}
 _PIECE_TO = re.compile(r"(?<![\w-])(кон\w*|слон\w*|лад\w*|ферз\w*|корол\w*|knight|bishop|rook|queen|king|"
-                       r"ат|піл\w*|тура\w*|уәзір\w*|патша\w*),?\s+(?:на\s+|to\s+)?([a-hасе])\s*([1-8])(?![\w-])",
+                       r"ат|піл\w*|тура\w*|уәзір\w*|патша\w*),?\s+(?:на\s+|to\s+)?([a-hабвсцдеэфгх])\s*([1-8])(?![\w-])",
                        re.IGNORECASE)
-_LATIN = {"а": "a", "с": "c", "е": "e"}
+_LATIN = FILES
 
 
 def bare_move(text: str, board: chess.Board) -> Optional[str]:
@@ -102,7 +102,7 @@ def bare_move(text: str, board: chess.Board) -> Optional[str]:
     from src.tools.game_play import _student_move
 
     t = spoken_squares((text or "").strip().rstrip(".!"))
-    if not t or _QUESTION.search(t) or len(t.split()) > 6:
+    if not t or is_idea(t) or len(t.split()) > 6:
         return None
     m = _PIECE_TO.search(t)
     if m:
