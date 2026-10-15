@@ -29,27 +29,22 @@ from src.board_rules import castling_status, en_passant_moves, file_kind, is_pas
 _W = r"(?<![а-яa-zәғқңөұүһі])"
 _E = r"(?![а-яa-zәғқңөұүһі])"
 
-# The claim is about this board: a now/here word, or an answer that opens with yes/no.
-_NOW = re.compile(_W + r"(?:сейчас|здесь|тут|в\s+этой\s+позиции|на\s+доске|уже|now|here|right\s+now|at\s+the\s+moment|"
-                  r"in\s+this\s+position|on\s+the\s+board|қазір|осы\s+жерде|бұл\s+позицияда)" + _E)
-_YES_NO = re.compile(r"^\W*(?:да|нет|конечно|увы|yes|no|nope|sure|unfortunately|иә|жоқ)" + _E)
+# The claim is about this board, or a rule in general / a condition / a consequence; a denial before the
+# claim. One source for the whole checker: src/claim_scope.py (2026-10-15).
+from src.claim_scope import CONDITIONAL as _GENERAL, NOW as _NOW, YES_NO as _YES_NO  # noqa: E402
+from src.claim_scope import about_now as _about_now, denied_before as _denied_before  # noqa: E402
+
 # «тогда», «получится»: the consequence of the move just named, not the board as it is.
 _THEN = re.compile(_W + r"(?:тогда|получится|получается|будет|выйдет|окажется|then|would\s+be|that\s+gives|"
                    r"сонда|болады)" + _E, re.IGNORECASE)
-# A rule in general, a condition, a future or a hypothetical: not about the board as it is.
-_GENERAL = re.compile(_W + r"(?:если|когда|пока|даже|в\s+общем|по\s+правилам|обычно|всегда|никогда|после|"
-                      r"if|when|unless|even|in\s+general|always|never|usually|after|once|"
-                      r"егер|кезде)" + _E)
 
 
 def _about_board(text: str) -> bool:
-    if _GENERAL.search(text) and not _NOW.search(text):
-        return False
-    return bool(_NOW.search(text) or _YES_NO.search(text))
+    return _about_now(text, strict=True)
 
 
 def _negated_before(text: str, start: int) -> bool:
-    return bool(re.search(r"(?:^|\s)(?:не|ни|not|никак)\s+(?:\w+\s+)?$", text[max(0, start - 18):start]))
+    return _denied_before(text, start, window=18)
 
 
 # ── Castling ────────────────────────────────────────────────────────────────
