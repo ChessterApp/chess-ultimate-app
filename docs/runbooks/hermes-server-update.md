@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 13.10 (общая починка по прогону 71 нового вопроса: команды партии словами, примеры тем, название дебюта, рокировка, мат, подсказки к задаче) — включает всё из версий 06.10 … 12.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 15.10 (ход голосом в партии: «система не принимает ход») — включает всё из версий 06.10 … 13.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,16 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 15.10 (жалоба Александра 15.10: в партии голосом тренер говорил «слон c4 — легальный ход, но система почему-то
+его не принимает», рисовал стрелку и сам «отвечал» конём на c6; код только `hermes/src/game_intent.py` и
+`hermes/src/tools/game_play.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 13.10 — достаточно
+шагов 1, 2, 4, 8 и проверок 1, 3, 29):
+- **Ход голосом больше не отклоняется как вопрос.** Модель передавала ход серверу, а сервер отказывал, если во фразе
+  ученика было «хорошо», «лучше», «можно» или «?» (распознавание речи часто ставит его после хода). Теперь вопросом
+  считается только «если / что если / what if» («А если слон c4?»).
+- **Клетки, сказанные словами**, понимаются: «слон си четыре», «це 4», «эф три», «е два е четыре».
+- **После отказа модель слышит, что ход не сыгран** и что нельзя делать вид или отвечать своим ходом.
 
 Новое в версии 13.10 (прогон 71 нового вопроса на проде 13.10 и починка найденного в общем виде; код `hermes/src/`, темы
 `hermes/content/topics/`, правило в `hermes/profiles/chess-coach/SOUL.md`; миграций, переменных и изменений бэкенда нет;
@@ -698,11 +708,12 @@ grep -q '_small_talk_stream' chess-ultimate-app/hermes/src/server.py \
   && test -f chess-ultimate-app/hermes/src/tools/game_play.py \
   && grep -q 'def game_command' chess-ultimate-app/hermes/src/game_intent.py \
   && test -f chess-ultimate-app/hermes/src/motifs.py \
-  && echo "версия 13.10 в main есть" || echo "НЕТ версии 13.10"
+  && grep -q 'def spoken_squares' chess-ultimate-app/hermes/src/game_intent.py \
+  && echo "версия 15.10 в main есть" || echo "НЕТ версии 15.10"
 ```
 
-Если «НЕТ версии 13.10»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
-того, кто прислал эту инструкцию, влить ветку `fix/coach-stumbles-2026-10-13`. Ничего не обновляй.
+Если «НЕТ версии 15.10»: **СТОП**. Нужная версия ещё не в main. Напиши Александру, чтобы он попросил
+того, кто прислал эту инструкцию, влить ветку `fix/voice-game-move-2026-10-15`. Ничего не обновляй.
 
 ## Шаг 2. Резервная копия
 
@@ -1013,6 +1024,19 @@ curl -s -o /dev/null -X PATCH localhost:8642/api/coach/sessions/$SID26/boards/$B
 curl -s -X POST localhost:8642/api/coach/tool/board_control -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' \
   -d '{"args":{"action_type":"set_fen","fen":"8/8/8/8/8/8/8/K6k w - - 0 1"},"session_id":"'"$SID26"'","utterance":"Как здесь выиграть?"}' \
   | python3 -c 'import sys,json; print("shown:", json.load(sys.stdin).get("result",{}).get("shown"))'
+# 29. (15.10) ход в партии, сказанный голосом: «Хорошо, слон c4» и «слон си четыре» играются — ожидание «ходы: ['e4', …, 'Bc4', …]» дважды
+python3 - <<'PY'
+import json, urllib.request
+H = "http://localhost:8642"; U = {"Content-Type": "application/json", "X-User-Id": "deploy-check"}
+def post(path, body):
+    return json.loads(urllib.request.urlopen(urllib.request.Request(H + path, json.dumps(body).encode(), U), timeout=60).read())
+for said in ("Хорошо, слон c4", "слон си четыре"):
+    sid = post("/api/coach/sessions", {})["id"]
+    post("/api/coach/tool/start_game", {"args": {"color": "white"}, "session_id": sid})
+    post("/api/coach/tool/make_game_move", {"args": {"move": "e4"}, "session_id": sid, "utterance": "е4"})
+    res = post("/api/coach/tool/make_game_move", {"args": {"said": said}, "session_id": sid, "utterance": said}).get("result") or {}
+    print("ходы:", next((a["game"]["moves"] for a in res.get("board_actions", []) if a.get("type") == "game"), res.get("error")))
+PY
 # 27. (13.10) кнопки партии словами: «Сдаюсь» заканчивает партию — ожидание «итог: finished resign»
 python3 - <<'PY'
 import json, urllib.request
@@ -1191,6 +1215,7 @@ COACH_BESTOFN=<значение или «не задана»>, COACH_TWO_STAGE=<
   26 12.10 — shown <False/…>
   27 13.10 — итог <finished resign/…>
   28 13.10 — вилка <True/False> (<источник>), опера <None/…>
+  29 15.10 — ходы <…Bc4…> / <…Bc4…>
 Бэкенд (фото доски): <обновлён, коммит …, grep PHOTO_FEN_ATTEMPTS = … / не обновлён — почему>
 Что нужно от людей: <список или «ничего»>
 ```

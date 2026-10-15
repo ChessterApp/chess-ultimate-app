@@ -196,7 +196,7 @@ def test_words_that_do_not_ask_for_a_game(text):
 
 
 @pytest.mark.parametrize("text,san", [("е4", "e4"), ("пешка е4", "e4"), ("Кf3", "Nf3"), ("конь f3", "Nf3"),
-                                      ("knight f3", "Nf3"), ("а если Кf3?", None), ("можно e4", None), ("e4 хорош?", None)])
+                                      ("knight f3", "Nf3"), ("а если Кf3?", None), ("можно e4", "e4"), ("можно ли e4?", None), ("e4 хорош?", None)])
 def test_a_move_written_on_its_own(text, san):
     from src.game_intent import bare_move
 
@@ -263,7 +263,7 @@ def test_a_question_about_a_move_is_not_played_and_a_played_move_not_twice():
     session = session_store.create(user_id="question-not-move")
     _call("start_game", {"color": "white"}, session)
     out = json.loads(registry.dispatch("make_game_move", {"move": "Nf3"}, session_id=session.id, student_message="А если Кf3?"))
-    assert "asked about a move" in out["error"]
+    assert "did not play it" in out["error"]
     out = json.loads(registry.dispatch("make_game_move", {"move": "Nf3"}, session_id=session.id, student_message="конь f3",
                                        turn_game_step=True))
     assert "already played" in out["error"]
