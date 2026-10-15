@@ -582,9 +582,10 @@ export async function POST(request: Request) {
     }
   }
 
-  // Hermes' prompt asked for «"let me check that"» before a tool until 10.10, and the coach said
-  // it in English in the middle of Russian speech; this holds until every Hermes has the fix.
-  systemInstruction += ACK_LANGUAGE_NOTE;
+  // Hermes' prompt asked for «"let me check that"» before a tool until 10.10, and the coach said it in
+  // English in the middle of Russian speech. A Hermes prompt from 12.10 on carries the rule itself (its
+  // VOICE_TOOL_LAYER says «секунду, гляну»); the note is added only to a prompt that lacks it (15.10).
+  if (!/секунду, гляну/.test(systemInstruction)) systemInstruction += ACK_LANGUAGE_NOTE;
 
   // Inject the capped conversation recap so the voice coach continues seamlessly.
   systemInstruction += buildRecap(recapMessages);

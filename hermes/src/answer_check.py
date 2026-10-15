@@ -167,8 +167,9 @@ _TARGETS_END = re.compile(
     r"|,\s*(?:(?:а|и|and)\s+)?(?:конь|слон|ладья|ферзь|король|пешка|the\s+(?:knight|bishop|rook|queen|king|pawn))"
     r"(?![а-яa-z])"
     r"|,\s*[KQRBN]?[a-h]?x?[a-h][1-8]\s+(?!(?:и|and|или|or)\s)[а-яa-z]", re.IGNORECASE)
-_NEGATION = re.compile(r"(?:^|[\s*_«\"(])(?:не|ни|нет|never|not|n't|cannot|can't)[*_]*\s*$|(?:не|not)\s+\w+\s*$"
-                       r"|[a-z]+n'?t\s*$", re.IGNORECASE)  # "doesn't attack", "won't hit"
+# A denial right before a claim («не бьёт», "doesn't attack"): one rule for the checker (src/claim_scope.py).
+_NEGATION = re.compile(r"(?:^|[\s*_«\"(])(?:не|ни|нет|никак|нельзя|never|not|n't|cannot|can't)[*_]*\s*(?:\w+\s+)?$"
+                       r"|[a-z]+n'?t\s*$", re.IGNORECASE)  # "doesn't attack", "won't hit", «не просто бьёт»
 # «Лe4 сыграть нельзя», «ладья так не ходит»: the sentence denies a move — its
 # moves are the student's idea being refuted, not the coach's claims.
 _DENIES = re.compile(
@@ -431,13 +432,9 @@ def _move_issues(text: str) -> list[str]:
     return issues
 
 
-# A sentence about what could be, not what is: a line of play, a condition, a
-# future form, or a move written before the claim.
-_HYPO = re.compile(
-    r"(?<![а-яa-z])(?:после|если|когда|пока|тогда|будет|будут|бы|сыграй|сыграйте|сыграв|сыграть|играй|играйте|"
-    r"поставь|поставьте|переведи|переведите|представь|допустим|скажем|вместо|"
-    r"after|if|when|once|then|would|will|could|should|were|play|plays|played|playing|put|place|instead|"
-    r"imagine|suppose|say|let'?s)(?![а-яa-z])", re.IGNORECASE)
+# A sentence about what could be, not what is: a line of play, a condition, a future form, or a move written
+# before the claim. The word list is the checker's one (src/claim_scope.py).
+from src.claim_scope import CONDITIONAL as _HYPO  # noqa: E402
 
 
 def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False) -> bool:
@@ -456,7 +453,7 @@ def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False) -
 # "eyes", "x-rays" look through pieces and are not checked for them.
 _HARD_VERB = re.compile(r"бь[её]т|бьют|атаку|напада|угрожа|держ|защища|контролир|вилк|"
                         r"attack|hit|fork|target|threaten|defend|protect|control|cover|guard|pin", re.IGNORECASE)
-_FUTURE_VERB = re.compile(r"буд(?:ет|ут)|бы\b|would|will|can|could|с\s+(?:нападением|темпом|атакой|ударом)", re.IGNORECASE)
+from src.claim_scope import FUTURE_VERB as _FUTURE_VERB  # noqa: E402
 
 
 class _WithSquare:
@@ -589,8 +586,7 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     return None
 
 
-_NEGATED_WORD = re.compile(r"(?<![а-яa-z])(?:не|ни|нет|никак|нельзя|not|never|nor|cannot|n't)(?![а-яa-z])|[a-z]+n'?t(?![a-z])",
-                           re.IGNORECASE)
+from src.claim_scope import DENIAL as _NEGATED_WORD  # noqa: E402
 
 
 def _negated_target(targets: str, square: str) -> bool:
@@ -1571,8 +1567,7 @@ def _eval_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     return issues
 
 
-_FUTURE_FILL = re.compile(r"останеш|останет|останут|будеш|будет|будут|окажеш|окажет|окажут|получиш|получит|"
-                          r"will|would|'ll|end\s+up|going\s+to|get\s+left", re.IGNORECASE)
+_FUTURE_FILL = _FUTURE_VERB  # «останешься с лишней пешкой»: the same future forms (src/claim_scope.py)
 
 
 def _material_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
