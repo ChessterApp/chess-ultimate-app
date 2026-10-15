@@ -31,6 +31,16 @@ import {
 
 export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'error';
 
+/** What the student's words ask for, as Hermes reads them (src/intent.py). */
+export interface VoiceIntent {
+  kind: 'game_command' | 'game_request' | 'move' | 'idea' | 'puzzle' | 'review' | 'famous_game' | 'opening'
+    | 'board' | 'concept' | 'none';
+  san?: string;
+  moves?: string[];
+  command?: string;
+  theme?: string | null;
+}
+
 // A student asking about a concept ("что такое связка", "покажи пример вилки",
 // "what is a skewer"): the site fetches the knowledge-base example itself, puts
 // it on the board and tells the model, like the [Engine] line. On production
@@ -1134,6 +1144,8 @@ export default function useGeminiLive(
   const conceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The student's idea (a move in their words) already sent for this utterance — see IDEA_MOVE_RE.
   const ideaSentRef = useRef('');
+  // lookUpIdea, for lookUpConcept (defined before it): Hermes may read an idea the cheap gate missed.
+  const ideaLookupRef = useRef<((text: string, force?: boolean) => void) | null>(null);
   const ideaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The point of the student's idea the coach must say (from voice/idea), and what
   // the coach has said since the student spoke — checked when the turn completes.
@@ -1221,8 +1233,8 @@ export default function useGeminiLive(
     }
   }, []);
 
-  const lookUpPuzzle = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>) => {
-    const theme = PUZZLE_THEME_RE.exec(text)?.[1]?.trim();
+  const lookUpPuzzle = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>, given?: string | null) => {
+    const theme = given || PUZZLE_THEME_RE.exec(text)?.[1]?.trim();
     if (theme && (await siteToolCall('get_puzzle', { theme, count: 1 }, session, puzzleNote))) return true;
     return siteToolCall('get_puzzle', { count: 1 }, session, puzzleNote);
   }, [siteToolCall]);
@@ -1266,10 +1278,107 @@ export default function useGeminiLive(
     }
   }, []);
 
+  // What the student's words ask for, from Hermes (POST /api/coach/voice/intent); null when it cannot say.
+  const askIntent = useCallback(async (text: string): Promise<VoiceIntent | null> => {
+    try {
+      const res = await fetch('/api/coach/voice/intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          text,
+          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          fen: optionsRef.current.getFen?.() ?? undefined,
+          pgn: optionsRef.current.getPgn?.() || undefined,
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json().catch(() => null)) as VoiceIntent | null;
+      return data && typeof data.kind === 'string' ? data : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const lookUpConcept = useCallback(async (text: string) => {
     if (conceptDoneRef.current) return;
     const session = sessionRef.current;
     if (!session) return;
+    // The knowledge base's example for a concept, put on the board and told to the model.
+    const showTopic = async () => {
+      try {
+        const res = await fetch('/api/coach/tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name: 'get_topic',
+            args: { topic: text },
+            session_id: optionsRef.current.getSessionId?.() ?? undefined,
+            utterance: text,
+          }),
+        });
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => null)) as
+          | { result?: Parameters<typeof topicNote>[0]; board_actions?: unknown[] }
+          | null;
+        const note = data?.result ? topicNote(data.result) : null;
+        // No match or an ambiguous one: leave the concept to the coach's own tools.
+        if (!note || !Array.isArray(data?.board_actions) || data.board_actions.length === 0) return;
+        if (sessionRef.current !== session) return;
+        siteResultsRef.current.set('get_topic', data);
+        try {
+          optionsRef.current.onToolResult?.('get_topic', data);
+        } catch {
+          /* UI callback errors must not break the session */
+        }
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+      } catch {
+        /* unavailable — the coach can still call get_topic itself */
+      }
+    };
+    // What the words ask for, decided by Hermes (src/intent.py) for text and voice alike: the gates below
+    // were copies of its rules and drifted («Дай мне тактическую задачу» was nothing here; inventory
+    // 2026-10-15). They stay only for an older Hermes that does not answer.
+    const intent = await askIntent(text);
+    if (intent && sessionRef.current === session) {
+      switch (intent.kind) {
+        case 'game_command':
+          if (await siteToolCall('game_action', { said: text }, session, gameActionNote)) conceptDoneRef.current = true;
+          return;
+        case 'game_request':
+          if (await siteToolCall('start_game', { said: text }, session, gameStartNote)) conceptDoneRef.current = true;
+          return;
+        case 'move':
+          // The move Hermes read («слон си четыре» → Bc4), played as the student's.
+          if (await siteToolCall('make_game_move', { move: intent.san }, session, gameMoveNote)) conceptDoneRef.current = true;
+          return;
+        case 'idea':
+          ideaLookupRef.current?.(text, true);
+          return;
+        case 'puzzle':
+          conceptDoneRef.current = true;
+          void lookUpPuzzle(text, session, intent.theme);
+          return;
+        case 'review':
+          conceptDoneRef.current = true;
+          await lookUpReview(text, session);
+          return;
+        case 'famous_game':
+          if (await siteToolCall('famous_game', { text }, session, famousNote)) conceptDoneRef.current = true;
+          return;
+        case 'opening':
+          conceptDoneRef.current = true;
+          await lookUpOpening(text, session);
+          return;
+        case 'concept':
+          conceptDoneRef.current = true;
+          await showTopic();
+          return;
+        default:
+          return;  // a question about the board in front of the student, or nothing to fetch
+      }
+    }
     // A game asked for, or the student's move said on its own in the game: Hermes reads the words and
     // does it (src/game_intent.py) — the Live model alone may play by talking (2026-10-10).
     // Resign, take back, a draw, a new game said in words: the game's buttons, pressed by Hermes.
@@ -1324,43 +1433,14 @@ export default function useGeminiLive(
     // [Engine] line; the knowledge base's example must not take its place.
     if (keepsBoard(text, optionsRef.current.getFen?.())) return;
     conceptDoneRef.current = true;
-    try {
-      const res = await fetch('/api/coach/tool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: 'get_topic',
-          args: { topic: text },
-          session_id: optionsRef.current.getSessionId?.() ?? undefined,
-          utterance: text,
-        }),
-      });
-      if (!res.ok) return;
-      const data = (await res.json().catch(() => null)) as
-        | { result?: Parameters<typeof topicNote>[0]; board_actions?: unknown[] }
-        | null;
-      const note = data?.result ? topicNote(data.result) : null;
-      // No match or an ambiguous one: leave the concept to the coach's own tools.
-      if (!note || !Array.isArray(data?.board_actions) || data.board_actions.length === 0) return;
-      if (sessionRef.current !== session) return;
-      siteResultsRef.current.set('get_topic', data);
-      try {
-        optionsRef.current.onToolResult?.('get_topic', data);
-      } catch {
-        /* UI callback errors must not break the session */
-      }
-      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
-    } catch {
-      /* unavailable — the coach can still call get_topic itself */
-    }
-  }, [lookUpOpening, lookUpPuzzle, lookUpReview, siteToolCall]);
+    await showTopic();
+  }, [askIntent, lookUpOpening, lookUpPuzzle, lookUpReview, siteToolCall]);
   // The student names a move: play it on the board at Hermes, let Stockfish look
   // at the position after it, and hand the model the "[Idea]" line — before it
   // answers from its head (text coach: src/hypothetical.py, same facts).
-  const lookUpIdea = useCallback(async (text: string) => {
+  const lookUpIdea = useCallback(async (text: string, force = false) => {
     const session = sessionRef.current;
-    if (!session || !IDEA_MOVE_RE.test(text) || ideaSentRef.current === text) return;
+    if (!session || (!force && !IDEA_MOVE_RE.test(text)) || ideaSentRef.current === text) return;
     const fen = optionsRef.current.getFen?.();
     if (!fen) {
       ideaGate().release();
@@ -1414,6 +1494,7 @@ export default function useGeminiLive(
       }
     }
   }, [ideaGate]);
+  ideaLookupRef.current = (text: string, force?: boolean) => void lookUpIdea(text, force);
 
   const closeUtterance = useCallback((role: 'user' | 'model') => {
     if (!openUtterancesRef.current[role]) return;

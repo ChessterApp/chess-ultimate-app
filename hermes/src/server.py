@@ -663,7 +663,7 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
     if live is None and command == "restart" and active_board is not None and active_board.kind == "game" \
             and active_board.game_state:
         # «Давай ещё раз» after a game: the same game again, as the panel's «New game» button does.
-        return game_command_step(session, active_board, "restart")
+        return game_command_step(session, active_board, "restart", message)
     if live is None:
         req = game_request(message)
         if not req:
@@ -682,7 +682,7 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
     if live.id != active_board.id or not live.game_state:
         return None
     if command:
-        return game_command_step(session, live, command)
+        return game_command_step(session, live, command, message)
     board = game_mode._replay(live.game_state["moves"])
     if not game_mode._student_to_move(live.game_state, board):
         return None
@@ -3552,6 +3552,13 @@ class VoiceIdeaRequest(BaseModel):
     pgn: Optional[str] = None      # the game on the board, for «на 8-м ходу» (src/past_move.py)
 
 
+class VoiceIntentRequest(BaseModel):
+    text: str                      # the student's words (input transcription)
+    session_id: Optional[str] = None
+    fen: Optional[str] = None      # the board at the time
+    pgn: Optional[str] = None      # the game on the board (a review needs one)
+
+
 class VoiceHeartbeatRequest(BaseModel):
     user_id: str
     session_id: str
@@ -3741,6 +3748,36 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
 
     issues = await asyncio.to_thread(_check)
     return {"issues": issues}
+
+
+@app.post("/api/coach/voice/intent")
+async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
+    """What the student's words ask for (src/intent.py), for the voice coach's browser — which kept its own
+    copies of these rules and saw «Дай мне тактическую задачу» as nothing (inventory 2026-10-15). The game,
+    the puzzle on the board and the position come from the session when there is one."""
+    user_id = _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
+    from src.intent import read_intent
+    from src.tools.game_play import live_game_board
+
+    def _read() -> dict:
+        fen, pgn, live, finished, puzzle = body.fen, body.pgn, False, False, False
+        session = session_store.get(body.session_id, user_id) if body.session_id else None
+        if session is not None:
+            board = session.get_board(session.active_board_id) if session.active_board_id else None
+            game = live_game_board(session)
+            live = game is not None
+            if live:
+                fen = game.fen
+            elif board is not None:
+                finished = board.kind == "game" and bool(board.game_state)
+                puzzle = board.kind == "puzzle"
+                fen = fen or board.fen
+                pgn = pgn or board.pgn
+        return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
+                           puzzle_on_board=puzzle)
+
+    return await asyncio.to_thread(_read)
 
 
 @app.post("/api/coach/voice/idea")

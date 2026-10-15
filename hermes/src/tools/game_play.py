@@ -10,6 +10,7 @@ action with the game's state, which the page shows the way it shows a game start
 """
 
 import json
+import re
 import logging
 from typing import Optional
 
@@ -168,9 +169,9 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     board = game_mode._replay(board_rec.game_state["moves"])
     student_message = str(kwargs.get("student_message") or kwargs.get("utterance") or "")
     if student_message and not args.get("said"):
-        from src.game_intent import HYPOTHETICAL, bare_move
+        from src.game_intent import is_idea
 
-        if HYPOTHETICAL.search(student_message) and bare_move(student_message, board) is None:
+        if is_idea(student_message):
             # «А если Кf3?» was played as a move (stand, 2026-10-12): an idea is answered, not played. Only an
             # «if» makes it one — «Хорошо, слон c4» and «Слон c4?» are moves (voice, 2026-10-14).
             return _refused("The student asked what a move would do, they did not play it: answer as a hint. "
@@ -212,10 +213,12 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     return _reply(view, summary)
 
 
-def game_command_step(session, board_rec, command: str) -> Optional[dict]:
+def game_command_step(session, board_rec, command: str, words: str = "") -> Optional[dict]:
     """Resign / take back / draw / a new game, asked for in words: done here as the game's buttons do it
-    (src/game_mode.py), and the model is told what happened. {"view", "block"}."""
+    (src/game_mode.py), and the model is told what happened. {"view", "block"}. A new game takes the colour
+    and strength named in *words* («сыграем ещё раз чёрными»), else the last game's."""
     from src import game_mode
+    from src.game_intent import game_wish
 
     state = board_rec.game_state or {}
     try:
@@ -253,8 +256,10 @@ def game_command_step(session, board_rec, command: str) -> Optional[dict]:
             abandoned = state.get("status") == "playing"
             if abandoned:
                 game_mode.resign(session, board_rec)
-            _, view = game_mode.start_game(session, state.get("student_color") or "white",
-                                           int(state.get("engine_elo") or 1200), state.get("comment_mode") or "quiet")
+            wish = game_wish(words)
+            _, view = game_mode.start_game(session, wish.get("color") or state.get("student_color") or "white",
+                                           _strength(wish.get("elo") or state.get("engine_elo") or 1200),
+                                           state.get("comment_mode") or "quiet")
             engine = (view.get("engine") or {}).get("san")
             return {"view": view, "block": (
                 "## A new game has started on the board (the system started it)\n"
@@ -306,7 +311,7 @@ def _handle_game_action(args: dict, **kwargs) -> str:
         board_rec = next((b for b in reversed(session.boards or []) if b.kind == "game" and b.game_state), None)
     if board_rec is None:
         return json.dumps({"error": "No game is on: start_game starts one."})
-    step = game_command_step(session, board_rec, action)
+    step = game_command_step(session, board_rec, action, str(args.get("said") or ""))
     if not step:
         return json.dumps({"error": "Nothing was done."})
     note = step["block"].split("\n", 1)[-1]

@@ -33,21 +33,45 @@ _PLAY = re.compile(
 _BLACK = re.compile(r"(?<![\w-])(?:за\s+ч[её]рн\w*|ч[её]рными|black|қаралар\w*мен|қарамен)(?![\w-])", re.IGNORECASE)
 _WHITE = re.compile(r"(?<![\w-])(?:за\s+бел\w*|белыми|white|ақтар\w*мен|ақпен)(?![\w-])", re.IGNORECASE)
 _ELO = re.compile(r"(?<!\d)([5-9]\d\d|1\d\d\d|2[0-5]\d\d)(?!\d)")
-# A question about a move is not played by the server on its own: «а если Кf3?», «можно ли e4?», «стоит ли
-# брать?». Not «Хорошо, слон c4», «Давай лучше слон c4» — moves (voice, 2026-10-14: they were refused).
-_QUESTION = re.compile(
-    r"\?|(?<![\w-])(?:если|а\s+что|что\s+если|можно\s+ли|стоит\s+ли|лучше\s+ли|почему|зачем|как|"
-    r"what\s+if|should|could|why|how|егер|қалай)(?![\w-])",
+# One rule for «is this a move to play or a question about one», on every path — the server's own
+# play of the student's words (text pre-step, voice), and the move the model passes to make_game_move.
+# Two rules disagreed: the server would not play «Слон c4?» while the model's call of it was played;
+# «Хорошо, слон c4» was refused as a question (voice, 2026-10-14; inventory 2026-10-15). An idea is a
+# move asked about: «а если Кf3?», «стоит ли брать?», "what if Nf3", "why not Bc4?". A move said with a
+# rising voice («Слон c4?»), with «хорошо», «давай лучше», «можно слон c4» is a move.
+_IDEA = re.compile(
+    r"(?<![\w-])(?:если|а\s+вдруг|что\s+будет|а\s+что|что\s+если|можно\s+ли|стоит\s+ли|лучше\s+ли|хорош\w*\s+ли|"
+    r"плох\w*\s+ли|почему|зачем|как\s+(?:насч[её]т|думаешь|считаешь)|what\s+if|what\s+about|how\s+about|why|"
+    r"should|could|would|if|егер|қалай|неге)(?![\w-])"
+    # «e4 хорош?», "Bc4 good?" — asked how good a move is
+    r"|(?<![\w-])(?:хорош\w*|плох\w*|нормальн\w*|сильн\w*|слаб\w*|good|bad|ok|okay|strong|weak)\s*\?",
     re.IGNORECASE,
 )
-# What makes a move only an idea even when the model plays it: «а если Кf3?», "what if Nf3" — not a «?» alone:
-# speech recognition puts one after a move said with a rising voice («Слон c4?»), and the student who asks
-# «Можно слон c4?» in a game wants to play it (voice, 2026-10-14: «система почему-то не принимает ход»).
-HYPOTHETICAL = re.compile(
-    r"(?<![\w-])(?:если|а\s+вдруг|что\s+будет|what\s+if|if|егер)(?![\w-])", re.IGNORECASE)
+# Kept for older imports: both names now mean the one rule.
+_QUESTION = HYPOTHETICAL = _IDEA
+
+
+def is_idea(text: str) -> bool:
+    """*text* asks what a move would do rather than plays it."""
+    return bool(_IDEA.search(text or ""))
+
 
 # Squares said aloud («си четыре») and every other spelling of a move: one reading for all paths.
 from src.move_text import FILES, spoken_squares  # noqa: E402,F401 — spoken_squares re-exported
+
+
+def game_wish(text: str) -> dict:
+    """The colour and strength the words name, whatever they ask for: {"color"?, "elo"?}."""
+    t = (text or "").replace("ё", "е").replace("Ё", "Е")
+    out = {}
+    if _BLACK.search(t):
+        out["color"] = "black"
+    elif _WHITE.search(t):
+        out["color"] = "white"
+    elo = _ELO.search(t)
+    if elo:
+        out["elo"] = int(elo.group(1))
+    return out
 
 
 def game_request(text: str) -> Optional[dict]:
@@ -78,7 +102,7 @@ def bare_move(text: str, board: chess.Board) -> Optional[str]:
     from src.tools.game_play import _student_move
 
     t = spoken_squares((text or "").strip().rstrip(".!"))
-    if not t or _QUESTION.search(t) or len(t.split()) > 6:
+    if not t or is_idea(t) or len(t.split()) > 6:
         return None
     m = _PIECE_TO.search(t)
     if m:
