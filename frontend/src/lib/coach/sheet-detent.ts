@@ -3,7 +3,8 @@
  * detents over a full-bleed board.
  *
  * - peek: the latest coach line, chips and the composer; the board keeps the full width.
- *   In a live game it hugs its content instead (`PLAY_PEEK_PX`: the action bar).
+ *   In a live game it hugs its content instead: the shell measures it into
+ *   `--coach-play-peek`; `PLAY_PEEK_PX` (+ `PLAY_COMPOSER_PX`) is the fallback.
  * - half: the chat history; the board shrinks but stays whole above it.
  * - full: the composer is in use (keyboard open) — the board collapses to a
  *   pinned mini-board; tapping it returns to peek. The board never disappears.
@@ -25,10 +26,12 @@ export const MOVE_STRIP_PX = 36;
 export const MINI_BOARD_PX = 120;
 /** Peek never gets smaller than this (line + chips + composer). */
 export const PEEK_MIN_PX = 232;
-/** The play peek: a 20 px grabber + the action bar (8 pad + 56). */
-export const PLAY_PEEK_PX = 84;
-/** The composer under the action bar while «Чат» is on. */
-export const PLAY_COMPOSER_PX = 64;
+/** The play peek: the sheet's 1 px top border + a 20 px grabber + the action bar (8 pad + 56). */
+export const PLAY_PEEK_PX = 85;
+/** The composer under the action bar while «Чат» is on: 8 top pad + 54 input + 12 bottom pad. */
+export const PLAY_COMPOSER_PX = 74;
+/** The play peek's measured content (px, without the bottom pad), set on the shell. */
+export const PLAY_PEEK_VAR = '--coach-play-peek';
 /** The play peek's bottom pad: the safe area, at least 8 px (mobile browsers' bottom toolbars). */
 export const PLAY_SHEET_PAD_CSS = 'max(env(safe-area-inset-bottom), 8px)';
 /** The coach row never gets smaller than this: its name line + 2 bubble lines. */
@@ -62,13 +65,14 @@ export function detentHeights({ height, width, bar, stageChrome, peekPx }: Shell
   return { peek, half, full };
 }
 
-/** The play peek's height as CSS: its content plus the bottom pad. */
-const playPeekCss = (peekPx: number) => `calc(${peekPx}px + ${PLAY_SHEET_PAD_CSS})`;
+/** The play peek's height as CSS: its measured content (else `peekPx`) plus the bottom pad. */
+const playPeekCss = (peekPx: number) => `calc(var(${PLAY_PEEK_VAR}, ${peekPx}px) + ${PLAY_SHEET_PAD_CSS})`;
 
 /**
  * The sheet height of each detent as CSS, in the shell's container units.
  * `--coach-bar-h` is the context bar's height with the safe area. `peekPx`
- * (play) makes peek hug its content; the pad is added here.
+ * (play) makes peek hug its content — `--coach-play-peek` when measured, else
+ * `peekPx`; the pad is added here.
  */
 export function detentCss(stageChrome: number, peekPx?: number): Record<Detent, string> {
   const full = `calc(100cqh - var(--coach-bar-h) - ${MINI_BOARD_PX}px)`;
@@ -81,7 +85,7 @@ export function detentCss(stageChrome: number, peekPx?: number): Record<Detent, 
 }
 
 /**
- * The play stage as CSS, for a play peek of `peekPx`: the board's box is the
+ * The play stage as CSS, for a play peek of `--coach-play-peek` (else `peekPx`): the board's box is the
  * full width when the coach row keeps its minimum, else what is left; the
  * coach row flexes into the rest. `moveStrip` is the move strip's height:
  * 36 px when the coach row stays roomy after it (tall phones), else 0 — a

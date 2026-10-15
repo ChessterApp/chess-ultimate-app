@@ -62,9 +62,13 @@ describe('detentCss', () => {
   });
 });
 
-/** Evaluates one of our CSS lengths for a shell (no safe areas: the pad is its 8 px floor). */
-function cssPx(css: string, { height, width }: { height: number; width: number }): number {
+/**
+ * Evaluates one of our CSS lengths for a shell (no safe areas: the pad is its 8 px floor).
+ * `measured` is the shell's `--coach-play-peek`; unset, the fallback applies.
+ */
+function cssPx(css: string, { height, width }: { height: number; width: number }, measured?: number): number {
   const js = css
+    .replace(/var\(--coach-play-peek, (\d+)px\)/g, (_m, fallback) => String(measured ?? fallback))
     .replace(/max\(env\(safe-area-inset-bottom\), 8px\)/g, '8')
     .replace(/var\(--coach-bar-h\)/g, String(CONTEXT_BAR_PX))
     .replace(/100cqh/g, String(height))
@@ -85,7 +89,7 @@ describe('play peek', () => {
 
   it('hugs the action bar: far under the 232 floor', () => {
     const h = detentHeights({ ...play, peekPx: PLAY_PEEK_PX + pad });
-    expect(h.peek).toBe(92);
+    expect(h.peek).toBe(93);
     expect(h.peek).toBeLessThan(PEEK_MIN_PX);
     expect(h.half).toBe(Math.round(678 * 0.6));
   });
@@ -103,36 +107,57 @@ describe('play peek', () => {
   it('explore, puzzle and moments keep the 232 floor', () => {
     expect(detentCss(MOVE_STRIP_PX).peek).toContain(`${PEEK_MIN_PX}px`);
     expect(detentCss(MOVE_STRIP_PX, PLAY_PEEK_PX).peek).not.toContain(`${PEEK_MIN_PX}px`);
+    expect(detentCss(MOVE_STRIP_PX).peek).not.toContain('--coach-play-peek');
+  });
+
+  it('the constants match the real sheet: 1 border + 20 grabber + 64 bar; composer 8 + 54 + 12', () => {
+    expect(PLAY_PEEK_PX).toBe(1 + 20 + 8 + 56);
+    expect(PLAY_COMPOSER_PX).toBe(8 + 54 + 12);
+  });
+
+  it('the measured peek wins over the fallback', () => {
+    const css = detentCss(play.stageChrome, PLAY_PEEK_PX);
+    expect(css.peek).toContain(`var(--coach-play-peek, ${PLAY_PEEK_PX}px)`);
+    expect(cssPx(css.peek, play)).toBe(PLAY_PEEK_PX + pad);
+    expect(cssPx(css.peek, play, 200)).toBe(200 + pad);
   });
 });
 
 describe('playStageCss', () => {
-  const stage = (height: number, width: number, peekPx = PLAY_PEEK_PX) => {
+  const stage = (height: number, width: number, peekPx = PLAY_PEEK_PX, measured?: number) => {
     const css = playStageCss(peekPx);
-    const board = cssPx(css.board, { height, width });
-    const strip = cssPx(css.moveStrip, { height, width });
-    const coach = height - CONTEXT_BAR_PX - (peekPx + 8) - PLAY_STUDENT_ROW_PX - board - strip;
+    const board = cssPx(css.board, { height, width }, measured);
+    const strip = cssPx(css.moveStrip, { height, width }, measured);
+    const coach = height - CONTEXT_BAR_PX - ((measured ?? peekPx) + 8) - PLAY_STUDENT_ROW_PX - board - strip;
     return { board, strip, coach };
   };
 
   it('a 393×678 phone: a full-width board, the coach row takes the rest', () => {
-    expect(stage(678, 393)).toEqual({ board: 393, strip: 0, coach: 113 });
+    expect(stage(678, 393)).toEqual({ board: 393, strip: 0, coach: 112 });
   });
 
   it('chat on: the composer takes from the board, the coach row keeps its minimum', () => {
     const { board, coach } = stage(678, 393, PLAY_PEEK_PX + PLAY_COMPOSER_PX);
-    expect(board).toBe(354);
+    expect(board).toBe(343);
     expect(coach).toBe(PLAY_COACH_MIN_PX);
+  });
+
+  it('the board box shrinks as the measured sheet grows (voice notice, a two-line composer)', () => {
+    const chat = PLAY_PEEK_PX + PLAY_COMPOSER_PX;
+    const boards = [chat, chat + 32, chat + 24 + 32].map((measured) => stage(678, 393, chat, measured));
+    expect(boards.map((b) => b.board)).toEqual([343, 311, 287]);
+    // Every px the sheet takes comes off the board; the coach row keeps its minimum.
+    for (const b of boards) expect(b.coach).toBe(PLAY_COACH_MIN_PX);
   });
 
   it('an iPhone SE 375×560: the board shrinks first, the coach row keeps 2 lines', () => {
     const { board, coach } = stage(560, 375);
-    expect(board).toBe(300);
+    expect(board).toBe(299);
     expect(coach).toBe(PLAY_COACH_MIN_PX);
   });
 
   it('a tall phone 430×800 fills its slack with the move strip', () => {
-    expect(stage(800, 430)).toEqual({ board: 430, strip: MOVE_STRIP_PX, coach: 162 });
+    expect(stage(800, 430)).toEqual({ board: 430, strip: MOVE_STRIP_PX, coach: 161 });
   });
 
   it('the move strip is whole or gone, never a sliver', () => {

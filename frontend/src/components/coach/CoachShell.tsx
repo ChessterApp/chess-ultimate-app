@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { motion, type PanInfo } from 'framer-motion';
 import type { OnScreenKeyboard } from '@/hooks/useOnScreenKeyboard';
 import {
   PLAY_COACH_MIN_PX,
+  PLAY_PEEK_VAR,
   PLAY_SHEET_PAD_CSS,
   detentCss,
   detentHeights,
@@ -27,8 +28,10 @@ interface CoachShellProps {
   /** px that `above` + `below` take, so peek leaves the board the full width. */
   stageChrome: number;
   /**
-   * Play: the peek hugs its content (px, without the bottom pad), the board's
-   * box is sized by `playStageCss` and the coach row (`above`) takes the rest.
+   * Play: the peek hugs its content, the board's box is sized by
+   * `playStageCss` and the coach row (`above`) takes the rest. The shell
+   * measures the content at peek; this (px, without the bottom pad) is the
+   * fallback until it has.
    */
   peekPx?: number;
   detent: Detent;
@@ -42,9 +45,10 @@ interface CoachShellProps {
 /**
  * The coach on phones and portrait tablets (< 1024px): context bar, a
  * full-bleed board, and the coach as a bottom sheet with three detents. All
- * sizing is CSS (dvh, container units, the detents' calc()) — nothing is
- * measured to lay it out, so the first paint is the final one. A drag
- * measures the shell once, at release, to pick the detent.
+ * sizing is CSS (dvh, container units, the detents' calc()); a drag measures
+ * the shell once, at release, to pick the detent. The one exception is the
+ * play peek: its content (action bar, composer, voice notice) is measured into
+ * `--coach-play-peek`, so the board gives way and the buttons stay whole.
  */
 export default function CoachShell({
   bar,
@@ -61,8 +65,29 @@ export default function CoachShell({
   const t = useTranslations('coach');
   const shellRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const full = detent === 'full';
   const play = peekPx !== undefined;
+  const playPeek = play && detent === 'peek';
+
+  // The play peek's content, measured at peek (border + grabber + content, without the bottom pad).
+  // Kept with the fallback it was taken under: a new fallback («Чат» toggled elsewhere) drops it.
+  const [measured, setMeasured] = useState<{ px: number; fallback: number } | null>(null);
+  const playPeekPx = play ? (measured?.fallback === peekPx ? measured.px : peekPx) : undefined;
+
+  useLayoutEffect(() => {
+    const sheetEl = sheetRef.current;
+    const content = contentRef.current;
+    if (!playPeek || !sheetEl || !content || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const px = Math.ceil(sheetEl.clientTop + content.offsetTop + content.offsetHeight);
+      if (px > 0) setMeasured((m) => (m?.px === px && m.fallback === peekPx ? m : { px, fallback: peekPx! }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(content);
+    return () => ro.disconnect();
+  }, [playPeek, peekPx]);
 
   // While dragged the sheet follows the finger in px; released it snaps to a detent.
   const [dragHeight, setDragHeight] = useState<number | null>(null);
@@ -79,9 +104,9 @@ export default function CoachShell({
       width: shell?.clientWidth ?? 0,
       bar: barEl?.offsetHeight ?? 0,
       stageChrome: full ? 0 : stageChrome,
-      peekPx: play ? peekPx + pad : undefined,
+      peekPx: playPeekPx === undefined ? undefined : playPeekPx + pad,
     });
-  }, [full, stageChrome, play, peekPx]);
+  }, [full, stageChrome, play, playPeekPx]);
 
   const onPanStart = () => {
     dragged.current = true;
@@ -104,7 +129,10 @@ export default function CoachShell({
     <div
       ref={shellRef}
       className="coach-shell fixed inset-x-0 top-0 z-[45] flex h-[100dvh] flex-col overflow-hidden bg-(--coach-bg) [container-type:size]"
-      style={keyboard.open ? { top: keyboard.top, height: keyboard.height } : undefined}
+      style={{
+        ...(keyboard.open ? { top: keyboard.top, height: keyboard.height } : {}),
+        ...(playPeekPx === undefined ? {} : { [PLAY_PEEK_VAR]: `${playPeekPx}px` }),
+      }}
       // z-45: over the app's fixed sync dot (z-40), under sheets and dialogs (z-60+).
       data-testid="coach-shell"
       data-detent={detent}
@@ -182,7 +210,10 @@ export default function CoachShell({
         >
           <span className="h-[5px] w-[38px] rounded-full bg-(--coach-grabber)" aria-hidden />
         </motion.button>
-        <div className="min-h-0 flex-1">{sheet}</div>
+        {/* Play peek: the content keeps its natural height (measured above); the sheet grows to it. */}
+        <div ref={contentRef} className={playPeek ? 'shrink-0' : 'min-h-0 flex-1'} data-testid="coach-sheet-content">
+          {sheet}
+        </div>
       </section>
     </div>
   );

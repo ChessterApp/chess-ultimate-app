@@ -938,6 +938,7 @@ export default function CoachPage() {
       view={!isDesktop && sheetDetent === 'peek' ? 'peek' : 'thread'}
       onExpand={() => dispatchSheet({ type: 'expand' })}
       onComposerFocus={isDesktop ? undefined : () => dispatchSheet({ type: 'composer_focus' })}
+      footerHugs={!isDesktop && !!playActions}
       footer={isDesktop ? momentsFlow || undefined : playActions ? <PlayActionBar {...playActions} /> : momentsFlow || puzzleFlow || undefined}
       mode={mode}
       // Phones: a card put something on the board — drop the sheet so it shows.
@@ -1001,8 +1002,9 @@ export default function CoachPage() {
         />
       );
     } else if (game) {
-      // The sheet hugs the action bar (+ the composer while «Чат» is on); the board
-      // takes the full width and the coach row the rest (see playStageCss).
+      // The sheet hugs the action bar (+ the composer while «Чат» is on) — measured
+      // by the shell, these are the fallback; the board takes the full width and
+      // the coach row the rest (see playStageCss).
       peekPx = PLAY_PEEK_PX + (playChatOpen ? PLAY_COMPOSER_PX : 0);
       above = (
         <div className="flex h-full flex-col px-2 pt-1 pb-2">

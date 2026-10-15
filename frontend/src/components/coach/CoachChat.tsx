@@ -95,6 +95,8 @@ interface CoachChatProps {
   onComposerFocus?: () => void;
   /** Shown above the composer: the game's action bar, the puzzle's steps. In peek it replaces the line and chips. */
   footer?: React.ReactNode;
+  /** In peek the footer keeps its height (a game's action bar): the sheet grows to fit, never squeezes it. */
+  footerHugs?: boolean;
   /** What the board is doing — the contextual chips follow it. */
   mode?: CoachMode;
   /** Bring the board into view after a card put something on it (phones: the sheet drops to peek). */
@@ -191,6 +193,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onExpand,
     onComposerFocus,
     footer,
+    footerHugs = false,
     mode = 'explore',
     onShowBoard,
     onStartMoments,
@@ -1007,7 +1010,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           <ChipRow prompts={prompts} disabled={isStreaming} onSend={(prompt) => void sendMessage(prompt)} />
         </div>
       )}
-      {footer && <div className={`shrink-0 px-3 pt-2 ${peek ? 'min-h-0 flex-1 overflow-y-auto' : ''}`}>{footer}</div>}
+      {footer && <div className={`shrink-0 px-3 pt-2 ${peek && !footerHugs ? 'min-h-0 flex-1 overflow-y-auto' : ''}`}>{footer}</div>}
 
       {/* Load a .pgn file straight onto the board — no model call needed. */}
       <input
