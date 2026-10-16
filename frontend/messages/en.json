@@ -3378,5 +3378,10 @@
       "title": "Contact",
       "body": "Questions about privacy? Email us at"
     }
+  },
+  "engine": {
+    "settings": "Engine settings",
+    "depth": "Depth",
+    "lines": "Lines"
   }
 }
