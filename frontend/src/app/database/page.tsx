@@ -464,34 +464,13 @@ export default function DebutPage() {
   }, []);
 
   const handleGameBoardMove = useCallback((
-    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
+    _from: string, _to: string, _piece: string, _newFen: string, moveSan: string, _moveUci: string
   ) => {
-    if (!gameMoveTree.tree || !editTreeSelectedNodeId) {
-      // If no node selected, try to add from root
-      if (gameMoveTree.tree) {
-        const result = gameMoveTree.addMove(gameMoveTree.tree.id, moveSan, moveUci, newFen);
-        if (result) setEditTreeSelectedNodeId(result.id);
-      }
-      return;
-    }
-
-    // Check if current node already has this move as a child
-    const currentNode = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
-    if (!currentNode) return;
-
-    const fenKey = newFen.split(' ').slice(0, 4).join(' ');
-    const existing = (currentNode.children || []).find(
-      c => c.fen.split(' ').slice(0, 4).join(' ') === fenKey
-    );
-
-    if (existing) {
-      // Navigate to existing child
-      setEditTreeSelectedNodeId(existing.id);
-    } else {
-      // Add new move (may create variation)
-      const result = gameMoveTree.addMove(currentNode.id, moveSan, moveUci, newFen);
-      if (result) setEditTreeSelectedNodeId(result.id);
-    }
+    if (!gameMoveTree.tree) return;
+    // No selection means the board shows the root, so the move belongs there.
+    // addMove re-validates from the parent and returns an existing child if present.
+    const result = gameMoveTree.addMove(editTreeSelectedNodeId ?? gameMoveTree.tree.id, moveSan);
+    if (result) setEditTreeSelectedNodeId(result.id);
   }, [gameMoveTree, editTreeSelectedNodeId]);
 
   const handleEditTreeSave = useCallback(async () => {
@@ -558,13 +537,13 @@ export default function DebutPage() {
     },
   } : undefined;
 
-  // Get the FEN for the selected tree node (when viewing an editable game)
+  // Get the FEN for the selected tree node (when viewing an editable game).
+  // With nothing selected the board must show the tree root, matching where moves attach.
   const editTreeFen = useMemo(() => {
-    if (!isActiveGameEditable || !gameMoveTree.tree || !editTreeSelectedNodeId) {
-      return null;
-    }
+    if (!isActiveGameEditable || !gameMoveTree.tree) return null;
+    if (!editTreeSelectedNodeId) return gameMoveTree.tree.fen;
     const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
-    return node?.fen || null;
+    return node?.fen || gameMoveTree.tree.fen;
   }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
 
   // ─── Tree navigation callbacks (for DebutBoard arrows + keyboard in tree mode) ───
@@ -575,8 +554,8 @@ export default function DebutPage() {
   }, [gameMoveTree.tree, editTreeSelectedNodeId]);
 
   const handleEditTreeNext = useCallback(() => {
-    if (!gameMoveTree.tree || !editTreeSelectedNodeId) return;
-    const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    if (!gameMoveTree.tree) return;
+    const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId ?? gameMoveTree.tree.id);
     if (node?.children?.length) setEditTreeSelectedNodeId(node.children[0].id);
   }, [gameMoveTree.tree, editTreeSelectedNodeId]);
 
@@ -586,8 +565,8 @@ export default function DebutPage() {
   }, [gameMoveTree.tree]);
 
   const handleEditTreeGoToEnd = useCallback(() => {
-    if (!gameMoveTree.tree || !editTreeSelectedNodeId) return;
-    let node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    if (!gameMoveTree.tree) return;
+    let node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId ?? gameMoveTree.tree.id);
     if (!node) return;
     while (node.children?.length) node = node.children[0];
     setEditTreeSelectedNodeId(node.id);

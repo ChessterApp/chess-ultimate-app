@@ -260,32 +260,41 @@ export function useGameMoveTree() {
     setIsDirty(false);
   }, []);
 
-  const addMove = useCallback((parentNodeId: string, san: string, uci: string, fen: string): OpeningNode | null => {
+  const addMove = useCallback((parentNodeId: string, san: string): OpeningNode | null => {
     if (!tree) return null;
-
-    const fenParts = fen.split(' ');
-    const isWhiteMove = fenParts[1] === 'b';
-    const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
-
-    const newNode = makeNode({
-      fen,
-      move_san: san,
-      move_uci: uci,
-      move_number: moveNumber || 1,
-      is_white_move: isWhiteMove,
-      parent_id: parentNodeId,
-    });
 
     const newTree = cloneTree(tree);
     const parent = findNodeById(newTree, parentNodeId);
     if (!parent) return null;
 
+    // Validate from the parent's position — never trust a FEN computed elsewhere.
+    const chess = new Chess(parent.fen);
+    let move;
+    try {
+      move = chess.move(san);
+    } catch {
+      return null;
+    }
+    const fen = chess.fen();
+    const fenParts = fen.split(' ');
+    const isWhiteMove = fenParts[1] === 'b';
+    const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
+
     // Check if this move already exists as a child (by FEN position match)
-    const fenKey = fen.split(' ').slice(0, 4).join(' ');
+    const fenKey = fenParts.slice(0, 4).join(' ');
     const existing = (parent.children || []).find(
       c => c.fen.split(' ').slice(0, 4).join(' ') === fenKey
     );
     if (existing) return existing; // Navigate to existing
+
+    const newNode = makeNode({
+      fen,
+      move_san: move.san,
+      move_uci: move.from + move.to + (move.promotion || ''),
+      move_number: moveNumber || 1,
+      is_white_move: isWhiteMove,
+      parent_id: parentNodeId,
+    });
 
     if (!parent.children) parent.children = [];
     parent.children.push(newNode);

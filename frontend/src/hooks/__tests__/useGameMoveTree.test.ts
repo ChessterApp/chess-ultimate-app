@@ -1,5 +1,9 @@
+/**
+ * @vitest-environment jsdom
+ */
 import { describe, it, expect, beforeEach } from 'vitest';
-import { pgnToTree, treeToPgn, findNodeById, findParentOf, cloneTree } from '../useGameMoveTree';
+import { renderHook, act } from '@testing-library/react';
+import { pgnToTree, treeToPgn, findNodeById, findParentOf, cloneTree, useGameMoveTree } from '../useGameMoveTree';
 import type { OpeningNode } from '../useOpeningRepertoire';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -392,5 +396,56 @@ describe('cloneTree', () => {
     // Modifying clone should not affect original
     clone.children![0].move_san = 'd4';
     expect(tree.children![0].move_san).toBe('e4');
+  });
+});
+
+describe('useGameMoveTree.addMove', () => {
+  function setup(pgn: string) {
+    const hook = renderHook(() => useGameMoveTree());
+    act(() => hook.result.current.initFromPgn(pgn));
+    return hook;
+  }
+
+  it('rejects a black move at the root of a standard-start tree', () => {
+    const { result } = setup('');
+    const root = result.current.tree!;
+    let added: OpeningNode | null = null;
+    act(() => { added = result.current.addMove(root.id, 'e6'); });
+    expect(added).toBeNull();
+    expect(result.current.tree).toBe(root);
+    expect(result.current.tree!.children).toEqual([]);
+    expect(result.current.isDirty).toBe(false);
+  });
+
+  it('rejects an illegal move after an existing node', () => {
+    const { result } = setup('1. e4');
+    const tree = result.current.tree!;
+    let added: OpeningNode | null = null;
+    act(() => { added = result.current.addMove(tree.children![0].id, 'e4'); });
+    expect(added).toBeNull();
+    expect(result.current.tree).toBe(tree);
+  });
+
+  it('adds a legal move from the parent position with chess.js SAN and FEN', () => {
+    const { result } = setup('1. e4');
+    const e4 = result.current.tree!.children![0];
+    let added: OpeningNode | null = null;
+    act(() => { added = result.current.addMove(e4.id, 'e6'); });
+    expect(added!.move_san).toBe('e6');
+    expect(added!.move_uci).toBe('e7e6');
+    expect(added!.is_white_move).toBe(false);
+    expect(added!.move_number).toBe(1);
+    expect(added!.fen).toBe('rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2');
+    expect(result.current.getPgn()).toBe('1. e4 e6');
+    expect(result.current.isDirty).toBe(true);
+  });
+
+  it('returns the existing child instead of duplicating it', () => {
+    const { result } = setup('1. e4 e5');
+    const tree = result.current.tree!;
+    let added: OpeningNode | null = null;
+    act(() => { added = result.current.addMove(tree.children![0].id, 'e5'); });
+    expect(added!.id).toBe(tree.children![0].children![0].id);
+    expect(result.current.tree).toBe(tree);
   });
 });
