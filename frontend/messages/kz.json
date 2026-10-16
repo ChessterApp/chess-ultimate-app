@@ -1209,6 +1209,10 @@
       "addVariation": "Нұсқа қосу",
       "newVariationTab": "Жаңа нұсқа",
       "variationSaved": "Нұсқа «Менің ойындарым» бөліміне сақталды",
+      "untitledVariation": "Атауы жоқ нұсқа",
+      "editTitle": "Атауын өзгерту",
+      "titlePlaceholder": "Нұсқа атауы",
+      "titleSaveError": "Атауын сақтау мүмкін болмады",
       "discardVariationConfirm": "Сақталмаған нұсқаны жою керек пе?"
     },
     "shareCollection": {

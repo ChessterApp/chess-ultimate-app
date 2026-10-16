@@ -565,22 +565,34 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
                   <TableCell sx={tdSx}>
                     {game.date ? game.date.substring(0, 4) : '—'}
                   </TableCell>
-                  {/* White */}
-                  <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {game.white || '?'}
-                  </TableCell>
-                  {/* White Elo */}
-                  <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
-                    {game.white_elo ?? '—'}
-                  </TableCell>
-                  {/* Black */}
-                  <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {game.black || '?'}
-                  </TableCell>
-                  {/* Black Elo */}
-                  <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
-                    {game.black_elo ?? '—'}
-                  </TableCell>
+                  {game.event === 'Variation' ? (
+                    /* Variation title spans the player + Elo columns */
+                    <TableCell
+                      colSpan={4}
+                      sx={{ ...tdSx, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: game.title ? undefined : 'text.disabled' }}
+                    >
+                      {game.title || t('myGames.untitledVariation')}
+                    </TableCell>
+                  ) : (
+                    <>
+                    {/* White */}
+                    <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {game.white || '?'}
+                    </TableCell>
+                    {/* White Elo */}
+                    <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
+                      {game.white_elo ?? '—'}
+                    </TableCell>
+                    {/* Black */}
+                    <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {game.black || '?'}
+                    </TableCell>
+                    {/* Black Elo */}
+                    <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
+                      {game.black_elo ?? '—'}
+                    </TableCell>
+                    </>
+                  )}
                   {/* Result */}
                   <TableCell sx={{
                     ...tdSx,

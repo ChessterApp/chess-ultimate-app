@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { saveGameTree } from '../saveGameTree';
+import { saveGameTree, saveVariationTitle } from '../saveGameTree';
 import type { OpenedGame } from '../GameViewerPanel';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -41,5 +41,39 @@ describe('saveGameTree', () => {
     await saveGameTree(saved, '1. e4 e5', d);
     expect(d.createGame).not.toHaveBeenCalled();
     expect(d.updateGame).toHaveBeenCalledWith('game-7', { pgn: '1. e4 e5' });
+  });
+});
+
+describe('saveGameTree — variation title', () => {
+  it('sends the draft title on create', async () => {
+    const d = deps('db-1');
+    await saveGameTree({ ...draft, title: 'Najdorf idea' }, '1. e4', d);
+    expect(d.createGame.mock.calls[0][1].title).toBe('Najdorf idea');
+  });
+
+  it('sends a null title for an untitled draft', async () => {
+    const d = deps('db-1');
+    await saveGameTree(draft, '1. e4', d);
+    expect(d.createGame.mock.calls[0][1].title).toBeNull();
+  });
+});
+
+describe('saveVariationTitle', () => {
+  it('updates a saved variation with { title }', async () => {
+    const updateGame = vi.fn().mockResolvedValue({ id: 'game-7' });
+    await expect(saveVariationTitle(saved, 'Sicilian line', updateGame)).resolves.toBe(true);
+    expect(updateGame).toHaveBeenCalledWith('game-7', { title: 'Sicilian line' });
+  });
+
+  it('reports failure so the caller can revert', async () => {
+    const updateGame = vi.fn().mockResolvedValue(null);
+    await expect(saveVariationTitle(saved, null, updateGame)).resolves.toBe(false);
+    expect(updateGame).toHaveBeenCalledWith('game-7', { title: null });
+  });
+
+  it('keeps a draft title local without calling the API', async () => {
+    const updateGame = vi.fn();
+    await expect(saveVariationTitle(draft, 'x', updateGame)).resolves.toBe(true);
+    expect(updateGame).not.toHaveBeenCalled();
   });
 });

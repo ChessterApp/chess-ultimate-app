@@ -85,8 +85,8 @@ const DatabasePillRow = dynamic(() => import('@/components/openings/DatabasePill
 });
 
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
-import { parseGamePgn } from '@/components/openings/GameViewerPanel';
-import { saveGameTree } from '@/components/openings/saveGameTree';
+import { parseGamePgn, isVariationGame } from '@/components/openings/GameViewerPanel';
+import { saveGameTree, saveVariationTitle } from '@/components/openings/saveGameTree';
 const GameViewerPanel = dynamic(() => import('@/components/openings/GameViewerPanel'), {
   ssr: false,
   loading: () => null
@@ -430,6 +430,19 @@ export default function DebutPage() {
       });
     }
   }, [activeTab, toggleUserFavorite]);
+
+  // Rename a variation: drafts keep the title until Save; saved ones update
+  // immediately and revert on failure.
+  const handleVariationTitleChange = useCallback(async (game: OpenedGame, title: string | null) => {
+    const setTitle = (value: string | undefined) =>
+      setOpenedGames(prev => prev.map(g => (g.id === game.id ? { ...g, title: value } : g)));
+    setTitle(title ?? undefined);
+    const ok = await saveVariationTitle(game, title, updateUserGame);
+    if (!ok) {
+      setTitle(game.title);
+      setSnackbar({ open: true, msg: t('myGames.titleSaveError'), severity: 'error' });
+    }
+  }, [updateUserGame, t]);
 
   const handleViewerDeleteGame = useCallback(async () => {
     if (!activeTab) return;
@@ -1531,6 +1544,7 @@ export default function DebutPage() {
       eco: game.eco,
       date: game.date || game.year?.toString(),
       event: game.event,
+      title: game.title ?? undefined,
       pgn: pgnText,
       moves: parsed.moves,
       fens: parsed.fens,
@@ -1966,7 +1980,7 @@ export default function DebutPage() {
           {openedGames.map(g => (
             <Chip
               key={g.id}
-              label={g.isDraft ? `♟\uFE0E ${t('myGames.newVariationTab')}` : `♟\uFE0E ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
+              label={g.title && isVariationGame(g) ? `♟\uFE0E ${g.title}` : g.isDraft ? `♟\uFE0E ${t('myGames.newVariationTab')}` : `♟\uFE0E ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
               onClick={() => setActiveTab(g.id)}
               onDelete={() => handleCloseGame(g.id)}
               deleteIcon={<Close sx={{ fontSize: 14 }} />}
@@ -2303,6 +2317,7 @@ export default function DebutPage() {
                   onEditGame={activeGame.source === 'user' && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
                   onToggleFavorite={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
                   onDeleteGame={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
+                  onTitleChange={activeGame.source === 'user' ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
                   isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
@@ -2421,6 +2436,7 @@ export default function DebutPage() {
                   onEditGame={activeGame.source === 'user' && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
                   onToggleFavorite={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
                   onDeleteGame={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
+                  onTitleChange={activeGame.source === 'user' ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
                   isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}

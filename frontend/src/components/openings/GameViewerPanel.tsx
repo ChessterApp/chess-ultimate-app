@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, Typography, Chip, IconButton, Tooltip, CircularProgress, Button,
+  Box, Typography, Chip, IconButton, Tooltip, CircularProgress, Button, TextField,
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, FirstPage, LastPage, BookmarkBorder, Bookmark, Edit, Save, Star, StarBorder, Delete } from '@mui/icons-material';
 import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from '@mui/material';
@@ -30,6 +30,13 @@ export interface OpenedGame {
   source?: GameSource | string;
   /** Unsaved "Add variation" board — Save creates a new game instead of updating. */
   isDraft?: boolean;
+  /** Variation title (user games only); shown instead of the players header. */
+  title?: string;
+}
+
+/** Saved variations are tagged event 'Variation'; drafts are variations until saved. */
+export function isVariationGame(game: Pick<OpenedGame, 'event' | 'isDraft'>): boolean {
+  return Boolean(game.isDraft) || game.event === 'Variation';
 }
 
 interface GameViewerPanelProps {
@@ -56,6 +63,8 @@ interface GameViewerPanelProps {
   onTreeNext?: () => void;
   onTreeGoToStart?: () => void;
   onTreeGoToEnd?: () => void;
+  /** Rename a variation; receives the trimmed title, or null when cleared. */
+  onTitleChange?: (title: string | null) => void;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -100,7 +109,7 @@ export default function GameViewerPanel({
   onSaveToMyGames, isSaved = false, onEditGame,
   onToggleFavorite, onDeleteGame, isFavorite = false,
   isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, editContextMenuActions,
-  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd,
+  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd, onTitleChange,
 }: GameViewerPanelProps) {
   const t = useTranslations('debut');
   const [saving, setSaving] = useState(false);
@@ -117,6 +126,29 @@ export default function GameViewerPanel({
   }, [onSaveToMyGames, saving, saved, game]);
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+
+  const isVariation = isVariationGame(game);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
+
+  useEffect(() => { setEditingTitle(false); }, [game.id]);
+
+  const startTitleEdit = useCallback(() => {
+    setTitleDraft(game.title ?? '');
+    setEditingTitle(true);
+  }, [game.title]);
+
+  const commitTitle = useCallback(() => {
+    setEditingTitle(false);
+    const next = titleDraft.trim() || null;
+    if (next !== (game.title || null)) onTitleChange?.(next);
+  }, [titleDraft, game.title, onTitleChange]);
+
+  const cancelTitleEdit = useCallback(() => {
+    // Reset first so the blur fired on unmount commits nothing.
+    setTitleDraft(game.title ?? '');
+    setEditingTitle(false);
+  }, [game.title]);
 
   const handleDeleteConfirm = useCallback(() => {
     setDeleteDialogOpen(false);
@@ -176,9 +208,49 @@ export default function GameViewerPanel({
       {/* Game header */}
       <Box sx={{ p: 1.5, borderBottom: 1, borderColor: 'divider' }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0 }}>
-            {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
-          </Typography>
+          {!isVariation ? (
+            <Typography variant="body2" sx={{ color: 'text.primary', fontWeight: 600, fontSize: 13, flex: 1, minWidth: 0 }}>
+              {game.white} {game.whiteElo ? `(${game.whiteElo})` : ''} {t('vs')} {game.black} {game.blackElo ? `(${game.blackElo})` : ''}
+            </Typography>
+          ) : editingTitle ? (
+            <TextField
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={commitTitle}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitTitle(); }
+                else if (e.key === 'Escape') { e.preventDefault(); cancelTitleEdit(); }
+              }}
+              placeholder={t('myGames.titlePlaceholder')}
+              autoFocus
+              size="small"
+              variant="standard"
+              slotProps={{ htmlInput: { maxLength: 120, 'aria-label': t('myGames.titlePlaceholder') } }}
+              sx={{ flex: 1, minWidth: 0, mr: 1, '& input': { fontSize: 13, fontWeight: 600, py: 0.25 } }}
+            />
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{ color: game.title ? 'text.primary' : 'text.disabled', fontWeight: 600, fontSize: 13, minWidth: 0 }}
+              >
+                {game.title || t('myGames.untitledVariation')}
+              </Typography>
+              {onTitleChange && (
+                <Tooltip title={t('myGames.editTitle')}>
+                  <IconButton
+                    size="small"
+                    onClick={startTitleEdit}
+                    aria-label={t('myGames.editTitle')}
+                    sx={{ p: 0.5, ml: 0.5 }}
+                  >
+                    <Edit sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+            </Box>
+          )}
           <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
             <ShareGameButton
               source={game.source || 'twic'}
@@ -248,13 +320,15 @@ export default function GameViewerPanel({
             )}
           </Box>
         </Box>
-        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-          {game.source && <SourceBadge source={game.source} />}
-          <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'divider', color: 'text.secondary' }} />
-          {game.eco && <Chip label={game.eco} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'primary.dark', color: 'primary.contrastText' }} />}
-          {game.date && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10 }}>{game.date}</Typography>}
-          {game.event && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10, ml: 0.5 }}>· {game.event}</Typography>}
-        </Box>
+        {!isVariation && (
+          <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
+            {game.source && <SourceBadge source={game.source} />}
+            <Chip label={game.result} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'divider', color: 'text.secondary' }} />
+            {game.eco && <Chip label={game.eco} size="small" sx={{ height: 18, fontSize: 10, bgcolor: 'primary.dark', color: 'primary.contrastText' }} />}
+            {game.date && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10 }}>{game.date}</Typography>}
+            {game.event && <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: 10, ml: 0.5 }}>· {game.event}</Typography>}
+          </Box>
+        )}
       </Box>
 
       {/* Move list — tree mode (editable) or flat mode */}

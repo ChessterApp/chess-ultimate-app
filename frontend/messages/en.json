@@ -1209,6 +1209,10 @@
       "addVariation": "Add variation",
       "newVariationTab": "New variation",
       "variationSaved": "Variation saved to My Games",
+      "untitledVariation": "Untitled variation",
+      "editTitle": "Edit title",
+      "titlePlaceholder": "Variation title",
+      "titleSaveError": "Couldn't save the title",
       "discardVariationConfirm": "Discard this unsaved variation?"
     },
     "shareCollection": {

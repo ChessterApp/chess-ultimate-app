@@ -1209,6 +1209,10 @@
       "addVariation": "Добавить вариант",
       "newVariationTab": "Новый вариант",
       "variationSaved": "Вариант сохранён в «Мои партии»",
+      "untitledVariation": "Вариант без названия",
+      "editTitle": "Изменить название",
+      "titlePlaceholder": "Название варианта",
+      "titleSaveError": "Не удалось сохранить название",
       "discardVariationConfirm": "Удалить несохранённый вариант?"
     },
     "shareCollection": {

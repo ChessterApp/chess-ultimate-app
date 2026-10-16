@@ -25,8 +25,22 @@ export async function saveGameTree(
     white: game.white,
     black: game.black,
     result: game.result,
+    title: game.title ?? null,
     event: 'Variation',
     source: 'board_entry',
     database_id: databaseId ?? undefined,
   });
+}
+
+/**
+ * Persists a renamed variation. Drafts keep the title in tab state until Save
+ * creates the game, so only saved variations hit the update API.
+ */
+export async function saveVariationTitle(
+  game: OpenedGame,
+  title: string | null,
+  updateGame: SaveGameTreeDeps['updateGame'],
+): Promise<boolean> {
+  if (game.isDraft) return true;
+  return (await updateGame(game.id, { title })) !== null;
 }
