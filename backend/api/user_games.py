@@ -363,6 +363,13 @@ def delete_game(game_id):
             .eq('user_id', user_id) \
             .execute()
 
+        # Deferred import: user_databases imports from this module.
+        from api.user_databases import purge_game_voice_notes
+        try:
+            purge_game_voice_notes([game_id], client=supabase)
+        except Exception as e:  # noqa: BLE001 — the game is already deleted
+            logger.error(f"Error removing voice notes of deleted game {game_id}: {e}")
+
         return jsonify({'success': True}), 200
 
     except Exception as e:

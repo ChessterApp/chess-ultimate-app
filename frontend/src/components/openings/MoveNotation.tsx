@@ -1,12 +1,16 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, IconButton, Button, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase, Divider, Popover, useMediaQuery, useTheme } from '@mui/material';
-import { Backspace, DeleteSweep, Delete, TrendingUp, Star, AddComment, ModeComment, MoreHoriz } from '@mui/icons-material';
+import { Box, Typography, IconButton, Button, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase, Divider, Popover, Dialog, DialogTitle, DialogContent, useMediaQuery, useTheme } from '@mui/material';
+import { Backspace, DeleteSweep, Delete, TrendingUp, Star, AddComment, ModeComment, MoreHoriz, Mic, MicOff } from '@mui/icons-material';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { VoiceRecording } from '@/hooks/useVoiceRecorder';
 import { MOVE_QUALITY_COLORS, getNag, suffixToNag } from '@/lib/nags';
+import { nodePathMap } from '@/lib/voiceNotes';
 import NagPalette, { type NagPaletteLabels } from './NagPalette';
 import MoveActionSheet, { type MoveAction, type MoveSheetView } from './MoveActionSheet';
+import VoiceNoteRecorder, { type VoiceNoteRecorderLabels } from './VoiceNoteRecorder';
+import VoiceNoteButton from './VoiceNoteButton';
 
 export interface MoveContextMenuActions {
   /** Removes the move and everything after it in its line. */
@@ -18,6 +22,9 @@ export interface MoveContextMenuActions {
   onCommentChange?: (node: OpeningNode, text: string) => void;
   /** Enables move symbols: palette in the context menu + toolbar, `!`/`?` keys. */
   onNagToggle?: (node: OpeningNode, code: number) => void;
+  /** Enables recording a voice note for a move (re-recording replaces it). */
+  onVoiceNoteSave?: (node: OpeningNode, recording: VoiceRecording) => Promise<boolean>;
+  onVoiceNoteDelete?: (node: OpeningNode) => void;
   labels?: NagPaletteLabels & {
     deleteMove?: string;
     deleteVariation?: string;
@@ -34,8 +41,37 @@ export interface MoveContextMenuActions {
     moreActions?: string;
     saveComment?: string;
     cancel?: string;
+    deleteComment?: string;
+    voiceNote?: string;
+    rerecordVoiceNote?: string;
+    deleteVoiceNote?: string;
+    /** Short action-bar label at mobile width. */
+    voice?: string;
+    recorder?: VoiceNoteRecorderLabels;
   };
 }
+
+/** Playback of the game's voice notes, keyed by node_path (works read-only too). */
+export interface VoiceNotePlayback {
+  paths: ReadonlySet<string>;
+  playingPath: string | null;
+  onToggle: (path: string) => void;
+  playLabel: string;
+  pauseLabel: string;
+}
+
+const DEFAULT_RECORDER_LABELS: VoiceNoteRecorderLabels = {
+  record: 'Record',
+  stop: 'Stop',
+  save: 'Save',
+  rerecord: 'Re-record',
+  cancel: 'Cancel',
+  saving: 'Saving…',
+  hint: 'Tap to record, tap again to stop. Up to 2 minutes.',
+  micDenied: 'Microphone access is blocked. Allow it in your browser settings to record.',
+  micUnavailable: "Couldn't start the microphone.",
+  saveFailed: "Couldn't save the voice note. Try again.",
+};
 
 /** `!`/`?` presses within this window combine into `!!`, `!?`, `?!`, `??`. */
 const NAG_KEY_WINDOW_MS = 400;
@@ -82,7 +118,7 @@ function MoveNags({ nags }: { nags: number[] }) {
 
 type RenderComment = (node: OpeningNode) => React.ReactNode;
 
-function CommentText({ text, onClick }: { text: string; onClick: () => void }) {
+function CommentText({ text, onClick }: { text: string; onClick?: () => void }) {
   return (
     <Typography
       component="span"
@@ -93,9 +129,8 @@ function CommentText({ text, onClick }: { text: string; onClick: () => void }) {
         fontStyle: 'italic',
         fontSize: '12px',
         px: '3px',
-        cursor: 'text',
         borderRadius: '2px',
-        '&:hover': { bgcolor: 'action.hover' },
+        ...(onClick && { cursor: 'text', '&:hover': { bgcolor: 'action.hover' } }),
       }}
     >
       {text}
@@ -103,9 +138,10 @@ function CommentText({ text, onClick }: { text: string; onClick: () => void }) {
   );
 }
 
-function CommentEditor({ initial, placeholder, onDone }: {
+function CommentEditor({ initial, placeholder, deleteLabel, onDone }: {
   initial: string;
   placeholder?: string;
+  deleteLabel: string;
   onDone: (text: string | null) => void; // null = cancelled
 }) {
   const [value, setValue] = useState(initial);
@@ -116,6 +152,7 @@ function CommentEditor({ initial, placeholder, onDone }: {
     onDone(text);
   };
   return (
+    <>
     <InputBase
       autoFocus
       value={value}
@@ -139,6 +176,19 @@ function CommentEditor({ initial, placeholder, onDone }: {
         '& input': { py: '1px' },
       }}
     />
+    {initial && (
+      <Button
+        size="small"
+        color="error"
+        // Keep focus in the input so its blur doesn't save before the delete lands.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => finish('')}
+        sx={{ minWidth: 0, px: 0.75, py: 0, fontSize: 12, textTransform: 'none' }}
+      >
+        {deleteLabel}
+      </Button>
+    )}
+    </>
   );
 }
 
@@ -150,6 +200,9 @@ interface MoveNotationProps {
   onDeleteAll?: () => void;
   loading: boolean;
   contextMenuActions?: MoveContextMenuActions;
+  voiceNotes?: VoiceNotePlayback;
+  /** Show move comments read-only (editable comments always show). */
+  showComments?: boolean;
 }
 
 interface MoveHandlers {
@@ -237,6 +290,7 @@ function renderNode(
   selectedRef: React.RefObject<HTMLSpanElement | null>,
   handlers?: MoveHandlers,
   renderComment?: RenderComment,
+  renderVoice?: RenderComment,
 ): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
   const key = node.id;
@@ -259,6 +313,9 @@ function renderNode(
     />
   );
 
+  const voice = renderVoice?.(node);
+  if (voice) elements.push(<React.Fragment key={`v-${key}`}>{voice}</React.Fragment>);
+
   const comment = renderComment?.(node);
   if (comment) elements.push(<React.Fragment key={`c-${key}`}>{comment}</React.Fragment>);
 
@@ -267,7 +324,7 @@ function renderNode(
 
   elements.push(
     // A comment breaks the move pair, so the next black move gets its number back
-    ...renderNode(children[0], depth, !!comment, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)
+    ...renderNode(children[0], depth, !!comment, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment, renderVoice)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -293,7 +350,7 @@ function renderNode(
         >
           (
         </Typography>
-        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)}
+        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment, renderVoice)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -314,6 +371,7 @@ function renderTree(
   selectedRef: React.RefObject<HTMLSpanElement | null>,
   handlers?: MoveHandlers,
   renderComment?: RenderComment,
+  renderVoice?: RenderComment,
 ): React.ReactNode[] {
   const children = root.children || [];
   const rootComment = renderComment?.(root);
@@ -323,7 +381,7 @@ function renderTree(
   if (rootComment) elements.push(<React.Fragment key="c-root">{rootComment}</React.Fragment>);
 
   elements.push(
-    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)
+    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment, renderVoice)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -349,7 +407,7 @@ function renderTree(
         >
           (
         </Typography>
-        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)}
+        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment, renderVoice)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -376,7 +434,8 @@ function ActionBarButton({ label, showLabel, disabled, onClick, children }: {
 }) {
   return (
     <Tooltip title={showLabel ? '' : label} arrow placement="top" describeChild>
-      <span>
+      {/* Mobile: icon over a short label, four equal columns that fit 320px. */}
+      <span style={showLabel ? { flex: 1, minWidth: 0, display: 'flex' } : undefined}>
         <Button
           size="small"
           aria-label={label}
@@ -385,13 +444,16 @@ function ActionBarButton({ label, showLabel, disabled, onClick, children }: {
           sx={{
             minWidth: 40,
             minHeight: 40,
-            px: showLabel ? 1.25 : 0.5,
-            gap: 0.75,
+            px: 0.5,
+            gap: showLabel ? 0.25 : 0.75,
             color: 'text.secondary',
             textTransform: 'none',
-            fontSize: 13,
+            fontSize: showLabel ? 11 : 13,
             fontWeight: 600,
+            lineHeight: 1.2,
+            whiteSpace: 'nowrap',
             '&:hover': { color: 'primary.main' },
+            ...(showLabel && { flex: 1, flexDirection: 'column' }),
           }}
         >
           {children}
@@ -402,7 +464,7 @@ function ActionBarButton({ label, showLabel, disabled, onClick, children }: {
   );
 }
 
-export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading, contextMenuActions }: MoveNotationProps) {
+export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading, contextMenuActions, voiceNotes, showComments = false }: MoveNotationProps) {
   const selectedRef = useRef<HTMLSpanElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: OpeningNode } | null>(null);
@@ -412,7 +474,11 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   const pendingCommentIdRef = useRef<string | null>(null);
   const onCommentChange = contextMenuActions?.onCommentChange;
   const onNagToggle = contextMenuActions?.onNagToggle;
+  const onVoiceNoteSave = contextMenuActions?.onVoiceNoteSave;
   const [nagAnchor, setNagAnchor] = useState<HTMLElement | null>(null);
+  // Desktop voice-note dialog; like comments, a menu pick opens it once the menu has closed.
+  const [voiceNodeId, setVoiceNodeId] = useState<string | null>(null);
+  const pendingVoiceIdRef = useRef<string | null>(null);
   const commentPlaceholder = contextMenuActions?.labels?.commentPlaceholder;
   // Phones/tablets: the right-click menu is unreachable, so the move actions and
   // comment editor live in a bottom sheet instead.
@@ -536,12 +602,37 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     else setEditingCommentId(node.id);
   }, [isMobile, openSheet]);
 
+  const recordVoiceNote = useCallback((node: OpeningNode) => {
+    if (isMobile) openSheet(node, 'voice');
+    else setVoiceNodeId(node.id);
+  }, [isMobile, openSheet]);
+
+  const pathMap = useMemo(() => (tree ? nodePathMap(tree) : new Map<string, string>()), [tree]);
+  const hasVoiceNote = useCallback((node: OpeningNode) => {
+    const path = pathMap.get(node.id);
+    return !!path && !!voiceNotes?.paths.has(path);
+  }, [pathMap, voiceNotes]);
+
+  const renderVoice = useCallback<RenderComment>((node) => {
+    const path = pathMap.get(node.id);
+    if (!voiceNotes || !path || !voiceNotes.paths.has(path)) return null;
+    const playing = voiceNotes.playingPath === path;
+    return (
+      <VoiceNoteButton
+        playing={playing}
+        label={playing ? voiceNotes.pauseLabel : voiceNotes.playLabel}
+        onClick={() => voiceNotes.onToggle(path)}
+      />
+    );
+  }, [pathMap, voiceNotes]);
+
   const renderComment = useCallback<RenderComment>((node) => {
     if (node.id === editingCommentId) {
       return (
         <CommentEditor
           initial={node.notes || ''}
           placeholder={commentPlaceholder}
+          deleteLabel={contextMenuActions?.labels?.deleteComment || 'Delete comment'}
           onDone={(text) => {
             setEditingCommentId(null);
             if (text !== null) onCommentChange?.(node, text);
@@ -550,17 +641,18 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
       );
     }
     if (!node.notes) return null;
-    return <CommentText text={node.notes} onClick={() => editComment(node)} />;
-  }, [editingCommentId, commentPlaceholder, onCommentChange, editComment]);
+    return <CommentText text={node.notes} onClick={onCommentChange ? () => editComment(node) : undefined} />;
+  }, [editingCommentId, commentPlaceholder, onCommentChange, editComment, contextMenuActions?.labels?.deleteComment]);
 
   const elements = useMemo(() => {
     if (!tree) return [];
     return renderTree(
       tree, selectedNodeId, handleMoveClick, selectedRef,
       contextMenuActions ? handlers : undefined,
-      onCommentChange ? renderComment : undefined,
+      onCommentChange || showComments ? renderComment : undefined,
+      voiceNotes ? renderVoice : undefined,
     );
-  }, [tree, selectedNodeId, handleMoveClick, contextMenuActions, handlers, onCommentChange, renderComment]);
+  }, [tree, selectedNodeId, handleMoveClick, contextMenuActions, handlers, onCommentChange, showComments, renderComment, voiceNotes, renderVoice]);
 
   const selectedMoveNode = useMemo(() => {
     if (!tree || !selectedNodeId || selectedNodeId === tree.id) return null;
@@ -646,6 +738,18 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     if (onNagToggle) {
       actions.push({ key: 'symbols', label: symbolsLabel, icon: <Box component="span" sx={{ fontWeight: 700, fontSize: 14 }}>!?</Box> });
     }
+    const voiceNoted = hasVoiceNote(node);
+    if (onVoiceNoteSave) {
+      actions.push({
+        key: 'voiceNote',
+        label: voiceNoted ? labels.rerecordVoiceNote || 'Re-record voice note' : labels.voiceNote || 'Voice note',
+        icon: <Mic fontSize="small" />,
+        color: 'primary.main',
+      });
+    }
+    if (contextMenuActions.onVoiceNoteDelete && voiceNoted) {
+      actions.push({ key: 'deleteVoiceNote', label: labels.deleteVoiceNote || 'Delete voice note', icon: <MicOff fontSize="small" />, color: 'error.main' });
+    }
     if (contextMenuActions.onMakeMainLine && variation) {
       actions.push({ key: 'makeMainLine', label: labels.makeMainLine || 'Make main line', icon: <Star fontSize="small" />, color: 'success.main' });
     }
@@ -672,7 +776,13 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
       setSheet({ nodeId: node.id, view: 'nags' });
       return;
     }
+    if (key === 'voiceNote') {
+      if (surface === 'sheet') setSheet({ nodeId: node.id, view: 'voice' });
+      else pendingVoiceIdRef.current = node.id;
+      return;
+    }
     setSheet(null);
+    if (key === 'deleteVoiceNote') contextMenuActions.onVoiceNoteDelete?.(node);
     if (key === 'makeMainLine') contextMenuActions.onMakeMainLine?.(node);
     else if (key === 'promoteVariation') contextMenuActions.onPromoteVariation?.(node);
     else if (key === 'deleteVariation') contextMenuActions.onDeleteVariation?.(node);
@@ -698,6 +808,20 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   );
 
   const sheetNode = sheet ? findNode(tree, sheet.nodeId) : null;
+  const voiceNode = voiceNodeId ? findNode(tree, voiceNodeId) : null;
+
+  const renderRecorder = (node: OpeningNode, close: () => void) => (
+    <VoiceNoteRecorder
+      key={node.id}
+      labels={labels.recorder ?? DEFAULT_RECORDER_LABELS}
+      onCancel={close}
+      onSave={async (recording) => {
+        const ok = await onVoiceNoteSave!(node, recording);
+        if (ok) close();
+        return ok;
+      }}
+    />
+  );
 
   const openMore = (e: React.MouseEvent<HTMLElement>) => {
     if (!selectedMoveNode) return;
@@ -763,6 +887,16 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
               }}
             >
               <Box component="span" sx={{ fontSize: 14, fontWeight: 700, lineHeight: '18px' }}>!?</Box>
+            </ActionBarButton>
+          )}
+          {onVoiceNoteSave && (
+            <ActionBarButton
+              label={isMobile ? labels.voice || 'Voice' : labels.voiceNote || 'Voice note'}
+              showLabel={isMobile}
+              disabled={!selectedMoveNode}
+              onClick={() => selectedMoveNode && recordVoiceNote(selectedMoveNode)}
+            >
+              <Mic sx={{ fontSize: 18 }} />
             </ActionBarButton>
           )}
           <ActionBarButton
@@ -843,7 +977,9 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             transition: {
               onExited: () => {
                 if (pendingCommentIdRef.current) setEditingCommentId(pendingCommentIdRef.current);
+                if (pendingVoiceIdRef.current) setVoiceNodeId(pendingVoiceIdRef.current);
                 pendingCommentIdRef.current = null;
+                pendingVoiceIdRef.current = null;
               },
             },
             paper: {
@@ -889,8 +1025,22 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             commentPlaceholder,
             save: labels.saveComment || 'Save',
             cancel: labels.cancel || 'Cancel',
+            deleteComment: labels.deleteComment || 'Delete comment',
           }}
+          voice={sheetNode && sheet?.view === 'voice' && onVoiceNoteSave ? renderRecorder(sheetNode, closeSheet) : undefined}
         />
+      )}
+
+      {/* Voice-note recorder (desktop) */}
+      {onVoiceNoteSave && (
+        <Dialog open={!!voiceNode} onClose={() => setVoiceNodeId(null)} fullWidth maxWidth="xs">
+          <DialogTitle sx={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, color: 'text.secondary' }}>
+            {voiceNode ? moveLabel(voiceNode) : ''}
+          </DialogTitle>
+          <DialogContent>
+            {voiceNode && renderRecorder(voiceNode, () => setVoiceNodeId(null))}
+          </DialogContent>
+        </Dialog>
       )}
     </Box>
   );

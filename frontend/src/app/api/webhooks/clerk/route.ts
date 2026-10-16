@@ -258,6 +258,7 @@ async function completeChessEmpireOnboarding(data: ClerkUserData): Promise<void>
  * and Svix retries; the RPC is idempotent, so a replay returns zero counts.
  */
 async function cascadeDeleteUserData(clerkUserId: string): Promise<void> {
+  await removeVoiceNoteAudio(clerkUserId);
   const { data, error } = await supabaseAdmin.rpc('delete_user_data', {
     p_clerk_id: clerkUserId,
   });
@@ -265,6 +266,28 @@ async function cascadeDeleteUserData(clerkUserId: string): Promise<void> {
     throw new Error(`delete_user_data failed for user=${clerkUserId}: ${error.message}`);
   }
   console.info(`[clerk-webhook] delete_user_data ok user=${clerkUserId} counts=${JSON.stringify(data)}`);
+}
+
+/**
+ * Voice-note audio lives in Storage, which the RPC can't reach: remove the
+ * user's objects first, while their rows still name them. Best-effort — a
+ * storage hiccup (or a database without migration 056) must not block the
+ * data deletion itself.
+ */
+async function removeVoiceNoteAudio(clerkUserId: string): Promise<void> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('move_voice_notes')
+      .select('storage_path')
+      .eq('owner_user_id', clerkUserId);
+    if (error) throw error;
+    const paths = (data ?? []).map((row: { storage_path: string }) => row.storage_path).filter(Boolean);
+    if (paths.length === 0) return;
+    const { error: removeError } = await supabaseAdmin.storage.from('move-voice-notes').remove(paths);
+    if (removeError) throw removeError;
+  } catch (err) {
+    console.warn(`[clerk-webhook] voice-note audio cleanup failed user=${clerkUserId}:`, err);
+  }
 }
 
 type ClerkSessionData = {

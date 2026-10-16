@@ -17,7 +17,7 @@ import {
 
 const MIGRATIONS_DIR = path.resolve(__dirname, '../../../../supabase/migrations');
 /** Latest migration that (re)creates `public.delete_user_data`. */
-const DELETE_MIGRATION = '20261013_055_welcome_emails.sql';
+const DELETE_MIGRATION = '20261016_056_move_voice_notes.sql';
 
 /** Lower-cased SQL with `--` comments removed and whitespace collapsed. */
 function normalize(sql: string): string {
@@ -133,6 +133,7 @@ describe('user-data manifest ↔ latest delete_user_data migration', () => {
     const at = (table: string) => deleteSql.search(new RegExp(String.raw`(delete from public\.|')${table}\b`));
     expect(at('coach_messages')).toBeLessThan(at('coach_sessions'));
     expect(at('user_games')).toBeLessThan(at('user_databases'));
+    expect(at('move_voice_notes')).toBeLessThan(at('user_games'));
     expect(at('analysis_chat_messages')).toBeLessThan(at('analysis_conversations'));
     expect(at('task_attempt')).toBeLessThan(at('task_assignment'));
   });

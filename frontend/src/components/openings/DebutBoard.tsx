@@ -14,6 +14,7 @@ import {
 import { Chess, Square } from 'chess.js';
 import { useLocalStorage } from 'usehooks-ts';
 import type { Key } from 'chessground/types';
+import { debutBoardSize } from '@/lib/debutBoardSize';
 import {
   BOARD_THEMES,
   getCurrentThemeColors,
@@ -36,6 +37,8 @@ interface DebutBoardProps {
   onFlip: () => void;
   /** Round symbol badge pinned to a square's top-right corner (e.g. `!!` on the last move's destination). */
   squareBadge?: SquareBadge | null;
+  /** Width (px) taken beside the board, e.g. by the eval bar; shrinks it on phones. */
+  reservedWidth?: number;
 }
 
 export interface SquareBadge {
@@ -85,7 +88,7 @@ function SquareBadgeOverlay({ badge, orientation, boardSize }: { badge: SquareBa
 
 export default function DebutBoard({
   fen, orientation, onMove, customArrows = [],
-  onReset, onGoToStart, onPrev, onNext, onGoToEnd, onFlip, squareBadge,
+  onReset, onGoToStart, onPrev, onNext, onGoToEnd, onFlip, squareBadge, reservedWidth = 0,
 }: DebutBoardProps) {
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
@@ -99,13 +102,7 @@ export default function DebutBoard({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const boardSize = useMemo(() => {
-    if (windowWidth < 400) return Math.min(windowWidth - 32, 320);
-    if (windowWidth < 600) return Math.min(windowWidth - 24, 360);
-    if (windowWidth < 768) return Math.min(windowWidth - 32, 420);
-    if (windowWidth < 1024) return Math.min(windowWidth - 48, 480);
-    return 520;
-  }, [windowWidth]);
+  const boardSize = useMemo(() => debutBoardSize(windowWidth, reservedWidth), [windowWidth, reservedWidth]);
 
   // Handle chessground move
   const handleMove = useCallback((from: Key, to: Key, promotion?: 'q' | 'r' | 'b' | 'n') => {

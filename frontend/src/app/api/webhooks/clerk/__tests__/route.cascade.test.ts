@@ -8,16 +8,36 @@
  *   - DB deletion runs before the best-effort PostHog delete.
  *   - a replay (zero-row counts) still returns 200.
  *   - no user id → no rpc.
+ *   - voice-note audio is removed from Storage first; a failure there never
+ *     blocks the RPC.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const calls: string[] = [];
 const rpc = vi.fn();
+const voiceNoteRows = vi.fn();
+const removeAudio = vi.fn();
 
 vi.mock('@/lib/supabase-admin', () => ({
   supabaseAdmin: {
     from: (table: string) => {
-      throw new Error(`unexpected supabaseAdmin.from(${table})`);
+      if (table !== 'move_voice_notes') throw new Error(`unexpected supabaseAdmin.from(${table})`);
+      return {
+        select: () => ({
+          eq: (column: string, value: string) => {
+            calls.push('voice-notes');
+            return voiceNoteRows(column, value);
+          },
+        }),
+      };
+    },
+    storage: {
+      from: (bucket: string) => ({
+        remove: (paths: string[]) => {
+          calls.push('storage');
+          return removeAudio(bucket, paths);
+        },
+      }),
     },
     rpc: (...args: unknown[]) => {
       calls.push('rpc');
@@ -87,6 +107,10 @@ beforeEach(() => {
   rpc.mockReset();
   rpc.mockResolvedValue({ data: { coach_sessions: 2, user_games: 5 }, error: null });
   deletePostHogPerson.mockReset();
+  voiceNoteRows.mockReset();
+  voiceNoteRows.mockResolvedValue({ data: [], error: null });
+  removeAudio.mockReset();
+  removeAudio.mockResolvedValue({ data: [], error: null });
 });
 
 describe('POST /api/webhooks/clerk — user.deleted cascade', () => {
@@ -100,7 +124,28 @@ describe('POST /api/webhooks/clerk — user.deleted cascade', () => {
 
   it('deletes DB data before the best-effort PostHog call', async () => {
     await POST(makeRequest(deletedEvent('user_del_2')));
-    expect(calls).toEqual(['rpc', 'posthog']);
+    expect(calls).toEqual(['voice-notes', 'rpc', 'posthog']);
+  });
+
+  it('removes voice-note audio from Storage before the rows go', async () => {
+    voiceNoteRows.mockResolvedValue({
+      data: [{ storage_path: 'user_del_6/g1/a.webm' }, { storage_path: 'user_del_6/g2/b.m4a' }],
+      error: null,
+    });
+    const res = await POST(makeRequest(deletedEvent('user_del_6')));
+    expect(res.status).toBe(200);
+    expect(voiceNoteRows).toHaveBeenCalledWith('owner_user_id', 'user_del_6');
+    expect(removeAudio).toHaveBeenCalledWith('move-voice-notes', ['user_del_6/g1/a.webm', 'user_del_6/g2/b.m4a']);
+    expect(calls).toEqual(['voice-notes', 'storage', 'rpc', 'posthog']);
+  });
+
+  it('a voice-note cleanup failure still deletes the data', async () => {
+    voiceNoteRows.mockResolvedValue({ data: null, error: { message: 'relation does not exist' } });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const res = await POST(makeRequest(deletedEvent('user_del_7')));
+    expect(res.status).toBe(200);
+    expect(rpc).toHaveBeenCalledWith('delete_user_data', { p_clerk_id: 'user_del_7' });
+    warn.mockRestore();
   });
 
   it('rpc error → 500 so Svix retries; best-effort steps are not reached', async () => {

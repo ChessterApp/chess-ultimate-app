@@ -40,15 +40,15 @@ export interface TreeSnapshot {
 
 /**
  * What auto-save should persist for the open tree, or null when nothing should
- * be saved. Only own games (and drafts) are editable; an empty draft (no moves,
- * no title) is never created.
+ * be saved. Only own games (and drafts) are editable — never one opened from a
+ * share; an empty draft (no moves, no title) is never created.
  */
 export function treeAutoSaveEntry(
   game: OpenedGame | undefined,
   pgn: string,
   { hasMoves, isDirty }: { hasMoves: boolean; isDirty: boolean },
 ): AutoSaveEntry<TreeSnapshot> | null {
-  if (!game || game.source !== 'user') return null;
+  if (!game || game.source !== 'user' || game.readOnly) return null;
   if (game.isDraft) {
     if (!hasMoves && !game.title) return null;
     return { key: `${game.title ?? ''}\n${pgn}`, value: { game, pgn } };

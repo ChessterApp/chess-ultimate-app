@@ -24,7 +24,9 @@ import type { MasterGamesFilterState } from '@/components/openings/MasterGamesFi
 import { useLichessExplorer } from '@/hooks/useLichessExplorer';
 import { useReplayStockfish } from '@/hooks/useReplayStockfish';
 import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
-import StartReviewButton from '@/components/review/StartReviewButton';
+import { useMoveVoiceNotes } from '@/hooks/useMoveVoiceNotes';
+import { nodePathMap } from '@/lib/voiceNotes';
+import { debutBoardSize, EVAL_BAR_RESERVE_PX } from '@/lib/debutBoardSize';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -98,7 +100,7 @@ const EditGameModal = dynamic(() => import('@/components/openings/EditGameModal'
 });
 import { useUserGames, type UserGame } from '@/hooks/useUserGames';
 import { useGameMoveTree, findNodeById as findGameTreeNode, findParentOf as findGameTreeParent } from '@/hooks/useGameMoveTree';
-import type { MoveContextMenuActions } from '@/components/openings/MoveNotation';
+import type { MoveContextMenuActions, VoiceNotePlayback } from '@/components/openings/MoveNotation';
 import type { SquareBadge } from '@/components/openings/DebutBoard';
 import { NAGS, moveQualityNag, nagBadgeColor } from '@/lib/nags';
 import { Close } from '@mui/icons-material';
@@ -261,15 +263,6 @@ export default function DebutPage() {
   }, []);
   const { evaluation, isAnalyzing, isReady, depth, engineError, engineName, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, onError: handleStockfishError });
 
-  // Auto-analyze when position changes and Stockfish is enabled
-  useEffect(() => {
-    if (stockfishEnabled && activeTab === 'debut' && isReady) {
-      analyze(boardFen);
-    } else if (!stockfishEnabled) {
-      stopAnalysis();
-    }
-  }, [stockfishEnabled, boardFen, activeTab, isReady, analyze, stopAnalysis]);
-
   const toggleStockfish = useCallback(() => {
     const scrollY = window.scrollY;
     if (document.activeElement instanceof HTMLElement) {
@@ -290,35 +283,9 @@ export default function DebutPage() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  const boardSize = useMemo(() => {
-    if (windowWidth < 400) return Math.min(windowWidth - 32, 320);
-    if (windowWidth < 600) return Math.min(windowWidth - 24, 360);
-    if (windowWidth < 768) return Math.min(windowWidth - 32, 420);
-    if (windowWidth < 1024) return Math.min(windowWidth - 48, 480);
-    return 520;
-  }, [windowWidth]);
-
-  // ─── Best Stockfish line (eval text + first move) ───
-  const bestLine = useMemo(() => {
-    const line = evaluation?.lines?.[0];
-    if (!line) return null;
-    let evalText = '0.0';
-    if (line.mate !== undefined) evalText = line.mate > 0 ? `+M${line.mate}` : `-M${Math.abs(line.mate)}`;
-    else if (line.cp !== undefined) { const p = line.cp / 100; evalText = p >= 0 ? `+${p.toFixed(1)}` : p.toFixed(1); }
-    const sanMoves: string[] = [];
-    try {
-      const chess = new Chess(boardFen);
-      for (let i = 0; i < Math.min(line.pv.length, 10); i++) {
-        const uci = line.pv[i];
-        if (!uci || uci.length < 4) break;
-        try {
-          const m = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-          if (m) sanMoves.push(m.san); else break;
-        } catch { break; }
-      }
-    } catch { /* invalid FEN */ }
-    return { evalText, sanMoves };
-  }, [evaluation, boardFen]);
+  // The eval bar sits left of the board; on phones the board gives up its width.
+  const evalBarReserve = stockfishEnabled ? EVAL_BAR_RESERVE_PX : 0;
+  const boardSize = useMemo(() => debutBoardSize(windowWidth, evalBarReserve), [windowWidth, evalBarReserve]);
 
   // ─── Snackbar ───
   const [snackbar, setSnackbar] = useState<{ open: boolean; msg: string; severity: 'success' | 'error' }>({ open: false, msg: '', severity: 'success' });
@@ -453,16 +420,18 @@ export default function DebutPage() {
 
   // ─── Game move tree: init when opening a user game ───
   const activeGameForTree = openedGames.find(g => g.id === activeTab);
-  const isActiveGameEditable = activeGameForTree?.source === 'user';
+  const isActiveGameEditable = activeGameForTree?.source === 'user' && !activeGameForTree.readOnly;
+  // Shared-database games are browsed as a read-only tree (variations + voice notes).
+  const isActiveGameTree = isActiveGameEditable || !!activeGameForTree?.sharedDbToken;
 
   // Initialize tree when switching to a user game tab
   useEffect(() => {
-    if (isActiveGameEditable && activeGameForTree && editTreeGameId !== activeGameForTree.id) {
+    if (isActiveGameTree && activeGameForTree && editTreeGameId !== activeGameForTree.id) {
       gameMoveTree.initFromPgn(activeGameForTree.pgn);
       setEditTreeGameId(activeGameForTree.id);
       setEditTreeSelectedNodeId(null);
     }
-  }, [isActiveGameEditable, activeGameForTree?.id, activeGameForTree?.pgn, editTreeGameId, gameMoveTree]);
+  }, [isActiveGameTree, activeGameForTree?.id, activeGameForTree?.pgn, editTreeGameId, gameMoveTree]);
 
   const handleEditNodeSelect = useCallback((node: OpeningNode) => {
     setEditTreeSelectedNodeId(node.id);
@@ -554,13 +523,37 @@ export default function DebutPage() {
     }
   }, [activeTab, deleteUserGame, discardAutoSave]);
 
+  // ─── Voice notes on moves (saved own games; read-only for shared databases) ───
+  const voiceGameId = activeGameForTree && !activeGameForTree.isDraft && isActiveGameTree ? activeGameForTree.id : null;
+  const voiceNotes = useMoveVoiceNotes({
+    gameId: voiceGameId,
+    shareToken: activeGameForTree?.sharedDbToken,
+    onError: (kind) => setSnackbar({ open: true, msg: t(`myGames.voiceNote.errors.${kind}`), severity: 'error' }),
+  });
+  const movePath = useCallback((nodeId: string) => (
+    gameMoveTree.tree ? nodePathMap(gameMoveTree.tree).get(nodeId) ?? null : null
+  ), [gameMoveTree.tree]);
+  const voicePlayback: VoiceNotePlayback | undefined = voiceGameId ? {
+    paths: voiceNotes.paths,
+    playingPath: voiceNotes.playingPath,
+    onToggle: voiceNotes.toggle,
+    playLabel: t('myGames.voiceNote.play'),
+    pauseLabel: t('myGames.voiceNote.pause'),
+  } : undefined;
+  const canRecordVoice = isActiveGameEditable && !!voiceGameId;
+
   const editContextMenuActions: MoveContextMenuActions | undefined = isActiveGameEditable ? {
     onDeleteMove: (node) => {
+      // Its voice notes (and those of every later move in the line) go with it.
+      const path = movePath(node.id);
       // Select the previous move (the tree root before the first move).
       const parentId = gameMoveTree.deleteFromHere(node.id);
       if (parentId) setEditTreeSelectedNodeId(parentId);
+      if (path) voiceNotes.removeFrom(path);
     },
     onDeleteVariation: (node) => {
+      const path = movePath(node.id);
+      if (path) voiceNotes.removeFrom(path);
       gameMoveTree.deleteVariation(node.id);
       if (gameMoveTree.tree) {
         const findParent = (root: OpeningNode, targetId: string): OpeningNode | null => {
@@ -587,6 +580,16 @@ export default function DebutPage() {
     onNagToggle: (node, code) => {
       gameMoveTree.toggleNag(node.id, code);
     },
+    onVoiceNoteSave: canRecordVoice ? async (node, recording) => {
+      const path = movePath(node.id);
+      const ok = !!path && await voiceNotes.save(path, recording);
+      if (ok) setSnackbar({ open: true, msg: t('myGames.voiceNote.saved'), severity: 'success' });
+      return ok;
+    } : undefined,
+    onVoiceNoteDelete: canRecordVoice ? (node) => {
+      const path = movePath(node.id);
+      if (path) voiceNotes.remove(path);
+    } : undefined,
     labels: {
       deleteMove: t('myGames.moveEdit.deleteMove'),
       deleteVariation: t('myGames.moveEdit.deleteVariation'),
@@ -601,6 +604,23 @@ export default function DebutPage() {
       moreActions: t('myGames.moveEdit.moreActions'),
       saveComment: t('myGames.moveEdit.saveComment'),
       cancel: t('myGames.moveEdit.cancel'),
+      deleteComment: t('myGames.moveEdit.deleteComment'),
+      voiceNote: t('myGames.voiceNote.record'),
+      rerecordVoiceNote: t('myGames.voiceNote.rerecord'),
+      deleteVoiceNote: t('myGames.voiceNote.delete'),
+      voice: t('myGames.voiceNote.short'),
+      recorder: {
+        record: t('myGames.voiceNote.recorder.record'),
+        stop: t('myGames.voiceNote.recorder.stop'),
+        save: t('myGames.voiceNote.recorder.save'),
+        rerecord: t('myGames.voiceNote.recorder.rerecord'),
+        cancel: t('myGames.voiceNote.recorder.cancel'),
+        saving: t('myGames.voiceNote.recorder.saving'),
+        hint: t('myGames.voiceNote.recorder.hint'),
+        micDenied: t('myGames.voiceNote.recorder.micDenied'),
+        micUnavailable: t('myGames.voiceNote.recorder.micUnavailable'),
+        saveFailed: t('myGames.voiceNote.recorder.saveFailed'),
+      },
       moveSymbols: t('nags.moveSymbols'),
       moreSymbols: t('nags.moreSymbols'),
       fewerSymbols: t('nags.fewerSymbols'),
@@ -611,20 +631,20 @@ export default function DebutPage() {
   // Get the FEN for the selected tree node (when viewing an editable game).
   // With nothing selected the board must show the tree root, matching where moves attach.
   const editTreeFen = useMemo(() => {
-    if (!isActiveGameEditable || !gameMoveTree.tree) return null;
+    if (!isActiveGameTree || !gameMoveTree.tree) return null;
     if (!editTreeSelectedNodeId) return gameMoveTree.tree.fen;
     const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
     return node?.fen || gameMoveTree.tree.fen;
-  }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
+  }, [isActiveGameTree, gameMoveTree.tree, editTreeSelectedNodeId]);
 
   // Move-quality symbol of the selected move, pinned to its destination square.
   const editTreeBadge = useMemo((): SquareBadge | null => {
-    if (!isActiveGameEditable || !gameMoveTree.tree || !editTreeSelectedNodeId) return null;
+    if (!isActiveGameTree || !gameMoveTree.tree || !editTreeSelectedNodeId) return null;
     const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
     const quality = moveQualityNag(node?.nags);
     if (!quality || !node?.move_uci) return null;
     return { square: node.move_uci.slice(2, 4), symbol: quality.symbol, color: nagBadgeColor(quality) };
-  }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
+  }, [isActiveGameTree, gameMoveTree.tree, editTreeSelectedNodeId]);
 
   // ─── Tree navigation callbacks (for DebutBoard arrows + keyboard in tree mode) ───
   const handleEditTreePrev = useCallback(() => {
@@ -1537,7 +1557,7 @@ export default function DebutPage() {
   }, []);
 
   // ─── Game viewer handlers ───
-  const handleOpenGame = useCallback(async (game: any, opts?: { evictOldestIfFull?: boolean }) => {
+  const handleOpenGame = useCallback(async (game: any, opts?: { evictOldestIfFull?: boolean; readOnly?: boolean; sharedDbToken?: string }) => {
     const gameId = String(game.id || `${game.white_name || game.white}-${game.black_name || game.black}-${game.date}`);
     const existing = openedGames.find(g => g.id === gameId);
     if (existing) {
@@ -1597,6 +1617,8 @@ export default function DebutPage() {
       fens: parsed.fens,
       startingFen: parsed.startingFen,
       source: game.user_id ? 'user' : (game.source || 'twic'),
+      readOnly: opts?.readOnly,
+      sharedDbToken: opts?.sharedDbToken,
     };
 
     setOpenedGames(prev => {
@@ -1606,7 +1628,7 @@ export default function DebutPage() {
       return [...trimmed, newGame];
     });
     // Auto-select the first move on open so the notation has an active cursor
-    // and Review / next-move controls advance immediately. Games with no moves
+    // and next-move controls advance immediately. Games with no moves
     // fall back to the starting position (-1).
     setGameMoveIndices(prev => ({ ...prev, [gameId]: newGame.moves.length > 0 ? 0 : -1 }));
     setActiveTab(gameId);
@@ -1934,6 +1956,39 @@ export default function DebutPage() {
       ? activeGame.startingFen
       : activeGame.fens[gameMoveIndices[activeGame.id]] || activeGame.startingFen
     : null;
+  // What the board shows — and the engine analyses — on every tab.
+  const displayedFen = activeTab === 'my-games' && !activeGame ? myGamesFen : (editTreeFen || activeGameFen || boardFen);
+
+  // Auto-analyze the shown position (any game, line or variation) while enabled.
+  useEffect(() => {
+    if (stockfishEnabled && isReady) {
+      analyze(displayedFen);
+    } else if (!stockfishEnabled) {
+      stopAnalysis();
+    }
+  }, [stockfishEnabled, displayedFen, isReady, analyze, stopAnalysis]);
+
+  // ─── Best Stockfish line (eval text + first move) ───
+  const bestLine = useMemo(() => {
+    const line = evaluation?.lines?.[0];
+    if (!line) return null;
+    let evalText = '0.0';
+    if (line.mate !== undefined) evalText = line.mate > 0 ? `+M${line.mate}` : `-M${Math.abs(line.mate)}`;
+    else if (line.cp !== undefined) { const p = line.cp / 100; evalText = p >= 0 ? `+${p.toFixed(1)}` : p.toFixed(1); }
+    const sanMoves: string[] = [];
+    try {
+      const chess = new Chess(displayedFen);
+      for (let i = 0; i < Math.min(line.pv.length, 10); i++) {
+        const uci = line.pv[i];
+        if (!uci || uci.length < 4) break;
+        try {
+          const m = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+          if (m) sanMoves.push(m.san); else break;
+        } catch { break; }
+      }
+    } catch { /* invalid FEN */ }
+    return { evalText, sanMoves };
+  }, [evaluation, displayedFen]);
 
   const handleLinkGame = useCallback(async (game: GameSearchResult) => {
     if (!selectedNode) return;
@@ -2162,7 +2217,7 @@ export default function DebutPage() {
           }}>
             {/* Board + Eval bar row */}
             <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 0.5 }}>
-              {stockfishEnabled && activeTab === 'debut' && (
+              {stockfishEnabled && (
                 <StockfishErrorBoundary>
                   <ReplayEvalBar
                     evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
@@ -2174,31 +2229,20 @@ export default function DebutPage() {
                 </StockfishErrorBoundary>
               )}
             <DebutBoard
-              fen={activeTab === 'my-games' && !activeGame ? myGamesFen : (editTreeFen || activeGameFen || boardFen)}
+              fen={displayedFen}
+              reservedWidth={evalBarReserve}
               orientation={boardOrientation}
               onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (activeTab === 'my-games' && !activeGame ? handleMyGamesBoardMove : (() => {})))}
               customArrows={boardArrows}
-              onReset={activeTab === 'debut' ? handleReset : (isActiveGameEditable ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
-              onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameEditable ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
-              onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameEditable ? handleEditTreePrev : (activeTab === 'my-games' && !activeGame ? handleMyGamesPrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))))}
-              onNext={activeTab === 'debut' ? handleNext : (isActiveGameEditable ? handleEditTreeNext : (activeTab === 'my-games' && !activeGame ? handleMyGamesNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))))}
-              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameEditable ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
+              onReset={activeTab === 'debut' ? handleReset : (isActiveGameTree ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
+              onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameTree ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
+              onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameTree ? handleEditTreePrev : (activeTab === 'my-games' && !activeGame ? handleMyGamesPrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))))}
+              onNext={activeTab === 'debut' ? handleNext : (isActiveGameTree ? handleEditTreeNext : (activeTab === 'my-games' && !activeGame ? handleMyGamesNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))))}
+              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameTree ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
               onFlip={handleFlip}
               squareBadge={activeTab !== 'debut' && activeGame ? editTreeBadge : null}
             />
             </Box>
-
-            {/* Opened games (database/user) are historical → always reviewable. */}
-            {activeGame?.pgn && (
-              <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'center', width: '100%' }}>
-                <StartReviewButton
-                  game={{ pgn: activeGame.pgn, orientation: boardOrientation }}
-                  source="database"
-                  variant="primary"
-                  label="Review this game"
-                />
-              </Box>
-            )}
 
             {/* My Games move list — below board when on My Games tab with no game open */}
             {activeTab === 'my-games' && !activeGame && (
@@ -2212,105 +2256,103 @@ export default function DebutPage() {
               />
             )}
 
-            {/* Stockfish toggle + engine lines — only in Debut tab */}
-            {activeTab === 'debut' && (
-              <Box sx={{
-                width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
-                maxWidth: 520,
-                mx: 'auto',
-                mt: 0.5,
-                overflowAnchor: 'none',
-              }}>
-                {/* Toggle row */}
-                <Box
-                  onClick={toggleStockfish}
-                  sx={{
-                    display: 'flex', alignItems: 'center', gap: 1,
-                    px: 1.5, py: 0.75,
-                    cursor: 'pointer', userSelect: 'none',
-                    bgcolor: stockfishEnabled ? 'rgba(0,0,0,0.04)' : 'transparent',
-                    borderRadius: '12px',
-                    transition: 'background 0.15s',
-                    '&:hover': { bgcolor: 'rgba(0,0,0,0.06)' },
-                  }}
-                >
-                  <Box sx={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    bgcolor: stockfishEnabled ? (isAnalyzing ? '#71717A' : '#22c55e') : '#9ca3af',
-                    transition: 'background 0.15s',
-                    ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
-                  }} />
-                  <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
-                    {engineName === 'sf17.1' ? 'Stockfish 17.1' : engineName === 'sf17' ? 'Stockfish 17' : engineName === 'sf16' ? 'Stockfish 16' : engineName === 'sf11' ? 'Stockfish 11' : 'Stockfish'}
+            {/* Stockfish toggle + engine lines — every tab, game and line */}
+            <Box sx={{
+              width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
+              maxWidth: 520,
+              mx: 'auto',
+              mt: 0.5,
+              overflowAnchor: 'none',
+            }}>
+              {/* Toggle row */}
+              <Box
+                onClick={toggleStockfish}
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 1,
+                  px: 1.5, py: 0.75,
+                  cursor: 'pointer', userSelect: 'none',
+                  bgcolor: stockfishEnabled ? 'rgba(0,0,0,0.04)' : 'transparent',
+                  borderRadius: '12px',
+                  transition: 'background 0.15s',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,0.06)' },
+                }}
+              >
+                <Box sx={{
+                  width: 8, height: 8, borderRadius: '50%',
+                  bgcolor: stockfishEnabled ? (isAnalyzing ? '#71717A' : '#22c55e') : '#9ca3af',
+                  transition: 'background 0.15s',
+                  ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
+                }} />
+                <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
+                  {engineName === 'sf17.1' ? 'Stockfish 17.1' : engineName === 'sf17' ? 'Stockfish 17' : engineName === 'sf16' ? 'Stockfish 16' : engineName === 'sf11' ? 'Stockfish 11' : 'Stockfish'}
+                </Typography>
+                {stockfishEnabled && depth > 0 && (
+                  <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
+                    d{depth}
                   </Typography>
-                  {stockfishEnabled && depth > 0 && (
-                    <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
-                      d{depth}
-                    </Typography>
-                  )}
-                  <Box sx={{ flexGrow: 1 }} />
-                  <Switch
-                    size="small"
-                    checked={stockfishEnabled}
-                    onChange={toggleStockfish}
-                    onClick={(e) => e.stopPropagation()}
-                    sx={{
-                      '& .MuiSwitch-switchBase.Mui-checked': { color: '#52525B' },
-                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#A1A1AA' },
-                    }}
-                  />
-                </Box>
-
-                <StockfishErrorBoundary>
-                  {/* Best line display */}
-                  {stockfishEnabled && bestLine && (
-                    <Box sx={{
-                      mt: 0.5, px: 1.5, py: 0.75,
-                      bgcolor: 'var(--surface-card)',
-                      border: '1px solid var(--border-strong)',
-                      borderRadius: '10px',
-                      display: 'flex', alignItems: 'center', gap: 1,
-                    }}>
-                      <Typography component="span" sx={{
-                        fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
-                        color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
-                      }}>
-                        {bestLine.evalText}
-                      </Typography>
-                      {bestLine.sanMoves.length > 0 && (
-                        <Typography component="span" sx={{
-                          fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
-                          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-                        }}>
-                          {bestLine.sanMoves.join(' ')}
-                        </Typography>
-                      )}
-                    </Box>
-                  )}
-
-                  {/* Engine error message */}
-                  {engineError && (
-                    <Box sx={{ mt: 0.5, px: 1.5, py: 0.75, bgcolor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '10px' }}>
-                      <Typography sx={{ fontSize: 12, color: '#dc2626' }}>
-                        Engine not available: {engineError}
-                      </Typography>
-                    </Box>
-                  )}
-
-                  {/* Engine lines */}
-                  {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
-                    <Box sx={{ mt: 0.5 }}>
-                      <ReplayEngineLines
-                        lines={evaluation.lines}
-                        isAnalyzing={isAnalyzing}
-                        currentFen={boardFen}
-                        depth={depth}
-                      />
-                    </Box>
-                  )}
-                </StockfishErrorBoundary>
+                )}
+                <Box sx={{ flexGrow: 1 }} />
+                <Switch
+                  size="small"
+                  checked={stockfishEnabled}
+                  onChange={toggleStockfish}
+                  onClick={(e) => e.stopPropagation()}
+                  sx={{
+                    '& .MuiSwitch-switchBase.Mui-checked': { color: '#52525B' },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#A1A1AA' },
+                  }}
+                />
               </Box>
-            )}
+
+              <StockfishErrorBoundary>
+                {/* Best line display */}
+                {stockfishEnabled && bestLine && (
+                  <Box sx={{
+                    mt: 0.5, px: 1.5, py: 0.75,
+                    bgcolor: 'var(--surface-card)',
+                    border: '1px solid var(--border-strong)',
+                    borderRadius: '10px',
+                    display: 'flex', alignItems: 'center', gap: 1,
+                  }}>
+                    <Typography component="span" sx={{
+                      fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
+                      color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
+                    }}>
+                      {bestLine.evalText}
+                    </Typography>
+                    {bestLine.sanMoves.length > 0 && (
+                      <Typography component="span" sx={{
+                        fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                      }}>
+                        {bestLine.sanMoves.join(' ')}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+
+                {/* Engine error message */}
+                {engineError && (
+                  <Box sx={{ mt: 0.5, px: 1.5, py: 0.75, bgcolor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '10px' }}>
+                    <Typography sx={{ fontSize: 12, color: '#dc2626' }}>
+                      Engine not available: {engineError}
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Engine lines */}
+                {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
+                  <Box sx={{ mt: 0.5 }}>
+                    <ReplayEngineLines
+                      lines={evaluation.lines}
+                      isAnalyzing={isAnalyzing}
+                      currentFen={displayedFen}
+                      depth={depth}
+                    />
+                  </Box>
+                )}
+              </StockfishErrorBoundary>
+            </Box>
 
             {/* Move notation — only show in Debut tab */}
             {activeTab === 'debut' && (
@@ -2352,24 +2394,25 @@ export default function DebutPage() {
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
                   onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
-                  onEditGame={activeGame.source === 'user' && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
-                  onToggleFavorite={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
-                  onDeleteGame={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
-                  onTitleChange={activeGame.source === 'user' ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
+                  onEditGame={isActiveGameEditable && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  onToggleFavorite={isActiveGameEditable && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
+                  onDeleteGame={isActiveGameEditable && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
+                  onTitleChange={isActiveGameEditable ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
                   isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
-                  editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
-                  editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
-                  onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
+                  editTree={isActiveGameTree ? gameMoveTree.tree : undefined}
+                  editSelectedNodeId={isActiveGameTree ? editTreeSelectedNodeId : undefined}
+                  onEditNodeSelect={isActiveGameTree ? handleEditNodeSelect : undefined}
                   onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
                   editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
                   saveStatus={isActiveGameEditable ? saveStatus : undefined}
                   onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
                   editContextMenuActions={editContextMenuActions}
-                  onTreePrev={isActiveGameEditable ? handleEditTreePrev : undefined}
-                  onTreeNext={isActiveGameEditable ? handleEditTreeNext : undefined}
-                  onTreeGoToStart={isActiveGameEditable ? handleEditTreeGoToStart : undefined}
-                  onTreeGoToEnd={isActiveGameEditable ? handleEditTreeGoToEnd : undefined}
+                  voiceNotes={voicePlayback}
+                  onTreePrev={isActiveGameTree ? handleEditTreePrev : undefined}
+                  onTreeNext={isActiveGameTree ? handleEditTreeNext : undefined}
+                  onTreeGoToStart={isActiveGameTree ? handleEditTreeGoToStart : undefined}
+                  onTreeGoToEnd={isActiveGameTree ? handleEditTreeGoToEnd : undefined}
                 />
               </Box>
             )}
@@ -2447,7 +2490,9 @@ export default function DebutPage() {
             ) : activeTab === 'my-games' ? (
               <Box sx={{ flex: 1, overflow: 'auto' }}>
                 <MyGamesPanel
-                  onOpenGame={handleOpenGame}
+                  onOpenGame={(game) => handleOpenGame(game, sharedDatabaseToken
+                    ? { readOnly: true, sharedDbToken: sharedDatabaseToken }
+                    : sharedCollectionToken ? { readOnly: true } : undefined)}
                   boardPgn={buildMyGamesPgn()}
                   boardHasMoves={myGamesSanMoves.length > 0}
                   onBoardReset={handleMyGamesReset}
@@ -2474,20 +2519,21 @@ export default function DebutPage() {
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
                   onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
-                  onEditGame={activeGame.source === 'user' && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
-                  onToggleFavorite={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
-                  onDeleteGame={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
-                  onTitleChange={activeGame.source === 'user' ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
+                  onEditGame={isActiveGameEditable && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  onToggleFavorite={isActiveGameEditable && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
+                  onDeleteGame={isActiveGameEditable && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
+                  onTitleChange={isActiveGameEditable ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
                   isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
-                  editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
-                  editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
-                  onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
+                  editTree={isActiveGameTree ? gameMoveTree.tree : undefined}
+                  editSelectedNodeId={isActiveGameTree ? editTreeSelectedNodeId : undefined}
+                  onEditNodeSelect={isActiveGameTree ? handleEditNodeSelect : undefined}
                   onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
                   editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
                   saveStatus={isActiveGameEditable ? saveStatus : undefined}
                   onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
                   editContextMenuActions={editContextMenuActions}
+                  voiceNotes={voicePlayback}
                 />
               </Box>
             ) : null}

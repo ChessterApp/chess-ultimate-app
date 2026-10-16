@@ -67,6 +67,11 @@ class FakeQuery:
         self._filters.append(lambda row: row.get(col) == val)
         return self
 
+    def in_(self, col, vals):
+        vals = set(vals)
+        self._filters.append(lambda row: row.get(col) in vals)
+        return self
+
     def lt(self, col, val):
         self._filters.append(lambda row: row.get(col) is not None and row.get(col) < val)
         return self

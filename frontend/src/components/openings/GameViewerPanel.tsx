@@ -11,8 +11,9 @@ import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
 import ShareGameButton from './ShareGameButton';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
-import type { MoveContextMenuActions } from './MoveNotation';
+import type { MoveContextMenuActions, VoiceNotePlayback } from './MoveNotation';
 import type { SaveStatus } from './useAutoSave';
+
 
 export interface OpenedGame {
   id: string;
@@ -33,6 +34,10 @@ export interface OpenedGame {
   isDraft?: boolean;
   /** Variation title (user games only); shown instead of the players header. */
   title?: string;
+  /** Opened from a shared collection / database — never editable. */
+  readOnly?: boolean;
+  /** Share token of the shared database it came from (voice-note playback). */
+  sharedDbToken?: string;
 }
 
 /** Saved variations are tagged event 'Variation'; drafts are variations until saved. */
@@ -53,6 +58,7 @@ interface GameViewerPanelProps {
   isFavorite?: boolean;
   // Editing props (active for source===user only)
   isEditable?: boolean;
+  /** Move tree to show instead of the flat move list; editable only with isEditable. */
   editTree?: OpeningNode | null;
   editSelectedNodeId?: string | null;
   onEditNodeSelect?: (node: OpeningNode) => void;
@@ -69,6 +75,7 @@ interface GameViewerPanelProps {
   onTreeGoToEnd?: () => void;
   /** Rename a variation; receives the trimmed title, or null when cleared. */
   onTitleChange?: (title: string | null) => void;
+  voiceNotes?: VoiceNotePlayback;
 }
 
 export function parseGamePgn(pgn: string): { moves: string[]; fens: string[]; startingFen: string } {
@@ -113,7 +120,7 @@ export default function GameViewerPanel({
   onSaveToMyGames, isSaved = false, onEditGame,
   onToggleFavorite, onDeleteGame, isFavorite = false,
   isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, saveStatus = 'idle', onRetrySave, editContextMenuActions,
-  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd, onTitleChange,
+  onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd, onTitleChange, voiceNotes,
 }: GameViewerPanelProps) {
   const t = useTranslations('debut');
   const [saving, setSaving] = useState(false);
@@ -161,7 +168,7 @@ export default function GameViewerPanel({
 
   // Keyboard navigation (flat mode + tree mode)
   useEffect(() => {
-    const inTreeMode = isEditable && editTree;
+    const inTreeMode = !!editTree;
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       if (inTreeMode) {
@@ -198,7 +205,7 @@ export default function GameViewerPanel({
   }, [game.moves]);
 
   // Use tree-based notation when editing
-  const useTreeMode = isEditable && editTree && onEditNodeSelect;
+  const useTreeMode = !!editTree && !!onEditNodeSelect;
 
   // Lazy-load MoveNotation only when needed
   const MoveNotation = useMemo(() => {
@@ -348,6 +355,8 @@ export default function GameViewerPanel({
             onNodeSelect={onEditNodeSelect}
             loading={false}
             contextMenuActions={editContextMenuActions}
+            voiceNotes={voiceNotes}
+            showComments
           />
         ) : (
           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.3, alignItems: 'baseline' }}>
@@ -373,6 +382,7 @@ export default function GameViewerPanel({
                 >
                   {pair.white.san}
                 </Typography>
+
                 {pair.black && (
                   <Typography
                     component="span"

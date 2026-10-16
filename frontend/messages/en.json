@@ -1190,7 +1190,8 @@
         "more": "More",
         "moreActions": "More move actions",
         "saveComment": "Save",
-        "cancel": "Cancel"
+        "cancel": "Cancel",
+        "deleteComment": "Delete comment"
       },
       "autoSave": {
         "saving": "Saving…",
@@ -1230,7 +1231,34 @@
       "editTitle": "Edit title",
       "titlePlaceholder": "Variation title",
       "titleSaveError": "Couldn't save the title",
-      "discardVariationConfirm": "Discard this unsaved variation?"
+      "discardVariationConfirm": "Discard this unsaved variation?",
+      "voiceNote": {
+        "record": "Voice note",
+        "rerecord": "Re-record voice note",
+        "delete": "Delete voice note",
+        "short": "Voice",
+        "play": "Play voice note",
+        "pause": "Pause voice note",
+        "saved": "Voice note saved",
+        "errors": {
+          "load": "Couldn't load voice notes",
+          "save": "Couldn't save the voice note",
+          "delete": "Couldn't delete the voice note",
+          "play": "Couldn't play the voice note"
+        },
+        "recorder": {
+          "record": "Start recording",
+          "stop": "Stop recording",
+          "save": "Save",
+          "rerecord": "Re-record",
+          "cancel": "Cancel",
+          "saving": "Saving…",
+          "hint": "Tap to record, tap again to stop. Up to 2 minutes.",
+          "micDenied": "Microphone access is blocked. Allow it in your browser settings to record.",
+          "micUnavailable": "Couldn't start the microphone on this device.",
+          "saveFailed": "Couldn't save the voice note. Try again."
+        }
+      }
     },
     "shareCollection": {
       "ogGenericTitle": "Chess collection · Chesster",

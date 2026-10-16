@@ -26,6 +26,7 @@ import click
 from flask.cli import AppGroup
 
 from services.supabase_client import supabase
+from api.user_databases import purge_game_voice_notes
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,16 @@ def cleanup_deleted_databases(now=None):
 
     games_deleted = 0
     for db_id in expired_ids:
+        # Voice-note rows cascade with their games, but the audio objects don't.
+        game_rows = supabase.table(GAMES_TABLE) \
+            .select('id, database_id') \
+            .eq('database_id', db_id) \
+            .execute()
+        purge_game_voice_notes(
+            [g['id'] for g in game_rows.data or [] if g.get('database_id') == db_id],
+            client=supabase,
+        )
+
         games = supabase.table(GAMES_TABLE) \
             .delete() \
             .eq('database_id', db_id) \

@@ -13,8 +13,11 @@ vi.mock('next-intl', () => ({
   useLocale: () => 'en',
 }));
 
+// Stable like Clerk's: a fresh getToken per render re-runs the shared fetch, and
+// the second (unmocked) response raced the 404 state under load.
+const auth = { getToken: () => Promise.resolve('clerk-tok') };
 vi.mock('@clerk/nextjs', () => ({
-  useAuth: () => ({ getToken: () => Promise.resolve('clerk-tok') }),
+  useAuth: () => auth,
 }));
 
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));

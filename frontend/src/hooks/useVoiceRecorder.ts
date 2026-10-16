@@ -2,9 +2,20 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { apiFetch, ApiError } from '@/lib/api';
 
+export type VoiceRecorderErrorCode = 'denied' | 'insecure' | 'failed';
+
+export interface VoiceRecording {
+  blob: Blob;
+  durationMs: number;
+}
+
 interface UseVoiceRecorderOptions {
   onTranscriptionComplete?: (text: string) => void;
-  onError?: (error: string) => void;
+  onError?: (error: string, code?: VoiceRecorderErrorCode) => void;
+  /** Keep the audio instead of transcribing it. */
+  onRecordingComplete?: (recording: VoiceRecording) => void;
+  /** Stops the recording automatically once it reaches this length. */
+  maxDurationSec?: number;
 }
 
 interface UseVoiceRecorderReturn {
@@ -21,7 +32,7 @@ interface UseVoiceRecorderReturn {
 export default function useVoiceRecorder(
   options: UseVoiceRecorderOptions = {}
 ): UseVoiceRecorderReturn {
-  const { onTranscriptionComplete, onError } = options;
+  const { onTranscriptionComplete, onError, onRecordingComplete, maxDurationSec } = options;
   const { getToken } = useAuth();
 
   const [isRecording, setIsRecording] = useState(false);
@@ -34,6 +45,7 @@ export default function useVoiceRecorder(
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startedAtRef = useRef(0);
 
   // Check support on mount
   // Note: navigator.mediaDevices is only available on secure contexts (HTTPS/localhost).
@@ -119,7 +131,7 @@ export default function useVoiceRecorder(
       if (!navigator.mediaDevices?.getUserMedia) {
         const errMsg = 'Microphone requires a secure connection (HTTPS). Please ask your admin to enable HTTPS.';
         setError(errMsg);
-        onError?.(errMsg);
+        onError?.(errMsg, 'insecure');
         return;
       }
 
@@ -150,6 +162,7 @@ export default function useVoiceRecorder(
       };
 
       mediaRecorder.start(250); // Collect data every 250ms
+      startedAtRef.current = Date.now();
       setIsRecording(true);
 
       // Start duration timer
@@ -157,12 +170,12 @@ export default function useVoiceRecorder(
         setRecordingDuration((prev) => prev + 1);
       }, 1000);
     } catch (err: any) {
-      const errMsg =
-        err.name === 'NotAllowedError'
-          ? 'Microphone access denied. Please allow microphone access.'
-          : err.message || 'Failed to start recording';
+      const denied = err.name === 'NotAllowedError';
+      const errMsg = denied
+        ? 'Microphone access denied. Please allow microphone access.'
+        : err.message || 'Failed to start recording';
       setError(errMsg);
-      onError?.(errMsg);
+      onError?.(errMsg, denied ? 'denied' : 'failed');
       releaseStream();
     }
   }, [onError, releaseStream]);
@@ -179,14 +192,19 @@ export default function useVoiceRecorder(
         });
         chunksRef.current = [];
         releaseStream();
-        sendToTranscribe(blob);
+        if (onRecordingComplete) onRecordingComplete({ blob, durationMs: Date.now() - startedAtRef.current });
+        else sendToTranscribe(blob);
       };
       mediaRecorder.stop();
     }
 
     setIsRecording(false);
     setRecordingDuration(0);
-  }, [clearTimer, releaseStream, sendToTranscribe]);
+  }, [clearTimer, releaseStream, sendToTranscribe, onRecordingComplete]);
+
+  useEffect(() => {
+    if (isRecording && maxDurationSec && recordingDuration >= maxDurationSec) stopRecording();
+  }, [isRecording, maxDurationSec, recordingDuration, stopRecording]);
 
   const cancelRecording = useCallback(() => {
     clearTimer();

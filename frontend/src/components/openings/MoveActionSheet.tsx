@@ -3,14 +3,14 @@
 /**
  * MoveActionSheet — bottom sheet with the move actions on touch / narrow
  * screens, where the notation's right-click menu is unreachable. Renders the
- * same action list as the desktop menu, plus full-size symbol and comment
- * editors.
+ * same action list as the desktop menu, plus full-size symbol, comment and
+ * voice-note editors.
  */
 import React, { useState } from 'react';
 import { Box, Button, ButtonBase, Drawer, TextField, Typography } from '@mui/material';
 import NagPalette, { type NagPaletteLabels } from './NagPalette';
 
-export type MoveSheetView = 'actions' | 'nags' | 'comment';
+export type MoveSheetView = 'actions' | 'nags' | 'comment' | 'voice';
 
 export interface MoveAction {
   key: string;
@@ -31,14 +31,19 @@ interface MoveActionSheetProps {
   nagLabels?: NagPaletteLabels;
   comment: string;
   onCommentSave: (text: string) => void;
-  labels: { commentPlaceholder?: string; save: string; cancel: string };
+  labels: { commentPlaceholder?: string; save: string; cancel: string; deleteComment: string };
+  /** Content of the 'voice' view (the voice-note recorder). */
+  voice?: React.ReactNode;
 }
 
-function CommentForm({ initial, placeholder, save, cancel, onSave, onCancel }: {
+const DESTRUCTIVE_ACTIONS = new Set(['deleteMove', 'deleteVoiceNote']);
+
+function CommentForm({ initial, placeholder, save, cancel, deleteLabel, onSave, onCancel }: {
   initial: string;
   placeholder?: string;
   save: string;
   cancel: string;
+  deleteLabel: string;
   onSave: (text: string) => void;
   onCancel: () => void;
 }) {
@@ -58,6 +63,11 @@ function CommentForm({ initial, placeholder, save, cancel, onSave, onCancel }: {
         sx={{ '& .MuiOutlinedInput-root': { fontSize: 16 } }}
       />
       <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+        {initial && (
+          <Button onClick={() => onSave('')} color="error" sx={{ minHeight: 44, mr: 'auto', textTransform: 'none' }}>
+            {deleteLabel}
+          </Button>
+        )}
         <Button onClick={onCancel} sx={{ minHeight: 44, textTransform: 'none', color: 'text.secondary' }}>
           {cancel}
         </Button>
@@ -71,7 +81,7 @@ function CommentForm({ initial, placeholder, save, cancel, onSave, onCancel }: {
 
 export default function MoveActionSheet({
   open, view, title, actions, onAction, onClose,
-  nags, onNagToggle, nagLabels, comment, onCommentSave, labels,
+  nags, onNagToggle, nagLabels, comment, onCommentSave, labels, voice,
 }: MoveActionSheetProps) {
   return (
     <Drawer
@@ -109,7 +119,7 @@ export default function MoveActionSheet({
                   px: 1.5,
                   borderRadius: 2,
                   fontSize: 16,
-                  color: action.key === 'deleteMove' ? 'error.main' : 'text.primary',
+                  color: DESTRUCTIVE_ACTIONS.has(action.key) ? 'error.main' : 'text.primary',
                   '&:hover, &.Mui-focusVisible': { bgcolor: 'action.hover' },
                 }}
               >
@@ -134,10 +144,13 @@ export default function MoveActionSheet({
             placeholder={labels.commentPlaceholder}
             save={labels.save}
             cancel={labels.cancel}
+            deleteLabel={labels.deleteComment}
             onSave={onCommentSave}
             onCancel={onClose}
           />
         )}
+
+        {view === 'voice' && voice}
       </Box>
     </Drawer>
   );

@@ -123,6 +123,9 @@ class FakeBuilder:
     def ilike(self, *a, **k):
         return self
 
+    def in_(self, *a, **k):
+        return self
+
     def order(self, *a, **k):
         return self
 

@@ -2,7 +2,7 @@
  * Account-deletion manifest — the single, reviewable decision for every column
  * that holds a Clerk user id. `public.delete_user_data` (created in
  * `supabase/migrations/20261013_053_delete_user_data.sql`, last re-created in
- * `20261013_055_welcome_emails.sql`) implements exactly this; the manifest test keeps
+ * `20261016_056_move_voice_notes.sql`) implements exactly this; the manifest test keeps
  * the two in sync and fails when a migration adds a user-id column that has no
  * decision here.
  *
@@ -32,6 +32,7 @@ export const DELETE_TABLES: DeleteTable[] = [
   { table: 'coach_sessions', columns: ['user_id'] },
   { table: 'analysis_chat_messages', columns: ['user_id'] },
   { table: 'analysis_conversations', columns: ['user_id'] },
+  { table: 'move_voice_notes', columns: ['owner_user_id'] },
   { table: 'user_games', columns: ['user_id'] },
   { table: 'user_game_collection_shares', columns: ['user_id'] },
   { table: 'user_shared_databases', columns: ['subscriber_id'] },

@@ -11,8 +11,10 @@ error handling, logging).
 """
 
 import logging
+import re
 import secrets
 import traceback
+import uuid
 from datetime import datetime, timezone
 
 from flask import Blueprint, request, jsonify
@@ -29,6 +31,8 @@ user_databases_bp = Blueprint('user_databases', __name__)
 DATABASES_TABLE = 'user_databases'
 GAMES_TABLE = 'user_games'
 SHARED_DATABASES_TABLE = 'user_shared_databases'
+VOICE_NOTES_TABLE = 'move_voice_notes'
+VOICE_NOTES_BUCKET = 'move-voice-notes'
 
 MAX_NAME_LEN = 80
 
@@ -636,8 +640,13 @@ def copy_shared_database(token):
         try:
             source_games = _db_games(source['id'], sanitized=False)
             copies = []
+            # Fresh ids are minted here (not by the DB) so each source game's
+            # voice notes can be re-attached to its copy.
+            game_id_map = {}
             for g in source_games:
-                row = {'user_id': user_id, 'database_id': new_db_id, 'share_token': None}
+                new_game_id = str(uuid.uuid4())
+                game_id_map[g['id']] = new_game_id
+                row = {'id': new_game_id, 'user_id': user_id, 'database_id': new_db_id, 'share_token': None}
                 for field in _COPY_FIELDS:
                     if field in g:
                         row[field] = g[field]
@@ -647,6 +656,8 @@ def copy_shared_database(token):
                 batch = copies[i:i + _COPY_BATCH]
                 if batch:
                     supabase.table(GAMES_TABLE).insert(batch).execute()
+
+            _copy_voice_notes(game_id_map, user_id)
         except Exception:
             # No cross-statement transaction available — roll back the empty db so
             # a failed copy doesn't leave an orphan.
@@ -658,4 +669,312 @@ def copy_shared_database(token):
 
     except Exception as e:
         logger.error(f"Error copying shared database: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ─── MOVE VOICE NOTES ──────────────────────────────────────────────────────────
+#
+# A short audio clip attached to ONE move of a saved game. The PGN is untouched:
+# a note maps to its move by node_path, the move's SAN path from the start
+# position joined by single spaces ('e4 e5 Nf3'). Audio sits in a private bucket
+# under {owner_user_id}/{game_id}/{uuid}.{ext} and is only served through
+# short-lived signed URLs. The owner may upload/delete; a viewer holding a valid
+# share token for the game's database may list and play, never write.
+
+VOICE_NOTE_MAX_BYTES = 5 * 1024 * 1024
+VOICE_NOTE_MAX_MS = 120_000
+# MediaRecorder keeps flushing for a moment after the 2-minute auto-stop.
+VOICE_NOTE_DURATION_GRACE_MS = 2_000
+VOICE_NOTE_URL_TTL_SECONDS = 300
+MAX_NODE_PATH_LEN = 4000
+
+_AUDIO_EXT = {
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'm4a',
+    'audio/x-m4a': 'm4a',
+    'audio/aac': 'aac',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+}
+
+
+def _audio_ext(mime):
+    ext = _AUDIO_EXT.get(mime)
+    if ext:
+        return ext
+    return re.sub(r'[^a-z0-9]', '', mime.split('/', 1)[1])[:8] or 'audio'
+
+
+def _public_note(row):
+    """A note as returned to clients: no storage key, no owner id."""
+    return {
+        'id': row['id'],
+        'game_id': row.get('game_id'),
+        'node_path': row.get('node_path'),
+        'mime_type': row.get('mime_type'),
+        'duration_ms': row.get('duration_ms'),
+        'created_at': row.get('created_at'),
+    }
+
+
+def _live_game(game_id, **match):
+    """Return the live user_games row with this id whose columns equal `match`,
+    re-checked in Python (filter-agnostic mocks), or None."""
+    query = supabase.table(GAMES_TABLE) \
+        .select('id, user_id, database_id, deleted_at') \
+        .eq('id', game_id)
+    for column, value in match.items():
+        query = query.eq(column, value)
+    result = query.is_('deleted_at', 'null').execute()
+    for row in result.data or []:
+        if row.get('id') != game_id or row.get('deleted_at') is not None:
+            continue
+        if all(row.get(column) == value for column, value in match.items()):
+            return row
+    return None
+
+
+def _readable_game(game_id, user_id):
+    """The game if the caller owns it, or holds a live share token (?share_token=)
+    for the database it belongs to; else None."""
+    game = _live_game(game_id, user_id=user_id)
+    if game:
+        return game
+    token = request.args.get('share_token')
+    db = _fetch_db_by_share_token(token) if token else None
+    if db:
+        return _live_game(game_id, database_id=db['id'])
+    return None
+
+
+def _game_notes(game_id):
+    result = supabase.table(VOICE_NOTES_TABLE) \
+        .select('*') \
+        .eq('game_id', game_id) \
+        .order('created_at', desc=False) \
+        .execute()
+    return [r for r in (result.data or []) if r.get('game_id') == game_id]
+
+
+def _path_covers(prefix, node_path):
+    """True if node_path is the move at `prefix` or any move after it in its line."""
+    return node_path == prefix or (node_path or '').startswith(prefix + ' ')
+
+
+def _remove_voice_notes(rows, client=None):
+    """Delete note rows and their audio objects. Storage removal is best-effort:
+    an orphaned object is invisible, a dangling row would show a dead 🔊."""
+    client = client or supabase
+    rows = [r for r in rows if r.get('id')]
+    if not rows:
+        return 0
+    paths = [r['storage_path'] for r in rows if r.get('storage_path')]
+    if paths:
+        try:
+            client.storage.from_(VOICE_NOTES_BUCKET).remove(paths)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Voice note storage removal failed for {len(paths)} objects: {e}")
+    client.table(VOICE_NOTES_TABLE) \
+        .delete() \
+        .in_('id', [r['id'] for r in rows]) \
+        .execute()
+    return len(rows)
+
+
+def purge_game_voice_notes(game_ids, client=None):
+    """Remove every voice note (rows + audio) of the given games. Used when a game
+    is deleted and when soft-deleted databases are hard-deleted; callers in other
+    modules pass their own client."""
+    client = client or supabase
+    game_ids = [g for g in game_ids if g]
+    if not game_ids:
+        return 0
+    result = client.table(VOICE_NOTES_TABLE) \
+        .select('*') \
+        .in_('game_id', game_ids) \
+        .execute()
+    wanted = set(game_ids)
+    return _remove_voice_notes([r for r in (result.data or []) if r.get('game_id') in wanted], client)
+
+
+def _copy_voice_notes(game_id_map, owner_user_id):
+    """Duplicate the voice notes of copied games — rows AND audio objects, under
+    the new owner's prefix — so the copy keeps working if the source goes away.
+    A note whose object can't be copied is skipped (logged), not fatal."""
+    if not game_id_map:
+        return 0
+    result = supabase.table(VOICE_NOTES_TABLE) \
+        .select('*') \
+        .in_('game_id', list(game_id_map)) \
+        .execute()
+    bucket = supabase.storage.from_(VOICE_NOTES_BUCKET)
+    copies = []
+    for note in result.data or []:
+        new_game_id = game_id_map.get(note.get('game_id'))
+        if not new_game_id or not note.get('storage_path'):
+            continue
+        ext = note['storage_path'].rsplit('.', 1)[-1]
+        new_path = f"{owner_user_id}/{new_game_id}/{uuid.uuid4().hex}.{ext}"
+        try:
+            bucket.copy(note['storage_path'], new_path)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Voice note copy failed for {note.get('id')}: {e}")
+            continue
+        copies.append({
+            'game_id': new_game_id,
+            'owner_user_id': owner_user_id,
+            'node_path': note.get('node_path'),
+            'storage_path': new_path,
+            'mime_type': note.get('mime_type'),
+            'duration_ms': note.get('duration_ms'),
+        })
+    for i in range(0, len(copies), _COPY_BATCH):
+        supabase.table(VOICE_NOTES_TABLE).insert(copies[i:i + _COPY_BATCH]).execute()
+    return len(copies)
+
+
+@user_databases_bp.route('/api/games/<game_id>/voice-notes', methods=['GET'])
+@verify_clerk_token
+def list_voice_notes(game_id):
+    """List a game's voice notes. Owner, or a viewer with ?share_token=."""
+    user_id = get_current_user_id()
+    try:
+        if not _readable_game(game_id, user_id):
+            return jsonify({'error': 'Game not found'}), 404
+        return jsonify([_public_note(r) for r in _game_notes(game_id)]), 200
+
+    except Exception as e:
+        logger.error(f"Error listing voice notes: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/games/<game_id>/voice-notes', methods=['POST'])
+@verify_clerk_token
+def upload_voice_note(game_id):
+    """Attach a voice note to a move (owner only). Re-recording replaces it.
+
+    multipart/form-data: file (audio/*, <= 5 MB), node_path, duration_ms (<= 2 min).
+    """
+    user_id = get_current_user_id()
+    try:
+        if not _live_game(game_id, user_id=user_id):
+            return jsonify({'error': 'Game not found'}), 404
+
+        node_path = (request.form.get('node_path') or '').strip()
+        if not node_path or len(node_path) > MAX_NODE_PATH_LEN:
+            return jsonify({'error': 'node_path is required'}), 400
+
+        try:
+            duration_ms = int(request.form.get('duration_ms') or 0)
+        except ValueError:
+            duration_ms = 0
+        if duration_ms <= 0:
+            return jsonify({'error': 'duration_ms is required'}), 400
+        if duration_ms > VOICE_NOTE_MAX_MS + VOICE_NOTE_DURATION_GRACE_MS:
+            return jsonify({'error': 'Voice notes are limited to 2 minutes'}), 400
+
+        upload = request.files.get('file')
+        if upload is None:
+            return jsonify({'error': 'file is required'}), 400
+        mime = (upload.mimetype or '').split(';', 1)[0].strip().lower()
+        if not mime.startswith('audio/') or mime == 'audio/':
+            return jsonify({'error': 'Only audio files are allowed'}), 415
+        payload = upload.read(VOICE_NOTE_MAX_BYTES + 1)
+        if len(payload) > VOICE_NOTE_MAX_BYTES:
+            return jsonify({'error': 'Voice notes are limited to 5 MB'}), 413
+        if not payload:
+            return jsonify({'error': 'Empty file'}), 400
+
+        storage_path = f"{user_id}/{game_id}/{uuid.uuid4().hex}.{_audio_ext(mime)}"
+        bucket = supabase.storage.from_(VOICE_NOTES_BUCKET)
+        try:
+            bucket.upload(path=storage_path, file=payload, file_options={'content-type': mime})
+        except Exception as e:  # noqa: BLE001 — surface storage errors as 502
+            logger.error(f"Voice note upload failed: game={game_id}: {e}")
+            return jsonify({'error': 'Upload failed'}), 502
+
+        replaced = [r for r in _game_notes(game_id) if r.get('node_path') == node_path]
+        try:
+            result = supabase.table(VOICE_NOTES_TABLE).insert({
+                'game_id': game_id,
+                'owner_user_id': user_id,
+                'node_path': node_path,
+                'storage_path': storage_path,
+                'mime_type': mime,
+                'duration_ms': min(duration_ms, VOICE_NOTE_MAX_MS),
+            }).execute()
+        except Exception:
+            bucket.remove([storage_path])
+            raise
+        _remove_voice_notes(replaced)
+
+        return jsonify(_public_note(result.data[0])), 201
+
+    except Exception as e:
+        logger.error(f"Error uploading voice note: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/games/<game_id>/voice-notes/<note_id>/url', methods=['GET'])
+@verify_clerk_token
+def voice_note_url(game_id, note_id):
+    """Short-lived signed playback URL. Owner, or a viewer with ?share_token=."""
+    user_id = get_current_user_id()
+    try:
+        if not _readable_game(game_id, user_id):
+            return jsonify({'error': 'Game not found'}), 404
+        note = next((r for r in _game_notes(game_id) if r.get('id') == note_id), None)
+        if not note:
+            return jsonify({'error': 'Voice note not found'}), 404
+
+        signed = supabase.storage.from_(VOICE_NOTES_BUCKET) \
+            .create_signed_url(note['storage_path'], VOICE_NOTE_URL_TTL_SECONDS)
+        url = (signed or {}).get('signedURL') or (signed or {}).get('signedUrl')
+        if not url:
+            return jsonify({'error': 'Voice note unavailable'}), 502
+        return jsonify({'url': url, 'expires_in': VOICE_NOTE_URL_TTL_SECONDS}), 200
+
+    except Exception as e:
+        logger.error(f"Error signing voice note URL: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/games/<game_id>/voice-notes/<note_id>', methods=['DELETE'])
+@verify_clerk_token
+def delete_voice_note(game_id, note_id):
+    """Delete one voice note and its audio (owner only)."""
+    user_id = get_current_user_id()
+    try:
+        if not _live_game(game_id, user_id=user_id):
+            return jsonify({'error': 'Game not found'}), 404
+        note = next((r for r in _game_notes(game_id) if r.get('id') == note_id), None)
+        if not note:
+            return jsonify({'error': 'Voice note not found'}), 404
+        _remove_voice_notes([note])
+        return jsonify({'success': True}), 200
+
+    except Exception as e:
+        logger.error(f"Error deleting voice note: {e}\n{traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+
+
+@user_databases_bp.route('/api/games/<game_id>/voice-notes', methods=['DELETE'])
+@verify_clerk_token
+def delete_voice_notes_from_move(game_id):
+    """Delete the notes on a deleted move and every move after it in its line
+    (?node_path=). Owner only; idempotent."""
+    user_id = get_current_user_id()
+    try:
+        if not _live_game(game_id, user_id=user_id):
+            return jsonify({'error': 'Game not found'}), 404
+        node_path = (request.args.get('node_path') or '').strip()
+        if not node_path:
+            return jsonify({'error': 'node_path is required'}), 400
+        doomed = [r for r in _game_notes(game_id) if _path_covers(node_path, r.get('node_path'))]
+        return jsonify({'deleted': _remove_voice_notes(doomed)}), 200
+
+    except Exception as e:
+        logger.error(f"Error deleting voice notes: {e}\n{traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
