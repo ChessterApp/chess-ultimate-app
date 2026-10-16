@@ -589,14 +589,6 @@
       "move": "Move",
       "flip": "Flip board"
     },
-    "engine": {
-      "title": "Engine Analysis",
-      "analyzing": "Analyzing...",
-      "waiting": "Waiting for position",
-      "depth": "Depth",
-      "bestMove": "Best move",
-      "line": "Line"
-    },
     "openings": {
       "title": "Opening Repertoire",
       "asWhite": "As White",

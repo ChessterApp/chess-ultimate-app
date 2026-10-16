@@ -5,7 +5,11 @@ import { Chess } from 'chess.js'
 import type { Key } from 'chessground/types'
 import ChessgroundBoard from '@/components/chess/ChessgroundBoard'
 import { useTranslations } from 'next-intl'
+import { Switch } from '@mui/material'
 import { useReplayStockfish } from '@/hooks/useReplayStockfish'
+import { engineVariantLabel } from '@/lib/engine/engineVariantLabel'
+import { useEngineDisplaySettings } from '@/hooks/useEngineDisplaySettings'
+import EngineSettingsMenu from '@/components/engine/EngineSettingsMenu'
 import ReplayEvalBar from './ReplayEvalBar'
 import ReplayEngineLines from './ReplayEngineLines'
 
@@ -38,8 +42,14 @@ export default function GameReplayBoard({
   const [isAutoPlaying, setIsAutoPlaying] = useState(false)
   const [isFlipped, setIsFlipped] = useState(false)
 
-  // Stockfish analysis
-  const { evaluation, isAnalyzing, depth, analyze, stopAnalysis } = useReplayStockfish()
+  // Stockfish analysis — off until the user enables it (WASM init is heavy)
+  const [engineEnabled, setEngineEnabled] = useState(false)
+  const { depth: engineDepth, lines: engineLines } = useEngineDisplaySettings()
+  const { evaluation, isAnalyzing, isReady, depth, engineName, analyze } = useReplayStockfish({
+    enabled: engineEnabled,
+    depth: engineDepth,
+    multiPv: engineLines,
+  })
 
   // Parse PGN and build position history
   const { positions, moves, game } = useMemo(() => {
@@ -98,13 +108,10 @@ export default function GameReplayBoard({
 
   // Trigger Stockfish analysis when position changes
   useEffect(() => {
-    if (currentFen) {
+    if (engineEnabled && isReady && currentFen) {
       analyze(currentFen)
     }
-    return () => {
-      // Stop analysis when component unmounts or position changes
-    }
-  }, [currentFen, analyze])
+  }, [engineEnabled, isReady, currentFen, analyze])
 
   // Navigation functions
   const goToStart = useCallback(() => {
@@ -259,11 +266,11 @@ export default function GameReplayBoard({
             <div className="flex gap-2">
               {/* Evaluation thermometer */}
               <ReplayEvalBar
-                evaluation={evaluation?.lines?.[0] ? {
+                evaluation={engineEnabled && evaluation?.lines?.[0] ? {
                   cp: evaluation.lines[0].cp,
                   mate: evaluation.lines[0].mate
                 } : null}
-                isAnalyzing={isAnalyzing}
+                isAnalyzing={engineEnabled && isAnalyzing}
                 depth={depth}
                 orientation={orientation}
                 height={400}
@@ -358,12 +365,29 @@ export default function GameReplayBoard({
 
           {/* Engine lines - shown to the right on desktop, below on mobile */}
           <div className="lg:w-64">
-            <ReplayEngineLines
-              lines={evaluation?.lines || []}
-              isAnalyzing={isAnalyzing}
-              currentFen={currentFen}
-              depth={depth}
-            />
+            <div className="flex items-center gap-1">
+              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                {engineVariantLabel(engineName)}
+              </span>
+              {engineEnabled && depth > 0 && (
+                <span className="text-xs font-mono text-gray-400">· d{depth}</span>
+              )}
+              <EngineSettingsMenu />
+              <div className="flex-grow" />
+              <Switch
+                size="small"
+                checked={engineEnabled}
+                onChange={(e) => setEngineEnabled(e.target.checked)}
+                inputProps={{ 'aria-label': 'Stockfish' }}
+              />
+            </div>
+            {engineEnabled && (
+              <ReplayEngineLines
+                lines={evaluation?.lines || []}
+                currentFen={currentFen}
+                maxLines={engineLines}
+              />
+            )}
           </div>
         </div>
 

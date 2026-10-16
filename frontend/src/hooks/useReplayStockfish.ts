@@ -35,13 +35,17 @@ function toEngineVariant(name: EngineName | null): EngineVariant {
   return null
 }
 
-const ANALYSIS_DEPTH = 18 // Moderate depth for fast response
-const MULTI_PV = 3 // Top 3 lines
+const ANALYSIS_DEPTH = 18 // Fallback depth when the caller passes none
+const MULTI_PV = 3 // Fallback line count when the caller passes none
 const DEBOUNCE_MS = 300 // Debounce rapid position changes
 const SF16_INIT_TIMEOUT_MS = 8_000
 
 interface UseReplayStockfishOptions {
   enabled?: boolean
+  /** Search depth; changing it restarts analysis of the current position. */
+  depth?: number
+  /** Number of engine lines; changing it restarts analysis of the current position. */
+  multiPv?: number
   /** Called when the engine fails — UI can auto-disable the toggle. */
   onError?: (message: string) => void
 }
@@ -87,7 +91,7 @@ async function tryInitEngine(
  * Only initializes the WASM engine when enabled=true.
  */
 export function useReplayStockfish(options: UseReplayStockfishOptions = {}): UseReplayStockfishReturn {
-  const { enabled = false, onError } = options
+  const { enabled = false, depth: targetDepth = ANALYSIS_DEPTH, multiPv = MULTI_PV, onError } = options
   const [evaluation, setEvaluation] = useState<PositionEval | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isReady, setIsReady] = useState(false)
@@ -101,6 +105,10 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   const currentFenRef = useRef<string | null>(null)
   const mountedRef = useRef(true)
+  const searchRef = useRef({ depth: targetDepth, multiPv })
+  useEffect(() => {
+    searchRef.current = { depth: targetDepth, multiPv }
+  }, [targetDepth, multiPv])
 
   const handleEngineFailure = useCallback((message: string) => {
     setEngineError(message)
@@ -259,8 +267,8 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
       try {
         const result = await engineRef.current.evaluatePositionWithUpdate({
           fen,
-          depth: ANALYSIS_DEPTH,
-          multiPv: MULTI_PV,
+          depth: searchRef.current.depth,
+          multiPv: searchRef.current.multiPv,
           setPartialEval: (partialEval) => {
             // Only update if this is still the current position
             if (mountedRef.current && currentFenRef.current === fen) {
@@ -287,6 +295,18 @@ export function useReplayStockfish(options: UseReplayStockfishOptions = {}): Use
       }
     }, DEBOUNCE_MS)
   }, [engineError, handleEngineFailure])
+
+  // Re-run the current position when the requested depth / line count changes.
+  const searchKey = `${targetDepth}:${multiPv}`
+  const lastSearchKeyRef = useRef(searchKey)
+  useEffect(() => {
+    if (lastSearchKeyRef.current === searchKey) return
+    lastSearchKeyRef.current = searchKey
+    const fen = currentFenRef.current
+    if (!enabled || !fen) return
+    if (engineRef.current && engineReadyRef.current) engineRef.current.stopSearch()
+    analyze(fen)
+  }, [searchKey, enabled, analyze])
 
   return {
     evaluation,

@@ -23,7 +23,10 @@ import type { ExplorerTab } from '@/components/openings/ExplorerTabs';
 import type { MoveTreeSource } from '@/components/openings/MoveTree';
 import type { MasterGamesFilterState } from '@/components/openings/MasterGamesFilter';
 import { useLichessExplorer } from '@/hooks/useLichessExplorer';
-import { useReplayStockfish } from '@/hooks/useReplayStockfish';
+import { useReplayStockfish } from '@/hooks/useReplayStockfish'
+import { engineVariantLabel } from '@/lib/engine/engineVariantLabel';
+import { useEngineDisplaySettings } from '@/hooks/useEngineDisplaySettings';
+import EngineSettingsMenu from '@/components/engine/EngineSettingsMenu';
 import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
 import { useMoveVoiceNotes } from '@/hooks/useMoveVoiceNotes';
 import { nodePathMap } from '@/lib/voiceNotes';
@@ -226,7 +229,8 @@ export default function DebutPage() {
   const handleStockfishError = useCallback((msg: string) => {
     stockfishErrorMsgRef.current = msg;
   }, []);
-  const { evaluation, isAnalyzing, isReady, depth, engineError, engineName, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, onError: handleStockfishError });
+  const { depth: engineDepth, lines: engineLines } = useEngineDisplaySettings();
+  const { evaluation, isAnalyzing, isReady, depth, engineError, engineName, analyze, stopAnalysis } = useReplayStockfish({ enabled: stockfishEnabled, depth: engineDepth, multiPv: engineLines, onError: handleStockfishError });
 
   const toggleStockfish = useCallback(() => {
     const scrollY = window.scrollY;
@@ -1367,28 +1371,6 @@ export default function DebutPage() {
     }
   }, [stockfishEnabled, displayedFen, isReady, analyze, stopAnalysis]);
 
-  // ─── Best Stockfish line (eval text + first move) ───
-  const bestLine = useMemo(() => {
-    const line = evaluation?.lines?.[0];
-    if (!line) return null;
-    let evalText = '0.0';
-    if (line.mate !== undefined) evalText = line.mate > 0 ? `+M${line.mate}` : `-M${Math.abs(line.mate)}`;
-    else if (line.cp !== undefined) { const p = line.cp / 100; evalText = p >= 0 ? `+${p.toFixed(1)}` : p.toFixed(1); }
-    const sanMoves: string[] = [];
-    try {
-      const chess = new Chess(displayedFen);
-      for (let i = 0; i < Math.min(line.pv.length, 10); i++) {
-        const uci = line.pv[i];
-        if (!uci || uci.length < 4) break;
-        try {
-          const m = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
-          if (m) sanMoves.push(m.san); else break;
-        } catch { break; }
-      }
-    } catch { /* invalid FEN */ }
-    return { evalText, sanMoves };
-  }, [evaluation, displayedFen]);
-
   // ─── Keyboard navigation ───
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -1561,13 +1543,14 @@ export default function DebutPage() {
                 ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
               }} />
               <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
-                {engineName === 'sf17.1' ? 'Stockfish 17.1' : engineName === 'sf17' ? 'Stockfish 17' : engineName === 'sf16' ? 'Stockfish 16' : engineName === 'sf11' ? 'Stockfish 11' : 'Stockfish'}
+                {engineVariantLabel(engineName)}
               </Typography>
               {stockfishEnabled && depth > 0 && (
                 <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
-                  d{depth}
+                  · d{depth}
                 </Typography>
               )}
+              <EngineSettingsMenu />
               <Box sx={{ flexGrow: 1 }} />
               <Switch
                 size="small"
@@ -1582,32 +1565,6 @@ export default function DebutPage() {
             </Box>
 
             <StockfishErrorBoundary>
-              {/* Best line display */}
-              {stockfishEnabled && bestLine && (
-                <Box sx={{
-                  mt: 0.5, px: 1.5, py: 0.75,
-                  bgcolor: 'var(--surface-card)',
-                  border: '1px solid var(--border-strong)',
-                  borderRadius: '10px',
-                  display: 'flex', alignItems: 'center', gap: 1,
-                }}>
-                  <Typography component="span" sx={{
-                    fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
-                    color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
-                  }}>
-                    {bestLine.evalText}
-                  </Typography>
-                  {bestLine.sanMoves.length > 0 && (
-                    <Typography component="span" sx={{
-                      fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
-                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-                    }}>
-                      {bestLine.sanMoves.join(' ')}
-                    </Typography>
-                  )}
-                </Box>
-              )}
-
               {/* Engine error message */}
               {engineError && (
                 <Box sx={{ mt: 0.5, px: 1.5, py: 0.75, bgcolor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '10px' }}>
@@ -1618,13 +1575,12 @@ export default function DebutPage() {
               )}
 
               {/* Engine lines */}
-              {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
+              {stockfishEnabled && !engineError && (
                 <Box sx={{ mt: 0.5 }}>
                   <ReplayEngineLines
-                    lines={evaluation.lines}
-                    isAnalyzing={isAnalyzing}
+                    lines={evaluation?.lines ?? []}
                     currentFen={displayedFen}
-                    depth={depth}
+                    maxLines={engineLines}
                   />
                 </Box>
               )}

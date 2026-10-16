@@ -20,6 +20,10 @@ const mockSf17PointShutdown = vi.fn()
 const mockSf17Shutdown = vi.fn()
 const mockSf16Shutdown = vi.fn()
 const mockSf11Shutdown = vi.fn()
+const mockSf17PointStop = vi.fn()
+const mockSf17PointEvaluate = vi.fn().mockResolvedValue({
+  lines: [{ pv: ['e2e4'], cp: 35, depth: 18, multiPv: 1, fen: '' }]
+})
 
 vi.mock('@/stockfish/engine/Stockfish17Point', () => {
   return {
@@ -33,10 +37,8 @@ vi.mock('@/stockfish/engine/Stockfish17Point', () => {
         return new Promise(() => { /* hang forever */ })
       })
       shutdown = vi.fn(() => { mockSf17PointShutdown() })
-      stopSearch = vi.fn()
-      evaluatePositionWithUpdate = vi.fn().mockResolvedValue({
-        lines: [{ pv: ['e2e4'], cp: 35, depth: 18, multiPv: 1, fen: '' }]
-      })
+      stopSearch = mockSf17PointStop
+      evaluatePositionWithUpdate = mockSf17PointEvaluate
     }
   }
 })
@@ -283,5 +285,45 @@ describe('useReplayStockfish', () => {
     // Higher tiers still reject, so should fall back to SF11
     expect(result.current.activeEngine).toBe(EngineName.Stockfish11)
     expect(result.current.engineName).toBe('sf11')
+  })
+
+  it('searches with the requested depth / multiPv and restarts when they change', async () => {
+    const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+    const { result, rerender } = renderHook(
+      ({ depth, multiPv }) => useReplayStockfish({ enabled: true, depth, multiPv }),
+      { initialProps: { depth: 18, multiPv: 1 } }
+    )
+    await waitFor(() => expect(result.current.isReady).toBe(true))
+
+    act(() => { result.current.analyze(fen) })
+    await waitFor(() => expect(mockSf17PointEvaluate).toHaveBeenCalledTimes(1))
+    expect(mockSf17PointEvaluate).toHaveBeenLastCalledWith(expect.objectContaining({ fen, depth: 18, multiPv: 1 }))
+
+    mockSf17PointStop.mockClear()
+    rerender({ depth: 24, multiPv: 3 })
+    expect(mockSf17PointStop).toHaveBeenCalled()
+    await waitFor(() => expect(mockSf17PointEvaluate).toHaveBeenCalledTimes(2))
+    expect(mockSf17PointEvaluate).toHaveBeenLastCalledWith(expect.objectContaining({ fen, depth: 24, multiPv: 3 }))
+  })
+
+  it('falls back to depth 18 / 3 lines when no options are given', async () => {
+    const fen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
+    const { result } = renderHook(() => useReplayStockfish({ enabled: true }))
+    await waitFor(() => expect(result.current.isReady).toBe(true))
+
+    act(() => { result.current.analyze(fen) })
+    await waitFor(() => expect(mockSf17PointEvaluate).toHaveBeenCalled())
+    expect(mockSf17PointEvaluate).toHaveBeenLastCalledWith(expect.objectContaining({ depth: 18, multiPv: 3 }))
+  })
+
+  it('does not search on a settings change before any position was requested', async () => {
+    const { result, rerender } = renderHook(
+      ({ depth }) => useReplayStockfish({ enabled: true, depth }),
+      { initialProps: { depth: 18 } }
+    )
+    await waitFor(() => expect(result.current.isReady).toBe(true))
+    rerender({ depth: 12 })
+    await new Promise((r) => setTimeout(r, 400))
+    expect(mockSf17PointEvaluate).not.toHaveBeenCalled()
   })
 })

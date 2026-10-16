@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 //
 // Database page: no "Review this game" on opened games; the Stockfish toggle,
-// eval bar and best line work on every tab (master games, own games, analysis
+// eval bar and engine lines work on every tab (master games, own games, analysis
 // lines, shared read-only databases, the empty My Games board) and analyse the
 // shown position; the on/off state survives tab switches but is never written
-// to storage (auto-enable on reload is a WASM crash loop). Every child panel is
-// stubbed; the page's own wiring is real.
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
+// to storage (auto-enable on reload is a WASM crash loop). Engine depth/lines
+// come from the shared display settings and the gear never toggles the engine.
+// Every child panel except the engine lines is stubbed; the page's own wiring
+// is real.
+import { describe, it, expect, vi, afterEach, beforeEach, beforeAll } from 'vitest';
+import { render, screen, fireEvent, cleanup, act, within } from '@testing-library/react';
 import React, { Suspense } from 'react';
 
 vi.mock('next/dynamic', () => ({
@@ -41,12 +43,22 @@ vi.mock('@/lib/openingdatabase/ecoDatabase', () => ({ findEcoOpening: async () =
 const analyze = vi.fn();
 const stopAnalysis = vi.fn();
 const engineOn = {
-  evaluation: { lines: [{ cp: 35, pv: ['e7e5'], depth: 14 }] },
+  evaluation: {
+    lines: [
+      { cp: 35, pv: ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5', 'a7a6', 'b5a4', 'g8f6', 'e1g1'], depth: 14 },
+      { cp: 30, pv: ['d2d4', 'd7d5'], depth: 14 },
+      { cp: 20, pv: ['c2c4'], depth: 14 },
+    ],
+  },
   isAnalyzing: false, isReady: true, depth: 14, engineError: null, engineName: 'sf17', analyze, stopAnalysis,
 };
 const engineOff = { ...engineOn, evaluation: null, depth: 0 };
+const engineOpts = vi.fn();
 vi.mock('@/hooks/useReplayStockfish', () => ({
-  useReplayStockfish: ({ enabled }: { enabled: boolean }) => (enabled ? engineOn : engineOff),
+  useReplayStockfish: (opts: { enabled: boolean }) => {
+    engineOpts(opts);
+    return opts.enabled ? engineOn : engineOff;
+  },
 }));
 const voiceHook = vi.fn();
 const voiceNotes = { notes: [], paths: new Set(), playingPath: null, save: vi.fn(), remove: vi.fn(), removeFrom: vi.fn(), toggle: vi.fn() };
@@ -65,7 +77,6 @@ vi.mock('@/components/openings/DebutBoard', () => ({
   ),
 }));
 vi.mock('@/components/opponent/ReplayEvalBar', () => stub('eval-bar'));
-vi.mock('@/components/opponent/ReplayEngineLines', () => stub('engine-lines'));
 vi.mock('@/components/openings/MasterGamesPanel', () => stub('master-games'));
 vi.mock('@/components/openings/MoveTree', () => stub('move-tree'));
 vi.mock('@/components/openings/PositionSummary', () => stub('position-summary'));
@@ -121,10 +132,18 @@ async function click(name: string) {
   await act(async () => { fireEvent.click(screen.getByRole('button', { name })); });
 }
 
-const engineSwitch = () => screen.getByRole('switch');
+// `hidden`: an open gear popover aria-hides the page behind it.
+const engineSwitch = () => screen.getByRole('switch', { hidden: true });
+
+// The real engine-lines panel is lazy-loaded; warm it so it never suspends the page mid-test.
+beforeAll(async () => {
+  await import('@/components/opponent/ReplayEngineLines');
+});
 
 beforeEach(() => {
+  window.localStorage.clear();
   analyze.mockReset();
+  engineOpts.mockReset();
   voiceHook.mockReset();
   global.fetch = vi.fn(() => new Promise(() => {})) as unknown as typeof fetch;
   window.innerWidth = 1280;
@@ -158,8 +177,7 @@ describe('Database page — engine + eval bar everywhere', () => {
     expect(screen.queryByTestId('eval-bar')).toBeNull();
     await act(async () => { fireEvent.click(engineSwitch()); });
     expect(screen.getByTestId('eval-bar')).toBeTruthy();
-    expect(screen.getByText('+0.3')).toBeTruthy();
-    expect(screen.getByTestId('engine-lines')).toBeTruthy();
+    expect(screen.getByTestId('replay-engine-lines')).toBeTruthy();
   });
 
   it('stays on across own game, analysis line and shared game, analysing the shown position', async () => {
@@ -180,7 +198,7 @@ describe('Database page — engine + eval bar everywhere', () => {
     await click('pick shared db');
     await click('open shared game');
     expect(screen.getByTestId('eval-bar')).toBeTruthy();
-    expect(screen.getByText('+0.3')).toBeTruthy();
+    expect(screen.getByTestId('replay-engine-lines')).toBeTruthy();
     expect(analyze).toHaveBeenLastCalledWith(screen.getByTestId('board').getAttribute('data-fen'));
   });
 
@@ -211,6 +229,62 @@ describe('Database page — engine + eval bar everywhere', () => {
     await click('pick own db');
     await click('open own game');
     expect(setItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('Database page — engine panel design', () => {
+  const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
+  it('shows one numbered line by default, no best-line box, no "Engine Analysis"/"Depth:" header', async () => {
+    await renderPage();
+    await act(async () => { fireEvent.click(engineSwitch()); });
+    expect(engineOpts).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: true, depth: 18, multiPv: 1 }));
+    expect(screen.getAllByTestId('engine-line-row')).toHaveLength(1);
+    expect(screen.getByTestId('engine-line-moves').textContent).toBe('1.e4 e5 2.Nf3 Nc6 3.Bb5 a6 4.Ba4 Nf6');
+    // The old white best-line box rendered a 1-decimal eval ("+0.3") — gone.
+    expect(screen.queryByText('+0.3')).toBeNull();
+    expect(screen.getAllByText('+0.35')).toHaveLength(1);
+    expect(screen.queryByText(/engine analysis/i)).toBeNull();
+    expect(screen.queryByText(/depth:/i)).toBeNull();
+    expect(analyze).toHaveBeenCalledWith(START);
+  });
+
+  it('renders as many lines as the stored setting and passes depth/lines to the engine', async () => {
+    window.localStorage.setItem('chesster.engineDisplay.v1', JSON.stringify({ depth: 24, lines: 3 }));
+    await renderPage();
+    await act(async () => { fireEvent.click(engineSwitch()); });
+    expect(engineOpts).toHaveBeenLastCalledWith(expect.objectContaining({ depth: 24, multiPv: 3 }));
+    expect(screen.getAllByTestId('engine-line-row')).toHaveLength(3);
+  });
+
+  it('shows the label, depth and gear in one row; the gear opens settings without toggling the engine', async () => {
+    await renderPage();
+    await act(async () => { fireEvent.click(engineSwitch()); });
+    const label = screen.getByText('Stockfish 17');
+    const gear = screen.getByRole('button', { name: 'settings' });
+    const row = label.parentElement!;
+    expect(row.contains(gear)).toBe(true);
+    expect(row.contains(engineSwitch())).toBe(true);
+    // Order: label · d14 → gear → switch.
+    const order = Array.from(row.querySelectorAll('*'));
+    expect(order.indexOf(label)).toBeLessThan(order.indexOf(gear));
+    expect(order.indexOf(gear)).toBeLessThan(order.indexOf(engineSwitch()));
+    expect(screen.getByText('· d14')).toBeTruthy();
+
+    await act(async () => { fireEvent.click(gear); });
+    expect((engineSwitch() as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('group', { name: 'lines' })).toBeTruthy();
+  });
+
+  it('changing Lines in the gear menu re-renders with that many lines', async () => {
+    await renderPage();
+    await act(async () => { fireEvent.click(engineSwitch()); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'settings' })); });
+    const linesGroup = screen.getByRole('group', { name: 'lines' });
+    await act(async () => { fireEvent.click(within(linesGroup).getByRole('button', { name: '2' })); });
+    expect((engineSwitch() as HTMLInputElement).checked).toBe(true);
+    expect(engineOpts).toHaveBeenLastCalledWith(expect.objectContaining({ multiPv: 2 }));
+    expect(screen.getAllByTestId('engine-line-row')).toHaveLength(2);
   });
 });
 
