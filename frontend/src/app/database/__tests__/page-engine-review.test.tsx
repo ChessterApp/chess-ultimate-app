@@ -203,11 +203,16 @@ describe('Database page — engine + eval bar everywhere', () => {
     expect(analyze).toHaveBeenCalledWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
   });
 
-  it('reserves the eval bar width beside the board only while it shows', async () => {
+  it('does not move or resize the board when the eval bar appears', async () => {
     await renderPage();
-    expect(screen.getByTestId('board').getAttribute('data-reserved')).toBe('0');
+    const before = {
+      reserved: screen.getByTestId('board').getAttribute('data-reserved'),
+      anchor: screen.getByTestId('board-anchor').getAttribute('style') + screen.getByTestId('board-anchor').className,
+    };
     await act(async () => { fireEvent.click(engineSwitch()); });
-    expect(screen.getByTestId('board').getAttribute('data-reserved')).toBe('20');
+    expect(screen.getByTestId('eval-bar')).toBeTruthy();
+    expect(screen.getByTestId('board').getAttribute('data-reserved')).toBe(before.reserved);
+    expect(screen.getByTestId('board-anchor').getAttribute('style') + screen.getByTestId('board-anchor').className).toBe(before.anchor);
   });
 
   it('never writes the enabled state to localStorage or sessionStorage', async () => {

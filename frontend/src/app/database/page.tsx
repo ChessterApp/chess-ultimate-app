@@ -26,7 +26,7 @@ import { useReplayStockfish } from '@/hooks/useReplayStockfish';
 import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
 import { useMoveVoiceNotes } from '@/hooks/useMoveVoiceNotes';
 import { nodePathMap } from '@/lib/voiceNotes';
-import { debutBoardSize, EVAL_BAR_RESERVE_PX, EVAL_BAR_WIDTH_PX } from '@/lib/debutBoardSize';
+import { debutBoardSize, evalBarGutter, EVAL_BAR_WIDTH_PX } from '@/lib/debutBoardSize';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -284,7 +284,8 @@ export default function DebutPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   // The eval bar sits left of the board; on phones the board gives up its width.
-  const evalBarReserve = stockfishEnabled ? EVAL_BAR_RESERVE_PX : 0;
+  // Eval bar room depends on viewport only, so the Stockfish toggle never shifts the board.
+  const evalBarReserve = evalBarGutter(windowWidth);
   const boardSize = useMemo(() => debutBoardSize(windowWidth, evalBarReserve), [windowWidth, evalBarReserve]);
 
   // ─── Snackbar ───
@@ -2214,11 +2215,14 @@ export default function DebutPage() {
             alignItems: 'center',
             flexShrink: 0,
             overflowAnchor: 'none',
+            // Desktop: always-on room for the eval bar so it clears the app sidebar.
+            pl: { lg: 2 },
           }}>
-            {/* Board + Eval bar row */}
-            <Box sx={{ display: 'flex', flexDirection: 'row', alignItems: 'flex-start', gap: 0.5 }}>
+            {/* Board anchor — the eval bar is pinned outside its left edge, out of flow */}
+            <Box data-testid="board-anchor" sx={{ position: 'relative', ml: `${evalBarReserve}px` }}>
               {stockfishEnabled && (
                 <StockfishErrorBoundary>
+                  <Box sx={{ position: 'absolute', top: 0, right: '100%', mr: 0.5 }}>
                   <ReplayEvalBar
                     evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
                     isAnalyzing={isAnalyzing}
@@ -2227,6 +2231,7 @@ export default function DebutPage() {
                     height={boardSize}
                     width={EVAL_BAR_WIDTH_PX}
                   />
+                  </Box>
                 </StockfishErrorBoundary>
               )}
             <DebutBoard
