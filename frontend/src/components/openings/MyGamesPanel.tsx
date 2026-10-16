@@ -30,6 +30,7 @@ import {
   Add,
   Edit,
   ContentCopy,
+  AccountTree,
 } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@clerk/nextjs';
@@ -84,9 +85,11 @@ interface MyGamesPanelProps {
   sharedDatabaseToken?: string;
   /** Called with the new owned database after a successful copy-to-workspace. */
   onCopyShared?: (db: UserDatabase) => void;
+  /** Opens a fresh, empty board tab for recording a variation (owner mode only). */
+  onAddVariation?: () => void;
 }
 
-export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId, sharedDatabaseToken, onCopyShared }: MyGamesPanelProps) {
+export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId, sharedDatabaseToken, onCopyShared, onAddVariation }: MyGamesPanelProps) {
   const t = useTranslations('debut');
   const isSharedDb = !!sharedDatabaseToken;
   const isShared = !!sharedToken || isSharedDb;
@@ -356,6 +359,25 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
             >
               {t('myGames.addGame')}
             </Button>
+            {onAddVariation && (
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<AccountTree />}
+                onClick={onAddVariation}
+                sx={{
+                  fontSize: 12,
+                  textTransform: 'none',
+                  py: 0.75,
+                  flex: 1,
+                  color: '#7c3aed',
+                  borderColor: '#7c3aed',
+                  '&:hover': { borderColor: '#6d28d9', bgcolor: 'rgba(124,58,237,0.06)' },
+                }}
+              >
+                {t('myGames.addVariation')}
+              </Button>
+            )}
             <ShareMyGamesButton />
           </Box>
 

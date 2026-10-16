@@ -449,3 +449,67 @@ describe('useGameMoveTree.addMove', () => {
     expect(result.current.tree).toBe(tree);
   });
 });
+
+describe('comments', () => {
+  it('attaches comments to the preceding move and the root', () => {
+    const tree = pgnToTree('{Start} 1. e4 {best by test} e5 2. Nf3');
+    expect(tree.notes).toBe('Start');
+    expect(tree.children![0].notes).toBe('best by test');
+    expect(tree.children![0].children![0].notes).toBeNull();
+  });
+
+  it('parses comments inside variations', () => {
+    const tree = pgnToTree('1. e4 e5 2. Nf3 (2. Bc4 {Bishop\'s opening} Bc5 {symmetry}) 2... Nc6');
+    const bc4 = tree.children![0].children![0].children![1];
+    expect(bc4.move_san).toBe('Bc4');
+    expect(bc4.notes).toBe("Bishop's opening");
+    expect(bc4.children![0].notes).toBe('symmetry');
+  });
+
+  it('emits comments after their move and renumbers the next black move', () => {
+    const tree = pgnToTree('1. e4 {king pawn} e5');
+    expect(treeToPgn(tree)).toBe('1. e4 {king pawn} 1... e5');
+  });
+
+  it('round-trips moves, variations and comments losslessly', () => {
+    const original = '{Root note} 1. e4 {a} e5 (1... c5 {Sicilian} 2. Nf3 {b}) 2. Nf3 Nc6 {c}';
+    const once = treeToPgn(pgnToTree(original));
+    const twice = treeToPgn(pgnToTree(once));
+    expect(twice).toBe(once);
+    expect(once).toBe('{Root note} 1. e4 {a} 1... e5 ( 1... c5 {Sicilian} 2. Nf3 {b} ) 2. Nf3 Nc6 {c}');
+  });
+
+  it('strips closing braces from comment text on emit', () => {
+    const tree = pgnToTree('1. e4');
+    tree.children![0].notes = 'bad } brace';
+    expect(treeToPgn(tree)).toBe('1. e4 {bad brace}');
+  });
+});
+
+describe('useGameMoveTree.setComment', () => {
+  it('sets and clears a comment, marking the tree dirty', () => {
+    const { result } = renderHook(() => useGameMoveTree());
+    act(() => result.current.initFromPgn('1. e4 e5'));
+    const e4Id = result.current.tree!.children![0].id;
+
+    act(() => result.current.setComment(e4Id, '  great move  '));
+    expect(result.current.tree!.children![0].notes).toBe('great move');
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.getPgn()).toBe('1. e4 {great move} 1... e5');
+
+    act(() => result.current.markClean());
+    act(() => result.current.setComment(e4Id, '   '));
+    expect(result.current.tree!.children![0].notes).toBeNull();
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.getPgn()).toBe('1. e4 e5');
+  });
+
+  it('is a no-op when the comment is unchanged', () => {
+    const { result } = renderHook(() => useGameMoveTree());
+    act(() => result.current.initFromPgn('1. e4 {x}'));
+    const tree = result.current.tree!;
+    act(() => result.current.setComment(tree.children![0].id, 'x'));
+    expect(result.current.tree).toBe(tree);
+    expect(result.current.isDirty).toBe(false);
+  });
+});

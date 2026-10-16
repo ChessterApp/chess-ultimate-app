@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText } from '@mui/material';
-import { Backspace, DeleteSweep, Delete, TrendingUp, ArrowUpward, Star } from '@mui/icons-material';
+import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase } from '@mui/material';
+import { Backspace, DeleteSweep, Delete, TrendingUp, ArrowUpward, Star, AddComment, ModeComment } from '@mui/icons-material';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
 
 export interface MoveContextMenuActions {
@@ -10,12 +10,79 @@ export interface MoveContextMenuActions {
   onDeleteVariation?: (node: OpeningNode) => void;
   onPromoteVariation?: (node: OpeningNode) => void;
   onMakeMainLine?: (node: OpeningNode) => void;
+  /** Enables inline comments: rendered after each move and editable in place. */
+  onCommentChange?: (node: OpeningNode, text: string) => void;
   labels?: {
     deleteFromHere?: string;
     deleteVariation?: string;
     promoteVariation?: string;
     makeMainLine?: string;
+    addComment?: string;
+    editComment?: string;
+    commentPlaceholder?: string;
   };
+}
+
+type RenderComment = (node: OpeningNode) => React.ReactNode;
+
+function CommentText({ text, onClick }: { text: string; onClick: () => void }) {
+  return (
+    <Typography
+      component="span"
+      data-testid="move-comment"
+      onClick={onClick}
+      sx={{
+        color: 'text.secondary',
+        fontStyle: 'italic',
+        fontSize: '12px',
+        px: '3px',
+        cursor: 'text',
+        borderRadius: '2px',
+        '&:hover': { bgcolor: 'action.hover' },
+      }}
+    >
+      {text}
+    </Typography>
+  );
+}
+
+function CommentEditor({ initial, placeholder, onDone }: {
+  initial: string;
+  placeholder?: string;
+  onDone: (text: string | null) => void; // null = cancelled
+}) {
+  const [value, setValue] = useState(initial);
+  const doneRef = useRef(false);
+  const finish = (text: string | null) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    onDone(text);
+  };
+  return (
+    <InputBase
+      autoFocus
+      value={value}
+      placeholder={placeholder}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => finish(value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(value); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+      }}
+      inputProps={{ 'aria-label': placeholder, 'data-testid': 'move-comment-input' }}
+      sx={{
+        flex: '1 1 160px',
+        minWidth: 120,
+        fontSize: '12px',
+        fontStyle: 'italic',
+        px: '4px',
+        border: 1,
+        borderColor: 'primary.main',
+        borderRadius: '4px',
+        '& input': { py: '1px' },
+      }}
+    />
+  );
 }
 
 interface MoveNotationProps {
@@ -96,6 +163,7 @@ function renderNode(
   onNodeSelect: (node: OpeningNode) => void,
   selectedRef: React.RefObject<HTMLSpanElement | null>,
   onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void,
+  renderComment?: RenderComment,
 ): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
   const key = node.id;
@@ -118,11 +186,15 @@ function renderNode(
     />
   );
 
+  const comment = renderComment?.(node);
+  if (comment) elements.push(<React.Fragment key={`c-${key}`}>{comment}</React.Fragment>);
+
   const children = node.children || [];
   if (children.length === 0) return elements;
 
   elements.push(
-    ...renderNode(children[0], depth, false, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)
+    // A comment breaks the move pair, so the next black move gets its number back
+    ...renderNode(children[0], depth, !!comment, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -148,7 +220,7 @@ function renderNode(
         >
           (
         </Typography>
-        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)}
+        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -168,14 +240,17 @@ function renderTree(
   onNodeSelect: (node: OpeningNode) => void,
   selectedRef: React.RefObject<HTMLSpanElement | null>,
   onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void,
+  renderComment?: RenderComment,
 ): React.ReactNode[] {
   const children = root.children || [];
-  if (children.length === 0) return [];
+  const rootComment = renderComment?.(root);
+  if (children.length === 0) return rootComment ? [<React.Fragment key="c-root">{rootComment}</React.Fragment>] : [];
 
   const elements: React.ReactNode[] = [];
+  if (rootComment) elements.push(<React.Fragment key="c-root">{rootComment}</React.Fragment>);
 
   elements.push(
-    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)
+    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -201,7 +276,7 @@ function renderTree(
         >
           (
         </Typography>
-        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu)}
+        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -219,6 +294,12 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   const selectedRef = useRef<HTMLSpanElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: OpeningNode } | null>(null);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  // Comment chosen from the context menu; the editor opens once the menu has
+  // fully closed so its focus trap can't steal focus (and blur-save) the input.
+  const pendingCommentIdRef = useRef<string | null>(null);
+  const onCommentChange = contextMenuActions?.onCommentChange;
+  const commentPlaceholder = contextMenuActions?.labels?.commentPlaceholder;
 
   useEffect(() => {
     const el = selectedRef.current;
@@ -261,11 +342,41 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     return parent.children[0].id !== node.id;
   }, [tree]);
 
+  const renderComment = useCallback<RenderComment>((node) => {
+    if (node.id === editingCommentId) {
+      return (
+        <CommentEditor
+          initial={node.notes || ''}
+          placeholder={commentPlaceholder}
+          onDone={(text) => {
+            setEditingCommentId(null);
+            if (text !== null) onCommentChange?.(node, text);
+          }}
+        />
+      );
+    }
+    if (!node.notes) return null;
+    return <CommentText text={node.notes} onClick={() => setEditingCommentId(node.id)} />;
+  }, [editingCommentId, commentPlaceholder, onCommentChange]);
+
   const elements = useMemo(() => {
     if (!tree) return [];
-    return renderTree(tree, selectedNodeId, onNodeSelect, selectedRef, contextMenuActions ? handleContextMenu : undefined);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tree, selectedNodeId, onNodeSelect, contextMenuActions, handleContextMenu]);
+    return renderTree(
+      tree, selectedNodeId, onNodeSelect, selectedRef,
+      contextMenuActions ? handleContextMenu : undefined,
+      onCommentChange ? renderComment : undefined,
+    );
+  }, [tree, selectedNodeId, onNodeSelect, contextMenuActions, handleContextMenu, onCommentChange, renderComment]);
+
+  const selectedMoveNode = useMemo(() => {
+    if (!tree || !selectedNodeId || selectedNodeId === tree.id) return null;
+    const find = (n: OpeningNode): OpeningNode | null => {
+      if (n.id === selectedNodeId) return n;
+      for (const c of n.children || []) { const f = find(c); if (f) return f; }
+      return null;
+    };
+    return find(tree);
+  }, [tree, selectedNodeId]);
 
   if (loading) {
     return (
@@ -307,6 +418,22 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
       >
         {elements}
       </Box>
+
+      {/* Comment button for the selected move (editable mode) */}
+      {onCommentChange && selectedMoveNode && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 0.5, py: 0.25, borderTop: 1, borderColor: 'divider' }}>
+          <Tooltip title={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'} arrow placement="top">
+            <IconButton
+              size="small"
+              aria-label={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'}
+              onClick={() => setEditingCommentId(selectedMoveNode.id)}
+              sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'primary.main' } }}
+            >
+              {selectedMoveNode.notes ? <ModeComment sx={{ fontSize: 15 }} /> : <AddComment sx={{ fontSize: 15 }} />}
+            </IconButton>
+          </Tooltip>
+        </Box>
+      )}
 
       {/* Action bar */}
       {hasContent && (onDeleteLast || onDeleteAll) && (
@@ -352,7 +479,14 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
           onClose={handleCloseMenu}
           anchorReference="anchorPosition"
           anchorPosition={contextMenu ? { top: contextMenu.y, left: contextMenu.x } : undefined}
+          disableRestoreFocus
           slotProps={{
+            transition: {
+              onExited: () => {
+                if (pendingCommentIdRef.current) setEditingCommentId(pendingCommentIdRef.current);
+                pendingCommentIdRef.current = null;
+              },
+            },
             paper: {
               sx: {
                 bgcolor: 'background.paper',
@@ -361,6 +495,24 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             },
           }}
         >
+          {onCommentChange && contextMenu && (
+            <MenuItem
+              onClick={() => {
+                if (contextMenu) pendingCommentIdRef.current = contextMenu.node.id;
+                handleCloseMenu();
+              }}
+              sx={{ fontSize: 13 }}
+            >
+              <ListItemIcon>
+                {contextMenu.node.notes
+                  ? <ModeComment fontSize="small" sx={{ color: 'primary.main' }} />
+                  : <AddComment fontSize="small" sx={{ color: 'primary.main' }} />}
+              </ListItemIcon>
+              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>
+                {contextMenu.node.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'}
+              </ListItemText>
+            </MenuItem>
+          )}
           {contextMenuActions.onDeleteFromHere && (
             <MenuItem
               onClick={() => {

@@ -1184,7 +1184,10 @@
         "makeMainLine": "Сделать основным",
         "saveChanges": "Сохранить изменения",
         "unsavedChanges": "Несохранённые изменения",
-        "savedSuccessfully": "Изменения сохранены"
+        "savedSuccessfully": "Изменения сохранены",
+        "addComment": "Добавить комментарий",
+        "editComment": "Изменить комментарий",
+        "commentPlaceholder": "Комментарий к ходу…"
       },
       "shareAll": {
         "button": "Поделиться партиями",
@@ -1202,7 +1205,11 @@
       "sharedUnavailable": "Эта ссылка больше недоступна",
       "copyShared": "Скопировать в мою область",
       "copyingShared": "Копирование…",
-      "copiedShared": "Скопировано в «{name}»"
+      "copiedShared": "Скопировано в «{name}»",
+      "addVariation": "Добавить вариант",
+      "newVariationTab": "Новый вариант",
+      "variationSaved": "Вариант сохранён в «Мои партии»",
+      "discardVariationConfirm": "Удалить несохранённый вариант?"
     },
     "shareCollection": {
       "ogGenericTitle": "Шахматная коллекция · Chesster",

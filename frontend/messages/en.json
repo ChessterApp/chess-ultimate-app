@@ -1184,7 +1184,10 @@
         "makeMainLine": "Make main line",
         "saveChanges": "Save Changes",
         "unsavedChanges": "Unsaved changes",
-        "savedSuccessfully": "Changes saved successfully"
+        "savedSuccessfully": "Changes saved successfully",
+        "addComment": "Add comment",
+        "editComment": "Edit comment",
+        "commentPlaceholder": "Comment on this move…"
       },
       "shareAll": {
         "button": "Share my games",
@@ -1202,7 +1205,11 @@
       "sharedUnavailable": "This link is no longer available",
       "copyShared": "Copy to my workspace",
       "copyingShared": "Copying…",
-      "copiedShared": "Copied to \"{name}\""
+      "copiedShared": "Copied to \"{name}\"",
+      "addVariation": "Add variation",
+      "newVariationTab": "New variation",
+      "variationSaved": "Variation saved to My Games",
+      "discardVariationConfirm": "Discard this unsaved variation?"
     },
     "shareCollection": {
       "ogGenericTitle": "Chess collection · Chesster",

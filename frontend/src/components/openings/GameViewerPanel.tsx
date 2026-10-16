@@ -28,6 +28,8 @@ export interface OpenedGame {
   fens: string[];           // FEN at each move index (index 0 = after move 1)
   startingFen: string;
   source?: GameSource | string;
+  /** Unsaved "Add variation" board — Save creates a new game instead of updating. */
+  isDraft?: boolean;
 }
 
 interface GameViewerPanelProps {

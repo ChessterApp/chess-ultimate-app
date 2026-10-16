@@ -67,9 +67,11 @@ function tokenize(text: string): string[] {
     // Skip whitespace
     if (/\s/.test(text[i])) { i++; continue; }
 
-    // Comments in curly braces — skip
+    // Comments in curly braces — emitted as a single '{'-prefixed token
     if (text[i] === '{') {
       const end = text.indexOf('}', i);
+      const body = text.slice(i + 1, end === -1 ? text.length : end).trim();
+      if (body) tokens.push(`{${body}`);
       i = end === -1 ? text.length : end + 1;
       continue;
     }
@@ -120,6 +122,14 @@ function buildTree(tokens: string[], parent: OpeningNode, chess: Chess): number 
 
     if (token === ')') {
       return i + 1; // End of variation
+    }
+
+    // Comment — attach to the last move played (the root if none yet)
+    if (token.startsWith('{')) {
+      const body = token.slice(1);
+      currentParent.notes = currentParent.notes ? `${currentParent.notes} ${body}` : body;
+      i++;
+      continue;
     }
 
     if (token === '(') {
@@ -196,6 +206,7 @@ function findNodeById(root: OpeningNode, id: string): OpeningNode | null {
 
 export function treeToPgn(root: OpeningNode): string {
   const parts: string[] = [];
+  emitComment(root, parts);
   serializeLine(root.children || [], parts, true);
   const pgn = parts.join(' ').replace(/\s+/g, ' ').trim();
   return pgn || '*';
@@ -210,17 +221,26 @@ function serializeLine(nodes: OpeningNode[], parts: string[], forceNumber: boole
 
   const main = nodes[0];
   emitMove(main, parts, forceNumber);
+  const mainHasComment = emitComment(main, parts);
 
   // Variations (children[1..n] of the parent)
   for (let i = 1; i < nodes.length; i++) {
     parts.push('(');
     emitMove(nodes[i], parts, true);
-    serializeLine(nodes[i].children || [], parts, false);
+    const hasComment = emitComment(nodes[i], parts);
+    serializeLine(nodes[i].children || [], parts, hasComment);
     parts.push(')');
   }
 
-  // Continue main line
-  serializeLine(main.children || [], parts, false);
+  // Continue main line (a comment interrupts the move pair, so renumber)
+  serializeLine(main.children || [], parts, mainHasComment);
+}
+
+function emitComment(node: OpeningNode, parts: string[]): boolean {
+  const text = node.notes?.replace(/}/g, '').trim();
+  if (!text) return false;
+  parts.push(`{${text}}`);
+  return true;
 }
 
 function emitMove(node: OpeningNode, parts: string[], forceNumber: boolean): void {
@@ -369,6 +389,18 @@ export function useGameMoveTree() {
     setIsDirty(true);
   }, [tree]);
 
+  const setComment = useCallback((nodeId: string, text: string) => {
+    if (!tree) return;
+    const newTree = cloneTree(tree);
+    const node = findNodeById(newTree, nodeId);
+    if (!node) return;
+    const notes = text.trim() || null;
+    if ((node.notes || null) === notes) return;
+    node.notes = notes;
+    setTree(newTree);
+    setIsDirty(true);
+  }, [tree]);
+
   const getPgn = useCallback((): string => {
     if (!tree) return '*';
     return treeToPgn(tree);
@@ -388,6 +420,7 @@ export function useGameMoveTree() {
     deleteVariation,
     promoteVariation,
     makeMainLine,
+    setComment,
     getPgn,
     markClean,
   };

@@ -86,6 +86,7 @@ const DatabasePillRow = dynamic(() => import('@/components/openings/DatabasePill
 
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
+import { saveGameTree } from '@/components/openings/saveGameTree';
 const GameViewerPanel = dynamic(() => import('@/components/openings/GameViewerPanel'), {
   ssr: false,
   loading: () => null
@@ -473,23 +474,47 @@ export default function DebutPage() {
     if (result) setEditTreeSelectedNodeId(result.id);
   }, [gameMoveTree, editTreeSelectedNodeId]);
 
+  // A draft with no moves left has nothing worth saving.
+  const editTreeCanSave = gameMoveTree.isDirty
+    && !(activeGameForTree?.isDraft && !gameMoveTree.tree?.children?.length);
+
   const handleEditTreeSave = useCallback(async () => {
-    if (!activeGameForTree || !gameMoveTree.isDirty) return;
+    if (!activeGameForTree || !editTreeCanSave) return;
     const newPgn = gameMoveTree.getPgn();
-    const result = await updateUserGame(activeGameForTree.id, { pgn: newPgn });
+    const result = await saveGameTree(activeGameForTree, newPgn, {
+      databaseId: selectedDatabaseId,
+      createGame: createUserGame,
+      updateGame: updateUserGame,
+    });
     if (result) {
-      // Update the opened game with new PGN + re-parsed moves
+      // Update the opened game with new PGN + re-parsed moves. A saved draft
+      // takes over the real game id so later saves update it in place.
       const parsed = parseGamePgn(newPgn);
+      const oldId = activeGameForTree.id;
+      const newId = activeGameForTree.isDraft ? String(result.id) : oldId;
       setOpenedGames(prev => prev.map(g => {
-        if (g.id !== activeGameForTree.id) return g;
-        return { ...g, pgn: newPgn, moves: parsed.moves, fens: parsed.fens };
+        if (g.id !== oldId) return g;
+        return { ...g, id: newId, isDraft: undefined, pgn: newPgn, moves: parsed.moves, fens: parsed.fens };
       }));
+      if (newId !== oldId) {
+        setGameMoveIndices(prev => {
+          const { [oldId]: idx, ...rest } = prev;
+          return { ...rest, [newId]: idx ?? -1 };
+        });
+        // Keep the live tree (and selection) instead of re-parsing on the id change
+        setEditTreeGameId(newId);
+        setActiveTab(newId);
+      }
       gameMoveTree.markClean();
-      setSnackbar({ open: true, msg: t('myGames.moveEdit.savedSuccessfully'), severity: 'success' });
+      setSnackbar({
+        open: true,
+        msg: activeGameForTree.isDraft ? t('myGames.variationSaved') : t('myGames.moveEdit.savedSuccessfully'),
+        severity: 'success',
+      });
     } else {
       setSnackbar({ open: true, msg: t('myGames.editModal.updateFailed'), severity: 'error' });
     }
-  }, [activeGameForTree, gameMoveTree, updateUserGame, t]);
+  }, [activeGameForTree, editTreeCanSave, gameMoveTree, selectedDatabaseId, createUserGame, updateUserGame, t]);
 
   const editContextMenuActions: MoveContextMenuActions | undefined = isActiveGameEditable ? {
     onDeleteFromHere: (node) => {
@@ -529,11 +554,17 @@ export default function DebutPage() {
     onMakeMainLine: (node) => {
       gameMoveTree.makeMainLine(node.id);
     },
+    onCommentChange: (node, text) => {
+      gameMoveTree.setComment(node.id, text);
+    },
     labels: {
       deleteFromHere: t('myGames.moveEdit.deleteFromHere'),
       deleteVariation: t('myGames.moveEdit.deleteVariation'),
       promoteVariation: t('myGames.moveEdit.promoteVariation'),
       makeMainLine: t('myGames.moveEdit.makeMainLine'),
+      addComment: t('myGames.moveEdit.addComment'),
+      editComment: t('myGames.moveEdit.editComment'),
+      commentPlaceholder: t('myGames.moveEdit.commentPlaceholder'),
     },
   } : undefined;
 
@@ -1525,8 +1556,35 @@ export default function DebutPage() {
     }
   }, [openedGames, setSnackbar, fetchGamePgn]);
 
+  // Fresh empty board tab for recording a variation; Save files it in My Games.
+  const handleAddVariation = useCallback(() => {
+    if (openedGames.length >= 10) {
+      setSnackbar({ open: true, msg: t('maxTabsError'), severity: 'error' });
+      return;
+    }
+    const id = `new-variation-${Date.now()}`;
+    const draft: OpenedGame = {
+      id,
+      white: '?',
+      black: '?',
+      result: '*',
+      pgn: '',
+      moves: [],
+      fens: [],
+      startingFen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
+      source: 'user',
+      isDraft: true,
+    };
+    setOpenedGames(prev => [...prev, draft]);
+    setGameMoveIndices(prev => ({ ...prev, [id]: -1 }));
+    setActiveTab(id);
+  }, [openedGames.length, t]);
+
   const handleCloseGame = useCallback((gameId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const closing = openedGames.find(g => g.id === gameId);
+    if (closing?.isDraft && editTreeGameId === gameId && gameMoveTree.isDirty
+      && !window.confirm(t('myGames.discardVariationConfirm'))) return;
     setOpenedGames(prev => prev.filter(g => g.id !== gameId));
     setGameMoveIndices(prev => {
       const next = { ...prev };
@@ -1534,7 +1592,7 @@ export default function DebutPage() {
       return next;
     });
     if (activeTab === gameId) setActiveTab(lastHomeTabRef.current);
-  }, [activeTab]);
+  }, [activeTab, openedGames, editTreeGameId, gameMoveTree.isDirty, t]);
 
   // ─── Deep link: open a shared game from ?g=<slug> (new) or the legacy
   //     ?game=<id>&source=twic. The opaque slug never leaks the data source. ───
@@ -1908,7 +1966,7 @@ export default function DebutPage() {
           {openedGames.map(g => (
             <Chip
               key={g.id}
-              label={`♟\uFE0E ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
+              label={g.isDraft ? `♟\uFE0E ${t('myGames.newVariationTab')}` : `♟\uFE0E ${g.white.split(',')[0]} vs ${g.black.split(',')[0]}`}
               onClick={() => setActiveTab(g.id)}
               onDelete={() => handleCloseGame(g.id)}
               deleteIcon={<Close sx={{ fontSize: 14 }} />}
@@ -2240,18 +2298,18 @@ export default function DebutPage() {
                   game={activeGame}
                   currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
-                  onSaveToMyGames={handleSaveToMyGames}
+                  onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
-                  onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
-                  onToggleFavorite={activeGame.source === 'user' ? handleViewerToggleFavorite : undefined}
-                  onDeleteGame={activeGame.source === 'user' ? handleViewerDeleteGame : undefined}
+                  onEditGame={activeGame.source === 'user' && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  onToggleFavorite={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
+                  onDeleteGame={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
                   isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
                   editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
                   onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
                   onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
-                  editIsDirty={isActiveGameEditable ? gameMoveTree.isDirty : undefined}
+                  editIsDirty={isActiveGameEditable ? editTreeCanSave : undefined}
                   editContextMenuActions={editContextMenuActions}
                   onTreePrev={isActiveGameEditable ? handleEditTreePrev : undefined}
                   onTreeNext={isActiveGameEditable ? handleEditTreeNext : undefined}
@@ -2341,6 +2399,7 @@ export default function DebutPage() {
                   sharedToken={sharedCollectionToken ?? undefined}
                   sharedDatabaseToken={sharedDatabaseToken ?? undefined}
                   databaseId={selectedDatabaseId ?? undefined}
+                  onAddVariation={handleAddVariation}
                   onCopyShared={(db) => {
                     // Copied → switch to the new owned pill and refresh the row.
                     setSharedDatabaseToken(null);
@@ -2357,18 +2416,18 @@ export default function DebutPage() {
                   game={activeGame}
                   currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
                   onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
-                  onSaveToMyGames={handleSaveToMyGames}
+                  onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
                   isSaved={savedGameIds.has(activeGame.id)}
-                  onEditGame={activeGame.source === 'user' ? () => handleEditGameFromViewer(activeGame) : undefined}
-                  onToggleFavorite={activeGame.source === 'user' ? handleViewerToggleFavorite : undefined}
-                  onDeleteGame={activeGame.source === 'user' ? handleViewerDeleteGame : undefined}
+                  onEditGame={activeGame.source === 'user' && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
+                  onToggleFavorite={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
+                  onDeleteGame={activeGame.source === 'user' && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
                   isFavorite={favoriteGameIds.has(activeGame.id)}
                   isEditable={isActiveGameEditable}
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
                   editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
                   onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
                   onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
-                  editIsDirty={isActiveGameEditable ? gameMoveTree.isDirty : undefined}
+                  editIsDirty={isActiveGameEditable ? editTreeCanSave : undefined}
                   editContextMenuActions={editContextMenuActions}
                 />
               </Box>
