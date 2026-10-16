@@ -59,10 +59,14 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
     if not t:
         return {"kind": "none"}
     command = game_command(t)
+    if live_game and game_request(t):
+        # A new game asked for while one is on («хочу сыграть с самым сильным ботом 2500», voice 2026-10-15):
+        # the game's «New game», with the named colour and strength — not a level change, not a refusal.
+        command = "restart"
     if command and (live_game or (command == "restart" and finished_game)):
         out = {"kind": "game_command", "command": command}
-        if command == "restart":
-            out.update(game_wish(t))  # «сыграем ещё раз чёрными»
+        if command in ("restart", "level"):
+            out.update(game_wish(t))  # «сыграем ещё раз чёрными», «играй посложнее»
         return out
     if not live_game:
         req = game_request(t)

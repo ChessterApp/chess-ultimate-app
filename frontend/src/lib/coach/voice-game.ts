@@ -96,6 +96,18 @@ export function mayCommandTheGame(text: string): boolean {
   );
 }
 
+/** The game's tools: a refusal of theirs must reach the model as «nothing happened», never as a move. */
+export const GAME_TOOLS = new Set(['start_game', 'make_game_move', 'game_action']);
+
+/** The line after a game tool refused the site's call for the student's words: no move, no game, no change. */
+export function gameRefusedNote(name: string, reason: string): string {
+  const what = name === 'start_game' ? 'no game started' : name === 'game_action' ? 'the game did nothing' : 'no move was played';
+  return (
+    `[Game] The student's words asked the game for something, but ${what}: ${reason} The board did not change. ` +
+    'Never say a move was played or a game started; tell the student plainly what happened and ask them to say it again.'
+  ).replace(/\s+/g, ' ').trim();
+}
+
 /** The line after the site did what the student asked the game for (game_action with `said`). */
 export function gameActionNote(
   result: { action?: string; done?: boolean; note?: string } | null,
@@ -106,6 +118,7 @@ export function gameActionNote(
     takeback: 'asked to take back their move — it is undone',
     draw: 'offered a draw',
     restart: 'asked for a new game — it has started',
+    level: "asked for a different strength — the engine's level is changed",
   };
   const head = what[result.action] ?? result.action;
   return (

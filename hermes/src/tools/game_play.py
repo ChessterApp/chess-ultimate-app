@@ -21,7 +21,7 @@ from src.board_protocol import GAME_ACTION
 
 logger = logging.getLogger(__name__)
 
-STRENGTHS = (600, 800, 1000, 1200, 1500, 1800, 2000, 2200, 2500)  # the site's GAME_STRENGTHS
+from src.game_intent import STRENGTHS  # the site's GAME_STRENGTHS, one list (src/game_intent.py)
 
 START_GAME_SCHEMA = {
     "name": "start_game",
@@ -116,20 +116,34 @@ def _handle_start_game(args: dict, **kwargs) -> str:
     if kwargs.get("turn_game_step"):
         return json.dumps({"error": "The game of this turn is already started: tell the student whose move it is."})
     live = live_game_board(session)
-    if live is not None:
-        view = game_mode._payload(live, live.game_state, game_mode._replay(live.game_state["moves"]))
-        return json.dumps({"error": "A game is already on: play the student's move with make_game_move.",
-                           "fen": view["fen"], "to_move": _to_move(view)}, ensure_ascii=False)
     color = args.get("color") if args.get("color") in ("white", "black", "random") else "white"
     elo = args.get("elo")
-    if args.get("said"):
+    words = str(args.get("said") or "")
+    if words:
         # The site's call with the student's words (voice): only when they ask for a game.
         from src.game_intent import game_request
 
-        req = game_request(str(args["said"]))
+        req = game_request(words)
         if req is None:
             return json.dumps({"error": "The student's words do not ask for a game."})
         color, elo = req["color"], req["elo"] or elo
+    if live is not None:
+        # A new game asked for while one is on («хочу сыграть партию с самым сильным ботом 2500», voice
+        # 2026-10-15: the answer was «A game is already on» and the model improvised «давай перезапустим»): the
+        # old game is resigned and the new one starts with the named colour and strength, as «New game» does.
+        wish = {k: v for k, v in (("color", args.get("color")), ("elo", elo)) if v} if not words else None
+        step = game_command_step(session, live, "restart", words, wish=wish)
+        if not step or not step.get("view"):
+            return json.dumps({"error": (step or {}).get("block", "The game could not restart.")})
+        view = step["view"]
+        engine = (view.get("engine") or {}).get("san")
+        return _reply(view, {
+            "ok": True, "restarted": True,
+            "student_color": view["student_color"], "engine_elo": view["engine_elo"], "engine_first_move": engine,
+            "note": "The previous game was still on: it is counted as resigned and a new game has started. "
+                    + (f"The engine opened with {engine}: tell the student, then wait for their move."
+                       if engine else "The student moves first: say the new game is on and ask for their move."),
+        })
     try:
         _, view = game_mode.start_game(session, color, _strength(elo), "quiet")
     except Exception as exc:  # noqa: BLE001 — the engine may be down
@@ -213,15 +227,31 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     return _reply(view, summary)
 
 
-def game_command_step(session, board_rec, command: str, words: str = "") -> Optional[dict]:
-    """Resign / take back / draw / a new game, asked for in words: done here as the game's buttons do it
-    (src/game_mode.py), and the model is told what happened. {"view", "block"}. A new game takes the colour
-    and strength named in *words* («сыграем ещё раз чёрными»), else the last game's."""
+def game_command_step(session, board_rec, command: str, words: str = "", wish: Optional[dict] = None) -> Optional[dict]:
+    """Resign / take back / draw / a new game / the engine's strength, asked for in words: done here as the
+    game's buttons do it (src/game_mode.py), and the model is told what happened. {"view", "block"}. A new game
+    takes the colour and strength named in *words* («сыграем ещё раз чёрными, посложнее»), else *wish* (the
+    model's start_game arguments), else the last game's."""
     from src import game_mode
-    from src.game_intent import game_wish
+    from src.game_intent import game_wish, strength_in_words
 
     state = board_rec.game_state or {}
     try:
+        if command == "level":
+            elo = strength_in_words(words, state.get("engine_elo"))
+            if elo is None:
+                return {"view": None, "block": (
+                    "## The student asked for a different strength but named no level — nothing changed\n"
+                    "Ask which level they want: a number from 600 to 2500, or «посложнее» / «полегче»."
+                )}
+            view = game_mode.set_strength(session, board_rec, _strength(elo))
+            return {"view": view, "block": (
+                "## The engine's strength was changed (the system did it)\n"
+                f"From its next move the engine plays at about {view['engine_elo']} Elo; the game goes on from the "
+                "same position and it is " + ("the student's move. " if view.get("student_to_move") else
+                                              "the engine's move. ")
+                + "Say the new level in one sentence; the student plays on."
+            )}
         if command == "resign":
             view = game_mode.resign(session, board_rec)
             return {"view": view, "block": (
@@ -256,7 +286,7 @@ def game_command_step(session, board_rec, command: str, words: str = "") -> Opti
             abandoned = state.get("status") == "playing"
             if abandoned:
                 game_mode.resign(session, board_rec)
-            wish = game_wish(words)
+            wish = game_wish(words, state.get("engine_elo")) if words else dict(wish or {})
             _, view = game_mode.start_game(session, wish.get("color") or state.get("student_color") or "white",
                                            _strength(wish.get("elo") or state.get("engine_elo") or 1200),
                                            state.get("comment_mode") or "quiet")
@@ -277,14 +307,15 @@ GAME_ACTION_SCHEMA = {
     "name": "game_action",
     "description": (
         "Do what the game's buttons do, when the student asks for it in words during a game: resign («сдаюсь»), "
-        "take back their last move («верни ход»), offer a draw («предлагаю ничью» — the engine decides) or start a "
-        "new game («давай заново»). Never pretend: no game ends, no move is undone and no new game starts unless "
-        "this tool did it."
+        "take back their last move («верни ход»), offer a draw («предлагаю ничью» — the engine decides), start a "
+        "new game («давай заново») or change the engine's strength for the rest of the game («играй посложнее», "
+        "«уровень 2000» — pass their words in said). Never pretend: no game ends, no move is undone, no new game "
+        "starts and no level changes unless this tool did it."
     ),
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart"]},
+            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart", "level"]},
             "said": {"type": "string", "description": "Leave empty (the site passes the student's words here)."},
         },
     },
@@ -304,8 +335,8 @@ def _handle_game_action(args: dict, **kwargs) -> str:
         action = game_command(str(args["said"]))
         if action is None:
             return json.dumps({"error": "The student's words do not ask the game for anything."})
-    if action not in ("resign", "takeback", "draw", "restart"):
-        return json.dumps({"error": "action must be resign, takeback, draw or restart."})
+    if action not in ("resign", "takeback", "draw", "restart", "level"):
+        return json.dumps({"error": "action must be resign, takeback, draw, restart or level."})
     board_rec = live_game_board(session)
     if board_rec is None and action == "restart":
         board_rec = next((b for b in reversed(session.boards or []) if b.kind == "game" and b.game_state), None)
@@ -317,6 +348,9 @@ def _handle_game_action(args: dict, **kwargs) -> str:
     note = step["block"].split("\n", 1)[-1]
     if step.get("view") is None:
         return json.dumps({"ok": action == "draw", "action": action, "done": False, "note": note}, ensure_ascii=False)
+    if action == "level":
+        return _reply(step["view"], {"ok": True, "action": action, "done": True, "engine_elo": step["view"]["engine_elo"],
+                                     "note": note})
     return _reply(step["view"], {"ok": True, "action": action, "done": True, "note": note})
 
 

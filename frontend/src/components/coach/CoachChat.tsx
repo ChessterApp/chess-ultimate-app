@@ -245,6 +245,10 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // Set when the monthly voice quota is exhausted, so we show the "minutes used
   // up — text is unlimited" message in place of a connection error.
   const [voiceQuotaExhausted, setVoiceQuotaExhausted] = useState(false);
+  // What a voice tool refused («'e4' is not a legal move here»), shown under the mic for a few seconds — a
+  // refusal must look like one, not like a board that does not move (phone, 2026-10-15).
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const voiceNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Follow the stream only while the student is at the bottom; once they
@@ -397,6 +401,18 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     setVoiceQuotaExhausted(true);
   }, []);
 
+  const handleVoiceToolFailure = useCallback(
+    (_name: string, reason: string) => {
+      setVoiceNotice(t('voiceToolFailed', { reason }));
+      if (voiceNoticeTimerRef.current) clearTimeout(voiceNoticeTimerRef.current);
+      voiceNoticeTimerRef.current = setTimeout(() => setVoiceNotice(null), 8000);
+    },
+    [t],
+  );
+
+  // The voice hook asks for a session through this ref: ensureVoiceSession is defined below the hook.
+  const ensureSessionRef = useRef<() => Promise<string | null>>(async () => activeSessionIdRef.current);
+
   // The game against the coach, for the voice coach: read through a ref (the hook keeps its options in one).
   const gameRef = useRef<GameStateView | null>(game);
   gameRef.current = game;
@@ -420,6 +436,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
     onQuotaExhausted: handleVoiceQuotaExhausted,
+    onToolFailure: handleVoiceToolFailure,
+    ensureSession: () => ensureSessionRef.current(),
     getGame,
   });
 
@@ -444,8 +462,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // Make sure a Hermes session exists before voice starts, so text and voice
   // share one conversation memory. Reuses the current session if present,
   // otherwise creates one and lifts it to the parent.
-  const ensureVoiceSession = useCallback(async () => {
-    if (activeSessionIdRef.current) return;
+  const ensureVoiceSession = useCallback(async (): Promise<string | null> => {
+    if (activeSessionIdRef.current) return activeSessionIdRef.current;
     try {
       const res = await fetch('/api/coach/sessions', {
         method: 'POST',
@@ -458,12 +476,15 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           activeSessionIdRef.current = data.id;
           restoredForRef.current = data.id; // brand new — nothing to reload
           onSessionCreated?.(data.id);
+          return data.id as string;
         }
       }
     } catch (err) {
       console.error('[coach] failed to create voice session:', err);
     }
+    return activeSessionIdRef.current;
   }, [onSessionCreated]);
+  ensureSessionRef.current = ensureVoiceSession;
 
   const toggleVoice = useCallback(async () => {
     if (voiceActive) {
@@ -1075,6 +1096,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           status: voiceStatus,
           active: voiceActive,
           error: voiceError,
+          notice: voiceNotice,
           quotaExhausted: voiceQuotaExhausted,
           remainingSeconds: voiceRemainingSeconds,
           onToggle: () => void toggleVoice(),

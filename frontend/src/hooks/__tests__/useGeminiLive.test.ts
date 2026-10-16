@@ -1530,6 +1530,48 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
       return hook;
     }
 
+    it('chunks each marked finished add up to one utterance for the intent call (a Live model may mark every chunk)', async () => {
+      // Mock Live run, 2026-10-16: «Хорошо,» [finished] + «e4.» [finished] reached Hermes as «e4.» alone — nothing played.
+      toolReply = () => ({ result: { ok: true, student_move: 'e4', engine_reply: 'e5' }, board_actions: [{ type: 'game', game: AFTER_GAME }] });
+      await connectAsking({ kind: 'none' }, { getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const asked: string[] = [];
+      vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+        if (url === '/api/coach/voice/intent') {
+          const text = JSON.parse(init.body).text as string;
+          asked.push(text);
+          return { ok: true, json: async () => (text === 'Хорошо, e4.' ? { kind: 'move', san: 'e4' } : { kind: 'none' }) };
+        }
+        if (url === '/api/coach/tool') return { ok: true, json: async () => toolReply(JSON.parse(init.body)) };
+        return { ok: true, json: async () => ({}) };
+      }));
+      act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { inputTranscription: { text: 'Хорошо,', finished: true } } }));
+      act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { inputTranscription: { text: ' e4.', finished: true } } }));
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+      expect(asked.at(-1)).toBe('Хорошо, e4.');
+      expect(bodiesTo('/api/coach/tool').find((b: any) => b.name === 'make_game_move')).toMatchObject({ args: { move: 'e4' }, utterance: 'Хорошо, e4.' });
+    });
+
+    it('a refused move is told to the model and to the page, never «played» by talking', async () => {
+      toolReply = () => ({ result: { error: "'e4' is not a legal move here.", board: 'Nothing was played and the game did not change.' } });
+      const onToolFailure = vi.fn();
+      await connectAsking({ kind: 'move', san: 'e4' }, { getGame: () => game(), getFen: () => START, onToolFailure });
+      say('Хорошо, e4.');
+      await waitFor(() => expect(onToolFailure).toHaveBeenCalledWith('make_game_move', "'e4' is not a legal move here."));
+      expect(sent().some((t) => t.startsWith('[Game]') && t.includes('no move was played') && t.includes('not a legal move'))).toBe(true);
+    });
+
+    it('with no session yet, the voice asks the page for one before the intent and the tool calls', async () => {
+      toolReply = () => ({ result: { ok: true, student_color: 'white', note: 'The game is on.' }, board_actions: [{ type: 'game', game: game() }] });
+      let sid: string | null = null;
+      const ensureSession = vi.fn(async () => { sid = 's-new'; return sid; });
+      await connectAsking({ kind: 'game_request', color: 'white', elo: null }, { getFen: () => START, getGame: () => null, getSessionId: () => sid, ensureSession });
+      say('Давай сыграем');
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'start_game')).toBe(true));
+      expect(ensureSession).toHaveBeenCalled();
+      expect(bodiesTo('/api/coach/voice/intent')[0].session_id).toBe('s-new');
+      expect(bodiesTo('/api/coach/tool').find((b: any) => b.name === 'start_game').session_id).toBe('s-new');
+    });
+
     it('«Дай мне тактическую задачу» fetches a puzzle, the gate copy missed it', async () => {
       toolReply = () => ({ result: { puzzles: [{ fen: START, solution: ['e4'] }] }, board_actions: [] });
       await connectAsking({ kind: 'puzzle', theme: null }, { getFen: () => START });

@@ -34,6 +34,8 @@ export interface ComposerVoice {
   status: LiveStatus;
   active: boolean;
   error: string | null;
+  /** What a voice tool just refused («'e4' is not a legal move here»), for a few seconds. */
+  notice?: string | null;
   quotaExhausted: boolean;
   remainingSeconds: number | null;
   onToggle: () => void;
@@ -109,6 +111,14 @@ export default function Composer({
         <div className="mb-2 flex justify-center">
           <span data-testid="voice-pill" className="rounded-full bg-(--coach-danger-soft) px-3 py-1 text-center text-xs text-(--coach-danger)">
             {(voice.error || t('voiceError')) + ' · ' + t('voiceRetryHint')}
+          </span>
+        </div>
+      )}
+      {/* A game tool refused what was said: shown here, so a refusal never looks like a board that does not move. */}
+      {voice.notice && (
+        <div className="mb-2 flex justify-center">
+          <span data-testid="voice-notice-pill" className="rounded-full bg-amber-500/10 px-3 py-1 text-center text-xs text-amber-300">
+            {voice.notice}
           </span>
         </div>
       )}

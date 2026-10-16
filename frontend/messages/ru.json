@@ -2030,6 +2030,7 @@
     "voiceListening": "🎙 Слушаю…",
     "voiceSpeaking": "🔊 Тренер говорит…",
     "voiceError": "Ошибка голосового режима",
+    "voiceToolFailed": "Не получилось: {reason}",
     "voiceRetryHint": "Нажмите на микрофон, чтобы повторить",
     "voiceUnsupported": "Голосовой режим не поддерживается в этом браузере",
     "voiceMinutesLeft": "Осталось {minutes} мин",

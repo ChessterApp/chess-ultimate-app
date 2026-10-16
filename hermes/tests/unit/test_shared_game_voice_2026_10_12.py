@@ -42,8 +42,10 @@ def test_start_game_starts_the_buttons_game_and_says_the_engines_first_move():
     assert out["engine_first_move"] and out["to_move"] == "the student's move"
     board = session.get_board(session.active_board_id)
     assert board.kind == "game" and board.game_state["status"] == "playing"
-    # one game at a time
-    assert "already on" in _call("start_game", {}, session)["error"]
+    # one game at a time: a second start_game restarts (the first is counted as resigned; 2026-10-16)
+    again = _call("start_game", {}, session)
+    assert again["ok"] and again["restarted"] and "resigned" in again["note"]
+    assert [b.game_state["status"] for b in session.boards if b.kind == "game"] == ["finished", "playing"]
 
 
 @pytest.mark.parametrize("said,san", [("е4", "e4"), ("e2e4", "e4"), ("пешка е4", "e4"), ("Кf3", "Nf3"), ("Nf3", "Nf3")])

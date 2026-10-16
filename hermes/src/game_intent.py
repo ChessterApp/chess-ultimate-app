@@ -33,6 +33,52 @@ _PLAY = re.compile(
 _BLACK = re.compile(r"(?<![\w-])(?:за\s+ч[её]рн\w*|ч[её]рными|black|қаралар\w*мен|қарамен)(?![\w-])", re.IGNORECASE)
 _WHITE = re.compile(r"(?<![\w-])(?:за\s+бел\w*|белыми|white|ақтар\w*мен|ақпен)(?![\w-])", re.IGNORECASE)
 _ELO = re.compile(r"(?<!\d)([5-9]\d\d|1\d\d\d|2[0-5]\d\d)(?!\d)")
+
+# The engine's strength, in the site's steps (the «Play the coach» panel's choices), and how the student names
+# it in words (voice, 2026-10-15: «с самым сильным ботом», «играй сильнее», «сделай посложнее», «уровень 2500»
+# were nothing — only a number in a request for a game was read). A number wins; then a step up or down from
+# the current level («посложнее», «полегче»); then a named level («самый сильный», «как новичок»).
+STRENGTHS = (600, 800, 1000, 1200, 1500, 1800, 2000, 2200, 2500)
+DEFAULT_STRENGTH = 1200
+_STRENGTH_UP = re.compile(
+    r"(?<![\w-])(?:(?:по)?сильнее|(?:по)?сложнее|(?:по)?трудне\w*|труднее|повыше|выше|покрепче|stronger|harder|tougher|higher"
+    r"|күштірек|қиынырақ)(?![\w-])", re.IGNORECASE)
+_STRENGTH_DOWN = re.compile(
+    r"(?<![\w-])(?:(?:по)?слабее|(?:по)?легче|(?:по)?проще|пониже|ниже|помягче|weaker|easier|lower|softer|әлсізірек|оңайырақ"
+    r"|жеңілірек)(?![\w-])", re.IGNORECASE)
+_STRENGTH_NAMED = (
+    (2500, re.compile(r"(?<![\w-])(?:сам\w*\s+сильн\w*|максимальн\w*|на\s+максимум\w*|максимум|гроссмейстер\w*"
+                      r"|как\s+чемпион\w*|в\s+полную\s+силу|strongest|max(?:imum)?|grandmaster|full\s+strength"
+                      r"|ең\s+күшті)(?![\w-])", re.IGNORECASE)),
+    (600, re.compile(r"(?<![\w-])(?:сам\w*\s+(?:слаб\w*|легк\w*|прост\w*)|совсем\s+(?:слаб\w*|легк\w*|прост\w*)"
+                     r"|как\s+(?:ребен\w*|новичок|новичк\w*)|на\s+минимум\w*|минимальн\w*|weakest|easiest"
+                     r"|ең\s+(?:әлсіз|оңай))(?![\w-])", re.IGNORECASE)),
+    (2200, re.compile(r"(?<![\w-])(?:мастер\w*|очень\s+сильн\w*|very\s+strong|master|expert)(?![\w-])",
+                      re.IGNORECASE)),
+    (800, re.compile(r"(?<![\w-])(?:слаб\w*|легк\w*|прост\w*|новичк\w*|новичок|начинающ\w*|поддавайся|не\s+сильно"
+                     r"|easy|weak|beginner|novice|әлсіз|оңай)(?![\w-])", re.IGNORECASE)),
+    (2000, re.compile(r"(?<![\w-])(?:сильн\w*|серьезн\w*|strong|hard|difficult|күшті)(?![\w-])", re.IGNORECASE)),
+    (1500, re.compile(r"(?<![\w-])(?:средн\w*|нормальн\w*|обычн\w*|клубн\w*|medium|average|normal|орташа)(?![\w-])",
+                      re.IGNORECASE)),
+)
+
+
+def strength_in_words(text: str, current: Optional[int] = None) -> Optional[int]:
+    """The engine strength the words ask for, in the site's steps: a number, a step up or down from *current*
+    («посложнее», «полегче»), or a named level («самый сильный», «как новичок»); None when they name none."""
+    t = (text or "").replace("ё", "е").replace("Ё", "Е")
+    m = _ELO.search(t)
+    if m:
+        return min(STRENGTHS, key=lambda s: abs(s - int(m.group(1))))
+    up, down = bool(_STRENGTH_UP.search(t)), bool(_STRENGTH_DOWN.search(t))
+    if up != down:
+        base = current or DEFAULT_STRENGTH
+        i = min(range(len(STRENGTHS)), key=lambda k: abs(STRENGTHS[k] - base)) + (1 if up else -1)
+        return STRENGTHS[max(0, min(len(STRENGTHS) - 1, i))]
+    for elo, rx in _STRENGTH_NAMED:
+        if rx.search(t):
+            return elo
+    return None
 # One rule for «is this a move to play or a question about one», on every path — the server's own
 # play of the student's words (text pre-step, voice), and the move the model passes to make_game_move.
 # Two rules disagreed: the server would not play «Слон c4?» while the model's call of it was played;
@@ -60,17 +106,18 @@ def is_idea(text: str) -> bool:
 from src.move_text import FILES, spoken_squares  # noqa: E402,F401 — spoken_squares re-exported
 
 
-def game_wish(text: str) -> dict:
-    """The colour and strength the words name, whatever they ask for: {"color"?, "elo"?}."""
+def game_wish(text: str, current_elo: Optional[int] = None) -> dict:
+    """The colour and strength the words name, whatever they ask for: {"color"?, "elo"?}. A relative strength
+    («посложнее») is a step from *current_elo* (the game's, when one is on)."""
     t = (text or "").replace("ё", "е").replace("Ё", "Е")
     out = {}
     if _BLACK.search(t):
         out["color"] = "black"
     elif _WHITE.search(t):
         out["color"] = "white"
-    elo = _ELO.search(t)
-    if elo:
-        out["elo"] = int(elo.group(1))
+    elo = strength_in_words(t, current_elo)
+    if elo is not None:
+        out["elo"] = elo
     return out
 
 
@@ -80,8 +127,7 @@ def game_request(text: str) -> Optional[dict]:
     if not _PLAY.search(t):
         return None
     color = "black" if _BLACK.search(t) else "white"
-    elo = _ELO.search(t)
-    return {"color": color, "elo": int(elo.group(1)) if elo else None}
+    return {"color": color, "elo": strength_in_words(t)}
 
 
 # «конь f3», «ферзём h5», "knight f3": a piece word and a square, said as the move to play (the move
@@ -130,6 +176,9 @@ _COMMANDS = (
         r"|(?:сыгра\w*|ещ[её])\s+(?:ещ[её]\s+)?(?:раз|одну|партию)|ещ[её]\s+партию|реванш"
         r"|new\s+game|start\s+(?:over|again|a\s+new\s+game)|play\s+again|rematch"
         r"|жаңа\s+ойын|қайта\s+бастай\w*)", re.IGNORECASE)),
+    # «играй сильнее», «сделай посложнее», «поставь уровень 2500», «полегче» — the engine's strength changed for the
+    # rest of the game (2026-10-15: nothing understood, the student could not change the level by voice). Last in
+    # the list: «сыграем ещё раз, посложнее» is a restart (with the strength), not a level change.
     ("resign", re.compile(
         r"(?<![\w-])(?:(?:я\s+)?сда[юё]\w*|сдаться|сдалс\w*|i\s+resign|resign|i\s+give\s+up"
         r"|берілемін|жеңілдім)(?![\w-])", re.IGNORECASE)),
@@ -137,6 +186,20 @@ _COMMANDS = (
         r"(?<![\w-])(?:предлага\w*\s+ничь\w*|(?:давай|согласен\s+на|согласишься\s+на|может)\s+ничь\w*|^ничью\s*[?!.]?$"
         r"|(?:i\s+)?offer\s+(?:you\s+)?(?:a\s+)?draw|let'?s\s+(?:call\s+it\s+a\s+)?draw|тең\s+ойын\w*\s+ұсын\w*)",
         re.IGNORECASE)),
+    ("level", re.compile(
+        r"(?<![\w-])(?:(?:играй|сыграй|поставь|ставь|сделай|давай|можно|можешь|хочу|включи|выстави|поменяй|смени)\s+"
+        r"(?:бота\s+|бот\s+|уровень\s+|сложность\s+|силу\s+|чуть\s+|немного\s+|пожалуйста\s+|мне\s+|играть\s+"
+        r"|сыграть\s+|ты\s+)*"
+        r"(?:(?:по)?сильнее|(?:по)?слабее|(?:по)?сложнее|(?:по)?легче|(?:по)?проще|сильно|слабо|сложнее|легче|проще|на\s+максимум\w*"
+        r"|максимально|на\s+минимум\w*|на\s+\d{3,4}|уровень|уровня|рейтинг|силу|сложность|как\s+гроссмейстер\w*"
+        r"|как\s+новичок|как\s+мастер\w*)"
+        r"|(?:уровень|сила|сложность|рейтинг)\s*(?:бота\s*|движка\s*|соперника\s*)?(?:\d{3,4}|(?:по)?сложнее|(?:по)?легче"
+        r"|выше|ниже|сильнее|слабее|максимум\w*|минимум\w*)"
+        r"|^(?:(?:по)?сложнее|(?:по)?легче|(?:по)?проще|(?:по)?сильнее|(?:по)?слабее|сильнее|слабее)\s*[.!,]?\s*(?:пожалуйста\s*[.!]?)?$"
+        r"|play\s+(?:a\s+bit\s+|much\s+|more\s+)?(?:stronger|weaker|harder|easier)|(?:set|change|make\s+it)\s+"
+        r"(?:the\s+)?(?:level|strength|rating|difficulty|harder|easier)|^(?:harder|easier|stronger|weaker)\s*[.!]?$"
+        r"|level\s+\d{3,4}"
+        r"|(?:күштірек|әлсізірек|қиынырақ|оңайырақ)\s+ойна\w*|деңгей\w*\s+\d{3,4})", re.IGNORECASE)),
 )
 
 
