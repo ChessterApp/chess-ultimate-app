@@ -26,7 +26,7 @@ import { useReplayStockfish } from '@/hooks/useReplayStockfish';
 import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
 import { useMoveVoiceNotes } from '@/hooks/useMoveVoiceNotes';
 import { nodePathMap } from '@/lib/voiceNotes';
-import { debutBoardSize, EVAL_BAR_RESERVE_PX } from '@/lib/debutBoardSize';
+import { debutBoardSize, EVAL_BAR_RESERVE_PX, EVAL_BAR_WIDTH_PX } from '@/lib/debutBoardSize';
 
 // Dynamic imports to avoid SSR issues
 const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
@@ -2225,6 +2225,7 @@ export default function DebutPage() {
                     depth={depth}
                     orientation={boardOrientation}
                     height={boardSize}
+                    width={EVAL_BAR_WIDTH_PX}
                   />
                 </StockfishErrorBoundary>
               )}

@@ -13,6 +13,7 @@ interface ReplayEvalBarProps {
   depth: number
   orientation?: 'white' | 'black'
   height?: number
+  width?: number
 }
 
 /**
@@ -24,7 +25,8 @@ export default function ReplayEvalBar({
   isAnalyzing,
   depth,
   orientation = 'white',
-  height = 400
+  height = 400,
+  width = 32
 }: ReplayEvalBarProps) {
 
   // Calculate the percentage for the white section (0-100)
@@ -75,8 +77,8 @@ export default function ReplayEvalBar({
 
   return (
     <div
-      className="relative w-8 rounded overflow-hidden border border-gray-300 dark:border-gray-600 bg-gray-900 flex-shrink-0"
-      style={{ height }}
+      className="relative rounded overflow-hidden border border-gray-300 dark:border-gray-600 bg-gray-900 flex-shrink-0"
+      style={{ height, width }}
       title={`Eval: ${evalText}${depth > 0 ? ` | Depth: ${depth}` : ''}`}
     >
       {/* White section (bottom) */}

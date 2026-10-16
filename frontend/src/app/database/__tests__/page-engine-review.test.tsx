@@ -207,7 +207,7 @@ describe('Database page — engine + eval bar everywhere', () => {
     await renderPage();
     expect(screen.getByTestId('board').getAttribute('data-reserved')).toBe('0');
     await act(async () => { fireEvent.click(engineSwitch()); });
-    expect(screen.getByTestId('board').getAttribute('data-reserved')).toBe('36');
+    expect(screen.getByTestId('board').getAttribute('data-reserved')).toBe('20');
   });
 
   it('never writes the enabled state to localStorage or sessionStorage', async () => {

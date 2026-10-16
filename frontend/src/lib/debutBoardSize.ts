@@ -1,5 +1,8 @@
+/** Width of the Database eval bar. */
+export const EVAL_BAR_WIDTH_PX = 16;
+
 /** Width of the eval bar plus its gap, reserved beside the board when it shows. */
-export const EVAL_BAR_RESERVE_PX = 36;
+export const EVAL_BAR_RESERVE_PX = EVAL_BAR_WIDTH_PX + 4;
 
 /**
  * Database-board size for a viewport width. `reservedPx` is room taken beside
