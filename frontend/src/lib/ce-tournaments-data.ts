@@ -29,7 +29,7 @@ import {
 } from '@/lib/chess-empire-client';
 
 /** Branches hidden from the public schedule (mirrors the vanilla page). */
-export const EXCLUDED_BRANCHES = ['НИШ', 'Zhandosova'];
+export const EXCLUDED_BRANCHES = ['НИШ', 'Zhandosova', 'Online', 'Детский Дом'];
 
 export interface CETournamentCard {
   id: string;

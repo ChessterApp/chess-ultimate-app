@@ -274,3 +274,19 @@ describe('loadCETournamentSnapshot — family snapshot', () => {
     ]);
   });
 });
+
+describe('loadCETournamentSnapshot — hidden branches', async () => {
+  const ce = await import('@/lib/chess-empire-client');
+
+  it('hides Online and Детский Дом (plus НИШ / Zhandosova) from the branch list', async () => {
+    vi.mocked(ce.listBranches).mockResolvedValueOnce([
+      { id: 'br-1', name: 'Almaty Arena' },
+      { id: 'br-online', name: 'Online' },
+      { id: 'br-dd', name: 'Детский Дом' },
+      { id: 'br-nish', name: 'НИШ' },
+      { id: 'br-zh', name: 'Zhandosova' },
+    ]);
+    const snap = await loadCETournamentSnapshot();
+    expect(snap.branches.map((b) => b.name)).toEqual(['Almaty Arena']);
+  });
+});
