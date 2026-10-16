@@ -238,14 +238,14 @@ describe('Open Saved Game — Board FEN calculation', () => {
 });
 
 describe('Open Saved Game — Game viewer right panel routing', () => {
-  type RightPanelContent = 'repertoire' | 'my-games' | 'game-viewer' | 'none';
+  type RightPanelContent = 'master' | 'my-games' | 'game-viewer' | 'none';
 
   function getRightPanelContent(
     activeTab: string,
     hasActiveGame: boolean,
     isLargeScreen: boolean
   ): RightPanelContent {
-    if (activeTab === 'debut') return 'repertoire';
+    if (activeTab === 'debut') return 'master';
     if (activeTab === 'my-games') return 'my-games';
     if (hasActiveGame && isLargeScreen) return 'game-viewer';
     if (hasActiveGame && !isLargeScreen) return 'none'; // hidden on xs, shown below board instead
@@ -264,8 +264,8 @@ describe('Open Saved Game — Game viewer right panel routing', () => {
     expect(getRightPanelContent('my-games', false, true)).toBe('my-games');
   });
 
-  it('should show repertoire when on debut tab', () => {
-    expect(getRightPanelContent('debut', false, true)).toBe('repertoire');
+  it('should show master explorer when on debut tab', () => {
+    expect(getRightPanelContent('debut', false, true)).toBe('master');
   });
 });
 

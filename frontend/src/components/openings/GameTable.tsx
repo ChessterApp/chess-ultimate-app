@@ -16,7 +16,7 @@ import {
   TableCell,
   Typography,
 } from '@mui/material';
-import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import type { GameSearchResult } from '@/hooks/useMasterGames';
 import ShareGameButton from './ShareGameButton';
 
 interface GameTableProps {

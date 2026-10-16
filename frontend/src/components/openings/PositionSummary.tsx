@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Box, Typography, Chip } from '@mui/material';
-import type { MoveCandidate } from '@/hooks/useOpeningRepertoire';
+import type { MoveCandidate } from '@/hooks/useMasterGames';
 
 interface PositionSummaryProps {
   ecoCode: string | null;

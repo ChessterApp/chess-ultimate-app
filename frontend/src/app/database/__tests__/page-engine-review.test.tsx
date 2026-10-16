@@ -32,19 +32,12 @@ const userGames = { createGame: vi.fn(), updateGame: vi.fn(), toggleFavorite: vi
 vi.mock('@/hooks/useUserGames', () => ({ useUserGames: () => userGames }));
 const noopAsync = () => Promise.resolve(null as any);
 const neverAsync = () => new Promise<any>(() => {});
-let repertoire: Record<string, unknown> | null = null;
-vi.mock('@/hooks/useOpeningRepertoire', () => ({
-  useOpeningRepertoire: () => repertoire ??= ({
-    repertoires: [], loading: false, error: null, fetchRepertoires: vi.fn(),
-    createRepertoire: noopAsync, updateRepertoire: noopAsync, deleteRepertoire: noopAsync,
-    currentTree: null, setCurrentTree: vi.fn(), treeLoading: false, fetchTree: noopAsync,
-    addNode: noopAsync, updateNode: noopAsync, deleteNode: noopAsync,
-    importPgn: noopAsync, exportPgn: noopAsync, addArrow: noopAsync, deleteArrow: noopAsync,
-    fetchGamesByPosition: neverAsync, fetchPositionCount: neverAsync, fetchGamePgn: noopAsync, fetchLichessPgn: noopAsync,
-    searchGamesStream: vi.fn(), linkGame: noopAsync, getNodeGames: neverAsync, deleteGameLink: noopAsync,
-    fetchCandidateMoves: neverAsync,
-  }),
-}));
+const masterGames = {
+  fetchGamesByPosition: neverAsync, fetchPositionCount: neverAsync, fetchCandidateMoves: neverAsync,
+  fetchGamePgn: noopAsync, fetchLichessPgn: noopAsync,
+};
+vi.mock('@/hooks/useMasterGames', () => ({ useMasterGames: () => masterGames }));
+vi.mock('@/lib/openingdatabase/ecoDatabase', () => ({ findEcoOpening: async () => null }));
 const analyze = vi.fn();
 const stopAnalysis = vi.fn();
 const engineOn = {
@@ -73,14 +66,9 @@ vi.mock('@/components/openings/DebutBoard', () => ({
 }));
 vi.mock('@/components/opponent/ReplayEvalBar', () => stub('eval-bar'));
 vi.mock('@/components/opponent/ReplayEngineLines', () => stub('engine-lines'));
-vi.mock('@/components/openings/RepertoireSelector', () => stub('repertoire-selector'));
-vi.mock('@/components/openings/MoveNotation', () => stub('move-notation'));
-vi.mock('@/components/openings/NodeDetailsPanel', () => stub('node-details'));
+vi.mock('@/components/openings/MasterGamesPanel', () => stub('master-games'));
 vi.mock('@/components/openings/MoveTree', () => stub('move-tree'));
 vi.mock('@/components/openings/PositionSummary', () => stub('position-summary'));
-vi.mock('@/components/openings/PgnImporter', () => stub('pgn-importer'));
-vi.mock('@/components/openings/GameSearchPanel', () => stub('game-search'));
-vi.mock('@/components/analysis/TwicExplorer', () => stub('twic'));
 vi.mock('@/components/openings/MyGamesMoveList', () => stub('my-games-move-list'));
 vi.mock('@/components/openings/EditGameModal', () => stub('edit-modal'));
 vi.mock('@/components/openings/DatabasePillRow', () => ({

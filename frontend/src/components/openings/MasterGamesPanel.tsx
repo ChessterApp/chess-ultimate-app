@@ -3,14 +3,12 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import {
-  Box, Typography, Button, Chip, Divider, IconButton,
-  List, ListItem, ListItemText,
-  LinearProgress,
+  Box, Typography, Chip, IconButton, LinearProgress,
 } from '@mui/material';
 import {
   Storage, ChevronLeft, ChevronRight,
 } from '@mui/icons-material';
-import type { OpeningNode, GameLink, GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import type { GameSearchResult } from '@/hooks/useMasterGames';
 import { apiFetch } from '@/lib/api';
 import MasterGamesFilter, { MasterGamesFilterState } from './MasterGamesFilter';
 import ExplorerTabs, { ExplorerTab } from './ExplorerTabs';
@@ -19,16 +17,9 @@ import ChessComExplorerTab from './ChessComExplorerTab';
 import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 
-interface NodeDetailsPanelProps {
-  node: OpeningNode | null;
-  /** Board FEN to use when no repertoire node is selected (browse mode) */
-  fallbackFen?: string;
-  onUpdateNotes: (nodeId: string, notes: string) => Promise<void>;
-  onToggleCritical: (nodeId: string, isCritical: boolean) => Promise<void>;
-  onDeleteNode: (nodeId: string) => Promise<void>;
-  onSearchGames: (fen: string) => void;
-  gameLinks: GameLink[];
-  gameLinksLoading: boolean;
+interface MasterGamesPanelProps {
+  /** Board position the games and explorer tabs are shown for. */
+  fen: string;
   masterGames?: GameSearchResult[];
   masterGamesTotal?: number;
   masterGamesLoading?: boolean;
@@ -41,9 +32,8 @@ interface NodeDetailsPanelProps {
   onLichessDatabaseChange?: (db: 'masters' | 'lichess') => void;
 }
 
-export default function NodeDetailsPanel({
-  node, fallbackFen, onUpdateNotes, onToggleCritical, onDeleteNode,
-  onSearchGames, gameLinks, gameLinksLoading,
+export default function MasterGamesPanel({
+  fen,
   masterGames = [], masterGamesTotal = 0, masterGamesLoading = false,
   onOpenGame,
   masterGamesFilters,
@@ -52,14 +42,10 @@ export default function NodeDetailsPanel({
   onExplorerTabChange,
   lichessDatabase = 'masters',
   onLichessDatabaseChange,
-}: NodeDetailsPanelProps) {
+}: MasterGamesPanelProps) {
   const t = useTranslations('debut');
   const [gamesPage, setGamesPage] = useState(0);
   const GAMES_PER_PAGE = 10;
-
-  // Position shown in the panel: selected repertoire node, or the raw board
-  // position in browse mode (no repertoire loaded).
-  const fen = node?.fen ?? fallbackFen ?? '';
 
   // Reset page when the position OR the active master-games filter set changes.
   // Otherwise paging to e.g. page 3 then typing a player name leaves gamesPage
@@ -87,16 +73,6 @@ export default function NodeDetailsPanel({
       .catch(() => { /* silent: subtitle just hides */ });
     return () => { cancelled = true; };
   }, []);
-
-  // Only bail out when there is no position at all — in browse mode (no
-  // repertoire node selected) fallbackFen still drives the Master Games list.
-  if (!node && !fallbackFen) {
-    return (
-      <Box sx={{ p: 2, color: 'text.secondary' }}>
-        <Typography variant="body2">{t('selectMoveDetails')}</Typography>
-      </Box>
-    );
-  }
 
   // TWIC tab content
   const twicContent = (
@@ -186,46 +162,11 @@ export default function NodeDetailsPanel({
                 </IconButton>
               </Box>
             )}
-
-            {masterGamesTotal > masterGames.length && fen && (
-              <Button
-                size="small"
-                onClick={() => onSearchGames(fen)}
-                sx={{ color: '#14b8a6', fontSize: 11, textTransform: 'none', mt: 0.5 }}
-              >
-                {t('viewAllGames', { count: (masterGamesTotal ?? 0).toLocaleString() })}
-              </Button>
-            )}
           </Box>
         ) : (
           <EmptyState type="no-games" message={t('noMasterGames')} />
         )}
       </Box>
-
-      {/* Linked games */}
-      {gameLinks.length > 0 && (
-        <>
-          <Divider sx={{ borderColor: 'divider' }} />
-          <Box>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: 11, mb: 0.5, display: 'block' }}>
-              Linked Games ({gameLinks.length})
-            </Typography>
-            <List dense sx={{ p: 0 }}>
-              {gameLinks.map(g => (
-                <ListItem key={g.id} sx={{ px: 0, py: 0.3 }}>
-                  <ListItemText
-                    primary={`${g.white_player || '?'} ${t('vs')} ${g.black_player || '?'}`}
-                    secondary={`${g.result || ''} · ${g.date_played || ''}`}
-                    primaryTypographyProps={{ sx: { color: 'text.secondary', fontSize: 12 } }}
-                    secondaryTypographyProps={{ sx: { color: 'text.secondary', fontSize: 10 } }}
-                  />
-                  <Chip label={g.game_source} size="small" sx={{ height: 16, fontSize: 9, bgcolor: 'action.hover', color: 'text.secondary' }} />
-                </ListItem>
-              ))}
-            </List>
-          </Box>
-        </>
-      )}
     </Box>
   );
 

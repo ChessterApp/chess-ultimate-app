@@ -4,7 +4,7 @@
  * spaces ('e4 e5 Nf3'). SAN never contains spaces, and the path survives PGN
  * re-parsing and main-line promotion, so the PGN itself never carries audio.
  */
-import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode } from '@/types/openingNode';
 
 export const VOICE_NOTE_MAX_SEC = 120;
 

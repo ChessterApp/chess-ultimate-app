@@ -31,7 +31,7 @@ vi.mock('../EmptyState', () => ({
   default: ({ message }: { message: string }) => <div data-testid="empty-state">{message}</div>,
 }));
 
-import NodeDetailsPanel from '../NodeDetailsPanel';
+import MasterGamesPanel from '../MasterGamesPanel';
 import type { MasterGamesFilterState } from '../MasterGamesFilter';
 
 const FEN_AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1';
@@ -47,22 +47,15 @@ const emptyFilters: MasterGamesFilterState = {
 };
 
 const baseProps = {
-  onUpdateNotes: vi.fn(),
-  onToggleCritical: vi.fn(),
-  onDeleteNode: vi.fn(),
-  onSearchGames: vi.fn(),
+  fen: FEN_AFTER_E4,
   onMasterGamesFilterChange: vi.fn(),
-  gameLinks: [],
-  gameLinksLoading: false,
 };
 
-describe('NodeDetailsPanel games pager reset/clamp', () => {
+describe('MasterGamesPanel games pager reset/clamp', () => {
   it('resets to page 0 when the filter set changes (stale-page bug)', () => {
     const { rerender } = render(
-      <NodeDetailsPanel
+      <MasterGamesPanel
         {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
         masterGames={makeGames(25)}
         masterGamesTotal={25}
         masterGamesFilters={emptyFilters}
@@ -79,10 +72,8 @@ describe('NodeDetailsPanel games pager reset/clamp', () => {
     // Applying a player-name filter (new filter object, shorter result set)
     // must snap the pager back to page 0 rather than slicing off the end.
     rerender(
-      <NodeDetailsPanel
+      <MasterGamesPanel
         {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
         masterGames={makeGames(3)}
         masterGamesTotal={3}
         masterGamesFilters={{ ...emptyFilters, playerName: 'Carlsen' }}
@@ -94,10 +85,8 @@ describe('NodeDetailsPanel games pager reset/clamp', () => {
 
   it('clamps the current page when the result set shrinks under it', () => {
     const { rerender } = render(
-      <NodeDetailsPanel
+      <MasterGamesPanel
         {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
         masterGames={makeGames(25)}
         masterGamesTotal={25}
         masterGamesFilters={emptyFilters}
@@ -112,10 +101,8 @@ describe('NodeDetailsPanel games pager reset/clamp', () => {
     // Same filter object identity, but the list shrinks to a single page —
     // the clamp effect must pull the page back so the slice is non-empty.
     rerender(
-      <NodeDetailsPanel
+      <MasterGamesPanel
         {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
         masterGames={makeGames(5)}
         masterGamesTotal={5}
         masterGamesFilters={emptyFilters}

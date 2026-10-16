@@ -10,7 +10,7 @@ import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } 
 import { Chess } from 'chess.js';
 import SourceBadge, { GameSource } from './SourceBadge';
 import ShareGameButton from './ShareGameButton';
-import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode } from '@/types/openingNode';
 import type { MoveContextMenuActions, VoiceNotePlayback } from './MoveNotation';
 import type { SaveStatus } from './useAutoSave';
 

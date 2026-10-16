@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { pgnToTree, treeToPgn, findNodeById, findParentOf, cloneTree, useGameMoveTree } from '../useGameMoveTree';
-import type { OpeningNode } from '../useOpeningRepertoire';
+import type { OpeningNode } from '@/types/openingNode';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 

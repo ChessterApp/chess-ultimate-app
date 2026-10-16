@@ -7,7 +7,7 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { Chess } from 'chess.js';
-import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode } from '@/types/openingNode';
 import { parseSanSuffix, toggleNag } from '@/lib/nags';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';

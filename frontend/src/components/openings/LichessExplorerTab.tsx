@@ -28,7 +28,7 @@ import {
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, Refresh, Search, FilterList } from '@mui/icons-material';
 import { useLichessExplorer, LichessExplorerResponse, LichessMove, LichessTopGame } from '@/hooks/useLichessExplorer';
-import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import type { GameSearchResult } from '@/hooks/useMasterGames';
 import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 

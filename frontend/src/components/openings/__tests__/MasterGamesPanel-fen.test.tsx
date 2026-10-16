@@ -30,7 +30,7 @@ vi.mock('../EmptyState', () => ({
   default: ({ message }: { message: string }) => <div data-testid="empty-state">{message}</div>,
 }));
 
-import NodeDetailsPanel from '../NodeDetailsPanel';
+import MasterGamesPanel from '../MasterGamesPanel';
 
 const FEN_AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPPPPPP/RNBQKBNR b KQkq - 0 1';
 
@@ -39,63 +39,23 @@ const games = [
   { id: 2, white_player: 'Nakamura', black_player: 'Firouzja', result: '1/2-1/2' },
 ] as any[];
 
-const baseProps = {
-  onUpdateNotes: vi.fn(),
-  onToggleCritical: vi.fn(),
-  onDeleteNode: vi.fn(),
-  onSearchGames: vi.fn(),
-  gameLinks: [],
-  gameLinksLoading: false,
-};
-
-describe('NodeDetailsPanel browse mode (no repertoire node)', () => {
-  it('renders master games from fallbackFen when node is null', () => {
-    render(
-      <NodeDetailsPanel
-        {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
-        masterGames={games}
-        masterGamesTotal={12345}
-      />
-    );
+describe('MasterGamesPanel (board position driven)', () => {
+  it('renders the master games for the given position', () => {
+    render(<MasterGamesPanel fen={FEN_AFTER_E4} masterGames={games} masterGamesTotal={12345} />);
 
     expect(screen.getByTestId('game-table').textContent).toBe('2 games');
-    expect(screen.queryByText('selectMoveDetails')).toBeNull();
+    expect(screen.getByText('12,345 games reach this position')).toBeTruthy();
   });
 
-  it('shows View all games wired to fallbackFen when node is null', () => {
-    render(
-      <NodeDetailsPanel
-        {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
-        masterGames={games}
-        masterGamesTotal={12345}
-      />
-    );
+  it('has no repertoire game-linking UI', () => {
+    render(<MasterGamesPanel fen={FEN_AFTER_E4} masterGames={games} masterGamesTotal={12345} />);
 
-    screen.getByText(/viewAllGames/).click();
-    expect(baseProps.onSearchGames).toHaveBeenCalledWith(FEN_AFTER_E4);
+    expect(screen.queryByText(/viewAllGames/)).toBeNull();
+    expect(screen.queryByText(/Linked Games/)).toBeNull();
   });
 
-  it('still shows the select-move prompt when there is no node AND no fallbackFen', () => {
-    render(<NodeDetailsPanel {...baseProps} node={null} />);
-
-    expect(screen.getByText('selectMoveDetails')).toBeTruthy();
-    expect(screen.queryByTestId('game-table')).toBeNull();
-  });
-
-  it('renders empty state (not a crash) when node is null and no games found', () => {
-    render(
-      <NodeDetailsPanel
-        {...baseProps}
-        node={null}
-        fallbackFen={FEN_AFTER_E4}
-        masterGames={[]}
-        masterGamesTotal={0}
-      />
-    );
+  it('renders empty state (not a crash) when no games are found', () => {
+    render(<MasterGamesPanel fen={FEN_AFTER_E4} masterGames={[]} masterGamesTotal={0} />);
 
     expect(screen.getByTestId('empty-state').textContent).toContain('noMasterGames');
   });

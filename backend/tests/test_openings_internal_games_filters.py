@@ -1,4 +1,4 @@
-"""Tests for openings repertoire filter fixes (PRD Item C).
+"""Tests for TWIC internal-games search filters (PRD Item C).
 
 Covers:
 - fetch_internal_games gains the position-hash FAST PATH so a rare position

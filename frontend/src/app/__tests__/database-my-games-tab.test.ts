@@ -109,17 +109,17 @@ describe('Last Home Tab Tracking', () => {
 });
 
 describe('Active Tab Content Routing', () => {
-  type ContentPanel = 'repertoire' | 'my-games' | 'game-viewer' | 'none';
+  type ContentPanel = 'master' | 'my-games' | 'game-viewer' | 'none';
 
   function getContentPanel(activeTab: string, hasActiveGame: boolean): ContentPanel {
-    if (activeTab === 'debut') return 'repertoire';
+    if (activeTab === 'debut') return 'master';
     if (activeTab === 'my-games') return 'my-games';
     if (hasActiveGame) return 'game-viewer';
     return 'none';
   }
 
-  it('should show repertoire panel for debut tab', () => {
-    expect(getContentPanel('debut', false)).toBe('repertoire');
+  it('should show master panel for debut tab', () => {
+    expect(getContentPanel('debut', false)).toBe('master');
   });
 
   it('should show my-games panel for my-games tab', () => {
@@ -373,21 +373,21 @@ describe('My Games Board — FEN and Handler Routing', () => {
   });
 
   // Simulate the onMove handler routing logic from page.tsx
-  type MoveHandler = 'repertoire' | 'game-edit' | 'my-games-browse' | 'noop';
+  type MoveHandler = 'master' | 'game-edit' | 'my-games-browse' | 'noop';
 
   function getMoveHandler(
     activeTab: string,
     isActiveGameEditable: boolean,
     activeGame: boolean
   ): MoveHandler {
-    if (activeTab === 'debut') return 'repertoire';
+    if (activeTab === 'debut') return 'master';
     if (isActiveGameEditable) return 'game-edit';
     if (activeTab === 'my-games' && !activeGame) return 'my-games-browse';
     return 'noop';
   }
 
-  it('should use repertoire handler for debut tab', () => {
-    expect(getMoveHandler('debut', false, false)).toBe('repertoire');
+  it('should use master handler for debut tab', () => {
+    expect(getMoveHandler('debut', false, false)).toBe('master');
   });
 
   it('should use game-edit handler for editable games', () => {

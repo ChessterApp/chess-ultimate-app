@@ -9,7 +9,7 @@ import { render, screen, fireEvent, cleanup, within, act } from '@testing-librar
 import React, { useState } from 'react';
 import MoveNotation, { type MoveContextMenuActions } from '../MoveNotation';
 import { pgnToTree, findNodeById, useGameMoveTree } from '@/hooks/useGameMoveTree';
-import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode } from '@/types/openingNode';
 
 const LABELS: MoveContextMenuActions['labels'] = {
   deleteMove: 'Delete move',

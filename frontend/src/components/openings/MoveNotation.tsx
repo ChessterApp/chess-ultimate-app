@@ -2,8 +2,8 @@
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Box, Typography, IconButton, Button, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase, Divider, Popover, Dialog, DialogTitle, DialogContent, useMediaQuery, useTheme } from '@mui/material';
-import { Backspace, DeleteSweep, Delete, TrendingUp, Star, AddComment, ModeComment, MoreHoriz, Mic, MicOff } from '@mui/icons-material';
-import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import { Delete, TrendingUp, Star, AddComment, ModeComment, MoreHoriz, Mic, MicOff } from '@mui/icons-material';
+import type { OpeningNode } from '@/types/openingNode';
 import type { VoiceRecording } from '@/hooks/useVoiceRecorder';
 import { MOVE_QUALITY_COLORS, getNag, suffixToNag } from '@/lib/nags';
 import { nodePathMap } from '@/lib/voiceNotes';
@@ -196,8 +196,6 @@ interface MoveNotationProps {
   tree: OpeningNode | null;
   selectedNodeId: string | null;
   onNodeSelect: (node: OpeningNode) => void;
-  onDeleteLast?: () => void;
-  onDeleteAll?: () => void;
   loading: boolean;
   contextMenuActions?: MoveContextMenuActions;
   voiceNotes?: VoiceNotePlayback;
@@ -464,7 +462,7 @@ function ActionBarButton({ label, showLabel, disabled, onClick, children }: {
   );
 }
 
-export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading, contextMenuActions, voiceNotes, showComments = false }: MoveNotationProps) {
+export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loading, contextMenuActions, voiceNotes, showComments = false }: MoveNotationProps) {
   const selectedRef = useRef<HTMLSpanElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: OpeningNode } | null>(null);
@@ -714,7 +712,6 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     );
   }
 
-  const hasContent = elements.length > 0;
   const labels = contextMenuActions?.labels || {};
   const commentLabel = (node: OpeningNode | null) =>
     node?.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment';
@@ -926,43 +923,6 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             />
           )}
         </Popover>
-      )}
-
-      {/* Action bar */}
-      {hasContent && (onDeleteLast || onDeleteAll) && (
-        <Box sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: 0.25,
-          px: 0.5,
-          py: 0.25,
-          borderTop: 1, borderColor: 'divider',
-        }}>
-          {onDeleteLast && (
-            <Tooltip title="Delete last move" arrow placement="top">
-              <IconButton
-                size="small"
-                onClick={onDeleteLast}
-                disabled={!selectedNodeId}
-                sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'error.light', bgcolor: 'rgba(229,115,115,0.08)' } }}
-              >
-                <Backspace sx={{ fontSize: 15 }} />
-              </IconButton>
-            </Tooltip>
-          )}
-          {onDeleteAll && (
-            <Tooltip title="Delete all moves" arrow placement="top">
-              <IconButton
-                size="small"
-                onClick={onDeleteAll}
-                sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'error.light', bgcolor: 'rgba(229,115,115,0.08)' } }}
-              >
-                <DeleteSweep sx={{ fontSize: 15 }} />
-              </IconButton>
-            </Tooltip>
-          )}
-        </Box>
       )}
 
       {/* Context menu for move editing (desktop) */}

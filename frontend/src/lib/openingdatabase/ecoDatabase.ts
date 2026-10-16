@@ -2,6 +2,7 @@
 interface EcoEntry {
   name: string;
   moves: string;
+  eco?: string;
 }
 
 // Type for the entire ECO database
@@ -46,4 +47,24 @@ async function loadAllDatabases(): Promise<EcoDatabase[]> {
 export async function isFenInAllDatabases(fen: string): Promise<boolean> {
   const databases = await loadAllDatabases();
   return databases.some(db => fenExists(fen, db));
+}
+
+// Position key without the move clocks, so transpositions match.
+const positionKey = (fen: string) => fen.split(' ').slice(0, 4).join(' ');
+
+let _ecoByPosition: Map<string, EcoEntry> | null = null;
+
+/** ECO code + name of the named opening at this exact position, if any. */
+export async function findEcoOpening(fen: string): Promise<{ eco: string | null; name: string } | null> {
+  if (!_ecoByPosition) {
+    const index = new Map<string, EcoEntry>();
+    for (const db of await loadAllDatabases()) {
+      for (const [key, entry] of Object.entries(db)) {
+        if (!index.has(positionKey(key))) index.set(positionKey(key), entry);
+      }
+    }
+    _ecoByPosition = index;
+  }
+  const entry = _ecoByPosition.get(positionKey(fen));
+  return entry ? { eco: entry.eco ?? null, name: entry.name } : null;
 }

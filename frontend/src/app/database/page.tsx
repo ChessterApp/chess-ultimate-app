@@ -15,9 +15,10 @@ import { Chess } from 'chess.js';
 import 'chessground/assets/chessground.base.css';
 import 'chessground/assets/chessground.brown.css';
 import '@/styles/chessground-theme.css';
-import { useOpeningRepertoire } from '@/hooks/useOpeningRepertoire';
-import type { OpeningNode, GameSearchResult, GameLink, MoveCandidate, CandidatesResponse } from '@/hooks/useOpeningRepertoire';
-import type { Key } from 'chessground/types';
+import { useMasterGames } from '@/hooks/useMasterGames';
+import type { GameSearchResult, MoveCandidate } from '@/hooks/useMasterGames';
+import type { OpeningNode } from '@/types/openingNode';
+import { findEcoOpening } from '@/lib/openingdatabase/ecoDatabase';
 import type { ExplorerTab } from '@/components/openings/ExplorerTabs';
 import type { MoveTreeSource } from '@/components/openings/MoveTree';
 import type { MasterGamesFilterState } from '@/components/openings/MasterGamesFilter';
@@ -33,15 +34,7 @@ const DebutBoard = dynamic(() => import('@/components/openings/DebutBoard'), {
   ssr: false,
   loading: () => <div className="animate-pulse h-80 bg-stone-200 rounded-xl" />
 });
-const RepertoireSelector = dynamic(() => import('@/components/openings/RepertoireSelector'), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-16 bg-stone-200 rounded-xl" />
-});
-const MoveNotation = dynamic(() => import('@/components/openings/MoveNotation'), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-20 bg-stone-200 rounded-xl" />
-});
-const NodeDetailsPanel = dynamic(() => import('@/components/openings/NodeDetailsPanel'), {
+const MasterGamesPanel = dynamic(() => import('@/components/openings/MasterGamesPanel'), {
   ssr: false,
   loading: () => <div className="animate-pulse h-60 bg-stone-200 rounded-xl" />
 });
@@ -52,18 +45,6 @@ const MoveTree = dynamic(() => import('@/components/openings/MoveTree'), {
 const PositionSummary = dynamic(() => import('@/components/openings/PositionSummary'), {
   ssr: false,
   loading: () => null
-});
-const PgnImporter = dynamic(() => import('@/components/openings/PgnImporter'), {
-  ssr: false,
-  loading: () => null
-});
-const GameSearchPanel = dynamic(() => import('@/components/openings/GameSearchPanel'), {
-  ssr: false,
-  loading: () => null
-});
-const TwicExplorer = dynamic(() => import('@/components/analysis/TwicExplorer'), {
-  ssr: false,
-  loading: () => <div className="animate-pulse h-96 bg-stone-200 rounded-xl" />
 });
 const ReplayEngineLines = dynamic(() => import('@/components/opponent/ReplayEngineLines'), {
   ssr: false,
@@ -155,18 +136,11 @@ export default function DebutPage() {
 
   // mounted guard removed — dynamic imports with ssr:false handle this
 
-  // ─── Mode state ───
-  const [mode, setMode] = useState<'repertoire' | 'browse'>('repertoire');
-
-  // ─── Core state ───
-  const [selectedRepertoireId, setSelectedRepertoireId] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<OpeningNode | null>(null);
-  const [boardFen, setBoardFen] = useState(STARTING_FEN);
+  // ─── Master tab board: in-memory move history (nothing is saved) ───
+  const [masterFens, setMasterFens] = useState<string[]>([STARTING_FEN]);
+  const [masterIndex, setMasterIndex] = useState(0);
+  const boardFen = masterFens[masterIndex];
   const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white');
-
-  // ─── Browse mode state ───
-  const [browseFen, setBrowseFen] = useState(STARTING_FEN);
-  const [browseMoveHistory, setBrowseMoveHistory] = useState<Array<{ san: string; fen: string }>>([]);
 
   // ─── Shared collection (read-only recipient view) state ───
   // Set from ?gc=<token>; when present the My Games tab renders MyGamesPanel in
@@ -183,15 +157,6 @@ export default function DebutPage() {
   const [myGamesMoveIndex, setMyGamesMoveIndex] = useState(0);
   const [myGamesSanMoves, setMyGamesSanMoves] = useState<string[]>([]);
   const [myGamesComments, setMyGamesComments] = useState<Record<number, string>>({});
-
-  // ─── Modal state ───
-  const [pgnImporterOpen, setPgnImporterOpen] = useState(false);
-  const [gameSearchOpen, setGameSearchOpen] = useState(false);
-  const [gameSearchFen, setGameSearchFen] = useState(STARTING_FEN);
-
-  // ─── Game links ───
-  const [gameLinks, setGameLinks] = useState<GameLink[]>([]);
-  const [gameLinksLoading, setGameLinksLoading] = useState(false);
 
   // ─── Auto-fetched master games ───
   const [masterGames, setMasterGames] = useState<GameSearchResult[]>([]);
@@ -762,46 +727,19 @@ export default function DebutPage() {
     return pgn.trim();
   }, [myGamesSanMoves, myGamesComments]);
 
-  // ─── Hook ───
+  // ─── Master games API (authenticated; membership gate enforced server-side) ───
   const {
-    repertoires, loading, error, fetchRepertoires,
-    createRepertoire, updateRepertoire, deleteRepertoire,
-    currentTree, setCurrentTree, treeLoading, fetchTree,
-    addNode, updateNode, deleteNode,
-    importPgn, exportPgn,
-    addArrow, deleteArrow,
-    fetchGamesByPosition, fetchPositionCount, fetchGamePgn, fetchLichessPgn,
-    searchGamesStream, linkGame, getNodeGames, deleteGameLink,
-    fetchCandidateMoves,
-  } = useOpeningRepertoire();
+    fetchGamesByPosition, fetchPositionCount, fetchCandidateMoves, fetchGamePgn, fetchLichessPgn,
+  } = useMasterGames();
 
   // ─── Lichess Explorer for move tree ───
-  const lichessExplorerFen = moveTreeSource !== 'twic' && selectedNode ? selectedNode.fen : '';
+  const lichessExplorerFen = moveTreeSource !== 'twic' ? boardFen : '';
   const lichessExplorerDb = moveTreeSource === 'lichess-masters' ? 'masters' : 'lichess';
   const { data: lichessExplorerData, loading: lichessExplorerLoading } = useLichessExplorer({
     fen: lichessExplorerFen,
     database: lichessExplorerDb,
-    enabled: moveTreeSource !== 'twic' && !!selectedNode,
+    enabled: moveTreeSource !== 'twic',
   });
-
-  // ─── Refs for temp ID tracking and move queue ───
-  const tempToRealIdRef = useRef<Map<string, string>>(new Map());
-  const moveQueueRef = useRef<Array<{ from: string; to: string; piece: string; newFen: string; moveSan: string; moveUci: string }>>(
-    []
-  );
-  const isProcessingMoveRef = useRef(false);
-
-  // ─── Refs for latest state (used by move queue to avoid stale closures) ───
-  const selectedNodeRef = useRef(selectedNode);
-  selectedNodeRef.current = selectedNode;
-  const currentTreeRef = useRef(currentTree);
-  currentTreeRef.current = currentTree;
-
-  // FEN history for browsing without a repertoire (moves aren't persisted)
-  const noRepHistoryRef = useRef<string[]>([]);
-
-  // ─── Fetch repertoires on mount ───
-  useEffect(() => { fetchRepertoires(); }, [fetchRepertoires]);
 
   // ─── URL state management ───
   useEffect(() => {
@@ -833,132 +771,12 @@ export default function DebutPage() {
     window.history.replaceState({}, '', newUrl);
   }, [explorerTab, lichessDatabase]);
 
-  // ─── Auto-select first repertoire ───
+  // ─── Auto-fetch master games when the board position or filters change ───
   useEffect(() => {
-    if (repertoires.length > 0 && !selectedRepertoireId) {
-      setSelectedRepertoireId(repertoires[0].id);
-    }
-  }, [repertoires, selectedRepertoireId]);
-
-  // ─── Track selected node by ID (survives tree re-fetches) ───
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-
-  // ─── Fetch tree when repertoire changes ───
-  useEffect(() => {
-    if (selectedRepertoireId) {
-      fetchTree(selectedRepertoireId);
-      const rep = repertoires.find(r => r.id === selectedRepertoireId);
-      if (rep) {
-        setBoardOrientation(rep.color === 'b' ? 'black' : 'white');
-        setBoardFen(rep.starting_fen || STARTING_FEN);
-        setSelectedNode(null);
-        setSelectedNodeId(null);
-      }
-    }
-  }, [selectedRepertoireId, fetchTree, repertoires]);
-
-  // ─── Re-resolve selectedNode from tree whenever tree or selectedNodeId changes ───
-  useEffect(() => {
-    if (!currentTree) {
-      setSelectedNode(null);
-      return;
-    }
-    if (!selectedNodeId) {
-      // No node requested — select root
-      setSelectedNode(currentTree);
-      setBoardFen(currentTree.fen);
-      return;
-    }
-    // Find node by ID in the fresh tree
-    const findById = (node: OpeningNode, id: string): OpeningNode | null => {
-      if (node.id === id) return node;
-      for (const child of node.children || []) {
-        const found = findById(child, id);
-        if (found) return found;
-      }
-      return null;
-    };
-    const resolved = findById(currentTree, selectedNodeId);
-    if (resolved) {
-      setSelectedNode(resolved);
-      setBoardFen(resolved.fen);
-    }
-    // If not found, DON'T reset to root — the node might be newly created
-    // and not yet in the tree (fetchTree still in flight). The next tree
-    // update will resolve it. Only reset if we have no selectedNode at all.
-    else if (!selectedNode) {
-      setSelectedNode(currentTree);
-      setBoardFen(currentTree.fen);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTree, selectedNodeId]);
-
-  // ─── Load game links when node changes ───
-  useEffect(() => {
-    if (selectedNode && selectedNode.move_san !== null && !selectedNode.id.startsWith('temp-')) {
-      setGameLinksLoading(true);
-      getNodeGames(selectedNode.id)
-        .then(setGameLinks)
-        .catch(() => setGameLinks([]))
-        .finally(() => setGameLinksLoading(false));
-    } else {
-      setGameLinks([]);
-    }
-  }, [selectedNode?.id, getNodeGames]);
-
-  // ─── Auto-fetch master games when node or filters change ───
-  useEffect(() => {
-    const fen = selectedNode?.fen || boardFen;
-
     let cancelled = false;
     setMasterGamesLoading(true);
 
-    // If selectedNode exists (repertoire loaded), use the authenticated helper.
-    // Otherwise fall back to a direct fetch — /games/by-position is public.
-    const fetchPromise = selectedNode
-      ? fetchGamesByPosition(
-          fen,
-          50,
-          masterGamesFilters.playerColor,
-          masterGamesFilters.playerName,
-          masterGamesFilters.sortBy,
-          masterGamesFilters.opponentName,
-          masterGamesFilters.result,
-          masterGamesFilters.whiteEloMin,
-          masterGamesFilters.whiteEloMax,
-          masterGamesFilters.blackEloMin,
-          masterGamesFilters.blackEloMax,
-          masterGamesFilters.dateFrom,
-          masterGamesFilters.dateTo,
-          masterGamesFilters.ecoCode,
-          masterGamesFilters.eventName
-        )
-      : (() => {
-          const params = new URLSearchParams({ fen, limit: '50' });
-          if (masterGamesFilters.playerColor) params.set('player_color', masterGamesFilters.playerColor);
-          if (masterGamesFilters.playerName) params.set('player_name', masterGamesFilters.playerName);
-          if (masterGamesFilters.opponentName) params.set('opponent_name', masterGamesFilters.opponentName);
-          if (masterGamesFilters.sortBy && masterGamesFilters.sortBy !== 'date_desc') params.set('sort_by', masterGamesFilters.sortBy);
-          if (masterGamesFilters.result) params.set('result', masterGamesFilters.result);
-          if (masterGamesFilters.whiteEloMin !== 0) params.set('white_elo_min', String(masterGamesFilters.whiteEloMin));
-          if (masterGamesFilters.whiteEloMax !== 3500) params.set('white_elo_max', String(masterGamesFilters.whiteEloMax));
-          if (masterGamesFilters.blackEloMin !== 0) params.set('black_elo_min', String(masterGamesFilters.blackEloMin));
-          if (masterGamesFilters.blackEloMax !== 3500) params.set('black_elo_max', String(masterGamesFilters.blackEloMax));
-          if (masterGamesFilters.dateFrom) params.set('date_from', masterGamesFilters.dateFrom);
-          if (masterGamesFilters.dateTo) params.set('date_to', masterGamesFilters.dateTo);
-          if (masterGamesFilters.ecoCode) params.set('eco_code', masterGamesFilters.ecoCode);
-          if (masterGamesFilters.eventName) params.set('event_name', masterGamesFilters.eventName);
-          return fetch(`/api/openings/games/by-position?${params}`)
-            .then(r => r.json())
-            .then(data => ({
-              games: Array.isArray(data.games) ? data.games : [],
-              total: typeof data.total === 'number' ? data.total : 0,
-              indexed: !!data.indexed,
-              count_exact: data.count_exact,
-            }));
-        })();
-
-    withTimeout(fetchPromise)
+    withTimeout(fetchGamesByPosition(boardFen, 50, masterGamesFilters))
       .then((data) => {
         if (!cancelled) {
           // Deduplicate by game ID to prevent visual duplicates
@@ -986,9 +804,8 @@ export default function DebutPage() {
             setMasterGamesTotal(data.total);
 
             // If count is approximate, fetch exact count in background.
-            // fetchPositionCount requires auth, so only call it when a node is selected.
-            if (!data.count_exact && data.games.length > 0 && selectedNode) {
-              fetchPositionCount(fen)
+            if (!data.count_exact && data.games.length > 0) {
+              fetchPositionCount(boardFen)
                 .then((count) => { if (!cancelled) setMasterGamesTotal(count); })
                 .catch(() => {});
             }
@@ -1006,9 +823,9 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, boardFen, masterGamesFilters.playerColor, masterGamesFilters.playerName, masterGamesFilters.sortBy, masterGamesFilters.opponentName, masterGamesFilters.result, masterGamesFilters.whiteEloMin, masterGamesFilters.whiteEloMax, masterGamesFilters.blackEloMin, masterGamesFilters.blackEloMax, masterGamesFilters.dateFrom, masterGamesFilters.dateTo, masterGamesFilters.ecoCode, masterGamesFilters.eventName, fetchGamesByPosition, fetchPositionCount]);
+  }, [boardFen, masterGamesFilters, fetchGamesByPosition, fetchPositionCount]);
 
-  // ─── Auto-fetch candidate moves when node changes ───
+  // ─── Auto-fetch candidate moves when the board position changes ───
   useEffect(() => {
     // Only fetch TWIC data if using TWIC source
     if (moveTreeSource !== 'twic') {
@@ -1017,24 +834,10 @@ export default function DebutPage() {
       return;
     }
 
-    const fen = selectedNode?.fen || boardFen;
-
     let cancelled = false;
     setCandidatesLoading(true);
 
-    // If we have a selectedNode (repertoire loaded), use the authenticated fetch
-    // Otherwise fall back to a direct fetch (TWIC candidates are public)
-    const fetchPromise = selectedNode
-      ? fetchCandidateMoves(fen)
-      : fetch(`/api/openings/positions/candidates?${new URLSearchParams({ fen, limit: '20' })}`)
-          .then(r => r.json())
-          .then(data => ({
-            status: data.status || 'ok',
-            total_games: data.total_games || 0,
-            moves: Array.isArray(data.moves) ? data.moves : [],
-          }));
-
-    withTimeout(fetchPromise)
+    withTimeout(fetchCandidateMoves(boardFen))
       .then((data) => {
         if (!cancelled) {
           setCandidateMoves(data.moves);
@@ -1052,7 +855,18 @@ export default function DebutPage() {
       });
 
     return () => { cancelled = true; };
-  }, [selectedNode?.fen, boardFen, fetchCandidateMoves, moveTreeSource]);
+  }, [boardFen, fetchCandidateMoves, moveTreeSource]);
+
+  // ─── Opening name/ECO: the deepest named position along the played line ───
+  const [masterOpening, setMasterOpening] = useState<{ eco: string | null; name: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const line = masterFens.slice(0, masterIndex + 1).reverse();
+    Promise.all(line.map(findEcoOpening))
+      .then(found => { if (!cancelled) setMasterOpening(found.find(Boolean) ?? null); })
+      .catch(() => { if (!cancelled) setMasterOpening(null); });
+    return () => { cancelled = true; };
+  }, [masterFens, masterIndex]);
 
   // ─── Transform Lichess data to MoveCandidate format ───
   const lichessCandidateMoves = useMemo(() => {
@@ -1090,471 +904,55 @@ export default function DebutPage() {
 
   // ─── Handlers ───
 
-  const handleNodeSelect = useCallback((node: OpeningNode) => {
-    setSelectedNodeId(node.id);
-    setSelectedNode(node);
-    setBoardFen(node.fen);
-    setMasterGamesFilters({
-      playerName: '',
-      opponentName: '',
-      playerColor: '',
-      result: '',
-      sortBy: 'date_desc',
-      whiteEloMin: 0,
-      whiteEloMax: 3500,
-      blackEloMin: 0,
-      blackEloMax: 3500,
-      dateFrom: '',
-      dateTo: '',
-      ecoCode: '',
-      eventName: ''
-    });
-  }, []);
-
-  // Find node by id in tree
-  const findNode = useCallback((tree: OpeningNode | null, id: string): OpeningNode | null => {
-    if (!tree) return null;
-    if (tree.id === id) return tree;
-    for (const child of tree.children || []) {
-      const found = findNode(child, id);
-      if (found) return found;
-    }
-    return null;
-  }, []);
-
-  // Find main line (first child path) to deepest node
-  const findDeepestMainLine = useCallback((node: OpeningNode): OpeningNode => {
-    if (!node.children?.length) return node;
-    return findDeepestMainLine(node.children[0]);
-  }, []);
-
-  // ── Process queued moves sequentially, reading FRESH state from refs ──
-  const processQueue = useCallback(async () => {
-    if (isProcessingMoveRef.current) return;
-    isProcessingMoveRef.current = true;
-
-    while (moveQueueRef.current.length > 0) {
-      const move = moveQueueRef.current.shift()!;
-      const { newFen, moveSan, moveUci } = move;
-
-      // Read FRESH state from refs (not stale closure)
-      const curSelectedNode = selectedNodeRef.current;
-      const curTree = currentTreeRef.current;
-      if (!curSelectedNode || !selectedRepertoireId || !curTree) continue;
-
-      const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
-      const fenMatch = (c: OpeningNode) => c.fen.split(' ').slice(0, 4).join(' ') === newFenParts;
-
-      // Check if child with this FEN already exists
-      let existingChild = curSelectedNode.children?.find(fenMatch) || null;
-      if (!existingChild) {
-        const findInTree = (node: OpeningNode, id: string): OpeningNode | null => {
-          if (node.id === id) return node;
-          for (const ch of node.children || []) { const f = findInTree(ch, id); if (f) return f; }
-          return null;
-        };
-        const treeParent = findInTree(curTree, curSelectedNode.id);
-        existingChild = treeParent?.children?.find(fenMatch) || null;
-      }
-
-      if (existingChild) {
-        setSelectedNodeId(existingChild.id);
-        setSelectedNode(existingChild);
-        setBoardFen(existingChild.fen);
-        continue;
-      }
-
-      // Build optimistic node
-      const fenParts = newFen.split(' ');
-      const isWhiteMove = fenParts[1] === 'b';
-      const moveNumber = parseInt(fenParts[5]) - (isWhiteMove ? 0 : 1);
-      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-
-      const optimisticNode: OpeningNode = {
-        id: tempId,
-        repertoire_id: selectedRepertoireId,
-        parent_id: curSelectedNode.id,
-        fen: newFen,
-        move_san: moveSan,
-        move_uci: moveUci,
-        move_number: moveNumber || 1,
-        is_white_move: isWhiteMove,
-        opening_name: null,
-        eco_code: null,
-        notes: null,
-        priority: 1,
-        is_critical: false,
-        times_trained: 0,
-        times_correct: 0,
-        last_trained_at: null,
-        next_review_at: null,
-        ease_factor: 2.5,
-        interval_days: 0,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        children: [],
-      };
-
-      // Clone tree and insert as first child (main line) if no existing children,
-      // or as last child (variation) if parent already has children
-      const cloneAndInsert = (node: OpeningNode): OpeningNode => {
-        const cloned = { ...node, children: (node.children || []).map(cloneAndInsert) };
-        if (node.id === curSelectedNode.id) {
-          const alreadyHasFen = (cloned.children || []).some(fenMatch);
-          if (!alreadyHasFen) {
-            if ((cloned.children || []).length === 0) {
-              // No children yet — this becomes the main line (children[0])
-              cloned.children = [optimisticNode];
-            } else {
-              // Parent already has children — new move is a variation
-              cloned.children = [...(cloned.children || []), optimisticNode];
-            }
-          }
-        }
-        return cloned;
-      };
-      const optimisticTree = cloneAndInsert(curTree);
-
-      // Update tree + selection IMMEDIATELY
-      setCurrentTree(optimisticTree);
-      setSelectedNodeId(tempId);
-      setSelectedNode(optimisticNode);
-      // Also update refs so next queued move sees this node as parent
-      selectedNodeRef.current = optimisticNode;
-      currentTreeRef.current = optimisticTree;
-
-      // Resolve real parent ID (temp → real via map, with retry for in-flight saves)
-      let realParentId = curSelectedNode.id;
-      if (curSelectedNode.id.startsWith('temp-')) {
-        let resolvedId = tempToRealIdRef.current.get(curSelectedNode.id);
-        if (!resolvedId) {
-          // Wait for the previous move's API call to resolve the temp ID
-          for (let attempt = 0; attempt < 50; attempt++) {
-            await new Promise(r => setTimeout(r, 100));
-            resolvedId = tempToRealIdRef.current.get(curSelectedNode.id);
-            if (resolvedId) break;
-          }
-        }
-        if (resolvedId) {
-          realParentId = resolvedId;
-        } else {
-          // Still unresolved after 5s — skip this move
-          console.error('Could not resolve temp parent ID:', curSelectedNode.id);
-          setBoardFen(curSelectedNode.fen);
-          setSnackbar({ open: true, msg: 'Move failed — parent not saved yet', severity: 'error' });
-          continue;
-        }
-      }
-
-      try {
-        const newNode = await addNode(realParentId, moveSan, moveUci, newFen);
-        tempToRealIdRef.current.set(tempId, newNode.id);
-
-        const realNode: OpeningNode = { ...newNode, children: [] };
-        setCurrentTree(prev => {
-          if (!prev) return prev;
-          const replaceTempId = (node: OpeningNode): OpeningNode => {
-            const cloned = { ...node, children: (node.children || []).map(replaceTempId) };
-            if (cloned.id === tempId) {
-              return { ...realNode, children: cloned.children };
-            }
-            return cloned;
-          };
-          const updated = replaceTempId(prev);
-          currentTreeRef.current = updated;
-          return updated;
-        });
-        setSelectedNodeId(newNode.id);
-        setSelectedNode(realNode);
-        selectedNodeRef.current = realNode;
-        fetchTree(selectedRepertoireId, true).catch(() => {});
-      } catch (e: any) {
-        setBoardFen(curSelectedNode.fen);
-        const revertId = curSelectedNode.id.startsWith('temp-')
-          ? (tempToRealIdRef.current.get(curSelectedNode.id) || curSelectedNode.parent_id!)
-          : curSelectedNode.id;
-        setSelectedNodeId(revertId);
-        fetchTree(selectedRepertoireId, true).catch(() => {});
-        setSnackbar({ open: true, msg: e.message, severity: 'error' });
-      }
-    }
-
-    isProcessingMoveRef.current = false;
-  }, [selectedRepertoireId, addNode, fetchTree, setCurrentTree]);
-
-  const handleBoardMove = useCallback(async (
-    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
+  // A board move branches off the shown position, dropping any forward history.
+  const handleBoardMove = useCallback((
+    _from: string, _to: string, _piece: string, newFen: string, _moveSan: string, _moveUci: string
   ) => {
-    if (!selectedNodeRef.current || !selectedRepertoireId || !currentTreeRef.current) {
-      // No repertoire loaded — browse the master DB without persistence.
-      // Games list and candidate moves follow boardFen via their public fallbacks.
-      setBoardFen(newFen);
-      noRepHistoryRef.current.push(newFen);
-      return;
-    }
+    setMasterFens(prev => [...prev.slice(0, masterIndex + 1), newFen]);
+    setMasterIndex(masterIndex + 1);
+  }, [masterIndex]);
 
-    // Optimistic: update board FEN immediately so the piece stays in place
-    setBoardFen(newFen);
-
-    // Quick check for existing child (navigate instead of creating)
-    const newFenParts = newFen.split(' ').slice(0, 4).join(' ');
-    const fenMatch = (c: OpeningNode) => c.fen.split(' ').slice(0, 4).join(' ') === newFenParts;
-    const curSelectedNode = selectedNodeRef.current;
-    let existingChild = curSelectedNode.children?.find(fenMatch) || null;
-    if (!existingChild && currentTreeRef.current) {
-      const findInTree = (node: OpeningNode, id: string): OpeningNode | null => {
-        if (node.id === id) return node;
-        for (const ch of node.children || []) { const f = findInTree(ch, id); if (f) return f; }
-        return null;
-      };
-      const treeParent = findInTree(currentTreeRef.current, curSelectedNode.id);
-      existingChild = treeParent?.children?.find(fenMatch) || null;
-    }
-
-    if (existingChild) {
-      setSelectedNodeId(existingChild.id);
-      setSelectedNode(existingChild);
-      setBoardFen(existingChild.fen);
-      return;
-    }
-
-    // Queue the move data (NOT a closure) and process
-    moveQueueRef.current.push({ from, to, piece, newFen, moveSan, moveUci });
-    processQueue();
-  }, [selectedRepertoireId, processQueue]);
-
-  // Handle move tree click — navigate to the child node matching the clicked move
+  // Candidate-move click plays the move on the board.
+  // The candidates endpoint may return an empty uci, so fall back to SAN.
   const handleMoveTreeClick = useCallback((move: MoveCandidate) => {
-    // Look for existing child with matching UCI (repertoire mode only)
-    if (selectedNode && currentTree) {
-      const child = selectedNode.children?.find(c => c.move_uci === move.uci);
-      if (child) {
-        handleNodeSelect(child);
-        return;
-      }
+    const chess = new Chess(boardFen);
+    let result = null;
+    try {
+      result = move.uci && move.uci.length >= 4
+        ? chess.move({
+            from: move.uci.substring(0, 2),
+            to: move.uci.substring(2, 4),
+            promotion: move.uci.length > 4 ? move.uci[4] : undefined,
+          })
+        : move.san
+          ? chess.move(move.san)
+          : null;
+    } catch {
+      result = null;
     }
-    // If no existing child, simulate a board move.
-    // The public candidates endpoint returns empty uci, so fall back to SAN.
-    const baseFen = selectedNode?.fen ?? boardFen;
-    import('chess.js').then(({ Chess }) => {
-      const chess = new Chess(baseFen);
-      let result = null;
-      try {
-        result = move.uci && move.uci.length >= 4
-          ? chess.move({
-              from: move.uci.substring(0, 2),
-              to: move.uci.substring(2, 4),
-              promotion: move.uci.length > 4 ? move.uci[4] : undefined,
-            })
-          : move.san
-            ? chess.move(move.san)
-            : null;
-      } catch {
-        result = null;
-      }
-      if (result) {
-        handleBoardMove(result.from, result.to, '', chess.fen(), result.san, result.from + result.to + (result.promotion ?? ''));
-      }
-    });
-  }, [selectedNode, currentTree, boardFen, handleNodeSelect, handleBoardMove]);
+    if (result) {
+      handleBoardMove(result.from, result.to, '', chess.fen(), result.san, result.from + result.to + (result.promotion ?? ''));
+    }
+  }, [boardFen, handleBoardMove]);
 
   // Navigation handlers
   const handleReset = useCallback(() => {
-    if (currentTree) {
-      handleNodeSelect(currentTree);
-      return;
-    }
-    noRepHistoryRef.current = [];
-    setBoardFen(STARTING_FEN);
-  }, [currentTree, handleNodeSelect]);
+    setMasterFens([STARTING_FEN]);
+    setMasterIndex(0);
+  }, []);
 
-  const handleGoToStart = useCallback(() => {
-    if (currentTree) {
-      handleNodeSelect(currentTree);
-      return;
-    }
-    noRepHistoryRef.current = [];
-    setBoardFen(STARTING_FEN);
-  }, [currentTree, handleNodeSelect]);
+  const handleGoToStart = useCallback(() => setMasterIndex(0), []);
 
-  const handlePrev = useCallback(() => {
-    if (!currentTree) {
-      const history = noRepHistoryRef.current;
-      history.pop();
-      setBoardFen(history[history.length - 1] ?? STARTING_FEN);
-      return;
-    }
-    if (!selectedNode?.parent_id) return;
-    const parent = findNode(currentTree, selectedNode.parent_id);
-    if (parent) handleNodeSelect(parent);
-  }, [selectedNode, currentTree, findNode, handleNodeSelect]);
+  const handlePrev = useCallback(() => setMasterIndex(i => Math.max(0, i - 1)), []);
 
   const handleNext = useCallback(() => {
-    if (!selectedNode?.children?.length) return;
-    handleNodeSelect(selectedNode.children[0]);
-  }, [selectedNode, handleNodeSelect]);
+    setMasterIndex(i => Math.min(masterFens.length - 1, i + 1));
+  }, [masterFens.length]);
 
-  const handleGoToEnd = useCallback(() => {
-    if (!selectedNode) return;
-    const deepest = findDeepestMainLine(selectedNode);
-    handleNodeSelect(deepest);
-  }, [selectedNode, findDeepestMainLine, handleNodeSelect]);
+  const handleGoToEnd = useCallback(() => setMasterIndex(masterFens.length - 1), [masterFens.length]);
 
   const handleFlip = useCallback(() => {
     setBoardOrientation(o => o === 'white' ? 'black' : 'white');
-  }, []);
-
-  // ─── Browse mode handlers ───
-  const handleBrowseMoveClick = useCallback((san: string) => {
-    import('chess.js').then(({ Chess }) => {
-      const chess = new Chess(browseFen);
-      const move = chess.move(san);
-      if (move) {
-        const newFen = chess.fen();
-        setBrowseFen(newFen);
-        setBrowseMoveHistory(prev => [...prev, { san, fen: newFen }]);
-      }
-    });
-  }, [browseFen]);
-
-  const handleBrowseReset = useCallback(() => {
-    setBrowseFen(STARTING_FEN);
-    setBrowseMoveHistory([]);
-  }, []);
-
-  const handleBrowsePrev = useCallback(() => {
-    if (browseMoveHistory.length === 0) return;
-    const newHistory = browseMoveHistory.slice(0, -1);
-    setBrowseMoveHistory(newHistory);
-    if (newHistory.length === 0) {
-      setBrowseFen(STARTING_FEN);
-    } else {
-      setBrowseFen(newHistory[newHistory.length - 1].fen);
-    }
-  }, [browseMoveHistory]);
-
-  const handleBrowseNext = useCallback(() => {
-    // In browse mode, "next" doesn't make sense since we don't have a predetermined line
-    // This could be implemented later if we track forward/backward through history
-  }, []);
-
-  const handleBrowseBoardMove = useCallback((
-    from: string, to: string, piece: string, newFen: string, moveSan: string, moveUci: string
-  ) => {
-    setBrowseFen(newFen);
-    setBrowseMoveHistory(prev => [...prev, { san: moveSan, fen: newFen }]);
-  }, []);
-
-  // CRUD handlers
-  const handleCreateRepertoire = useCallback(async (name: string, color: 'w' | 'b') => {
-    try {
-      const rep = await createRepertoire(name, color);
-      setSelectedRepertoireId(rep.id);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [createRepertoire]);
-
-  const handleRenameRepertoire = useCallback(async (id: string, name: string) => {
-    try {
-      await updateRepertoire(id, { name } as any);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [updateRepertoire]);
-
-  const handleDeleteRepertoire = useCallback(async (id: string) => {
-    try {
-      await deleteRepertoire(id);
-      setSelectedRepertoireId(null);
-      setSelectedNode(null);
-      setBoardFen(STARTING_FEN);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [deleteRepertoire]);
-
-  const handleUpdateNotes = useCallback(async (nodeId: string, notes: string) => {
-    try {
-      await updateNode(nodeId, { notes });
-      if (selectedRepertoireId) await fetchTree(selectedRepertoireId);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [updateNode, selectedRepertoireId, fetchTree]);
-
-  const handleToggleCritical = useCallback(async (nodeId: string, isCritical: boolean) => {
-    try {
-      await updateNode(nodeId, { isCritical });
-      if (selectedRepertoireId) await fetchTree(selectedRepertoireId);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [updateNode, selectedRepertoireId, fetchTree]);
-
-  const handleDeleteNode = useCallback(async (nodeId: string) => {
-    try {
-      // Navigate to parent before deleting
-      const parentId = selectedNode?.parent_id || null;
-      await deleteNode(nodeId);
-      if (selectedRepertoireId) {
-        setSelectedNodeId(parentId);
-        await fetchTree(selectedRepertoireId);
-      }
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [deleteNode, selectedRepertoireId, fetchTree, selectedNode]);
-
-  const handleDeleteLastMove = useCallback(async () => {
-    if (!selectedNode || !selectedNode.move_san) return; // Can't delete root
-    await handleDeleteNode(selectedNode.id);
-  }, [selectedNode, handleDeleteNode]);
-
-  const handleDeleteAllMoves = useCallback(async () => {
-    if (!currentTree || !selectedRepertoireId) return;
-    const rootChildren = currentTree.children || [];
-    if (rootChildren.length === 0) return;
-    if (!window.confirm('Delete all moves in this repertoire?')) return;
-    try {
-      for (const child of rootChildren) {
-        await deleteNode(child.id);
-      }
-      setSelectedNodeId(null); // Will resolve to root
-      await fetchTree(selectedRepertoireId);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [currentTree, selectedRepertoireId, deleteNode, fetchTree]);
-
-  const handleImportPgn = useCallback(async (pgn: string, maxPly: number) => {
-    if (!selectedRepertoireId) throw new Error('No repertoire selected');
-    const result = await importPgn(selectedRepertoireId, pgn, maxPly);
-    await fetchTree(selectedRepertoireId);
-    return result;
-  }, [selectedRepertoireId, importPgn, fetchTree]);
-
-  const handleExportPgn = useCallback(async () => {
-    if (!selectedRepertoireId) return;
-    try {
-      const pgn = await exportPgn(selectedRepertoireId);
-      // Download as file
-      const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const rep = repertoires.find(r => r.id === selectedRepertoireId);
-      a.download = `${rep?.name || 'repertoire'}.pgn`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [selectedRepertoireId, exportPgn, repertoires]);
-
-  const handleSearchGames = useCallback((fen: string) => {
-    setGameSearchFen(fen);
-    setGameSearchOpen(true);
   }, []);
 
   // ─── Game viewer handlers ───
@@ -1991,40 +1389,6 @@ export default function DebutPage() {
     return { evalText, sanMoves };
   }, [evaluation, displayedFen]);
 
-  const handleLinkGame = useCallback(async (game: GameSearchResult) => {
-    if (!selectedNode) return;
-    try {
-      await linkGame(selectedNode.id, {
-        game_source: game.source as any,
-        game_id: String(game.id),
-        game_pgn: game.pgn || null,
-        white_player: game.white,
-        black_player: game.black,
-        white_elo: game.white_elo,
-        black_elo: game.black_elo,
-        result: game.result,
-        date_played: game.date,
-        event_name: game.event || null,
-      } as any);
-      // Refresh game links
-      const links = await getNodeGames(selectedNode.id);
-      setGameLinks(links);
-      setSnackbar({ open: true, msg: t('gameLinked'), severity: 'success' });
-    } catch (e: any) {
-      setSnackbar({ open: true, msg: e.message, severity: 'error' });
-    }
-  }, [selectedNode, linkGame, getNodeGames]);
-
-  // ─── Arrow annotations for the board ───
-  const boardArrows = useMemo(() => {
-    if (!selectedNode?.arrows?.length) return [];
-    return selectedNode.arrows.map(a => ({
-      from: a.from_square as Key,
-      to: a.to_square as Key,
-      brush: a.color || 'green'
-    }));
-  }, [selectedNode?.arrows]);
-
   // ─── Keyboard navigation ───
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -2039,8 +1403,6 @@ export default function DebutPage() {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [handlePrev, handleNext, handleGoToStart, handleGoToEnd]);
-
-  const selectedRep = repertoires.find(r => r.id === selectedRepertoireId);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: { xs: 'auto', lg: '100vh' }, bgcolor: 'var(--surface-page)' }}>
@@ -2079,8 +1441,8 @@ export default function DebutPage() {
       <Box sx={{ px: { xs: 1, sm: 2 }, pt: { xs: 1, sm: 2 }, pb: 0 }}>
         {/* Mode tabs hidden — Browse Database disabled for now */}
 
-        {/* Game tabs — only show in repertoire mode */}
-        {mode === 'repertoire' && openedGames.length > 0 && (
+        {/* Game tabs */}
+        {openedGames.length > 0 && (
           <Box sx={{ display: 'flex', gap: 0.5, overflowX: 'auto', pb: 0.5, '&::-webkit-scrollbar': { height: 3 }, '&::-webkit-scrollbar-thumb': { bgcolor: 'var(--text-tertiary)', borderRadius: 2 } }}>
           {openedGames.map(g => (
             <Chip
@@ -2110,460 +1472,304 @@ export default function DebutPage() {
       </Box>
 
       {/* Main content */}
-      {mode === 'browse' ? (
-        // ─── Browse Database Mode ───
+      <Box sx={{
+        display: 'flex',
+        flexDirection: { xs: 'column', lg: 'row' },
+        flex: { xs: 'none', lg: 1 },
+        p: { xs: 0, sm: 1, lg: 2 },
+        gap: { xs: 0, lg: 2 },
+        pb: { xs: 0, md: 2 },
+      }}>
+        {/* Left: Board + Notation */}
         <Box sx={{
           display: 'flex',
-          flexDirection: { xs: 'column', lg: 'row' },
-          flex: { xs: 'none', lg: 1 },
-          p: { xs: 0, sm: 1, lg: 2 },
-          gap: { xs: 1, lg: 2 },
-          pb: { xs: 0, md: 2 },
+          flexDirection: 'column',
+          alignItems: 'center',
+          flexShrink: 0,
+          overflowAnchor: 'none',
+          // Desktop: always-on room for the eval bar so it clears the app sidebar.
+          pl: { lg: 2 },
         }}>
-          {/* Left: Board + Move History */}
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            flexShrink: 0,
-          }}>
-            <DebutBoard
-              fen={browseFen}
-              orientation={boardOrientation}
-              onMove={handleBrowseBoardMove}
-              customArrows={[]}
-              onReset={handleBrowseReset}
-              onGoToStart={handleBrowseReset}
-              onPrev={handleBrowsePrev}
-              onNext={handleBrowseNext}
-              onGoToEnd={() => {}}
-              onFlip={handleFlip}
-            />
-
-            {/* Review button lives in the reachable repertoire layout (see below).
-                Browse mode is parked (disabled) — no duplicate button here. */}
-
-            {/* Move history breadcrumb */}
-            <Box sx={{
-              width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
-              maxWidth: 520,
-              mt: 0.5,
-              p: 1.5,
-              bgcolor: 'var(--surface-card)',
-              borderRadius: '16px',
-              border: '1px solid var(--border-strong)',
-              minHeight: 48,
-            }}>
-              <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontWeight: 600, mb: 0.5, display: 'block' }}>
-                {t('browseMode.moveHistory')}
-              </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                {browseMoveHistory.length === 0 ? (
-                  <Typography variant="body2" sx={{ color: 'var(--text-tertiary)', fontStyle: 'italic' }}>
-                    {t('startingPosition')}
-                  </Typography>
-                ) : (
-                  browseMoveHistory.map((move, idx) => (
-                    <Chip
-                      key={idx}
-                      label={`${Math.floor(idx / 2) + 1}${idx % 2 === 0 ? '.' : '...'} ${move.san}`}
-                      size="small"
-                      sx={{
-                        height: 24,
-                        fontSize: 12,
-                        bgcolor: 'rgba(0,0,0,0.05)',
-                        fontFamily: 'monospace',
-                        '&:hover': { bgcolor: 'rgba(0,0,0,0.1)' },
-                      }}
-                    />
-                  ))
-                )}
-              </Box>
-            </Box>
-          </Box>
-
-          {/* Right: TwicExplorer */}
-          <Box sx={{
-            flex: { xs: 'none', lg: 1 },
-            display: 'flex',
-            flexDirection: 'column',
-            bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
-            borderRadius: { xs: 0, lg: '24px' },
-            border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
-            overflow: { xs: 'visible', lg: 'auto' },
-            minWidth: 0,
-            maxHeight: { lg: 'calc(100vh - 32px)' },
-            p: { xs: 1, lg: 2 },
-          }}>
-            <TwicExplorer fen={browseFen} onMoveClick={handleBrowseMoveClick} />
-          </Box>
-        </Box>
-      ) : (
-        // ─── Repertoire Mode ───
-        <Box sx={{
-          display: 'flex',
-          flexDirection: { xs: 'column', lg: 'row' },
-          flex: { xs: 'none', lg: 1 },
-          p: { xs: 0, sm: 1, lg: 2 },
-          gap: { xs: 0, lg: 2 },
-          pb: { xs: 0, md: 2 },
-        }}>
-          {/* Left: Board + Notation */}
-          <Box sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            flexShrink: 0,
-            overflowAnchor: 'none',
-            // Desktop: always-on room for the eval bar so it clears the app sidebar.
-            pl: { lg: 2 },
-          }}>
-            {/* Board anchor — the eval bar is pinned outside its left edge, out of flow */}
-            <Box data-testid="board-anchor" sx={{ position: 'relative', ml: `${evalBarReserve}px` }}>
-              {stockfishEnabled && (
-                <StockfishErrorBoundary>
-                  <Box sx={{ position: 'absolute', top: 0, right: '100%', mr: 0.5 }}>
-                  <ReplayEvalBar
-                    evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
-                    isAnalyzing={isAnalyzing}
-                    depth={depth}
-                    orientation={boardOrientation}
-                    height={boardSize}
-                    width={EVAL_BAR_WIDTH_PX}
-                  />
-                  </Box>
-                </StockfishErrorBoundary>
-              )}
-            <DebutBoard
-              fen={displayedFen}
-              reservedWidth={evalBarReserve}
-              orientation={boardOrientation}
-              onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (activeTab === 'my-games' && !activeGame ? handleMyGamesBoardMove : (() => {})))}
-              customArrows={boardArrows}
-              onReset={activeTab === 'debut' ? handleReset : (isActiveGameTree ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
-              onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameTree ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
-              onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameTree ? handleEditTreePrev : (activeTab === 'my-games' && !activeGame ? handleMyGamesPrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))))}
-              onNext={activeTab === 'debut' ? handleNext : (isActiveGameTree ? handleEditTreeNext : (activeTab === 'my-games' && !activeGame ? handleMyGamesNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))))}
-              onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameTree ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
-              onFlip={handleFlip}
-              squareBadge={activeTab !== 'debut' && activeGame ? editTreeBadge : null}
-            />
-            </Box>
-
-            {/* My Games move list — below board when on My Games tab with no game open */}
-            {activeTab === 'my-games' && !activeGame && (
-              <MyGamesMoveList
-                moves={myGamesSanMoves}
-                currentIndex={myGamesMoveIndex}
-                comments={myGamesComments}
-                onNavigate={(index) => setMyGamesMoveIndex(index)}
-                onComment={handleMyGamesComment}
-                onDeleteMove={handleMyGamesDeleteMove}
-              />
-            )}
-
-            {/* Stockfish toggle + engine lines — every tab, game and line */}
-            <Box sx={{
-              width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
-              maxWidth: 520,
-              mx: 'auto',
-              mt: 0.5,
-              overflowAnchor: 'none',
-            }}>
-              {/* Toggle row */}
-              <Box
-                onClick={toggleStockfish}
-                sx={{
-                  display: 'flex', alignItems: 'center', gap: 1,
-                  px: 1.5, py: 0.75,
-                  cursor: 'pointer', userSelect: 'none',
-                  bgcolor: stockfishEnabled ? 'rgba(0,0,0,0.04)' : 'transparent',
-                  borderRadius: '12px',
-                  transition: 'background 0.15s',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,0.06)' },
-                }}
-              >
-                <Box sx={{
-                  width: 8, height: 8, borderRadius: '50%',
-                  bgcolor: stockfishEnabled ? (isAnalyzing ? '#71717A' : '#22c55e') : '#9ca3af',
-                  transition: 'background 0.15s',
-                  ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
-                }} />
-                <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
-                  {engineName === 'sf17.1' ? 'Stockfish 17.1' : engineName === 'sf17' ? 'Stockfish 17' : engineName === 'sf16' ? 'Stockfish 16' : engineName === 'sf11' ? 'Stockfish 11' : 'Stockfish'}
-                </Typography>
-                {stockfishEnabled && depth > 0 && (
-                  <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
-                    d{depth}
-                  </Typography>
-                )}
-                <Box sx={{ flexGrow: 1 }} />
-                <Switch
-                  size="small"
-                  checked={stockfishEnabled}
-                  onChange={toggleStockfish}
-                  onClick={(e) => e.stopPropagation()}
-                  sx={{
-                    '& .MuiSwitch-switchBase.Mui-checked': { color: '#52525B' },
-                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#A1A1AA' },
-                  }}
-                />
-              </Box>
-
+          {/* Board anchor — the eval bar is pinned outside its left edge, out of flow */}
+          <Box data-testid="board-anchor" sx={{ position: 'relative', ml: `${evalBarReserve}px` }}>
+            {stockfishEnabled && (
               <StockfishErrorBoundary>
-                {/* Best line display */}
-                {stockfishEnabled && bestLine && (
-                  <Box sx={{
-                    mt: 0.5, px: 1.5, py: 0.75,
-                    bgcolor: 'var(--surface-card)',
-                    border: '1px solid var(--border-strong)',
-                    borderRadius: '10px',
-                    display: 'flex', alignItems: 'center', gap: 1,
-                  }}>
-                    <Typography component="span" sx={{
-                      fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
-                      color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
-                    }}>
-                      {bestLine.evalText}
-                    </Typography>
-                    {bestLine.sanMoves.length > 0 && (
-                      <Typography component="span" sx={{
-                        fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
-                      }}>
-                        {bestLine.sanMoves.join(' ')}
-                      </Typography>
-                    )}
-                  </Box>
-                )}
-
-                {/* Engine error message */}
-                {engineError && (
-                  <Box sx={{ mt: 0.5, px: 1.5, py: 0.75, bgcolor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '10px' }}>
-                    <Typography sx={{ fontSize: 12, color: '#dc2626' }}>
-                      Engine not available: {engineError}
-                    </Typography>
-                  </Box>
-                )}
-
-                {/* Engine lines */}
-                {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
-                  <Box sx={{ mt: 0.5 }}>
-                    <ReplayEngineLines
-                      lines={evaluation.lines}
-                      isAnalyzing={isAnalyzing}
-                      currentFen={displayedFen}
-                      depth={depth}
-                    />
-                  </Box>
-                )}
+                <Box sx={{ position: 'absolute', top: 0, right: '100%', mr: 0.5 }}>
+                <ReplayEvalBar
+                  evaluation={evaluation?.lines?.[0] ? { cp: evaluation.lines[0].cp, mate: evaluation.lines[0].mate } : null}
+                  isAnalyzing={isAnalyzing}
+                  depth={depth}
+                  orientation={boardOrientation}
+                  height={boardSize}
+                  width={EVAL_BAR_WIDTH_PX}
+                />
+                </Box>
               </StockfishErrorBoundary>
-            </Box>
-
-            {/* Move notation — only show in Debut tab */}
-            {activeTab === 'debut' && (
-              <Box sx={{
-                width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
-                maxWidth: 520,
-                maxHeight: { xs: 88, lg: 240 },
-                mx: 'auto',
-                mt: 0.5,
-                overflow: 'auto',
-                bgcolor: 'var(--surface-card)',
-                borderRadius: '24px',
-                border: '1px solid var(--border-strong)',
-                '&::-webkit-scrollbar': { width: '6px' },
-                '&::-webkit-scrollbar-track': { background: 'var(--surface-page)', borderRadius: '3px' },
-                '&::-webkit-scrollbar-thumb': { background: 'var(--text-tertiary)', borderRadius: '3px', '&:hover': { background: 'var(--text-secondary)' } },
-              }}>
-                <MoveNotation
-                  tree={currentTree}
-                  selectedNodeId={selectedNode?.id || null}
-                  onNodeSelect={handleNodeSelect}
-                  onDeleteLast={handleDeleteLastMove}
-                  onDeleteAll={handleDeleteAllMoves}
-                  loading={treeLoading}
-                />
-              </Box>
             )}
-
-            {/* Game viewer notation — below board on small screens only */}
-            {activeTab !== 'debut' && activeGame && (
-              <Box sx={{
-                display: { xs: 'block', lg: 'none' },
-                width: '100%',
-                maxWidth: { xs: '100%' },
-              }}>
-                <GameViewerPanel
-                  game={activeGame}
-                  currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
-                  onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
-                  onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
-                  isSaved={savedGameIds.has(activeGame.id)}
-                  onEditGame={isActiveGameEditable && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
-                  onToggleFavorite={isActiveGameEditable && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
-                  onDeleteGame={isActiveGameEditable && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
-                  onTitleChange={isActiveGameEditable ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
-                  isFavorite={favoriteGameIds.has(activeGame.id)}
-                  isEditable={isActiveGameEditable}
-                  editTree={isActiveGameTree ? gameMoveTree.tree : undefined}
-                  editSelectedNodeId={isActiveGameTree ? editTreeSelectedNodeId : undefined}
-                  onEditNodeSelect={isActiveGameTree ? handleEditNodeSelect : undefined}
-                  onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
-                  editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
-                  saveStatus={isActiveGameEditable ? saveStatus : undefined}
-                  onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
-                  editContextMenuActions={editContextMenuActions}
-                  voiceNotes={voicePlayback}
-                  onTreePrev={isActiveGameTree ? handleEditTreePrev : undefined}
-                  onTreeNext={isActiveGameTree ? handleEditTreeNext : undefined}
-                  onTreeGoToStart={isActiveGameTree ? handleEditTreeGoToStart : undefined}
-                  onTreeGoToEnd={isActiveGameTree ? handleEditTreeGoToEnd : undefined}
-                />
-              </Box>
-            )}
+          <DebutBoard
+            fen={displayedFen}
+            reservedWidth={evalBarReserve}
+            orientation={boardOrientation}
+            onMove={activeTab === 'debut' ? handleBoardMove : (isActiveGameEditable ? handleGameBoardMove : (activeTab === 'my-games' && !activeGame ? handleMyGamesBoardMove : (() => {})))}
+            onReset={activeTab === 'debut' ? handleReset : (isActiveGameTree ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
+            onGoToStart={activeTab === 'debut' ? handleGoToStart : (isActiveGameTree ? handleEditTreeGoToStart : (activeTab === 'my-games' && !activeGame ? handleMyGamesReset : () => activeGame && handleGameMoveChange(activeGame.id, -1)))}
+            onPrev={activeTab === 'debut' ? handlePrev : (isActiveGameTree ? handleEditTreePrev : (activeTab === 'my-games' && !activeGame ? handleMyGamesPrev : () => activeGame && handleGameMoveChange(activeGame.id, Math.max(-1, (gameMoveIndices[activeGame.id] ?? -1) - 1))))}
+            onNext={activeTab === 'debut' ? handleNext : (isActiveGameTree ? handleEditTreeNext : (activeTab === 'my-games' && !activeGame ? handleMyGamesNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))))}
+            onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameTree ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
+            onFlip={handleFlip}
+            squareBadge={activeTab !== 'debut' && activeGame ? editTreeBadge : null}
+          />
           </Box>
 
-          {/* Right: Repertoire + Details */}
+          {/* My Games move list — below board when on My Games tab with no game open */}
+          {activeTab === 'my-games' && !activeGame && (
+            <MyGamesMoveList
+              moves={myGamesSanMoves}
+              currentIndex={myGamesMoveIndex}
+              comments={myGamesComments}
+              onNavigate={(index) => setMyGamesMoveIndex(index)}
+              onComment={handleMyGamesComment}
+              onDeleteMove={handleMyGamesDeleteMove}
+            />
+          )}
+
+          {/* Stockfish toggle + engine lines — every tab, game and line */}
           <Box sx={{
-            flex: { xs: 'none', lg: 1 },
-            display: 'flex',
-            flexDirection: 'column',
-            bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
-            borderRadius: { xs: 0, lg: '24px' },
-            border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
-            overflow: { xs: 'visible', lg: 'hidden' },
-            minWidth: 0,
-            maxHeight: { lg: 'calc(100vh - 32px)' },
+            width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
+            maxWidth: 520,
+            mx: 'auto',
+            mt: 0.5,
+            overflowAnchor: 'none',
           }}>
-            {activeTab === 'debut' ? (
-              <>
-                <RepertoireSelector
-                  repertoires={repertoires}
-                  selectedId={selectedRepertoireId}
-                  onSelect={setSelectedRepertoireId}
-                  onCreate={handleCreateRepertoire}
-                  onRename={handleRenameRepertoire}
-                  onDelete={handleDeleteRepertoire}
-                  onImportPgn={() => setPgnImporterOpen(true)}
-                  onExportPgn={handleExportPgn}
-                  loading={loading}
-                />
-                <Box sx={{ flex: 1, overflow: 'auto' }}>
-                  {/* Move Tree (ChessBase-style) */}
-                  <MoveTree
-                    moves={displayedMoves}
-                    totalGames={displayedTotalGames}
-                    loading={displayedLoading}
-                    onMoveClick={handleMoveTreeClick}
-                    fen={selectedNode?.fen}
-                    source={moveTreeSource}
-                    onSourceChange={setMoveTreeSource}
-                  />
+            {/* Toggle row */}
+            <Box
+              onClick={toggleStockfish}
+              sx={{
+                display: 'flex', alignItems: 'center', gap: 1,
+                px: 1.5, py: 0.75,
+                cursor: 'pointer', userSelect: 'none',
+                bgcolor: stockfishEnabled ? 'rgba(0,0,0,0.04)' : 'transparent',
+                borderRadius: '12px',
+                transition: 'background 0.15s',
+                '&:hover': { bgcolor: 'rgba(0,0,0,0.06)' },
+              }}
+            >
+              <Box sx={{
+                width: 8, height: 8, borderRadius: '50%',
+                bgcolor: stockfishEnabled ? (isAnalyzing ? '#71717A' : '#22c55e') : '#9ca3af',
+                transition: 'background 0.15s',
+                ...(isAnalyzing && stockfishEnabled ? { animation: 'pulse 1.5s ease-in-out infinite' } : {}),
+              }} />
+              <Typography variant="caption" sx={{ fontWeight: 600, color: stockfishEnabled ? 'var(--text-primary)' : 'var(--text-tertiary)', fontSize: 12 }}>
+                {engineName === 'sf17.1' ? 'Stockfish 17.1' : engineName === 'sf17' ? 'Stockfish 17' : engineName === 'sf16' ? 'Stockfish 16' : engineName === 'sf11' ? 'Stockfish 11' : 'Stockfish'}
+              </Typography>
+              {stockfishEnabled && depth > 0 && (
+                <Typography variant="caption" sx={{ color: 'var(--text-tertiary)', fontFamily: 'monospace', fontSize: 11 }}>
+                  d{depth}
+                </Typography>
+              )}
+              <Box sx={{ flexGrow: 1 }} />
+              <Switch
+                size="small"
+                checked={stockfishEnabled}
+                onChange={toggleStockfish}
+                onClick={(e) => e.stopPropagation()}
+                sx={{
+                  '& .MuiSwitch-switchBase.Mui-checked': { color: '#52525B' },
+                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: '#A1A1AA' },
+                }}
+              />
+            </Box>
 
-                  {/* Position Summary (ECO + aggregate W/D/L) */}
-                  <PositionSummary
-                    ecoCode={selectedNode?.eco_code || null}
-                    openingName={selectedNode?.opening_name || null}
-                    totalGames={candidatesTotalGames}
-                    moves={candidateMoves}
-                  />
+            <StockfishErrorBoundary>
+              {/* Best line display */}
+              {stockfishEnabled && bestLine && (
+                <Box sx={{
+                  mt: 0.5, px: 1.5, py: 0.75,
+                  bgcolor: 'var(--surface-card)',
+                  border: '1px solid var(--border-strong)',
+                  borderRadius: '10px',
+                  display: 'flex', alignItems: 'center', gap: 1,
+                }}>
+                  <Typography component="span" sx={{
+                    fontWeight: 700, fontSize: 15, fontFamily: 'monospace',
+                    color: bestLine.evalText.startsWith('+') ? '#16a34a' : bestLine.evalText.startsWith('-') ? '#dc2626' : 'var(--text-primary)',
+                  }}>
+                    {bestLine.evalText}
+                  </Typography>
+                  {bestLine.sanMoves.length > 0 && (
+                    <Typography component="span" sx={{
+                      fontSize: 13, fontFamily: 'monospace', color: 'var(--text-secondary)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                    }}>
+                      {bestLine.sanMoves.join(' ')}
+                    </Typography>
+                  )}
+                </Box>
+              )}
 
+              {/* Engine error message */}
+              {engineError && (
+                <Box sx={{ mt: 0.5, px: 1.5, py: 0.75, bgcolor: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: '10px' }}>
+                  <Typography sx={{ fontSize: 12, color: '#dc2626' }}>
+                    Engine not available: {engineError}
+                  </Typography>
+                </Box>
+              )}
 
-                  {/* Master Games + Linked Games */}
-                  <NodeDetailsPanel
-                    node={selectedNode}
-                    fallbackFen={boardFen}
-                    onUpdateNotes={handleUpdateNotes}
-                    onToggleCritical={handleToggleCritical}
-                    onDeleteNode={handleDeleteNode}
-                    onSearchGames={handleSearchGames}
-                    gameLinks={gameLinks}
-                    gameLinksLoading={gameLinksLoading}
-                    masterGames={masterGames}
-                    masterGamesTotal={masterGamesTotal}
-                    masterGamesLoading={masterGamesLoading}
-                    onOpenGame={handleOpenGame}
-                    masterGamesFilters={masterGamesFilters}
-                    onMasterGamesFilterChange={setMasterGamesFilters}
-                    explorerTab={explorerTab}
-                    onExplorerTabChange={setExplorerTab}
-                    lichessDatabase={lichessDatabase}
-                    onLichessDatabaseChange={setLichessDatabase}
+              {/* Engine lines */}
+              {stockfishEnabled && evaluation?.lines && evaluation.lines.length > 0 && (
+                <Box sx={{ mt: 0.5 }}>
+                  <ReplayEngineLines
+                    lines={evaluation.lines}
+                    isAnalyzing={isAnalyzing}
+                    currentFen={displayedFen}
+                    depth={depth}
                   />
                 </Box>
-              </>
-            ) : activeTab === 'my-games' ? (
-              <Box sx={{ flex: 1, overflow: 'auto' }}>
-                <MyGamesPanel
-                  onOpenGame={(game) => handleOpenGame(game, sharedDatabaseToken
-                    ? { readOnly: true, sharedDbToken: sharedDatabaseToken }
-                    : sharedCollectionToken ? { readOnly: true } : undefined)}
-                  boardPgn={buildMyGamesPgn()}
-                  boardHasMoves={myGamesSanMoves.length > 0}
-                  onBoardReset={handleMyGamesReset}
-                  sharedToken={sharedCollectionToken ?? undefined}
-                  sharedDatabaseToken={sharedDatabaseToken ?? undefined}
-                  databaseId={selectedDatabaseId ?? undefined}
-                  onAddVariation={handleAddVariation}
-                  refreshKey={myGamesRefreshKey}
-                  onCopyShared={(db) => {
-                    // Copied → switch to the new owned pill and refresh the row.
-                    setSharedDatabaseToken(null);
-                    setSelectedDatabaseId(db.id);
-                    setPillReloadKey(k => k + 1);
-                    setActiveTab('my-games');
-                    setSnackbar({ open: true, msg: t('myGames.copiedShared', { name: db.name }), severity: 'success' });
-                  }}
-                />
-              </Box>
-            ) : activeGame ? (
-              <Box sx={{ display: { xs: 'none', lg: 'flex' }, flex: 1, flexDirection: 'column', overflow: 'auto' }}>
-                <GameViewerPanel
-                  game={activeGame}
-                  currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
-                  onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
-                  onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
-                  isSaved={savedGameIds.has(activeGame.id)}
-                  onEditGame={isActiveGameEditable && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
-                  onToggleFavorite={isActiveGameEditable && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
-                  onDeleteGame={isActiveGameEditable && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
-                  onTitleChange={isActiveGameEditable ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
-                  isFavorite={favoriteGameIds.has(activeGame.id)}
-                  isEditable={isActiveGameEditable}
-                  editTree={isActiveGameTree ? gameMoveTree.tree : undefined}
-                  editSelectedNodeId={isActiveGameTree ? editTreeSelectedNodeId : undefined}
-                  onEditNodeSelect={isActiveGameTree ? handleEditNodeSelect : undefined}
-                  onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
-                  editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
-                  saveStatus={isActiveGameEditable ? saveStatus : undefined}
-                  onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
-                  editContextMenuActions={editContextMenuActions}
-                  voiceNotes={voicePlayback}
-                />
-              </Box>
-            ) : null}
+              )}
+            </StockfishErrorBoundary>
           </Box>
+
+          {/* Game viewer notation — below board on small screens only */}
+          {activeTab !== 'debut' && activeGame && (
+            <Box sx={{
+              display: { xs: 'block', lg: 'none' },
+              width: '100%',
+              maxWidth: { xs: '100%' },
+            }}>
+              <GameViewerPanel
+                game={activeGame}
+                currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
+                onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+                onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
+                isSaved={savedGameIds.has(activeGame.id)}
+                onEditGame={isActiveGameEditable && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
+                onToggleFavorite={isActiveGameEditable && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
+                onDeleteGame={isActiveGameEditable && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
+                onTitleChange={isActiveGameEditable ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
+                isFavorite={favoriteGameIds.has(activeGame.id)}
+                isEditable={isActiveGameEditable}
+                editTree={isActiveGameTree ? gameMoveTree.tree : undefined}
+                editSelectedNodeId={isActiveGameTree ? editTreeSelectedNodeId : undefined}
+                onEditNodeSelect={isActiveGameTree ? handleEditNodeSelect : undefined}
+                onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
+                editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
+                saveStatus={isActiveGameEditable ? saveStatus : undefined}
+                onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
+                editContextMenuActions={editContextMenuActions}
+                voiceNotes={voicePlayback}
+                onTreePrev={isActiveGameTree ? handleEditTreePrev : undefined}
+                onTreeNext={isActiveGameTree ? handleEditTreeNext : undefined}
+                onTreeGoToStart={isActiveGameTree ? handleEditTreeGoToStart : undefined}
+                onTreeGoToEnd={isActiveGameTree ? handleEditTreeGoToEnd : undefined}
+              />
+            </Box>
+          )}
         </Box>
-      )}
+
+        {/* Right: Master explorer / My Games / game viewer */}
+        <Box sx={{
+          flex: { xs: 'none', lg: 1 },
+          display: 'flex',
+          flexDirection: 'column',
+          bgcolor: { xs: 'transparent', lg: 'var(--surface-card)' },
+          borderRadius: { xs: 0, lg: '24px' },
+          border: { xs: 'none', lg: '1px solid rgba(31,41,55,0.1)' },
+          overflow: { xs: 'visible', lg: 'hidden' },
+          minWidth: 0,
+          maxHeight: { lg: 'calc(100vh - 32px)' },
+        }}>
+          {activeTab === 'debut' ? (
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              {/* Move Tree (ChessBase-style) */}
+              <MoveTree
+                moves={displayedMoves}
+                totalGames={displayedTotalGames}
+                loading={displayedLoading}
+                onMoveClick={handleMoveTreeClick}
+                fen={boardFen}
+                source={moveTreeSource}
+                onSourceChange={setMoveTreeSource}
+              />
+
+              {/* Position Summary (ECO + aggregate W/D/L) */}
+              <PositionSummary
+                ecoCode={masterOpening?.eco ?? null}
+                openingName={masterOpening?.name ?? null}
+                totalGames={candidatesTotalGames}
+                moves={candidateMoves}
+              />
+
+              {/* Master Games */}
+              <MasterGamesPanel
+                fen={boardFen}
+                masterGames={masterGames}
+                masterGamesTotal={masterGamesTotal}
+                masterGamesLoading={masterGamesLoading}
+                onOpenGame={handleOpenGame}
+                masterGamesFilters={masterGamesFilters}
+                onMasterGamesFilterChange={setMasterGamesFilters}
+                explorerTab={explorerTab}
+                onExplorerTabChange={setExplorerTab}
+                lichessDatabase={lichessDatabase}
+                onLichessDatabaseChange={setLichessDatabase}
+              />
+            </Box>
+          ) : activeTab === 'my-games' ? (
+            <Box sx={{ flex: 1, overflow: 'auto' }}>
+              <MyGamesPanel
+                onOpenGame={(game) => handleOpenGame(game, sharedDatabaseToken
+                  ? { readOnly: true, sharedDbToken: sharedDatabaseToken }
+                  : sharedCollectionToken ? { readOnly: true } : undefined)}
+                boardPgn={buildMyGamesPgn()}
+                boardHasMoves={myGamesSanMoves.length > 0}
+                onBoardReset={handleMyGamesReset}
+                sharedToken={sharedCollectionToken ?? undefined}
+                sharedDatabaseToken={sharedDatabaseToken ?? undefined}
+                databaseId={selectedDatabaseId ?? undefined}
+                onAddVariation={handleAddVariation}
+                refreshKey={myGamesRefreshKey}
+                onCopyShared={(db) => {
+                  // Copied → switch to the new owned pill and refresh the row.
+                  setSharedDatabaseToken(null);
+                  setSelectedDatabaseId(db.id);
+                  setPillReloadKey(k => k + 1);
+                  setActiveTab('my-games');
+                  setSnackbar({ open: true, msg: t('myGames.copiedShared', { name: db.name }), severity: 'success' });
+                }}
+              />
+            </Box>
+          ) : activeGame ? (
+            <Box sx={{ display: { xs: 'none', lg: 'flex' }, flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+              <GameViewerPanel
+                game={activeGame}
+                currentMoveIndex={gameMoveIndices[activeGame.id] ?? -1}
+                onMoveIndexChange={(idx) => handleGameMoveChange(activeGame.id, idx)}
+                onSaveToMyGames={activeGame.isDraft ? undefined : handleSaveToMyGames}
+                isSaved={savedGameIds.has(activeGame.id)}
+                onEditGame={isActiveGameEditable && !activeGame.isDraft ? () => handleEditGameFromViewer(activeGame) : undefined}
+                onToggleFavorite={isActiveGameEditable && !activeGame.isDraft ? handleViewerToggleFavorite : undefined}
+                onDeleteGame={isActiveGameEditable && !activeGame.isDraft ? handleViewerDeleteGame : undefined}
+                onTitleChange={isActiveGameEditable ? (title) => handleVariationTitleChange(activeGame, title) : undefined}
+                isFavorite={favoriteGameIds.has(activeGame.id)}
+                isEditable={isActiveGameEditable}
+                editTree={isActiveGameTree ? gameMoveTree.tree : undefined}
+                editSelectedNodeId={isActiveGameTree ? editTreeSelectedNodeId : undefined}
+                onEditNodeSelect={isActiveGameTree ? handleEditNodeSelect : undefined}
+                onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
+                editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
+                saveStatus={isActiveGameEditable ? saveStatus : undefined}
+                onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
+                editContextMenuActions={editContextMenuActions}
+                voiceNotes={voicePlayback}
+              />
+            </Box>
+          ) : null}
+        </Box>
+      </Box>
 
       {/* Modals */}
-      <PgnImporter
-        open={pgnImporterOpen}
-        onClose={() => setPgnImporterOpen(false)}
-        onImport={handleImportPgn}
-        repertoireName={selectedRep?.name || ''}
-      />
-
-      <GameSearchPanel
-        fen={gameSearchFen}
-        onLinkGame={handleLinkGame}
-        open={gameSearchOpen}
-        onClose={() => setGameSearchOpen(false)}
-        onSearch={searchGamesStream}
-        fetchGamePgn={fetchGamePgn}
-      />
-
       <EditGameModal
         open={editModalOpen}
         onClose={() => { setEditModalOpen(false); setEditingGame(null); }}

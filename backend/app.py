@@ -170,7 +170,7 @@ except ImportError as e:
 try:
     from api.openings import openings_bp
     app.register_blueprint(openings_bp)
-    logger.info("✅ Openings API registered (repertoire management)")
+    logger.info("✅ Openings API registered (master games database)")
 except ImportError as e:
     logger.warning(f"⚠️  Could not import openings API: {e}")
 

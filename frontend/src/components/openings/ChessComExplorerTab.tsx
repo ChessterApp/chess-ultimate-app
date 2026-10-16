@@ -25,7 +25,7 @@ import {
 } from '@mui/material';
 import { ChevronLeft, ChevronRight, Refresh, Search, FilterList, MyLocation } from '@mui/icons-material';
 import { useChessComExplorer, STARTING_FEN, fenKey } from '@/hooks/useChessComExplorer';
-import type { GameSearchResult } from '@/hooks/useOpeningRepertoire';
+import type { GameSearchResult } from '@/hooks/useMasterGames';
 import GameTable from './GameTable';
 import EmptyState from './EmptyState';
 

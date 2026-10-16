@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Box, Typography, LinearProgress, Select, MenuItem } from '@mui/material';
-import type { MoveCandidate } from '@/hooks/useOpeningRepertoire';
+import type { MoveCandidate } from '@/hooks/useMasterGames';
 
 export type MoveTreeSource = 'twic' | 'lichess-masters' | 'lichess-players';
 

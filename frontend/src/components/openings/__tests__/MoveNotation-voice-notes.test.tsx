@@ -19,7 +19,7 @@ vi.mock('@/lib/api', () => ({
 import MoveNotation, { type MoveContextMenuActions, type VoiceNotePlayback } from '../MoveNotation';
 import { pgnToTree, findNodeById } from '@/hooks/useGameMoveTree';
 import { useMoveVoiceNotes } from '@/hooks/useMoveVoiceNotes';
-import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import type { OpeningNode } from '@/types/openingNode';
 
 // ─── Browser media mocks ─────────────────────────────────────────────────────
 
