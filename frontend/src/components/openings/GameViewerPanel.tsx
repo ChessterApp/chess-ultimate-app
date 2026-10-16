@@ -336,7 +336,11 @@ export default function GameViewerPanel({
       </Box>
 
       {/* Move list — tree mode (editable) or flat mode */}
-      <Box sx={{ flex: 1, overflow: 'auto', p: useTreeMode ? 0 : 1 }}>
+      {/* Tree mode: the notation scrolls itself and keeps its action bar pinned below. */}
+      <Box sx={useTreeMode
+        ? { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }
+        : { flex: 1, overflow: 'auto', p: 1, maxHeight: { xs: 150, lg: 'none' } }}
+      >
         {useTreeMode && MoveNotation ? (
           <MoveNotation
             tree={editTree}

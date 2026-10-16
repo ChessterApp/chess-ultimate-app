@@ -4,12 +4,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Box,
   Typography,
-  IconButton,
   TextField,
   Tooltip,
-  Button,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
-import { Undo, RestartAlt, ChatBubble, ChatBubbleOutline } from '@mui/icons-material';
+import { ChatBubble, ChatBubbleOutline, Delete, AddComment, ModeComment } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 
 interface MyGamesMoveListProps {
@@ -18,8 +20,8 @@ interface MyGamesMoveListProps {
   comments: Record<number, string>;
   onNavigate: (moveIndex: number) => void;
   onComment: (moveIndex: number, comment: string) => void;
-  onUndo: () => void;
-  onReset: () => void;
+  /** Removes the move at this 1-based index and everything after it. */
+  onDeleteMove: (moveIndex: number) => void;
 }
 
 export default function MyGamesMoveList({
@@ -28,12 +30,16 @@ export default function MyGamesMoveList({
   comments,
   onNavigate,
   onComment,
-  onUndo,
-  onReset,
+  onDeleteMove,
 }: MyGamesMoveListProps) {
   const t = useTranslations('debut');
   const [editingCommentIndex, setEditingCommentIndex] = useState<number | null>(null);
   const [commentText, setCommentText] = useState('');
+  // Move actions menu — opened by tapping the current move again or right-click.
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; moveIndex: number } | null>(null);
+  // The comment editor opens once the menu has fully closed so its focus
+  // restore can't blur-save the freshly focused field.
+  const pendingCommentRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to current move (container-scoped, avoids page scroll anchoring issues)
@@ -64,6 +70,11 @@ export default function MyGamesMoveList({
     }
   };
 
+  const handleMoveClick = (e: React.MouseEvent<HTMLElement>, moveIdx: number) => {
+    if (moveIdx === currentIndex) setMenu({ anchor: e.currentTarget, moveIndex: moveIdx });
+    else onNavigate(moveIdx);
+  };
+
   const handleCommentSave = () => {
     if (editingCommentIndex !== null) {
       onComment(editingCommentIndex, commentText);
@@ -81,6 +92,8 @@ export default function MyGamesMoveList({
       setCommentText('');
     }
   };
+
+  if (moves.length === 0) return null;
 
   return (
     <Box sx={{
@@ -110,82 +123,123 @@ export default function MyGamesMoveList({
           '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.2)', borderRadius: 2 },
         }}
       >
-        {moves.length === 0 ? (
-          <Typography sx={{ color: 'text.secondary', fontSize: 11, fontStyle: 'italic', fontFamily: 'inherit' }}>
-            {t('startingPosition')}
-          </Typography>
-        ) : (
-          moves.map((san, idx) => {
-            const moveNumber = Math.floor(idx / 2) + 1;
-            const isWhite = idx % 2 === 0;
-            const moveIdx = idx + 1; // 1-based for navigation (1 = after first move)
-            const isActive = moveIdx === currentIndex;
-            const hasComment = !!comments[moveIdx];
+        {moves.map((san, idx) => {
+          const moveNumber = Math.floor(idx / 2) + 1;
+          const isWhite = idx % 2 === 0;
+          const moveIdx = idx + 1; // 1-based for navigation (1 = after first move)
+          const isActive = moveIdx === currentIndex;
+          const hasComment = !!comments[moveIdx];
 
-            return (
-              <React.Fragment key={idx}>
-                {isWhite && (
-                  <Typography
-                    component="span"
-                    sx={{ color: 'text.secondary', fontSize: 'inherit', fontFamily: 'inherit', mr: '2px' }}
-                  >
-                    {moveNumber}.
-                  </Typography>
-                )}
+          return (
+            <React.Fragment key={idx}>
+              {isWhite && (
                 <Typography
                   component="span"
-                  data-active={isActive}
-                  onClick={() => onNavigate(moveIdx)}
-                  sx={{
-                    color: isActive ? 'primary.main' : 'text.primary',
-                    fontSize: 'inherit',
-                    fontFamily: 'inherit',
-                    fontWeight: isActive ? 700 : 400,
-                    cursor: 'pointer',
-                    px: '3px',
-                    borderRadius: '4px',
-                    bgcolor: isActive ? 'rgba(124,58,237,0.15)' : 'transparent',
-                    '&:hover': { bgcolor: isActive ? 'rgba(124,58,237,0.2)' : 'rgba(255,255,255,0.06)' },
-                    transition: 'all 0.1s',
-                  }}
+                  sx={{ color: 'text.secondary', fontSize: 'inherit', fontFamily: 'inherit', mr: '2px' }}
                 >
-                  {san}
+                  {moveNumber}.
                 </Typography>
-                {hasComment && (
-                  <Tooltip title={comments[moveIdx]} arrow placement="top">
-                    <ChatBubble
-                      onClick={(e) => { e.stopPropagation(); handleCommentClick(moveIdx); }}
-                      sx={{
-                        fontSize: 10,
-                        color: 'primary.main',
-                        cursor: 'pointer',
-                        opacity: 0.7,
-                        '&:hover': { opacity: 1 },
-                        mx: '1px',
-                        verticalAlign: 'middle',
-                      }}
-                    />
-                  </Tooltip>
-                )}
-                {!hasComment && isActive && (
-                  <ChatBubbleOutline
+              )}
+              <Typography
+                component="span"
+                data-active={isActive}
+                onClick={(e) => handleMoveClick(e, moveIdx)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setMenu({ anchor: e.currentTarget, moveIndex: moveIdx });
+                }}
+                sx={{
+                  color: isActive ? 'primary.main' : 'text.primary',
+                  fontSize: 'inherit',
+                  fontFamily: 'inherit',
+                  fontWeight: isActive ? 700 : 400,
+                  cursor: 'pointer',
+                  px: '3px',
+                  borderRadius: '4px',
+                  bgcolor: isActive ? 'rgba(124,58,237,0.15)' : 'transparent',
+                  '&:hover': { bgcolor: isActive ? 'rgba(124,58,237,0.2)' : 'rgba(255,255,255,0.06)' },
+                  transition: 'all 0.1s',
+                }}
+              >
+                {san}
+              </Typography>
+              {hasComment && (
+                <Tooltip title={comments[moveIdx]} arrow placement="top">
+                  <ChatBubble
                     onClick={(e) => { e.stopPropagation(); handleCommentClick(moveIdx); }}
                     sx={{
                       fontSize: 10,
-                      color: 'text.secondary',
+                      color: 'primary.main',
                       cursor: 'pointer',
-                      opacity: 0.4,
-                      '&:hover': { opacity: 0.8 },
+                      opacity: 0.7,
+                      '&:hover': { opacity: 1 },
                       mx: '1px',
                       verticalAlign: 'middle',
                     }}
                   />
-                )}
-              </React.Fragment>
-            );
-          })
-        )}
+                </Tooltip>
+              )}
+              {!hasComment && isActive && (
+                <ChatBubbleOutline
+                  onClick={(e) => { e.stopPropagation(); handleCommentClick(moveIdx); }}
+                  sx={{
+                    fontSize: 10,
+                    color: 'text.secondary',
+                    cursor: 'pointer',
+                    opacity: 0.4,
+                    '&:hover': { opacity: 0.8 },
+                    mx: '1px',
+                    verticalAlign: 'middle',
+                  }}
+                />
+              )}
+            </React.Fragment>
+          );
+        })}
       </Box>
+
+      <Menu
+        open={!!menu}
+        anchorEl={menu?.anchor}
+        onClose={() => setMenu(null)}
+        disableRestoreFocus
+        slotProps={{
+          transition: {
+            onExited: () => {
+              if (pendingCommentRef.current !== null) handleCommentClick(pendingCommentRef.current);
+              pendingCommentRef.current = null;
+            },
+          },
+          paper: { sx: { minWidth: 180 } },
+        }}
+      >
+        <MenuItem
+          onClick={() => {
+            if (menu) onDeleteMove(menu.moveIndex);
+            setMenu(null);
+          }}
+          sx={{ fontSize: 13, minHeight: 44 }}
+        >
+          <ListItemIcon><Delete fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
+          <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{t('myGames.moveEdit.deleteMove')}</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (menu) pendingCommentRef.current = menu.moveIndex;
+            setMenu(null);
+          }}
+          sx={{ fontSize: 13, minHeight: 44 }}
+        >
+          <ListItemIcon>
+            {menu && comments[menu.moveIndex]
+              ? <ModeComment fontSize="small" sx={{ color: 'primary.main' }} />
+              : <AddComment fontSize="small" sx={{ color: 'primary.main' }} />}
+          </ListItemIcon>
+          <ListItemText primaryTypographyProps={{ fontSize: 13 }}>
+            {menu && comments[menu.moveIndex] ? t('myGames.moveEdit.editComment') : t('myGames.moveEdit.addComment')}
+          </ListItemText>
+        </MenuItem>
+      </Menu>
 
       {/* Comment editor */}
       {editingCommentIndex !== null && (
@@ -212,42 +266,6 @@ export default function MyGamesMoveList({
           />
         </Box>
       )}
-
-      {/* Controls */}
-      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, justifyContent: 'center' }}>
-        <Button
-          size="small"
-          startIcon={<Undo sx={{ fontSize: 14 }} />}
-          onClick={onUndo}
-          disabled={moves.length === 0}
-          sx={{
-            fontSize: 11,
-            textTransform: 'none',
-            color: 'text.secondary',
-            minWidth: 0,
-            px: 1.5,
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
-          }}
-        >
-          {t('myGames.undoMove')}
-        </Button>
-        <Button
-          size="small"
-          startIcon={<RestartAlt sx={{ fontSize: 14 }} />}
-          onClick={onReset}
-          disabled={moves.length === 0}
-          sx={{
-            fontSize: 11,
-            textTransform: 'none',
-            color: 'error.main',
-            minWidth: 0,
-            px: 1.5,
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
-          }}
-        >
-          {t('myGames.resetMoves')}
-        </Button>
-      </Box>
     </Box>
   );
 }

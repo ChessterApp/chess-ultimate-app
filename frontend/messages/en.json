@@ -1175,10 +1175,8 @@
       "continueBtn": "Continue",
       "cancelBtn": "Cancel",
       "commentPlaceholder": "Add a comment for this move...",
-      "undoMove": "Undo",
-      "resetMoves": "Reset",
       "moveEdit": {
-        "deleteFromHere": "Delete from here",
+        "deleteMove": "Delete move",
         "deleteVariation": "Delete variation",
         "promoteVariation": "Promote variation",
         "makeMainLine": "Make main line",
@@ -1186,7 +1184,13 @@
         "savedSuccessfully": "Changes saved successfully",
         "addComment": "Add comment",
         "editComment": "Edit comment",
-        "commentPlaceholder": "Comment on this move…"
+        "commentPlaceholder": "Comment on this move…",
+        "comment": "Comment",
+        "symbols": "Symbols",
+        "more": "More",
+        "moreActions": "More move actions",
+        "saveComment": "Save",
+        "cancel": "Cancel"
       },
       "autoSave": {
         "saving": "Saving…",
@@ -1197,9 +1201,9 @@
         "unsavedLeaveWarning": "Your latest changes haven't been saved yet. Leave anyway?"
       },
       "shareAll": {
-        "button": "Share my games",
-        "title": "Share my games",
-        "description": "Anyone with this link can view your games collection.",
+        "button": "Share database",
+        "title": "Share database",
+        "description": "Anyone with this link can open this database read-only — games and analysis — and copy it to their own workspace.",
         "copy": "Copy link",
         "copied": "Link copied",
         "revoke": "Disable link",

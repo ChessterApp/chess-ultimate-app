@@ -733,6 +733,36 @@ class TestCopySharedDatabase:
             resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy', headers=auth_headers)
             assert resp.get_json()['game_count'] == 1
 
+    def test_copy_includes_analysis_rows_with_titles(self, client, auth_headers):
+        """Saved variations (event='Variation') are copied with their title and
+        the in-PGN comments/NAGs; the private notes field is dropped."""
+        variation_pgn = '[Event "Variation"]\n\n1. e4 $1 {best by test} e5 *\n'
+        variation = _game(2, event='Variation', title='Open Sicilian ideas', pgn=variation_pgn)
+        inserted = []
+
+        class RecordingBuilder(FakeBuilder):
+            def insert(self, data, **k):
+                if isinstance(data, list):
+                    inserted.extend(data)
+                return super().insert(data, **k)
+
+        def table(name):
+            if name == GAMES_TABLE:
+                return RecordingBuilder(data=[_game(1), variation])
+            return FakeBuilder(data=[DB_OPENINGS_SHARED])
+
+        with patch('api.user_databases.supabase') as mock_sb:
+            mock_sb.table = table
+            resp = client.post(f'/api/databases/shared/{SHARE_TOKEN}/copy', headers=auth_headers)
+            assert resp.status_code == 201
+
+        assert len(inserted) == 2
+        copied = next(r for r in inserted if r.get('event') == 'Variation')
+        assert copied['title'] == 'Open Sicilian ideas'
+        assert copied['pgn'] == variation_pgn
+        assert copied['database_id'] == 'new-db-id'
+        assert all('notes' not in r for r in inserted)
+
     def test_copy_unknown_token_404(self, client, auth_headers):
         with patch('api.user_databases.supabase') as mock_sb:
             mock_sb.table = make_table({DATABASES_TABLE: {'data': []}})

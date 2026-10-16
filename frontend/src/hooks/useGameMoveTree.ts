@@ -333,12 +333,15 @@ export function useGameMoveTree() {
     return newNode;
   }, [tree]);
 
-  const deleteFromHere = useCallback((nodeId: string) => {
-    if (!tree) return;
+  /** Removes the node and everything after it; returns the previous move's id. */
+  const deleteFromHere = useCallback((nodeId: string): string | null => {
+    if (!tree) return null;
     const newTree = cloneTree(tree);
+    const parentId = findParentOf(newTree, nodeId)?.id ?? null;
     removeNodeFromTree(newTree, nodeId);
     setTree(newTree);
     setIsDirty(true);
+    return parentId;
   }, [tree]);
 
   const deleteVariation = useCallback((nodeId: string) => {

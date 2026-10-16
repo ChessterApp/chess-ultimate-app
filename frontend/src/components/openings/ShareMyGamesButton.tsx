@@ -1,36 +1,37 @@
 'use client';
 
 /**
- * ShareMyGamesButton — owner-facing control to share an entire My Games
- * collection via a single revocable link.
+ * ShareMyGamesButton — owner-facing "Share database" control for the database
+ * currently selected in My Games.
  *
- * Mirrors the single-game `ShareMyGameButton` pattern (mint / copy / revoke /
- * regenerate) but hits the COLLECTION endpoints and produces a `/g/c/<token>`
- * link:
- *   • Open  → POST /api/games/collection/share (idempotent) → mint/return token.
- *   • Copy  → copies the `https://<host>/g/c/<token>` link (via shareOrCopyGame).
- *   • Revoke→ DELETE /api/games/collection/share → link disabled; offer regen.
+ * Uses the per-database share link (`/database?sdb=<token>`): the recipient
+ * opens it read-only (Games + Analysis) and can copy the whole database into
+ * their own workspace.
+ *   • Open  → POST /api/databases/<id>/share (idempotent) → mint/return token.
+ *   • Copy  → copies the link (via shareOrCopyGame).
+ *   • Revoke→ DELETE /api/databases/<id>/share → link disabled; offer regen.
  *
- * Only rendered in owner mode — MyGamesPanel hides it in shared/read-only mode.
+ * MyGamesPanel only renders it in owner mode with a single database selected
+ * (keyed by id, so switching databases starts from a clean state);
+ * the default database can't be shared, so it renders nothing for that one.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Button, Popover, Box, Typography, TextField, CircularProgress, Snackbar, Alert,
 } from '@mui/material';
 import { IosShare, ContentCopy, LinkOff, Refresh } from '@mui/icons-material';
-import { useAuth } from '@clerk/nextjs';
 import { useTranslations } from 'next-intl';
-import { apiFetch } from '@/lib/api';
+import { useDatabases } from '@/hooks/useDatabases';
 import { shareOrCopyGame } from './ShareGameButton';
+import { buildDatabaseShareUrl } from './DatabasePillRow';
 
-/** Build the shareable `/g/c/<token>` collection link. */
-export function buildCollectionShareUrl(origin: string, token: string): string {
-  return `${origin}/g/c/${token}`;
+interface ShareMyGamesButtonProps {
+  databaseId: string;
 }
 
-export default function ShareMyGamesButton() {
+export default function ShareMyGamesButton({ databaseId }: ShareMyGamesButtonProps) {
   const t = useTranslations('debut.myGames.shareAll');
-  const { getToken } = useAuth();
+  const { databases, refresh, shareDatabase, revokeShare } = useDatabases();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,41 +41,40 @@ export default function ShareMyGamesButton() {
     { open: false, msg: '', severity: 'success' }
   );
 
-  const authedShareFetch = useCallback(async <T,>(method: 'POST' | 'DELETE'): Promise<T> => {
-    const clerkToken = await getToken();
-    if (!clerkToken) throw new Error('Not authenticated');
-    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-    return apiFetch<T>(`${apiBase}/api/games/collection/share`, {
-      method,
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clerkToken}` },
-    });
-  }, [getToken]);
+  // Name, default flag and any existing token come from the owner's db list.
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const database = databases.find(db => db.id === databaseId);
+  const existingToken = database?.share_token;
+  const dbName = database?.name;
 
   const mint = useCallback(async () => {
     setLoading(true);
     setError(false);
-    try {
-      const { token: minted } = await authedShareFetch<{ token: string }>('POST');
+    const minted = await shareDatabase(databaseId);
+    if (minted) {
       setToken(minted);
       setRevoked(false);
-    } catch {
+    } else {
       setError(true);
-    } finally {
-      setLoading(false);
     }
-  }, [authedShareFetch]);
+    setLoading(false);
+  }, [databaseId, shareDatabase]);
 
   const handleOpen = useCallback((e: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(e.currentTarget);
-    // Idempotent on the server — only mint if we don't already hold a token.
-    if (!token) mint();
-  }, [token, mint]);
+    if (token) return;
+    if (existingToken) setToken(existingToken);
+    else mint();
+  }, [token, existingToken, mint]);
 
   const handleCopy = useCallback(async () => {
     if (!token) return;
-    const url = buildCollectionShareUrl(window.location.origin, token);
+    const url = buildDatabaseShareUrl(window.location.origin, token);
     try {
-      const method = await shareOrCopyGame({ url, title: `${t('title')} · Chesster` });
+      const method = await shareOrCopyGame({ url, title: `${dbName ?? t('title')} · Chesster` });
       if (method === 'clipboard') {
         setToast({ open: true, msg: t('copied'), severity: 'success' });
       }
@@ -83,24 +83,24 @@ export default function ShareMyGamesButton() {
       if (err instanceof Error && err.name === 'AbortError') return;
       setToast({ open: true, msg: t('error'), severity: 'error' });
     }
-  }, [token, t]);
+  }, [token, dbName, t]);
 
   const handleRevoke = useCallback(async () => {
     setLoading(true);
     setError(false);
-    try {
-      await authedShareFetch<unknown>('DELETE');
+    if (await revokeShare(databaseId)) {
       setToken(null);
       setRevoked(true);
-    } catch {
+    } else {
       setError(true);
-    } finally {
-      setLoading(false);
     }
-  }, [authedShareFetch]);
+    setLoading(false);
+  }, [databaseId, revokeShare]);
+
+  if (database?.is_default) return null;
 
   const shareUrl = token
-    ? buildCollectionShareUrl(typeof window !== 'undefined' ? window.location.origin : '', token)
+    ? buildDatabaseShareUrl(typeof window !== 'undefined' ? window.location.origin : '', token)
     : '';
 
   return (
@@ -111,9 +111,11 @@ export default function ShareMyGamesButton() {
         startIcon={<IosShare sx={{ fontSize: 16 }} />}
         onClick={handleOpen}
         sx={{
+          height: 40,
+          flexShrink: 0,
           fontSize: 12,
           textTransform: 'none',
-          py: 0.75,
+          whiteSpace: 'nowrap',
           color: 'text.secondary',
           borderColor: 'rgba(255,255,255,0.15)',
           '&:hover': { borderColor: 'rgba(255,255,255,0.3)', bgcolor: 'rgba(255,255,255,0.04)' },
@@ -126,12 +128,20 @@ export default function ShareMyGamesButton() {
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={() => setAnchorEl(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        <Box sx={{ p: 2, width: 300, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: 14 }}>
-            {t('title')}
-          </Typography>
+        <Box sx={{ p: 2, width: 300, maxWidth: 'calc(100vw - 32px)', display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: 14 }}>
+              {t('title')}
+            </Typography>
+            {dbName && (
+              <Typography variant="body2" sx={{ fontSize: 13, color: 'text.primary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {dbName}
+              </Typography>
+            )}
+          </Box>
 
           {loading && (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>

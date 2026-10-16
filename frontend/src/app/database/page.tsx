@@ -555,21 +555,10 @@ export default function DebutPage() {
   }, [activeTab, deleteUserGame, discardAutoSave]);
 
   const editContextMenuActions: MoveContextMenuActions | undefined = isActiveGameEditable ? {
-    onDeleteFromHere: (node) => {
-      gameMoveTree.deleteFromHere(node.id);
-      // Navigate to parent
-      if (gameMoveTree.tree) {
-        const findParent = (root: OpeningNode, targetId: string): OpeningNode | null => {
-          for (const child of root.children || []) {
-            if (child.id === targetId) return root;
-            const found = findParent(child, targetId);
-            if (found) return found;
-          }
-          return null;
-        };
-        const parent = findParent(gameMoveTree.tree, node.id);
-        setEditTreeSelectedNodeId(parent?.id || gameMoveTree.tree.id);
-      }
+    onDeleteMove: (node) => {
+      // Select the previous move (the tree root before the first move).
+      const parentId = gameMoveTree.deleteFromHere(node.id);
+      if (parentId) setEditTreeSelectedNodeId(parentId);
     },
     onDeleteVariation: (node) => {
       gameMoveTree.deleteVariation(node.id);
@@ -599,13 +588,19 @@ export default function DebutPage() {
       gameMoveTree.toggleNag(node.id, code);
     },
     labels: {
-      deleteFromHere: t('myGames.moveEdit.deleteFromHere'),
+      deleteMove: t('myGames.moveEdit.deleteMove'),
       deleteVariation: t('myGames.moveEdit.deleteVariation'),
       promoteVariation: t('myGames.moveEdit.promoteVariation'),
       makeMainLine: t('myGames.moveEdit.makeMainLine'),
       addComment: t('myGames.moveEdit.addComment'),
       editComment: t('myGames.moveEdit.editComment'),
       commentPlaceholder: t('myGames.moveEdit.commentPlaceholder'),
+      comment: t('myGames.moveEdit.comment'),
+      symbols: t('myGames.moveEdit.symbols'),
+      more: t('myGames.moveEdit.more'),
+      moreActions: t('myGames.moveEdit.moreActions'),
+      saveComment: t('myGames.moveEdit.saveComment'),
+      cancel: t('myGames.moveEdit.cancel'),
       moveSymbols: t('nags.moveSymbols'),
       moreSymbols: t('nags.moreSymbols'),
       fewerSymbols: t('nags.fewerSymbols'),
@@ -689,6 +684,17 @@ export default function DebutPage() {
     setMyGamesMoveIndex(0);
     setMyGamesSanMoves([]);
     setMyGamesComments({});
+  }, []);
+
+  // Delete the move at a 1-based index plus everything after it, landing on the
+  // previous move.
+  const handleMyGamesDeleteMove = useCallback((moveIndex: number) => {
+    setMyGamesMoveHistory(prev => prev.slice(0, moveIndex));
+    setMyGamesSanMoves(prev => prev.slice(0, moveIndex - 1));
+    setMyGamesMoveIndex(moveIndex - 1);
+    setMyGamesComments(prev => Object.fromEntries(
+      Object.entries(prev).filter(([key]) => Number(key) < moveIndex),
+    ));
   }, []);
 
   const handleMyGamesPrev = useCallback(() => {
@@ -2202,17 +2208,7 @@ export default function DebutPage() {
                 comments={myGamesComments}
                 onNavigate={(index) => setMyGamesMoveIndex(index)}
                 onComment={handleMyGamesComment}
-                onUndo={() => {
-                  setMyGamesSanMoves(prev => prev.slice(0, -1));
-                  setMyGamesMoveHistory(prev => prev.slice(0, -1));
-                  setMyGamesMoveIndex(prev => Math.max(0, prev - 1));
-                  setMyGamesComments(prev => {
-                    const next = { ...prev };
-                    delete next[myGamesSanMoves.length];
-                    return next;
-                  });
-                }}
-                onReset={handleMyGamesReset}
+                onDeleteMove={handleMyGamesDeleteMove}
               />
             )}
 
@@ -2349,8 +2345,6 @@ export default function DebutPage() {
                 display: { xs: 'block', lg: 'none' },
                 width: '100%',
                 maxWidth: { xs: '100%' },
-                maxHeight: { xs: 150 },
-                overflow: 'auto',
               }}>
                 <GameViewerPanel
                   game={activeGame}

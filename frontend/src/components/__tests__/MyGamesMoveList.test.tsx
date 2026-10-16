@@ -1,4 +1,15 @@
-import { describe, it, expect } from 'vitest';
+// @vitest-environment jsdom
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import React from 'react';
+
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => key,
+}));
+
+import MyGamesMoveList from '../openings/MyGamesMoveList';
+
+afterEach(() => cleanup());
 
 /**
  * MyGamesMoveList — Logic tests for move list, comment management, and PGN building
@@ -145,35 +156,82 @@ describe('MyGamesMoveList PGN Builder', () => {
   });
 });
 
-describe('MyGamesMoveList Undo Logic', () => {
-  it('should remove last move on undo', () => {
-    const moves = ['e4', 'e5', 'Nf3'];
-    const history = [
-      'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1',
-      'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1',
-      'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2',
-      'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2',
-    ];
+function renderList(overrides: Partial<React.ComponentProps<typeof MyGamesMoveList>> = {}) {
+  const props = {
+    moves: ['e4', 'e5', 'Nf3'],
+    currentIndex: 3,
+    comments: {},
+    onNavigate: vi.fn(),
+    onComment: vi.fn(),
+    onDeleteMove: vi.fn(),
+    ...overrides,
+  };
+  const view = render(<MyGamesMoveList {...props} />);
+  return { ...props, ...view };
+}
 
-    const newMoves = moves.slice(0, -1);
-    const newHistory = history.slice(0, -1);
-    const newIndex = Math.max(0, 3 - 1);
-
-    expect(newMoves).toEqual(['e4', 'e5']);
-    expect(newHistory.length).toBe(3);
-    expect(newIndex).toBe(2);
+describe('MyGamesMoveList rendering', () => {
+  it('has no Back/Reset controls and no starting-position placeholder', () => {
+    renderList();
+    expect(screen.queryByText('myGames.undoMove')).toBeNull();
+    expect(screen.queryByText('myGames.resetMoves')).toBeNull();
+    expect(screen.queryByText('startingPosition')).toBeNull();
   });
 
-  it('should remove comment for deleted move', () => {
-    const comments: Record<number, string> = { 1: 'Good', 2: 'Solid', 3: 'Nice' };
-    const movesLength = 3; // about to undo, so delete comment at index 3
+  it('collapses entirely with no moves', () => {
+    const { container } = renderList({ moves: [], currentIndex: 0 });
+    expect(container.innerHTML).toBe('');
+  });
 
-    const next = { ...comments };
-    delete next[movesLength];
+  it('navigates when tapping another move', () => {
+    const { onNavigate } = renderList();
+    fireEvent.click(screen.getByText('e5'));
+    expect(onNavigate).toHaveBeenCalledWith(2);
+    expect(screen.queryByText('myGames.moveEdit.deleteMove')).toBeNull();
+  });
 
-    expect(next[1]).toBe('Good');
-    expect(next[2]).toBe('Solid');
-    expect(next[3]).toBeUndefined();
+  it('offers "Delete move" when tapping the current move again', () => {
+    const { onDeleteMove, onNavigate } = renderList({ currentIndex: 2 });
+    fireEvent.click(screen.getByText('e5'));
+    expect(onNavigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('myGames.moveEdit.deleteMove'));
+    expect(onDeleteMove).toHaveBeenCalledWith(2);
+  });
+
+  it('offers "Delete move" on right-click of any move', () => {
+    const { onDeleteMove } = renderList();
+    fireEvent.contextMenu(screen.getByText('e4'));
+    fireEvent.click(screen.getByText('myGames.moveEdit.deleteMove'));
+    expect(onDeleteMove).toHaveBeenCalledWith(1);
+  });
+
+  it('opens the comment editor from the move menu', async () => {
+    const { onComment } = renderList();
+    fireEvent.click(screen.getByText('Nf3'));
+    fireEvent.click(screen.getByText('myGames.moveEdit.addComment'));
+    const input = await screen.findByPlaceholderText('myGames.commentPlaceholder');
+    fireEvent.change(input, { target: { value: 'develops' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(onComment).toHaveBeenCalledWith(3, 'develops'));
+  });
+});
+
+describe('MyGamesMoveList Delete move logic', () => {
+  // Mirrors the database page's handler: drop the move and everything after it,
+  // landing on the previous move.
+  function deleteMove(moves: string[], comments: Record<number, string>, moveIndex: number) {
+    return {
+      moves: moves.slice(0, moveIndex - 1),
+      index: moveIndex - 1,
+      comments: Object.fromEntries(Object.entries(comments).filter(([k]) => Number(k) < moveIndex)),
+    };
+  }
+
+  it('removes the move, its successors and their comments', () => {
+    const result = deleteMove(['e4', 'e5', 'Nf3', 'Nc6'], { 1: 'Good', 2: 'Solid', 3: 'Nice' }, 2);
+    expect(result.moves).toEqual(['e4']);
+    expect(result.index).toBe(1);
+    expect(result.comments).toEqual({ 1: 'Good' });
   });
 });
 

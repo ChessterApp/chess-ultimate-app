@@ -268,6 +268,24 @@ describe('tree manipulation', () => {
     });
   });
 
+  describe('deleteFromHere (hook)', () => {
+    it('returns the previous move for main-line and variation moves', () => {
+      const { result } = renderHook(() => useGameMoveTree());
+      act(() => result.current.initFromPgn('1. e4 e5 2. Nf3 (2. Bc4 Bc5) 2... Nc6'));
+      const e5 = result.current.tree!.children![0].children![0];
+      const bc4 = e5.children![1];
+
+      let parentId: string | null = null;
+      act(() => { parentId = result.current.deleteFromHere(bc4.children![0].id); });
+      expect(parentId).toBe(bc4.id);
+
+      act(() => { parentId = result.current.deleteFromHere(e5.children![0].id); });
+      expect(parentId).toBe(e5.id);
+      expect(mainLineMoves(result.current.tree!)).toEqual(['e4', 'e5', 'Bc4']);
+      expect(result.current.isDirty).toBe(true);
+    });
+  });
+
   describe('deleteVariation', () => {
     it('removes a variation (non-main-line child)', () => {
       // Build tree with variation

@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+//
+// "Share database" shares the SELECTED database through the per-database share
+// link (`/database?sdb=<token>`): mint on open, copy, revoke, regenerate.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
 import React from 'react';
 
 // next-intl: echo the key so assertions stay locale-independent.
@@ -8,20 +11,35 @@ vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }));
 
-// Clerk: always hand back a token.
+// Clerk: always hand back a token (stable, like the real getToken).
+const getToken = () => Promise.resolve('clerk-tok');
 vi.mock('@clerk/nextjs', () => ({
-  useAuth: () => ({ getToken: () => Promise.resolve('clerk-tok') }),
+  useAuth: () => ({ getToken }),
 }));
 
-// Collection share endpoints.
+// Database endpoints (the real useDatabases hook runs on top of this).
 vi.mock('@/lib/api', () => ({ apiFetch: vi.fn() }));
 
 import { apiFetch } from '@/lib/api';
-import ShareMyGamesButton, { buildCollectionShareUrl } from '../ShareMyGamesButton';
+import ShareMyGamesButton from '../ShareMyGamesButton';
 
 const mockApiFetch = apiFetch as unknown as ReturnType<typeof vi.fn>;
 
 const writeText = vi.fn().mockResolvedValue(undefined);
+
+const OPENINGS = { id: 'db-1', name: 'Openings', is_default: false, game_count: 3, share_token: null };
+const DEFAULT_DB = { id: 'db-0', name: 'My Games', is_default: true, game_count: 9, share_token: null };
+
+type Handler = (url: string, method: string) => unknown;
+
+/** Route apiFetch calls: the db list GET, then `handler` for share calls. */
+function routeApi(handler: Handler, list: unknown[] = [OPENINGS, DEFAULT_DB]) {
+  mockApiFetch.mockImplementation((url: string, opts?: RequestInit) => {
+    const method = opts?.method ?? 'GET';
+    if (url === '/api/databases' && method === 'GET') return Promise.resolve(list);
+    return handler(url, method);
+  });
+}
 
 beforeEach(() => {
   mockApiFetch.mockReset();
@@ -34,93 +52,96 @@ beforeEach(() => {
   });
 });
 
-describe('buildCollectionShareUrl', () => {
-  it('builds a /g/c/<token> collection link', () => {
-    expect(buildCollectionShareUrl('https://chesster.io', 'abc123')).toBe(
-      'https://chesster.io/g/c/abc123',
-    );
-  });
-});
+afterEach(() => cleanup());
 
-describe('ShareMyGamesButton', () => {
-  it('mints a token on open and shows the share link', async () => {
-    mockApiFetch.mockResolvedValueOnce({ token: 'tok123' });
-    render(<ShareMyGamesButton />);
+describe('ShareMyGamesButton (Share database)', () => {
+  it('mints a link for the selected database and shows its name', async () => {
+    routeApi(() => Promise.resolve({ share_token: 'tok123' }));
+    render(<ShareMyGamesButton databaseId="db-1" />);
 
     fireEvent.click(screen.getByText('button'));
 
-    const input = await screen.findByDisplayValue(/\/g\/c\/tok123$/);
-    expect(input).toBeTruthy();
+    expect(await screen.findByDisplayValue(/\/database\?sdb=tok123$/)).toBeTruthy();
+    expect(screen.getByText('title')).toBeTruthy();
+    await screen.findByText('Openings');
     expect(mockApiFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/games/collection/share'),
+      '/api/databases/db-1/share',
       expect.objectContaining({ method: 'POST' }),
     );
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      expect.stringContaining('/api/games/collection/share'),
+      expect.anything(),
+    );
+  });
+
+  it('reuses an existing share token without minting', async () => {
+    routeApi(() => Promise.reject(new Error('unexpected')), [{ ...OPENINGS, share_token: 'existing' }]);
+    render(<ShareMyGamesButton databaseId="db-1" />);
+    await screen.findByText('button');
+    await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1)); // list loaded
+
+    fireEvent.click(screen.getByText('button'));
+
+    expect(await screen.findByDisplayValue(/\/database\?sdb=existing$/)).toBeTruthy();
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders nothing for the default database (never shareable)', async () => {
+    routeApi(() => Promise.resolve({}));
+    render(<ShareMyGamesButton databaseId="db-0" />);
+    await waitFor(() => expect(screen.queryByText('button')).toBeNull());
   });
 
   it('shows a loading spinner while minting', async () => {
-    let resolvePost!: (v: { token: string }) => void;
-    mockApiFetch.mockReturnValueOnce(new Promise((r) => { resolvePost = r; }));
-    render(<ShareMyGamesButton />);
+    let resolvePost!: (v: { share_token: string }) => void;
+    routeApi(() => new Promise((r) => { resolvePost = r; }));
+    render(<ShareMyGamesButton databaseId="db-1" />);
 
     fireEvent.click(screen.getByText('button'));
-    expect(screen.getByRole('progressbar')).toBeTruthy();
+    expect(await screen.findByRole('progressbar')).toBeTruthy();
 
-    resolvePost({ token: 'tok123' });
-    await screen.findByDisplayValue(/\/g\/c\/tok123$/);
+    resolvePost({ share_token: 'tok123' });
+    await screen.findByDisplayValue(/sdb=tok123$/);
   });
 
   it('copies the link to the clipboard', async () => {
-    mockApiFetch.mockResolvedValueOnce({ token: 'tok123' });
-    render(<ShareMyGamesButton />);
+    routeApi(() => Promise.resolve({ share_token: 'tok123' }));
+    render(<ShareMyGamesButton databaseId="db-1" />);
 
     fireEvent.click(screen.getByText('button'));
-    await screen.findByDisplayValue(/\/g\/c\/tok123$/);
+    await screen.findByDisplayValue(/sdb=tok123$/);
 
     fireEvent.click(screen.getByText('copy'));
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/g\/c\/tok123$/));
+      expect(writeText).toHaveBeenCalledWith(expect.stringMatching(/\/database\?sdb=tok123$/));
     });
     expect(await screen.findByText('copied')).toBeTruthy();
   });
 
-  it('revokes the link and offers to regenerate', async () => {
-    mockApiFetch.mockResolvedValueOnce({ token: 'tok123' }); // POST mint
-    render(<ShareMyGamesButton />);
+  it('revokes the link and regenerates a new one', async () => {
+    let next = 'tok123';
+    routeApi((_url, method) => Promise.resolve(method === 'DELETE' ? { success: true } : { share_token: next }));
+    render(<ShareMyGamesButton databaseId="db-1" />);
 
     fireEvent.click(screen.getByText('button'));
-    await screen.findByDisplayValue(/\/g\/c\/tok123$/);
+    await screen.findByDisplayValue(/sdb=tok123$/);
 
-    mockApiFetch.mockResolvedValueOnce(''); // DELETE revoke (204, empty body)
     fireEvent.click(screen.getByText('revoke'));
-
     expect(await screen.findByText('revoked')).toBeTruthy();
-    expect(mockApiFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining('/api/games/collection/share'),
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/api/databases/db-1/share',
       expect.objectContaining({ method: 'DELETE' }),
     );
-    expect(screen.getByText('regenerate')).toBeTruthy();
-  });
 
-  it('regenerates a new token after revoke', async () => {
-    mockApiFetch.mockResolvedValueOnce({ token: 'tok123' }); // mint
-    render(<ShareMyGamesButton />);
-    fireEvent.click(screen.getByText('button'));
-    await screen.findByDisplayValue(/\/g\/c\/tok123$/);
-
-    mockApiFetch.mockResolvedValueOnce(''); // revoke
-    fireEvent.click(screen.getByText('revoke'));
-    await screen.findByText('revoked');
-
-    mockApiFetch.mockResolvedValueOnce({ token: 'tok999' }); // regenerate
+    next = 'tok999';
     fireEvent.click(screen.getByText('regenerate'));
-
-    expect(await screen.findByDisplayValue(/\/g\/c\/tok999$/)).toBeTruthy();
+    expect(await screen.findByDisplayValue(/sdb=tok999$/)).toBeTruthy();
   });
 
   it('shows an error state when minting fails', async () => {
-    mockApiFetch.mockRejectedValueOnce(new Error('boom'));
-    render(<ShareMyGamesButton />);
+    routeApi(() => Promise.reject(new Error('boom')));
+    render(<ShareMyGamesButton databaseId="db-1" />);
 
     fireEvent.click(screen.getByText('button'));
 

@@ -48,6 +48,7 @@ import AnalysisSection, { SectionHeader } from './AnalysisSection';
 type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
 const SHARED_PER_PAGE = 20;
+const ACCENT = '#7c3aed';
 
 interface SharedCollectionResponse {
   games: UserGame[];
@@ -417,29 +418,9 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, p: 1 }}>
-      {/* Owner mode: mutation UI (add/import + modals). Hidden in shared mode. */}
+      {/* Owner mode: add/edit modals. Hidden in shared mode. */}
       {!isShared && (
         <>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            <Button
-              variant="contained"
-              size="small"
-              startIcon={<Add />}
-              onClick={() => setAddModalOpen(true)}
-              sx={{
-                fontSize: 12,
-                textTransform: 'none',
-                py: 0.75,
-                flex: 1,
-                background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
-                '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #4f46e5)' },
-              }}
-            >
-              {t('myGames.addGame')}
-            </Button>
-            <ShareMyGamesButton />
-          </Box>
-
           <AddGameModal
             open={addModalOpen}
             onClose={() => setAddModalOpen(false)}
@@ -487,29 +468,35 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
         </Box>
       )}
 
-      {/* Search (filters both sections) — owner mode only (the shared endpoint is unfiltered) */}
+      {/* Search (filters both sections) + Share database — owner mode only (the
+          shared endpoint is unfiltered). Sharing needs a single database, so the
+          "All games" view has no share button. */}
       {!isShared && (
-        <TextField
-          size="small"
-          placeholder={t('myGames.searchPlaceholder')}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          slotProps={{
-            input: {
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
-                </InputAdornment>
-              ),
-            },
-          }}
-          sx={{
-            '& .MuiOutlinedInput-root': {
-              fontSize: 13,
-              bgcolor: 'rgba(255,255,255,0.03)',
-            },
-          }}
-        />
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <TextField
+            size="small"
+            placeholder={t('myGames.searchPlaceholder')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+              },
+            }}
+            sx={{
+              flex: 1,
+              '& .MuiOutlinedInput-root': {
+                fontSize: 13,
+                bgcolor: 'rgba(255,255,255,0.03)',
+              },
+            }}
+          />
+          {databaseId && <ShareMyGamesButton key={databaseId} databaseId={databaseId} />}
+        </Box>
       )}
 
       {/* Analysis — saved variations. Hidden in shared views that have none. */}
@@ -539,6 +526,25 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
         count={displayTotal}
         open={gamesOpen}
         onToggle={() => setGamesOpen(!gamesOpen)}
+        actions={!isShared && (
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<Add />}
+            onClick={() => setAddModalOpen(true)}
+            sx={{
+              fontSize: 12,
+              textTransform: 'none',
+              py: 0.25,
+              color: ACCENT,
+              borderColor: ACCENT,
+              whiteSpace: 'nowrap',
+              '&:hover': { borderColor: '#6d28d9', bgcolor: 'rgba(124,58,237,0.06)' },
+            }}
+          >
+            {t('myGames.addGame')}
+          </Button>
+        )}
       />
 
       {/* Result + favorite filters — Games only, owner mode only */}

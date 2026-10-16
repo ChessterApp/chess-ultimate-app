@@ -1,14 +1,16 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase, Divider, Popover } from '@mui/material';
-import { Backspace, DeleteSweep, Delete, TrendingUp, ArrowUpward, Star, AddComment, ModeComment } from '@mui/icons-material';
+import { Box, Typography, IconButton, Button, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase, Divider, Popover, useMediaQuery, useTheme } from '@mui/material';
+import { Backspace, DeleteSweep, Delete, TrendingUp, Star, AddComment, ModeComment, MoreHoriz } from '@mui/icons-material';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
 import { MOVE_QUALITY_COLORS, getNag, suffixToNag } from '@/lib/nags';
 import NagPalette, { type NagPaletteLabels } from './NagPalette';
+import MoveActionSheet, { type MoveAction, type MoveSheetView } from './MoveActionSheet';
 
 export interface MoveContextMenuActions {
-  onDeleteFromHere?: (node: OpeningNode) => void;
+  /** Removes the move and everything after it in its line. */
+  onDeleteMove?: (node: OpeningNode) => void;
   onDeleteVariation?: (node: OpeningNode) => void;
   onPromoteVariation?: (node: OpeningNode) => void;
   onMakeMainLine?: (node: OpeningNode) => void;
@@ -17,7 +19,7 @@ export interface MoveContextMenuActions {
   /** Enables move symbols: palette in the context menu + toolbar, `!`/`?` keys. */
   onNagToggle?: (node: OpeningNode, code: number) => void;
   labels?: NagPaletteLabels & {
-    deleteFromHere?: string;
+    deleteMove?: string;
     deleteVariation?: string;
     promoteVariation?: string;
     makeMainLine?: string;
@@ -25,11 +27,22 @@ export interface MoveContextMenuActions {
     editComment?: string;
     commentPlaceholder?: string;
     moveSymbols?: string;
+    /** Short action-bar labels shown at mobile width. */
+    comment?: string;
+    symbols?: string;
+    more?: string;
+    moreActions?: string;
+    saveComment?: string;
+    cancel?: string;
   };
 }
 
 /** `!`/`?` presses within this window combine into `!!`, `!?`, `?!`, `??`. */
 const NAG_KEY_WINDOW_MS = 400;
+
+/** Touch hold that opens the move action sheet; moving past the slop cancels it. */
+const LONG_PRESS_MS = 450;
+const LONG_PRESS_SLOP_PX = 10;
 
 // Several notations can be mounted at once (responsive layouts); only the first
 // listener acts on a given key press.
@@ -139,25 +152,37 @@ interface MoveNotationProps {
   contextMenuActions?: MoveContextMenuActions;
 }
 
+interface MoveHandlers {
+  onContextMenu: (e: React.MouseEvent, node: OpeningNode) => void;
+  onTouchStart: (e: React.TouchEvent, node: OpeningNode) => void;
+  onTouchMove: (e: React.TouchEvent) => void;
+  onTouchEnd: (e: React.TouchEvent) => void;
+  onTouchCancel: () => void;
+}
+
 function MoveSpan({
   node,
   isSelected,
   selectedRef,
   onNodeSelect,
-  onContextMenu,
+  handlers,
 }: {
   node: OpeningNode;
   isSelected: boolean;
   selectedRef: React.RefObject<HTMLSpanElement | null>;
   onNodeSelect: (node: OpeningNode) => void;
-  onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void;
+  handlers?: MoveHandlers;
 }) {
   return (
     <Typography
       ref={isSelected ? selectedRef : null}
       component="span"
       onClick={() => onNodeSelect(node)}
-      onContextMenu={onContextMenu ? (e) => onContextMenu(e, node) : undefined}
+      onContextMenu={handlers ? (e) => handlers.onContextMenu(e, node) : undefined}
+      onTouchStart={handlers ? (e) => handlers.onTouchStart(e, node) : undefined}
+      onTouchMove={handlers?.onTouchMove}
+      onTouchEnd={handlers?.onTouchEnd}
+      onTouchCancel={handlers?.onTouchCancel}
       sx={{
         color: isSelected ? 'text.primary' : 'text.secondary',
         bgcolor: isSelected ? 'action.hover' : 'transparent',
@@ -169,6 +194,9 @@ function MoveSpan({
         borderRadius: '2px',
         cursor: 'pointer',
         transition: 'background-color 0.1s',
+        // Long-press opens the action sheet — keep iOS from selecting text or
+        // showing its callout instead.
+        ...(handlers && { '@media (pointer: coarse)': { WebkitTouchCallout: 'none', userSelect: 'none' } }),
         '&:hover': {
           bgcolor: isSelected ? 'action.selected' : 'action.hover',
           color: 'text.primary',
@@ -207,7 +235,7 @@ function renderNode(
   selectedNodeId: string | null,
   onNodeSelect: (node: OpeningNode) => void,
   selectedRef: React.RefObject<HTMLSpanElement | null>,
-  onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void,
+  handlers?: MoveHandlers,
   renderComment?: RenderComment,
 ): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
@@ -227,7 +255,7 @@ function renderNode(
       isSelected={isSelected}
       selectedRef={selectedRef}
       onNodeSelect={onNodeSelect}
-      onContextMenu={onContextMenu}
+      handlers={handlers}
     />
   );
 
@@ -239,7 +267,7 @@ function renderNode(
 
   elements.push(
     // A comment breaks the move pair, so the next black move gets its number back
-    ...renderNode(children[0], depth, !!comment, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)
+    ...renderNode(children[0], depth, !!comment, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -265,7 +293,7 @@ function renderNode(
         >
           (
         </Typography>
-        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)}
+        {renderNode(alt, depth + 1, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -284,7 +312,7 @@ function renderTree(
   selectedNodeId: string | null,
   onNodeSelect: (node: OpeningNode) => void,
   selectedRef: React.RefObject<HTMLSpanElement | null>,
-  onContextMenu?: (e: React.MouseEvent, node: OpeningNode) => void,
+  handlers?: MoveHandlers,
   renderComment?: RenderComment,
 ): React.ReactNode[] {
   const children = root.children || [];
@@ -295,7 +323,7 @@ function renderTree(
   if (rootComment) elements.push(<React.Fragment key="c-root">{rootComment}</React.Fragment>);
 
   elements.push(
-    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)
+    ...renderNode(children[0], 0, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)
   );
 
   for (let i = 1; i < children.length; i++) {
@@ -321,7 +349,7 @@ function renderTree(
         >
           (
         </Typography>
-        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, onContextMenu, renderComment)}
+        {renderNode(alt, 1, true, selectedNodeId, onNodeSelect, selectedRef, handlers, renderComment)}
         <Typography
           component="span"
           sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: '12px', userSelect: 'none' }}
@@ -333,6 +361,45 @@ function renderTree(
   }
 
   return elements;
+}
+
+function moveLabel(node: OpeningNode): string {
+  return `${node.move_number}${node.is_white_move ? '.' : '…'} ${node.move_san}`;
+}
+
+function ActionBarButton({ label, showLabel, disabled, onClick, children }: {
+  label: string;
+  showLabel: boolean;
+  disabled: boolean;
+  onClick: (e: React.MouseEvent<HTMLElement>) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip title={showLabel ? '' : label} arrow placement="top" describeChild>
+      <span>
+        <Button
+          size="small"
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+          sx={{
+            minWidth: 40,
+            minHeight: 40,
+            px: showLabel ? 1.25 : 0.5,
+            gap: 0.75,
+            color: 'text.secondary',
+            textTransform: 'none',
+            fontSize: 13,
+            fontWeight: 600,
+            '&:hover': { color: 'primary.main' },
+          }}
+        >
+          {children}
+          {showLabel && <span>{label}</span>}
+        </Button>
+      </span>
+    </Tooltip>
+  );
 }
 
 export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDeleteLast, onDeleteAll, loading, contextMenuActions }: MoveNotationProps) {
@@ -347,6 +414,14 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   const onNagToggle = contextMenuActions?.onNagToggle;
   const [nagAnchor, setNagAnchor] = useState<HTMLElement | null>(null);
   const commentPlaceholder = contextMenuActions?.labels?.commentPlaceholder;
+  // Phones/tablets: the right-click menu is unreachable, so the move actions and
+  // comment editor live in a bottom sheet instead.
+  const theme = useTheme();
+  const isNarrow = useMediaQuery(theme.breakpoints.down('md'));
+  const isTouch = useMediaQuery('(pointer: coarse)');
+  const isMobile = isNarrow || isTouch;
+  const [sheet, setSheet] = useState<{ nodeId: string; view: MoveSheetView } | null>(null);
+  const pressRef = useRef<{ node: OpeningNode; x: number; y: number; timer: ReturnType<typeof setTimeout>; fired: boolean } | null>(null);
 
   useEffect(() => {
     const el = selectedRef.current;
@@ -363,11 +438,78 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     }
   }, [selectedNodeId]);
 
+  const openSheet = useCallback((node: OpeningNode, view: MoveSheetView = 'actions') => {
+    if (node.id !== selectedNodeId) onNodeSelect(node);
+    setSheet({ nodeId: node.id, view });
+  }, [selectedNodeId, onNodeSelect]);
+
+  const closeSheet = useCallback(() => setSheet(null), []);
+
+  // ─── Long-press (touch) ───
+  const endPress = useCallback(() => {
+    const press = pressRef.current;
+    if (press) clearTimeout(press.timer);
+    pressRef.current = null;
+    return press;
+  }, []);
+
+  useEffect(() => () => { endPress(); }, [endPress]);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent, node: OpeningNode) => {
+    endPress();
+    const touch = e.touches[0];
+    const press = {
+      node,
+      x: touch?.clientX ?? 0,
+      y: touch?.clientY ?? 0,
+      fired: false,
+      timer: setTimeout(() => {
+        press.fired = true;
+        navigator.vibrate?.(10);
+      }, LONG_PRESS_MS),
+    };
+    pressRef.current = press;
+  }, [endPress]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    const press = pressRef.current;
+    const touch = e.touches[0];
+    if (press && touch && Math.hypot(touch.clientX - press.x, touch.clientY - press.y) > LONG_PRESS_SLOP_PX) endPress();
+  }, [endPress]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    const press = endPress();
+    if (!press?.fired) return;
+    // Swallow the tap that would otherwise follow the hold.
+    e.preventDefault();
+    openSheet(press.node);
+  }, [endPress, openSheet]);
+
   const handleContextMenu = useCallback((e: React.MouseEvent, node: OpeningNode) => {
     if (!contextMenuActions) return;
     e.preventDefault();
+    // Android fires contextmenu for a touch hold — treat it as the long-press.
+    const press = endPress();
+    if (press) {
+      openSheet(press.node);
+      return;
+    }
     setContextMenu({ x: e.clientX, y: e.clientY, node });
-  }, [contextMenuActions]);
+  }, [contextMenuActions, endPress, openSheet]);
+
+  const handlers = useMemo<MoveHandlers>(() => ({
+    onContextMenu: handleContextMenu,
+    onTouchStart: handleTouchStart,
+    onTouchMove: handleTouchMove,
+    onTouchEnd: handleTouchEnd,
+    onTouchCancel: endPress,
+  }), [handleContextMenu, handleTouchStart, handleTouchMove, handleTouchEnd, endPress]);
+
+  // On mobile a second tap on the current move opens its action sheet.
+  const handleMoveClick = useCallback((node: OpeningNode) => {
+    if (isMobile && contextMenuActions && node.id === selectedNodeId) openSheet(node);
+    else onNodeSelect(node);
+  }, [isMobile, contextMenuActions, selectedNodeId, openSheet, onNodeSelect]);
 
   const handleCloseMenu = useCallback(() => {
     setContextMenu(null);
@@ -389,6 +531,11 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     return parent.children[0].id !== node.id;
   }, [tree]);
 
+  const editComment = useCallback((node: OpeningNode) => {
+    if (isMobile) openSheet(node, 'comment');
+    else setEditingCommentId(node.id);
+  }, [isMobile, openSheet]);
+
   const renderComment = useCallback<RenderComment>((node) => {
     if (node.id === editingCommentId) {
       return (
@@ -403,17 +550,17 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
       );
     }
     if (!node.notes) return null;
-    return <CommentText text={node.notes} onClick={() => setEditingCommentId(node.id)} />;
-  }, [editingCommentId, commentPlaceholder, onCommentChange]);
+    return <CommentText text={node.notes} onClick={() => editComment(node)} />;
+  }, [editingCommentId, commentPlaceholder, onCommentChange, editComment]);
 
   const elements = useMemo(() => {
     if (!tree) return [];
     return renderTree(
-      tree, selectedNodeId, onNodeSelect, selectedRef,
-      contextMenuActions ? handleContextMenu : undefined,
+      tree, selectedNodeId, handleMoveClick, selectedRef,
+      contextMenuActions ? handlers : undefined,
       onCommentChange ? renderComment : undefined,
     );
-  }, [tree, selectedNodeId, onNodeSelect, contextMenuActions, handleContextMenu, onCommentChange, renderComment]);
+  }, [tree, selectedNodeId, handleMoveClick, contextMenuActions, handlers, onCommentChange, renderComment]);
 
   const selectedMoveNode = useMemo(() => {
     if (!tree || !selectedNodeId || selectedNodeId === tree.id) return null;
@@ -477,12 +624,98 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
 
   const hasContent = elements.length > 0;
   const labels = contextMenuActions?.labels || {};
+  const commentLabel = (node: OpeningNode | null) =>
+    node?.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment';
+  const symbolsLabel = labels.moveSymbols || 'Move symbols';
+
+  // One action list for both surfaces: the desktop context menu and the mobile
+  // sheet. Order is the sheet's; the menu pulls "Delete move" to the top and
+  // shows the symbol palette inline instead of the "Symbols" row.
+  const moveActions = (node: OpeningNode): MoveAction[] => {
+    if (!contextMenuActions) return [];
+    const variation = isVariation(node);
+    const actions: MoveAction[] = [];
+    if (onCommentChange) {
+      actions.push({
+        key: 'comment',
+        label: commentLabel(node),
+        icon: node.notes ? <ModeComment fontSize="small" /> : <AddComment fontSize="small" />,
+        color: 'primary.main',
+      });
+    }
+    if (onNagToggle) {
+      actions.push({ key: 'symbols', label: symbolsLabel, icon: <Box component="span" sx={{ fontWeight: 700, fontSize: 14 }}>!?</Box> });
+    }
+    if (contextMenuActions.onMakeMainLine && variation) {
+      actions.push({ key: 'makeMainLine', label: labels.makeMainLine || 'Make main line', icon: <Star fontSize="small" />, color: 'success.main' });
+    }
+    if (contextMenuActions.onPromoteVariation && variation) {
+      actions.push({ key: 'promoteVariation', label: labels.promoteVariation || 'Promote variation', icon: <TrendingUp fontSize="small" />, color: 'info.main' });
+    }
+    if (contextMenuActions.onDeleteVariation && variation) {
+      actions.push({ key: 'deleteVariation', label: labels.deleteVariation || 'Delete variation', icon: <Delete fontSize="small" />, color: 'warning.main' });
+    }
+    if (contextMenuActions.onDeleteMove) {
+      actions.push({ key: 'deleteMove', label: labels.deleteMove || 'Delete move', icon: <Delete fontSize="small" />, color: 'error.main' });
+    }
+    return actions;
+  };
+
+  const runAction = (key: string, node: OpeningNode, surface: 'menu' | 'sheet') => {
+    if (!contextMenuActions) return;
+    if (key === 'comment') {
+      if (surface === 'sheet') setSheet({ nodeId: node.id, view: 'comment' });
+      else pendingCommentIdRef.current = node.id;
+      return;
+    }
+    if (key === 'symbols') {
+      setSheet({ nodeId: node.id, view: 'nags' });
+      return;
+    }
+    setSheet(null);
+    if (key === 'makeMainLine') contextMenuActions.onMakeMainLine?.(node);
+    else if (key === 'promoteVariation') contextMenuActions.onPromoteVariation?.(node);
+    else if (key === 'deleteVariation') contextMenuActions.onDeleteVariation?.(node);
+    else if (key === 'deleteMove') contextMenuActions.onDeleteMove?.(node);
+  };
+
+  const menuNode = contextMenu ? findNode(tree, contextMenu.node.id) ?? contextMenu.node : null;
+  const menuActions = menuNode ? moveActions(menuNode).filter(a => a.key !== 'symbols') : [];
+  const menuDelete = menuActions.find(a => a.key === 'deleteMove');
+  const menuRest = menuActions.filter(a => a.key !== 'deleteMove');
+  const renderMenuItem = (action: MoveAction) => (
+    <MenuItem
+      key={action.key}
+      onClick={() => {
+        handleCloseMenu();
+        if (menuNode) runAction(action.key, menuNode, 'menu');
+      }}
+      sx={{ fontSize: 13 }}
+    >
+      <ListItemIcon sx={{ color: action.color }}>{action.icon}</ListItemIcon>
+      <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{action.label}</ListItemText>
+    </MenuItem>
+  );
+
+  const sheetNode = sheet ? findNode(tree, sheet.nodeId) : null;
+
+  const openMore = (e: React.MouseEvent<HTMLElement>) => {
+    if (!selectedMoveNode) return;
+    if (isMobile) {
+      openSheet(selectedMoveNode);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.left, y: rect.bottom, node: selectedMoveNode });
+  };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column' }}>
-      {/* Notation content */}
+    <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {/* Notation content — scrolls on its own so the action bar below stays visible */}
       <Box
         ref={containerRef}
+        data-testid="move-notation-scroll"
+        onScroll={endPress}
         sx={{
           display: 'flex',
           flexWrap: 'wrap',
@@ -492,6 +725,8 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
           py: 0.5,
           overflow: 'auto',
           flex: 1,
+          minHeight: 0,
+          maxHeight: { xs: 150, lg: 'none' },
           fontFamily: 'monospace',
           fontSize: '12px',
           lineHeight: 1.4,
@@ -500,36 +735,44 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
         {elements}
       </Box>
 
-      {/* Symbol + comment buttons for the selected move (editable mode) */}
-      {((onCommentChange && selectedMoveNode) || onNagToggle) && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.25, px: 0.5, py: 0.25, borderTop: 1, borderColor: 'divider' }}>
+      {/* Move action bar for the selected move (editable mode) */}
+      {contextMenuActions && (
+        <Box
+          data-testid="move-action-bar"
+          sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.5, px: 0.5, py: 0.25, borderTop: 1, borderColor: 'divider' }}
+        >
+          {onCommentChange && (
+            <ActionBarButton
+              label={isMobile ? labels.comment || 'Comment' : commentLabel(selectedMoveNode)}
+              showLabel={isMobile}
+              disabled={!selectedMoveNode}
+              onClick={() => selectedMoveNode && editComment(selectedMoveNode)}
+            >
+              {selectedMoveNode?.notes ? <ModeComment sx={{ fontSize: 18 }} /> : <AddComment sx={{ fontSize: 18 }} />}
+            </ActionBarButton>
+          )}
           {onNagToggle && (
-            <Tooltip title={labels.moveSymbols || 'Move symbols'} arrow placement="top" describeChild>
-              <span>
-                <IconButton
-                  size="small"
-                  aria-label={labels.moveSymbols || 'Move symbols'}
-                  disabled={!selectedMoveNode}
-                  onClick={(e) => setNagAnchor(e.currentTarget)}
-                  sx={{ color: 'text.secondary', p: 0.4, minWidth: 23, fontSize: 12, fontWeight: 700, lineHeight: '15px', '&:hover': { color: 'primary.main' } }}
-                >
-                  !?
-                </IconButton>
-              </span>
-            </Tooltip>
+            <ActionBarButton
+              label={isMobile ? labels.symbols || 'Symbols' : symbolsLabel}
+              showLabel={isMobile}
+              disabled={!selectedMoveNode}
+              onClick={(e) => {
+                if (!selectedMoveNode) return;
+                if (isMobile) openSheet(selectedMoveNode, 'nags');
+                else setNagAnchor(e.currentTarget);
+              }}
+            >
+              <Box component="span" sx={{ fontSize: 14, fontWeight: 700, lineHeight: '18px' }}>!?</Box>
+            </ActionBarButton>
           )}
-          {onCommentChange && selectedMoveNode && (
-            <Tooltip title={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'} arrow placement="top">
-              <IconButton
-                size="small"
-                aria-label={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'}
-                onClick={() => setEditingCommentId(selectedMoveNode.id)}
-                sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'primary.main' } }}
-              >
-                {selectedMoveNode.notes ? <ModeComment sx={{ fontSize: 15 }} /> : <AddComment sx={{ fontSize: 15 }} />}
-              </IconButton>
-            </Tooltip>
-          )}
+          <ActionBarButton
+            label={isMobile ? labels.more || 'More' : labels.moreActions || 'More actions'}
+            showLabel={isMobile}
+            disabled={!selectedMoveNode}
+            onClick={openMore}
+          >
+            <MoreHoriz sx={{ fontSize: 18 }} />
+          </ActionBarButton>
         </Box>
       )}
 
@@ -588,7 +831,7 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
         </Box>
       )}
 
-      {/* Context menu for move editing */}
+      {/* Context menu for move editing (desktop) */}
       {contextMenuActions && (
         <Menu
           open={!!contextMenu}
@@ -611,81 +854,43 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             },
           }}
         >
-          {onNagToggle && contextMenu && (
+          {menuDelete && renderMenuItem(menuDelete)}
+          {menuDelete && (onNagToggle || menuRest.length > 0) && <Divider sx={{ my: 0.5 }} />}
+          {onNagToggle && menuNode && (
             <NagPalette
-              nags={findNode(tree, contextMenu.node.id)?.nags}
-              onToggle={(code) => onNagToggle(contextMenu.node, code)}
+              nags={menuNode.nags}
+              onToggle={(code) => onNagToggle(menuNode, code)}
               labels={labels}
             />
           )}
-          {onNagToggle && contextMenu && <Divider sx={{ my: 0.5 }} />}
-          {onCommentChange && contextMenu && (
-            <MenuItem
-              onClick={() => {
-                if (contextMenu) pendingCommentIdRef.current = contextMenu.node.id;
-                handleCloseMenu();
-              }}
-              sx={{ fontSize: 13 }}
-            >
-              <ListItemIcon>
-                {contextMenu.node.notes
-                  ? <ModeComment fontSize="small" sx={{ color: 'primary.main' }} />
-                  : <AddComment fontSize="small" sx={{ color: 'primary.main' }} />}
-              </ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>
-                {contextMenu.node.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'}
-              </ListItemText>
-            </MenuItem>
-          )}
-          {contextMenuActions.onDeleteFromHere && (
-            <MenuItem
-              onClick={() => {
-                if (contextMenu) contextMenuActions.onDeleteFromHere!(contextMenu.node);
-                handleCloseMenu();
-              }}
-              sx={{ fontSize: 13 }}
-            >
-              <ListItemIcon><Delete fontSize="small" sx={{ color: 'error.main' }} /></ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.deleteFromHere || 'Delete from here'}</ListItemText>
-            </MenuItem>
-          )}
-          {contextMenuActions.onDeleteVariation && contextMenu && isVariation(contextMenu.node) && (
-            <MenuItem
-              onClick={() => {
-                if (contextMenu) contextMenuActions.onDeleteVariation!(contextMenu.node);
-                handleCloseMenu();
-              }}
-              sx={{ fontSize: 13 }}
-            >
-              <ListItemIcon><Delete fontSize="small" sx={{ color: 'warning.main' }} /></ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.deleteVariation || 'Delete variation'}</ListItemText>
-            </MenuItem>
-          )}
-          {contextMenuActions.onPromoteVariation && contextMenu && isVariation(contextMenu.node) && (
-            <MenuItem
-              onClick={() => {
-                if (contextMenu) contextMenuActions.onPromoteVariation!(contextMenu.node);
-                handleCloseMenu();
-              }}
-              sx={{ fontSize: 13 }}
-            >
-              <ListItemIcon><TrendingUp fontSize="small" sx={{ color: 'info.main' }} /></ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.promoteVariation || 'Promote variation'}</ListItemText>
-            </MenuItem>
-          )}
-          {contextMenuActions.onMakeMainLine && contextMenu && isVariation(contextMenu.node) && (
-            <MenuItem
-              onClick={() => {
-                if (contextMenu) contextMenuActions.onMakeMainLine!(contextMenu.node);
-                handleCloseMenu();
-              }}
-              sx={{ fontSize: 13 }}
-            >
-              <ListItemIcon><Star fontSize="small" sx={{ color: 'success.main' }} /></ListItemIcon>
-              <ListItemText primaryTypographyProps={{ fontSize: 13 }}>{labels.makeMainLine || 'Make main line'}</ListItemText>
-            </MenuItem>
-          )}
+          {onNagToggle && menuNode && menuRest.length > 0 && <Divider sx={{ my: 0.5 }} />}
+          {menuRest.map(renderMenuItem)}
         </Menu>
+      )}
+
+      {/* Action sheet (mobile) */}
+      {contextMenuActions && (
+        <MoveActionSheet
+          open={!!sheetNode}
+          view={sheet?.view ?? 'actions'}
+          title={sheetNode ? moveLabel(sheetNode) : ''}
+          actions={sheetNode ? moveActions(sheetNode) : []}
+          onAction={(key) => sheetNode && runAction(key, sheetNode, 'sheet')}
+          onClose={closeSheet}
+          nags={sheetNode?.nags}
+          onNagToggle={onNagToggle && sheetNode ? (code) => onNagToggle(sheetNode, code) : undefined}
+          nagLabels={labels}
+          comment={sheetNode?.notes || ''}
+          onCommentSave={(text) => {
+            if (sheetNode) onCommentChange?.(sheetNode, text);
+            closeSheet();
+          }}
+          labels={{
+            commentPlaceholder,
+            save: labels.saveComment || 'Save',
+            cancel: labels.cancel || 'Cancel',
+          }}
+        />
       )}
     </Box>
   );
