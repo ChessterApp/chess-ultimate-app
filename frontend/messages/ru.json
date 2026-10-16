@@ -1182,12 +1182,19 @@
         "deleteVariation": "Удалить вариант",
         "promoteVariation": "Повысить вариант",
         "makeMainLine": "Сделать основным",
-        "saveChanges": "Сохранить изменения",
         "unsavedChanges": "Несохранённые изменения",
         "savedSuccessfully": "Изменения сохранены",
         "addComment": "Добавить комментарий",
         "editComment": "Изменить комментарий",
         "commentPlaceholder": "Комментарий к ходу…"
+      },
+      "autoSave": {
+        "saving": "Сохранение…",
+        "saved": "Сохранено",
+        "saveFailed": "Не удалось сохранить",
+        "retry": "Повторить",
+        "saveNow": "Сохранить сейчас",
+        "unsavedLeaveWarning": "Последние изменения ещё не сохранены. Всё равно уйти?"
       },
       "shareAll": {
         "button": "Поделиться партиями",

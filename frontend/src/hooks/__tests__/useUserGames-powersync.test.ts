@@ -217,6 +217,26 @@ describe('useUserGames (PowerSync mode)', () => {
     );
   });
 
+  it('falls back to API PUT when the row has not synced locally yet', async () => {
+    mockQueryData.mockReturnValue([]);
+    const remote = { ...GAME_ROW, id: 'game-new', pgn: '1. d4 *', tags: [], is_favorite: false };
+    mockApiFetch.mockResolvedValueOnce(remote);
+
+    const { result } = renderHook(() => useUserGames());
+
+    let updated: UserGame | null = null;
+    await act(async () => {
+      updated = await result.current.updateGame('game-new', { pgn: '1. d4 *' });
+    });
+
+    expect(updated).toEqual(remote);
+    expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/api/games/game-new',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ pgn: '1. d4 *' }) }),
+    );
+  });
+
   it('should delete game via PowerSync local write', async () => {
     const { result } = renderHook(() => useUserGames());
 

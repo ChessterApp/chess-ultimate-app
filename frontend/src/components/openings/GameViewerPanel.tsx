@@ -12,6 +12,7 @@ import SourceBadge, { GameSource } from './SourceBadge';
 import ShareGameButton from './ShareGameButton';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
 import type { MoveContextMenuActions } from './MoveNotation';
+import type { SaveStatus } from './useAutoSave';
 
 export interface OpenedGame {
   id: string;
@@ -57,6 +58,9 @@ interface GameViewerPanelProps {
   onEditNodeSelect?: (node: OpeningNode) => void;
   onEditSave?: () => void;
   editIsDirty?: boolean;
+  /** Auto-save state of the edited tree, shown under the header. */
+  saveStatus?: SaveStatus;
+  onRetrySave?: () => void;
   editContextMenuActions?: MoveContextMenuActions;
   // Tree navigation (for keyboard support in tree mode)
   onTreePrev?: () => void;
@@ -108,7 +112,7 @@ export default function GameViewerPanel({
   game, currentMoveIndex, onMoveIndexChange,
   onSaveToMyGames, isSaved = false, onEditGame,
   onToggleFavorite, onDeleteGame, isFavorite = false,
-  isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, editContextMenuActions,
+  isEditable, editTree, editSelectedNodeId, onEditNodeSelect, onEditSave, editIsDirty, saveStatus = 'idle', onRetrySave, editContextMenuActions,
   onTreePrev, onTreeNext, onTreeGoToStart, onTreeGoToEnd, onTitleChange,
 }: GameViewerPanelProps) {
   const t = useTranslations('debut');
@@ -396,6 +400,41 @@ export default function GameViewerPanel({
         )}
       </Box>
 
+      {isEditable && saveStatus !== 'idle' && (
+        <Box
+          role="status"
+          sx={{ display: 'flex', alignItems: 'center', gap: 0.75, px: 1.5, py: 0.5, borderBottom: 1, borderColor: 'divider' }}
+        >
+          {saveStatus === 'saving' && (
+            <>
+              <CircularProgress size={10} />
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 11 }}>
+                {t('myGames.autoSave.saving')}
+              </Typography>
+            </>
+          )}
+          {saveStatus === 'saved' && (
+            <Typography variant="caption" sx={{ color: 'success.main', fontSize: 11 }}>
+              {t('myGames.autoSave.saved')} ✓
+            </Typography>
+          )}
+          {saveStatus === 'error' && (
+            <>
+              <Typography variant="caption" sx={{ color: 'error.main', fontSize: 11 }}>
+                {t('myGames.autoSave.saveFailed')} ·
+              </Typography>
+              <Button
+                size="small"
+                onClick={onRetrySave}
+                sx={{ textTransform: 'none', fontSize: 11, minWidth: 0, p: 0, lineHeight: 1.5 }}
+              >
+                {t('myGames.autoSave.retry')}
+              </Button>
+            </>
+          )}
+        </Box>
+      )}
+
       {/* Save button (only shown when editable and dirty) */}
       {isEditable && editIsDirty && onEditSave && (
         <Box sx={{ px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
@@ -413,7 +452,7 @@ export default function GameViewerPanel({
               '&:hover': { background: 'linear-gradient(135deg, #6d28d9, #5b21b6)' },
             }}
           >
-            {t('myGames.moveEdit.saveChanges')}
+            {t('myGames.autoSave.saveNow')}
           </Button>
         </Box>
       )}

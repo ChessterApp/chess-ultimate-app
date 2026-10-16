@@ -1182,12 +1182,19 @@
         "deleteVariation": "Delete variation",
         "promoteVariation": "Promote variation",
         "makeMainLine": "Make main line",
-        "saveChanges": "Save Changes",
         "unsavedChanges": "Unsaved changes",
         "savedSuccessfully": "Changes saved successfully",
         "addComment": "Add comment",
         "editComment": "Edit comment",
         "commentPlaceholder": "Comment on this move…"
+      },
+      "autoSave": {
+        "saving": "Saving…",
+        "saved": "Saved",
+        "saveFailed": "Couldn't save",
+        "retry": "Retry",
+        "saveNow": "Save now",
+        "unsavedLeaveWarning": "Your latest changes haven't been saved yet. Leave anyway?"
       },
       "shareAll": {
         "button": "Share my games",

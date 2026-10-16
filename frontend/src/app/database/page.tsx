@@ -86,7 +86,8 @@ const DatabasePillRow = dynamic(() => import('@/components/openings/DatabasePill
 
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn, isVariationGame } from '@/components/openings/GameViewerPanel';
-import { saveGameTree, saveVariationTitle } from '@/components/openings/saveGameTree';
+import { createTreeSaver, saveVariationTitle, treeAutoSaveEntry, type SaveGameTreeDeps } from '@/components/openings/saveGameTree';
+import { useAutoSave } from '@/components/openings/useAutoSave';
 const GameViewerPanel = dynamic(() => import('@/components/openings/GameViewerPanel'), {
   ssr: false,
   loading: () => null
@@ -433,8 +434,8 @@ export default function DebutPage() {
     }
   }, [activeTab, toggleUserFavorite]);
 
-  // Rename a variation: drafts keep the title until Save; saved ones update
-  // immediately and revert on failure.
+  // Rename a variation: a draft's title lives in tab state (a non-empty one
+  // triggers its auto-create); saved ones update immediately and revert on failure.
   const handleVariationTitleChange = useCallback(async (game: OpenedGame, title: string | null) => {
     const setTitle = (value: string | undefined) =>
       setOpenedGames(prev => prev.map(g => (g.id === game.id ? { ...g, title: value } : g)));
@@ -445,22 +446,6 @@ export default function DebutPage() {
       setSnackbar({ open: true, msg: t('myGames.titleSaveError'), severity: 'error' });
     }
   }, [updateUserGame, t]);
-
-  const handleViewerDeleteGame = useCallback(async () => {
-    if (!activeTab) return;
-    const success = await deleteUserGame(activeTab);
-    if (success) {
-      // Close the viewer tab
-      setOpenedGames(prev => prev.filter(g => g.id !== activeTab));
-      setGameMoveIndices(prev => {
-        const next = { ...prev };
-        delete next[activeTab];
-        return next;
-      });
-      setActiveTab(lastHomeTabRef.current);
-      setSnackbar({ open: true, msg: 'Game deleted', severity: 'success' });
-    }
-  }, [activeTab, deleteUserGame]);
 
   // ─── Game move tree: init when opening a user game ───
   const activeGameForTree = openedGames.find(g => g.id === activeTab);
@@ -489,47 +474,80 @@ export default function DebutPage() {
     if (result) setEditTreeSelectedNodeId(result.id);
   }, [gameMoveTree, editTreeSelectedNodeId]);
 
-  // A draft with no moves left has nothing worth saving.
-  const editTreeCanSave = gameMoveTree.isDirty
-    && !(activeGameForTree?.isDraft && !gameMoveTree.tree?.children?.length);
+  // ─── Auto-save of the edited tree (own games + variation drafts) ───
+  // Only once the tree belongs to the active tab; right after a tab switch it
+  // still holds the previous game until the init effect above re-parses it.
+  const editTreeIsLive = isActiveGameEditable && !!gameMoveTree.tree && editTreeGameId === activeGameForTree?.id;
+  const getEditTreePgn = gameMoveTree.getPgn;
+  const editTreePgn = useMemo(() => (editTreeIsLive ? getEditTreePgn() : ''), [editTreeIsLive, getEditTreePgn]);
+  const autoSaveEntry = editTreeIsLive
+    ? treeAutoSaveEntry(activeGameForTree, editTreePgn, {
+      hasMoves: !!gameMoveTree.tree?.children?.length,
+      isDirty: gameMoveTree.isDirty,
+    })
+    : null;
 
-  const handleEditTreeSave = useCallback(async () => {
-    if (!activeGameForTree || !editTreeCanSave) return;
-    const newPgn = gameMoveTree.getPgn();
-    const result = await saveGameTree(activeGameForTree, newPgn, {
-      databaseId: selectedDatabaseId,
-      createGame: createUserGame,
-      updateGame: updateUserGame,
-    });
-    if (result) {
-      // Update the opened game with new PGN + re-parsed moves. A saved draft
-      // takes over the real game id so later saves update it in place.
-      const parsed = parseGamePgn(newPgn);
-      const oldId = activeGameForTree.id;
-      const newId = activeGameForTree.isDraft ? String(result.id) : oldId;
-      setOpenedGames(prev => prev.map(g => {
-        if (g.id !== oldId) return g;
-        return { ...g, id: newId, isDraft: undefined, pgn: newPgn, moves: parsed.moves, fens: parsed.fens };
-      }));
-      if (newId !== oldId) {
-        setGameMoveIndices(prev => {
-          const { [oldId]: idx, ...rest } = prev;
-          return { ...rest, [newId]: idx ?? -1 };
-        });
-        // Keep the live tree (and selection) instead of re-parsing on the id change
-        setEditTreeGameId(newId);
-        setActiveTab(newId);
-      }
-      gameMoveTree.markClean();
-      setSnackbar({
-        open: true,
-        msg: activeGameForTree.isDraft ? t('myGames.variationSaved') : t('myGames.moveEdit.savedSuccessfully'),
-        severity: 'success',
+  const saveDepsRef = useRef<SaveGameTreeDeps | null>(null);
+  useEffect(() => {
+    saveDepsRef.current = { databaseId: selectedDatabaseId, createGame: createUserGame, updateGame: updateUserGame };
+  });
+  const [saveTreeSnapshot] = useState(() => createTreeSaver(
+    () => saveDepsRef.current!,
+    ({ oldId, newId, pgn }) => {
+      // A created draft takes over the real game id so later saves update it in place.
+      const parsed = parseGamePgn(pgn);
+      setOpenedGames(prev => prev.map(g => (
+        g.id === oldId ? { ...g, id: newId, isDraft: undefined, pgn, moves: parsed.moves, fens: parsed.fens } : g
+      )));
+      if (newId === oldId) return;
+      setGameMoveIndices(prev => {
+        const { [oldId]: idx, ...rest } = prev;
+        return { ...rest, [newId]: idx ?? -1 };
       });
-    } else {
-      setSnackbar({ open: true, msg: t('myGames.editModal.updateFailed'), severity: 'error' });
+      // Keep the live tree (and selection) instead of re-parsing on the id change
+      setEditTreeGameId(cur => (cur === oldId ? newId : cur));
+      setActiveTab(cur => (cur === oldId ? newId : cur));
+    },
+  ));
+
+  const { status: saveStatus, flush: flushAutoSave, discard: discardAutoSave } = useAutoSave({
+    scope: activeTab,
+    entry: autoSaveEntry,
+    save: saveTreeSnapshot,
+    onClean: gameMoveTree.markClean,
+    // A draft is created on its first move / title; later edits are debounced.
+    delayMs: activeGameForTree?.isDraft ? 0 : 1500,
+    leaveWarning: t('myGames.autoSave.unsavedLeaveWarning'),
+  });
+  const editTreeHasUnsaved = autoSaveEntry !== null || saveStatus === 'error';
+
+  const handleEditTreeSaveNow = useCallback(async () => {
+    const wasDraft = !!activeGameForTree?.isDraft;
+    const ok = await flushAutoSave();
+    setSnackbar(ok
+      ? { open: true, msg: wasDraft ? t('myGames.variationSaved') : t('myGames.moveEdit.savedSuccessfully'), severity: 'success' }
+      : { open: true, msg: t('myGames.editModal.updateFailed'), severity: 'error' });
+  }, [activeGameForTree?.isDraft, flushAutoSave, t]);
+
+  const handleRetrySave = useCallback(() => { flushAutoSave(); }, [flushAutoSave]);
+
+  const handleViewerDeleteGame = useCallback(async () => {
+    if (!activeTab) return;
+    // A pending save of the deleted game could only fail from now on.
+    discardAutoSave();
+    const success = await deleteUserGame(activeTab);
+    if (success) {
+      // Close the viewer tab
+      setOpenedGames(prev => prev.filter(g => g.id !== activeTab));
+      setGameMoveIndices(prev => {
+        const next = { ...prev };
+        delete next[activeTab];
+        return next;
+      });
+      setActiveTab(lastHomeTabRef.current);
+      setSnackbar({ open: true, msg: 'Game deleted', severity: 'success' });
     }
-  }, [activeGameForTree, editTreeCanSave, gameMoveTree, selectedDatabaseId, createUserGame, updateUserGame, t]);
+  }, [activeTab, deleteUserGame, discardAutoSave]);
 
   const editContextMenuActions: MoveContextMenuActions | undefined = isActiveGameEditable ? {
     onDeleteFromHere: (node) => {
@@ -1588,7 +1606,8 @@ export default function DebutPage() {
     }
   }, [openedGames, setSnackbar, fetchGamePgn]);
 
-  // Fresh empty board tab for recording a variation; Save files it in My Games.
+  // Fresh empty board tab for recording a variation; auto-save files it in My Games
+  // once it has a move or a title.
   const handleAddVariation = useCallback(() => {
     if (openedGames.length >= 10) {
       setSnackbar({ open: true, msg: t('maxTabsError'), severity: 'error' });
@@ -1615,8 +1634,9 @@ export default function DebutPage() {
   const handleCloseGame = useCallback((gameId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const closing = openedGames.find(g => g.id === gameId);
-    if (closing?.isDraft && editTreeGameId === gameId && gameMoveTree.isDirty
-      && !window.confirm(t('myGames.discardVariationConfirm'))) return;
+    // Closing flushes pending edits (scope change); only a failed save can be lost.
+    if (closing && editTreeGameId === gameId && saveStatus === 'error'
+      && !window.confirm(t(closing.isDraft ? 'myGames.discardVariationConfirm' : 'myGames.autoSave.unsavedLeaveWarning'))) return;
     setOpenedGames(prev => prev.filter(g => g.id !== gameId));
     setGameMoveIndices(prev => {
       const next = { ...prev };
@@ -1624,7 +1644,7 @@ export default function DebutPage() {
       return next;
     });
     if (activeTab === gameId) setActiveTab(lastHomeTabRef.current);
-  }, [activeTab, openedGames, editTreeGameId, gameMoveTree.isDirty, t]);
+  }, [activeTab, openedGames, editTreeGameId, saveStatus, t]);
 
   // ─── Deep link: open a shared game from ?g=<slug> (new) or the legacy
   //     ?game=<id>&source=twic. The opaque slug never leaks the data source. ───
@@ -2342,8 +2362,10 @@ export default function DebutPage() {
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
                   editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
                   onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
-                  onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
-                  editIsDirty={isActiveGameEditable ? editTreeCanSave : undefined}
+                  onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
+                  editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
+                  saveStatus={isActiveGameEditable ? saveStatus : undefined}
+                  onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
                   editContextMenuActions={editContextMenuActions}
                   onTreePrev={isActiveGameEditable ? handleEditTreePrev : undefined}
                   onTreeNext={isActiveGameEditable ? handleEditTreeNext : undefined}
@@ -2461,8 +2483,10 @@ export default function DebutPage() {
                   editTree={isActiveGameEditable ? gameMoveTree.tree : undefined}
                   editSelectedNodeId={isActiveGameEditable ? editTreeSelectedNodeId : undefined}
                   onEditNodeSelect={isActiveGameEditable ? handleEditNodeSelect : undefined}
-                  onEditSave={isActiveGameEditable ? handleEditTreeSave : undefined}
-                  editIsDirty={isActiveGameEditable ? editTreeCanSave : undefined}
+                  onEditSave={isActiveGameEditable ? handleEditTreeSaveNow : undefined}
+                  editIsDirty={isActiveGameEditable ? editTreeHasUnsaved : undefined}
+                  saveStatus={isActiveGameEditable ? saveStatus : undefined}
+                  onRetrySave={isActiveGameEditable ? handleRetrySave : undefined}
                   editContextMenuActions={editContextMenuActions}
                 />
               </Box>

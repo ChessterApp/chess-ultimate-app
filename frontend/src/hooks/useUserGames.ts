@@ -186,7 +186,10 @@ function useUserGamesPowerSync(databaseId?: string) {
   ): Promise<UserGame | null> => {
     setError(null);
     try {
-      if (database) {
+      // A just-created row may not have synced into the local store yet; the
+      // local UPDATE would hit nothing, so write that one through the API.
+      const local = database ? games.find(g => g.id === id) : undefined;
+      if (database && local) {
         // Optimistic update via PowerSync local write
         const dbUpdates: Record<string, unknown> = {};
         if (updates.title !== undefined) dbUpdates.title = updates.title;
@@ -201,8 +204,7 @@ function useUserGamesPowerSync(databaseId?: string) {
           [...Object.values(dbUpdates), id],
         );
 
-        const updated = games.find(g => g.id === id);
-        return updated ? { ...updated, ...updates } as UserGame : null;
+        return { ...local, ...updates } as UserGame;
       }
       // Fallback to API
       const updated = await fetchWithAuth<UserGame>(`/${id}`, {

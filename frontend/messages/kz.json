@@ -1182,12 +1182,19 @@
         "deleteVariation": "Нұсқаны жою",
         "promoteVariation": "Нұсқаны көтеру",
         "makeMainLine": "Негізгі қылу",
-        "saveChanges": "Өзгерістерді сақтау",
         "unsavedChanges": "Сақталмаған өзгерістер",
         "savedSuccessfully": "Өзгерістер сақталды",
         "addComment": "Пікір қосу",
         "editComment": "Пікірді өзгерту",
         "commentPlaceholder": "Осы жүріске пікір…"
+      },
+      "autoSave": {
+        "saving": "Сақталуда…",
+        "saved": "Сақталды",
+        "saveFailed": "Сақтау мүмкін болмады",
+        "retry": "Қайталау",
+        "saveNow": "Қазір сақтау",
+        "unsavedLeaveWarning": "Соңғы өзгерістер әлі сақталмады. Бәрібір шығасыз ба?"
       },
       "shareAll": {
         "button": "Партияларыммен бөлісу",
