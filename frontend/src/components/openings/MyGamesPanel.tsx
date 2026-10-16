@@ -20,6 +20,8 @@ import {
   TableBody,
   TableRow,
   TableCell,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   Search,
@@ -30,17 +32,18 @@ import {
   Add,
   Edit,
   ContentCopy,
-  AccountTree,
+  GridOn,
 } from '@mui/icons-material';
 import { useTranslations } from 'next-intl';
 import { useAuth } from '@clerk/nextjs';
 import { apiFetch } from '@/lib/api';
-import { useUserGames, type UserGame, type ListGamesFilters } from '@/hooks/useUserGames';
+import { useUserGames, type UserGame, type ListGamesFilters, type GamesKind } from '@/hooks/useUserGames';
 import { useDatabases, type UserDatabase } from '@/hooks/useDatabases';
 import AddGameModal from './AddGameModal';
 import EditGameModal from './EditGameModal';
 import ShareMyGameButton from './ShareMyGameButton';
 import ShareMyGamesButton from './ShareMyGamesButton';
+import AnalysisSection, { SectionHeader } from './AnalysisSection';
 
 type ResultFilter = '' | '1-0' | '0-1' | '1/2-1/2';
 
@@ -53,6 +56,16 @@ interface SharedCollectionResponse {
   per_page: number;
   owner_name?: string | null;
 }
+
+interface SharedList {
+  games: UserGame[];
+  total: number;
+  page: number;
+}
+
+const EMPTY_SHARED: SharedList = { games: [], total: 0, page: 1 };
+
+const isVariation = (g: UserGame) => g.event === 'Variation';
 
 interface SharedDatabaseResponse {
   database: { id: string; name: string | null; game_count: number };
@@ -87,9 +100,11 @@ interface MyGamesPanelProps {
   onCopyShared?: (db: UserDatabase) => void;
   /** Opens a fresh, empty board tab for recording a variation (owner mode only). */
   onAddVariation?: () => void;
+  /** Bump to refetch the lists (e.g. after a variation is saved elsewhere). */
+  refreshKey?: number;
 }
 
-export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId, sharedDatabaseToken, onCopyShared, onAddVariation }: MyGamesPanelProps) {
+export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBoardReset, sharedToken, databaseId, sharedDatabaseToken, onCopyShared, onAddVariation, refreshKey = 0 }: MyGamesPanelProps) {
   const t = useTranslations('debut');
   const isSharedDb = !!sharedDatabaseToken;
   const isShared = !!sharedToken || isSharedDb;
@@ -107,7 +122,10 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     updateGame,
     deleteGame,
     toggleFavorite,
-  } = useUserGames(databaseId);
+  } = useUserGames(databaseId, 'games');
+  const analysis = useUserGames(databaseId, 'analysis');
+  const fetchAnalysis = analysis.fetchGames;
+  const isNarrow = useMediaQuery(useTheme().breakpoints.down('sm'));
 
   const [searchQuery, setSearchQuery] = useState('');
   const [resultFilter, setResultFilter] = useState<ResultFilter>('');
@@ -115,12 +133,12 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingGame, setEditingGame] = useState<UserGame | null>(null);
+  const [gamesOpen, setGamesOpen] = useState(true);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // ─── Shared read-only collection state (only used when `sharedToken` set) ───
-  const [sharedGames, setSharedGames] = useState<UserGame[]>([]);
-  const [sharedTotal, setSharedTotal] = useState(0);
-  const [sharedPage, setSharedPage] = useState(1);
+  const [sharedList, setSharedList] = useState<SharedList>(EMPTY_SHARED);
+  const [sharedAnalysis, setSharedAnalysis] = useState<SharedList>(EMPTY_SHARED);
   const [sharedOwner, setSharedOwner] = useState('');
   const [sharedLoading, setSharedLoading] = useState(false);
   const [sharedError, setSharedError] = useState<string | null>(null);
@@ -128,7 +146,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
   const [copying, setCopying] = useState(false);
 
   const buildFilters = useCallback((): ListGamesFilters => {
-    const filters: ListGamesFilters = {};
+    const filters: ListGamesFilters = { kind: 'games' };
     if (searchQuery.trim()) filters.q = searchQuery.trim();
     if (resultFilter) filters.result = resultFilter;
     if (favoriteFilter) filters.favorite = true;
@@ -136,24 +154,41 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     return filters;
   }, [searchQuery, resultFilter, favoriteFilter, databaseId]);
 
-  // Fetch one page of the shared collection from the authed endpoint.
-  const fetchSharedCollection = useCallback(async (pageNum: number) => {
+  // Analysis honours the search box only — result/favorite filters are Games-only.
+  const buildAnalysisFilters = useCallback((): ListGamesFilters => {
+    const filters: ListGamesFilters = { kind: 'analysis' };
+    if (searchQuery.trim()) filters.q = searchQuery.trim();
+    if (databaseId) filters.database_id = databaseId;
+    return filters;
+  }, [searchQuery, databaseId]);
+
+  // One page of one kind from the shared collection's authed endpoint.
+  const fetchSharedPage = useCallback(async (kind: GamesKind, pageNum: number) => {
+    const clerkToken = await getToken();
+    if (!clerkToken) throw Object.assign(new Error('Not authenticated'), { status: 401 });
+    const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+    const params = new URLSearchParams({ page: String(pageNum), per_page: String(SHARED_PER_PAGE), kind });
+    return apiFetch<SharedCollectionResponse>(
+      `${apiBase}/api/games/collection/shared/${encodeURIComponent(sharedToken!)}?${params}`,
+      { headers: { Authorization: `Bearer ${clerkToken}` } },
+    );
+  }, [sharedToken, getToken]);
+
+  // Fetch the shared collection's games (and, on first load, its analysis).
+  const fetchSharedCollection = useCallback(async (pageNum: number, withAnalysis = false) => {
     if (!sharedToken) return;
     setSharedLoading(true);
     setSharedError(null);
     setSharedUnavailable(false);
     try {
-      const clerkToken = await getToken();
-      if (!clerkToken) throw Object.assign(new Error('Not authenticated'), { status: 401 });
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-      const params = new URLSearchParams({ page: String(pageNum), per_page: String(SHARED_PER_PAGE) });
-      const data = await apiFetch<SharedCollectionResponse>(
-        `${apiBase}/api/games/collection/shared/${encodeURIComponent(sharedToken)}?${params}`,
-        { headers: { Authorization: `Bearer ${clerkToken}` } },
-      );
-      setSharedGames(data.games);
-      setSharedTotal(data.total);
-      setSharedPage(data.page);
+      const [data, analysisData] = await Promise.all([
+        fetchSharedPage('games', pageNum),
+        withAnalysis ? fetchSharedPage('analysis', 1) : null,
+      ]);
+      setSharedList({ games: data.games, total: data.total, page: data.page });
+      if (analysisData) {
+        setSharedAnalysis({ games: analysisData.games, total: analysisData.total, page: analysisData.page });
+      }
       setSharedOwner(data.owner_name ?? '');
     } catch (e: unknown) {
       const status = (e as { status?: number })?.status;
@@ -166,7 +201,16 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     } finally {
       setSharedLoading(false);
     }
-  }, [sharedToken, getToken]);
+  }, [sharedToken, fetchSharedPage]);
+
+  const fetchSharedAnalysis = useCallback(async (pageNum: number) => {
+    try {
+      const data = await fetchSharedPage('analysis', pageNum);
+      setSharedAnalysis({ games: data.games, total: data.total, page: data.page });
+    } catch (e: unknown) {
+      setSharedError(e instanceof Error ? e.message : 'Failed to load collection');
+    }
+  }, [fetchSharedPage]);
 
   // Fetch a shared *database* (per-db token) — read-only, all games in one shot.
   const fetchSharedDatabase = useCallback(async () => {
@@ -182,9 +226,11 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
         `${apiBase}/api/databases/shared/${encodeURIComponent(sharedDatabaseToken)}`,
         { headers: { Authorization: `Bearer ${clerkToken}` } },
       );
-      setSharedGames(data.games);
-      setSharedTotal(data.games.length);
-      setSharedPage(1);
+      // Every game arrives in one response, so split variations off client-side.
+      const variations = data.games.filter(isVariation);
+      const regular = data.games.filter(g => !isVariation(g));
+      setSharedList({ games: regular, total: regular.length, page: 1 });
+      setSharedAnalysis({ games: variations, total: variations.length, page: 1 });
       setSharedOwner(data.owner_name ?? '');
     } catch (e: unknown) {
       const status = (e as { status?: number })?.status;
@@ -212,6 +258,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
   useEffect(() => {
     if (isShared) return;
     fetchGames(1, perPage, buildFilters());
+    fetchAnalysis(1, analysis.perPage, buildAnalysisFilters());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -227,10 +274,21 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     };
   }, [isShared, searchQuery, resultFilter, favoriteFilter, fetchGames, perPage, buildFilters]);
 
+  // Debounced analysis search, plus a refetch whenever the parent bumps refreshKey
+  // (a variation was created/saved/renamed on the board).
+  const analysisPerPage = analysis.perPage;
+  useEffect(() => {
+    if (isShared) return;
+    const id = setTimeout(() => {
+      fetchAnalysis(1, analysisPerPage, buildAnalysisFilters());
+    }, 300);
+    return () => clearTimeout(id);
+  }, [isShared, fetchAnalysis, analysisPerPage, buildAnalysisFilters, refreshKey]);
+
   // Shared collection load (gc whole-collection mode only)
   useEffect(() => {
     if (!sharedToken) return;
-    fetchSharedCollection(1);
+    fetchSharedCollection(1, true);
   }, [sharedToken, fetchSharedCollection]);
 
   // Shared database load (per-db sdb mode only)
@@ -245,6 +303,15 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
       return;
     }
     fetchGames(newPage, perPage, buildFilters());
+  };
+
+  const handleAnalysisPageChange = (newPage: number) => {
+    if (isSharedDb) return;
+    if (isShared) {
+      fetchSharedAnalysis(newPage);
+      return;
+    }
+    fetchAnalysis(newPage, analysis.perPage, buildAnalysisFilters());
   };
 
   // Row click: in shared mode, fetch the single game through the collection-share
@@ -271,10 +338,10 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
     }
   }, [isShared, isSharedDb, sharedToken, getToken, onOpenGame]);
 
-  const handleDelete = async (e: React.MouseEvent, gameId: string) => {
+  const handleDelete = async (e: React.MouseEvent, gameId: string, remove = deleteGame) => {
     e.stopPropagation();
     if (!confirm(t('myGames.confirmDelete'))) return;
-    await deleteGame(gameId);
+    await remove(gameId);
   };
 
   const handleToggleFavorite = async (e: React.MouseEvent, gameId: string) => {
@@ -300,14 +367,25 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
 
   // Unified view model — sourced from the shared endpoint in shared mode, from
   // the owned-games hook otherwise.
-  const displayGames = isShared ? sharedGames : games;
-  const displayTotal = isShared ? sharedTotal : total;
-  const displayPage = isShared ? sharedPage : page;
+  const displayGames = isShared ? sharedList.games : games;
+  const displayTotal = isShared ? sharedList.total : total;
+  const displayPage = isShared ? sharedList.page : page;
   // sdb mode returns every game in one response, so keep it on a single page.
-  const displayPerPage = isSharedDb ? Math.max(sharedGames.length, 1) : isShared ? SHARED_PER_PAGE : perPage;
+  const displayPerPage = isSharedDb ? Math.max(sharedList.games.length, 1) : isShared ? SHARED_PER_PAGE : perPage;
   const displayLoading = isShared ? sharedLoading : loading;
   const displayError = isShared ? sharedError : error;
   const totalPages = Math.ceil(displayTotal / displayPerPage);
+
+  const analysisView = isShared
+    ? {
+      ...sharedAnalysis,
+      perPage: isSharedDb ? Math.max(sharedAnalysis.games.length, 1) : SHARED_PER_PAGE,
+      loading: sharedLoading,
+    }
+    : { games: analysis.games, total: analysis.total, page: analysis.page, perPage: analysis.perPage, loading: analysis.loading };
+  // Variations edited from the Analysis list must go through its own hook so
+  // that list (not the Games one) reflects the change.
+  const editingFromAnalysis = !!editingGame && isVariation(editingGame);
 
   const resultFilters: { value: ResultFilter; label: string }[] = [
     { value: '', label: t('myGames.filterAll') },
@@ -359,25 +437,6 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
             >
               {t('myGames.addGame')}
             </Button>
-            {onAddVariation && (
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={<AccountTree />}
-                onClick={onAddVariation}
-                sx={{
-                  fontSize: 12,
-                  textTransform: 'none',
-                  py: 0.75,
-                  flex: 1,
-                  color: '#7c3aed',
-                  borderColor: '#7c3aed',
-                  '&:hover': { borderColor: '#6d28d9', bgcolor: 'rgba(124,58,237,0.06)' },
-                }}
-              >
-                {t('myGames.addVariation')}
-              </Button>
-            )}
             <ShareMyGamesButton />
           </Box>
 
@@ -394,7 +453,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
             open={editModalOpen}
             onClose={() => { setEditModalOpen(false); setEditingGame(null); }}
             game={editingGame}
-            onSave={updateGame}
+            onSave={editingFromAnalysis ? analysis.updateGame : updateGame}
           />
         </>
       )}
@@ -428,67 +487,97 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
         </Box>
       )}
 
-      {/* Search + filters — owner mode only (the shared endpoint is unfiltered) */}
+      {/* Search (filters both sections) — owner mode only (the shared endpoint is unfiltered) */}
       {!isShared && (
-        <>
-          <TextField
-            size="small"
-            placeholder={t('myGames.searchPlaceholder')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-              },
-            }}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                fontSize: 13,
-                bgcolor: 'rgba(255,255,255,0.03)',
-              },
-            }}
-          />
+        <TextField
+          size="small"
+          placeholder={t('myGames.searchPlaceholder')}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          slotProps={{
+            input: {
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Search sx={{ fontSize: 18, color: 'text.secondary' }} />
+                </InputAdornment>
+              ),
+            },
+          }}
+          sx={{
+            '& .MuiOutlinedInput-root': {
+              fontSize: 13,
+              bgcolor: 'rgba(255,255,255,0.03)',
+            },
+          }}
+        />
+      )}
 
-          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-            {resultFilters.map((f) => (
-              <Chip
-                key={f.value}
-                label={f.label}
-                size="small"
-                onClick={() => setResultFilter(f.value)}
-                sx={{
-                  height: 24,
-                  fontSize: 11,
-                  fontWeight: resultFilter === f.value ? 700 : 400,
-                  bgcolor: resultFilter === f.value ? 'primary.main' : 'rgba(255,255,255,0.06)',
-                  color: resultFilter === f.value ? '#fff' : 'text.secondary',
-                  '&:hover': { bgcolor: resultFilter === f.value ? 'primary.dark' : 'rgba(255,255,255,0.1)' },
-                }}
-              />
-            ))}
+      {/* Analysis — saved variations. Hidden in shared views that have none. */}
+      {(!isShared || analysisView.total > 0) && (
+        <>
+          <AnalysisSection
+            games={analysisView.games}
+            total={analysisView.total}
+            page={analysisView.page}
+            perPage={analysisView.perPage}
+            loading={analysisView.loading}
+            // Keep the Games table above the fold on phones.
+            defaultOpen={!(isNarrow && displayTotal > 0)}
+            onPageChange={handleAnalysisPageChange}
+            onOpenGame={handleRowClick}
+            onAddVariation={isShared ? undefined : onAddVariation}
+            onEdit={isShared ? undefined : handleEditGame}
+            onDelete={isShared ? undefined : (e, game) => handleDelete(e, game.id, analysis.deleteGame)}
+          />
+          <Box sx={{ height: '1px', bgcolor: 'rgba(255,255,255,0.08)' }} />
+        </>
+      )}
+
+      <SectionHeader
+        icon={<GridOn sx={{ fontSize: 18, color: 'text.secondary' }} />}
+        label={t('myGames.games')}
+        count={displayTotal}
+        open={gamesOpen}
+        onToggle={() => setGamesOpen(!gamesOpen)}
+      />
+
+      {/* Result + favorite filters — Games only, owner mode only */}
+      {gamesOpen && !isShared && (
+        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+          {resultFilters.map((f) => (
             <Chip
-              icon={<Star sx={{ fontSize: 14 }} />}
-              label={t('myGames.filterFavorites')}
+              key={f.value}
+              label={f.label}
               size="small"
-              onClick={() => setFavoriteFilter(!favoriteFilter)}
+              onClick={() => setResultFilter(f.value)}
               sx={{
                 height: 24,
                 fontSize: 11,
-                fontWeight: favoriteFilter ? 700 : 400,
-                bgcolor: favoriteFilter ? '#f59e0b' : 'rgba(255,255,255,0.06)',
-                color: favoriteFilter ? '#000' : 'text.secondary',
-                '& .MuiChip-icon': {
-                  color: favoriteFilter ? '#000' : 'text.secondary',
-                },
-                '&:hover': { bgcolor: favoriteFilter ? '#d97706' : 'rgba(255,255,255,0.1)' },
+                fontWeight: resultFilter === f.value ? 700 : 400,
+                bgcolor: resultFilter === f.value ? 'primary.main' : 'rgba(255,255,255,0.06)',
+                color: resultFilter === f.value ? '#fff' : 'text.secondary',
+                '&:hover': { bgcolor: resultFilter === f.value ? 'primary.dark' : 'rgba(255,255,255,0.1)' },
               }}
             />
-          </Box>
-        </>
+          ))}
+          <Chip
+            icon={<Star sx={{ fontSize: 14 }} />}
+            label={t('myGames.filterFavorites')}
+            size="small"
+            onClick={() => setFavoriteFilter(!favoriteFilter)}
+            sx={{
+              height: 24,
+              fontSize: 11,
+              fontWeight: favoriteFilter ? 700 : 400,
+              bgcolor: favoriteFilter ? '#f59e0b' : 'rgba(255,255,255,0.06)',
+              color: favoriteFilter ? '#000' : 'text.secondary',
+              '& .MuiChip-icon': {
+                color: favoriteFilter ? '#000' : 'text.secondary',
+              },
+              '&:hover': { bgcolor: favoriteFilter ? '#d97706' : 'rgba(255,255,255,0.1)' },
+            }}
+          />
+        </Box>
       )}
 
       {/* Error state */}
@@ -499,14 +588,14 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
       )}
 
       {/* Loading */}
-      {displayLoading && (
+      {gamesOpen && displayLoading && (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
           <CircularProgress size={28} />
         </Box>
       )}
 
       {/* Empty state */}
-      {!displayLoading && displayGames.length === 0 && (
+      {gamesOpen && !displayLoading && displayGames.length === 0 && (
         <Box
           sx={{
             display: 'flex',
@@ -530,7 +619,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
       )}
 
       {/* Game table */}
-      {!displayLoading && displayGames.length > 0 && (
+      {gamesOpen && !displayLoading && displayGames.length > 0 && (
         <Box sx={{ overflowX: 'auto' }}>
           <Table size="small" sx={{ minWidth: 480 }}>
             <TableHead>
@@ -565,34 +654,22 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
                   <TableCell sx={tdSx}>
                     {game.date ? game.date.substring(0, 4) : '—'}
                   </TableCell>
-                  {game.event === 'Variation' ? (
-                    /* Variation title spans the player + Elo columns */
-                    <TableCell
-                      colSpan={4}
-                      sx={{ ...tdSx, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: game.title ? undefined : 'text.disabled' }}
-                    >
-                      {game.title || t('myGames.untitledVariation')}
-                    </TableCell>
-                  ) : (
-                    <>
-                    {/* White */}
-                    <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {game.white || '?'}
-                    </TableCell>
-                    {/* White Elo */}
-                    <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
-                      {game.white_elo ?? '—'}
-                    </TableCell>
-                    {/* Black */}
-                    <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {game.black || '?'}
-                    </TableCell>
-                    {/* Black Elo */}
-                    <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
-                      {game.black_elo ?? '—'}
-                    </TableCell>
-                    </>
-                  )}
+                  {/* White */}
+                  <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {game.white || '?'}
+                  </TableCell>
+                  {/* White Elo */}
+                  <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
+                    {game.white_elo ?? '—'}
+                  </TableCell>
+                  {/* Black */}
+                  <TableCell sx={{ ...tdSx, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {game.black || '?'}
+                  </TableCell>
+                  {/* Black Elo */}
+                  <TableCell sx={{ ...tdSx, color: 'text.secondary' }}>
+                    {game.black_elo ?? '—'}
+                  </TableCell>
                   {/* Result */}
                   <TableCell sx={{
                     ...tdSx,
@@ -660,7 +737,7 @@ export default function MyGamesPanel({ onOpenGame, boardPgn, boardHasMoves, onBo
       )}
 
       {/* Pagination */}
-      {totalPages > 1 && (
+      {gamesOpen && totalPages > 1 && (
         <Box sx={{ display: 'flex', justifyContent: 'center', pt: 1 }}>
           <Pagination
             count={totalPages}

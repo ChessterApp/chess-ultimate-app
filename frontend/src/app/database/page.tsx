@@ -336,6 +336,8 @@ export default function DebutPage() {
   const [favoriteGameIds, setFavoriteGameIds] = useState<Set<string>>(new Set());
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingGame, setEditingGame] = useState<UserGame | null>(null);
+  // Bumped after a board-side save so My Games refetches its Analysis list.
+  const [myGamesRefreshKey, setMyGamesRefreshKey] = useState(0);
 
   // ─── Game move tree editing (for user games) ───
   const gameMoveTree = useGameMoveTree();
@@ -444,7 +446,9 @@ export default function DebutPage() {
     if (!ok) {
       setTitle(game.title);
       setSnackbar({ open: true, msg: t('myGames.titleSaveError'), severity: 'error' });
+      return;
     }
+    setMyGamesRefreshKey(k => k + 1);
   }, [updateUserGame, t]);
 
   // ─── Game move tree: init when opening a user game ───
@@ -494,6 +498,7 @@ export default function DebutPage() {
   const [saveTreeSnapshot] = useState(() => createTreeSaver(
     () => saveDepsRef.current!,
     ({ oldId, newId, pgn }) => {
+      setMyGamesRefreshKey(k => k + 1);
       // A created draft takes over the real game id so later saves update it in place.
       const parsed = parseGamePgn(pgn);
       setOpenedGames(prev => prev.map(g => (
@@ -2456,6 +2461,7 @@ export default function DebutPage() {
                   sharedDatabaseToken={sharedDatabaseToken ?? undefined}
                   databaseId={selectedDatabaseId ?? undefined}
                   onAddVariation={handleAddVariation}
+                  refreshKey={myGamesRefreshKey}
                   onCopyShared={(db) => {
                     // Copied → switch to the new owned pill and refresh the row.
                     setSharedDatabaseToken(null);

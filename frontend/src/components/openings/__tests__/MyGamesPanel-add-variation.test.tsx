@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 //
-// The "Add variation" button sits beside Add Game in owner mode and hands off
-// to the parent (which opens a fresh board tab); shared modes hide it.
+// The "Add variation" button sits in the Analysis section header in owner mode
+// and hands off to the parent (which opens a fresh board tab); shared modes hide it.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'en',
 }));
 
 vi.mock('@clerk/nextjs', () => ({
@@ -47,11 +48,13 @@ afterEach(() => {
 });
 
 describe('MyGamesPanel — Add variation', () => {
-  it('renders beside Add Game and calls onAddVariation', () => {
+  it('renders in the Analysis header and calls onAddVariation', () => {
     const onAddVariation = vi.fn();
     render(<MyGamesPanel onOpenGame={vi.fn()} onAddVariation={onAddVariation} />);
 
     expect(screen.getByText('myGames.addGame')).toBeTruthy();
+    expect(screen.getByText('myGames.analysis')).toBeTruthy();
+    expect(screen.getByText('myGames.noAnalysis')).toBeTruthy();
     fireEvent.click(screen.getByText('myGames.addVariation'));
     expect(onAddVariation).toHaveBeenCalledTimes(1);
   });

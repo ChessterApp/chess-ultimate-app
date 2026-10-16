@@ -18,6 +18,7 @@ vi.mock('next-intl', () => ({
   // Interpolate {name} so the owner header is assertable; otherwise echo the key.
   useTranslations: () => (key: string, params?: Record<string, unknown>) =>
     params && 'name' in params ? `${params.name}'s games` : key,
+  useLocale: () => 'en',
 }));
 
 // Owner-mode hook stub — shared mode never reads from it, but it must resolve.
@@ -73,6 +74,7 @@ function makeGame(overrides: Partial<UserGame> = {}): UserGame {
     source: 'manual',
     created_at: '2024-01-02T00:00:00Z',
     updated_at: '2024-01-02T00:00:00Z',
+    ...overrides,
   };
 }
 
@@ -322,9 +324,11 @@ describe('MyGamesPanel shared read-only mode', () => {
 
   it('opens a game via the shared per-game endpoint on row click', async () => {
     const onOpenGame = vi.fn();
-    apiFetchMock
-      .mockResolvedValueOnce({ games: [makeGame()], total: 1, page: 1, per_page: 20, owner_name: 'Alice' })
-      .mockResolvedValueOnce(makeGame({ pgn: '1. e4 c5 2. Nf3 *' }));
+    apiFetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/games/g1')) return makeGame({ pgn: '1. e4 c5 2. Nf3 *' });
+      if (url.includes('kind=analysis')) return { games: [], total: 0, page: 1, per_page: 20 };
+      return { games: [makeGame()], total: 1, page: 1, per_page: 20, owner_name: 'Alice' };
+    });
 
     await act(async () => {
       render(<MyGamesPanel sharedToken="tok-abc" onOpenGame={onOpenGame} />);
@@ -336,8 +340,29 @@ describe('MyGamesPanel shared read-only mode', () => {
     });
 
     await waitFor(() => expect(onOpenGame).toHaveBeenCalled());
-    const detailUrl = apiFetchMock.mock.calls[1][0] as string;
-    expect(detailUrl).toContain('/api/games/collection/shared/tok-abc/games/g1');
+    const urls = apiFetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('/api/games/collection/shared/tok-abc/games/g1'))).toBe(true);
+  });
+
+  it('splits the collection by kind: variations list under Analysis, read-only', async () => {
+    apiFetchMock.mockImplementation(async (url: string) => (
+      url.includes('kind=analysis')
+        ? { games: [makeGame({ id: 'v1', event: 'Variation', title: 'Najdorf prep' })], total: 1, page: 1, per_page: 20 }
+        : { games: [makeGame()], total: 1, page: 1, per_page: 20, owner_name: 'Alice' }
+    ));
+
+    await act(async () => {
+      render(<MyGamesPanel sharedToken="tok-abc" onOpenGame={vi.fn()} onAddVariation={vi.fn()} />);
+    });
+
+    const urls = apiFetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls.some((u) => u.includes('kind=games'))).toBe(true);
+    expect(urls.some((u) => u.includes('kind=analysis'))).toBe(true);
+    expect(await screen.findByText('Najdorf prep')).toBeTruthy();
+    expect(screen.getByText('Carlsen')).toBeTruthy();
+    expect(screen.queryByText('myGames.addVariation')).toBeNull();
+    expect(screen.queryByLabelText('edit game')).toBeNull();
+    expect(screen.queryByLabelText('delete game')).toBeNull();
   });
 
   it('renders a friendly empty state for an empty collection', async () => {

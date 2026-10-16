@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 user_games_bp = Blueprint('user_games', __name__)
 
 TABLE = 'user_games'
+VARIATION_EVENT = 'Variation'
 COLLECTION_SHARES_TABLE = 'user_game_collection_shares'
 DATABASES_TABLE = 'user_databases'
 
@@ -113,6 +114,19 @@ def _default_database_id(user_id: str):
 
 # ─── LIST ────────────────────────────────────────────────────────────────────
 
+def _apply_kind(query, kind: str):
+    """Split saved variations (event='Variation') from regular games.
+
+    kind='analysis' → variations only; kind='games' → everything else (NULL
+    events included); anything else → unfiltered (back-compat).
+    """
+    if kind == 'analysis':
+        return query.eq('event', VARIATION_EVENT)
+    if kind == 'games':
+        return query.or_(f'event.is.null,event.neq.{VARIATION_EVENT}')
+    return query
+
+
 @user_games_bp.route('/api/games', methods=['GET'])
 @verify_clerk_token
 @require_active_membership
@@ -128,6 +142,8 @@ def list_games():
         tag (str): Filter by tag
         database_id (str): Scope to one owned database. Omit for all games
             (back-compat — the default before the UI passes a database).
+        kind (str): 'analysis' (saved variations) or 'games' (everything
+            else). Omit for both.
     """
     user_id = get_current_user_id()
     try:
@@ -170,6 +186,8 @@ def list_games():
         database_id = request.args.get('database_id', '').strip()
         if database_id:
             query = query.eq('database_id', database_id)
+
+        query = _apply_kind(query, request.args.get('kind', '').strip())
 
         # Pagination
         query = query.range(offset, offset + per_page - 1)
@@ -703,13 +721,13 @@ def get_shared_collection(token):
         per_page = min(100, max(1, int(request.args.get('per_page', 20))))
         offset = (page - 1) * per_page
 
-        result = supabase.table(TABLE) \
+        query = supabase.table(TABLE) \
             .select('*', count='exact') \
             .eq('user_id', owner_id) \
             .is_('deleted_at', 'null') \
-            .order('created_at', desc=True) \
-            .range(offset, offset + per_page - 1) \
-            .execute()
+            .order('created_at', desc=True)
+        query = _apply_kind(query, request.args.get('kind', '').strip())
+        result = query.range(offset, offset + per_page - 1).execute()
 
         return jsonify({
             'games': [_public_game(g) for g in result.data],

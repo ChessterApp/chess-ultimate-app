@@ -10,6 +10,7 @@ import React from 'react';
 // next-intl: echo the key so assertions stay locale-independent.
 vi.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
+  useLocale: () => 'en',
 }));
 
 vi.mock('@clerk/nextjs', () => ({
@@ -88,6 +89,23 @@ describe('MyGamesPanel — shared database (sdb) mode', () => {
     fireEvent.click(screen.getByText('myGames.copyShared'));
     await waitFor(() => expect(copyShared).toHaveBeenCalledWith('tok-shared'));
     await waitFor(() => expect(onCopyShared).toHaveBeenCalledWith(newDb));
+  });
+
+  it('splits variations into the Analysis section client-side', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ...SHARED_RESPONSE,
+      games: [
+        ...SHARED_RESPONSE.games,
+        { id: 'v1', white: '?', black: '?', result: '*', event: 'Variation', title: 'London setup', pgn: '1. d4 *' },
+      ],
+    });
+    render(<MyGamesPanel sharedDatabaseToken="tok-shared" onOpenGame={vi.fn()} onAddVariation={vi.fn()} />);
+
+    expect(await screen.findByText('London setup')).toBeTruthy();
+    expect(screen.getByText('myGames.analysis')).toBeTruthy();
+    // The variation is not a Games-table row (no "?" player cells).
+    expect(screen.queryAllByText('?')).toHaveLength(0);
+    expect(screen.queryByText('myGames.addVariation')).toBeNull();
   });
 
   it('shows the unavailable state when the token is revoked (404)', async () => {

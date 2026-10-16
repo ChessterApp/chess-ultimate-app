@@ -45,7 +45,11 @@ export interface ListGamesResponse {
   per_page: number;
 }
 
+/** Saved variations (event = 'Variation') vs. every other game. */
+export type GamesKind = 'games' | 'analysis';
+
 export interface ListGamesFilters {
+  kind?: GamesKind;
   q?: string;
   result?: string;
   favorite?: boolean;
@@ -93,7 +97,13 @@ function rowToUserGame(row: Record<string, unknown>): UserGame {
 
 // ─── PowerSync-backed hook ──────────────
 
-function useUserGamesPowerSync(databaseId?: string) {
+// SQL equivalent of the backend `kind` filter (NULL events count as games).
+const KIND_SQL: Record<GamesKind, string> = {
+  analysis: " AND event = 'Variation'",
+  games: " AND (event IS NULL OR event != 'Variation')",
+};
+
+function useUserGamesPowerSync(databaseId?: string, kind?: GamesKind) {
   const { userId, getToken } = useAuth();
   const { database } = usePowerSyncContext();
 
@@ -103,9 +113,9 @@ function useUserGamesPowerSync(databaseId?: string) {
   // otherwise empty) database shows only its own games — never the user's whole
   // inherited collection. Omit the filter for the Master/all-games view.
   const { data: rawData, isLoading } = useQuery(
-    databaseId
-      ? 'SELECT * FROM user_games WHERE user_id = ? AND database_id = ?'
-      : 'SELECT * FROM user_games WHERE user_id = ?',
+    'SELECT * FROM user_games WHERE user_id = ?'
+      + (databaseId ? ' AND database_id = ?' : '')
+      + (kind ? KIND_SQL[kind] : ''),
     databaseId ? [userId ?? '', databaseId] : [userId ?? ''],
   );
 
@@ -322,6 +332,7 @@ function useUserGamesLegacy() {
       if (filters?.favorite) params.set('favorite', 'true');
       if (filters?.tag) params.set('tag', filters.tag);
       if (filters?.database_id) params.set('database_id', filters.database_id);
+      if (filters?.kind) params.set('kind', filters.kind);
 
       const data = await fetchWithAuth<ListGamesResponse>(`?${params}`);
       setGames(data.games);
@@ -445,11 +456,15 @@ function useUserGamesLegacy() {
 
 // ─── Exported hook ──────────────────────
 
-export function useUserGames(databaseId?: string) {
+/**
+ * `kind` scopes the PowerSync live query; the fetch path takes it per call via
+ * `fetchGames(..., { kind })`.
+ */
+export function useUserGames(databaseId?: string, kind?: GamesKind) {
   // Feature flag is a module-level constant, so hook order is stable across renders.
   if (LOCAL_FIRST_GAMES) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
-    return useUserGamesPowerSync(databaseId);
+    return useUserGamesPowerSync(databaseId, kind);
   }
   // eslint-disable-next-line react-hooks/rules-of-hooks
   return useUserGamesLegacy();

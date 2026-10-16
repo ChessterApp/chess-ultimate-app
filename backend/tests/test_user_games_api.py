@@ -559,5 +559,57 @@ class TestCreateGameDatabaseStamp:
             assert resp.get_json().get('database_id') is None
 
 
+# ─── KIND (ANALYSIS / GAMES) SPLIT ───────────────────────────────────────────
+
+class RecordingQueryBuilder(FakeQueryBuilder):
+    """FakeQueryBuilder that records eq/or_ filters so tests can assert them."""
+    def __init__(self, calls, **kwargs):
+        super().__init__(**kwargs)
+        self._calls = calls
+
+    def eq(self, *args, **kwargs):
+        self._calls.append(('eq', args))
+        return self
+
+    def or_(self, *args, **kwargs):
+        self._calls.append(('or_', args))
+        return self
+
+
+def _recording_table(calls, data=None, count=None):
+    def table(name):
+        return RecordingQueryBuilder(calls, data=data, count=count)
+    return table
+
+
+class TestListGamesKind:
+    def test_kind_analysis_filters_to_variations(self, client, auth_headers):
+        calls = []
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _recording_table(calls, data=[SAMPLE_GAME_ROW], count=1)
+            resp = client.get('/api/games?kind=analysis', headers=auth_headers)
+            assert resp.status_code == 200
+        assert ('eq', ('event', 'Variation')) in calls
+        assert not any(c[0] == 'or_' for c in calls)
+
+    def test_kind_games_excludes_variations_null_safe(self, client, auth_headers):
+        calls = []
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _recording_table(calls, data=[SAMPLE_GAME_ROW], count=1)
+            resp = client.get('/api/games?kind=games', headers=auth_headers)
+            assert resp.status_code == 200
+        assert ('or_', ('event.is.null,event.neq.Variation',)) in calls
+        assert ('eq', ('event', 'Variation')) not in calls
+
+    def test_kind_omitted_is_unfiltered(self, client, auth_headers):
+        calls = []
+        with patch('api.user_games.supabase') as mock_sb:
+            mock_sb.table = _recording_table(calls, data=[SAMPLE_GAME_ROW], count=1)
+            resp = client.get('/api/games', headers=auth_headers)
+            assert resp.status_code == 200
+            assert resp.get_json()['total'] == 1
+        assert not any('event' in str(c[1]) for c in calls)
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
