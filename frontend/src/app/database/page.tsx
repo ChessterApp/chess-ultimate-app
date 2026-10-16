@@ -98,6 +98,8 @@ const EditGameModal = dynamic(() => import('@/components/openings/EditGameModal'
 import { useUserGames, type UserGame } from '@/hooks/useUserGames';
 import { useGameMoveTree, findNodeById as findGameTreeNode, findParentOf as findGameTreeParent } from '@/hooks/useGameMoveTree';
 import type { MoveContextMenuActions } from '@/components/openings/MoveNotation';
+import type { SquareBadge } from '@/components/openings/DebutBoard';
+import { NAGS, moveQualityNag, nagBadgeColor } from '@/lib/nags';
 import { Close } from '@mui/icons-material';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -570,6 +572,9 @@ export default function DebutPage() {
     onCommentChange: (node, text) => {
       gameMoveTree.setComment(node.id, text);
     },
+    onNagToggle: (node, code) => {
+      gameMoveTree.toggleNag(node.id, code);
+    },
     labels: {
       deleteFromHere: t('myGames.moveEdit.deleteFromHere'),
       deleteVariation: t('myGames.moveEdit.deleteVariation'),
@@ -578,6 +583,10 @@ export default function DebutPage() {
       addComment: t('myGames.moveEdit.addComment'),
       editComment: t('myGames.moveEdit.editComment'),
       commentPlaceholder: t('myGames.moveEdit.commentPlaceholder'),
+      moveSymbols: t('nags.moveSymbols'),
+      moreSymbols: t('nags.moreSymbols'),
+      fewerSymbols: t('nags.fewerSymbols'),
+      nagNames: Object.fromEntries(NAGS.map(n => [n.i18nKey, t(`nags.${n.i18nKey}`)])),
     },
   } : undefined;
 
@@ -588,6 +597,15 @@ export default function DebutPage() {
     if (!editTreeSelectedNodeId) return gameMoveTree.tree.fen;
     const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
     return node?.fen || gameMoveTree.tree.fen;
+  }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
+
+  // Move-quality symbol of the selected move, pinned to its destination square.
+  const editTreeBadge = useMemo((): SquareBadge | null => {
+    if (!isActiveGameEditable || !gameMoveTree.tree || !editTreeSelectedNodeId) return null;
+    const node = findGameTreeNode(gameMoveTree.tree, editTreeSelectedNodeId);
+    const quality = moveQualityNag(node?.nags);
+    if (!quality || !node?.move_uci) return null;
+    return { square: node.move_uci.slice(2, 4), symbol: quality.symbol, color: nagBadgeColor(quality) };
   }, [isActiveGameEditable, gameMoveTree.tree, editTreeSelectedNodeId]);
 
   // ─── Tree navigation callbacks (for DebutBoard arrows + keyboard in tree mode) ───
@@ -2135,6 +2153,7 @@ export default function DebutPage() {
               onNext={activeTab === 'debut' ? handleNext : (isActiveGameEditable ? handleEditTreeNext : (activeTab === 'my-games' && !activeGame ? handleMyGamesNext : () => activeGame && handleGameMoveChange(activeGame.id, Math.min((activeGame?.moves.length ?? 1) - 1, (gameMoveIndices[activeGame.id] ?? -1) + 1))))}
               onGoToEnd={activeTab === 'debut' ? handleGoToEnd : (isActiveGameEditable ? handleEditTreeGoToEnd : (activeTab === 'my-games' && !activeGame ? handleMyGamesGoToEnd : () => activeGame && handleGameMoveChange(activeGame.id, (activeGame?.moves.length ?? 1) - 1)))}
               onFlip={handleFlip}
+              squareBadge={activeTab !== 'debut' && activeGame ? editTreeBadge : null}
             />
             </Box>
 

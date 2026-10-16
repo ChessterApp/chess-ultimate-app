@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase } from '@mui/material';
+import { Box, Typography, IconButton, Tooltip, Menu, MenuItem, ListItemIcon, ListItemText, InputBase, Divider, Popover } from '@mui/material';
 import { Backspace, DeleteSweep, Delete, TrendingUp, ArrowUpward, Star, AddComment, ModeComment } from '@mui/icons-material';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import { MOVE_QUALITY_COLORS, getNag, suffixToNag } from '@/lib/nags';
+import NagPalette, { type NagPaletteLabels } from './NagPalette';
 
 export interface MoveContextMenuActions {
   onDeleteFromHere?: (node: OpeningNode) => void;
@@ -12,7 +14,9 @@ export interface MoveContextMenuActions {
   onMakeMainLine?: (node: OpeningNode) => void;
   /** Enables inline comments: rendered after each move and editable in place. */
   onCommentChange?: (node: OpeningNode, text: string) => void;
-  labels?: {
+  /** Enables move symbols: palette in the context menu + toolbar, `!`/`?` keys. */
+  onNagToggle?: (node: OpeningNode, code: number) => void;
+  labels?: NagPaletteLabels & {
     deleteFromHere?: string;
     deleteVariation?: string;
     promoteVariation?: string;
@@ -20,7 +24,47 @@ export interface MoveContextMenuActions {
     addComment?: string;
     editComment?: string;
     commentPlaceholder?: string;
+    moveSymbols?: string;
   };
+}
+
+/** `!`/`?` presses within this window combine into `!!`, `!?`, `?!`, `??`. */
+const NAG_KEY_WINDOW_MS = 400;
+
+// Several notations can be mounted at once (responsive layouts); only the first
+// listener acts on a given key press.
+const handledNagKeys = new WeakSet<KeyboardEvent>();
+
+function isTextTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || (target instanceof HTMLElement && target.isContentEditable);
+}
+
+function findNode(root: OpeningNode, id: string): OpeningNode | null {
+  if (root.id === id) return root;
+  for (const c of root.children || []) { const f = findNode(c, id); if (f) return f; }
+  return null;
+}
+
+function MoveNags({ nags }: { nags: number[] }) {
+  const defs = nags.map(getNag).filter(d => d !== undefined);
+  const quality = defs.find(d => d.group === 'move');
+  const rest = defs.filter(d => d.group !== 'move');
+  return (
+    <>
+      {quality && (
+        <Box component="span" data-testid="move-nag-quality" sx={{ color: MOVE_QUALITY_COLORS[quality.code] ?? 'text.primary', fontWeight: 700 }}>
+          {quality.symbol}
+        </Box>
+      )}
+      {rest.length > 0 && (
+        <Box component="span" data-testid="move-nag-extra" sx={{ color: 'text.disabled' }}>
+          {`\u2009${rest.map(d => d.symbol).join('\u2009')}`}
+        </Box>
+      )}
+    </>
+  );
 }
 
 type RenderComment = (node: OpeningNode) => React.ReactNode;
@@ -132,6 +176,7 @@ function MoveSpan({
       }}
     >
       {node.move_san}
+      {node.nags?.length ? <MoveNags nags={node.nags} /> : null}
     </Typography>
   );
 }
@@ -299,6 +344,8 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
   // fully closed so its focus trap can't steal focus (and blur-save) the input.
   const pendingCommentIdRef = useRef<string | null>(null);
   const onCommentChange = contextMenuActions?.onCommentChange;
+  const onNagToggle = contextMenuActions?.onNagToggle;
+  const [nagAnchor, setNagAnchor] = useState<HTMLElement | null>(null);
   const commentPlaceholder = contextMenuActions?.labels?.commentPlaceholder;
 
   useEffect(() => {
@@ -378,6 +425,40 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
     return find(tree);
   }, [tree, selectedNodeId]);
 
+  // Typed `!`/`?` sequences set the selected move's quality symbol.
+  const nagKeyTargetRef = useRef({ node: selectedMoveNode, onNagToggle });
+  useEffect(() => {
+    nagKeyTargetRef.current = { node: selectedMoveNode, onNagToggle };
+  });
+  const nagKeysEnabled = !!onNagToggle;
+  useEffect(() => {
+    if (!nagKeysEnabled) return;
+    let buffer = '';
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      const code = suffixToNag(buffer);
+      buffer = '';
+      const { node, onNagToggle: toggle } = nagKeyTargetRef.current;
+      if (code !== null && node && toggle) toggle(node, code);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if ((e.key !== '!' && e.key !== '?') || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTextTarget(e.target) || handledNagKeys.has(e) || !nagKeyTargetRef.current.node) return;
+      handledNagKeys.add(e);
+      e.preventDefault();
+      buffer += e.key;
+      if (buffer.length >= 2) flush();
+      else timer = setTimeout(flush, NAG_KEY_WINDOW_MS);
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      if (timer) clearTimeout(timer);
+    };
+  }, [nagKeysEnabled]);
+
   if (loading) {
     return (
       <Box sx={{ px: 1, py: 0.75, color: 'text.secondary' }}>
@@ -419,20 +500,55 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
         {elements}
       </Box>
 
-      {/* Comment button for the selected move (editable mode) */}
-      {onCommentChange && selectedMoveNode && (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 0.5, py: 0.25, borderTop: 1, borderColor: 'divider' }}>
-          <Tooltip title={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'} arrow placement="top">
-            <IconButton
-              size="small"
-              aria-label={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'}
-              onClick={() => setEditingCommentId(selectedMoveNode.id)}
-              sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'primary.main' } }}
-            >
-              {selectedMoveNode.notes ? <ModeComment sx={{ fontSize: 15 }} /> : <AddComment sx={{ fontSize: 15 }} />}
-            </IconButton>
-          </Tooltip>
+      {/* Symbol + comment buttons for the selected move (editable mode) */}
+      {((onCommentChange && selectedMoveNode) || onNagToggle) && (
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.25, px: 0.5, py: 0.25, borderTop: 1, borderColor: 'divider' }}>
+          {onNagToggle && (
+            <Tooltip title={labels.moveSymbols || 'Move symbols'} arrow placement="top" describeChild>
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label={labels.moveSymbols || 'Move symbols'}
+                  disabled={!selectedMoveNode}
+                  onClick={(e) => setNagAnchor(e.currentTarget)}
+                  sx={{ color: 'text.secondary', p: 0.4, minWidth: 23, fontSize: 12, fontWeight: 700, lineHeight: '15px', '&:hover': { color: 'primary.main' } }}
+                >
+                  !?
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+          {onCommentChange && selectedMoveNode && (
+            <Tooltip title={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'} arrow placement="top">
+              <IconButton
+                size="small"
+                aria-label={selectedMoveNode.notes ? labels.editComment || 'Edit comment' : labels.addComment || 'Add comment'}
+                onClick={() => setEditingCommentId(selectedMoveNode.id)}
+                sx={{ color: 'text.secondary', p: 0.4, '&:hover': { color: 'primary.main' } }}
+              >
+                {selectedMoveNode.notes ? <ModeComment sx={{ fontSize: 15 }} /> : <AddComment sx={{ fontSize: 15 }} />}
+              </IconButton>
+            </Tooltip>
+          )}
         </Box>
+      )}
+
+      {onNagToggle && (
+        <Popover
+          open={!!nagAnchor && !!selectedMoveNode}
+          anchorEl={nagAnchor}
+          onClose={() => setNagAnchor(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        >
+          {selectedMoveNode && (
+            <NagPalette
+              nags={selectedMoveNode.nags}
+              onToggle={(code) => onNagToggle(selectedMoveNode, code)}
+              labels={labels}
+            />
+          )}
+        </Popover>
       )}
 
       {/* Action bar */}
@@ -495,6 +611,14 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, onDel
             },
           }}
         >
+          {onNagToggle && contextMenu && (
+            <NagPalette
+              nags={findNode(tree, contextMenu.node.id)?.nags}
+              onToggle={(code) => onNagToggle(contextMenu.node, code)}
+              labels={labels}
+            />
+          )}
+          {onNagToggle && contextMenu && <Divider sx={{ my: 0.5 }} />}
           {onCommentChange && contextMenu && (
             <MenuItem
               onClick={() => {

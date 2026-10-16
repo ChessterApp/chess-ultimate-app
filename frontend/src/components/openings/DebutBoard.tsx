@@ -34,13 +34,58 @@ interface DebutBoardProps {
   onNext: () => void;
   onGoToEnd: () => void;
   onFlip: () => void;
+  /** Round symbol badge pinned to a square's top-right corner (e.g. `!!` on the last move's destination). */
+  squareBadge?: SquareBadge | null;
+}
+
+export interface SquareBadge {
+  square: string;
+  symbol: string;
+  color: string;
+}
+
+function SquareBadgeOverlay({ badge, orientation, boardSize }: { badge: SquareBadge; orientation: 'white' | 'black'; boardSize: number }) {
+  const file = badge.square.charCodeAt(0) - 97;
+  const rank = Number(badge.square[1]) - 1;
+  const col = orientation === 'white' ? file : 7 - file;
+  const row = orientation === 'white' ? 7 - rank : rank;
+  const sq = boardSize / 8;
+  const size = Math.round(sq * 0.42);
+  const clamp = (v: number) => Math.min(Math.max(v, 0), boardSize - size);
+  return (
+    <Box
+      data-testid="square-badge"
+      aria-hidden
+      sx={{
+        position: 'absolute',
+        left: clamp((col + 1) * sq - size * 0.7),
+        top: clamp(row * sq - size * 0.3),
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        bgcolor: badge.color,
+        color: '#fff',
+        fontSize: Math.round(size * 0.5),
+        fontWeight: 700,
+        lineHeight: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+        pointerEvents: 'none',
+        zIndex: 3,
+      }}
+    >
+      {badge.symbol}
+    </Box>
+  );
 }
 
 // ─── Component ───
 
 export default function DebutBoard({
   fen, orientation, onMove, customArrows = [],
-  onReset, onGoToStart, onPrev, onNext, onGoToEnd, onFlip,
+  onReset, onGoToStart, onPrev, onNext, onGoToEnd, onFlip, squareBadge,
 }: DebutBoardProps) {
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
@@ -84,16 +129,19 @@ export default function DebutBoard({
       sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
       style={{ ['--cg-animation-duration' as any]: `${animationDuration}ms` }}
     >
-      <ChessgroundBoard
-        fen={fen}
-        orientation={orientation}
-        boardSize={boardSize}
-        onMove={handleMove}
-        arrows={customArrows}
-        showCoordinates={showCoordinates}
-        animationDuration={animationDuration}
-        movable={true}
-      />
+      <Box sx={{ position: 'relative', lineHeight: 0 }}>
+        <ChessgroundBoard
+          fen={fen}
+          orientation={orientation}
+          boardSize={boardSize}
+          onMove={handleMove}
+          arrows={customArrows}
+          showCoordinates={showCoordinates}
+          animationDuration={animationDuration}
+          movable={true}
+        />
+        {squareBadge && <SquareBadgeOverlay badge={squareBadge} orientation={orientation} boardSize={boardSize} />}
+      </Box>
 
       {/* Board Control Bar — matches Analysis board exactly */}
       <Box

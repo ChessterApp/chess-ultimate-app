@@ -513,3 +513,69 @@ describe('useGameMoveTree.setComment', () => {
     expect(result.current.isDirty).toBe(false);
   });
 });
+
+describe('NAGs', () => {
+  it('parses $n tokens onto the preceding move', () => {
+    const tree = pgnToTree('1. e4 $1 $14 e5 $2');
+    expect(tree.children![0].nags).toEqual([1, 14]);
+    expect(tree.children![0].children![0].nags).toEqual([2]);
+  });
+
+  it('parses SAN suffixes', () => {
+    const tree = pgnToTree('1. e4!? e5?? 2. Qh5+!');
+    expect(mainLineMoves(tree)).toEqual(['e4', 'e5', 'Qh5']);
+    const e4 = tree.children![0];
+    expect(e4.nags).toEqual([5]);
+    expect(e4.children![0].nags).toEqual([4]);
+    expect(e4.children![0].children![0].nags).toEqual([1]);
+  });
+
+  it('keeps Black-side and unknown codes on round-trip', () => {
+    const pgn = '1. e4 $33 $250 e5';
+    const tree = pgnToTree(pgn);
+    expect(tree.children![0].nags).toEqual([33, 250]);
+    expect(treeToPgn(tree)).toBe(pgn);
+  });
+
+  it('serializes symbols before comments, losslessly with variations', () => {
+    const pgn = '1. e4 $1 {best by test} 1... e5 2. Nf3 $3 $16 ( 2. Bc4 $5 {bishop} 2... Nf6 $6 ) Nc6 $146';
+    const tree = pgnToTree(pgn);
+    expect(treeToPgn(tree)).toBe(pgn);
+    const bc4 = tree.children![0].children![0].children![1];
+    expect(bc4.nags).toEqual([5]);
+    expect(bc4.notes).toBe('bishop');
+  });
+
+  it('converts suffixes to $n on serialize', () => {
+    expect(treeToPgn(pgnToTree('1. e4!! e5?'))).toBe('1. e4 $3 e5 $2');
+  });
+});
+
+describe('useGameMoveTree.toggleNag', () => {
+  it('toggles symbols with one-per-group and marks dirty', () => {
+    const { result } = renderHook(() => useGameMoveTree());
+    act(() => result.current.initFromPgn('1. e4 e5'));
+    const e4Id = result.current.tree!.children![0].id;
+
+    act(() => result.current.toggleNag(e4Id, 1));
+    act(() => result.current.toggleNag(e4Id, 10));
+    act(() => result.current.toggleNag(e4Id, 3));
+    expect(result.current.tree!.children![0].nags).toEqual([3, 10]);
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.getPgn()).toBe('1. e4 $3 $10 e5');
+
+    act(() => result.current.toggleNag(e4Id, 3));
+    act(() => result.current.toggleNag(e4Id, 10));
+    expect(result.current.tree!.children![0].nags).toBeUndefined();
+    expect(result.current.getPgn()).toBe('1. e4 e5');
+  });
+
+  it('ignores the root', () => {
+    const { result } = renderHook(() => useGameMoveTree());
+    act(() => result.current.initFromPgn('1. e4'));
+    const tree = result.current.tree!;
+    act(() => result.current.toggleNag(tree.id, 1));
+    expect(result.current.tree).toBe(tree);
+    expect(result.current.isDirty).toBe(false);
+  });
+});

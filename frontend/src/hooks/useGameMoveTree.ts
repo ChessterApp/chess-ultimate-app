@@ -8,6 +8,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { Chess } from 'chess.js';
 import type { OpeningNode } from '@/hooks/useOpeningRepertoire';
+import { parseSanSuffix, toggleNag } from '@/lib/nags';
 
 const STARTING_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 
@@ -105,9 +106,6 @@ function tokenize(text: string): string[] {
     // Skip move numbers (e.g. "1.", "1...", "12.")
     if (/^\d+\.+$/.test(word)) continue;
 
-    // Skip NAGs like $1, $2
-    if (/^\$\d+$/.test(word)) continue;
-
     tokens.push(word);
   }
   return tokens;
@@ -128,6 +126,13 @@ function buildTree(tokens: string[], parent: OpeningNode, chess: Chess): number 
     if (token.startsWith('{')) {
       const body = token.slice(1);
       currentParent.notes = currentParent.notes ? `${currentParent.notes} ${body}` : body;
+      i++;
+      continue;
+    }
+
+    // NAG — attach to the last move played (ignored before the first move)
+    if (/^\$\d+$/.test(token)) {
+      if (currentParent.move_san) addNag(currentParent, parseInt(token.slice(1)));
       i++;
       continue;
     }
@@ -156,9 +161,10 @@ function buildTree(tokens: string[], parent: OpeningNode, chess: Chess): number 
       continue;
     }
 
-    // It's a move SAN
+    // It's a move SAN, possibly with a !/? suffix
+    const { san, nag } = parseSanSuffix(token);
     try {
-      const move = chess.move(token);
+      const move = chess.move(san);
       if (move) {
         const fen = chess.fen();
         const fenParts = fen.split(' ');
@@ -173,6 +179,7 @@ function buildTree(tokens: string[], parent: OpeningNode, chess: Chess): number 
           is_white_move: isWhiteMove,
           parent_id: currentParent.id,
         });
+        if (nag !== null) addNag(node, nag);
 
         if (!currentParent.children) currentParent.children = [];
         currentParent.children.push(node);
@@ -185,6 +192,11 @@ function buildTree(tokens: string[], parent: OpeningNode, chess: Chess): number 
   }
 
   return i;
+}
+
+function addNag(node: OpeningNode, code: number): void {
+  if (!node.nags) node.nags = [];
+  if (!node.nags.includes(code)) node.nags.push(code);
 }
 
 function findRootAncestor(node: OpeningNode): OpeningNode {
@@ -248,13 +260,11 @@ function emitMove(node: OpeningNode, parts: string[], forceNumber: boolean): voi
 
   if (node.is_white_move) {
     parts.push(`${node.move_number}.`);
-    parts.push(node.move_san);
   } else if (forceNumber) {
     parts.push(`${node.move_number}...`);
-    parts.push(node.move_san);
-  } else {
-    parts.push(node.move_san);
   }
+  parts.push(node.move_san);
+  for (const code of node.nags || []) parts.push(`$${code}`);
 }
 
 // ── Deep clone ──────────────────────────────────────────────
@@ -401,6 +411,17 @@ export function useGameMoveTree() {
     setIsDirty(true);
   }, [tree]);
 
+  const toggleNagOn = useCallback((nodeId: string, code: number) => {
+    if (!tree) return;
+    const newTree = cloneTree(tree);
+    const node = findNodeById(newTree, nodeId);
+    if (!node?.move_san) return;
+    const nags = toggleNag(node.nags, code);
+    node.nags = nags.length ? nags : undefined;
+    setTree(newTree);
+    setIsDirty(true);
+  }, [tree]);
+
   const getPgn = useCallback((): string => {
     if (!tree) return '*';
     return treeToPgn(tree);
@@ -421,6 +442,7 @@ export function useGameMoveTree() {
     promoteVariation,
     makeMainLine,
     setComment,
+    toggleNag: toggleNagOn,
     getPgn,
     markClean,
   };

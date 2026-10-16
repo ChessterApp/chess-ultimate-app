@@ -50,6 +50,8 @@ export interface OpeningNode {
   updated_at: string;
   children?: OpeningNode[];
   arrows?: ArrowAnnotation[];
+  /** PGN NAG codes ($n) on this move; see lib/nags. */
+  nags?: number[];
 }
 
 export interface ArrowAnnotation {
