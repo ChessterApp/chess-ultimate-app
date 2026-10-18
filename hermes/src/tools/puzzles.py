@@ -52,6 +52,10 @@ GET_PUZZLE_SCHEMA = {
                 "type": "integer",
                 "description": "How many puzzles to return (1–10, default 1).",
             },
+            "any": {
+                "type": "boolean",
+                "description": "True when the student asked for any puzzle («любую задачу», «случайную»), not the next set of their programme.",
+            },
             "exclude_ids": {
                 "type": "array",
                 "items": {"type": "string"},
@@ -126,6 +130,54 @@ def site_puzzle(theme: Optional[str], resolved: Optional[str], user_id: Optional
         return None
 
 
+def site_next_puzzle(user_id: Optional[str], locale: Optional[str] = "ru",
+                     exclude_ids: Optional[list] = None) -> Optional[dict]:
+    """«Дай задачу» with no theme: the next task of the student's own programme — the set they are on
+    (or the first not completed), its first task not shown yet; the sets after it when that one has
+    none (2026-10-16: a themeless request went to Lichess, past the programme). None when the
+    programme is unavailable or every set is done (fail-open: Lichess then)."""
+    try:
+        from src.tools.learning_path import fetch_programme, fetch_progress, get_lesson, iter_lessons, next_lesson
+
+        programme = fetch_programme()
+        if not programme:
+            return None
+        progress = (fetch_progress(user_id) or {}) if user_id else {}
+        lessons = list(iter_lessons(programme))
+        start = next_lesson(programme, progress)
+        idx = next((i for i, t in enumerate(lessons) if start and t[2].get("id") == start[2].get("id")), 0)
+        excluded = set(exclude_ids or [])
+        for c, m, l in lessons[idx: idx + 12]:
+            if (progress.get(l.get("id")) or {}).get("status") == "completed":
+                continue
+            full = get_lesson(l.get("id") or "", user_id=user_id, locale=locale, show=False)
+            if "error" in full or full.get("ambiguous"):
+                continue
+            tasks = [p for p in full.get("puzzles") or [] if p.get("fen") and p.get("solution")]
+            for p in tasks:
+                pid = f"site:{full.get('lesson_id')}:{p.get('n')}"
+                if pid in excluded:
+                    continue
+                try:
+                    import chess
+
+                    side = "white" if chess.Board(p["fen"]).turn else "black"
+                except Exception:  # noqa: BLE001
+                    continue
+                course = full.get("course") or {}
+                return {
+                    "puzzle_id": pid, "fen": p["fen"], "side_to_move": side, "solution": list(p["solution"]),
+                    "rating": None, "themes": [], "hint": p.get("hint") or "",
+                    "source": "site_lesson", "next_in_programme": True, "lesson": full.get("title"),
+                    "course": course.get("title") if isinstance(course, dict) else course,
+                    "url": full.get("url"), "n": p.get("n"), "of": len(tasks),
+                }
+        return None
+    except Exception:  # noqa: BLE001
+        logger.debug("site next puzzle lookup failed", exc_info=True)
+        return None
+
+
 def get_puzzle(
     theme: str = None,
     rating: int = None,
@@ -136,31 +188,39 @@ def get_puzzle(
     rng: random.Random = None,
     user_id: str = None,
     locale: str = "ru",
+    any: bool = False,  # noqa: A002 — the tool argument's name
 ) -> dict:
     from src import config
 
     resolved_early = resolve_theme(theme) if theme else None
+    site = None
     if config.COACH_PUZZLES_FROM_SITE and theme and not opening:
         site = site_puzzle(theme, resolved_early, user_id=user_id, locale=locale, exclude_ids=exclude_ids)
-        if site:
-            shown = SetPuzzle(fen=site["fen"], solution=site["solution"], puzzle_id=site["puzzle_id"])
-            where = f"the site's set «{site['lesson']}»" + (f" (course «{site['course']}»)" if site.get("course") else "")
-            return {
-                "theme": resolved_early or theme,
-                "rating": None,
-                "count": 1,
-                "source": "site_lesson",
-                "puzzles": [site],
-                "on_board": site["puzzle_id"],
-                "how_to_show": (
-                    f"The puzzle is already on the student's board — do not call board_control for it. It is task "
-                    f"{site.get('n')} of {site.get('of')} of {where}, the student's own programme: say so, say whose "
-                    "move it is and what to look for, never the solution, and give the set's address at the end"
-                    + (f": {site['url']}" if site.get("url") else "") + ". For the next task call get_puzzle again "
-                    "with this puzzle_id in exclude_ids."
-                ),
-                "board_actions": [shown.model_dump(by_alias=True)],
-            }
+    elif config.COACH_PUZZLES_FROM_SITE and not theme and not opening and not rating and not any and user_id:
+        site = site_next_puzzle(user_id, locale=locale, exclude_ids=exclude_ids)
+    if site:
+        shown = SetPuzzle(fen=site["fen"], solution=site["solution"], puzzle_id=site["puzzle_id"])
+        where = f"the site's set «{site['lesson']}»" + (f" (course «{site['course']}»)" if site.get("course") else "")
+        return {
+            "theme": resolved_early or theme,
+            "rating": None,
+            "count": 1,
+            "source": "site_lesson",
+            "puzzles": [site],
+            "on_board": site["puzzle_id"],
+            "how_to_show": (
+                f"The puzzle is already on the student's board — do not call board_control for it. It is task "
+                f"{site.get('n')} of {site.get('of')} of {where}, "
+                + ("the next set of the student's own programme (they asked for a puzzle, not a theme: say it is "
+                   "where their programme continues; a random one — get_puzzle(any=true) — only if they ask)"
+                   if site.get("next_in_programme") else "the student's own programme")
+                + ": say so, say whose move it is and what to look for, never the solution, and give the set's "
+                "address at the end"
+                + (f": {site['url']}" if site.get("url") else "") + ". For the next task call get_puzzle again "
+                "with this puzzle_id in exclude_ids."
+            ),
+            "board_actions": [shown.model_dump(by_alias=True)],
+        }
     if not db_available(db_path):
         return {
             "error": "Puzzle database is not installed on this server "
@@ -223,6 +283,7 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         opening=args.get("opening"),
         count=args.get("count", 1),
         exclude_ids=args.get("exclude_ids"),
+        any=bool(args.get("any")),
         user_id=user_id,
         locale=args.get("locale") or "ru",
     )

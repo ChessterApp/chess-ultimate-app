@@ -57,6 +57,21 @@ def lookup_opening(question: str, fen: Optional[str] = None, pgn: Optional[str] 
     }
     if plan.load:
         out["board_actions"] = [{"type": "load_pgn", "pgn": plan.pgn}]
+    try:
+        # The programme's own lesson on the opening (steps 5 and 7 of «Ступени»: Scotch, Italian, Two Knights,
+        # Petrov, Four Knights, Spanish, King's Gambit): the coach teaches it in the programme's words.
+        from src.lesson_texts import book_for_words, book_title_extra, book_view
+
+        rec = book_for_words(question or "")
+        if rec is not None and book_title_extra(rec, question or "") <= 1 and int(rec.get("docx_step") or 0) >= 4:
+            view = book_view(rec)
+            out["programme_lesson"] = {
+                "step": view["step"], "lesson": view["lesson"], "title": view["title"], "text": view["text"][:2500],
+                "parts": view["parts"], "game_pgn": view.get("pgn"),
+                "how_to_use": "The student's own programme («Ступени»): explain the opening in its words and name it as theirs.",
+            }
+    except Exception:  # noqa: BLE001 — the book is a bonus
+        pass
     return out
 
 

@@ -281,6 +281,12 @@ export function openingNote(result: {
 /** The note the model gets with a knowledge-base example the site put on the board. */
 export function topicNote(result: {
   title?: string;
+  /** `programme_book`: the student's own programme («Ступени», steps 4–7 live only in Hermes). */
+  source?: string;
+  programme?: { step?: number | string; lesson?: string };
+  explanation?: string;
+  /** A master game the programme's lesson writes out, loaded on the board. */
+  game_pgn?: string;
   example?: {
     title?: string;
     fen?: string;
@@ -298,6 +304,25 @@ export function topicNote(result: {
   };
 }): string | null {
   const ex = result.example;
+  if (result.source === 'programme_book') {
+    const where = `the student's own programme («Ступени», step ${result.programme?.step ?? ''}, lesson «${result.title ?? ''}»)`;
+    const says = result.explanation ? ` The lesson says: ${result.explanation.slice(0, 900)}` : '';
+    if (result.game_pgn) {
+      return (
+        `[Topic] The game that ${where} writes out is now on the student's board (they can step through it).${says} ` +
+        'Tell it from the lesson\'s notes, move by move as the lesson names them — never from memory — and say it is ' +
+        'from their programme. Describe no other example and do not call get_topic for it again.'
+      ).replace(/\s+/g, ' ').trim();
+    }
+    if (!ex?.fen) return null;
+    return (
+      `[Topic] On the student's board is the diagram of ${where} ` +
+      `(FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}).` +
+      (ex.note ? ` It shows: ${ex.note}.` : '') + says +
+      ` Explain «${result.title ?? ''}» in the lesson's own words with this very position and say it is from their ` +
+      'programme. Describe no other example and do not call get_topic for it again.'
+    ).replace(/\s+/g, ' ').trim();
+  }
   if (!ex?.fen) return null;
   if (ex.source === 'site_lesson') {
     const where = `the site's lesson «${ex.title ?? ''}»${ex.course ? ` (course «${ex.course}»)` : ''}`;

@@ -12,9 +12,10 @@ KING_LESSON = "9f0f557c-c5c2-4df7-8725-94bd1e61e715"  # «Король» in «О
 class TestLessonTexts:
     def test_the_books_are_shipped_with_the_coach(self):
         recs = _records()
-        assert len(recs) == 37
-        assert {r["course_slug"] for r in recs} == {"chess-basics", "chess-tactics", "advanced-tactics"}
-        assert sum(1 for r in recs if len(r.get("text_ru") or "") > 200) >= 36
+        site = [r for r in recs if r.get("course_slug")]          # steps 1–3, matched to the site's lessons
+        assert len(site) == 37 and len(recs) >= 90                 # + steps 4–7 (16.10), the programme's own topics
+        assert {r["course_slug"] for r in site} == {"chess-basics", "chess-tactics", "advanced-tactics"}
+        assert sum(1 for r in site if len(r.get("text_ru") or "") > 200) >= 36
 
     def test_by_lesson_id(self):
         own = lesson_text(lesson_id=KING_LESSON)
