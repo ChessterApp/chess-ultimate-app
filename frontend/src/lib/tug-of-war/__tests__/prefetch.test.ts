@@ -1,320 +1,191 @@
 import { describe, it, expect } from 'vitest';
 import { Chess } from 'chess.js';
 import {
-  mapApiPuzzle,
-  buildPuzzleUrl,
+  mapPackPuzzle,
+  buildPackUrl,
+  fetchPack,
   fallbackPool,
   fallbackPoolWithMeta,
   prefetchPuzzles,
+  refillQueues,
+  START_PER_TEAM,
+  REFILL_COUNT,
   TUG_LEVELS,
-  type PuzzleApiData,
+  TUG_THEMES,
 } from '../prefetch';
+import { needsRefill } from '../queues';
 import { TUG_PUZZLES } from '../puzzles';
 import type { TugPuzzle } from '../types';
 
-/** A realistic API payload: `FEN` is the solver-to-move position (after the
- * opponent's `preMove`), `moves` is the solution from that turn. */
-function apiPuzzle(over: Partial<PuzzleApiData> = {}): PuzzleApiData {
+/** A pack puzzle in the backend's solving-position shape. */
+function packPuzzle(over: Partial<TugPuzzle> = {}): TugPuzzle {
   return {
-    lichessId: 'abc12',
-    previousFEN: '5rk1/5ppp/8/8/8/8/5PPP/R5K1 b - - 0 1',
-    FEN: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1',
-    moves: 'a1a8',
-    preMove: 'f8f6',
+    id: 'abc12',
+    fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1',
+    moves: ['a1a8'],
     rating: 1100,
     themes: ['backRankMate', 'mateIn1'],
-    gameURL: 'https://lichess.org/abc12',
     ...over,
   };
 }
 
-/** Build a mock fetch that returns the given sequence of puzzles (cycling). */
-function mockFetch(puzzles: (PuzzleApiData | null)[]): typeof fetch {
-  let i = 0;
-  return (async () => {
-    const data = puzzles[i % puzzles.length];
-    i += 1;
-    return {
-      ok: data !== null,
-      json: async () => (data ? { success: true, data } : { success: false }),
-    } as Response;
-  }) as unknown as typeof fetch;
+function pack(n: number, prefix = 'p'): TugPuzzle[] {
+  return Array.from({ length: n }, (_, i) => packPuzzle({ id: `${prefix}${i}` }));
 }
 
-describe('mapApiPuzzle', () => {
-  it('maps the API shape onto the internal puzzle type', () => {
-    const mapped = mapApiPuzzle(apiPuzzle());
-    expect(mapped).not.toBeNull();
-    expect(mapped!.id).toBe('abc12');
-    expect(mapped!.fen).toBe('6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1');
-    expect(mapped!.moves).toEqual(['a1a8']);
-    expect(mapped!.rating).toBe(1100);
-    expect(mapped!.themes).toContain('backRankMate');
+/** Mock fetch that records requested URLs and answers with `body` (null = HTTP 500). */
+function mockFetch(body: unknown | null) {
+  const urls: string[] = [];
+  const impl = (async (url: string) => {
+    urls.push(url);
+    return { ok: body !== null, json: async () => body } as Response;
+  }) as unknown as typeof fetch;
+  return { impl, urls };
+}
+
+const rejectingFetch = (async () => {
+  throw new Error('offline');
+}) as unknown as typeof fetch;
+
+describe('buildPackUrl', () => {
+  it('targets the backend pack with level, count, themes and exclude', () => {
+    const url = buildPackUrl('rook', ['fork', 'pin'], 60, ['a1', 'b2']);
+    expect(url.startsWith('/api/puzzles/tug/pack?')).toBe(true);
+    const q = new URLSearchParams(url.split('?')[1]);
+    expect(q.get('level')).toBe('rook');
+    expect(q.get('count')).toBe('60');
+    expect(q.get('themes')).toBe('fork,pin');
+    expect(q.get('exclude')).toBe('a1,b2');
   });
 
-  it('uses FEN (not previousFEN) and keeps the solver to move — never prepends preMove', () => {
-    const data = apiPuzzle();
-    const mapped = mapApiPuzzle(data)!;
-    // The shown position is exactly the API FEN, not the pre-setup position.
-    expect(mapped.fen).toBe(data.FEN);
-    expect(mapped.fen).not.toBe(data.previousFEN);
-
-    const chess = new Chess(mapped.fen);
-    // Solver is to move in the shown position.
-    expect(chess.turn()).toBe('w');
-    // The first solution move is legal from the shown position...
-    const first = mapped.moves[0];
-    const legal = chess
-      .moves({ verbose: true })
-      .some((m) => `${m.from}${m.to}` === first.slice(0, 4));
-    expect(legal).toBe(true);
-    // ...and it is the solver's move, not the opponent's setup move.
-    expect(first).not.toBe(data.preMove);
-  });
-
-  it('splits multi-move UCI strings into an array', () => {
-    const mapped = mapApiPuzzle(apiPuzzle({ moves: 'e2e4 e7e5 g1f3' }))!;
-    expect(mapped.moves).toEqual(['e2e4', 'e7e5', 'g1f3']);
-  });
-
-  it('returns null for payloads missing FEN or moves', () => {
-    expect(mapApiPuzzle(null)).toBeNull();
-    expect(mapApiPuzzle(apiPuzzle({ moves: '' }))).toBeNull();
-    expect(mapApiPuzzle({ ...apiPuzzle(), FEN: undefined as unknown as string })).toBeNull();
+  it('omits empty themes and exclude', () => {
+    const url = buildPackUrl('pawn', [], 60);
+    expect(url).not.toContain('themes=');
+    expect(url).not.toContain('exclude=');
   });
 });
 
-describe('buildPuzzleUrl', () => {
-  it('maps a level to its rating band and joins themes with commas', () => {
-    const url = buildPuzzleUrl('rook', ['fork', 'pin']);
-    expect(url).toContain('/api/puzzle?');
-    expect(url).toContain('ratingFrom=1200');
-    expect(url).toContain('ratingTo=1600');
-    expect(url).toContain('themes=fork%2Cpin');
+describe('mapPackPuzzle', () => {
+  it('keeps the solving-position puzzle as-is', () => {
+    const mapped = mapPackPuzzle(packPuzzle())!;
+    expect(mapped).toEqual(packPuzzle());
+    const chess = new Chess(mapped.fen);
+    // Solver is to move and the first solution move is legal there.
+    expect(chess.turn()).toBe('w');
+    expect(chess.moves({ verbose: true }).some((m) => m.lan === mapped.moves[0])).toBe(true);
   });
 
-  it('omits themes when none are selected', () => {
-    const url = buildPuzzleUrl('pawn', []);
-    expect(url).not.toContain('themes=');
-    expect(url).toContain('ratingFrom=400');
-    expect(url).toContain('ratingTo=800');
+  it('rejects payloads missing id, fen or moves', () => {
+    expect(mapPackPuzzle(null)).toBeNull();
+    expect(mapPackPuzzle({ ...packPuzzle(), moves: [] })).toBeNull();
+    expect(mapPackPuzzle({ ...packPuzzle(), fen: undefined })).toBeNull();
+    expect(mapPackPuzzle({ ...packPuzzle(), id: 7 })).toBeNull();
+  });
+});
+
+describe('fetchPack', () => {
+  it('drops duplicates and excluded ids', async () => {
+    const { impl } = mockFetch({ puzzles: [...pack(3), packPuzzle({ id: 'p1' })], source: 'lichess' });
+    const out = await fetchPack({ level: 'knight', themes: [], count: 4, exclude: ['p0'], fetchImpl: impl });
+    expect(out!.map((p) => p.id)).toEqual(['p1', 'p2']);
+  });
+
+  it('returns null on HTTP errors, network errors and malformed bodies', async () => {
+    expect(await fetchPack({ level: 'pawn', themes: [], count: 1, fetchImpl: mockFetch(null).impl })).toBeNull();
+    expect(await fetchPack({ level: 'pawn', themes: [], count: 1, fetchImpl: rejectingFetch })).toBeNull();
+    expect(await fetchPack({ level: 'pawn', themes: [], count: 1, fetchImpl: mockFetch({}).impl })).toBeNull();
+  });
+
+  it('aborts a request that exceeds the timeout', async () => {
+    const hangingFetch = ((_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      })) as unknown as typeof fetch;
+    const out = await fetchPack({ level: 'pawn', themes: [], count: 1, timeoutMs: 20, fetchImpl: hangingFetch });
+    expect(out).toBeNull();
   });
 });
 
 describe('prefetchPuzzles — live path', () => {
-  it('returns two disjoint queues from live puzzles', async () => {
-    const pool = Array.from({ length: 50 }, (_, i) =>
-      apiPuzzle({ lichessId: `id${i}` }),
-    );
+  it('makes ONE pack request and starts with 30 disjoint puzzles per team', async () => {
+    const { impl, urls } = mockFetch({ puzzles: pack(START_PER_TEAM * 2), source: 'lichess' });
     const { queueA, queueB, usedFallback } = await prefetchPuzzles({
       level: 'knight',
-      themes: [],
-      fetchImpl: mockFetch(pool),
+      themes: ['fork'],
+      fetchImpl: impl,
       rng: () => 0.42,
     });
+    expect(urls).toHaveLength(1);
+    const q = new URLSearchParams(urls[0].split('?')[1]);
+    expect(q.get('count')).toBe(String(START_PER_TEAM * 2));
+    expect(q.get('themes')).toBe('fork');
     expect(usedFallback).toBe(false);
-    const aIds = new Set(queueA.map((p) => p.id));
-    expect(queueB.some((p) => aIds.has(p.id))).toBe(false); // disjoint
-    expect(queueA.length).toBeGreaterThanOrEqual(1);
-    expect(queueB.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('deduplicates by lichessId', async () => {
-    // Every call returns the SAME puzzle → only one usable → fallback triggers,
-    // proving the dedupe collapsed the duplicates.
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      fetchImpl: mockFetch([apiPuzzle({ lichessId: 'dup' })]),
-    });
-    expect(usedFallback).toBe(true);
-  });
-});
-
-describe('prefetchPuzzles — fallback path', () => {
-  it('falls back when every request fails', async () => {
-    const { queueA, queueB, usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      fetchImpl: mockFetch([null]),
-    });
-    expect(usedFallback).toBe(true);
-    expect(queueA.length + queueB.length).toBeGreaterThan(0);
-    // Fallback queues are still disjoint.
+    expect(queueA).toHaveLength(START_PER_TEAM);
+    expect(queueB).toHaveLength(START_PER_TEAM);
     const aIds = new Set(queueA.map((p) => p.id));
     expect(queueB.some((p) => aIds.has(p.id))).toBe(false);
   });
 
-  it('falls back when fewer than the minimum usable puzzles are returned', async () => {
-    const pool = Array.from({ length: 5 }, (_, i) => apiPuzzle({ lichessId: `x${i}` }));
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      count: 5,
-      fetchImpl: mockFetch(pool),
-    });
-    expect(usedFallback).toBe(true);
-  });
-
-  it('honors a lower minUsable so a small live batch is accepted', async () => {
-    const pool = Array.from({ length: 6 }, (_, i) => apiPuzzle({ lichessId: `y${i}` }));
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      count: 6,
-      minUsable: 4,
-      fetchImpl: mockFetch(pool),
-    });
+  it('still plays live when a rare theme returns a thin pack', async () => {
+    const { impl } = mockFetch({ puzzles: pack(6), source: 'lichess' });
+    const { queueA, queueB, usedFallback } = await prefetchPuzzles({ level: 'queen', themes: ['pin'], fetchImpl: impl });
     expect(usedFallback).toBe(false);
+    expect(queueA.length + queueB.length).toBe(6);
   });
 });
 
-describe('prefetchPuzzles — early start + background top-up', () => {
-  it('starts the match as soon as minUsable puzzles arrive (not the full count)', async () => {
-    const pool = Array.from({ length: 60 }, (_, i) => apiPuzzle({ lichessId: `e${i}` }));
+describe('prefetchPuzzles — offline fallback', () => {
+  it('falls back to the bundled set when the backend is unreachable', async () => {
     const { queueA, queueB, usedFallback } = await prefetchPuzzles({
       level: 'knight',
       themes: [],
-      count: 60,
-      batchSize: 8,
-      minUsable: 8,
-      fetchImpl: mockFetch(pool),
-      rng: () => 0.42,
+      fetchImpl: rejectingFetch,
     });
-    expect(usedFallback).toBe(false);
-    // Started on the first batch of 8 — not after collecting all 60.
-    expect(queueA.length + queueB.length).toBe(8);
+    expect(usedFallback).toBe(true);
+    const bundled = new Set(TUG_PUZZLES.map((p) => p.id));
+    expect([...queueA, ...queueB].every((p) => bundled.has(p.id))).toBe(true);
+    const aIds = new Set(queueA.map((p) => p.id));
+    expect(queueB.some((p) => aIds.has(p.id))).toBe(false);
   });
 
-  it('streams the remaining puzzles to onTopUp after the early start', async () => {
-    const pool = Array.from({ length: 24 }, (_, i) => apiPuzzle({ lichessId: `t${i}` }));
-    const deltas: TugPuzzle[] = [];
-    const { queueA, queueB, usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      count: 24,
-      batchSize: 8,
-      minUsable: 8,
-      fetchImpl: mockFetch(pool),
-      onTopUp: (a, b) => deltas.push(...a, ...b),
-    });
-    // Let the background batches drain.
-    await new Promise((r) => setTimeout(r, 50));
-    expect(usedFallback).toBe(false);
-    const initial = queueA.length + queueB.length;
-    expect(initial).toBe(8);
-    expect(deltas.length).toBe(16); // the other two batches streamed in
-    // Initial queues and top-ups are all distinct puzzles.
-    const allIds = new Set([...queueA, ...queueB, ...deltas].map((p) => p.id));
-    expect(allIds.size).toBe(24);
+  it('falls back on an HTTP error or an empty pack', async () => {
+    for (const body of [null, { puzzles: [] }]) {
+      const { usedFallback } = await prefetchPuzzles({ level: 'pawn', themes: [], fetchImpl: mockFetch(body).impl });
+      expect(usedFallback).toBe(true);
+    }
+  });
+
+  it('flags themesUnavailable only when the bundled set cannot honor the theme', async () => {
+    const honored = await prefetchPuzzles({ level: 'pawn', themes: ['fork'], fetchImpl: rejectingFetch });
+    expect(honored.usedFallback).toBe(true);
+    expect(honored.themesUnavailable).toBe(false);
+    const missing = await prefetchPuzzles({ level: 'pawn', themes: ['notATheme'], fetchImpl: rejectingFetch });
+    expect(missing.themesUnavailable).toBe(true);
   });
 });
 
-describe('prefetchPuzzles — per-request timeout', () => {
-  it('aborts a request that exceeds the per-request timeout', async () => {
-    // Every request hangs until aborted; only the per-request timeout can rescue
-    // us. If it did not fire, this test would hang until the runner times out.
-    const hangingFetch = ((_url: string, init?: { signal?: AbortSignal }) =>
-      new Promise<Response>((_resolve, reject) => {
-        const s = init?.signal;
-        if (s) s.addEventListener('abort', () => reject(new Error('aborted')));
-      })) as unknown as typeof fetch;
-
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      count: 8,
-      batchSize: 8,
-      requestTimeoutMs: 20,
-      fetchImpl: hangingFetch,
-    });
-    expect(usedFallback).toBe(true);
+describe('refill', () => {
+  it('needsRefill fires once either queue is within the threshold', () => {
+    const full = { puzzles: pack(30), index: 0 };
+    expect(needsRefill([full, full])).toBe(false);
+    expect(needsRefill([full, { puzzles: pack(30), index: 20 }])).toBe(true);
+    expect(needsRefill([{ puzzles: pack(30), index: 19 }, full], 10)).toBe(false);
   });
 
-  it('does not abort fast requests under a generous timeout', async () => {
-    const pool = Array.from({ length: 20 }, (_, i) => apiPuzzle({ lichessId: `f${i}` }));
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      requestTimeoutMs: 1000,
-      fetchImpl: mockFetch(pool),
-    });
-    expect(usedFallback).toBe(false);
-  });
-});
-
-describe('prefetchPuzzles — fallback only on real failure', () => {
-  it('falls back immediately when the first batch is entirely unusable', async () => {
-    // First 8 requests fail, later ones would succeed — but a dead first batch
-    // means the API is down, so we fall back rather than grind through 60 calls.
-    const pool = Array.from({ length: 24 }, (_, i) => apiPuzzle({ lichessId: `r${i}` }));
-    let call = 0;
-    const failFirstBatch = (async () => {
-      const failing = call < 8;
-      call += 1;
-      const data = failing ? null : pool[call % pool.length];
-      return {
-        ok: data !== null,
-        json: async () => (data ? { success: true, data } : { success: false }),
-      } as Response;
-    }) as unknown as typeof fetch;
-
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      count: 24,
-      batchSize: 8,
-      fetchImpl: failFirstBatch,
-    });
-    expect(usedFallback).toBe(true);
+  it('requests a refill pack excluding dealt ids and splits it disjointly', async () => {
+    const { impl, urls } = mockFetch({ puzzles: [...pack(REFILL_COUNT, 'r'), packPuzzle({ id: 'p0' })] });
+    const deltas = await refillQueues({ level: 'rook', themes: [], exclude: ['p0', 'p1'], fetchImpl: impl });
+    const q = new URLSearchParams(urls[0].split('?')[1]);
+    expect(q.get('exclude')).toBe('p0,p1');
+    expect(q.get('count')).toBe(String(REFILL_COUNT));
+    const ids = [...deltas!.queueA, ...deltas!.queueB].map((p) => p.id);
+    expect(ids).toHaveLength(REFILL_COUNT);
+    expect(ids).not.toContain('p0'); // a repeat the client still filters out
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it('does NOT fall back when the API is slow-but-working (threshold met later)', async () => {
-    // Alternating hits/misses: the first batch yields 4 usable (below the
-    // threshold of 8) but the second batch pushes it over — a working API, so no
-    // fallback even though 20 never arrived.
-    let call = 0;
-    const alternating = (async () => {
-      const hit = call % 2 === 0;
-      const data = hit ? apiPuzzle({ lichessId: `a${call}` }) : null;
-      call += 1;
-      return {
-        ok: data !== null,
-        json: async () => (data ? { success: true, data } : { success: false }),
-      } as Response;
-    }) as unknown as typeof fetch;
-
-    const { usedFallback } = await prefetchPuzzles({
-      level: 'knight',
-      themes: [],
-      count: 24,
-      batchSize: 8,
-      minUsable: 8,
-      fetchImpl: alternating,
-    });
-    expect(usedFallback).toBe(false);
-  });
-
-  it('flags themesUnavailable when the offline fallback cannot honor the theme', async () => {
-    // Queen band + fork: the live API fails and the bundled set has no forks in
-    // that band, so the result honestly flags the theme as unavailable.
-    const { usedFallback, themesUnavailable } = await prefetchPuzzles({
-      level: 'queen',
-      themes: ['fork'],
-      fetchImpl: mockFetch([null]),
-    });
-    expect(usedFallback).toBe(true);
-    expect(themesUnavailable).toBe(true);
-  });
-
-  it('does not flag themesUnavailable when the fallback can honor the theme', async () => {
-    const { usedFallback, themesUnavailable } = await prefetchPuzzles({
-      level: 'pawn',
-      themes: ['fork'],
-      fetchImpl: mockFetch([null]),
-    });
-    expect(usedFallback).toBe(true);
-    expect(themesUnavailable).toBe(false);
+  it('returns null when the refill request fails', async () => {
+    expect(await refillQueues({ level: 'rook', themes: [], exclude: [], fetchImpl: rejectingFetch })).toBeNull();
   });
 });
 
@@ -329,17 +200,16 @@ describe('fallbackPool', () => {
     }
   });
 
-  it('never returns an empty pool even for an out-of-range band', () => {
-    // The bundled set tops out well below the Queen band, so this must widen
-    // back to the full set rather than stall the game.
-    const pool = fallbackPool('queen', []);
-    expect(pool.length).toBe(TUG_PUZZLES.length);
+  it('has a playable pool inside every band', () => {
+    for (const band of TUG_LEVELS) {
+      const pool = fallbackPool(band.id, []);
+      expect(pool.length, band.id).toBeGreaterThanOrEqual(70);
+      expect(pool.every((p) => p.rating >= band.ratingFrom && p.rating <= band.ratingTo)).toBe(true);
+    }
   });
 
   it('offers a varied pool for the default (no-theme) Knight band', () => {
-    // The Knight band (800–1200) now catches the rating-900 mate-in-2s AND the
-    // rating-1000 tactics, so it has genuine variety without widening to the
-    // whole set. Players are never trapped on a single puzzle shape.
+    // Players are never trapped on a single puzzle shape.
     const pool = fallbackPool('knight', []);
     expect(new Set(pool.map((p) => p.rating)).size).toBeGreaterThan(1);
     expect(pool.some((p) => p.themes.includes('mateIn2'))).toBe(true);
@@ -348,9 +218,9 @@ describe('fallbackPool', () => {
 });
 
 describe('fallbackPoolWithMeta — theme honesty', () => {
-  it('honors a theme filter that the bundled band can satisfy', () => {
-    for (const level of ['pawn', 'knight', 'rook'] as const) {
-      for (const theme of ['fork', 'pin', 'skewer']) {
+  it('honors every setup-screen theme in every band', () => {
+    for (const { id: level } of TUG_LEVELS) {
+      for (const { tag: theme } of TUG_THEMES) {
         const { pool, themesHonored } = fallbackPoolWithMeta(level, [theme]);
         expect(themesHonored, `${level}/${theme} should be honored`).toBe(true);
         expect(pool.length, `${level}/${theme} pool`).toBeGreaterThan(0);
@@ -361,9 +231,9 @@ describe('fallbackPoolWithMeta — theme honesty', () => {
   });
 
   it('signals — rather than silently discards — when a theme cannot be honored', () => {
-    // The Queen band (1600–2400) has no bundled tactics, so a fork filter there
-    // cannot be honored; the pool is still playable but the flag says so.
-    const { pool, themesHonored } = fallbackPoolWithMeta('queen', ['fork']);
+    // A tag the bundled set never carries: the pool is still playable but the
+    // flag says so.
+    const { pool, themesHonored } = fallbackPoolWithMeta('queen', ['notATheme']);
     expect(themesHonored).toBe(false);
     expect(pool.length).toBeGreaterThan(0);
   });

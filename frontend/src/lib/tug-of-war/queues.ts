@@ -1,5 +1,6 @@
 /**
- * Build the two teams' puzzle queues at match start.
+ * Build the two teams' puzzle queues at match start, and decide when to refill
+ * them mid-match.
  */
 
 import type { TugPuzzle } from './types';
@@ -26,4 +27,15 @@ export function splitQueues(
   const shuffled = shuffle(puzzles, rng);
   const mid = Math.ceil(shuffled.length / 2);
   return { queueA: shuffled.slice(0, mid), queueB: shuffled.slice(mid) };
+}
+
+/** Refill once either team has this many or fewer unplayed puzzles left. */
+export const REFILL_THRESHOLD = 10;
+
+/** Whether either board is close enough to the end of its queue to refill. */
+export function needsRefill(
+  boards: { puzzles: TugPuzzle[]; index: number }[],
+  threshold: number = REFILL_THRESHOLD,
+): boolean {
+  return boards.some((b) => b.puzzles.length - b.index <= threshold);
 }

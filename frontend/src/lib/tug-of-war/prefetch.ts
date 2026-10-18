@@ -1,46 +1,25 @@
 /**
- * Live puzzle prefetch for Tug of War.
+ * Live puzzle packs for Tug of War.
  *
- * At match setup we pull a batch of fresh puzzles from the app's existing
- * `/api/puzzle` route (one random puzzle per call) and split them into two
- * disjoint team queues. If the network is slow, fails, or returns too few
- * usable puzzles we fall back to the bundled `TUG_PUZZLES` set so the game can
- * ALWAYS start.
- *
- * Mapping convention (mirrors src/app/puzzle/page.tsx exactly): the API's `FEN`
- * field is already the position AFTER the opponent's `preMove`, i.e. the
- * position where the SOLVING side moves, and `moves` is the solution line from
- * that turn onward. We therefore use `FEN`/`moves` directly and never apply
- * `preMove`/`previousFEN`.
+ * One request per match to the backend's `/api/puzzles/tug/pack` (real Lichess
+ * puzzles from our own DB) deals both teams' queues; refills pass `exclude` so
+ * a long match never repeats a puzzle. Puzzles arrive in the solving-position
+ * format — `fen` has the solver to move and `moves` is the remaining line (the
+ * opponent setup move is already applied server-side) — so they are used as-is.
+ * Only when the backend is unreachable do we fall back to the bundled
+ * `TUG_PUZZLES` set, so the game can ALWAYS start.
  */
 
 import type { TugPuzzle } from './types';
 import { TUG_PUZZLES } from './puzzles';
 import { splitQueues } from './queues';
 
-/** Raw puzzle shape returned by GET /api/puzzle. */
-export interface PuzzleApiData {
-  lichessId: string;
-  previousFEN: string;
-  FEN: string;
-  moves: string;
-  preMove: string;
-  rating: number;
-  themes: string[];
-  gameURL: string;
-}
-
-interface PuzzleApiResponse {
-  success: boolean;
-  data?: PuzzleApiData;
-  error?: string;
-}
-
 export type TugLevel = 'pawn' | 'knight' | 'rook' | 'queen';
 
 /**
- * Setup-screen difficulty bands → `ratingFrom`/`ratingTo` API params. Display
- * labels live in i18n (`tugOfWar.levels.<id>`), resolved in the SetupScreen.
+ * Setup-screen difficulty bands (the backend applies the same bands; here they
+ * filter the offline set). Display labels live in i18n (`tugOfWar.levels.<id>`),
+ * resolved in the SetupScreen.
  */
 export const TUG_LEVELS: {
   id: TugLevel;
@@ -68,37 +47,28 @@ export const TUG_THEMES: { tag: string }[] = [
   { tag: 'hangingPiece' },
 ];
 
-export const DEFAULT_PREFETCH_COUNT = 60;
-export const DEFAULT_BATCH_SIZE = 8;
-/** Per-request timeout. One slow request no longer sinks the whole prefetch. */
-export const DEFAULT_REQUEST_TIMEOUT_MS = 4000;
-/**
- * Once this many usable live puzzles have arrived we start the match and keep
- * fetching the rest in the background. Small on purpose: the queues cycle, so
- * the match can begin thin and top up as it runs.
- */
-export const DEFAULT_MIN_USABLE = 8;
+export const PACK_URL = '/api/puzzles/tug/pack';
+/** The match starts with this many puzzles per team (one pack of twice this). */
+export const START_PER_TEAM = 30;
+/** Puzzles per refill pack, split between the teams. */
+export const REFILL_COUNT = 60;
+export const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
 
-export interface PrefetchOptions {
+export interface PackRequest {
   level: TugLevel;
   themes: string[];
-  count?: number;
-  batchSize?: number;
-  /** Per-request abort timeout in ms. */
-  requestTimeoutMs?: number;
-  /** Usable puzzles needed before the match starts (and the rest stream in). */
-  minUsable?: number;
+  count: number;
+  /** Puzzle ids already dealt this match; the backend never returns them. */
+  exclude?: string[];
+  /** Abort timeout in ms. */
+  timeoutMs?: number;
   /** Injectable for tests; defaults to the global fetch. */
   fetchImpl?: typeof fetch;
-  rng?: () => number;
   signal?: AbortSignal;
-  /**
-   * Invoked (live path only) with additional queue puzzles fetched AFTER the
-   * early start, so the caller can top up each team's queue while the match
-   * runs. The two arrays are disjoint from each other and from the initial
-   * queues.
-   */
-  onTopUp?: (deltaA: TugPuzzle[], deltaB: TugPuzzle[]) => void;
+}
+
+export interface PrefetchOptions extends Omit<PackRequest, 'count' | 'exclude'> {
+  rng?: () => number;
 }
 
 export interface PrefetchResult {
@@ -119,34 +89,108 @@ function levelBand(level: TugLevel) {
   return TUG_LEVELS.find((l) => l.id === level) ?? TUG_LEVELS[0];
 }
 
-/** Build the `/api/puzzle` query for a level + theme selection. */
-export function buildPuzzleUrl(level: TugLevel, themes: string[]): string {
-  const band = levelBand(level);
-  const params = new URLSearchParams();
+/** Build the pack query for a level + theme selection. */
+export function buildPackUrl(
+  level: TugLevel,
+  themes: string[],
+  count: number,
+  exclude: string[] = [],
+): string {
+  const params = new URLSearchParams({ level, count: String(count) });
   if (themes.length > 0) params.append('themes', themes.join(','));
-  params.append('ratingFrom', String(band.ratingFrom));
-  params.append('ratingTo', String(band.ratingTo));
-  return `/api/puzzle?${params.toString()}`;
+  if (exclude.length > 0) params.append('exclude', exclude.join(','));
+  return `${PACK_URL}?${params.toString()}`;
+}
+
+/** Validate one pack puzzle; null when it lacks what the board needs. */
+export function mapPackPuzzle(data: unknown): TugPuzzle | null {
+  const p = data as Partial<TugPuzzle> | null;
+  if (!p || typeof p.id !== 'string' || typeof p.fen !== 'string' || !Array.isArray(p.moves)) {
+    return null;
+  }
+  const moves = p.moves.filter((m): m is string => typeof m === 'string' && m.length >= 4);
+  if (!p.fen.trim() || moves.length === 0) return null;
+  return {
+    id: p.id,
+    fen: p.fen.trim(),
+    moves,
+    rating: typeof p.rating === 'number' ? p.rating : 0,
+    themes: Array.isArray(p.themes) ? p.themes : [],
+  };
 }
 
 /**
- * Map one API puzzle to the internal {@link TugPuzzle}. Returns null when the
- * payload is missing the fields the board needs.
+ * Fetch one pack. Resolves to null when the backend is unreachable or errors
+ * (the caller decides on the fallback); otherwise the usable puzzles, deduped
+ * and never including an excluded id. An empty array means the filter ran dry.
  */
-export function mapApiPuzzle(data: PuzzleApiData | undefined | null): TugPuzzle | null {
-  if (!data || typeof data.FEN !== 'string' || typeof data.moves !== 'string') {
-    return null;
+export async function fetchPack(req: PackRequest): Promise<TugPuzzle[] | null> {
+  const {
+    level,
+    themes,
+    count,
+    exclude = [],
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    fetchImpl = fetch,
+    signal,
+  } = req;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', onAbort);
   }
-  const fen = data.FEN.trim();
-  const moves = data.moves.trim().split(/\s+/).filter(Boolean);
-  if (!fen || moves.length === 0) return null;
-  return {
-    id: data.lichessId || `${fen}|${moves.join('')}`,
-    fen,
-    moves,
-    rating: typeof data.rating === 'number' ? data.rating : 0,
-    themes: Array.isArray(data.themes) ? data.themes : [],
-  };
+  try {
+    const res = await fetchImpl(buildPackUrl(level, themes, count, exclude), {
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { puzzles?: unknown };
+    if (!Array.isArray(json?.puzzles)) return null;
+    const seen = new Set(exclude);
+    const out: TugPuzzle[] = [];
+    for (const raw of json.puzzles) {
+      const p = mapPackPuzzle(raw);
+      if (!p || seen.has(p.id)) continue;
+      seen.add(p.id);
+      out.push(p);
+    }
+    return out;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * Deal the match's opening queues from one live pack ({@link START_PER_TEAM}
+ * per team). A pack thinner than that (a rare theme running dry) still plays
+ * live; only an unreachable backend or a pack with less than one puzzle per
+ * team falls back to the bundled offline set.
+ */
+export async function prefetchPuzzles(opts: PrefetchOptions): Promise<PrefetchResult> {
+  const { level, themes, rng = Math.random } = opts;
+  const puzzles = await fetchPack({ ...opts, count: START_PER_TEAM * 2 });
+  if (puzzles && puzzles.length >= 2) {
+    return { ...splitQueues(puzzles, rng), usedFallback: false, themesUnavailable: false };
+  }
+  const { pool, themesHonored } = fallbackPoolWithMeta(level, themes);
+  return { ...splitQueues(pool, rng), usedFallback: true, themesUnavailable: !themesHonored };
+}
+
+/**
+ * Fetch a refill pack ({@link REFILL_COUNT} puzzles, none of `exclude`) split
+ * into two disjoint team deltas. Null when the backend failed; empty deltas
+ * when the filter has run dry.
+ */
+export async function refillQueues(
+  req: Omit<PackRequest, 'count'> & { rng?: () => number },
+): Promise<{ queueA: TugPuzzle[]; queueB: TugPuzzle[] } | null> {
+  const puzzles = await fetchPack({ ...req, count: REFILL_COUNT });
+  return puzzles && splitQueues(puzzles, req.rng);
 }
 
 export interface FallbackPoolResult {
@@ -196,125 +240,4 @@ export function fallbackPoolWithMeta(level: TugLevel, themes: string[]): Fallbac
 /** Convenience wrapper returning only the pool (see {@link fallbackPoolWithMeta}). */
 export function fallbackPool(level: TugLevel, themes: string[]): TugPuzzle[] {
   return fallbackPoolWithMeta(level, themes).pool;
-}
-
-/**
- * Fetch a single puzzle with its own abort timeout. A per-request timeout means
- * one slow request costs at most `timeoutMs` instead of eating the whole
- * prefetch budget. The outer `signal` (e.g. component unmount) aborts too.
- */
-async function fetchOne(
-  url: string,
-  fetchImpl: typeof fetch,
-  timeoutMs: number,
-  outerSignal?: AbortSignal,
-): Promise<PuzzleApiData | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
-  if (outerSignal) {
-    if (outerSignal.aborted) controller.abort();
-    else outerSignal.addEventListener('abort', onAbort);
-  }
-  try {
-    const res = await fetchImpl(url, { signal: controller.signal });
-    if (!res.ok) return null;
-    const json = (await res.json()) as PuzzleApiResponse;
-    if (!json?.success || !json.data) return null;
-    return json.data;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-    if (outerSignal) outerSignal.removeEventListener('abort', onAbort);
-  }
-}
-
-/**
- * Prefetch live puzzles and split them into two disjoint team queues.
- *
- * Robust by design: each request has its own timeout; the match starts as soon
- * as `minUsable` puzzles arrive (the rest stream in via `onTopUp`); and it only
- * falls back to the bundled offline set on a genuine failure — the first batch
- * returning nothing usable, or not even `minUsable` puzzles across the whole
- * pass — not merely because the full count did not arrive in time.
- */
-export function prefetchPuzzles(opts: PrefetchOptions): Promise<PrefetchResult> {
-  const {
-    level,
-    themes,
-    count = DEFAULT_PREFETCH_COUNT,
-    batchSize = DEFAULT_BATCH_SIZE,
-    requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
-    minUsable = DEFAULT_MIN_USABLE,
-    fetchImpl = fetch,
-    rng = Math.random,
-    signal,
-    onTopUp,
-  } = opts;
-
-  const url = buildPuzzleUrl(level, themes);
-
-  const fallbackResult = (): PrefetchResult => {
-    const { pool, themesHonored } = fallbackPoolWithMeta(level, themes);
-    return { ...splitQueues(pool, rng), usedFallback: true, themesUnavailable: !themesHonored };
-  };
-
-  return new Promise<PrefetchResult>((resolve) => {
-    const seen = new Set<string>();
-    const usable: TugPuzzle[] = [];
-    let started = false; // early-start already fired
-    let dealt = 0; // puzzles delivered so far (initial queues + top-ups)
-
-    const settleLive = () => {
-      started = true;
-      dealt = usable.length;
-      resolve({ ...splitQueues(usable.slice(), rng), usedFallback: false, themesUnavailable: false });
-    };
-
-    const flushTopUp = () => {
-      if (!onTopUp || usable.length <= dealt) return;
-      const fresh = usable.slice(dealt);
-      dealt = usable.length;
-      const { queueA, queueB } = splitQueues(fresh, rng);
-      onTopUp(queueA, queueB);
-    };
-
-    const run = async () => {
-      for (let i = 0; i < count; i += batchSize) {
-        if (signal?.aborted) break;
-        const size = Math.min(batchSize, count - i);
-        const results = await Promise.all(
-          Array.from({ length: size }, () => fetchOne(url, fetchImpl, requestTimeoutMs, signal)),
-        );
-        for (const data of results) {
-          const mapped = mapApiPuzzle(data);
-          if (!mapped || seen.has(mapped.id)) continue;
-          seen.add(mapped.id);
-          usable.push(mapped);
-        }
-        // Genuine failure: the very first batch produced nothing usable → the
-        // API is down/blocked, so fall back immediately instead of retrying 60×.
-        if (!started && i === 0 && usable.length === 0) {
-          resolve(fallbackResult());
-          return;
-        }
-        if (!started) {
-          if (usable.length >= minUsable) settleLive();
-        } else {
-          flushTopUp();
-        }
-      }
-      // Loop finished without an early start. Either enough trickled in to play
-      // (slow-but-working API), or too few ever arrived → offline.
-      if (!started) {
-        if (usable.length >= minUsable) settleLive();
-        else resolve(fallbackResult());
-      }
-    };
-
-    run().catch(() => {
-      if (!started) resolve(fallbackResult());
-    });
-  });
 }

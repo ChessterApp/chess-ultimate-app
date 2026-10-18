@@ -16,7 +16,7 @@ export const ROPE_LIMIT = 5;
 export const MAX_WRONG_ATTEMPTS = 3;
 
 export interface BoardState {
-  /** This team's disjoint puzzle list, fixed for the match. */
+  /** This team's disjoint puzzle list; grows only by mid-match refills. */
   puzzles: TugPuzzle[];
   /** Pointer into `puzzles`; the current puzzle is `puzzles[index % length]`. */
   index: number;
@@ -139,8 +139,8 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     }
 
     case 'APPEND_PUZZLES': {
-      // Background prefetch top-up: extend each team's queue with more live
-      // puzzles as they stream in, so the cycling pool grows and stays varied.
+      // Mid-match refill: extend each team's queue with unseen live puzzles
+      // before it runs low, so the queue never has to cycle.
       if (state.phase !== 'match') return state;
       if (action.queueA.length === 0 && action.queueB.length === 0) return state;
       return {

@@ -1,19 +1,21 @@
 /**
  * /games/tug-of-war — a public, client-side classroom team-battle chess game.
  * Milestone 1: playable core (two-board puzzle race + sliding rope scene).
- * Puzzles are prefetched live from /api/puzzle at match start — the match begins
- * as soon as a handful arrive and the rest stream in as it runs — with the
- * bundled TUG_PUZZLES set as an offline fallback. No auth, no backend of our own.
+ * Each match deals 30 puzzles per team from one backend pack (real Lichess
+ * puzzles) and refills both queues, excluding everything already dealt, before
+ * either runs low — so nothing repeats. The bundled TUG_PUZZLES set is the
+ * offline fallback when the backend is unreachable. No auth.
  */
 
 'use client';
 
-import { useReducer, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import SetupScreen, { type StartConfig } from '@/components/tug-of-war/SetupScreen';
 import MatchScreen from '@/components/tug-of-war/MatchScreen';
 import { gameReducer, initialState } from '@/lib/tug-of-war/gameReducer';
-import { prefetchPuzzles } from '@/lib/tug-of-war/prefetch';
+import { prefetchPuzzles, refillQueues, type TugLevel } from '@/lib/tug-of-war/prefetch';
+import { needsRefill } from '@/lib/tug-of-war/queues';
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 export default function TugOfWarPage() {
@@ -28,22 +30,28 @@ export default function TugOfWarPage() {
   const [themesUnavailable, setThemesUnavailable] = useState(false);
   // Remember the last setup so the "retry live fetch" button can re-run it.
   const lastConfig = useRef<StartConfig | null>(null);
+  // Live-pack selection of the current match; null when playing offline.
+  const live = useRef<{ level: TugLevel; themes: string[] } | null>(null);
+  // Bumped per start so a late refill never lands in a newer match.
+  const matchId = useRef(0);
+  const refilling = useRef(false);
+  // The selection has no unseen puzzles left; stop asking.
+  const exhausted = useRef(false);
 
   const start = async (config: StartConfig) => {
     const { teamA, teamB, level, themes } = config;
     lastConfig.current = config;
+    matchId.current += 1;
+    live.current = null;
+    refilling.current = false;
+    exhausted.current = false;
     setLoading(true);
     setOffline(false);
     setThemesUnavailable(false);
     try {
       const { queueA, queueB, usedFallback, themesUnavailable: themesMissing } =
-        await prefetchPuzzles({
-          level,
-          themes,
-          // Top up each team's queue with live puzzles as they arrive.
-          onTopUp: (deltaA, deltaB) =>
-            dispatch({ type: 'APPEND_PUZZLES', queueA: deltaA, queueB: deltaB }),
-        });
+        await prefetchPuzzles({ level, themes });
+      if (!usedFallback) live.current = { level, themes };
       setOffline(usedFallback);
       setThemesUnavailable(themesMissing);
       dispatch({ type: 'START_MATCH', teamAName: teamA, teamBName: teamB, queueA, queueB });
@@ -52,6 +60,26 @@ export default function TugOfWarPage() {
       setLoading(false);
     }
   };
+
+  // Refill both queues before either team runs out, excluding every puzzle
+  // already dealt this match. A failed refill retries on the next board change.
+  const { phase, boardA, boardB } = state;
+  useEffect(() => {
+    if (phase !== 'match' || !live.current || refilling.current || exhausted.current) return;
+    if (!needsRefill([boardA, boardB])) return;
+    const id = matchId.current;
+    refilling.current = true;
+    const exclude = [...boardA.puzzles, ...boardB.puzzles].map((p) => p.id);
+    void refillQueues({ ...live.current, exclude })
+      .then((deltas) => {
+        if (id !== matchId.current || !deltas) return;
+        if (deltas.queueA.length + deltas.queueB.length === 0) exhausted.current = true;
+        else dispatch({ type: 'APPEND_PUZZLES', queueA: deltas.queueA, queueB: deltas.queueB });
+      })
+      .finally(() => {
+        if (id === matchId.current) refilling.current = false;
+      });
+  }, [phase, boardA, boardB]);
 
   const retryLiveFetch = () => {
     if (lastConfig.current) void start(lastConfig.current);
