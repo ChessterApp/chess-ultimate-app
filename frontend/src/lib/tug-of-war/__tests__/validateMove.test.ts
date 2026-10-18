@@ -52,7 +52,8 @@ describe('evaluateTeamMove — outcome-based validation', () => {
   });
 
   it('on a multi-move line, a non-mating first move must follow the script', () => {
-    const multi = TUG_PUZZLES.filter((p) => p.moves.length >= 3);
+    // A sample keeps this fast: real middlegames have ~40 legal moves each.
+    const multi = TUG_PUZZLES.filter((p) => p.moves.length >= 3).slice(0, 40);
     for (const p of multi) {
       for (const m of legalMoves(p.fen)) {
         const played = `${m.from}${m.to}`;

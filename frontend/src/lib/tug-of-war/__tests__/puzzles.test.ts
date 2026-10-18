@@ -1,12 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { Chess } from 'chess.js';
 import { TUG_PUZZLES } from '../puzzles';
+import { TUG_LEVELS, TUG_THEMES } from '../prefetch';
 
 describe('TUG_PUZZLES data set', () => {
-  it('has at least 40 puzzles with unique ids', () => {
-    expect(TUG_PUZZLES.length).toBeGreaterThanOrEqual(40);
+  it('has ~300 puzzles with unique ids', () => {
+    expect(TUG_PUZZLES.length).toBeGreaterThanOrEqual(280);
     const ids = new Set(TUG_PUZZLES.map((p) => p.id));
     expect(ids.size).toBe(TUG_PUZZLES.length);
+  });
+
+  it('covers every level band with every setup-screen theme', () => {
+    for (const band of TUG_LEVELS) {
+      const inBand = TUG_PUZZLES.filter((p) => p.rating >= band.ratingFrom && p.rating <= band.ratingTo);
+      expect(inBand.length, band.id).toBeGreaterThanOrEqual(70);
+      for (const { tag } of TUG_THEMES) {
+        expect(inBand.some((p) => p.themes.includes(tag)), `${band.id}/${tag}`).toBe(true);
+      }
+    }
   });
 
   it('every puzzle is legal and its solution line is valid', () => {
@@ -31,9 +42,9 @@ describe('TUG_PUZZLES data set', () => {
         });
       });
 
-      // rating sanity for an easy classroom set
+      // inside the Pawn..Queen bands
       expect(puzzle.rating, `${puzzle.id} rating`).toBeGreaterThanOrEqual(400);
-      expect(puzzle.rating, `${puzzle.id} rating`).toBeLessThanOrEqual(1400);
+      expect(puzzle.rating, `${puzzle.id} rating`).toBeLessThanOrEqual(2400);
     }
   });
 
