@@ -13,7 +13,7 @@ class TestLessonTexts:
     def test_the_books_are_shipped_with_the_coach(self):
         recs = _records()
         site = [r for r in recs if r.get("course_slug")]          # steps 1–3, matched to the site's lessons
-        assert len(site) == 37 and len(recs) >= 95                 # + steps 4–7 and the unmatched 1–3 lessons (16–18.10)
+        assert len(site) == 38 and len(recs) >= 95                 # 37 of 04.10 + «Освобождение поля или линии» (18.10); + steps 4–7 and the unmatched 1–3 lessons
         assert {r["course_slug"] for r in site} == {"chess-basics", "chess-tactics", "advanced-tactics"}
         assert sum(1 for r in site if len(r.get("text_ru") or "") > 200) >= 36
 
