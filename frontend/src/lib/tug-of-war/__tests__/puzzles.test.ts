@@ -46,7 +46,8 @@ describe('TUG_PUZZLES data set', () => {
       expect(puzzle.rating, `${puzzle.id} rating`).toBeGreaterThanOrEqual(400);
       expect(puzzle.rating, `${puzzle.id} rating`).toBeLessThanOrEqual(2400);
     }
-  });
+    // Replays ~300 lines with chess.js; slower than 5s when the whole suite runs in parallel.
+  }, 30_000);
 
   it('mate puzzles end in checkmate', () => {
     for (const puzzle of TUG_PUZZLES) {
