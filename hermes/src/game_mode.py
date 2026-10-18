@@ -247,6 +247,21 @@ def play_move(session, board_rec: Board, move_str: str) -> dict:
     return _payload(board_rec, state, board, student={**annotation, "uci": move.uci()}, engine=engine_move)
 
 
+def set_strength(session, board_rec: Board, elo: int) -> dict:
+    """The engine's strength for the rest of the game — the student asked for a harder or easier opponent
+    («играй посложнее», «уровень 2000»); the position and the moves stay."""
+    state = board_rec.game_state
+    if board_rec.kind != "game" or not state:
+        raise GameError("This board is not a game.")
+    if state["status"] != "playing":
+        raise GameError("The game is over.")
+    state["engine_elo"] = clamp_elo(elo)
+    board = _replay(state["moves"])
+    _sync_board(board_rec, state, board)
+    session.save_board(board_rec)
+    return _payload(board_rec, state, board)
+
+
 def resign(session, board_rec: Board) -> dict:
     state = board_rec.game_state
     if board_rec.kind != "game" or not state:

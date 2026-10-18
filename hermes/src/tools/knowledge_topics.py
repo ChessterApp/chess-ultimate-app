@@ -431,12 +431,74 @@ def _site_programme_topic(topic: str, user_id: Optional[str], locale: Optional[s
         return None
 
 
+def _book_lesson(topic: str) -> Optional[dict]:
+    """The programme's own lesson for the words («открытая линия», «шотландская партия», «Ласкер — Томас»),
+    as the coach's material (src/lesson_texts.py), or None."""
+    try:
+        from src.lesson_texts import book_for_words, book_title_extra, book_view
+
+        rec = book_for_words(topic)
+        if rec is None:
+            return None
+        view = book_view(rec)
+        view["title_match"] = book_title_extra(rec, topic) <= 1
+        return view
+    except Exception:  # noqa: BLE001 — the book is a bonus, never a blocker
+        logger.debug("programme book lookup failed", exc_info=True)
+        return None
+
+
+def _programme_book_topic(book: dict, show: bool) -> dict:
+    """A topic taught from the programme's own lesson (steps 4–7 have no lessons on the site): its text
+    in the programme's words, its diagram on the board, the game it writes out when it has one."""
+    diagrams = book.get("diagrams") or []
+    out = {
+        "slug": None,
+        "source": "programme_book",
+        "title": book["title"],
+        "summary": book["summary"],
+        "explanation": book["text"],
+        "programme": {"step": book.get("step"), "lesson": book.get("lesson"), "parts": book.get("parts") or []},
+        "positions": [{"title": d.get("context") or book["title"], "fen": d["fen"],
+                       "side_to_move": "White" if chess.Board(d["fen"]).turn == chess.WHITE else "Black"}
+                      for d in diagrams],
+        "site_lessons": book.get("site_lessons") or [],
+        "how_to_use": (
+            f"This is the student's own programme («Ступени», step {book.get('step')}, lesson {book.get('lesson')} "
+            f"«{book['title']}»): teach in its words and with its examples; say it is from their programme. "
+            + ("Its parts: " + "; ".join(p["title"] for p in book.get("parts") or []) + ". " if book.get("parts") else "")
+        ),
+    }
+    if show and book.get("pgn"):
+        # A master game the lesson writes out (Lasker — Thomas, the Petrov line): the whole game goes on, the
+        # student steps through it; the lesson's diagram is its critical moment (in positions).
+        out["game_pgn"] = book["pgn"]
+        out["board_actions"] = [{"type": "load_pgn", "pgn": book["pgn"]}]
+        out["board_hint"] = ("The game the lesson writes out is ALREADY on the student's board (its last position is "
+                             "shown; they can step through the moves). Tell it from the lesson's own notes, move by "
+                             "move as the lesson names them — never from memory.")
+    elif show and diagrams:
+        d = diagrams[0]
+        side = "White" if chess.Board(d["fen"]).turn == chess.WHITE else "Black"
+        out["example"] = {"fen": d["fen"], "note": d.get("context") or "", "source": "programme_book", "side_to_move": side}
+        out["board_actions"] = [{"type": "set_fen", "fen": d["fen"]}]
+        out["board_hint"] = (f"The lesson's first diagram is ALREADY on the student's board ({side} to move"
+                             + (f"; the lesson says: «{d.get('context')}»" if d.get("context") else "") +
+                             "). Explain exactly that position — read the pieces from its FEN — and do not set up "
+                             "another one in the same answer.")
+    else:
+        out["board_hint"] = ("No diagram to show: explain in the lesson's words on the student's current board — "
+                             "never invent a position.")
+    return out
+
+
 def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] = None,
               topics: Optional[dict] = None, with_lessons: bool = True, show: bool = True) -> dict:
     topics = topics if topics is not None else kb.load_topics()
     if not topics:
         return {"error": "The knowledge base is empty on this server (hermes/content/topics)."}
     matches = kb.find_topics(topic, topics)
+    book = _book_lesson(topic)
     # The site's programme names its topics itself: a module or a set titled as
     # the student said beats a base topic found by one shared word, and an
     # ambiguous base match (2026-10-06 sweep of the programme).
@@ -447,13 +509,20 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
             from_site = _site_programme_topic(topic, user_id, locale, show)
             if from_site:
                 return from_site
+        if weak and book and book["title_match"]:
+            # The programme's own lesson is titled as the student said («открытая линия», «шотландская
+            # партия»): it beats a base topic found by a shared word (2026-10-16).
+            return _programme_book_topic(book, show)
     if not matches:
         # The site's own programme first («мат в 3 хода», «завлечение» have sets of
-        # tasks on the site and no topic in the base, 2026-10-05); the whole map of
+        # tasks on the site and no topic in the base, 2026-10-05); then the programme's
+        # book (steps 4–7: «заколдованные квадраты», «русская партия»); the whole map of
         # the base otherwise — with only "call list_topics" the model guessed names.
         from_site = _site_programme_topic(topic, user_id, locale, show) if with_lessons else None
         if from_site:
             return from_site
+        if book:
+            return _programme_book_topic(book, show)
         return {
             "error": f"No topic matches {topic!r}.",
             "topics": [{"slug": slug, "title": kb.title(t, locale)} for slug, t in topics.items()],
@@ -494,6 +563,13 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         lessons = _related_lessons(t, user_id, locale)
     if lessons:
         out["site_lessons"] = lessons
+    if book and book["title_match"]:
+        # The programme's own words for the base's topic («рокировка», «связка»): the model teaches in them.
+        out["programme_lesson"] = {
+            "step": book.get("step"), "lesson": book.get("lesson"), "title": book["title"],
+            "text": book["text"][:2000], "diagrams": (book.get("diagrams") or [])[:2],
+            "how_to_use": "The student's own programme («Ступени»): explain in its words where they fit.",
+        }
     if show:
         # The site's own lesson first — it is the customer's curriculum — then the base.
         # A lesson's position that does not show the motif is no example of it (src/motifs.py).

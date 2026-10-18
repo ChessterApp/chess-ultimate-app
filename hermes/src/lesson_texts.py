@@ -23,8 +23,14 @@ import chess
 logger = logging.getLogger(__name__)
 
 PATH = Path(__file__).resolve().parent.parent / "content" / "lessons" / "stupeni_steps_1-3.json"
+# The rest of the programme (16–18.10.2026): steps 4–7 — pawn structures and master games, the openings
+# of steps 5 and 7, the endgames of step 6 — and the step 1–3 lessons the site has no module for
+# («Миттельшпиль», the practical lessons): the programme's own knowledge for «что такое открытая линия»,
+# «расскажи про шотландскую партию» (built by stupeni-import/build_steps_4-7.py).
+PATHS = (PATH, PATH.with_name("stupeni_more.json"))
 EXPLANATION_CHAR_CAP = 3500  # of the lesson text handed to the model
 MAX_DIAGRAMS = 4
+SUMMARY_CHAR_CAP = 420
 
 # «[Диаграмма s1_l8_theory_02.png: 6rk/6p1/7p/8/8/8/1B1Q4/7K w - - 0 1]» in the text
 _MARKER = re.compile(r"\[Диаграмма\s+(?P<file>\S+?):\s*(?P<fen>[^\]]+)\]")
@@ -43,12 +49,15 @@ def _legal(fen: str) -> bool:
 
 @lru_cache(maxsize=1)
 def _records() -> tuple:
-    try:
-        data = json.loads(PATH.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — without the file the coach teaches as before
-        logger.warning("lesson texts unavailable (%s)", PATH)
-        return ()
-    return tuple(r for r in data if isinstance(r, dict))
+    out: list[dict] = []
+    for path in PATHS:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — without a file the coach teaches as before
+            logger.warning("lesson texts unavailable (%s)", path)
+            continue
+        out += [r for r in data if isinstance(r, dict)]
+    return tuple(out)
 
 
 def clear_cache() -> None:
@@ -123,3 +132,113 @@ def diagrams(rec: dict) -> list[dict]:
         if len(out) >= MAX_DIAGRAMS:
             break
     return out
+
+
+# ── the programme's own topics (steps 4–7 and the titled lessons of 1–3), found by the student's words ──
+
+_CONTINUATION = re.compile(r"\s*\((?:продолжение|окончание)\)\s*$", re.IGNORECASE)
+_TITLE_NOISE = re.compile(r"[«»\"().!?,:;–—-]+")
+
+
+_DIGIT_WORDS = (("2-х", "двух"), ("2х", "двух"), ("3-х", "трех"), ("4-х", "четырех"), ("1-й", "первый"))
+
+
+def _title_key(rec: dict) -> str:
+    title = _CONTINUATION.sub("", rec.get("docx_title") or "")
+    for digits, word in _DIGIT_WORDS:
+        title = title.replace(digits, word)
+    return _norm(_TITLE_NOISE.sub(" ", title))
+
+
+# Words that name no lesson by themselves («партия», «дебют», «эндшпиль»): dropped next to a real name
+# («партия Ласкер — Томас»), and alone they find nothing («партия» is not «Шотландская партия»).
+_GENERIC = frozenset({
+    "партия", "партии", "партию", "партией", "урок", "уроки", "урока", "дебют", "дебюты", "дебюта", "эндшпиль",
+    "эндшпиля", "гамбит", "защита", "защиты", "атака", "ход", "ходы", "позиция", "позиции", "пример", "примеры",
+    "тренировка", "занятие", "продолжение", "техника", "расчет", "расчета", "белых", "черных", "чемпион", "мира",
+    "game", "opening", "endgame", "lesson", "defense", "defence", "attack",
+})
+
+
+def _query_words(query: str) -> list[str]:
+    from src.knowledge_base import _QUERY_STOPWORDS
+
+    words = [w for w in _norm(query).split() if w not in _QUERY_STOPWORDS and len(w) >= 3]
+    specific = [w for w in words if w not in _GENERIC]
+    return specific  # nothing specific — nothing to find
+
+
+def book_for_words(query: str) -> Optional[dict]:
+    """The programme's lesson whose title is what the student named («открытая линия», «заколдованные
+    квадраты», «шотландская партия», «Ласкер — Томас»), else None. Every word of the question that is
+    not a stopword must be in the title (inflection-tolerant), so «партия» alone finds nothing; the
+    first lesson of a series wins over its «(продолжение)» parts; a lesson with diagrams over one without.
+    """
+    from src.knowledge_base import _stem_match
+
+    words = _query_words(query)
+    if not words:
+        return None
+    best, best_score = None, None
+    for rec in _records():
+        title_words = _title_key(rec).split()
+        if not title_words or not all(any(_stem_match(w, t) for t in title_words) for w in words):
+            continue
+        extra = _extra(title_words, words)
+        if extra > 3:
+            continue  # «партия» would match «Шотландская партия»… only by one word of five
+        score = (
+            -extra,
+            0 if _CONTINUATION.search(rec.get("docx_title") or "") else 1,
+            len(diagrams(rec)),
+            -int(rec.get("docx_step") or 9),   # the earlier step first («Рокировка» of step 1, not step 6)
+            len(rec.get("text_ru") or ""),
+        )
+        if best_score is None or score > best_score:
+            best, best_score = rec, score
+    return best
+
+
+def _extra(title_words: list[str], query_words: list[str]) -> int:
+    """How many words of the title the question did not name — generic words («партия», «гамбит») aside."""
+    return max(0, len([t for t in title_words if t not in _GENERIC]) - len(query_words))
+
+
+def book_title_extra(rec: dict, query: str) -> int:
+    """How many words of the lesson's title the question did not name (0–1: the title itself)."""
+    return _extra(_title_key(rec).split(), _query_words(query))
+
+
+def book_series(rec: dict) -> list[dict]:
+    """The lesson and its «(продолжение)» parts, in order (the same title, the same step)."""
+    key = _title_key(rec)
+    return [r for r in _records() if r.get("docx_step") == rec.get("docx_step") and _title_key(r) == key]
+
+
+def book_view(rec: dict) -> dict:
+    """The lesson as the coach's material: title, where it is in the programme, its text (with the
+    diagram markers), its legal diagrams, the game it writes out (PGN) when it has one, its parts."""
+    text = explanation(rec)
+    series = book_series(rec)
+    return {
+        "source": "programme_book",
+        "title": _CONTINUATION.sub("", (rec.get("docx_title") or "").strip()).rstrip(". "),
+        "step": rec.get("docx_step"),
+        "lesson": rec.get("docx_lesson"),
+        "summary": _summary(text),
+        "text": text,
+        "diagrams": diagrams(rec),
+        "pgn": rec.get("pgn"),
+        "parts": [{"lesson": r.get("docx_lesson"), "title": (r.get("docx_title") or "").strip()}
+                  for r in series if r is not rec],
+        "site_lessons": [l for l in (rec.get("site_lessons") or []) if l.get("slug")],
+    }
+
+
+def _summary(text: str, limit: int = SUMMARY_CHAR_CAP) -> str:
+    plain = re.sub(r"\[Диаграмма[^\]]*\]", " ", text)
+    plain = re.sub(r"\s+", " ", plain).strip()
+    if len(plain) <= limit:
+        return plain
+    cut = plain.rfind(". ", 0, limit)
+    return plain[: cut + 1 if cut > limit // 2 else limit].rstrip() + " …"

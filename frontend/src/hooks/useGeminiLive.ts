@@ -9,9 +9,11 @@ import type {
 import type { GameStateView } from '@/lib/coach/boards-api';
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
 import {
+  GAME_TOOLS,
   famousNote,
   gameActionNote,
   gameFromActions,
+  gameRefusedNote,
   gameMoveNote,
   gameNote,
   gameStartNote,
@@ -75,6 +77,12 @@ export const OPENING_HINT_RE =
 // Wait this long after the last transcribed fragment: the student has finished
 // the question, and the coach (≈1.5 s after speech ends) has not answered yet.
 export const CONCEPT_LOOKUP_DELAY_MS = 400;
+/**
+ * Transcription chunks closer than this, with no coach turn between them, are one utterance even when each
+ * is marked finished: a Live model may mark every chunk, and the words must add up («Хорошо,» + «e4.»), or
+ * the site reads only the last scrap and nothing is played (mock Live run, 2026-10-16).
+ */
+export const UTTERANCE_GLUE_MS = 1500;
 // A failed voice start is tried once more after this pause.
 export const START_RETRY_DELAY_MS = 700;
 // A move in the student's words («а если Rg1?», «поставлю ладью на g1», «взять
@@ -273,6 +281,12 @@ export function openingNote(result: {
 /** The note the model gets with a knowledge-base example the site put on the board. */
 export function topicNote(result: {
   title?: string;
+  /** `programme_book`: the student's own programme («Ступени», steps 4–7 live only in Hermes). */
+  source?: string;
+  programme?: { step?: number | string; lesson?: string };
+  explanation?: string;
+  /** A master game the programme's lesson writes out, loaded on the board. */
+  game_pgn?: string;
   example?: {
     title?: string;
     fen?: string;
@@ -290,6 +304,25 @@ export function topicNote(result: {
   };
 }): string | null {
   const ex = result.example;
+  if (result.source === 'programme_book') {
+    const where = `the student's own programme («Ступени», step ${result.programme?.step ?? ''}, lesson «${result.title ?? ''}»)`;
+    const says = result.explanation ? ` The lesson says: ${result.explanation.slice(0, 900)}` : '';
+    if (result.game_pgn) {
+      return (
+        `[Topic] The game that ${where} writes out is now on the student's board (they can step through it).${says} ` +
+        'Tell it from the lesson\'s notes, move by move as the lesson names them — never from memory — and say it is ' +
+        'from their programme. Describe no other example and do not call get_topic for it again.'
+      ).replace(/\s+/g, ' ').trim();
+    }
+    if (!ex?.fen) return null;
+    return (
+      `[Topic] On the student's board is the diagram of ${where} ` +
+      `(FEN ${ex.fen}${ex.side_to_move ? `, ${ex.side_to_move} to move` : ''}).` +
+      (ex.note ? ` It shows: ${ex.note}.` : '') + says +
+      ` Explain «${result.title ?? ''}» in the lesson's own words with this very position and say it is from their ` +
+      'programme. Describe no other example and do not call get_topic for it again.'
+    ).replace(/\s+/g, ' ').trim();
+  }
   if (!ex?.fen) return null;
   if (ex.source === 'site_lesson') {
     const where = `the site's lesson «${ex.title ?? ''}»${ex.course ? ` (course «${ex.course}»)` : ''}`;
@@ -352,6 +385,10 @@ export interface UseGeminiLiveOptions {
   onQuotaExhausted?: () => void;
   /** The game against the coach on the board, if any (src/lib/coach/voice-game.ts). */
   getGame?: () => GameStateView | null | undefined;
+  /** A coach session for the voice calls when the page has none yet (the chat creates one and lifts it up). */
+  ensureSession?: () => Promise<string | null | undefined>;
+  /** A tool the site called for the student's words, or the model called, refused or failed: the reason, for the UI. */
+  onToolFailure?: (name: string, reason: string) => void;
 }
 
 export interface UseGeminiLiveReturn {
@@ -1038,6 +1075,11 @@ export default function useGeminiLive(
             // so this outcome is captured only via the beacon.
             toolOk = false;
             toolErrorCode = `http_${res.status}`;
+            try {
+              optionsRef.current.onToolFailure?.(fc.name ?? '', `HTTP ${res.status}`);
+            } catch {
+              /* UI callback errors must not break the session */
+            }
             return {
               id: fc.id,
               name: fc.name,
@@ -1052,6 +1094,16 @@ export default function useGeminiLive(
           // so the board change it brings is not reported again as a [Game] line.
           const game = gameFromActions((data as { board_actions?: unknown[] }).board_actions);
           if (game) gameToldFenRef.current = game.fen;
+          // The game refused the model's call («'e4' is not a legal move here»): the model reads it in the
+          // result; the page shows it, so a refusal is never mistaken for a board that «does not move».
+          const refused = (data as { result?: { error?: unknown } })?.result?.error;
+          if (refused && fc.name && GAME_TOOLS.has(fc.name)) {
+            try {
+              optionsRef.current.onToolFailure?.(fc.name, String(refused));
+            } catch {
+              /* UI callback errors must not break the session */
+            }
+          }
           try {
             optionsRef.current.onToolResult?.(fc.name ?? '', data);
           } catch {
@@ -1140,6 +1192,9 @@ export default function useGeminiLive(
   // The student's current utterance (fragments joined) and whether its concept
   // example was already looked up — see CONCEPT_QUESTION_RE.
   const userUtteranceRef = useRef('');
+  // When the last chunk of the student's words came, and whether the coach has spoken since (UTTERANCE_GLUE_MS).
+  const userChunkAtRef = useRef(0);
+  const userClosedByCoachRef = useRef(false);
   const conceptDoneRef = useRef(false);
   const conceptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The student's idea (a move in their words) already sent for this utterance — see IDEA_MOVE_RE.
@@ -1194,12 +1249,43 @@ export default function useGeminiLive(
 
   // One voice tool call the site makes on the student's behalf; the result's
   // board actions reach the board and the note reaches the model.
+  // The session id for a site call: the page's, else one the page creates now (a tap on the mic before the
+  // page restored its session left every game tool with «No coach session», a refusal the model turned into
+  // a move «played» by talking).
+  const sessionIdForCall = useCallback(async (): Promise<string | undefined> => {
+    const sid = optionsRef.current.getSessionId?.();
+    if (sid) return sid;
+    try {
+      return (await optionsRef.current.ensureSession?.()) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }, []);
+
   const siteToolCall = useCallback(async (
     name: string,
     args: Record<string, unknown>,
     session: NonNullable<typeof sessionRef.current>,
     makeNote: (result: never) => string | null,
+    strict = false,
   ): Promise<boolean> => {
+    const started = performance.now();
+    const turnId = ensureTurnId();
+    // What went wrong goes to the beacon; when the words surely asked for it (`strict`, Hermes read them), also
+    // to the page and — for the game — to the model, so a refusal never becomes a move «played» by talking.
+    const failed = (code: string, reason: string) => {
+      reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: false, error_code: code });
+      if (!strict) return false;
+      try {
+        optionsRef.current.onToolFailure?.(name, reason);
+      } catch {
+        /* UI callback errors must not break the session */
+      }
+      if (GAME_TOOLS.has(name) && sessionRef.current === session) {
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameRefusedNote(name, reason) }] }], turnComplete: false });
+      }
+      return false;
+    };
     try {
       const res = await fetch('/api/coach/tool', {
         method: 'POST',
@@ -1208,16 +1294,18 @@ export default function useGeminiLive(
         body: JSON.stringify({
           name,
           args,
-          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          session_id: await sessionIdForCall(),
           utterance: userUtteranceRef.current || undefined,
         }),
       });
-      if (!res.ok) return false;
+      if (!res.ok) return failed(`http_${res.status}`, `HTTP ${res.status}`);
       const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
-      if (!data?.result || data.error) return false;
+      const error = data?.error ?? (data?.result as { error?: unknown } | null | undefined)?.error;
+      if (!data?.result || error) return failed(error ? 'refused' : 'empty', String(error || 'no result'));
       const note = makeNote(data.result as never);
-      if (!note) return false;
+      if (!note) return failed('no_note', 'nothing to tell');
       if (sessionRef.current !== session) return false;
+      reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
       siteResultsRef.current.set(name, data);
       const game = gameFromActions(data.board_actions);
       if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
@@ -1228,10 +1316,11 @@ export default function useGeminiLive(
       }
       session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
       return true;
-    } catch {
-      return false; /* unavailable (an older Hermes) — the coach can still call the tool itself */
+    } catch (err) {
+      /* unavailable (an older Hermes) — the coach can still call the tool itself */
+      return failed('network', err instanceof Error ? err.message : 'tool call failed');
     }
-  }, []);
+  }, [ensureTurnId, reportMetric, sessionIdForCall]);
 
   const lookUpPuzzle = useCallback(async (text: string, session: NonNullable<typeof sessionRef.current>, given?: string | null) => {
     const theme = given || PUZZLE_THEME_RE.exec(text)?.[1]?.trim();
@@ -1287,18 +1376,22 @@ export default function useGeminiLive(
         credentials: 'include',
         body: JSON.stringify({
           text,
-          session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          session_id: await sessionIdForCall(),
           fen: optionsRef.current.getFen?.() ?? undefined,
           pgn: optionsRef.current.getPgn?.() || undefined,
         }),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        reportMetric({ event: 'tool', tool_name: 'voice_intent', ok: false, error_code: `http_${res.status}` });
+        return null;
+      }
       const data = (await res.json().catch(() => null)) as VoiceIntent | null;
       return data && typeof data.kind === 'string' ? data : null;
     } catch {
+      reportMetric({ event: 'tool', tool_name: 'voice_intent', ok: false, error_code: 'network' });
       return null;
     }
-  }, []);
+  }, [reportMetric, sessionIdForCall]);
 
   const lookUpConcept = useCallback(async (text: string) => {
     if (conceptDoneRef.current) return;
@@ -1344,14 +1437,14 @@ export default function useGeminiLive(
     if (intent && sessionRef.current === session) {
       switch (intent.kind) {
         case 'game_command':
-          if (await siteToolCall('game_action', { said: text }, session, gameActionNote)) conceptDoneRef.current = true;
+          if (await siteToolCall('game_action', { said: text }, session, gameActionNote, true)) conceptDoneRef.current = true;
           return;
         case 'game_request':
-          if (await siteToolCall('start_game', { said: text }, session, gameStartNote)) conceptDoneRef.current = true;
+          if (await siteToolCall('start_game', { said: text }, session, gameStartNote, true)) conceptDoneRef.current = true;
           return;
         case 'move':
           // The move Hermes read («слон си четыре» → Bc4), played as the student's.
-          if (await siteToolCall('make_game_move', { move: intent.san }, session, gameMoveNote)) conceptDoneRef.current = true;
+          if (await siteToolCall('make_game_move', { move: intent.san }, session, gameMoveNote, true)) conceptDoneRef.current = true;
           return;
         case 'idea':
           ideaLookupRef.current?.(text, true);
@@ -1497,6 +1590,7 @@ export default function useGeminiLive(
   ideaLookupRef.current = (text: string, force?: boolean) => void lookUpIdea(text, force);
 
   const closeUtterance = useCallback((role: 'user' | 'model') => {
+    if (role === 'user') userClosedByCoachRef.current = true;  // the coach's turn: the next words are a new utterance
     if (!openUtterancesRef.current[role]) return;
     openUtterancesRef.current[role] = false;
     optionsRef.current.onTranscript?.({
@@ -1544,7 +1638,10 @@ export default function useGeminiLive(
         // A user utterance starts a turn; mint the id now so the transcript row
         // and the turn's events (tool_call, turn_end) share one turn_id.
         const final = !!sc.inputTranscription.finished;
-        if (!openUtterancesRef.current.user) {
+        const now = Date.now();
+        const glue = !openUtterancesRef.current.user && userChunkAtRef.current > 0
+          && now - userChunkAtRef.current < UTTERANCE_GLUE_MS && !userClosedByCoachRef.current;
+        if (!openUtterancesRef.current.user && !glue) {
           userUtteranceRef.current = '';
           conceptDoneRef.current = false;
           ideaSentRef.current = '';
@@ -1552,7 +1649,11 @@ export default function useGeminiLive(
           modelTurnTextRef.current = '';
           siteResultsRef.current.clear();
         }
-        userUtteranceRef.current += sc.inputTranscription.text;
+        const chunk = sc.inputTranscription.text;
+        userUtteranceRef.current +=
+          (glue && userUtteranceRef.current && !/\s$/.test(userUtteranceRef.current) && !/^[\s,.!?]/.test(chunk) ? ' ' : '') + chunk;
+        userChunkAtRef.current = now;
+        userClosedByCoachRef.current = false;
         const utterance = userUtteranceRef.current;
         if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
         conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);

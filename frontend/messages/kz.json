@@ -2070,6 +2070,7 @@
     "voiceListening": "🎙 Тыңдап тұрмын…",
     "voiceSpeaking": "🔊 Жаттықтырушы сөйлеп тұр…",
     "voiceError": "Дауыстық режим қатесі",
+    "voiceToolFailed": "Орындалмады: {reason}",
     "voiceRetryHint": "Қайталау үшін микрофонды басыңыз",
     "voiceUnsupported": "Дауыстық режим бұл браузерде қолданылмайды",
     "voiceMinutesLeft": "{minutes} мин қалды",

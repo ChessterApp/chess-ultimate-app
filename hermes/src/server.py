@@ -681,6 +681,9 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
         return {"view": view, "block": block}
     if live.id != active_board.id or not live.game_state:
         return None
+    if game_request(message):
+        # A new game asked for while one is on: resigned and restarted with the named colour and strength.
+        return game_command_step(session, live, "restart", message)
     if command:
         return game_command_step(session, live, command, message)
     board = game_mode._replay(live.game_state["moves"])
