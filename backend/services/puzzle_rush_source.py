@@ -20,6 +20,7 @@ band. Each pick is a handful of index seeks regardless of band size.
 import os
 import random
 import sqlite3
+import string
 import threading
 
 DEFAULT_DB_PATH = '/root/hermes-chess/data/puzzles.db'
@@ -33,6 +34,8 @@ RELAXED_QUALITY_SQL = 'popularity >= 80'
 DENSITY_SAMPLE = 300
 MIN_STRICT_DENSITY = 0.05
 COLUMNS = 'id, fen, moves, rating, themes'
+THEMED_COLUMNS = 'p.id, p.fen, p.moves, p.rating, p.themes'
+ID_ALPHABET = string.digits + string.ascii_uppercase + string.ascii_lowercase
 
 
 class NoPuzzleAvailable(Exception):
@@ -126,6 +129,40 @@ class PuzzleSource:
         )
         for clause, params in queries:
             row = conn.execute(base + clause, (*exclude, *params)).fetchone()
+            if row:
+                return row
+        return None
+
+    def pick_in_band(self, lo: int, hi: int, exclude: list, rng: random.Random,
+                     theme: str | None = None) -> dict | None:
+        """A quality puzzle rated lo..hi not in exclude (tagged `theme` if given), or None."""
+        if theme is None:
+            row = self._pick_in_band(lo, hi, exclude, rng)
+        else:
+            row = self._pick_themed_in_band(theme, lo, hi, exclude, rng)
+        return _row_to_puzzle(row) if row else None
+
+    def _pick_themed_in_band(self, theme: str, lo: int, hi: int, exclude: list, rng: random.Random):
+        # Same seek walk as _pick_in_band, over the puzzle_themes(theme, rating,
+        # puzzle_id) covering index. Lichess ids are random strings, so a random
+        # id is a uniform starting point within a rating.
+        not_in = ''
+        if exclude:
+            not_in = f" AND p.id NOT IN ({','.join('?' * len(exclude))})"
+        quality = self._quality_sql(lo, hi)
+        base = (f'SELECT {THEMED_COLUMNS} FROM puzzle_themes t JOIN puzzles p ON p.id = t.puzzle_id '
+                f'WHERE t.theme = ? AND {quality}{not_in} AND ')
+
+        rating = rng.randint(lo, hi)
+        puzzle_id = ''.join(rng.choice(ID_ALPHABET) for _ in range(5))
+        queries = (
+            ('t.rating = ? AND t.puzzle_id >= ? ORDER BY t.puzzle_id LIMIT 1', (rating, puzzle_id)),
+            ('t.rating = ? AND t.puzzle_id < ? ORDER BY t.puzzle_id LIMIT 1', (rating, puzzle_id)),
+            ('t.rating > ? AND t.rating <= ? ORDER BY t.rating, t.puzzle_id LIMIT 1', (rating, hi)),
+            ('t.rating >= ? AND t.rating < ? ORDER BY t.rating DESC, t.puzzle_id DESC LIMIT 1', (lo, rating)),
+        )
+        for clause, params in queries:
+            row = self._conn().execute(base + clause, (theme, *exclude, *params)).fetchone()
             if row:
                 return row
         return None

@@ -140,6 +140,13 @@ except ImportError as e:
     logger.warning(f"⚠️  Could not import puzzle rush API: {e}")
 
 try:
+    from api.tug_of_war import tug_of_war_bp
+    app.register_blueprint(tug_of_war_bp)
+    logger.info("✅ Tug of War API registered")
+except ImportError as e:
+    logger.warning(f"⚠️  Could not import tug of war API: {e}")
+
+try:
     from api.opponent_analysis import opponent_bp
     app.register_blueprint(opponent_bp)
     logger.info("✅ Opponent Analysis API registered (TWIC database search)")
