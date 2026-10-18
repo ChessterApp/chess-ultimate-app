@@ -21,7 +21,9 @@ def test_the_book_holds_steps_one_to_seven():
     steps = {}
     for r in _records():
         steps[r["docx_step"]] = steps.get(r["docx_step"], 0) + 1
-    assert steps[1] + steps[2] + steps[3] == 37 and steps[4] == 15 and steps[5] >= 14 and steps[6] >= 15 and steps[7] >= 15
+    assert steps[1] + steps[2] + steps[3] == 41 and steps[4] == 15 and steps[5] >= 14 and steps[6] >= 15 and steps[7] >= 15
+    assert book_for_words("миттельшпиль")["docx_lesson"] == "12"          # step 1, no module on the site
+    assert book_for_words("освобождение поля или линии")["docx_lesson"] == "37"
     with_games = [r for r in _records() if r.get("pgn")]
     assert len(with_games) >= 10 and all(r["pgn"].startswith("1. ") for r in with_games)
     assert sum(len(book_view(r)["diagrams"]) for r in _records() if r["docx_step"] == 4) >= 20   # up to 4 per lesson

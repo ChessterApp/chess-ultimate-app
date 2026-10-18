@@ -23,10 +23,11 @@ import chess
 logger = logging.getLogger(__name__)
 
 PATH = Path(__file__).resolve().parent.parent / "content" / "lessons" / "stupeni_steps_1-3.json"
-# Steps 4–7 (16.10.2026): the site has no lessons for them — pawn structures and master games, the
-# openings of steps 5 and 7, the endgames of step 6 — so they are the programme's own knowledge for
-# «что такое открытая линия», «расскажи про шотландскую партию» (built by stupeni-import/build_steps_4-7.py).
-PATHS = (PATH, PATH.with_name("stupeni_steps_4-7.json"))
+# The rest of the programme (16–18.10.2026): steps 4–7 — pawn structures and master games, the openings
+# of steps 5 and 7, the endgames of step 6 — and the step 1–3 lessons the site has no module for
+# («Миттельшпиль», the practical lessons): the programme's own knowledge for «что такое открытая линия»,
+# «расскажи про шотландскую партию» (built by stupeni-import/build_steps_4-7.py).
+PATHS = (PATH, PATH.with_name("stupeni_more.json"))
 EXPLANATION_CHAR_CAP = 3500  # of the lesson text handed to the model
 MAX_DIAGRAMS = 4
 SUMMARY_CHAR_CAP = 420

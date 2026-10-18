@@ -1,5 +1,218 @@
 [
  {
+  "docx_step": 1,
+  "docx_lesson": "12",
+  "docx_title": "Миттельшпиль",
+  "course_slug": null,
+  "module_title": null,
+  "site_lessons": [],
+  "text_ru": "Миттельшпиль\nМиттельшпиль – это середина партии.\nПосле того, как Вы подготовили фигуры к атаке и увели короля в безопасное место игра переходит в стадию миттельшпиля . В середине игры есть два основных плана игры.\nПоставить мат\nВыиграть материал .\nМатериал в шахматах – это фигуры и пешки.\nТо есть, в первом случае надо придумать план, как подвести фигуры поближе к королю для атаки. Если король надежно защищен и не видно, как пробить оборону, нужно постараться нападать на фигуры и срубить больше, чем соперник.\nПравило: Выигрыш фигуры или пешки возможен, когда нападений больше, чем защищающих фигур.\n[Диаграмма s1_l12_theory_01.png: r1bq1rk1/ppp2ppp/2n5/2bnp3/2B5/3P1N2/PPPN1PPP/R1BQR1K1 w - - 0 1]\nНа примере выше белые конь и ладья атакуют черную пешку е5, а защищает ее только конь с6. Поэтому при ходе белых они могут сыграть 1.К:е5 К:е5 2.Л:е5. После этих разменов белые остались с лишней пешкой, так как съели коня и пешку, а черные только коня\nСоветы при игре в миттельшпиле.\nИграйте смелее, предприимчивее .\nЕсли вы атакуете, старайтесь подключать к атаке несколько фигур, а не одну.\nОтноситесь внимательно к замыслам соперника.\nВ худших положениях старайтесь максимально усложнить игру сопернику, тогда станет больше шансов, что соперник ошибется.",
+  "diagrams": [
+   {
+    "file": "s1_l12_theory_01.png",
+    "fen": "r1bq1rk1/ppp2ppp/2n5/2bnp3/2B5/3P1N2/PPPN1PPP/R1BQR1K1 w - - 0 1",
+    "valid": true,
+    "context": "Правило: Выигрыш фигуры или пешки возможен, когда нападений больше, чем защищающих фигур."
+   }
+  ]
+ },
+ {
+  "docx_step": 2,
+  "docx_lesson": "20",
+  "docx_title": "Решение задач. Выигрыш ладьи",
+  "course_slug": null,
+  "module_title": null,
+  "site_lessons": [],
+  "text_ru": "Практическое занятие.\nРешение задач. Выигрыш ладьи\n[Диаграмма s2_l20_theory_01.png: r3qr1k/pp4pp/1bn5/5pR1/2Q1p2N/1N2P1B1/PP4PP/5RK1 w - - 0 1]\n[Диаграмма s2_l20_theory_02.png: 3kr3/1p2qp2/3b1p1R/1p1p1P2/1P1P2p1/P1r5/R1P1NKP1/3Q4 w - - 0 1]\n305…_______________ 306…________________\n[Диаграмма s2_l20_theory_03.png: 2r3k1/5ppp/p1b1pn2/q7/P1B1PQ2/R1P2P2/6PP/1R4K1 w - - 0 1]\n[Диаграмма s2_l20_theory_04.png: 8/pb1R1ppk/1p5p/7q/4pQ2/1P6/P4PPP/5K2 w - - 0 1]\n307…________________ 308…________________\n[Диаграмма s2_l20_theory_05.png: r5k1/p4ppp/2q5/8/3p4/PRnP1P2/3B2PP/2Q1K3 w - - 0 1]\n[Диаграмма s2_l20_theory_06.png: r5k1/5p2/2pPq1p1/p1P3Qn/P7/2P2R2/6K1/1R6 w - - 0 1]\n309…________________ 310…________________\nХод белых. Выигрыш коня.\n[Диаграмма s2_l20_theory_07.png: rnbqkb1r/p3pppp/1p6/2p5/4n2B/2P2N2/PP2PPPP/RN1QKB1R w - - 0 1]\n[Диаграмма s2_l20_theory_08.png: 5n2/p6k/1p5p/4B1p1/P1B1n3/2P5/6PP/6K1 w - - 0 1]\n311__________________ 312__________________\n[Диаграмма s2_l20_theory_09.png: r2qkb1r/ppp2ppp/3Pb3/7n/5p2/5N2/PPPPQ1PP/RNB1KB1R w - - 0 1]\n[Диаграмма s2_l20_theory_10.png: r3k2r/ppp1bppp/4b3/3qP3/4n3/3B4/PP3PPP/RNBQ1RK1 w - - 0 1]\n313__________________ 314__________________\n[Диаграмма s2_l20_theory_11.png: r4k1r/pb5p/4p1p1/2n1P3/qp3N2/8/PP3PPP/R2Q1RK1 w - - 0 1]\n[Диаграмма s2_l20_theory_12.png: 5r1k/5pp1/7p/8/2n5/P4P1P/1P4PK/6Q1 w - - 0 1]\n315__________________ 316__________________",
+  "diagrams": [
+   {
+    "file": "s2_l20_theory_01.png",
+    "fen": "r3qr1k/pp4pp/1bn5/5pR1/2Q1p2N/1N2P1B1/PP4PP/5RK1 w - - 0 1",
+    "valid": true,
+    "context": "Решение задач. Выигрыш ладьи"
+   },
+   {
+    "file": "s2_l20_theory_02.png",
+    "fen": "3kr3/1p2qp2/3b1p1R/1p1p1P2/1P1P2p1/P1r5/R1P1NKP1/3Q4 w - - 0 1",
+    "valid": true,
+    "context": "Решение задач. Выигрыш ладьи"
+   },
+   {
+    "file": "s2_l20_theory_03.png",
+    "fen": "2r3k1/5ppp/p1b1pn2/q7/P1B1PQ2/R1P2P2/6PP/1R4K1 w - - 0 1",
+    "valid": true,
+    "context": "305…_______________ 306…________________"
+   },
+   {
+    "file": "s2_l20_theory_04.png",
+    "fen": "8/pb1R1ppk/1p5p/7q/4pQ2/1P6/P4PPP/5K2 w - - 0 1",
+    "valid": true,
+    "context": "305…_______________ 306…________________"
+   },
+   {
+    "file": "s2_l20_theory_05.png",
+    "fen": "r5k1/p4ppp/2q5/8/3p4/PRnP1P2/3B2PP/2Q1K3 w - - 0 1",
+    "valid": true,
+    "context": "307…________________ 308…________________"
+   },
+   {
+    "file": "s2_l20_theory_06.png",
+    "fen": "r5k1/5p2/2pPq1p1/p1P3Qn/P7/2P2R2/6K1/1R6 w - - 0 1",
+    "valid": true,
+    "context": "307…________________ 308…________________"
+   },
+   {
+    "file": "s2_l20_theory_07.png",
+    "fen": "rnbqkb1r/p3pppp/1p6/2p5/4n2B/2P2N2/PP2PPPP/RN1QKB1R w - - 0 1",
+    "valid": true,
+    "context": "Ход белых. Выигрыш коня."
+   },
+   {
+    "file": "s2_l20_theory_08.png",
+    "fen": "5n2/p6k/1p5p/4B1p1/P1B1n3/2P5/6PP/6K1 w - - 0 1",
+    "valid": true,
+    "context": "Ход белых. Выигрыш коня."
+   },
+   {
+    "file": "s2_l20_theory_09.png",
+    "fen": "r2qkb1r/ppp2ppp/3Pb3/7n/5p2/5N2/PPPPQ1PP/RNB1KB1R w - - 0 1",
+    "valid": true,
+    "context": "311__________________ 312__________________"
+   },
+   {
+    "file": "s2_l20_theory_10.png",
+    "fen": "r3k2r/ppp1bppp/4b3/3qP3/4n3/3B4/PP3PPP/RNBQ1RK1 w - - 0 1",
+    "valid": true,
+    "context": "311__________________ 312__________________"
+   },
+   {
+    "file": "s2_l20_theory_11.png",
+    "fen": "r4k1r/pb5p/4p1p1/2n1P3/qp3N2/8/PP3PPP/R2Q1RK1 w - - 0 1",
+    "valid": true,
+    "context": "313__________________ 314__________________"
+   },
+   {
+    "file": "s2_l20_theory_12.png",
+    "fen": "5r1k/5pp1/7p/8/2n5/P4P1P/1P4PK/6Q1 w - - 0 1",
+    "valid": true,
+    "context": "313__________________ 314__________________"
+   }
+  ]
+ },
+ {
+  "docx_step": 3,
+  "docx_lesson": "37",
+  "docx_title": "Освобождение поля или линии",
+  "course_slug": "advanced-tactics",
+  "module_title": "Освобождение поля или линии",
+  "site_lessons": [
+   {
+    "slug": "clearance-example-1",
+    "title": "Пример 1",
+    "lesson_id": "f1e4d003-0182-42ac-a181-0552ad3c685b",
+    "puzzles": 9
+   },
+   {
+    "slug": "clearance-example-2",
+    "title": "Пример 2",
+    "lesson_id": "e8d4c1dc-4079-4847-a172-93b4c9a90e05",
+    "puzzles": 12
+   }
+  ],
+  "text_ru": "Практическое занятие\nОсвобождение поля или линии.\nЦелью этого вида комбинации – жертвой фигуры или пешки освободить поле или линию необходимые для других фигур.\nПример 1.\n[Диаграмма s3_l37_theory_01.png: 8/8/6k1/R2pp1p1/2rPn1P1/1p1KP3/1Pr1R3/3N4 b - - 0 1]",
+  "diagrams": [
+   {
+    "file": "s3_l37_theory_01.png",
+    "fen": "8/8/6k1/R2pp1p1/2rPn1P1/1p1KP3/1Pr1R3/3N4 b - - 0 1",
+    "valid": true,
+    "context": "Пример 1."
+   }
+  ]
+ },
+ {
+  "docx_step": 3,
+  "docx_lesson": "45",
+  "docx_title": "Тесты",
+  "course_slug": null,
+  "module_title": null,
+  "site_lessons": [],
+  "text_ru": "Практическое занятие\nТесты\n[Диаграмма s3_l45_theory_01.png: 4q1k1/rp2Bppp/2p2nb1/p3Q3/P2P4/2P3P1/5PBP/4R1K1 w - - 0 1]\n[Диаграмма s3_l45_theory_02.png: 2r1kb1r/1p2nppp/p3p3/1b1pP3/8/1NPQ4/Pq3PPP/RNB2RK1 w - - 0 1]\n766.__________________ 767.__________________\n[Диаграмма s3_l45_theory_03.png: r1q1kb1r/pppn1npp/8/4p1B1/8/1Q6/PPP2PPP/RN2R1K1 w - - 0 1]\n[Диаграмма s3_l45_theory_04.png: r2q3k/ppp3p1/3p1r1p/2b1pP2/3nP3/P4N1Q/1PPB2PP/2KR3R w - - 0 1]\n768.__________________ 769.____________________\n[Диаграмма s3_l45_theory_05.png: rnb2rk1/ppp2pbp/3p2p1/3Pp2n/4P1Pq/2N1BP2/PPPQ3P/R3KBNR b - - 0 1]\n[Диаграмма s3_l45_theory_06.png: 5n2/1p1nrk2/p3p1p1/1q1pPpP1/1b1P1P1Q/5N2/PP5R/2N3BK b - - 0 1]\n770.__________________ 771…________________\n[Диаграмма s3_l45_theory_07.png: r4rk1/pbq2ppp/2pppb2/4n3/4P3/2N1B1Q1/PPP1B1PP/3R1RK1 b - - 0 1]\n[Диаграмма s3_l45_theory_08.png: 3r1rk1/pp1q2pp/8/2p2p2/3n3R/3QB3/PP3PPP/R5K1 b - - 0 1]\n772.__________________ 773…________________\n[Диаграмма s3_l45_theory_09.png: r1b1r1k1/1p3ppp/p1p5/4b3/8/1P2P1PP/PB3PB1/2RR2K1 w - - 0 1]\n[Диаграмма s3_l45_theory_10.png: rnb2rk1/1p2bpp1/p2p3p/3Np3/3NPPPq/8/PPPQ3P/2KR1B1R w - - 0 1]\n774.__________________ 775.__________________\n[Диаграмма s3_l45_theory_11.png: 5r2/p6r/8/3k1p1p/3n2p1/P2R2P1/1P2RP1P/5K2 w - - 0 1]\n[Диаграмма s3_l45_theory_12.png: 1b1r2k1/1pp2pp1/2nq3p/p7/3PR1N1/P1P3PP/1P1Q4/5NK1 w - - 0 1]\n776.__________________ 777…________________",
+  "diagrams": [
+   {
+    "file": "s3_l45_theory_01.png",
+    "fen": "4q1k1/rp2Bppp/2p2nb1/p3Q3/P2P4/2P3P1/5PBP/4R1K1 w - - 0 1",
+    "valid": true,
+    "context": "Тесты"
+   },
+   {
+    "file": "s3_l45_theory_02.png",
+    "fen": "2r1kb1r/1p2nppp/p3p3/1b1pP3/8/1NPQ4/Pq3PPP/RNB2RK1 w - - 0 1",
+    "valid": true,
+    "context": "Тесты"
+   },
+   {
+    "file": "s3_l45_theory_03.png",
+    "fen": "r1q1kb1r/pppn1npp/8/4p1B1/8/1Q6/PPP2PPP/RN2R1K1 w - - 0 1",
+    "valid": true,
+    "context": "766.__________________ 767.__________________"
+   },
+   {
+    "file": "s3_l45_theory_04.png",
+    "fen": "r2q3k/ppp3p1/3p1r1p/2b1pP2/3nP3/P4N1Q/1PPB2PP/2KR3R w - - 0 1",
+    "valid": true,
+    "context": "766.__________________ 767.__________________"
+   },
+   {
+    "file": "s3_l45_theory_05.png",
+    "fen": "rnb2rk1/ppp2pbp/3p2p1/3Pp2n/4P1Pq/2N1BP2/PPPQ3P/R3KBNR b - - 0 1",
+    "valid": false,
+    "context": "768.__________________ 769.____________________"
+   },
+   {
+    "file": "s3_l45_theory_06.png",
+    "fen": "5n2/1p1nrk2/p3p1p1/1q1pPpP1/1b1P1P1Q/5N2/PP5R/2N3BK b - - 0 1",
+    "valid": true,
+    "context": "768.__________________ 769.____________________"
+   },
+   {
+    "file": "s3_l45_theory_07.png",
+    "fen": "r4rk1/pbq2ppp/2pppb2/4n3/4P3/2N1B1Q1/PPP1B1PP/3R1RK1 b - - 0 1",
+    "valid": true,
+    "context": "770.__________________ 771…________________"
+   },
+   {
+    "file": "s3_l45_theory_08.png",
+    "fen": "3r1rk1/pp1q2pp/8/2p2p2/3n3R/3QB3/PP3PPP/R5K1 b - - 0 1",
+    "valid": true,
+    "context": "770.__________________ 771…________________"
+   },
+   {
+    "file": "s3_l45_theory_09.png",
+    "fen": "r1b1r1k1/1p3ppp/p1p5/4b3/8/1P2P1PP/PB3PB1/2RR2K1 w - - 0 1",
+    "valid": true,
+    "context": "772.__________________ 773…________________"
+   },
+   {
+    "file": "s3_l45_theory_10.png",
+    "fen": "rnb2rk1/1p2bpp1/p2p3p/3Np3/3NPPPq/8/PPPQ3P/2KR1B1R w - - 0 1",
+    "valid": true,
+    "context": "772.__________________ 773…________________"
+   },
+   {
+    "file": "s3_l45_theory_11.png",
+    "fen": "5r2/p6r/8/3k1p1p/3n2p1/P2R2P1/1P2RP1P/5K2 w - - 0 1",
+    "valid": true,
+    "context": "774.__________________ 775.__________________"
+   },
+   {
+    "file": "s3_l45_theory_12.png",
+    "fen": "1b1r2k1/1pp2pp1/2nq3p/p7/3PR1N1/P1P3PP/1P1Q4/5NK1 w - - 0 1",
+    "valid": true,
+    "context": "774.__________________ 775.__________________"
+   }
+  ]
+ },
+ {
   "docx_step": 4,
   "docx_lesson": "46",
   "docx_title": "Пешка – душа шахмат!",
@@ -143,7 +356,7 @@
  {
   "docx_step": 4,
   "docx_lesson": "51",
-  "docx_title": "Оценка позиции и выработка плана.",
+  "docx_title": "Оценка позиции и выработка плана",
   "course_slug": null,
   "module_title": null,
   "site_lessons": [],
