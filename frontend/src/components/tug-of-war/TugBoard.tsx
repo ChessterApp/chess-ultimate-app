@@ -53,6 +53,24 @@ function computeDests(chess: Chess): Map<Key, Key[]> {
   return dests;
 }
 
+/**
+ * Map a client point to the board square under it, or null when off-board.
+ * Pure 8x8 geometry over the board's bounding rect, honouring orientation.
+ */
+export function pointToSquare(
+  x: number,
+  y: number,
+  rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>,
+  orientation: 'white' | 'black',
+): Key | null {
+  const col = Math.floor(((x - rect.left) / rect.width) * 8);
+  const row = Math.floor(((y - rect.top) / rect.height) * 8);
+  if (!(col >= 0 && col < 8 && row >= 0 && row < 8)) return null;
+  const file = orientation === 'white' ? col : 7 - col;
+  const rank = orientation === 'white' ? 7 - row : row;
+  return `${'abcdefgh'[file]}${rank + 1}` as Key;
+}
+
 const FRAME: Record<'blue' | 'orange', string> = {
   blue: 'ring-4 ring-blue-500 shadow-[0_0_0_2px_rgba(59,130,246,0.35)]',
   orange: 'ring-4 ring-red-500 shadow-[0_0_0_2px_rgba(239,68,68,0.35)]',
@@ -85,6 +103,77 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
   disabledRef.current = !!disabled;
 
   const orientation: 'white' | 'black' = orientationFromFen(puzzle.fen);
+  const orientationRef = useRef(orientation);
+  orientationRef.current = orientation;
+
+  // Per-board touch layer. chessground's own touch handling counts fingers
+  // screen-wide (`e.touches`) and ends drags on document-level touchend, so a
+  // kid on the other board blocks or cancels this one. Instead, touch/pen are
+  // handled here by pointerId, scoped to this board, and fed to chessground as
+  // taps (selectSquare) — its tap-piece → tap-square flow, highlights and
+  // movable.events.after stay unchanged. Mouse is left to chessground.
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [debug, setDebug] = useState<{ active: number; lastType: string } | null>(null);
+  const debugRef = useRef(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('touchdebug') !== '1') return;
+    debugRef.current = true;
+    setDebug({ active: 0, lastType: '-' });
+  }, []);
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const pointers = new Map<number, Key | null>();
+    const squareAt = (e: PointerEvent): Key | null => {
+      const el = elRef.current;
+      return el ? pointToSquare(e.clientX, e.clientY, el.getBoundingClientRect(), orientationRef.current) : null;
+    };
+    const report = (type: string) => {
+      if (debugRef.current) setDebug({ active: pointers.size, lastType: type });
+    };
+    const isTouch = (e: PointerEvent) => e.pointerType === 'touch' || e.pointerType === 'pen';
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (!isTouch(e)) return;
+      e.preventDefault();
+      pointers.set(e.pointerId, squareAt(e));
+      frame.setPointerCapture?.(e.pointerId);
+      report(e.pointerType);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      const from = pointers.get(e.pointerId);
+      pointers.delete(e.pointerId);
+      report(e.pointerType);
+      const to = squareAt(e);
+      const ground = groundRef.current;
+      if (!to || !ground) return;
+      // A finger slid piece → square: select the origin first, then the target.
+      if (from && from !== to) ground.selectSquare(from);
+      ground.selectSquare(to);
+    };
+    const onPointerCancel = (e: PointerEvent) => {
+      if (pointers.delete(e.pointerId)) report(e.pointerType);
+    };
+    // Keep touches away from chessground's board listener; preventDefault also
+    // suppresses the compatibility mouse events a tap would otherwise emit.
+    const onTouchStart = (e: TouchEvent) => {
+      e.stopPropagation();
+      if (e.cancelable) e.preventDefault();
+    };
+
+    frame.addEventListener('pointerdown', onPointerDown, { capture: true });
+    frame.addEventListener('pointerup', onPointerUp, { capture: true });
+    frame.addEventListener('pointercancel', onPointerCancel, { capture: true });
+    frame.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+    return () => {
+      frame.removeEventListener('pointerdown', onPointerDown, { capture: true });
+      frame.removeEventListener('pointerup', onPointerUp, { capture: true });
+      frame.removeEventListener('pointercancel', onPointerCancel, { capture: true });
+      frame.removeEventListener('touchstart', onTouchStart, { capture: true });
+    };
+  }, []);
 
   /** Push the current chess.js position into chessground for the team to move. */
   const renderTeamTurn = () => {
@@ -273,14 +362,24 @@ export default function TugBoard({ puzzle, accent, onSolved, onWrong, disabled }
   return (
     <div ref={measureRef} className="w-full flex justify-center">
       <div
-        className={`rounded-xl overflow-hidden bg-white/5 ${FRAME[accent]}`}
-        style={{ lineHeight: 0 }}
+        ref={frameRef}
+        className={`relative rounded-xl overflow-hidden bg-white/5 ${FRAME[accent]}`}
+        style={{ lineHeight: 0, touchAction: 'none' }}
       >
         <div
           ref={elRef}
           className="chessground-board"
           style={{ width: size || undefined, height: size || undefined }}
         />
+        {debug && (
+          <div
+            data-testid="tug-touchdebug"
+            className="pointer-events-none absolute left-1 top-1 z-50 rounded bg-black/70 px-1.5 py-1 font-mono text-[10px] leading-tight text-white"
+          >
+            maxTouchPoints {navigator.maxTouchPoints ?? 0} · active {debug.active} · last{' '}
+            {debug.lastType}
+          </div>
+        )}
       </div>
     </div>
   );
