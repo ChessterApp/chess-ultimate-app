@@ -209,6 +209,9 @@ def _sync_session_board(session, board_actions: list[dict]) -> None:
             continue
         try:
             session.set_board_state(fen)
+            board = session.get_board(session.active_board_id)
+            if board is not None:
+                board.mark_coach(str(atype))  # a tool's position, not the student's own (2026-10-20)
         except (ValueError, TypeError):
             logger.debug("Skipping board sync for invalid FEN: %s", fen)
 
@@ -303,17 +306,21 @@ def _dispatch_voice(name: str, args: dict, session, utterance: Optional[str]) ->
     """The tool in the student's coach session, under the board lock their words call for."""
     if session is None:
         return dispatch_tool_safely(name, args)
-    from src.board_lock import _board_lock_level
+    from src.board_lock import _board_lock_level, board_lock_with_owner
     from src.tools.game_play import live_game_board
 
     live = live_game_board(session) is not None
-    fen, strict = _board_lock_level(utterance or "", True, live, session.board_state)
+    if config.COACH_HIDDEN_BOARD:
+        # The student's own position stays unless their words ask for another (src/question_position).
+        fen, strict, reason = board_lock_with_owner(utterance or "", True, live, session)
+    else:
+        fen, strict, reason = _board_lock_level(utterance or "", True, live, session.board_state)
     owned = False
     with _voice_locks_guard:
         depth = _voice_locks.get(session.id, 0)
         if fen and (depth or session.board_lock is None):
             if not depth:
-                session.lock_board(fen, strict=strict)
+                session.lock_board(fen, strict=strict, reason=reason)
             _voice_locks[session.id] = depth + 1
             owned = True
     try:

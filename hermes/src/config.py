@@ -277,6 +277,12 @@ COACH_EXECUTOR_THREADS = int(os.environ.get("COACH_EXECUTOR_THREADS", "32"))
 # position — before the model is called (src/opening_knowledge.py).
 #   COACH_OPENING_PRESTEP — kill switch (default ON).
 COACH_OPENING_PRESTEP = _env_flag("COACH_OPENING_PRESTEP", True)
+# The hidden board for theory questions (src/question_position.py, 2026-10-20): the position a
+# question is about — an opening line's end, a textbook endgame by material, a topic's example — is
+# analysed on a second board the student does not see; their own position stays. Kill switch and
+# the engine's time per hidden position.
+COACH_HIDDEN_BOARD = _env_flag("COACH_HIDDEN_BOARD", True)
+COACH_HIDDEN_BOARD_MOVETIME_MS = int(os.environ.get("COACH_HIDDEN_BOARD_MOVETIME_MS", "400"))
 # A game asked for in words, or the student's move written on its own during a game: the server
 # starts the game / plays the move before the model answers (src/game_intent.py, 2026-10-12).
 COACH_GAME_PRESTEP = _env_flag("COACH_GAME_PRESTEP", True)

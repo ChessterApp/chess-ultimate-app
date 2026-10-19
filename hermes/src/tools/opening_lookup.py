@@ -42,8 +42,9 @@ LOOKUP_OPENING_SCHEMA = {
 }
 
 
-def lookup_opening(question: str, fen: Optional[str] = None, pgn: Optional[str] = None) -> dict:
-    plan = plan_opening(question or "", fen, pgn)
+def lookup_opening(question: str, fen: Optional[str] = None, pgn: Optional[str] = None,
+                   show: Optional[bool] = None) -> dict:
+    plan = plan_opening(question or "", fen, pgn, show=show)
     if plan is None:
         return {"found": False}
     out = {
@@ -53,10 +54,25 @@ def lookup_opening(question: str, fen: Optional[str] = None, pgn: Optional[str] 
         "line": plan.pgn,
         "loaded": plan.load,
         "about_the_board": plan.relative,
+        "hidden": plan.hidden,
         "note": plan.block,
     }
     if plan.load:
         out["board_actions"] = [{"type": "load_pgn", "pgn": plan.pgn}]
+    elif plan.hidden:
+        # The line's final position, looked at on the hidden board (the text turn does this itself;
+        # the voice coach and the model's own calls get it here).
+        try:
+            from src import config
+            from src.question_position import hidden_note_block
+            from src.voice_engine_note import engine_note
+
+            note = engine_note(plan.final_fen, movetime_ms=config.COACH_HIDDEN_BOARD_MOVETIME_MS) if config.COACH_HIDDEN_BOARD else None
+            if note and note.get("note"):
+                out["hidden_board"] = {"fen": plan.final_fen, "engine": note["note"],
+                                       "note": hidden_note_block(note["note"], f"the final position of the {plan.name} line")}
+        except Exception:  # noqa: BLE001 — the engine is a bonus on top of the book
+            pass
     try:
         # The programme's own lesson on the opening (steps 5 and 7 of «Ступени»: Scotch, Italian, Two Knights,
         # Petrov, Four Knights, Spanish, King's Gambit): the coach teaches it in the programme's words.
@@ -76,9 +92,23 @@ def lookup_opening(question: str, fen: Optional[str] = None, pgn: Optional[str] 
 
 
 def _handle_lookup_opening(args: dict, **kwargs) -> str:
-    result = lookup_opening(
-        question=args.get("question") or "", fen=args.get("fen"), pgn=args.get("pgn")
-    )
+    # The student's own position stays on the board unless they ask to see the line
+    # (src/question_position.show_on_board; the session comes with the call — text and voice alike).
+    show = None
+    fen, pgn = args.get("fen"), args.get("pgn")
+    try:
+        from src.question_position import show_on_board
+        from src.sessions import session_for
+
+        session = session_for(kwargs)
+        if session is not None:
+            board = session.get_board(session.active_board_id)
+            if board is not None:
+                show = show_on_board(str(kwargs.get("student_message") or args.get("question") or ""), board)
+                fen, pgn = fen or board.fen, pgn or (board.pgn or None)
+    except Exception:  # noqa: BLE001 — without a session the old rule holds
+        show = None
+    result = lookup_opening(question=args.get("question") or "", fen=fen, pgn=pgn, show=show)
     return json.dumps(result, ensure_ascii=False)
 
 

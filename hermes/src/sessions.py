@@ -49,10 +49,14 @@ class Session(BaseModel):
     # or a puzzle) keeps off the examples of get_topic/get_lesson, while a puzzle or a position the
     # coach puts up on purpose goes on — «Есть задачка на мат в два?» asks for one (2026-10-09).
     _board_lock_strict: bool = PrivateAttr(default=False)
+    _board_lock_reason: Optional[str] = PrivateAttr(default=None)
 
-    def lock_board(self, fen: Optional[str], strict: bool = False) -> None:
+    def lock_board(self, fen: Optional[str], strict: bool = False, reason: str = "asked") -> None:
         self._board_lock = fen
         self._board_lock_strict = bool(fen) and strict
+        # "asked" — the student asks about the position in front of them; "owned" — it is their own
+        # position and they did not ask for another (src/question_position, 2026-10-20).
+        self._board_lock_reason = reason if fen else None
 
     @property
     def board_lock(self) -> Optional[str]:
@@ -61,6 +65,10 @@ class Session(BaseModel):
     @property
     def board_lock_strict(self) -> bool:
         return self._board_lock_strict
+
+    @property
+    def board_lock_reason(self) -> Optional[str]:
+        return getattr(self, "_board_lock_reason", None) if self._board_lock else None
 
     # ── boards ──────────────────────────────────────────────────────
     def ensure_board(self) -> Board:
@@ -142,6 +150,10 @@ class Session(BaseModel):
                 continue
             target = self.get_board(action.get("board_id")) or self.get_board(board_id) or self.ensure_board()
             if target.apply_action(action):
+                if action.get("type") in COACH_POSITION_ACTIONS:
+                    # The coach put this position up: the student may ask for another without losing
+                    # anything of their own (src/question_position.student_owns, 2026-10-20).
+                    target.mark_coach(str(action.get("type")))
                 self.save_board(target)
                 changed = target
         return changed
@@ -306,6 +318,20 @@ class SessionStore:
 session_store = SessionStore()
 
 
+# The position actions a tool or a pre-step puts up (the student's own moves come in through
+# set_board_state, never through these).
+COACH_POSITION_ACTIONS = frozenset({"set_fen", "load_pgn", "set_puzzle"})
+
+# The student's own position stays because they did not ask for another (src/question_position):
+# the example is analysed on a hidden board and told in words.
+HIDDEN_BOARD_NOTE = (
+    "The student's own position stays on the board (they did not ask to change it): the example was NOT put "
+    "on the board — it is on a hidden board, analysed there (see `example`: its FEN, its facts, the engine's "
+    "look). Explain the concept with that example in words — its pieces and squares from the FEN, its idea "
+    "from the facts — without calling it «the board» and without arrows; then offer to put it on the board: "
+    "a short «покажи» from the student will do it."
+)
+
 BOARD_KEPT_NOTE = (
     "The student's own position stays on the board this turn (they asked about it): nothing was put on the "
     "board. Do not describe the example or lesson position as the board, and do not solve it instead — answer "
@@ -328,6 +354,18 @@ def board_lock_for(kwargs: Optional[dict]) -> Optional[str]:
     """The locked position of the coach session a tool runs in (kwargs ``session_id``), else None."""
     session = _tool_session(kwargs)
     return getattr(session, "board_lock", None) if session is not None else None
+
+
+def board_lock_reason_for(kwargs: Optional[dict]) -> Optional[str]:
+    """Why the board is locked this turn: "asked" (the student asks about it) or "owned" (their own
+    position, nothing asked to replace it) — or None."""
+    session = _tool_session(kwargs)
+    return getattr(session, "board_lock_reason", None) if session is not None else None
+
+
+def session_for(kwargs: Optional[dict]):
+    """The coach session a tool runs in (kwargs ``session_id``), or None."""
+    return _tool_session(kwargs)
 
 
 def board_lock_strict_for(kwargs: Optional[dict]) -> bool:

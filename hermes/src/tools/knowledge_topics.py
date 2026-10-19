@@ -23,6 +23,7 @@ import chess
 
 from tools.registry import registry
 
+from src import config
 from src import knowledge_base as kb
 from src.identity import resolve_user_id
 
@@ -492,6 +493,64 @@ def _programme_book_topic(book: dict, show: bool) -> dict:
     return out
 
 
+def _example_look(fen: str) -> dict:
+    """The example on the hidden board: its verified facts and the engine's look (src/question_position,
+    2026-10-20) — so the coach explains the example from facts, whether or not it is shown."""
+    out: dict = {}
+    if not config.COACH_HIDDEN_BOARD:
+        return out
+    try:
+        board = chess.Board(fen)
+        from src.board_rules import rule_facts
+        from src.position_facts import static_facts
+
+        out["facts"] = (rule_facts(board) + static_facts(board))[:12]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from src.voice_engine_note import engine_note
+
+        note = engine_note(fen, movetime_ms=config.COACH_HIDDEN_BOARD_MOVETIME_MS)
+        if note and note.get("note"):
+            out["engine"] = note["note"]
+    except Exception:  # noqa: BLE001 — the engine is a bonus on top of the base's own note
+        pass
+    return out
+
+
+def _endgame_topic(theory: dict, show: bool) -> dict:
+    """A textbook endgame named by its material («ладья против слона»), as a topic: the verdict, the
+    method and one verified position — on the board when *show*, on the hidden board otherwise."""
+    from src.question_position import endgame_block
+
+    board = chess.Board(theory["fen"])
+    side = "White" if board.turn == chess.WHITE else "Black"
+    example = {"source": "endgame_theory", "title": theory["title"], "fen": theory["fen"], "key_move": None,
+               "arrows": [], "note": theory["method"], "side_to_move": side, **_example_look(theory["fen"])}
+    out = {
+        "source": "endgame_theory",
+        "slug": theory["key"],
+        "phase": "endgame",
+        "phase_title": _phase_title("endgame", "ru"),
+        "title": theory["title"],
+        "result": theory["result"],
+        "summary": endgame_block(theory, example.get("engine"), show),
+        "method": theory["method"],
+        "positions": [{"title": theory["title"], "fen": theory["fen"], "side_to_move": side.lower(), "moves": [],
+                       "plan": theory["method"], "best_move": None}],
+        "example": example,
+        "puzzle_themes": ["endgame"],
+    }
+    if show:
+        out["board_actions"] = [{"type": "set_fen", "fen": theory["fen"]}]
+        out["board_hint"] = ("The typical position is ALREADY on the student's board: explain the result and the "
+                             "method on it, in your own words; draw arrows for the key manoeuvre if it helps.")
+    else:
+        out["board_hint"] = ("The typical position is on a HIDDEN board, not the student's: explain the result and "
+                             "the method in words and offer to put the position on the board («покажи»).")
+    return out
+
+
 def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] = None,
               topics: Optional[dict] = None, with_lessons: bool = True, show: bool = True) -> dict:
     topics = topics if topics is not None else kb.load_topics()
@@ -499,6 +558,25 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         return {"error": "The knowledge base is empty on this server (hermes/content/topics)."}
     matches = kb.find_topics(topic, topics)
     book = _book_lesson(topic)
+    # A textbook endgame named by its material («ферзь против ладьи», «мат конём и слоном»): the base's
+    # own topic when it has one (the elementary mates, the opposition, Lucena, the wrong bishop), else
+    # the textbook verdict and a verified position (src/question_position.ENDGAMES, 2026-10-20).
+    theory = None
+    if config.COACH_HIDDEN_BOARD:
+        from src.question_position import endgame_theory
+
+        theory = endgame_theory(topic)
+    if theory and with_lessons:
+        # The site's own module or set titled as the student said («Мат ладьёй» — a set of mates) is what
+        # they mean, not the endgame theory.
+        site_hits, strength = _site_matches(topic)
+        if site_hits and strength in ("module", "lesson", "course"):
+            theory = None
+    if theory:
+        if theory.get("kb") in topics:
+            matches = [topics[theory["kb"]]]
+        else:
+            return _endgame_topic(theory, show)
     # The site's programme names its topics itself: a module or a set titled as
     # the student said beats a base topic found by one shared word, and an
     # ambiguous base match (2026-10-06 sweep of the programme).
@@ -577,6 +655,8 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         if example:
             side = "White" if chess.Board(example["fen"]).turn == chess.WHITE else "Black"
             out["example"] = {**example, "side_to_move": side}
+            if example.get("source") != "site_lesson":
+                out["example"].update(_example_look(example["fen"]))  # the hidden board's look at the example
             out["board_actions"] = _example_actions(example)
             if example.get("source") == "site_lesson":
                 # The customer's own programme: the lesson is the authority, and
@@ -594,6 +674,9 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
     if "board_hint" not in out:
         out["board_hint"] = ("No example position for this topic: explain it on the student's current board "
                              "or offer a puzzle with get_puzzle(theme=<puzzle_themes>) — never invent a position.")
+    if theory:
+        out["endgame_theory"] = {"title": theory["title"], "result": theory["result"], "method": theory["method"],
+                                 "typical_position": theory["fen"]}
     return out
 
 
@@ -653,14 +736,17 @@ def _handle_get_topic(args: dict, **kwargs) -> str:
         user_id = resolve_user_id(args, kwargs) or None
     except Exception:
         user_id = None
-    from src.sessions import BOARD_KEPT_NOTE, board_lock_for
+    from src.sessions import BOARD_KEPT_NOTE, HIDDEN_BOARD_NOTE, board_lock_for, board_lock_reason_for
 
     locked = board_lock_for(kwargs)
+    # The student's own position stays, nothing asked to replace it: the example is still chosen and looked
+    # at (on the hidden board), only not put up (src/question_position, 2026-10-20).
+    hidden = bool(locked) and board_lock_reason_for(kwargs) == "owned"
     result = get_topic(str(args.get("topic") or ""), locale=args.get("locale") or "ru",
-                       user_id=user_id, show=args.get("show") is not False and not locked)
+                       user_id=user_id, show=args.get("show") is not False and (not locked or hidden))
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
-        result["board_hint"] = BOARD_KEPT_NOTE
+        result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
     return json.dumps(result, ensure_ascii=False)
 
 

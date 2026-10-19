@@ -105,9 +105,15 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
     opening = named_opening(t)
     if opening:
         return {"kind": "opening", "name": opening}
-    keep, _strict = _board_lock_level(t, bool(fen), False, fen)
+    keep, _strict, _why = _board_lock_level(t, bool(fen), False, fen)
     if keep:
         return {"kind": "board"}
+    from src.question_position import endgame_theory
+
+    if endgame_theory(t):
+        # «ферзь против ладьи — это выигрыш?», «как поставить мат двумя слонами»: a textbook endgame named by
+        # its material — get_topic builds its position on the hidden board (2026-10-20).
+        return {"kind": "concept", "topic": t}
     if _CONCEPT.search(t) and len(t.split()) >= 2:
         return {"kind": "concept", "topic": t}
     return {"kind": "none"}

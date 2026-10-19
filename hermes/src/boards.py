@@ -67,12 +67,22 @@ class Board(BaseModel):
     def touch(self) -> None:
         self.updated_at = time.time()
 
+    def mark_coach(self, what: str) -> None:
+        """The position now on the board was put there by the coach (an example, an opening line, a
+        puzzle) — not the student's own to keep (src/question_position.student_owns, 2026-10-20)."""
+        self.source = {**(self.source or {}), "coach": what}
+
+    def _unmark_coach(self) -> None:
+        if self.source and "coach" in self.source:
+            self.source = {k: v for k, v in self.source.items() if k != "coach"} or None
+
     def set_fen(self, fen: str) -> None:
         chess.Board(fen)  # validates
         self.fen = fen
         self.pgn = ""
         self.ply = 0
         self.annotations = {}
+        self._unmark_coach()
         if self.kind == "puzzle":
             self.kind = "study"
             self.puzzle = None
@@ -84,6 +94,7 @@ class Board(BaseModel):
         self.ply = len(fens) - 1 if ply is None else max(0, min(ply, len(fens) - 1))
         self.fen = fens[self.ply]
         self.annotations = {}
+        self._unmark_coach()
         if self.kind == "puzzle":
             self.kind = "study"
             self.puzzle = None

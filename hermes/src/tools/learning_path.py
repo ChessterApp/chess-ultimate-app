@@ -790,18 +790,19 @@ def _handle_get_lesson(args: dict, **kwargs) -> str:
         user_id = resolve_user_id(args, kwargs)
     except Exception:
         user_id = None
-    from src.sessions import BOARD_KEPT_NOTE, board_lock_for
+    from src.sessions import BOARD_KEPT_NOTE, HIDDEN_BOARD_NOTE, board_lock_for, board_lock_reason_for
 
     locked = board_lock_for(kwargs)
+    hidden = bool(locked) and board_lock_reason_for(kwargs) == "owned"  # the student's own position stays (2026-10-20)
     result = get_lesson(
         lesson=str(args.get("lesson") or ""),
         user_id=user_id,
         locale=args.get("locale") or "ru",
-        show=args.get("show") is not False and not locked,
+        show=args.get("show") is not False and (not locked or hidden),
     )
     if locked and isinstance(result, dict):
         result.pop("board_actions", None)
-        result["board_hint"] = BOARD_KEPT_NOTE
+        result["board_hint"] = HIDDEN_BOARD_NOTE if hidden else BOARD_KEPT_NOTE
     return json.dumps(result, ensure_ascii=False)
 
 

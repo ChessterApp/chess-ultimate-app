@@ -451,7 +451,8 @@
       "incorrectMessage": "Try again! Think about what the position needs.",
       "hintTitle": "Hint",
       "hintMessage": "The highlighted square shows where to move."
-    }
+    },
+    "diagramLabel": "Lesson diagram"
   },
   "course": {
     "signInRequired": "Please sign in to access this course",

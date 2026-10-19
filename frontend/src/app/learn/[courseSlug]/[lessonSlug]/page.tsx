@@ -12,6 +12,8 @@ import type { TutorPuzzleContext } from '@/components/chess'
 import LoadingScreen from '@/components/LoadingScreen'
 import Link from 'next/link'
 import { ChevronDown, ChevronUp, MessageCircle } from 'lucide-react'
+import MiniBoard from '@/components/coach/cards/MiniBoard'
+import { parseTutorFrame, type TutorDiagram } from '@/lib/tutor-stream'
 import Breadcrumbs from '@/components/Breadcrumbs'
 import { XPGain } from '@/components/gamification/XPDisplay'
 import { CelebrationOverlay, QuickCelebration } from '@/components/gamification/CelebrationOverlay'
@@ -96,7 +98,12 @@ interface Lesson {
 interface Message {
   role: 'user' | 'assistant'
   content: string
+  // The lesson's diagram the tutor's answer is about (the `diagram` frame of the tutor stream, 2026-10-20).
+  diagram?: TutorDiagram
 }
+
+// The squares' colours of the mini-board (the coach's variables are scoped to the coach's pages).
+const BOARD_COLOURS = { '--coach-board-light': '#f0d9b5', '--coach-board-dark': '#b58863' } as React.CSSProperties
 
 export default function LessonPage() {
   const params = useParams()
@@ -242,22 +249,25 @@ export default function LessonPage() {
       let hadError = false
 
       const applyDelta = (line: string) => {
-        if (!line.startsWith('data: ')) return
-        try {
-          const data = JSON.parse(line.slice(6))
-          if (typeof data.delta === 'string') {
-            fullContent += data.delta
-            setMessages(prev =>
-              prev.map((m, i) =>
-                i === prev.length - 1 ? { ...m, content: fullContent } : m
-              )
+        const frame = parseTutorFrame(line)
+        if (!frame) return
+        if (typeof frame.delta === 'string') {
+          fullContent += frame.delta
+          setMessages(prev =>
+            prev.map((m, i) =>
+              i === prev.length - 1 ? { ...m, content: fullContent } : m
             )
-          }
-          if (data.error) {
-            hadError = true
-          }
-        } catch {
-          // Non-JSON data line, skip
+          )
+        }
+        if (frame.diagram) {
+          // The lesson's diagram the answer is about: drawn beside the answer (2026-10-20).
+          const diagram = frame.diagram
+          setMessages(prev =>
+            prev.map((m, i) => (i === prev.length - 1 ? { ...m, diagram } : m))
+          )
+        }
+        if (frame.error) {
+          hadError = true
         }
       }
 
@@ -593,7 +603,7 @@ export default function LessonPage() {
                 {messages.map((msg, idx) =>
                   // Hide the empty assistant placeholder used as the SSE
                   // streaming target — the "Thinking..." bubble covers that gap.
-                  msg.role === 'assistant' && !msg.content ? null : (
+                  msg.role === 'assistant' && !msg.content && !msg.diagram ? null : (
                     <div
                       key={idx}
                       className={`p-3 rounded-lg ${
@@ -605,12 +615,20 @@ export default function LessonPage() {
                       <div className="font-semibold text-sm mb-1">
                         {msg.role === 'user' ? t('lesson.you') : t('lesson.aiTutor')}
                       </div>
+                      {msg.diagram && (
+                        <div className="mb-2 flex items-start gap-3" style={BOARD_COLOURS} data-testid="tutor-diagram">
+                          <MiniBoard fen={msg.diagram.fen} size={144} orientation="white" label={t('lesson.diagramLabel')} />
+                          {msg.diagram.caption && (
+                            <p className="text-xs text-gray-600 dark:text-gray-300">{msg.diagram.caption}</p>
+                          )}
+                        </div>
+                      )}
                       <div className="text-sm">{msg.content}</div>
                     </div>
                   )
                 )}
 
-                {sendingMessage && !messages[messages.length - 1]?.content && (
+                {sendingMessage && !messages[messages.length - 1]?.content && !messages[messages.length - 1]?.diagram && (
                   <div className="bg-gray-100 dark:bg-gray-700 mr-8 p-3 rounded-lg">
                     <div className="font-semibold text-sm mb-1">{t('lesson.aiTutor')}</div>
                     <div className="text-sm">{t('lesson.thinking')}</div>

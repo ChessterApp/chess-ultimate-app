@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 19.10 (голос: новая партия поверх идущей читается как в тексте) — включает всё из версий 06.10 … 16.10-3
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 20.10 (параллельная доска для теории, диаграммы в чате урока) — включает всё из версий 06.10 … 19.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,30 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 20.10 (просьба Асана 16.10: «параллельная доска» для теории и доска диаграмм в чате урока; код `hermes/src/`,
+новый файл `hermes/src/question_position.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 16.10-3 или
+19.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 35, 36, 37):
+- **Теория считается на скрытой доске, своя позиция ученика не трогается.** Дебют по названию («расскажи про шотландскую»),
+  знаменитая партия, тема базы («что такое вилка») и окончание по материалу («ферзь против ладьи — выигрыш?», «мат конём и
+  слоном», «ладья и слон против ладьи»; таблица из 30 типовых окончаний с проверенными позициями, вердиктом и методом)
+  строятся на второй доске, которую ученик не видит, и считаются Stockfish и таблицами; модель отвечает по проверенным фактам.
+  На доску ученика позиция попадает только если доска ничья (начальная, пустая, последний пример ставил сам тренер) или ученик
+  просит («покажи», «поставь на доску»). Раньше дебют по названию заменял позицию ученика с первого хода, пример темы — при
+  каждом «что такое», а окончания по материалу не строились вовсе.
+- **Голос — то же**: `lookup_opening` и `get_topic` видят, чья позиция на доске; при скрытом разборе отдают факты движка и
+  совет предложить «покажи». «Ферзь против ладьи — это выигрыш?» голосом теперь идёт в `get_topic` (намерение `concept`).
+- **Чат урока на /learn показывает диаграмму урока.** Вопрос по теории урока («что такое связка», «покажи вторую диаграмму»)
+  отдаёт странице кадр `diagram` (FEN и подпись из учебника «Ступени») перед первым словом; сайт (main) рисует её в чате.
+  Вопрос о задаче на доске («какой здесь первый ход») — без диаграммы, как раньше.
+- Выключатель: `COACH_HIDDEN_BOARD=0` в `.env` возвращает прежнее поведение; `COACH_HIDDEN_BOARD_MOVETIME_MS` (400) — время
+  движка на скрытую позицию в инструментах.
+- Проверка 36 (окончание по материалу: вердикт, позиция, движок):
+  `curl -s -X POST localhost:8642/api/coach/tool/get_topic -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{"args":{"topic":"ферзь против ладьи"}}' | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; e=str(r.get('example',{}).get('engine',''))[:8]; print(r.get('source'), r.get('title'), r.get('result'), e, 'ОК' if r.get('source')=='endgame_theory' and r.get('result')=='win' and e=='[Engine]' else 'ПРОВЕРЬ')"`
+  → `endgame_theory Ферзь против ладьи win [Engine] ОК`.
+- Проверка 37 (своя позиция ученика остаётся, дебют считается на скрытой доске; по «покажи» — ставится):
+  `H='X-User-Id: deploy-check'; S=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}'); SID=$(echo "$S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); BID=$(echo "$S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["active_board_id"])'); curl -s -o /dev/null -X PATCH localhost:8642/api/coach/sessions/$SID/boards/$BID -H "$H" -H 'Content-Type: application/json' -d '{"fen":"r2q1rk1/pp2bppp/4bn2/3P4/8/2N2N2/PP2BPPP/R2Q1RK1 b - - 0 12"}'; curl -s -X POST localhost:8642/api/coach/tool/lookup_opening -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"question\":\"расскажи про жареную печень\"},\"session_id\":\"$SID\",\"utterance\":\"расскажи про жареную печень\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print('скрыто', r.get('hidden'), 'board_actions' in r, 'ОК' if r.get('hidden') and 'board_actions' not in r and str(r.get('hidden_board',{}).get('engine','')).startswith('[Engine]') else 'ПРОВЕРЬ')"; curl -s -X POST localhost:8642/api/coach/tool/lookup_opening -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"question\":\"покажи жареную печень\"},\"session_id\":\"$SID\",\"utterance\":\"покажи жареную печень\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print('показано', r.get('loaded'), [a['type'] for a in r.get('board_actions',[])], 'ОК' if r.get('loaded') and r.get('board_actions') else 'ПРОВЕРЬ')"`
+  → `скрыто True False ОК` и `показано True ['load_pgn'] ОК`.
 
 Новое в версии 19.10 (сверка голоса с текстом; код только `hermes/src/tools/game_play.py`; миграций, переменных и изменений
 бэкенда нет; если сервер уже на 16.10-3 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 35):

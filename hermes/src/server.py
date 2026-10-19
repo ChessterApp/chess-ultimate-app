@@ -855,6 +855,7 @@ _engine_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="engine-note
 
 _POSITION_ACTIONS = frozenset({"set_fen", "set_puzzle", "load_pgn", "clear_board"})
 # The board lock rule (_board_lock_level & co.) lives in src/board_lock.py: the voice tool calls use it too.
+from src.question_position import endgame_block, hidden_note_block  # noqa: E402
 from src.board_lock import (  # noqa: E402,F401 — the names tests and callers use
     _ABOUT_POSITION, _ABOUT_THIS_BOARD, _DEFAULT_BOARDS, _WANTS_NEW_BOARD, _WANTS_NEW_PUZZLE,
     _board_lock_for_turn, _board_lock_level,
@@ -1874,12 +1875,19 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # the turn before the model is called (src/opening_knowledge.py) — the engine
     # line below then describes the line's final position, not the old board.
     opening_plan = None
+    # The hidden board (src/question_position.py, 2026-10-20): a position the question is about — an
+    # opening line's end, a famous game, a textbook endgame — goes on the student's board only when the
+    # board is nobody's (the start position, the coach's last example) or they ask to see it; otherwise
+    # it is built and analysed on a second board they do not see, and their own position stays.
+    from src.question_position import show_on_board
+
+    show_board = show_on_board(body.message, active_board) or not config.COACH_HIDDEN_BOARD
     if config.COACH_OPENING_PRESTEP and not live_game and review_future is None:
         try:
             from src.opening_knowledge import plan_opening
 
             opening_plan = await asyncio.to_thread(
-                plan_opening, body.message, session.board_state, active_board.pgn
+                plan_opening, body.message, session.board_state, active_board.pgn, show_board,
             )
             if opening_plan and opening_plan.load:
                 session.apply_board_actions(
@@ -1897,12 +1905,45 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         try:
             from src.famous_games import famous_game
 
-            famous = famous_game(body.message)
-            if famous:
+            famous = famous_game(body.message, hidden=not show_board)
+            if famous and not famous.get("hidden"):
                 session.apply_board_actions([{"type": "load_pgn", "pgn": famous["pgn"]}], board_id=active_board.id)
         except Exception:  # noqa: BLE001 — the pre-step is best-effort
             logger.debug("famous game pre-step failed", exc_info=True)
             famous = None
+    # A textbook endgame named by its material («ферзь против ладьи — выигрыш?», «как поставить мат конём и
+    # слоном»): its verified position with the textbook verdict and method, looked at by the engine and the
+    # tablebase (src/question_position.endgame_theory). Not when the board already holds that material — then
+    # the question is about the student's own position.
+    endgame = None
+    if (config.COACH_HIDDEN_BOARD and not live_game and review_future is None and opening_plan is None
+            and famous is None):
+        try:
+            from src.question_position import board_material, endgame_theory
+
+            endgame = endgame_theory(body.message)
+            if endgame and board_material(session.board_state) == tuple(endgame["sides"]):
+                endgame = None
+            if endgame:
+                endgame["shown"] = show_board
+                if show_board:
+                    session.apply_board_actions([{"type": "set_fen", "fen": endgame["fen"]}], board_id=active_board.id)
+        except Exception:  # noqa: BLE001 — the pre-step is best-effort
+            logger.debug("endgame pre-step failed", exc_info=True)
+            endgame = None
+    # The position on the hidden board this turn, and what it is (for the engine block).
+    hidden_fen = hidden_what = None
+    if opening_plan is not None and opening_plan.hidden:
+        hidden_fen, hidden_what = opening_plan.final_fen, f"the final position of the {opening_plan.name} line"
+    elif endgame and not endgame["shown"]:
+        hidden_fen, hidden_what = endgame["fen"], f"a typical position of {endgame['title']}"
+    elif famous and famous.get("hidden"):
+        try:
+            from src.boards import _fens_from_pgn
+
+            hidden_fen, hidden_what = _fens_from_pgn(famous["pgn"])[-1], f"the final position of {famous['name']}"
+        except Exception:  # noqa: BLE001
+            hidden_fen = hidden_what = None
     # The puzzle on the board, with its solution, on every turn it stays there: «Не знаю, дай подсказку» got a
     # hint toward Qe2 for a puzzle solved by Qxf1+ — the solution was only in the turn that set it (prod,
     # 2026-10-13).
@@ -1927,9 +1968,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # only misleads — «Дай мне тактическую задачу» on the start position was answered with
     # «сыграй d4, на Nf6 — c4» about the puzzle just put up (stand, 2026-10-09).
     wants_puzzle = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
-    if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan) and session.board_state
+    note_fen = hidden_fen or session.board_state  # the hidden board's position when the question is about it
+    if (config.COACH_ENGINE_NOTE and (body.fen or opening_plan or endgame or hidden_fen) and note_fen
             and not live_game and review_future is None and not wants_puzzle):
-        engine_future = _engine_pool.submit(engine_note, session.board_state, movetime_ms=note_movetime)
+        engine_future = _engine_pool.submit(engine_note, note_fen, movetime_ms=note_movetime)
     # A live game: the evaluation and the opponent's threat (no best move) — the
     # coach hints, but it must know what hangs and what is coming (2026-10-05).
     live_future = None
@@ -1948,8 +1990,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # replacing it (src/sessions.board_lock_for). Production, 2026-10-06: a
     # lesson's puzzle was replaced by a topic example and the coach solved the
     # example — «Qg4+» on a board where the queen could not reach g4.
-    lock_fen, lock_strict = _board_lock_level(body.message, bool(body.fen), live_game, session.board_state)
-    session.lock_board(lock_fen, strict=lock_strict)
+    if config.COACH_HIDDEN_BOARD:
+        # The student's own position stays unless they ask for another (src/question_position): a topic's
+        # example is then analysed on the hidden board and told in words (HIDDEN_BOARD_NOTE).
+        from src.board_lock import board_lock_with_owner
+
+        lock_fen, lock_strict, lock_reason = board_lock_with_owner(body.message, bool(body.fen), live_game, session)
+    else:
+        lock_fen, lock_strict, lock_reason = _board_lock_level(body.message, bool(body.fen), live_game, session.board_state)
+    session.lock_board(lock_fen, strict=lock_strict, reason=lock_reason)
     turn_board_locked = bool(session.board_lock)  # the lock is cleared when the agent thread ends
     named_moves: list = []
     hypo_future = None
@@ -1958,8 +2007,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # the board: the idea is played there, not on the final position
     # (src/past_move.py; production, 2026-10-06).
     past = None
-    idea_fen = session.board_state
-    if session.board_state and active_board.pgn and not live_game:
+    idea_fen = hidden_fen or session.board_state
+    if session.board_state and active_board.pgn and not live_game and not hidden_fen:
         try:
             from src.past_move import past_position
 
@@ -2125,7 +2174,11 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                 bestofn_message = augmented_message
                 if opening_plan:
                     bestofn_message = f"{bestofn_message}\n\n{opening_plan.block}"
-                if note:
+                if endgame:
+                    bestofn_message = f"{bestofn_message}\n\n{endgame_block(endgame, note['note'] if note else None, endgame['shown'])}"
+                elif note and hidden_fen:
+                    bestofn_message = f"{bestofn_message}\n\n{hidden_note_block(note['note'], hidden_what)}"
+                elif note:
                     bestofn_message = (f"{bestofn_message}\n\n"
                                        f"{engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen'))}")
                 bestofn_message = f"{bestofn_message}\n\n{lang_note}"
@@ -2171,7 +2224,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             except (ValueError, TypeError):
                 student_color = None
         check_ctx = CheckContext.from_fens(
-            [session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
+            [hidden_fen, session.board_state, body.fen] + [b.fen for b in session.boards] + ([past["fen"]] if past else [])
             + [q["after_fen"] for q in named_moves if q.get("after_fen")],  # the positions the student's idea leads to
             [p for p in (active_board.pgn, review_pgn, opening_plan.pgn if opening_plan else None,
                          famous["pgn"] if famous else None) if p]
@@ -2369,17 +2422,24 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{puzzle_note}"
                 if rules_note:
                     message = f"{message}\n\n{rules_note}"
-                if note:
+                if endgame:
+                    # The textbook endgame with the engine's look at its position (shown or hidden).
+                    old_board_blocks.append(endgame_block(endgame, note['note'] if note else None, endgame['shown']))
+                    message = f"{message}\n\n{old_board_blocks[-1]}"
+                elif note and hidden_fen:
+                    old_board_blocks.append(hidden_note_block(note['note'], hidden_what))
+                    message = f"{message}\n\n{old_board_blocks[-1]}"
+                elif note:
                     old_board_blocks.append(engine_note_block(note['note'], opening=bool(opening_plan and not opening_plan.relative), mate_in=note.get('mate_in'), fen=note.get('fen')))
                     message = f"{message}\n\n{old_board_blocks[-1]}"
-                elif engine_future is not None and session.board_state:
+                elif engine_future is not None and note_fen:
                     # The engine was late (load, a slow lookup): the board's own facts — what hangs,
                     # what is pinned, castling, the result on the board — still go in, computed
                     # without it; a turn with no facts at all was answered from the model's head.
                     try:
                         from src.prompt_builder import board_facts_block
 
-                        facts_only = board_facts_block(session.board_state)
+                        facts_only = board_facts_block(note_fen)
                         if facts_only:
                             old_board_blocks.append(facts_only)
                             message = f"{message}\n\n{facts_only}"
@@ -2583,9 +2643,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if review_pgn and review_future is not None:
             # The game goes on the board at once, before any word of the review.
             yield _board_frame([{"type": "load_pgn", "pgn": review_pgn}])
-        if famous:
+        if famous and not famous.get("hidden"):
             # The famous game the student named goes on the board before the first word.
             yield _sse({"board_actions": [{"type": "load_pgn", "pgn": famous["pgn"], "board_id": active_board.id}]})
+        if endgame and endgame["shown"]:
+            # The textbook endgame's position, put up by the pre-step: on the page before the first word.
+            yield _sse({"board_actions": [{"type": "set_fen", "fen": endgame["fen"], "board_id": active_board.id}]})
         if game_step and game_step.get("view"):
             # The game started / the move played by the pre-step: on the page before the first word.
             yield _sse({"board_actions": [{"type": GAME_ACTION, "game": game_step["view"]}]})
@@ -3201,6 +3264,7 @@ def _build_lesson_system_prompt(
     locale: str,
     puzzle_context: "Optional[PuzzleContext]" = None,
     book: Optional[dict] = None,
+    diagram: Optional[dict] = None,
 ) -> str:
     """Tutor persona for the lesson chat: a friendly, encouraging chess tutor
     grounded in this specific lesson, answering in the student's language. When
@@ -3226,6 +3290,11 @@ def _build_lesson_system_prompt(
                        "positions than the student's puzzle; a question about the puzzle is answered from the "
                        "puzzle's position, never from a diagram:\n") + "\n".join(
                 f"- {d['fen']}" + (f" — {d['context']}" if d.get("context") else "") for d in book["diagrams"][:4])
+        if diagram:
+            # The page shows this diagram beside the answer (the `diagram` frame, src/lesson_texts.diagram_for_question).
+            prompt += (f"\n\nDiagram {diagram['n']} of {diagram['of']} ({diagram['fen']}) is SHOWN to the student next "
+                       "to your answer: refer to it as «на диаграмме», read its pieces and squares from that FEN, and "
+                       "explain the lesson's idea on it.")
     prompt += (
         "\n\nName only moves, squares, attacks and defences that are true on the positions given here "
         "(the lesson's puzzles, the student's current board, the diagrams); never invent a position or "
@@ -3386,8 +3455,18 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
         book = lesson_text(lesson_id=body.lesson_id, course_slug=body.course_slug, lesson_title=body.lesson_title)
     except Exception:  # noqa: BLE001 — the book is a bonus on top of the site's lesson
         logger.debug("lesson text lookup failed", exc_info=True)
+    # The lesson's diagram the question is about goes to the page as a `diagram` frame, before the first
+    # word, and the model is told it is shown (the team's lesson page draws it in the chat; 2026-10-20).
+    diagram = None
+    if book and book.get("diagrams"):
+        try:
+            from src.lesson_texts import diagram_for_question
+
+            diagram = diagram_for_question(body.message, book["diagrams"])
+        except Exception:  # noqa: BLE001 — a picture is a bonus
+            diagram = None
     system_prompt = _build_lesson_system_prompt(
-        body.lesson_title, body.lesson_content, body.locale, body.puzzle_context, book
+        body.lesson_title, body.lesson_content, body.locale, body.puzzle_context, book, diagram
     )
     logger.info("Lesson tutor routed model: %s for message: %s", model, body.message[:80])
 
@@ -3484,6 +3563,8 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
 
         future = loop.run_in_executor(None, _run)
 
+        if diagram:
+            yield _sse({"diagram": diagram})
         error_exc = None
         try:
             while True:

@@ -134,6 +134,59 @@ def diagrams(rec: dict) -> list[dict]:
     return out
 
 
+# ── the diagram of the lesson a question in the lesson chat is about (2026-10-20) ──
+
+_ORDINALS = (("перв", 1), ("втор", 2), ("трет", 3), ("четв", 4), ("first", 1), ("second", 2), ("third", 3),
+             ("fourth", 4), ("бірінші", 1), ("екінші", 2), ("үшінші", 3), ("төртінші", 4))
+_ORDINAL_RE = re.compile(r"(?<![\w-])(?:(перв|втор|трет|четв|first|second|third|fourth|бірінші|екінші|үшінші|төртінші)\w*"
+                         r"|№\s*([1-4])|([1-4])(?:-?[яюйе]|st|nd|rd|th)?)(?![\w-])", re.IGNORECASE)
+# The question is about the lesson's theory — an example, a picture, «что такое», «объясни», «почему»…
+_WANTS_DIAGRAM = re.compile(
+    r"(?<![\w-])(?:диаграмм\w*|пример\w*|покажи\w*|показать|что\s+так\w+|объясни\w*|расскажи\w*|почему|зачем|"
+    r"как\b|какой|какая|какие|схем\w*|картинк\w*|рисун\w*|diagram\w*|example\w*|picture|show|explain|why|how|"
+    r"what(?:'s|\s+is)|сурет\w*|мысал\w*|түсіндір\w*|неге|қалай)(?![\w-])", re.IGNORECASE)
+_WORD = re.compile(r"[а-яёa-z]{4,}", re.IGNORECASE)
+
+
+def diagram_for_question(message: str, diagrams: list[dict]) -> Optional[dict]:
+    """The lesson's explanatory diagram a question in the lesson chat is about, to show beside the answer:
+    {"n", "of", "fen", "caption"} — or None when the question is about the puzzle in front of the student
+    (a move, «здесь», «первый ход»), or about nothing a picture would explain («привет»).
+
+    «покажи вторую диаграмму» → that one; «объясни связку» → the diagram whose phrase shares the words;
+    «что такое …» with no shared words → the first.
+    """
+    diagrams = [d for d in (diagrams or []) if d.get("fen")]
+    if not diagrams or not message:
+        return None
+    text = message.replace("ё", "е")
+    from src.board_lock import _ABOUT_THIS_BOARD
+
+    if _ABOUT_THIS_BOARD.search(text):
+        return None
+    chosen = None
+    m = _ORDINAL_RE.search(text)
+    if m and re.search(r"диаграмм|пример|схем|картинк|позици|diagram|example|picture|сурет|мысал", text, re.IGNORECASE):
+        n = next((v for k, v in _ORDINALS if (m.group(1) or "").lower().startswith(k)), None) or int(m.group(2) or m.group(3) or 0)
+        if 1 <= n <= len(diagrams):
+            chosen = n - 1
+    if chosen is None:
+        if not _WANTS_DIAGRAM.search(text):
+            return None
+        words = {w.lower()[:5] for w in _WORD.findall(text)}
+        best, score = 0, 0
+        for i, d in enumerate(diagrams):
+            hits = sum(1 for w in {w.lower()[:5] for w in _WORD.findall(d.get("context") or "")} if w in words)
+            if hits > score:
+                best, score = i, hits
+        chosen = best
+    d = diagrams[chosen]
+    caption = (d.get("context") or "").strip()
+    if len(caption) > 140:
+        caption = caption[:140].rsplit(" ", 1)[0] + "…"
+    return {"n": chosen + 1, "of": len(diagrams), "fen": d["fen"], "caption": caption or f"Диаграмма {chosen + 1}"}
+
+
 # ── the programme's own topics (steps 4–7 and the titled lessons of 1–3), found by the student's words ──
 
 _CONTINUATION = re.compile(r"\s*\((?:продолжение|окончание)\)\s*$", re.IGNORECASE)

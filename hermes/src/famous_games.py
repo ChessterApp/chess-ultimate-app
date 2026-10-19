@@ -106,21 +106,34 @@ def facts(g: dict) -> str:
             f"Pieces Black lost: {', '.join(lost[chess.BLACK]) or 'none'}. The game has {len(moves)} half-moves; {end}")
 
 
-def famous_game(message: str) -> Optional[dict]:
-    """{"key", "name", "pgn", "block"} for a famous game the message names, or None."""
+def famous_game(message: str, hidden: bool = False) -> Optional[dict]:
+    """{"key", "name", "pgn", "block", "hidden"} for a famous game the message names, or None.
+
+    *hidden*: the student's own position stays on the board (src/question_position, 2026-10-20) — the
+    game is told from its moves and offered, not loaded.
+    """
     text = (message or "").lower().replace("ё", "е")
     for g in GAMES:
         # From the start of a word: «опер…» found the Opera game inside «сОПЕРНика» and put it on the
         # board for «у соперника остался только король — кто победил?» (prod, 2026-10-13).
         if re.search(r"(?<![\w-])(?:" + g["match"].replace("ё", "е") + ")", text):
             pgn = _pgn(g)
+            where = ("on a HIDDEN board — NOT on the student's (their own position stays in front of them)" if hidden
+                     else "ALREADY on the board")
+            tail = (
+                "The game is NOT on the student's board: do not call it «the board», draw no arrows; tell it from "
+                "these moves and facts, and offer to put it on the board — a short «покажи» will do it. Do not "
+                "search for it."
+                if hidden else
+                "The game is on the student's board: do not load it again, do not search for it."
+            )
             block = (
-                f"## The famous game the student asked about — {g['name']}, verified score, ALREADY on the board\n"
+                f"## The famous game the student asked about — {g['name']}, verified score, {where}\n"
                 f"{g['white']} – {g['black']}, {g['event']}, {g['date'][:4]}. Moves: {g['moves']} {g['result']}\n"
                 f"{facts(g)}\n"
-                "The game is on the student's board: do not load it again, do not search for it. Tell it from these "
+                f"{tail} Tell it from these "
                 "moves and facts only — every capture, sacrifice and the final blow are above; never add a move, a "
                 "capture or a piece that is not in them."
             )
-            return {"key": g["key"], "name": g["name"], "pgn": pgn, "block": block}
+            return {"key": g["key"], "name": g["name"], "pgn": pgn, "block": block, "hidden": hidden}
     return None

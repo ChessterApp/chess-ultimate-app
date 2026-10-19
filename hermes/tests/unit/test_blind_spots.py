@@ -345,7 +345,7 @@ def test_default_board_is_not_locked(fen, live, locked):
 def test_board_lock_level(message, strict):
     from src.server import _board_lock_level
 
-    fen, is_strict = _board_lock_level(message, True, False, PASSED)
+    fen, is_strict, _why = _board_lock_level(message, True, False, PASSED)
     assert fen == PASSED and is_strict is strict
 
 

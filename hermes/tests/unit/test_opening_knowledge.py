@@ -129,17 +129,35 @@ class TestTurn:
         user = {"X-User-Id": "opening-user"}
         sid = self.client.post("/api/coach/sessions", headers=user).json()["id"]
 
+        # The student's own position (the quiet Italian) stays: the line is analysed on the hidden board
+        # (src/question_position, 2026-10-20) — no board frame, the block says so.
         resp = self.client.post("/api/coach/chat", headers=user, json={
             "message": "как играть против жаренной печени", "session_id": sid, "fen": PIANISSIMO,
         })
         assert resp.status_code == 200
         frames = [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
+        assert not any(a["type"] == "load_pgn" for f in frames for a in f.get("board_actions", []))
+        assert FRIED_LIVER in seen["message"] and "5...Na5" in seen["message"] and "HIDDEN board" in seen["message"]
+        session = session_store.get(sid, "opening-user")
+        assert session.board_state == PIANISSIMO
+
+        # «покажи» — the line goes on the board, before the first word.
+        resp = self.client.post("/api/coach/chat", headers=user, json={
+            "message": "покажи жареную печень", "session_id": sid, "fen": PIANISSIMO,
+        })
+        frames = [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
         first_board = next(f for f in frames if "board_actions" in f)["board_actions"][0]
         assert first_board["type"] == "load_pgn" and first_board["pgn"] == FRIED_LIVER_PGN
-        assert FRIED_LIVER in seen["message"] and "5...Na5" in seen["message"]
-
+        assert "ALREADY put this line" in seen["message"]
         session = session_store.get(sid, "opening-user")
         assert session.board_state.startswith("r1bqkb1r/ppp2Npp/2n5/3np3/2B5")
+
+        # The coach's own line on the board is nobody's to keep: the next opening replaces it.
+        resp = self.client.post("/api/coach/chat", headers=user, json={
+            "message": "а что такое сицилианская защита?", "session_id": sid, "fen": session.board_state,
+        })
+        frames = [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
+        assert any(a["type"] == "load_pgn" for f in frames for a in f.get("board_actions", []))
 
 
 @pytest.mark.unit

@@ -60,6 +60,7 @@ class OpeningPlan:
     block: str                    # the turn-context block for the model
     branches: list = field(default_factory=list)
     relative: bool = False        # the question is about the board, the opening is a reference
+    hidden: bool = False          # the student's own position stays; the line is analysed on a hidden board
 
 
 def _move_label(ply: int, san: str) -> str:
@@ -176,7 +177,7 @@ def _compare_with_line(line_pgn: str, board_pgn: Optional[str], board_fen: Optio
 
 
 def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, facts: list[str],
-                message: str = "", relative: Optional[str] = None) -> str:
+                message: str = "", relative: Optional[str] = None, hidden: bool = False) -> str:
     ru = RU_NAMED.get(name) or RU_FAMILY.get(name.split(":")[0].strip())
     title = f"{eco} {name}" + (f" — по-русски: {ru}" if ru else "")
     lines = [
@@ -187,6 +188,11 @@ def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, fac
     if loaded:
         lines.append("The server has ALREADY put this line on the student's board (the final position is "
                      "shown; the student can step through the moves). Do not load or set it again.")
+    elif hidden:
+        lines.append("The student's OWN position stays on the board (they did not ask to change it): the line "
+                     "was played on a HIDDEN board and analysed there — do not load it, do not call it «the "
+                     "board», draw no arrows for it. Explain the opening in words from this block, and end by "
+                     "offering to put the line on the board: a short «покажи» from the student will do it.")
     elif relative:
         lines.append("The student asks about the position ON THE BOARD in relation to this opening (how to "
                      "get there from it, whether it is the same, what differs). The board was LEFT AS IT IS — "
@@ -246,8 +252,13 @@ def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, fac
 
 
 def plan_opening(message: str, board_fen: Optional[str] = None,
-                 board_pgn: Optional[str] = None) -> Optional[OpeningPlan]:
-    """The opening *message* names, ready for the turn — or None."""
+                 board_pgn: Optional[str] = None, show: Optional[bool] = None) -> Optional[OpeningPlan]:
+    """The opening *message* names, ready for the turn — or None.
+
+    *show* False: the board is the student's own and they did not ask to see the line — it is not
+    loaded; the plan says ``hidden`` and the caller analyses ``final_fen`` on a hidden board
+    (src/question_position, 2026-10-20). None keeps the old rule (load unless the board is in the opening).
+    """
     if not message or _SEARCH_RE.search(message):
         return None
     name = named_opening(message)
@@ -267,11 +278,13 @@ def plan_opening(message: str, board_fen: Optional[str] = None,
     if not in_opening and asks_about_the_board(message) and not _is_start(board_fen):
         relative = _compare_with_line(pgn, board_pgn, board_fen)
     load = not in_opening and relative is None
+    hidden = load and show is False
+    load = load and not hidden
     branches = book.branches(full_name, pgn)
-    block = build_block(full_name, eco, pgn, branches, load, _facts(final), message, relative)
+    block = build_block(full_name, eco, pgn, branches, load, _facts(final), message, relative, hidden)
     return OpeningPlan(
         name=full_name, eco=eco, pgn=pgn, final_fen=final.fen(), load=load,
-        block=block, branches=branches, relative=relative is not None,
+        block=block, branches=branches, relative=relative is not None, hidden=hidden,
     )
 
 

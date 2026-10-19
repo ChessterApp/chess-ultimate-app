@@ -53,20 +53,44 @@ _ABOUT_THIS_BOARD = re.compile(
     re.IGNORECASE)
 
 
-def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> tuple[Optional[str], bool]:
-    """(the position to keep on the board this turn or None, whether the lock is strict)."""
+def _board_lock_level(message: str, has_fen: bool, live_game: bool, fen: Optional[str],
+                      owned: bool = False) -> tuple[Optional[str], bool, str]:
+    """(the position to keep on the board this turn or None, whether the lock is strict, why).
+
+    *owned*: the position is the student's own (src/question_position.student_owns). Then it stays
+    unless they ask to see something else («покажи», «поставь») — a topic's example or an opening line
+    is analysed on a hidden board instead (2026-10-20); a new puzzle still goes up (a plain lock).
+    """
     if not fen:
-        return None, False
+        return None, False, ""
     if live_game:
-        return fen, True
+        return fen, True, "asked"
     if not has_fen or fen.split()[0] in _DEFAULT_BOARDS:
-        return None, False
+        return None, False, ""
     text = re.sub(r"«[^»]*»|\"[^\"]*\"|“[^”]*”", " ", message or "")  # «Пример 5» is a lesson's name
     if _ABOUT_POSITION.search(text) and not (_WANTS_NEW_BOARD.search(text) or _WANTS_NEW_PUZZLE.search(text)):
-        return fen, bool(_ABOUT_THIS_BOARD.search(text))
-    return None, False
+        return fen, bool(_ABOUT_THIS_BOARD.search(text)), "asked"
+    if owned and not _WANTS_NEW_PUZZLE.search(text):
+        from src.question_position import wants_shown
+
+        if not wants_shown(text):
+            return fen, False, "owned"
+    return None, False, ""
 
 
 def _board_lock_for_turn(message: str, has_fen: bool, live_game: bool, fen: Optional[str]) -> Optional[str]:
     """The position to keep on the board this turn, or None."""
     return _board_lock_level(message, has_fen, live_game, fen)[0]
+
+
+def board_lock_with_owner(message: str, has_fen: bool, live_game: bool, session) -> tuple[Optional[str], bool, str]:
+    """``_board_lock_level`` for a coach session: its active board says whether the position is the student's own."""
+    from src.question_position import student_owns
+
+    board = None
+    try:
+        board = session.get_board(session.active_board_id) if session is not None else None
+    except Exception:  # noqa: BLE001
+        board = None
+    fen = getattr(session, "board_state", None) if session is not None else None
+    return _board_lock_level(message, has_fen, live_game, fen, owned=student_owns(board))
