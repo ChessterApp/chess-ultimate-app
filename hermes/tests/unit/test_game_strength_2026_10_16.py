@@ -115,3 +115,14 @@ def test_the_text_coach_restarts_too(monkeypatch):
     assert step and step["view"]["engine_elo"] == 2500 and "new game has started" in step["block"]
     step = _game_prestep(session, live_game_board(session), "сделай полегче")
     assert step and step["view"]["engine_elo"] == 2200 and "strength was changed" in step["block"]
+
+
+def test_a_game_asked_for_in_words_while_one_is_on_restarts_through_game_action_too(monkeypatch):
+    """The voice path: intent says restart, the hook calls game_action with the words — the same reading."""
+    from src.tools.game_play import _handle_game_action, live_game_board
+
+    session = _session(monkeypatch)
+    out = json.loads(_handle_game_action({"said": "Давай сыграем, играй как гроссмейстер"}, session_id=session.id))
+    assert out["ok"] and out["action"] == "restart" and out["done"]
+    assert live_game_board(session).game_state["engine_elo"] == 2500
+    assert [b.game_state["status"] for b in session.boards if b.kind == "game"] == ["finished", "playing"]

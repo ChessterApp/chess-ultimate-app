@@ -1513,7 +1513,35 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(onTranscript.mock.calls.map(([t]) => `${t.role}:${t.final}`)).toContain('model:true');
   });
 
-  describe('what the words ask for is read by Hermes (POST /api/coach/voice/intent)', () => {
+  describe('the notes carry the programme (parity with the text coach, 2026-10-19)', () => {
+  it('a puzzle from the programme is said to be its next set, with the address', async () => {
+    const { puzzleNote } = await import('../useGeminiLive');
+    const note = puzzleNote({ source: 'site_lesson', puzzles: [{ fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', solution: ['Ra8#'], lesson: 'Связка — Набор 2', course: 'Тактика', url: 'https://chesster.io/learn/x', n: 1, of: 12, next_in_programme: true }] });
+    expect(note).toContain('«Связка — Набор 2»');
+    expect(note).toContain('programme continues');
+    expect(note).toContain('https://chesster.io/learn/x');
+    expect(note).toContain('Ra8#');
+  });
+
+  it("an opening the programme teaches carries the lesson's words", async () => {
+    const { openingNote } = await import('../useGeminiLive');
+    const note = openingNote({ found: true, name: 'Scotch Game', note: 'Line 1.e4 e5 2.Nf3 Nc6 3.d4.', programme_lesson: { step: 5, lesson: '61', title: 'Шотландская партия', text: 'Шотландская партия относится к открытым дебютам…', parts: [{ title: 'Шотландская Партия (Продолжение)' }] } });
+    expect(note).toContain('[Opening] Line 1.e4');
+    expect(note).toContain('step 5');
+    expect(note).toContain('относится к открытым дебютам');
+    expect(note).toContain('(Продолжение)');
+  });
+
+  it('a topic of the programme with a game on the board is told from the lesson', async () => {
+    const { topicNote } = await import('../useGeminiLive');
+    const note = topicNote({ source: 'programme_book', title: 'Русская Партия', programme: { step: 7 }, explanation: 'Русская партия …', game_pgn: '1. e4 e5 2. Nf3 Nf6' });
+    expect(note).toContain('step 7');
+    expect(note).toContain('writes out is now on the student');
+    expect(note).toContain('never from memory');
+  });
+});
+
+describe('what the words ask for is read by Hermes (POST /api/coach/voice/intent)', () => {
     async function connectAsking(intent: Record<string, unknown>, opts: Record<string, unknown> = {}) {
       vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
         if (url === '/api/coach/live-token') {

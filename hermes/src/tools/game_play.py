@@ -331,8 +331,14 @@ def _handle_game_action(args: dict, **kwargs) -> str:
         return json.dumps({"error": "The game already did what the student asked this turn: tell them."})
     action = args.get("action")
     if args.get("said"):
-        # The site's call with the student's words (voice): only words that ask for it.
+        # The site's call with the student's words (voice): only words that ask for it. Words that ask for
+        # a game while one is on («давай сыграем, играй как гроссмейстер») are the game's «New game», as
+        # the text coach and src/intent.py read them — not a level change the same words also name.
+        from src.game_intent import game_request
+
         action = game_command(str(args["said"]))
+        if game_request(str(args["said"])) and live_game_board(session) is not None:
+            action = "restart"
         if action is None:
             return json.dumps({"error": "The student's words do not ask the game for anything."})
     if action not in ("resign", "takeback", "draw", "restart", "level"):

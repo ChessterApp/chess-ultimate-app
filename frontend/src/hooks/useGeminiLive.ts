@@ -233,13 +233,31 @@ export const PUZZLE_THEME_RE = /(?:задач[уи]|упражнени[ея]|puz
 export function puzzleNote(result: {
   theme?: string | null;
   rating?: number | null;
-  puzzles?: { fen?: string; solution?: string[] | string; rating?: number; themes?: string[] }[];
+  /** `site_lesson`: a task of the student's own programme (the text coach says so too). */
+  source?: string;
+  puzzles?: {
+    fen?: string; solution?: string[] | string; rating?: number; themes?: string[];
+    lesson?: string; course?: string; url?: string; n?: number; of?: number; next_in_programme?: boolean;
+  }[];
   on_board?: string;
 }): string | null {
   const first = result.puzzles?.[0];
   if (!first?.fen) return null;
   const side = first.fen.split(' ')[1] === 'b' ? 'Black' : 'White';
   const solution = Array.isArray(first.solution) ? first.solution.join(' ') : first.solution ?? '';
+  if (result.source === 'site_lesson' && first.lesson) {
+    const where = `the site's set «${first.lesson}»${first.course ? ` (course «${first.course}»)` : ''}`;
+    const which = first.n && first.of ? `task ${first.n} of ${first.of} of ` : '';
+    const why = first.next_in_programme
+      ? ' It is where their programme continues (they asked for a puzzle, not a theme): say so; a random one only if they ask.'
+      : ' It is the student\'s own programme: say so.';
+    return (
+      `[Puzzle] On the student's board is ${which}${where}: FEN ${first.fen}, ${side} to move.${why} ` +
+      `Solution (private, never read it out unless the student gives up): ${solution}. ` +
+      `Say whose move it is and what to look for, let the student try, judge their answer against the solution, ` +
+      `and give the set's address at the end${first.url ? ` (${first.url})` : ''}. Do not call get_puzzle again for this request.`
+    ).replace(/\s+/g, ' ').trim();
+  }
   return (
     `[Puzzle] A verified puzzle is now on the student's board: FEN ${first.fen}, ${side} to move` +
     `${result.theme ? `, theme ${result.theme}` : ''}${first.rating ? `, rating ${first.rating}` : ''}. ` +
@@ -273,9 +291,17 @@ export function openingNote(result: {
   loaded?: boolean;
   about_the_board?: boolean;
   note?: string;
+  /** The programme's own lesson on the opening («Ступени», steps 5 and 7) — the text coach gets it too. */
+  programme_lesson?: { step?: number | string; lesson?: string; title?: string; text?: string; parts?: { title?: string }[] };
 }): string | null {
   if (!result.found || !result.note) return null;
-  return `[Opening] ${result.note}`.replace(/\s+/g, ' ').trim();
+  const book = result.programme_lesson;
+  const lesson = book?.text
+    ? ` The student's own programme («Ступени», step ${book.step ?? ''}, lesson «${book.title ?? ''}») teaches this opening — ` +
+      `explain it in the lesson's words and say it is from their programme: ${book.text.slice(0, 1200)}` +
+      (book.parts?.length ? ` (its parts: ${book.parts.map((p) => p.title).filter(Boolean).join('; ')}).` : '')
+    : '';
+  return `[Opening] ${result.note}${lesson}`.replace(/\s+/g, ' ').trim();
 }
 
 /** The note the model gets with a knowledge-base example the site put on the board. */
