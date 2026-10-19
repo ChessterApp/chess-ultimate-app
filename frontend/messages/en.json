@@ -2967,6 +2967,38 @@
       "backRankMate": "Back Rank Mate",
       "discoveredAttack": "Discovered Attack",
       "hangingPiece": "Hanging Piece"
+    },
+    "mode": {
+      "label": "Game mode",
+      "team": {
+        "title": "Team vs Team",
+        "desc": "Two teams, two boards, one rope."
+      },
+      "bot": {
+        "title": "You vs Chesster",
+        "desc": "Race the Chesster zebra on your own."
+      }
+    },
+    "bot": {
+      "chooseRank": "Pick Chesster's rank — tap to play",
+      "rating": "Rating {rating}",
+      "speed": "Speed",
+      "you": "You",
+      "thinking": "thinking…",
+      "timeLeft": "Time left",
+      "timeUp": "Time's up!",
+      "youWin": "You beat Chesster ({rank})!",
+      "botWins": "Chesster wins!",
+      "tryAgain": "Try again — or try a lower rank.",
+      "draw": "It's a draw — the rope didn't budge!",
+      "levels": {
+        "baby": "Baby Zebra",
+        "junior": "Junior Zebra",
+        "club": "Club Zebra",
+        "expert": "Expert Zebra",
+        "master": "Master Zebra",
+        "grandmaster": "Grandmaster Zebra"
+      }
     }
   },
   "family": {

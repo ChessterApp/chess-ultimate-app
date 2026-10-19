@@ -8,6 +8,7 @@ import ru from '../../messages/ru.json';
 import kz from '../../messages/kz.json';
 
 import { TUG_LEVELS, TUG_THEMES } from '../lib/tug-of-war/prefetch';
+import { BOT_LEVELS } from '../lib/tug-of-war/bot';
 
 type Json = string | Json[] | { [key: string]: Json };
 
@@ -53,6 +54,26 @@ describe('tugOfWar namespace i18n', () => {
       for (const theme of TUG_THEMES) {
         expect(flat[`themes.${theme.tag}`], `${locale}.tugOfWar.themes.${theme.tag} missing`).toBeTruthy();
       }
+    }
+  });
+
+  it('names every zebra rank and both game modes in every locale', () => {
+    for (const [locale, messages] of Object.entries(locales)) {
+      const flat = flatten(messages.tugOfWar ?? {});
+      for (const level of BOT_LEVELS) {
+        expect(flat[`bot.levels.${level.id}`], `${locale}.tugOfWar.bot.levels.${level.id} missing`).toBeTruthy();
+      }
+      for (const mode of ['team', 'bot']) {
+        expect(flat[`mode.${mode}.title`], `${locale}.tugOfWar.mode.${mode}.title missing`).toBeTruthy();
+      }
+    }
+  });
+
+  it('keeps the bot-mode placeholders across locales', () => {
+    for (const [locale, messages] of Object.entries(locales)) {
+      const flat = flatten(messages.tugOfWar ?? {});
+      expect(flat['bot.youWin'], `${locale}.tugOfWar.bot.youWin must interpolate {rank}`).toContain('{rank}');
+      expect(flat['bot.rating'], `${locale}.tugOfWar.bot.rating must interpolate {rating}`).toContain('{rating}');
     }
   });
 

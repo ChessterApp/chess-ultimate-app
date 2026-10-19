@@ -5,6 +5,8 @@
  * puzzles) and refills both queues, excluding everything already dealt, before
  * either runs low — so nothing repeats. The bundled TUG_PUZZLES set is the
  * offline fallback when the backend is unreachable. No auth.
+ * Modes: Team vs Team (two humans) or You vs Chesster (side B is a zebra bot;
+ * both sides draw from the puzzle band matching the bot's rating).
  */
 
 'use client';
@@ -17,6 +19,7 @@ import { gameReducer, initialState } from '@/lib/tug-of-war/gameReducer';
 import { prefetchPuzzles, refillQueues, type TugLevel } from '@/lib/tug-of-war/prefetch';
 import { needsRefill } from '@/lib/tug-of-war/queues';
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
+import { botLevel, type BotLevelId } from '@/lib/tug-of-war/bot';
 
 export default function TugOfWarPage() {
   const t = useTranslations('tugOfWar');
@@ -28,6 +31,8 @@ export default function TugOfWarPage() {
   const [loading, setLoading] = useState(false);
   const [offline, setOffline] = useState(false);
   const [themesUnavailable, setThemesUnavailable] = useState(false);
+  // Zebra rank of the current (or last) You vs Chesster match; null = teams.
+  const [bot, setBot] = useState<BotLevelId | null>(null);
   // Remember the last setup so the "retry live fetch" button can re-run it.
   const lastConfig = useRef<StartConfig | null>(null);
   // Live-pack selection of the current match; null when playing offline.
@@ -39,7 +44,7 @@ export default function TugOfWarPage() {
   const exhausted = useRef(false);
 
   const start = async (config: StartConfig) => {
-    const { teamA, teamB, level, themes } = config;
+    const { teamA, teamB, level, themes, bot: botId = null } = config;
     lastConfig.current = config;
     matchId.current += 1;
     live.current = null;
@@ -54,8 +59,12 @@ export default function TugOfWarPage() {
       if (!usedFallback) live.current = { level, themes };
       setOffline(usedFallback);
       setThemesUnavailable(themesMissing);
+      setBot(botId);
       dispatch({ type: 'START_MATCH', teamAName: teamA, teamBName: teamB, queueA, queueB });
-      track(ANALYTICS_EVENTS.TUG_OF_WAR_STARTED, { level });
+      track(
+        ANALYTICS_EVENTS.TUG_OF_WAR_STARTED,
+        botId ? { level, mode: 'bot', botLevel: botId } : { level },
+      );
     } finally {
       setLoading(false);
     }
@@ -93,9 +102,10 @@ export default function TugOfWarPage() {
           initialTeamB={state.teamBName}
           onStart={start}
           loading={loading}
+          initialBot={bot}
         />
       ) : (
-        <MatchScreen state={state} dispatch={dispatch} />
+        <MatchScreen state={state} dispatch={dispatch} bot={bot ? botLevel(bot) : undefined} />
       )}
 
       {offline && state.phase === 'match' && (

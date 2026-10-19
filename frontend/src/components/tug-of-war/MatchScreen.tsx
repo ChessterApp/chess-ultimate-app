@@ -8,6 +8,10 @@
  * available height, the rope scene stays ~26vh, and the container clips rather
  * than scrolls. Audio and confetti are fired here as side-effects of game
  * events; the reducer stays pure.
+ *
+ * In You vs Chesster mode (`bot` set) side B is played by useTugBot: the human
+ * gets the large board, the zebra a small live board with a thinking pulse,
+ * and a 5-minute cap ends the match on rope advantage.
  */
 
 'use client';
@@ -17,18 +21,25 @@ import { useTranslations } from 'next-intl';
 import { motion, AnimatePresence } from 'framer-motion';
 import TugBoard from './TugBoard';
 import RopeScene from './RopeScene';
-import { currentPuzzle, MAX_WRONG_ATTEMPTS } from '@/lib/tug-of-war/gameReducer';
+import BotBoard from './BotBoard';
+import { currentPuzzle, MAX_WRONG_ATTEMPTS, ROPE_LIMIT } from '@/lib/tug-of-war/gameReducer';
 import type { GameState, GameAction } from '@/lib/tug-of-war/gameReducer';
 import type { TeamSide } from '@/lib/tug-of-war/types';
 import { TugSound, loadMuted, saveMuted } from '@/lib/tug-of-war/sound';
 import { fireWinConfetti, resetConfetti } from '@/lib/tug-of-war/confetti';
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
+import { BOT_MATCH_MS, type BotLevel } from '@/lib/tug-of-war/bot';
+import { useTugBot, type BotView } from '@/lib/tug-of-war/useTugBot';
+
+const ZEBRA_SRC = '/static/images/chesster-logo-v3.png';
 
 type Feedback = 'idle' | 'correct' | 'wrong';
 
 interface MatchScreenProps {
   state: GameState;
   dispatch: (action: GameAction) => void;
+  /** Set in You vs Chesster mode: the zebra rank playing side B. */
+  bot?: BotLevel;
 }
 
 function AttemptDots({ used }: { used: number }) {
@@ -90,7 +101,7 @@ const flashAnim = {
   ],
 };
 
-export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
+export default function MatchScreen({ state, dispatch, bot }: MatchScreenProps) {
   const t = useTranslations('tugOfWar');
   const [feedbackA, setFeedbackA] = useState<Feedback>('idle');
   const [feedbackB, setFeedbackB] = useState<Feedback>('idle');
@@ -146,15 +157,23 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
   useEffect(() => {
     if (over && !prevOver.current) {
       // Side only — team names are typed by kids and never leave the device.
-      track(ANALYTICS_EVENTS.TUG_OF_WAR_FINISHED, { winner_side: state.winner });
-      soundRef.current?.win();
-      if (state.winner) fireWinConfetti(state.winner).catch(() => {});
+      track(
+        ANALYTICS_EVENTS.TUG_OF_WAR_FINISHED,
+        bot
+          ? { winner_side: state.winner, mode: 'bot', botLevel: bot.id }
+          : { winner_side: state.winner },
+      );
+      // Against Chesster only the human's win is celebrated.
+      if (state.winner && (!bot || state.winner === 'A')) {
+        soundRef.current?.win();
+        fireWinConfetti(state.winner).catch(() => {});
+      }
     }
     if (!over && prevOver.current) {
       resetConfetti().catch(() => {});
     }
     prevOver.current = over;
-  }, [over, state.winner]);
+  }, [over, state.winner, bot]);
 
   useEffect(() => {
     return () => {
@@ -195,6 +214,28 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
   const handlersA = makeHandlers('A', setFeedbackA);
   const handlersB = makeHandlers('B', setFeedbackB);
 
+  const botView = useTugBot({
+    level: bot ?? null,
+    puzzle: bot ? puzzleB : null,
+    round: state.boardB.index,
+    active: !!bot && !over,
+    ...handlersB,
+  });
+
+  // Bot-mode match clock: counts only while the tab is visible; at the cap the
+  // reducer ends the match on rope advantage.
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!bot || over) return;
+    const id = setInterval(() => {
+      if (!document.hidden) setElapsed((e) => e + 1000);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [bot, over]);
+  useEffect(() => {
+    if (bot && !over && elapsed >= BOT_MATCH_MS) dispatch({ type: 'TIME_UP' });
+  }, [bot, over, elapsed, dispatch]);
+
   const winnerName = state.winner === 'A' ? state.teamAName : state.teamBName;
 
   return (
@@ -207,9 +248,14 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
           <div className="text-2xl font-black leading-none tabular-nums">
             {state.rope > 0 ? `+${state.rope}` : state.rope}
           </div>
+          {bot && <MatchClock remainingMs={Math.max(0, BOT_MATCH_MS - elapsed)} />}
           <MuteButton muted={muted} onToggle={toggleMute} />
         </div>
-        <TeamHeader name={state.teamBName} score={state.boardB.solved} accent="orange" align="right" />
+        {bot ? (
+          <BotHeader bot={bot} name={state.teamBName} score={state.boardB.solved} />
+        ) : (
+          <TeamHeader name={state.teamBName} score={state.boardB.solved} accent="orange" align="right" />
+        )}
       </div>
 
       {/* Rope zone */}
@@ -218,28 +264,54 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
       </div>
 
       {/* Boards */}
-      <div className="flex min-h-0 flex-1 items-stretch justify-center gap-[2vw]">
-        <BoardPanel
-          feedback={feedbackA}
-          used={state.boardA.wrongAttempts}
-          accent="blue"
-          skip={skipToast.A}
-        >
-          {puzzleA && (
-            <TugBoard puzzle={puzzleA} accent="blue" disabled={over} {...handlersA} />
-          )}
-        </BoardPanel>
-        <BoardPanel
-          feedback={feedbackB}
-          used={state.boardB.wrongAttempts}
-          accent="orange"
-          skip={skipToast.B}
-        >
-          {puzzleB && (
-            <TugBoard puzzle={puzzleB} accent="orange" disabled={over} {...handlersB} />
-          )}
-        </BoardPanel>
-      </div>
+      {bot ? (
+        // Mobile: thin bot strip under the rope, human board fills the rest.
+        // Desktop / smartboard: large human board, small bot column on the right.
+        <div className="flex min-h-0 flex-1 flex-col gap-[1.2vh] md:flex-row md:items-stretch md:justify-center md:gap-[2vw]">
+          <BoardPanel
+            feedback={feedbackA}
+            used={state.boardA.wrongAttempts}
+            accent="blue"
+            skip={skipToast.A}
+          >
+            {puzzleA && (
+              <TugBoard puzzle={puzzleA} accent="blue" disabled={over} {...handlersA} />
+            )}
+          </BoardPanel>
+          <BotPanel
+            bot={bot}
+            name={state.teamBName}
+            view={botView}
+            puzzleFen={puzzleB?.fen ?? botView.fen}
+            feedback={feedbackB}
+            used={state.boardB.wrongAttempts}
+            skip={skipToast.B}
+          />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 items-stretch justify-center gap-[2vw]">
+          <BoardPanel
+            feedback={feedbackA}
+            used={state.boardA.wrongAttempts}
+            accent="blue"
+            skip={skipToast.A}
+          >
+            {puzzleA && (
+              <TugBoard puzzle={puzzleA} accent="blue" disabled={over} {...handlersA} />
+            )}
+          </BoardPanel>
+          <BoardPanel
+            feedback={feedbackB}
+            used={state.boardB.wrongAttempts}
+            accent="orange"
+            skip={skipToast.B}
+          >
+            {puzzleB && (
+              <TugBoard puzzle={puzzleB} accent="orange" disabled={over} {...handlersB} />
+            )}
+          </BoardPanel>
+        </div>
+      )}
 
       {/* Win overlay */}
       <AnimatePresence>
@@ -250,16 +322,32 @@ export default function MatchScreen({ state, dispatch }: MatchScreenProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
+            {bot && Math.abs(state.rope) < ROPE_LIMIT && (
+              <div className="rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold uppercase tracking-widest text-white/80">
+                {t('bot.timeUp')}
+              </div>
+            )}
             <motion.h2
-              className={`text-center text-5xl font-black tracking-tight drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)] sm:text-6xl ${
-                state.winner === 'A' ? 'text-blue-400' : 'text-red-400'
+              className={`px-4 text-center text-5xl font-black tracking-tight drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)] sm:text-6xl ${
+                state.winner === 'A' ? 'text-blue-400' : state.winner === 'B' ? 'text-red-400' : 'text-white'
               }`}
               initial={{ scale: 0.6, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               transition={{ type: 'spring', stiffness: 200, damping: 12 }}
             >
-              {t('wins', { team: winnerName })}
+              {!bot
+                ? t('wins', { team: winnerName })
+                : state.winner === 'A'
+                  ? t('bot.youWin', { rank: state.teamBName })
+                  : state.winner === 'B'
+                    ? t('bot.botWins')
+                    : t('bot.draw')}
             </motion.h2>
+            {bot && state.winner === 'B' && (
+              <p className="px-4 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
+                {t('bot.tryAgain')}
+              </p>
+            )}
             <button
               onClick={() => dispatch({ type: 'REMATCH' })}
               className="pointer-events-auto rounded-xl bg-white px-8 py-4 text-xl font-black text-slate-900 shadow-lg transition hover:brightness-95 active:scale-95"
@@ -311,7 +399,7 @@ function BoardPanel({
     <div className="relative flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-[0.8vh]">
       <div className="flex min-h-0 w-full flex-1 items-center justify-center">
         <motion.div
-          className="aspect-square h-full max-h-full max-w-full rounded-xl"
+          className="aspect-square h-full min-w-0 max-h-full max-w-full rounded-xl"
           animate={
             feedback === 'wrong' ? shakeAnim : feedback === 'correct' ? flashAnim : {}
           }
@@ -327,6 +415,114 @@ function BoardPanel({
             className={`absolute -top-1 rounded-full px-4 py-1.5 text-sm font-bold shadow-lg ${
               accent === 'blue' ? 'bg-blue-500' : 'bg-orange-500'
             }`}
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+          >
+            {t('skipped')}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function MatchClock({ remainingMs }: { remainingMs: number }) {
+  const t = useTranslations('tugOfWar');
+  const total = Math.ceil(remainingMs / 1000);
+  const mm = Math.floor(total / 60);
+  const ss = String(total % 60).padStart(2, '0');
+  return (
+    <div
+      aria-label={t('bot.timeLeft')}
+      title={t('bot.timeLeft')}
+      className={`text-sm font-bold leading-none tabular-nums ${total <= 30 ? 'text-red-400' : 'text-white/70'}`}
+    >
+      {mm}:{ss}
+    </div>
+  );
+}
+
+function BotHeader({ bot, name, score }: { bot: BotLevel; name: string; score: number }) {
+  return (
+    <div className="flex items-center gap-3 text-right">
+      <div>
+        <div
+          className="inline-block rounded-full px-2.5 py-0.5 text-xs font-black uppercase tracking-wide text-slate-950 sm:text-sm"
+          style={{ backgroundColor: bot.color }}
+          data-testid="tug-bot-rank"
+        >
+          {name}
+        </div>
+        <div className="mt-1 text-3xl font-black leading-none tabular-nums sm:text-4xl">{score}</div>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={ZEBRA_SRC}
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        className="hidden h-12 w-12 rounded-full bg-white p-0.5 sm:block"
+        style={{ boxShadow: `0 0 0 3px ${bot.color}` }}
+      />
+    </div>
+  );
+}
+
+function BotPanel({
+  bot,
+  name,
+  view,
+  puzzleFen,
+  feedback,
+  used,
+  skip,
+}: {
+  bot: BotLevel;
+  name: string;
+  view: BotView;
+  puzzleFen: string;
+  feedback: Feedback;
+  used: number;
+  skip: boolean;
+}) {
+  const t = useTranslations('tugOfWar');
+  return (
+    <div className="relative order-first flex shrink-0 items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 md:order-none md:w-[20vw] md:max-w-[360px] md:flex-col md:justify-center md:gap-[1.2vh] md:p-4">
+      <div className="flex items-center gap-2 md:flex-col">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={ZEBRA_SRC}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className={`h-10 w-10 rounded-full bg-white p-0.5 md:h-16 md:w-16 ${view.thinking ? 'animate-pulse' : ''}`}
+          style={{ boxShadow: `0 0 0 3px ${bot.color}` }}
+        />
+        <div className="flex flex-col md:items-center">
+          <span className="text-sm font-bold text-white/90 md:hidden">{name}</span>
+          <span
+            aria-live="polite"
+            className={`text-xs font-semibold text-white/60 transition-opacity ${view.thinking ? 'opacity-100' : 'opacity-0'}`}
+          >
+            {t('bot.thinking')}
+          </span>
+        </div>
+      </div>
+      <motion.div
+        className="ml-auto w-[18vw] max-w-[96px] rounded-lg md:ml-0 md:w-full md:max-w-none"
+        animate={feedback === 'wrong' ? shakeAnim : feedback === 'correct' ? flashAnim : {}}
+        transition={{ duration: feedback === 'wrong' ? 0.45 : 0.6 }}
+      >
+        {view.fen && <BotBoard fen={view.fen} lastMove={view.lastMove} puzzleFen={puzzleFen} />}
+      </motion.div>
+      <div className="hidden md:block">
+        <AttemptDots used={used} />
+      </div>
+      <AnimatePresence>
+        {skip && (
+          <motion.div
+            className="absolute -top-1 left-1/2 -translate-x-1/2 rounded-full bg-orange-500 px-4 py-1.5 text-sm font-bold shadow-lg"
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

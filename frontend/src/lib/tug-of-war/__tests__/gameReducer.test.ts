@@ -201,3 +201,27 @@ describe('splitQueues', () => {
     expect(queueB.some((p) => aIds.has(p.id))).toBe(false);
   });
 });
+
+describe('TIME_UP (bot-mode match cap)', () => {
+  it('awards the side the rope favours', () => {
+    expect(gameReducer(solveN(started(), 'A', 2), { type: 'TIME_UP' })).toMatchObject({
+      phase: 'over',
+      winner: 'A',
+    });
+    expect(gameReducer(solveN(started(), 'B', 1), { type: 'TIME_UP' })).toMatchObject({
+      phase: 'over',
+      winner: 'B',
+    });
+  });
+
+  it('is a draw with the rope dead centre', () => {
+    const s = gameReducer(started(), { type: 'TIME_UP' });
+    expect(s.phase).toBe('over');
+    expect(s.winner).toBeNull();
+  });
+
+  it('is ignored once the match is over', () => {
+    const won = solveN(started(), 'A', ROPE_LIMIT);
+    expect(gameReducer(won, { type: 'TIME_UP' })).toBe(won);
+  });
+});

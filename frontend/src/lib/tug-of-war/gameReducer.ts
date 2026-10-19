@@ -50,6 +50,7 @@ export type GameAction =
   | { type: 'SOLVE'; team: TeamSide }
   | { type: 'WRONG'; team: TeamSide }
   | { type: 'APPEND_PUZZLES'; queueA: TugPuzzle[]; queueB: TugPuzzle[] }
+  | { type: 'TIME_UP' }
   | { type: 'REMATCH' };
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -148,6 +149,13 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
         boardA: { ...state.boardA, puzzles: [...state.boardA.puzzles, ...action.queueA] },
         boardB: { ...state.boardB, puzzles: [...state.boardB.puzzles, ...action.queueB] },
       };
+    }
+
+    case 'TIME_UP': {
+      // Bot-mode match cap: the side the rope favours wins; dead centre draws.
+      if (state.phase !== 'match') return state;
+      const winner: TeamSide | null = state.rope > 0 ? 'A' : state.rope < 0 ? 'B' : null;
+      return { ...state, phase: 'over', winner };
     }
 
     case 'REMATCH': {
