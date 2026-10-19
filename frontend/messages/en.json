@@ -2999,7 +2999,11 @@
         "master": "Master Zebra",
         "grandmaster": "Grandmaster Zebra"
       },
-      "fixed": "Fixed level"
+      "fixed": "Fixed level",
+      "zebraThinking": "Zebra is thinking…",
+      "zebraMissed": "Zebra missed!",
+      "whiteToMove": "White to move",
+      "blackToMove": "Black to move"
     },
     "adaptive": {
       "title": "Adaptive — Find my level",

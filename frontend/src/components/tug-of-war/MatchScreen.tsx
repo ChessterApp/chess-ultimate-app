@@ -9,35 +9,62 @@
  * than scrolls. Audio and confetti are fired here as side-effects of game
  * events; the reducer stays pure.
  *
- * In You vs Chesster mode (`bot` set) side B is played by useTugBot: the human
- * gets the large board, the zebra a small live board with a thinking pulse,
- * and a 5-minute cap ends the match on rope advantage. In Adaptive mode
+ * In You vs Chesster mode (`bot` set) side B is played by useTugBot and a
+ * 5-minute cap ends the match on rope advantage. At md+ the bot match renders
+ * as ArenaMatch (scoreboard rope band + face-off boards); on mobile the human
+ * gets the full board and the zebra a thin strip with a thinking pulse. In Adaptive mode
  * (`adaptive` set) the zebra's rank moves during the match — a small level meter
  * next to the badge shows it — and the end screen reports the player's level.
  */
 
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useTranslations } from 'next-intl';
-import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import TugBoard from './TugBoard';
 import RopeScene from './RopeScene';
 import BotBoard from './BotBoard';
-import { currentPuzzle, MAX_WRONG_ATTEMPTS, ROPE_LIMIT } from '@/lib/tug-of-war/gameReducer';
+import ArenaMatch from './ArenaMatch';
+import {
+  AttemptDots,
+  LevelMeter,
+  MatchClock,
+  MatchResult,
+  MuteButton,
+  ZEBRA_SRC,
+  flashAnim,
+  shakeAnim,
+  type Feedback,
+} from './matchParts';
+import { currentPuzzle } from '@/lib/tug-of-war/gameReducer';
 import type { GameState, GameAction } from '@/lib/tug-of-war/gameReducer';
 import type { TeamSide } from '@/lib/tug-of-war/types';
 import { TugSound, loadMuted, saveMuted } from '@/lib/tug-of-war/sound';
 import { fireWinConfetti, resetConfetti } from '@/lib/tug-of-war/confetti';
 import { track, ANALYTICS_EVENTS } from '@/lib/analytics/events';
-import { BOT_LEVELS, BOT_MATCH_MS, type BotLevel } from '@/lib/tug-of-war/bot';
+import { BOT_MATCH_MS, type BotLevel } from '@/lib/tug-of-war/bot';
 import { useTugBot, type BotView } from '@/lib/tug-of-war/useTugBot';
-import { rankNumber, type AdaptiveState, type SavedAdaptive } from '@/lib/tug-of-war/adaptive';
 import type { AdaptiveView } from '@/lib/tug-of-war/useAdaptiveBot';
 
-const ZEBRA_SRC = '/static/images/chesster-logo-v3.png';
+/** Tailwind `md` — the Arena layout's breakpoint. */
+const MD_QUERY = '(min-width: 768px)';
 
-type Feedback = 'idle' | 'correct' | 'wrong';
+function subscribeMd(onChange: () => void) {
+  if (typeof window.matchMedia !== 'function') return () => {};
+  const mql = window.matchMedia(MD_QUERY);
+  mql.addEventListener('change', onChange);
+  return () => mql.removeEventListener('change', onChange);
+}
+
+/** md+ viewport; defaults to desktop where matchMedia is unavailable. */
+function useIsMdUp() {
+  return useSyncExternalStore(
+    subscribeMd,
+    () => (typeof window.matchMedia === 'function' ? window.matchMedia(MD_QUERY).matches : true),
+    () => true,
+  );
+}
 
 interface MatchScreenProps {
   state: GameState;
@@ -52,65 +79,6 @@ interface MatchScreenProps {
   onTryFixed?: () => void;
 }
 
-function AttemptDots({ used }: { used: number }) {
-  const t = useTranslations('tugOfWar');
-  return (
-    <div
-      className="flex items-center gap-1"
-      aria-label={t('wrongAria', { used, max: MAX_WRONG_ATTEMPTS })}
-    >
-      {Array.from({ length: MAX_WRONG_ATTEMPTS }).map((_, i) => (
-        <span
-          key={i}
-          className={`h-[1.4vh] w-[1.4vh] max-h-2.5 max-w-2.5 rounded-full ${i < used ? 'bg-red-500' : 'bg-white/25'}`}
-        />
-      ))}
-    </div>
-  );
-}
-
-function MuteButton({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
-  const t = useTranslations('tugOfWar');
-  const label = muted ? t('muteOff') : t('muteOn');
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={muted}
-      aria-label={label}
-      title={label}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:bg-white/10 active:scale-95"
-    >
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M4 9v6h4l5 4V5L8 9H4z"
-          fill="currentColor"
-        />
-        {muted ? (
-          <path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-        ) : (
-          <path
-            d="M16 8.5a4 4 0 010 7M18.5 6a7 7 0 010 12"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            fill="none"
-          />
-        )}
-      </svg>
-    </button>
-  );
-}
-
-const shakeAnim = { x: [0, -10, 10, -7, 7, -3, 0] };
-const flashAnim = {
-  boxShadow: [
-    '0 0 0px 0px rgba(34,197,94,0)',
-    '0 0 32px 6px rgba(34,197,94,0.75)',
-    '0 0 0px 0px rgba(34,197,94,0)',
-  ],
-};
-
 export default function MatchScreen({
   state,
   dispatch,
@@ -124,6 +92,7 @@ export default function MatchScreen({
   const [feedbackB, setFeedbackB] = useState<Feedback>('idle');
   const [skipToast, setSkipToast] = useState<{ A: boolean; B: boolean }>({ A: false, B: false });
   const [muted, setMuted] = useState(false);
+  const isMdUp = useIsMdUp();
 
   const over = state.phase === 'over';
   const puzzleA = currentPuzzle(state.boardA);
@@ -271,9 +240,32 @@ export default function MatchScreen({
     if (bot && !over && elapsed >= BOT_MATCH_MS) dispatch({ type: 'TIME_UP' });
   }, [bot, over, elapsed, dispatch]);
 
-  const winnerName = state.winner === 'A' ? state.teamAName : state.teamBName;
   // The adaptive zebra's name follows its current rank.
   const botName = adaptive && bot ? t(`bot.levels.${bot.id}`) : state.teamBName;
+  const remainingMs = Math.max(0, BOT_MATCH_MS - elapsed);
+
+  if (bot && isMdUp) {
+    return (
+      <ArenaMatch
+        state={state}
+        bot={bot}
+        botName={botName}
+        botView={botView}
+        adaptive={adaptive}
+        puzzleA={puzzleA}
+        puzzleB={puzzleB}
+        feedbackA={feedbackA}
+        feedbackB={feedbackB}
+        skipToast={skipToast}
+        handlersA={handlersA}
+        remainingMs={remainingMs}
+        muted={muted}
+        onToggleMute={toggleMute}
+        onRematch={onRematch}
+        onTryFixed={onTryFixed}
+      />
+    );
+  }
 
   return (
     <div className="relative flex h-screen w-full flex-col gap-[1.2vh] overflow-hidden px-[2vw] py-[1.5vh] text-white">
@@ -285,7 +277,7 @@ export default function MatchScreen({
           <div className="text-2xl font-black leading-none tabular-nums">
             {state.rope > 0 ? `+${state.rope}` : state.rope}
           </div>
-          {bot && <MatchClock remainingMs={Math.max(0, BOT_MATCH_MS - elapsed)} />}
+          {bot && <MatchClock remainingMs={remainingMs} />}
           <MuteButton muted={muted} onToggle={toggleMute} />
         </div>
         {bot ? (
@@ -364,49 +356,14 @@ export default function MatchScreen({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
-            {bot && Math.abs(state.rope) < ROPE_LIMIT && (
-              <div className="rounded-full bg-slate-900/80 px-4 py-1 text-sm font-bold uppercase tracking-widest text-white/80">
-                {t('bot.timeUp')}
-              </div>
-            )}
-            <motion.h2
-              className={`px-4 text-center text-5xl font-black tracking-tight drop-shadow-[0_2px_14px_rgba(0,0,0,0.85)] sm:text-6xl ${
-                state.winner === 'A' ? 'text-blue-400' : state.winner === 'B' ? 'text-red-400' : 'text-white'
-              }`}
-              initial={{ scale: 0.6, y: 20 }}
-              animate={{ scale: 1, y: 0 }}
-              transition={{ type: 'spring', stiffness: 200, damping: 12 }}
-            >
-              {!bot
-                ? t('wins', { team: winnerName })
-                : state.winner === 'A'
-                  ? t('bot.youWin', { rank: botName })
-                  : state.winner === 'B'
-                    ? t('bot.botWins')
-                    : t('bot.draw')}
-            </motion.h2>
-            {bot && state.winner === 'B' && (
-              <p className="px-4 text-center text-xl font-semibold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.85)]">
-                {t('bot.tryAgain')}
-              </p>
-            )}
-            {result && <AdaptiveSummary result={result} />}
-            <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-3">
-              <button
-                onClick={onRematch}
-                className="rounded-xl bg-white px-8 py-4 text-xl font-black text-slate-900 shadow-lg transition hover:brightness-95 active:scale-95"
-              >
-                {t('rematch')}
-              </button>
-              {adaptive && onTryFixed && (
-                <button
-                  onClick={onTryFixed}
-                  className="rounded-xl border border-white/30 bg-slate-900/80 px-6 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-slate-800 active:scale-95"
-                >
-                  {t('adaptive.tryFixed')}
-                </button>
-              )}
-            </div>
+            <MatchResult
+              state={state}
+              isBot={!!bot}
+              botName={botName}
+              result={result}
+              onRematch={onRematch}
+              onTryFixed={adaptive ? onTryFixed : undefined}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -476,22 +433,6 @@ function BoardPanel({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-function MatchClock({ remainingMs }: { remainingMs: number }) {
-  const t = useTranslations('tugOfWar');
-  const total = Math.ceil(remainingMs / 1000);
-  const mm = Math.floor(total / 60);
-  const ss = String(total % 60).padStart(2, '0');
-  return (
-    <div
-      aria-label={t('bot.timeLeft')}
-      title={t('bot.timeLeft')}
-      className={`text-sm font-bold leading-none tabular-nums ${total <= 30 ? 'text-red-400' : 'text-white/70'}`}
-    >
-      {mm}:{ss}
     </div>
   );
 }
@@ -599,64 +540,3 @@ function BotPanel({
   );
 }
 
-/** Adaptive mode: "Lv 4 ↑" plus six rank pips; the number slides in on a change. */
-function LevelMeter({ rating, trend }: { rating: number; trend: AdaptiveState['trend'] }) {
-  const t = useTranslations('tugOfWar');
-  const reduce = useReducedMotion();
-  const lv = rankNumber(rating);
-  const color = BOT_LEVELS[lv - 1].color;
-  const offset = reduce || !trend ? 0 : trend === 'up' ? 8 : -8;
-  return (
-    <div
-      data-testid="tug-level-meter"
-      aria-label={t('adaptive.meterAria', { level: lv, max: BOT_LEVELS.length })}
-      className="mb-1 flex items-center gap-1.5 text-[0.7rem] font-bold uppercase tracking-wider text-white/60"
-    >
-      <motion.span
-        key={lv}
-        className="tabular-nums text-white/90"
-        initial={{ opacity: reduce ? 1 : 0, y: offset }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: reduce ? 0 : 0.35 }}
-      >
-        {t('adaptive.level', { level: lv })}
-        {trend && (
-          <span aria-hidden="true" className={trend === 'up' ? 'ml-0.5 text-emerald-300' : 'ml-0.5 text-red-300'}>
-            {trend === 'up' ? '↑' : '↓'}
-          </span>
-        )}
-      </motion.span>
-      <span className="flex gap-0.5" aria-hidden="true">
-        {BOT_LEVELS.map((l, i) => (
-          <span
-            key={l.id}
-            className="h-1.5 w-2.5 rounded-full transition-colors duration-300 motion-reduce:transition-none"
-            style={{ backgroundColor: i < lv ? color : 'rgba(255,255,255,0.15)' }}
-          />
-        ))}
-      </span>
-    </div>
-  );
-}
-
-/** Adaptive end screen: the player's level, speed and the best zebra rank beaten. */
-function AdaptiveSummary({ result }: { result: SavedAdaptive }) {
-  const t = useTranslations('tugOfWar');
-  const parts = [t('adaptive.result.level', { rating: result.estimate })];
-  if (result.avgSeconds !== null) {
-    parts.push(t('adaptive.result.speed', { seconds: Math.round(result.avgSeconds) }));
-  }
-  parts.push(
-    t('adaptive.result.peak', {
-      rank: result.peakBotLevel ? t(`bot.levels.${result.peakBotLevel}`) : t('adaptive.result.noPeak'),
-    }),
-  );
-  return (
-    <p
-      data-testid="tug-adaptive-summary"
-      className="mx-4 rounded-2xl bg-slate-900/85 px-5 py-3 text-center text-base font-semibold text-white shadow-lg sm:text-lg"
-    >
-      {parts.join(' · ')}
-    </p>
-  );
-}
