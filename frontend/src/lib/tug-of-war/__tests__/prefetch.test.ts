@@ -12,8 +12,11 @@ import {
   fetchRatingPack,
   prefetchAdaptive,
   refillAdaptive,
+  prefetchBot,
+  refillBot,
   fallbackPoolNearRating,
   ADAPTIVE_BATCH,
+  BOT_SPREAD,
   ADAPTIVE_REFILL_THRESHOLD,
   START_PER_TEAM,
   REFILL_COUNT,
@@ -316,5 +319,45 @@ describe('rating-targeted packs (Adaptive)', () => {
     expect(pool).toHaveLength(5);
     const d = pool.map((p) => Math.abs(p.rating - 1600));
     expect(d).toEqual([...d].sort((a, b) => a - b));
+  });
+});
+
+describe('fixed-rank bot packs (rating=, ±150)', () => {
+  const query = (url: string) => new URLSearchParams(url.split('?')[1]);
+
+  it('opens with a full match pack within ±150 of the bot rating', async () => {
+    const { impl, urls } = mockFetch({ puzzles: pack(START_PER_TEAM * 2) });
+    const res = await prefetchBot({ rating: 1400, fetchImpl: impl, rng: () => 0.5 });
+    const q = query(urls[0]);
+    expect([q.get('rating'), q.get('spread'), q.get('count'), q.has('level')]).toEqual([
+      '1400',
+      String(BOT_SPREAD),
+      String(START_PER_TEAM * 2),
+      false,
+    ]);
+    expect(BOT_SPREAD).toBe(150);
+    expect(res.usedFallback).toBe(false);
+    expect(res.queueA.length + res.queueB.length).toBe(START_PER_TEAM * 2);
+  });
+
+  it('refills a full pack near the same rating, excluding what was dealt', async () => {
+    const { impl, urls } = mockFetch({ puzzles: pack(REFILL_COUNT, 'r') });
+    const deltas = await refillBot({ rating: 800, exclude: ['p0'], fetchImpl: impl });
+    const q = query(urls[0]);
+    expect([q.get('rating'), q.get('spread'), q.get('count'), q.get('exclude')]).toEqual([
+      '800',
+      '150',
+      String(REFILL_COUNT),
+      'p0',
+    ]);
+    expect(deltas!.queueA.length + deltas!.queueB.length).toBe(REFILL_COUNT);
+    expect(await refillBot({ rating: 800, exclude: [], fetchImpl: rejectingFetch })).toBeNull();
+  });
+
+  it('falls back offline to the bundled puzzles closest to the bot rating', async () => {
+    const res = await prefetchBot({ rating: 1700, fetchImpl: rejectingFetch });
+    expect(res.usedFallback).toBe(true);
+    const dealt = [...res.queueA, ...res.queueB];
+    expect(dealt.map((p) => p.id).sort()).toEqual(fallbackPoolNearRating(1700, START_PER_TEAM * 2).map((p) => p.id).sort());
   });
 });

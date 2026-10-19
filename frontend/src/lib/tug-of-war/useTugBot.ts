@@ -2,13 +2,15 @@
  * useTugBot — the timer-driven controller that plays the bot's board.
  *
  * Kept apart from the pure reducer: it walks the current puzzle with its own
- * chess.js copy, waits a jittered think time per move, rolls each attempt via
- * {@link pickBotMove}, and reports the same `onSolved` / `onWrong` a human
- * board does. Scripted opponent replies follow the human board's flow. The
- * level may change mid-puzzle (Adaptive mode moves rating/speed after every
- * rope swing): each think and roll reads the latest one. The
- * pending timer pauses while the tab is hidden or the bot is inactive (match
- * over), and is cancelled on unmount.
+ * chess.js copy and plays the bot model in bot.ts — one "sees it" roll per
+ * attempt ({@link planAttempt}): seen → the whole line (quick follow-ups
+ * after a long first think), not seen → a quick plausible wrong move
+ * ({@link pickMissMove}, never repeated), then a retry with better odds. It
+ * reports the same `onSolved` / `onWrong` a human board does. Scripted
+ * opponent replies follow the human board's flow. The level may change
+ * mid-puzzle (Adaptive mode moves the rating after every rope swing): each
+ * roll and delay reads the latest one. The pending timer pauses while the tab
+ * is hidden or the bot is inactive (match over), and is cancelled on unmount.
  */
 
 'use client';
@@ -17,17 +19,15 @@ import { useEffect, useRef, useState } from 'react';
 import { Chess } from 'chess.js';
 import type { TugPuzzle } from './types';
 import {
-  botDelayMs,
-  pickBotMove,
-  solveProbability,
+  followUpDelayMs,
+  pickMissMove,
+  planAttempt,
+  wrongMoves,
   PausableTimer,
+  BOT_REPLY_DELAY_MS,
+  BOT_WRONG_SHOW_MS,
   type BotLevel,
 } from './bot';
-
-/** Matches TugBoard's scripted-reply delay. */
-export const BOT_REPLY_DELAY_MS = 300;
-/** How long a wrong bot move stays on the board before snapping back. */
-export const BOT_WRONG_SHOW_MS = 600;
 
 export interface BotView {
   fen: string;
@@ -84,33 +84,37 @@ export function useTugBot({
       setView({ fen: chess.fen(), lastMove: last && [last.from, last.to], thinking });
     };
 
-    const think = () => {
-      show(true);
+    // Wrong first moves already played on this puzzle (each miss is a new idea).
+    const rejected: string[] = [];
+    const wrongCount = wrongMoves(puzzle.fen, puzzle.moves, 0).length;
+
+    /** Roll an attempt at the first move: the line once seen, else a wrong move. */
+    const attempt = () => {
       const { level: now, rng: roll } = latest.current;
-      timer.schedule(attempt, botDelayMs(now ?? level, roll));
+      const plan = planAttempt(now ?? level, puzzle, rejected.length, rejected.length < wrongCount, roll);
+      const miss = plan.seen ? null : pickMissMove(chess.fen(), puzzle.moves, idx, rejected, roll);
+      show(true);
+      timer.schedule(() => (miss ? playWrong(miss) : playLine()), plan.delayMs);
     };
 
-    const attempt = () => {
-      const { level: now, rng: roll, onSolved: solved, onWrong: wrong } = latest.current;
-      const p = solveProbability((now ?? level).rating, puzzle.rating);
-      const pick = pickBotMove(chess.fen(), puzzle.moves, idx, p, roll);
+    const playWrong = (uci: string) => {
+      // Show the wrong move briefly, then snap back and rethink. A third miss
+      // makes the reducer skip the puzzle, which restarts this effect.
+      const probe = new Chess(chess.fen());
+      probe.move(toMove(uci));
+      setView({ fen: probe.fen(), lastMove: [uci.slice(0, 2), uci.slice(2, 4)], thinking: false });
+      rejected.push(uci);
+      latest.current.onWrong();
+      timer.schedule(attempt, BOT_WRONG_SHOW_MS);
+    };
 
-      if (!pick.correct) {
-        // Show the wrong move briefly, then snap back and think again. A third
-        // miss makes the reducer skip the puzzle, which restarts this effect.
-        const probe = new Chess(chess.fen());
-        probe.move(toMove(pick.uci));
-        setView({ fen: probe.fen(), lastMove: [pick.uci.slice(0, 2), pick.uci.slice(2, 4)], thinking: false });
-        wrong();
-        timer.schedule(think, BOT_WRONG_SHOW_MS);
-        return;
-      }
-
-      chess.move(toMove(pick.uci));
+    /** Play the next solution move; after the reply, a quick follow-up. */
+    const playLine = () => {
+      chess.move(toMove(puzzle.moves[idx]));
       idx += 1;
       if (idx >= puzzle.moves.length || chess.isCheckmate()) {
         show(false);
-        solved();
+        latest.current.onSolved();
         return;
       }
       show(false);
@@ -120,13 +124,15 @@ export function useTugBot({
         if (idx >= puzzle.moves.length) {
           show(false);
           latest.current.onSolved();
-        } else {
-          think();
+          return;
         }
+        show(true);
+        const { level: now, rng: roll } = latest.current;
+        timer.schedule(playLine, followUpDelayMs(now ?? level, roll));
       }, BOT_REPLY_DELAY_MS);
     };
 
-    think();
+    attempt();
     return () => timer.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [!!level, puzzle?.id, round]);

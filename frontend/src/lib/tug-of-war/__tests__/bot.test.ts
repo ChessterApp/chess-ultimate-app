@@ -3,19 +3,29 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { Chess } from 'chess.js';
 import {
+  BOT_CALIBRATION,
   BOT_LEVELS,
-  botDelayMs,
+  BOT_REPLY_DELAY_MS,
+  BOT_WRONG_SHOW_MS,
   botLevel,
-  botPuzzleLevel,
-  pickBotMove,
-  rollSolve,
-  solveProbability,
+  firstMoveDelayMs,
+  followUpDelayMs,
+  pickMissMove,
+  planAttempt,
+  rethinkDelayMs,
+  seeProbability,
+  simulateBotPuzzle,
+  thinkSecondsFor,
+  wrongMoveDelayMs,
   wrongMoves,
+  FOLLOW_UP_MS,
   MIN_DELAY_MS,
+  RETRY_BONUS,
 } from '../bot';
-import { useTugBot, BOT_REPLY_DELAY_MS } from '../useTugBot';
+import { useTugBot } from '../useTugBot';
 import { evaluateTeamMove } from '../validateMove';
 import type { TugPuzzle } from '../types';
+import fixture from './fixtures/bot-calibration-puzzles.json';
 
 /** Deterministic mulberry32 RNG. */
 function seeded(seed: number): () => number {
@@ -44,61 +54,96 @@ const MATE_IN_2: TugPuzzle = {
 };
 
 describe('BOT_LEVELS', () => {
-  it('has six zebra ranks from 500 / 14s to 2000 / 4s, evenly spaced', () => {
+  it('has six zebra ranks from 500 to 2000, each thinking faster than the last', () => {
     expect(BOT_LEVELS.map((l) => l.rating)).toEqual([500, 800, 1100, 1400, 1700, 2000]);
-    expect(BOT_LEVELS.map((l) => l.secondsPerMove)).toEqual([14, 12, 10, 8, 6, 4]);
-  });
-
-  it('maps each rank to the puzzle band containing its rating', () => {
-    expect(BOT_LEVELS.map(botPuzzleLevel)).toEqual(['pawn', 'knight', 'knight', 'rook', 'queen', 'queen']);
-  });
-});
-
-describe('solveProbability', () => {
-  it('follows the Elo expected score', () => {
-    expect(solveProbability(1000, 1000)).toBeCloseTo(0.5);
-    expect(solveProbability(1400, 1000)).toBeCloseTo(10 / 11);
-    expect(solveProbability(1000, 1400)).toBeCloseTo(1 / 11);
-    expect(solveProbability(500, 1300)).toBeCloseTo(1 / 101);
-  });
-});
-
-describe('pickBotMove', () => {
-  it('converges on the expected success rate with a seeded RNG', () => {
-    const rng = seeded(42);
-    const p = solveProbability(800, 1000);
-    const N = 20_000;
-    let hits = 0;
-    for (let i = 0; i < N; i++) if (rollSolve(p, rng)) hits += 1;
-    expect(Math.abs(hits / N - p)).toBeLessThan(0.01);
-    // pickBotMove makes the same roll: same seed → same hit pattern.
-    const a = seeded(9);
-    const b = seeded(9);
-    for (let i = 0; i < 30; i++) {
-      const hit = rollSolve(p, a);
-      if (!hit) a(); // the miss draws once more to pick its wrong move
-      expect(pickBotMove(MATE_IN_1.fen, MATE_IN_1.moves, 0, p, b).correct).toBe(hit);
+    for (let i = 1; i < BOT_LEVELS.length; i++) {
+      expect(BOT_LEVELS[i].thinkSeconds).toBeLessThan(BOT_LEVELS[i - 1].thinkSeconds);
     }
   });
 
-  it('plays the solution move on a hit', () => {
-    expect(pickBotMove(MATE_IN_1.fen, MATE_IN_1.moves, 0, 1, () => 0.5)).toEqual({
-      uci: 'f1f8',
-      correct: true,
-    });
+  it('has a calibration target per rank: more solved, faster, as the rank goes up', () => {
+    const t = BOT_LEVELS.map((l) => BOT_CALIBRATION[l.id]);
+    for (let i = 1; i < t.length; i++) {
+      expect(t[i].solveRate).toBeGreaterThan(t[i - 1].solveRate);
+      expect(t[i].secondsPerPuzzle).toBeLessThan(t[i - 1].secondsPerPuzzle);
+    }
   });
 
-  it('plays a legal wrong move on a miss — never the solution or another mate', () => {
-    const rng = seeded(7);
-    const legal = new Set(new Chess(MATE_IN_1.fen).moves({ verbose: true }).map((m) => m.from + m.to));
-    for (let i = 0; i < 40; i++) {
-      const pick = pickBotMove(MATE_IN_1.fen, MATE_IN_1.moves, 0, 0, rng);
-      expect(pick.correct).toBe(false);
-      expect(pick.uci).not.toBe('f1f8');
-      expect(legal.has(pick.uci)).toBe(true);
-      const probe = new Chess(MATE_IN_1.fen);
-      probe.move({ from: pick.uci.slice(0, 2), to: pick.uci.slice(2, 4), promotion: 'q' });
-      expect(probe.isCheckmate()).toBe(false);
+  it('interpolates think time between ranks and clamps outside them', () => {
+    expect(thinkSecondsFor(300)).toBe(BOT_LEVELS[0].thinkSeconds);
+    expect(thinkSecondsFor(2600)).toBe(BOT_LEVELS[5].thinkSeconds);
+    expect(thinkSecondsFor(950)).toBeCloseTo((BOT_LEVELS[1].thinkSeconds + BOT_LEVELS[2].thinkSeconds) / 2);
+  });
+});
+
+describe('seeProbability', () => {
+  it('rises with the bot rating and falls with the puzzle rating and line length', () => {
+    expect(seeProbability(1400, 1000, 1)).toBeGreaterThan(seeProbability(1100, 1000, 1));
+    expect(seeProbability(1400, 1600, 1)).toBeLessThan(seeProbability(1400, 1200, 1));
+    expect(seeProbability(1400, 1400, 3)).toBeLessThan(seeProbability(1400, 1400, 1));
+  });
+
+  it('each rejected idea closes RETRY_BONUS of the remaining gap', () => {
+    const p0 = seeProbability(800, 800, 2);
+    const p1 = seeProbability(800, 800, 2, 1);
+    const p2 = seeProbability(800, 800, 2, 2);
+    expect(p1).toBeGreaterThan(p0);
+    expect(p2).toBeGreaterThan(p1);
+    expect(1 - p1).toBeCloseTo((1 - p0) * (1 - RETRY_BONUS));
+  });
+});
+
+describe('one roll per puzzle', () => {
+  it('a seen first roll plays the whole line with zero misses', () => {
+    const level = botLevel('club');
+    const p0 = seeProbability(level.rating, MATE_IN_2.rating, 2);
+    for (let seed = 1; seed <= 300; seed++) {
+      const rng = seeded(seed);
+      let first: number | null = null;
+      const spy = () => {
+        const v = rng();
+        first ??= v;
+        return v;
+      };
+      const r = simulateBotPuzzle(level, MATE_IN_2, spy);
+      if (first! < p0) expect(r).toMatchObject({ solved: true, misses: 0 });
+      else expect(r.misses).toBeGreaterThan(0);
+    }
+  });
+
+  it('an unseen attempt is a quick wrong move; a seen retry comes after a longer rethink', () => {
+    const level = botLevel('junior');
+    const miss = planAttempt(level, MATE_IN_2, 0, true, () => 0.9999);
+    expect(miss.seen).toBe(false);
+    const retry = planAttempt(level, MATE_IN_2, 1, true, () => 0);
+    expect(retry).toEqual({ seen: true, delayMs: rethinkDelayMs(level, () => 0) });
+    expect(miss.delayMs).toBeLessThan(retry.delayMs);
+  });
+
+  it('cannot miss when no wrong move is left', () => {
+    expect(planAttempt(botLevel('baby'), MATE_IN_2, 2, false, () => 0.9999).seen).toBe(true);
+  });
+});
+
+describe('pickMissMove', () => {
+  const legal = (fen: string) => new Set(new Chess(fen).moves({ verbose: true }).map((m) => m.from + m.to));
+
+  it('plays legal wrong moves — never the solution, an alternative mate or a rejected move', () => {
+    for (const { fen, moves } of [MATE_IN_1, MATE_IN_2]) {
+      const rng = seeded(3);
+      const rejected: string[] = [];
+      const all = wrongMoves(fen, moves, 0);
+      for (;;) {
+        const uci = pickMissMove(fen, moves, 0, rejected, rng);
+        if (uci === null) break;
+        expect(legal(fen).has(uci)).toBe(true);
+        expect(uci).not.toBe(moves[0].slice(0, 4));
+        expect(all).toContain(uci);
+        expect(rejected).not.toContain(uci);
+        rejected.push(uci);
+      }
+      // Null only once every wrong move has been rejected.
+      expect(rejected.sort()).toEqual([...all].sort());
     }
   });
 
@@ -112,24 +157,84 @@ describe('pickBotMove', () => {
       }
     }
   });
-});
 
-describe('botDelayMs', () => {
-  it('stays within ±25% of secondsPerMove', () => {
-    const rng = seeded(1);
-    for (const level of BOT_LEVELS) {
-      for (let i = 0; i < 200; i++) {
-        const d = botDelayMs(level, rng);
-        expect(d).toBeGreaterThanOrEqual(Math.max(MIN_DELAY_MS, level.secondsPerMove * 750));
-        expect(d).toBeLessThanOrEqual(level.secondsPerMove * 1250);
+  it('prefers checks and captures when they are available', () => {
+    const rng = seeded(11);
+    let picks = 0;
+    let tempting = 0;
+    let pool = 0;
+    let poolTempting = 0;
+    for (const p of (fixture as TugPuzzle[]).filter((_, i) => i % 8 === 0)) {
+      const chess = new Chess(p.fen);
+      const isTempting = new Set(
+        chess
+          .moves({ verbose: true })
+          .filter((m) => m.captured || m.san.includes('+'))
+          .map((m) => m.from + m.to),
+      );
+      const wrong = wrongMoves(p.fen, p.moves, 0);
+      if (!wrong.some((m) => isTempting.has(m))) continue;
+      pool += wrong.length;
+      poolTempting += wrong.filter((m) => isTempting.has(m)).length;
+      for (let i = 0; i < 4; i++) {
+        picks += 1;
+        if (isTempting.has(pickMissMove(p.fen, p.moves, 0, [], rng)!)) tempting += 1;
       }
     }
-    expect(botDelayMs(botLevel('grandmaster'), () => 0)).toBe(3000);
-    expect(botDelayMs(botLevel('baby'), () => 1)).toBe(17500);
+    expect(tempting / picks).toBeGreaterThan(0.5);
+    expect(tempting / picks).toBeGreaterThan(2 * (poolTempting / pool));
+  }, 20_000);
+
+  it('falls back to a quiet move only when nothing is tempting', () => {
+    // Lone kings and a pawn: no checks, captures or moves near the solution.
+    const fen = '7k/8/8/8/8/8/P7/K7 w - - 0 1';
+    const pick = pickMissMove(fen, ['a2a4'], 0, [], () => 0);
+    expect(legal(fen).has(pick!)).toBe(true);
+    expect(pick).not.toBe('a2a4');
+  });
+});
+
+describe('human timing', () => {
+  const samples = (fn: (rng: () => number) => number, seed: number, n = 400) => {
+    const rng = seeded(seed);
+    return Array.from({ length: n }, () => fn(rng));
+  };
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  it('follow-up moves (1–3 s) come faster than the first move', () => {
+    for (const level of BOT_LEVELS) {
+      const follow = samples((r) => followUpDelayMs(level, r), 1);
+      const first = samples((r) => firstMoveDelayMs(level, level.rating, r), 2);
+      for (const d of follow) {
+        expect(d).toBeGreaterThanOrEqual(FOLLOW_UP_MS[0]);
+        expect(d).toBeLessThanOrEqual(FOLLOW_UP_MS[1]);
+      }
+      expect(mean(follow)).toBeLessThan(mean(first));
+      expect(followUpDelayMs(level, () => 0.5)).toBeLessThan(firstMoveDelayMs(level, level.rating, () => 0.5));
+    }
+    expect(mean(samples((r) => followUpDelayMs(botLevel('grandmaster'), r), 3))).toBeLessThan(
+      mean(samples((r) => followUpDelayMs(botLevel('baby'), r), 3)),
+    );
   });
 
-  it('never drops under 1.5s', () => {
-    expect(botDelayMs({ ...botLevel('grandmaster'), secondsPerMove: 1 }, () => 0)).toBe(MIN_DELAY_MS);
+  it('a wrong move always comes quicker than the rethink after it', () => {
+    for (const level of BOT_LEVELS) {
+      for (const v of [0, 0.3, 0.7, 0.9999]) {
+        expect(wrongMoveDelayMs(level, () => v)).toBeLessThan(rethinkDelayMs(level, () => v));
+      }
+    }
+  });
+
+  it('thinks longer on harder puzzles, sometimes gets stuck, never under 1.5 s', () => {
+    const level = botLevel('club');
+    const easy = mean(samples((r) => firstMoveDelayMs(level, 800, r), 4));
+    const hard = mean(samples((r) => firstMoveDelayMs(level, 1500, r), 4));
+    expect(hard).toBeGreaterThan(easy);
+    const own = samples((r) => firstMoveDelayMs(level, level.rating, r), 5, 4000);
+    expect(Math.abs(mean(own) / (level.thinkSeconds * 1000) - 1.1)).toBeLessThan(0.08); // +10% stuck
+    expect(Math.min(...samples((r) => firstMoveDelayMs(botLevel('grandmaster'), 400, r), 6))).toBeGreaterThanOrEqual(
+      MIN_DELAY_MS,
+    );
   });
 });
 
@@ -145,7 +250,9 @@ describe('useTugBot', () => {
     vi.restoreAllMocks();
   });
 
-  const level = botLevel('grandmaster'); // rng 0.5 → exactly 4000ms
+  const level = botLevel('grandmaster');
+  // A constant RNG makes every delay the hook draws equal to these.
+  const first = (p: TugPuzzle, v = 0) => firstMoveDelayMs(level, p.rating, () => v);
   const setup = (puzzle: TugPuzzle, rng: () => number, active = true) => {
     const onSolved = vi.fn();
     const onWrong = vi.fn();
@@ -157,9 +264,9 @@ describe('useTugBot', () => {
   };
 
   it('thinks, then solves with the scripted move', () => {
-    const { onSolved, onWrong, result } = setup(MATE_IN_1, () => 0); // 0 < p → hit; delay floor 3000
+    const { onSolved, onWrong, result } = setup(MATE_IN_1, () => 0); // 0 < p → seen
     expect(result.current.thinking).toBe(true);
-    act(() => vi.advanceTimersByTime(2999));
+    act(() => vi.advanceTimersByTime(first(MATE_IN_1) - 1));
     expect(onSolved).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(onSolved).toHaveBeenCalledTimes(1);
@@ -167,26 +274,34 @@ describe('useTugBot', () => {
     expect(result.current.lastMove).toEqual(['f1', 'f8']);
   });
 
-  it('reports a wrong move on a miss and tries again', () => {
-    const { onSolved, onWrong } = setup(MATE_IN_1, () => 0.9999); // above p ≈ 0.9998
-    act(() => vi.advanceTimersByTime(5000));
+  it('misses quickly with a plausible move, never repeats it, and rethinks longer', () => {
+    const { onSolved, onWrong, result } = setup(MATE_IN_1, () => 0.9999); // above every p
+    const wrong = wrongMoveDelayMs(level, () => 0.9999);
+    act(() => vi.advanceTimersByTime(wrong));
     expect(onWrong).toHaveBeenCalledTimes(1);
-    expect(onSolved).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(600 + 5000));
+    const firstMiss = result.current.lastMove!.join('');
+    expect(firstMiss).not.toBe('f1f8');
+    act(() => vi.advanceTimersByTime(BOT_WRONG_SHOW_MS + wrong));
     expect(onWrong).toHaveBeenCalledTimes(2);
+    expect(result.current.lastMove!.join('')).not.toBe(firstMiss);
+    expect(onSolved).not.toHaveBeenCalled();
   });
 
-  it('plays each of its moves in a multi-move puzzle, with replies in between', () => {
-    const { onSolved, result } = setup(MATE_IN_2, () => 0);
-    act(() => vi.advanceTimersByTime(3000));
+  it('a seen line plays every move: long first think, quick follow-up after the reply', () => {
+    const { onSolved, onWrong, result } = setup(MATE_IN_2, () => 0);
+    act(() => vi.advanceTimersByTime(first(MATE_IN_2)));
     expect(result.current.lastMove).toEqual(['c1', 'c8']);
     act(() => vi.advanceTimersByTime(BOT_REPLY_DELAY_MS));
     expect(result.current.lastMove).toEqual(['e7', 'e8']);
     expect(result.current.thinking).toBe(true);
+    const follow = followUpDelayMs(level, () => 0);
+    expect(follow).toBeLessThan(first(MATE_IN_2));
+    act(() => vi.advanceTimersByTime(follow - 1));
     expect(onSolved).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(3000));
+    act(() => vi.advanceTimersByTime(1));
     expect(result.current.lastMove).toEqual(['c8', 'e8']);
     expect(onSolved).toHaveBeenCalledTimes(1);
+    expect(onWrong).not.toHaveBeenCalled();
   });
 
   it('pauses while the tab is hidden and resumes with the remaining time', () => {
@@ -202,7 +317,7 @@ describe('useTugBot', () => {
     act(() => {
       document.dispatchEvent(new Event('visibilitychange'));
     });
-    act(() => vi.advanceTimersByTime(1999));
+    act(() => vi.advanceTimersByTime(first(MATE_IN_1) - 1001));
     expect(onSolved).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(onSolved).toHaveBeenCalledTimes(1);
@@ -210,19 +325,21 @@ describe('useTugBot', () => {
 
   it('follows a changing (adaptive) level without restarting the puzzle', () => {
     const onSolved = vi.fn();
-    const slow = { ...level, rating: 700, secondsPerMove: 14 };
-    const fast = { ...level, id: 'junior' as const, rating: 900, secondsPerMove: 3 };
+    const slow = { ...level, id: 'baby' as const, rating: 500, thinkSeconds: 12 };
+    const fast = { ...level, id: 'grandmaster' as const, rating: 2000, thinkSeconds: 2.4 };
     const hook = renderHook(
       (props: { lv: typeof level }) =>
         useTugBot({ level: props.lv, puzzle: MATE_IN_2, round: 0, active: true, onSolved, onWrong: vi.fn(), rng: () => 0 }),
       { initialProps: { lv: slow } },
     );
-    act(() => vi.advanceTimersByTime(14_000 * 0.75)); // first move at the slow pace (rng 0 → −25%)
+    act(() => vi.advanceTimersByTime(firstMoveDelayMs(slow, MATE_IN_2.rating, () => 0))); // the slow first think
     expect(hook.result.current.lastMove).toEqual(['c1', 'c8']);
     hook.rerender({ lv: fast }); // rank and speed change mid-puzzle
     act(() => vi.advanceTimersByTime(BOT_REPLY_DELAY_MS));
     expect(hook.result.current.lastMove).toEqual(['e7', 'e8']); // same puzzle, not reset
-    act(() => vi.advanceTimersByTime(3000 * 0.75 - 1)); // second think uses the fast pace
+    const follow = followUpDelayMs(fast, () => 0); // the follow-up uses the fast pace
+    expect(follow).toBeLessThan(followUpDelayMs(slow, () => 0));
+    act(() => vi.advanceTimersByTime(follow - 1));
     expect(onSolved).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
     expect(onSolved).toHaveBeenCalledTimes(1);

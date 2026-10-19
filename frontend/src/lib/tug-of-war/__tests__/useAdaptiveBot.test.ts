@@ -4,6 +4,7 @@ import { act, renderHook } from '@testing-library/react';
 import { gameReducer, initialState, type GameAction, type GameState } from '../gameReducer';
 import { useAdaptiveBot, type AdaptiveSession } from '../useAdaptiveBot';
 import { CREEP_EVERY_MS, type SavedAdaptive } from '../adaptive';
+import { thinkSecondsFor } from '../bot';
 import type { TugPuzzle } from '../types';
 
 const puzzle = (id: string, rating = 900): TugPuzzle => ({ id, fen: '8/8/8/8/8/8/8/8 w - - 0 1', moves: ['a1a2'], rating, themes: [] });
@@ -60,7 +61,7 @@ describe('useAdaptiveBot', () => {
     expect(s.player.estimate).toBeGreaterThan(1000);
     expect(s.player.avgSeconds).toBe(6);
     expect(s.ladder.rating).toBe(800);
-    expect(result.current!.bot.secondsPerMove).toBe(13);
+    expect(result.current!.bot.thinkSeconds).toBe(thinkSecondsFor(800));
   });
 
   it('a bot solve drops it; three wrongs (a skip) lower the estimate', () => {

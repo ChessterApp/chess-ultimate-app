@@ -2,7 +2,8 @@
  * SetupScreen — pick a mode first. Team vs Team: team names, difficulty band
  * and theme picker, then Start. You vs Chesster: the Adaptive "Find my level"
  * card (shows the last saved estimate) or one of six fixed zebra rank cards
- * starts the match straight away — a fixed rank plays on its puzzle band.
+ * starts the match straight away — a fixed rank plays puzzles near its rating
+ * and its card shows how it fares there (≈ solve rate · seconds per puzzle).
  * Selections drive the live puzzle prefetch (see lib/tug-of-war/prefetch.ts).
  */
 
@@ -12,18 +13,17 @@ import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { TUG_LEVELS, TUG_THEMES, type TugLevel } from '@/lib/tug-of-war/prefetch';
-import { BOT_LEVELS, botPuzzleLevel, type BotLevel, type BotLevelId } from '@/lib/tug-of-war/bot';
+import { BOT_CALIBRATION, BOT_LEVELS, type BotLevel, type BotLevelId } from '@/lib/tug-of-war/bot';
 import { loadAdaptive } from '@/lib/tug-of-war/adaptive';
 
 const ZEBRA_SRC = '/static/images/chesster-logo-v3.png';
-const FASTEST_SECONDS = Math.min(...BOT_LEVELS.map((l) => l.secondsPerMove));
 
 export interface StartConfig {
   teamA: string;
   teamB: string;
   level: TugLevel;
   themes: string[];
-  /** Set in You vs Chesster mode: the zebra rank playing side B. */
+  /** Set in You vs Chesster mode: the zebra rank playing side B (`level` unused). */
   bot?: BotLevelId;
   /** You vs Chesster, Adaptive: the zebra's rank follows the player (`level` unused). */
   adaptive?: true;
@@ -66,7 +66,7 @@ export default function SetupScreen({
     onStart({
       teamA: t('bot.you'),
       teamB: t(`bot.levels.${l.id}`),
-      level: botPuzzleLevel(l),
+      level: 'knight',
       themes: [],
       bot: l.id,
     });
@@ -139,7 +139,10 @@ export default function SetupScreen({
                 level={l}
                 name={t(`bot.levels.${l.id}`)}
                 rating={t('bot.rating', { rating: l.rating })}
-                speedLabel={t('bot.speed')}
+                stats={t('bot.stats', {
+                  percent: Math.round(BOT_CALIBRATION[l.id].solveRate * 100),
+                  seconds: BOT_CALIBRATION[l.id].secondsPerPuzzle,
+                })}
                 busy={loading && pickedBot === l.id}
                 disabled={loading}
                 onPick={() => startBot(l)}
@@ -299,7 +302,7 @@ function ZebraCard({
   level,
   name,
   rating,
-  speedLabel,
+  stats,
   busy,
   disabled,
   onPick,
@@ -307,12 +310,11 @@ function ZebraCard({
   level: BotLevel;
   name: string;
   rating: string;
-  speedLabel: string;
+  stats: string;
   busy: boolean;
   disabled: boolean;
   onPick: () => void;
 }) {
-  const speed = Math.round((FASTEST_SECONDS / level.secondsPerMove) * 100);
   return (
     <button
       type="button"
@@ -341,11 +343,8 @@ function ZebraCard({
         {name}
       </span>
       <span className="text-sm font-semibold tabular-nums text-white/80">{rating}</span>
-      <span className="flex w-full items-center gap-2 text-[0.65rem] font-semibold uppercase tracking-wider text-white/50">
-        {speedLabel}
-        <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-          <span className="block h-full rounded-full" style={{ width: `${speed}%`, backgroundColor: level.color }} />
-        </span>
+      <span className="text-xs font-semibold tabular-nums text-white/50" data-testid={`zebra-${level.id}-stats`}>
+        {stats}
       </span>
     </button>
   );

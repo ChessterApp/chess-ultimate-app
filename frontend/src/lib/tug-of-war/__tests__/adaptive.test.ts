@@ -15,15 +15,13 @@ import {
   targetRating,
   toSaved,
   updatePlayer,
-  BOT_MIN_SECONDS,
-  BOT_START_SECONDS,
   K_MIN,
   K_START,
   RESUME_SEEN,
   STORAGE_KEY,
   type AdaptiveState,
 } from '../adaptive';
-import { BOT_LEVELS } from '../bot';
+import { BOT_LEVELS, seeProbability, thinkSecondsFor } from '../bot';
 
 function memoryStorage() {
   const data = new Map<string, string>();
@@ -77,23 +75,22 @@ describe('player rating update', () => {
 });
 
 describe('bot ladder', () => {
-  it('starts 300 below the player and slow, never under 400', () => {
-    expect(initialLadder(1000)).toEqual({ rating: 700, secondsPerMove: BOT_START_SECONDS });
+  it('starts 300 below the player, never under 400', () => {
+    expect(initialLadder(1000)).toEqual({ rating: 700 });
     expect(initialLadder(500).rating).toBe(400);
   });
 
-  it('climbs +100 / −1 s per step and drops half a step', () => {
+  it('climbs +100 per step and drops half a step', () => {
     const l = initialLadder(1000);
-    expect(stepLadder(l, 1)).toEqual({ rating: 800, secondsPerMove: 13 });
-    expect(stepLadder(stepLadder(l, 1), -0.5)).toEqual({ rating: 750, secondsPerMove: 13.5 });
+    expect(stepLadder(l, 1)).toEqual({ rating: 800 });
+    expect(stepLadder(stepLadder(l, 1), -0.5)).toEqual({ rating: 750 });
   });
 
-  it('never gets faster than 3 s or slower than the start', () => {
+  it('stays within the 400–2800 rating range', () => {
     let l = initialLadder(1000);
     for (let i = 0; i < 30; i++) l = stepLadder(l, 1);
-    expect(l.secondsPerMove).toBe(BOT_MIN_SECONDS);
+    expect(l.rating).toBe(2800);
     for (let i = 0; i < 80; i++) l = stepLadder(l, -0.5);
-    expect(l.secondsPerMove).toBe(BOT_START_SECONDS);
     expect(l.rating).toBe(400);
   });
 });
@@ -103,7 +100,7 @@ describe('adaptiveReducer', () => {
 
   it('steps the bot up when the human solves and records the rating beaten', () => {
     const s = adaptiveReducer(start(), { type: 'HUMAN_SOLVED', puzzleRating: 900, seconds: 8 });
-    expect(s.ladder).toEqual({ rating: 800, secondsPerMove: 13 });
+    expect(s.ladder).toEqual({ rating: 800 });
     expect(s.peakBeaten).toBe(700);
     expect(s.player.estimate).toBeGreaterThan(1000);
     expect(s.player.avgSeconds).toBe(8);
@@ -111,7 +108,7 @@ describe('adaptiveReducer', () => {
 
   it('drops the bot half a step when it solves; a skip only scores the player', () => {
     const s = adaptiveReducer(start(), { type: 'BOT_SOLVED' });
-    expect(s.ladder).toEqual({ rating: 650, secondsPerMove: 14 });
+    expect(s.ladder).toEqual({ rating: 650 });
     expect(s.player.estimate).toBe(1000);
     const skip = adaptiveReducer(start(), { type: 'HUMAN_SKIPPED', puzzleRating: 900 });
     expect(skip.ladder).toEqual(start().ladder);
@@ -122,7 +119,6 @@ describe('adaptiveReducer', () => {
     let s = start();
     for (let i = 0; i < 4; i++) s = adaptiveReducer(s, { type: 'CREEP' });
     expect(s.ladder.rating).toBe(800);
-    expect(s.ladder.secondsPerMove).toBe(13);
   });
 
   it('flags the trend when the displayed rank changes', () => {
@@ -149,14 +145,25 @@ describe('rank mapping and puzzle target', () => {
     expect(BOT_LEVELS.map((l) => rankNumber(l.rating))).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it('plays the ladder rating and speed under the rank colour', () => {
-    const bot = ladderBotLevel({ rating: 1430, secondsPerMove: 7 });
-    expect(bot).toEqual({ id: 'expert', color: BOT_LEVELS[3].color, rating: 1430, secondsPerMove: 7 });
+  it('plays the ladder rating under the rank colour, thinking like a bot of that rating', () => {
+    const bot = ladderBotLevel({ rating: 1430 });
+    expect(bot).toEqual({ id: 'expert', color: BOT_LEVELS[3].color, rating: 1430, thinkSeconds: thinkSecondsFor(1430) });
+    // Same model as the fixed ranks: on a rank's rating it is that rank.
+    for (const l of BOT_LEVELS) expect(ladderBotLevel({ rating: l.rating }).thinkSeconds).toBe(l.thinkSeconds);
+  });
+
+  it('gets harder on every rung: more likely to see it, quicker to think', () => {
+    for (let r = 400; r < 2800; r += 100) {
+      const now = ladderBotLevel({ rating: r });
+      const next = ladderBotLevel({ rating: r + 100 });
+      expect(seeProbability(next.rating, 1200, 2)).toBeGreaterThan(seeProbability(now.rating, 1200, 2));
+      expect(next.thinkSeconds).toBeLessThanOrEqual(now.thinkSeconds);
+    }
   });
 
   it('targets the bot rating blended toward the player', () => {
     expect(targetRating(initialAdaptive())).toBe(820); // 0.6·700 + 0.4·1000
-    expect(targetRating({ ladder: { rating: 2800, secondsPerMove: 3 }, player: initialPlayer() })).toBe(2080);
+    expect(targetRating({ ladder: { rating: 2800 }, player: initialPlayer() })).toBe(2080);
   });
 });
 

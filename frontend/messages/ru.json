@@ -2982,7 +2982,7 @@
     "bot": {
       "chooseRank": "Выбери ранг Chesster — нажми, чтобы играть",
       "rating": "Рейтинг {rating}",
-      "speed": "Скорость",
+      "stats": "≈{percent}% · ~{seconds} с на задачу",
       "you": "Ты",
       "thinking": "думает…",
       "timeLeft": "Осталось",

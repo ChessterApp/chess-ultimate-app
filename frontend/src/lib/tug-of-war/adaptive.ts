@@ -7,14 +7,16 @@
  * - the PLAYER estimate: Elo-style, scored 1 for a solved puzzle and 0 for a
  *   skip (3 wrongs), with K decaying from 64 to 24 as more puzzles are seen,
  *   plus an EMA of seconds per solve;
- * - the BOT ladder: a continuous rating + seconds per move. It starts 300 below
- *   the player and slow, climbs a step (+100, −1 s) each time the human gains
- *   rope ground, drops half a step when the human loses ground, and creeps up
- *   a quarter step every 20 s so the match always resolves.
- * The zebra badge shows the nearest of the six static ranks.
+ * - the BOT ladder: a continuous rating. It starts 300 below the player,
+ *   climbs a step (+100) each time the human gains rope ground, drops half a
+ *   step when the human loses ground, and creeps up a quarter step every 20 s
+ *   so the match always resolves.
+ * The bot plays the same model as the fixed ranks (bot.ts): its "sees it"
+ * chance and think time both follow the ladder rating, so every rung is
+ * genuinely harder. The zebra badge shows the nearest of the six static ranks.
  */
 
-import { BOT_LEVELS, type BotLevel, type BotLevelId } from './bot';
+import { BOT_LEVELS, thinkSecondsFor, type BotLevel, type BotLevelId } from './bot';
 
 export const START_RATING = 1000;
 export const RATING_MIN = 400;
@@ -30,10 +32,7 @@ export const SPEED_ALPHA = 0.3;
 
 /** The bot starts this far below the player estimate. */
 export const BOT_HEADSTART = 300;
-export const BOT_START_SECONDS = 14;
-export const BOT_MIN_SECONDS = 3;
 export const STEP_RATING = 100;
-export const STEP_SECONDS = 1;
 /** Losing ground moves the bot down this fraction of a step. */
 export const DOWN_STEP = 0.5;
 export const CREEP_EVERY_MS = 20_000;
@@ -54,7 +53,6 @@ export interface PlayerModel {
 
 export interface BotLadder {
   rating: number;
-  secondsPerMove: number;
 }
 
 export interface AdaptiveState {
@@ -117,15 +115,12 @@ export function updatePlayer(
 }
 
 export function initialLadder(estimate: number): BotLadder {
-  return { rating: Math.max(RATING_MIN, estimate - BOT_HEADSTART), secondsPerMove: BOT_START_SECONDS };
+  return { rating: Math.max(RATING_MIN, estimate - BOT_HEADSTART) };
 }
 
-/** Move the bot `steps` rungs (negative = easier): ±100 rating, ∓1 s per move. */
+/** Move the bot `steps` rungs (negative = easier): ±100 rating. */
 export function stepLadder(ladder: BotLadder, steps: number): BotLadder {
-  return {
-    rating: clamp(ladder.rating + steps * STEP_RATING, RATING_MIN, RATING_MAX),
-    secondsPerMove: clamp(ladder.secondsPerMove - steps * STEP_SECONDS, BOT_MIN_SECONDS, BOT_START_SECONDS),
-  };
+  return { rating: clamp(ladder.rating + steps * STEP_RATING, RATING_MIN, RATING_MAX) };
 }
 
 /** The static zebra rank nearest a bot rating (ties go to the lower rank). */
@@ -140,10 +135,10 @@ export function rankNumber(rating: number): number {
   return BOT_LEVELS.indexOf(nearestRank(rating)) + 1;
 }
 
-/** The ladder as the BotLevel useTugBot plays (rank id/colour for display). */
+/** The ladder as the BotLevel useTugBot plays (rank id/colour for display, think time from the rating). */
 export function ladderBotLevel(ladder: BotLadder): BotLevel {
   const rank = nearestRank(ladder.rating);
-  return { id: rank.id, color: rank.color, rating: ladder.rating, secondsPerMove: ladder.secondsPerMove };
+  return { id: rank.id, color: rank.color, rating: ladder.rating, thinkSeconds: thinkSecondsFor(ladder.rating) };
 }
 
 /** Rating both sides' puzzles are drawn around: the bot, blended toward the player. */

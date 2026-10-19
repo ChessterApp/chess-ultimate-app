@@ -39,7 +39,7 @@ vi.mock('@/lib/analytics/events', async (importOriginal) => ({
 import SetupScreen from '../SetupScreen';
 import MatchScreen from '../MatchScreen';
 import { gameReducer, initialState, type GameState } from '@/lib/tug-of-war/gameReducer';
-import { BOT_LEVELS, botLevel } from '@/lib/tug-of-war/bot';
+import { BOT_CALIBRATION, BOT_LEVELS, botLevel } from '@/lib/tug-of-war/bot';
 import type { TugPuzzle } from '@/lib/tug-of-war/types';
 
 afterEach(() => {
@@ -80,10 +80,20 @@ describe('SetupScreen — mode choice', () => {
     expect(onStart).toHaveBeenCalledWith({
       teamA: 'bot.you',
       teamB: 'bot.levels.expert',
-      level: 'rook',
+      level: 'knight',
       themes: [],
       bot: 'expert',
     });
+  });
+
+  it("shows each rank's calibrated solve rate and time per puzzle instead of a speed bar", () => {
+    render(<SetupScreen initialTeamA="Knights" initialTeamB="Rooks" onStart={vi.fn()} initialBot="club" />);
+    for (const l of BOT_LEVELS) {
+      const { solveRate, secondsPerPuzzle } = BOT_CALIBRATION[l.id];
+      expect(screen.getByTestId(`zebra-${l.id}-stats`).textContent).toBe(
+        `bot.stats:${JSON.stringify({ percent: Math.round(solveRate * 100), seconds: secondsPerPuzzle })}`,
+      );
+    }
   });
 
   it('reopens in bot mode after a bot match', () => {

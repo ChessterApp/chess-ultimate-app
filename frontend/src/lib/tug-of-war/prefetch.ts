@@ -9,8 +9,10 @@
  * Only when the backend is unreachable do we fall back to the bundled
  * `TUG_PUZZLES` set, so the game can ALWAYS start.
  *
- * Adaptive bot matches instead ask for small `rating=` batches around a target
- * that moves during the match (see adaptive.ts), refilled when a queue runs low.
+ * You vs Chesster matches ask for `rating=` packs instead: a fixed rank for
+ * full packs within ±{@link BOT_SPREAD} of its rating; Adaptive for small
+ * batches around a target that moves during the match (see adaptive.ts),
+ * refilled when a queue runs low.
  */
 
 import type { TugPuzzle } from './types';
@@ -62,6 +64,8 @@ export const ADAPTIVE_BATCH = 10;
 export const ADAPTIVE_SPREAD = 75;
 /** Adaptive matches refill when a side has this many unplayed puzzles left. */
 export const ADAPTIVE_REFILL_THRESHOLD = 3;
+/** Fixed-rank bot matches: half-width of the rating band around the zebra's rating. */
+export const BOT_SPREAD = 150;
 /** The backend's accepted `rating=` range. */
 const RATING_RANGE = [400, 2800] as const;
 
@@ -230,21 +234,36 @@ export async function refillQueues(
   return puzzles && splitQueues(puzzles, req.rng);
 }
 
-/**
- * Deal an adaptive match's opening queues: two {@link ADAPTIVE_BATCH}es around
- * `rating`, or the bundled puzzles nearest that rating when offline.
- */
-export async function prefetchAdaptive(
-  opts: Omit<RatingPackRequest, 'count' | 'exclude'> & { rng?: () => number },
-): Promise<PrefetchResult> {
-  const { rating, rng = Math.random } = opts;
-  const puzzles = await fetchRatingPack({ ...opts, count: ADAPTIVE_BATCH * 2 });
+type RatingPrefetch = Omit<RatingPackRequest, 'count' | 'exclude'> & { rng?: () => number };
+
+/** Deal opening queues from one `rating=` pack, or the bundled puzzles nearest that rating when offline. */
+async function prefetchNearRating(opts: RatingPrefetch & { count: number }): Promise<PrefetchResult> {
+  const { rating, count, rng = Math.random } = opts;
+  const puzzles = await fetchRatingPack(opts);
   const live = !!puzzles && puzzles.length >= 2;
   return {
-    ...splitQueues(live ? puzzles : fallbackPoolNearRating(rating), rng),
+    ...splitQueues(live ? puzzles : fallbackPoolNearRating(rating, count), rng),
     usedFallback: !live,
     themesUnavailable: false,
   };
+}
+
+/** Deal an adaptive match's opening queues: two {@link ADAPTIVE_BATCH}es around `rating`. */
+export function prefetchAdaptive(opts: RatingPrefetch): Promise<PrefetchResult> {
+  return prefetchNearRating({ ...opts, count: ADAPTIVE_BATCH * 2 });
+}
+
+/** Deal a fixed-rank bot match's opening queues: puzzles within ±{@link BOT_SPREAD} of the bot's rating. */
+export function prefetchBot(opts: RatingPrefetch): Promise<PrefetchResult> {
+  return prefetchNearRating({ spread: BOT_SPREAD, ...opts, count: START_PER_TEAM * 2 });
+}
+
+/** A fixed-rank bot refill ({@link REFILL_COUNT} near the bot's rating) split per side; null on failure. */
+export async function refillBot(
+  req: Omit<RatingPackRequest, 'count'> & { rng?: () => number },
+): Promise<{ queueA: TugPuzzle[]; queueB: TugPuzzle[] } | null> {
+  const puzzles = await fetchRatingPack({ spread: BOT_SPREAD, ...req, count: REFILL_COUNT });
+  return puzzles && splitQueues(puzzles, req.rng);
 }
 
 /** One {@link ADAPTIVE_BATCH} around the current target, split per side; null on failure. */
@@ -255,7 +274,7 @@ export async function refillAdaptive(
   return puzzles && splitQueues(puzzles, req.rng);
 }
 
-/** Offline adaptive pool: the `size` bundled puzzles rated nearest `rating`. */
+/** Offline rating pool: the `size` bundled puzzles rated nearest `rating`. */
 export function fallbackPoolNearRating(rating: number, size = ADAPTIVE_BATCH * 2): TugPuzzle[] {
   return [...TUG_PUZZLES]
     .sort((a, b) => Math.abs(a.rating - rating) - Math.abs(b.rating - rating))

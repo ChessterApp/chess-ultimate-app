@@ -2982,7 +2982,7 @@
     "bot": {
       "chooseRank": "Chesster деңгейін таңда — ойнау үшін бас",
       "rating": "Рейтинг: {rating}",
-      "speed": "Жылдамдық",
+      "stats": "≈{percent}% · ~{seconds} с бір есепке",
       "you": "Сен",
       "thinking": "ойлануда…",
       "timeLeft": "Қалған уақыт",

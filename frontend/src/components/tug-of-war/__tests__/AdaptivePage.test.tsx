@@ -76,7 +76,7 @@ describe('Tug of War page — Adaptive', () => {
     expect(trackMock).toHaveBeenCalledWith('tug_of_war_started', { mode: 'bot', botMode: 'adaptive', estimate: 1300 });
   });
 
-  it('keeps the fixed-rank start on the level band, tagged static', async () => {
+  it('deals a fixed rank puzzles within ±150 of its rating, tagged static', async () => {
     const urls: string[] = [];
     vi.stubGlobal(
       'fetch',
@@ -89,10 +89,10 @@ describe('Tug of War page — Adaptive', () => {
     fireEvent.click(screen.getByRole('radio', { name: /mode.bot.title/ }));
     fireEvent.click(screen.getByTestId('zebra-expert'));
     await waitFor(() => expect(screen.getByTestId('tug-bot-rank')).toBeTruthy());
-    expect(new URLSearchParams(urls[0].split('?')[1]).get('level')).toBe('rook');
+    const q = new URLSearchParams(urls[0].split('?')[1]);
+    expect([q.get('rating'), q.get('spread'), q.get('count'), q.has('level')]).toEqual(['1400', '150', '60', false]);
     expect(screen.queryByTestId('tug-level-meter')).toBeNull();
     expect(trackMock).toHaveBeenCalledWith('tug_of_war_started', {
-      level: 'rook',
       mode: 'bot',
       botMode: 'static',
       botLevel: 'expert',

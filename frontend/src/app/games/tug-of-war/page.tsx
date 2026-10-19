@@ -6,8 +6,8 @@
  * either runs low — so nothing repeats. The bundled TUG_PUZZLES set is the
  * offline fallback when the backend is unreachable. No auth.
  * Modes: Team vs Team (two humans) or You vs Chesster (side B is a zebra bot;
- * both sides draw from the puzzle band matching the bot's rating — or, in
- * Adaptive mode, from small rating-targeted batches that follow the player).
+ * both sides draw puzzles within ±150 of the bot's rating — or, in Adaptive
+ * mode, from small rating-targeted batches that follow the player).
  */
 
 'use client';
@@ -19,8 +19,10 @@ import MatchScreen from '@/components/tug-of-war/MatchScreen';
 import { gameReducer, initialState } from '@/lib/tug-of-war/gameReducer';
 import {
   prefetchAdaptive,
+  prefetchBot,
   prefetchPuzzles,
   refillAdaptive,
+  refillBot,
   refillQueues,
   ADAPTIVE_REFILL_THRESHOLD,
   type TugLevel,
@@ -50,7 +52,7 @@ export default function TugOfWarPage() {
   // Remember the last setup so the "retry live fetch" button can re-run it.
   const lastConfig = useRef<StartConfig | null>(null);
   // Live-pack selection of the current match; null when playing offline.
-  const live = useRef<{ level: TugLevel; themes: string[] } | 'adaptive' | null>(null);
+  const live = useRef<{ level: TugLevel; themes: string[] } | { rating: number } | 'adaptive' | null>(null);
   // Bumped per start so a late refill never lands in a newer match.
   const matchId = useRef(0);
   const refilling = useRef(false);
@@ -71,11 +73,13 @@ export default function TugOfWarPage() {
       // Adaptive: start from the saved estimate (a rematch picks up where the last match ended).
       const next: AdaptiveSession | null = adaptive ? { saved: loadAdaptive() } : null;
       const seed = next && initialAdaptive(next.saved);
-      const { queueA, queueB, usedFallback, themesUnavailable: themesMissing } =
-        seed
-          ? await prefetchAdaptive({ rating: targetRating(seed) })
+      const rating = botId ? botLevel(botId).rating : null;
+      const { queueA, queueB, usedFallback, themesUnavailable: themesMissing } = seed
+        ? await prefetchAdaptive({ rating: targetRating(seed) })
+        : rating !== null
+          ? await prefetchBot({ rating })
           : await prefetchPuzzles({ level, themes });
-      if (!usedFallback) live.current = next ? 'adaptive' : { level, themes };
+      if (!usedFallback) live.current = next ? 'adaptive' : rating !== null ? { rating } : { level, themes };
       setOffline(usedFallback);
       setThemesUnavailable(themesMissing);
       setBot(botId);
@@ -87,7 +91,7 @@ export default function TugOfWarPage() {
         seed
           ? { mode: 'bot', botMode: 'adaptive', estimate: Math.round(seed.player.estimate) }
           : botId
-            ? { level, mode: 'bot', botMode: 'static', botLevel: botId }
+            ? { mode: 'bot', botMode: 'static', botLevel: botId }
             : { level },
       );
     } finally {
@@ -111,7 +115,9 @@ export default function TugOfWarPage() {
     const exclude = [...boardA.puzzles, ...boardB.puzzles].map((p) => p.id);
     const refill = isAdaptive
       ? refillAdaptive({ rating: target ?? 0, exclude })
-      : refillQueues({ ...selection, exclude });
+      : 'rating' in selection
+        ? refillBot({ rating: selection.rating, exclude })
+        : refillQueues({ ...selection, exclude });
     void refill
       .then((deltas) => {
         if (id !== matchId.current || !deltas) return;

@@ -2982,7 +2982,7 @@
     "bot": {
       "chooseRank": "Pick Chesster's rank — tap to play",
       "rating": "Rating {rating}",
-      "speed": "Speed",
+      "stats": "≈{percent}% · ~{seconds} s per puzzle",
       "you": "You",
       "thinking": "thinking…",
       "timeLeft": "Time left",
