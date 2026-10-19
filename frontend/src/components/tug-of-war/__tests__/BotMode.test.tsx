@@ -128,6 +128,7 @@ describe('MatchScreen — bot mode', () => {
     expect(trackMock).toHaveBeenCalledWith('tug_of_war_finished', {
       winner_side: 'B',
       mode: 'bot',
+      botMode: 'static',
       botLevel: 'master',
     });
   });

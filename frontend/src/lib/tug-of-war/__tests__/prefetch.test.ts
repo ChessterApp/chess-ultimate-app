@@ -8,6 +8,13 @@ import {
   fallbackPoolWithMeta,
   prefetchPuzzles,
   refillQueues,
+  buildRatingPackUrl,
+  fetchRatingPack,
+  prefetchAdaptive,
+  refillAdaptive,
+  fallbackPoolNearRating,
+  ADAPTIVE_BATCH,
+  ADAPTIVE_REFILL_THRESHOLD,
   START_PER_TEAM,
   REFILL_COUNT,
   TUG_LEVELS,
@@ -240,5 +247,74 @@ describe('fallbackPoolWithMeta — theme honesty', () => {
 
   it('reports themes vacuously honored when none were requested', () => {
     expect(fallbackPoolWithMeta('pawn', []).themesHonored).toBe(true);
+  });
+});
+
+describe('rating-targeted packs (Adaptive)', () => {
+  const query = (url: string) => new URLSearchParams(url.split('?')[1]);
+
+  it('builds a rating= / spread= / count= URL, no level', () => {
+    const q = query(buildRatingPackUrl(1340.6, 10, ['a1', 'b2']));
+    expect(q.get('rating')).toBe('1341');
+    expect(q.get('spread')).toBe('75');
+    expect(q.get('count')).toBe('10');
+    expect(q.get('exclude')).toBe('a1,b2');
+    expect(q.has('level')).toBe(false);
+    expect(query(buildRatingPackUrl(1000, 10, [], 150)).get('spread')).toBe('150');
+  });
+
+  it('clamps the rating to the backend range', () => {
+    expect(query(buildRatingPackUrl(120, 10)).get('rating')).toBe('400');
+    expect(query(buildRatingPackUrl(3100, 10)).get('rating')).toBe('2800');
+  });
+
+  it('fetches a rating pack and drops excluded ids', async () => {
+    const { impl, urls } = mockFetch({ puzzles: [packPuzzle({ id: 'x' }), packPuzzle({ id: 'y' })] });
+    const out = await fetchRatingPack({ rating: 900, count: 10, exclude: ['x'], fetchImpl: impl });
+    expect(out?.map((p) => p.id)).toEqual(['y']);
+    expect(query(urls[0]).get('rating')).toBe('900');
+  });
+
+  it('opens with two batches of 10 split between the sides', async () => {
+    const { impl, urls } = mockFetch({ puzzles: pack(ADAPTIVE_BATCH * 2) });
+    const res = await prefetchAdaptive({ rating: 820, fetchImpl: impl, rng: () => 0.5 });
+    expect(query(urls[0]).get('count')).toBe(String(ADAPTIVE_BATCH * 2));
+    expect(res.usedFallback).toBe(false);
+    expect(res.queueA.length + res.queueB.length).toBe(ADAPTIVE_BATCH * 2);
+  });
+
+  it('refills one batch of 10 around the current target, excluding what was dealt', async () => {
+    const { impl, urls } = mockFetch({ puzzles: pack(ADAPTIVE_BATCH, 'r') });
+    const deltas = await refillAdaptive({ rating: 1150, exclude: ['p0', 'p1'], fetchImpl: impl });
+    const q = query(urls[0]);
+    expect([q.get('rating'), q.get('count'), q.get('exclude')]).toEqual(['1150', '10', 'p0,p1']);
+    expect(deltas!.queueA.length + deltas!.queueB.length).toBe(ADAPTIVE_BATCH);
+    expect(await refillAdaptive({ rating: 1150, exclude: [], fetchImpl: rejectingFetch })).toBeNull();
+  });
+
+  it('refills sooner than the fixed modes (small queues follow the target)', () => {
+    const board = (left: number) => ({ puzzles: pack(10), index: 10 - left });
+    expect(needsRefill([board(4), board(5)], ADAPTIVE_REFILL_THRESHOLD)).toBe(false);
+    expect(needsRefill([board(3), board(5)], ADAPTIVE_REFILL_THRESHOLD)).toBe(true);
+  });
+
+  it('falls back offline to the bundled puzzles nearest the rating', async () => {
+    const res = await prefetchAdaptive({ rating: 700, fetchImpl: rejectingFetch });
+    expect(res.usedFallback).toBe(true);
+    expect(res.themesUnavailable).toBe(false);
+    const dealt = [...res.queueA, ...res.queueB];
+    expect(dealt.length).toBe(ADAPTIVE_BATCH * 2);
+    const worstDealt = Math.max(...dealt.map((p) => Math.abs(p.rating - 700)));
+    const dealtIds = new Set(dealt.map((p) => p.id));
+    for (const p of TUG_PUZZLES) {
+      if (!dealtIds.has(p.id)) expect(Math.abs(p.rating - 700)).toBeGreaterThanOrEqual(worstDealt);
+    }
+  });
+
+  it('nearest-rating pool is sorted by distance and sized', () => {
+    const pool = fallbackPoolNearRating(1600, 5);
+    expect(pool).toHaveLength(5);
+    const d = pool.map((p) => Math.abs(p.rating - 1600));
+    expect(d).toEqual([...d].sort((a, b) => a - b));
   });
 });

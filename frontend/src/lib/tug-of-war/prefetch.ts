@@ -8,6 +8,9 @@
  * opponent setup move is already applied server-side) — so they are used as-is.
  * Only when the backend is unreachable do we fall back to the bundled
  * `TUG_PUZZLES` set, so the game can ALWAYS start.
+ *
+ * Adaptive bot matches instead ask for small `rating=` batches around a target
+ * that moves during the match (see adaptive.ts), refilled when a queue runs low.
  */
 
 import type { TugPuzzle } from './types';
@@ -53,6 +56,14 @@ export const START_PER_TEAM = 30;
 /** Puzzles per refill pack, split between the teams. */
 export const REFILL_COUNT = 60;
 export const DEFAULT_REQUEST_TIMEOUT_MS = 8000;
+/** Adaptive matches: puzzles per rating-targeted batch (split between the sides). */
+export const ADAPTIVE_BATCH = 10;
+/** Adaptive matches: half-width of the rating band around the target. */
+export const ADAPTIVE_SPREAD = 75;
+/** Adaptive matches refill when a side has this many unplayed puzzles left. */
+export const ADAPTIVE_REFILL_THRESHOLD = 3;
+/** The backend's accepted `rating=` range. */
+const RATING_RANGE = [400, 2800] as const;
 
 export interface PackRequest {
   level: TugLevel;
@@ -65,6 +76,11 @@ export interface PackRequest {
   /** Injectable for tests; defaults to the global fetch. */
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
+}
+
+export interface RatingPackRequest extends Omit<PackRequest, 'level' | 'themes'> {
+  rating: number;
+  spread?: number;
 }
 
 export interface PrefetchOptions extends Omit<PackRequest, 'count' | 'exclude'> {
@@ -102,6 +118,19 @@ export function buildPackUrl(
   return `${PACK_URL}?${params.toString()}`;
 }
 
+/** Build the rating-targeted pack query (rating rounded and clamped to the backend's range). */
+export function buildRatingPackUrl(
+  rating: number,
+  count: number,
+  exclude: string[] = [],
+  spread: number = ADAPTIVE_SPREAD,
+): string {
+  const r = Math.round(Math.max(RATING_RANGE[0], Math.min(RATING_RANGE[1], rating)));
+  const params = new URLSearchParams({ rating: String(r), spread: String(spread), count: String(count) });
+  if (exclude.length > 0) params.append('exclude', exclude.join(','));
+  return `${PACK_URL}?${params.toString()}`;
+}
+
 /** Validate one pack puzzle; null when it lacks what the board needs. */
 export function mapPackPuzzle(data: unknown): TugPuzzle | null {
   const p = data as Partial<TugPuzzle> | null;
@@ -125,15 +154,23 @@ export function mapPackPuzzle(data: unknown): TugPuzzle | null {
  * and never including an excluded id. An empty array means the filter ran dry.
  */
 export async function fetchPack(req: PackRequest): Promise<TugPuzzle[] | null> {
-  const {
-    level,
-    themes,
-    count,
+  return fetchPackUrl(buildPackUrl(req.level, req.themes, req.count, req.exclude), req);
+}
+
+/** {@link fetchPack} for a `rating=` pack. */
+export async function fetchRatingPack(req: RatingPackRequest): Promise<TugPuzzle[] | null> {
+  return fetchPackUrl(buildRatingPackUrl(req.rating, req.count, req.exclude, req.spread), req);
+}
+
+async function fetchPackUrl(
+  url: string,
+  {
     exclude = [],
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
     fetchImpl = fetch,
     signal,
-  } = req;
+  }: Pick<PackRequest, 'exclude' | 'timeoutMs' | 'fetchImpl' | 'signal'>,
+): Promise<TugPuzzle[] | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
@@ -142,7 +179,7 @@ export async function fetchPack(req: PackRequest): Promise<TugPuzzle[] | null> {
     else signal.addEventListener('abort', onAbort);
   }
   try {
-    const res = await fetchImpl(buildPackUrl(level, themes, count, exclude), {
+    const res = await fetchImpl(url, {
       signal: controller.signal,
     });
     if (!res.ok) return null;
@@ -191,6 +228,38 @@ export async function refillQueues(
 ): Promise<{ queueA: TugPuzzle[]; queueB: TugPuzzle[] } | null> {
   const puzzles = await fetchPack({ ...req, count: REFILL_COUNT });
   return puzzles && splitQueues(puzzles, req.rng);
+}
+
+/**
+ * Deal an adaptive match's opening queues: two {@link ADAPTIVE_BATCH}es around
+ * `rating`, or the bundled puzzles nearest that rating when offline.
+ */
+export async function prefetchAdaptive(
+  opts: Omit<RatingPackRequest, 'count' | 'exclude'> & { rng?: () => number },
+): Promise<PrefetchResult> {
+  const { rating, rng = Math.random } = opts;
+  const puzzles = await fetchRatingPack({ ...opts, count: ADAPTIVE_BATCH * 2 });
+  const live = !!puzzles && puzzles.length >= 2;
+  return {
+    ...splitQueues(live ? puzzles : fallbackPoolNearRating(rating), rng),
+    usedFallback: !live,
+    themesUnavailable: false,
+  };
+}
+
+/** One {@link ADAPTIVE_BATCH} around the current target, split per side; null on failure. */
+export async function refillAdaptive(
+  req: Omit<RatingPackRequest, 'count'> & { rng?: () => number },
+): Promise<{ queueA: TugPuzzle[]; queueB: TugPuzzle[] } | null> {
+  const puzzles = await fetchRatingPack({ ...req, count: ADAPTIVE_BATCH });
+  return puzzles && splitQueues(puzzles, req.rng);
+}
+
+/** Offline adaptive pool: the `size` bundled puzzles rated nearest `rating`. */
+export function fallbackPoolNearRating(rating: number, size = ADAPTIVE_BATCH * 2): TugPuzzle[] {
+  return [...TUG_PUZZLES]
+    .sort((a, b) => Math.abs(a.rating - rating) - Math.abs(b.rating - rating))
+    .slice(0, size);
 }
 
 export interface FallbackPoolResult {

@@ -208,6 +208,26 @@ describe('useTugBot', () => {
     expect(onSolved).toHaveBeenCalledTimes(1);
   });
 
+  it('follows a changing (adaptive) level without restarting the puzzle', () => {
+    const onSolved = vi.fn();
+    const slow = { ...level, rating: 700, secondsPerMove: 14 };
+    const fast = { ...level, id: 'junior' as const, rating: 900, secondsPerMove: 3 };
+    const hook = renderHook(
+      (props: { lv: typeof level }) =>
+        useTugBot({ level: props.lv, puzzle: MATE_IN_2, round: 0, active: true, onSolved, onWrong: vi.fn(), rng: () => 0 }),
+      { initialProps: { lv: slow } },
+    );
+    act(() => vi.advanceTimersByTime(14_000 * 0.75)); // first move at the slow pace (rng 0 → −25%)
+    expect(hook.result.current.lastMove).toEqual(['c1', 'c8']);
+    hook.rerender({ lv: fast }); // rank and speed change mid-puzzle
+    act(() => vi.advanceTimersByTime(BOT_REPLY_DELAY_MS));
+    expect(hook.result.current.lastMove).toEqual(['e7', 'e8']); // same puzzle, not reset
+    act(() => vi.advanceTimersByTime(3000 * 0.75 - 1)); // second think uses the fast pace
+    expect(onSolved).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onSolved).toHaveBeenCalledTimes(1);
+  });
+
   it('stays still while inactive (match over) and cleans up on unmount', () => {
     const { onSolved, rerender, unmount } = setup(MATE_IN_1, () => 0, false);
     act(() => vi.advanceTimersByTime(60_000));

@@ -2998,6 +2998,21 @@
         "expert": "Expert Zebra",
         "master": "Master Zebra",
         "grandmaster": "Grandmaster Zebra"
+      },
+      "fixed": "Fixed level"
+    },
+    "adaptive": {
+      "title": "Adaptive — Find my level",
+      "desc": "Chesster gets stronger as you win and eases off when you slip, until it finds your level.",
+      "lastTime": "Last time ≈ {rating}",
+      "level": "Lv {level}",
+      "meterAria": "Chesster level {level} of {max}",
+      "tryFixed": "Try fixed level",
+      "result": {
+        "level": "Your puzzle level ≈ {rating}",
+        "speed": "speed ≈ {seconds} s/puzzle",
+        "peak": "peak zebra beaten: {rank}",
+        "noPeak": "none yet"
       }
     }
   },

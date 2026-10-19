@@ -5,6 +5,8 @@
  * chess.js copy, waits a jittered think time per move, rolls each attempt via
  * {@link pickBotMove}, and reports the same `onSolved` / `onWrong` a human
  * board does. Scripted opponent replies follow the human board's flow. The
+ * level may change mid-puzzle (Adaptive mode moves rating/speed after every
+ * rope swing): each think and roll reads the latest one. The
  * pending timer pauses while the tab is hidden or the bot is inactive (match
  * over), and is cancelled on unmount.
  */
@@ -35,7 +37,7 @@ export interface BotView {
 }
 
 interface UseTugBotOptions {
-  /** Null when not in bot mode (the hook stays idle). */
+  /** Null when not in bot mode (the hook stays idle). Fixed (static) or changing (adaptive). */
   level: BotLevel | null;
   puzzle: TugPuzzle | null;
   /** Board pointer; a change means a fresh puzzle even if the id repeats. */
@@ -84,12 +86,13 @@ export function useTugBot({
 
     const think = () => {
       show(true);
-      timer.schedule(attempt, botDelayMs(level, latest.current.rng));
+      const { level: now, rng: roll } = latest.current;
+      timer.schedule(attempt, botDelayMs(now ?? level, roll));
     };
 
     const attempt = () => {
-      const { rng: roll, onSolved: solved, onWrong: wrong } = latest.current;
-      const p = solveProbability(level.rating, puzzle.rating);
+      const { level: now, rng: roll, onSolved: solved, onWrong: wrong } = latest.current;
+      const p = solveProbability((now ?? level).rating, puzzle.rating);
       const pick = pickBotMove(chess.fen(), puzzle.moves, idx, p, roll);
 
       if (!pick.correct) {
@@ -126,7 +129,7 @@ export function useTugBot({
     think();
     return () => timer.cancel();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [level?.id, puzzle?.id, round]);
+  }, [!!level, puzzle?.id, round]);
 
   // Pause while inactive or the tab is hidden; resume where it left off.
   useEffect(() => {

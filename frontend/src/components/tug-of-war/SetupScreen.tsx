@@ -1,17 +1,19 @@
 /**
  * SetupScreen — pick a mode first. Team vs Team: team names, difficulty band
- * and theme picker, then Start. You vs Chesster: tapping one of six zebra rank
- * cards starts the match straight away, on the puzzle band of that rank.
+ * and theme picker, then Start. You vs Chesster: the Adaptive "Find my level"
+ * card (shows the last saved estimate) or one of six fixed zebra rank cards
+ * starts the match straight away — a fixed rank plays on its puzzle band.
  * Selections drive the live puzzle prefetch (see lib/tug-of-war/prefetch.ts).
  */
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslations, useLocale } from 'next-intl';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { TUG_LEVELS, TUG_THEMES, type TugLevel } from '@/lib/tug-of-war/prefetch';
 import { BOT_LEVELS, botPuzzleLevel, type BotLevel, type BotLevelId } from '@/lib/tug-of-war/bot';
+import { loadAdaptive } from '@/lib/tug-of-war/adaptive';
 
 const ZEBRA_SRC = '/static/images/chesster-logo-v3.png';
 const FASTEST_SECONDS = Math.min(...BOT_LEVELS.map((l) => l.secondsPerMove));
@@ -23,6 +25,8 @@ export interface StartConfig {
   themes: string[];
   /** Set in You vs Chesster mode: the zebra rank playing side B. */
   bot?: BotLevelId;
+  /** You vs Chesster, Adaptive: the zebra's rank follows the player (`level` unused). */
+  adaptive?: true;
 }
 
 interface SetupScreenProps {
@@ -48,7 +52,13 @@ export default function SetupScreen({
   const [level, setLevel] = useState<TugLevel>('knight');
   const [themes, setThemes] = useState<string[]>([]);
   const [mode, setMode] = useState<'team' | 'bot'>(initialBot ? 'bot' : 'team');
-  const [pickedBot, setPickedBot] = useState<BotLevelId | null>(initialBot);
+  const [pickedBot, setPickedBot] = useState<BotLevelId | 'adaptive' | null>(initialBot);
+  // Read after mount so SSR and the first client render agree.
+  const [lastEstimate, setLastEstimate] = useState<number | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLastEstimate(loadAdaptive()?.estimate ?? null);
+  }, []);
 
   const startBot = (l: BotLevel) => {
     if (loading) return;
@@ -60,6 +70,13 @@ export default function SetupScreen({
       themes: [],
       bot: l.id,
     });
+  };
+
+  const startAdaptive = () => {
+    if (loading) return;
+    setPickedBot('adaptive');
+    // The brand name isn't translated; the badge shows the live rank. `level` is unused.
+    onStart({ teamA: t('bot.you'), teamB: 'Chesster', level: 'knight', themes: [], adaptive: true });
   };
 
   const toggleTheme = (tag: string) =>
@@ -105,7 +122,16 @@ export default function SetupScreen({
 
       {mode === 'bot' ? (
         <section className="w-full rounded-2xl border border-white/10 bg-white/5 p-6 sm:p-8">
-          <h2 className="mb-3 text-sm font-semibold text-white/70">{t('bot.chooseRank')}</h2>
+          <AdaptiveCard
+            title={t('adaptive.title')}
+            desc={t('adaptive.desc')}
+            last={lastEstimate === null ? null : t('adaptive.lastTime', { rating: lastEstimate })}
+            busy={loading && pickedBot === 'adaptive'}
+            disabled={loading}
+            onPick={startAdaptive}
+          />
+          <h2 className="mb-1 mt-6 text-sm font-bold uppercase tracking-wider text-white/50">{t('bot.fixed')}</h2>
+          <p className="mb-3 text-sm font-semibold text-white/70">{t('bot.chooseRank')}</p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {BOT_LEVELS.map((l) => (
               <ZebraCard
@@ -221,6 +247,51 @@ export default function SetupScreen({
         </ul>
       </div>
     </div>
+  );
+}
+
+function AdaptiveCard({
+  title,
+  desc,
+  last,
+  busy,
+  disabled,
+  onPick,
+}: {
+  title: string;
+  desc: string;
+  last: string | null;
+  busy: boolean;
+  disabled: boolean;
+  onPick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      disabled={disabled}
+      data-testid="zebra-adaptive"
+      className="flex w-full items-center gap-4 rounded-2xl border border-white/30 bg-gradient-to-r from-emerald-400/15 via-sky-400/10 to-rose-400/15 p-4 text-left transition hover:border-white/60 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 sm:p-5"
+    >
+      <span
+        className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white p-1 sm:h-20 sm:w-20"
+        style={{ boxShadow: `0 0 0 4px ${BOT_LEVELS[0].color}, 0 0 0 8px ${BOT_LEVELS[BOT_LEVELS.length - 1].color}` }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={ZEBRA_SRC} alt="" aria-hidden="true" className="h-full w-full object-contain" draggable={false} />
+        {busy && (
+          <span
+            className="absolute inset-0 animate-spin rounded-full border-2 border-transparent border-t-white"
+            aria-hidden
+          />
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className="text-xl font-black leading-tight">{title}</span>
+        <span className="text-sm text-white/70">{desc}</span>
+        {last && <span className="text-sm font-bold tabular-nums text-emerald-200">{last}</span>}
+      </span>
+    </button>
   );
 }
 

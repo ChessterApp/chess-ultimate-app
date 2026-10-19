@@ -77,6 +77,29 @@ describe('tugOfWar namespace i18n', () => {
     }
   });
 
+  it('has the Adaptive mode strings with their placeholders in every locale', () => {
+    const placeholders: Record<string, string[]> = {
+      'bot.fixed': [],
+      'adaptive.title': [],
+      'adaptive.desc': [],
+      'adaptive.lastTime': ['{rating}'],
+      'adaptive.level': ['{level}'],
+      'adaptive.meterAria': ['{level}', '{max}'],
+      'adaptive.tryFixed': [],
+      'adaptive.result.level': ['{rating}'],
+      'adaptive.result.speed': ['{seconds}'],
+      'adaptive.result.peak': ['{rank}'],
+      'adaptive.result.noPeak': [],
+    };
+    for (const [locale, messages] of Object.entries(locales)) {
+      const flat = flatten(messages.tugOfWar ?? {});
+      for (const [key, vars] of Object.entries(placeholders)) {
+        expect(flat[key], `${locale}.tugOfWar.${key} missing`).toBeTruthy();
+        for (const v of vars) expect(flat[key], `${locale}.tugOfWar.${key} must interpolate ${v}`).toContain(v);
+      }
+    }
+  });
+
   it('has four how-to-play bullet lines in every locale', () => {
     for (const [locale, messages] of Object.entries(locales)) {
       const how = (messages.tugOfWar as { how?: unknown })?.how;

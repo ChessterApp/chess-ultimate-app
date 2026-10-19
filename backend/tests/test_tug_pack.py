@@ -140,6 +140,80 @@ def test_bad_params_400(client, query):
     assert client.get(f'/api/puzzles/tug/pack?{query}').status_code == 400
 
 
+def test_pack_rating_band_respected(source):
+    puzzles = tug_pack.pack_rating(1340, 75, count=10, source=source, rng=random.Random(6))
+    assert len(puzzles) == 10
+    assert all(1265 <= p['rating'] <= 1415 for p in puzzles)
+
+
+def test_rating_band_clamped():
+    assert tug_pack.rating_band(420, 75) == (400, 495)
+    assert tug_pack.rating_band(2790, 100) == (2690, 2800)
+
+
+def test_level_pack_delegates_to_band(source):
+    a = tug_pack.pack('knight', count=15, source=source, rng=random.Random(7))
+    b = tug_pack.pack_band(800, 1200, count=15, source=source, rng=random.Random(7))
+    assert ids(a) == ids(b)
+
+
+def test_pack_rating_widens_when_band_runs_dry(source):
+    # 1000±25 holds 11 fixture puzzles; widening ×2 (50, 100) fills a pack of 30 without repeats.
+    puzzles = tug_pack.pack_rating(1000, 25, count=30, source=source, rng=random.Random(8))
+    assert len(puzzles) == 30
+    assert len(set(ids(puzzles))) == 30
+    assert all(900 <= p['rating'] <= 1100 for p in puzzles)
+    assert sum(975 <= p['rating'] <= 1025 for p in puzzles) == 11  # narrow band drained first
+
+
+def test_pack_rating_widens_at_most_three_times(source):
+    # 25 → 50 → 100 → 200: at most 1000±200 = 81 puzzles, never the whole DB.
+    puzzles = tug_pack.pack_rating(1000, 25, count=120, source=source, rng=random.Random(9))
+    assert len(puzzles) == 81
+    assert all(800 <= p['rating'] <= 1200 for p in puzzles)
+
+
+def test_pack_rating_honours_themes_and_exclude(source):
+    first = tug_pack.pack_rating(1500, 75, ['fork'], count=5, source=source, rng=random.Random(10))
+    assert all('fork' in p['themes'] for p in first)
+    second = tug_pack.pack_rating(1500, 75, ['fork'], count=5, exclude=ids(first), source=source,
+                                  rng=random.Random(10))
+    assert not set(ids(first)) & set(ids(second))
+
+
+def test_endpoint_rating_pack(client):
+    res = client.get('/api/puzzles/tug/pack?rating=1340&spread=50&count=10')
+    assert res.status_code == 200
+    puzzles = res.get_json()['puzzles']
+    assert len(puzzles) == 10
+    assert all(1290 <= p['rating'] <= 1390 for p in puzzles)
+
+
+def test_endpoint_rating_default_spread(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(tug_pack, 'pack_rating',
+                        lambda rating, spread, themes, count, exclude: seen.update(r=rating, s=spread, c=count) or [])
+    assert client.get('/api/puzzles/tug/pack?rating=900&count=10').status_code == 200
+    assert seen == {'r': 900, 's': tug_pack.DEFAULT_SPREAD, 'c': 10}
+
+
+@pytest.mark.parametrize('query,error', [
+    ('level=pawn&rating=900', 'invalid_params'),
+    ('spread=75', 'invalid_params'),
+    ('rating=abc', 'invalid_rating'),
+    ('rating=399', 'invalid_rating'),
+    ('rating=2801', 'invalid_rating'),
+    ('rating=900&spread=24', 'invalid_spread'),
+    ('rating=900&spread=401', 'invalid_spread'),
+    ('rating=900&spread=x', 'invalid_spread'),
+    ('rating=900&count=0', 'invalid_count'),
+])
+def test_rating_bad_params_400(client, query, error):
+    res = client.get(f'/api/puzzles/tug/pack?{query}')
+    assert res.status_code == 400
+    assert res.get_json()['error'] == error
+
+
 def test_db_opened_read_only(source):
     with pytest.raises(sqlite3.OperationalError):
         source._conn().execute("INSERT INTO puzzle_themes VALUES ('x', 'fork', 500)")
