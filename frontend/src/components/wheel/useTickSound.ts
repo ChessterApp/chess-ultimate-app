@@ -18,27 +18,58 @@ function getAudioCtor(): AudioCtor | null {
 export function useTickSound() {
   const ctxRef = useRef<AudioContext | null>(null);
 
-  const ensureCtx = useCallback((): AudioContext | null => {
+  /**
+   * Create + unlock the AudioContext. Must be called from inside a real user
+   * gesture (the spin tap). iOS/WebKit only unlocks output when a sound actually
+   * starts during the gesture — resume() alone leaves the context suspended and
+   * every later rAF-driven tick() would be dropped. Mirrors TugSound.unlock().
+   *
+   * Returns `true` only when the context is `running` afterwards; safe to call
+   * on every spin (each tap is another chance to unlock).
+   */
+  const ensureCtx = useCallback((): boolean => {
+    // Declare the iOS audio session so Web Audio ignores the silent switch.
+    try {
+      const nav = navigator as Navigator & { audioSession?: { type: string } };
+      if (nav.audioSession) nav.audioSession.type = 'playback';
+    } catch {
+      /* not supported — ignore */
+    }
     const Ctor = getAudioCtor();
-    if (!Ctor) return null;
+    if (!Ctor) return false;
     if (!ctxRef.current) {
       try {
         ctxRef.current = new Ctor();
       } catch {
-        return null;
+        return false;
       }
     }
+    const ctx = ctxRef.current;
     // Autoplay policies suspend the context until a user gesture; resume on use.
-    if (ctxRef.current.state === 'suspended') {
-      void ctxRef.current.resume();
+    if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
+    // Play a 1-frame silent buffer inside the gesture to force-unlock WebKit.
+    try {
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* createBuffer/start can throw on a closed context — ignore */
     }
-    return ctxRef.current;
+    return ctx.state === 'running';
   }, []);
 
   /** Play a short percussive click. */
   const tick = useCallback(() => {
     const ctx = ctxRef.current;
-    if (!ctx || ctx.state !== 'running') return;
+    if (!ctx) return;
+    if (ctx.state !== 'running') {
+      // Still locked — nudge it rather than giving up for the whole spin. Skip
+      // this click so ticks don't queue up and burst out once it resumes.
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
+      return;
+    }
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
