@@ -1538,6 +1538,14 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(one).not.toContain('lined up');
   });
 
+  it('a question about the present goes to current_facts and its note reaches the model (20.10)', async () => {
+    const { factsNote } = await import('@/lib/coach/voice-game');
+    expect(factsNote({ note: '[Facts] ## Verified current facts (Wikipedia, fetched today 2026-10-20) - World Chess Championship: The current world champion is Gukesh Dommaraju…' }))
+      .toContain('Gukesh Dommaraju');
+    expect(factsNote({ sources: [] })).toBeNull();
+    expect(factsNote(null)).toBeNull();
+  });
+
   it("an opening the programme teaches carries the lesson's words", async () => {
     const { openingNote } = await import('../useGeminiLive');
     const note = openingNote({ found: true, name: 'Scotch Game', note: 'Line 1.e4 e5 2.Nf3 Nc6 3.d4.', programme_lesson: { step: 5, lesson: '61', title: 'Шотландская партия', text: 'Шотландская партия относится к открытым дебютам…', parts: [{ title: 'Шотландская Партия (Продолжение)' }] } });

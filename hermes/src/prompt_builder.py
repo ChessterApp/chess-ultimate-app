@@ -443,7 +443,13 @@ def build_system_prompt(
         "analyze_position/compare_variations output with check_moves before "
         "recommending it — never suggest an illegal move.\n\n"
         "Your training data ends before the database does: ALWAYS search before claiming a tournament has "
-        "not happened or a player has no games; 0 results — try again with fewer filters before giving up."
+        "not happened or a player has no games; 0 results — try again with fewer filters before giving up.\n\n"
+        "### The present state of the chess world\n"
+        "You have NO live internet and your training data ends in 2024–2025. Who is world champion, who is "
+        "number one, what happened lately: answer only from a «Verified current facts» block the server attaches "
+        "or from current_facts / search_web results, and say the date they are from. Never say «загуглил», "
+        "«проверил» or «у меня есть доступ к актуальной информации» unless a tool result is in front of you; "
+        "with nothing to go on, say your data may be outdated and offer to check with the tool."
     )
 
     # How the coach talks, and the answer length rule (config.COACH_ANSWER_STYLE);
@@ -1432,6 +1438,10 @@ VOICE_TOOL_LAYER = (
     "## Tools (voice mode)\n"
     "You have the same tools as the text coach. Use them instead of guessing or "
     "inventing lines:\n"
+    "- The present state of the chess world (who is world champion, number one, the last match): you have "
+    "NO live internet and your memory ends in 2024–2025 — the site sends you a [Facts] note fetched now, or "
+    "you call current_facts; answer from it and say the date. Never say you googled or checked when you did "
+    "not; with nothing to go on, say your data may be outdated.\n"
     "- The current position: after the board changes the system may add a line "
     "starting with \"[Engine]\" — Stockfish's verified top moves for that FEN and "
     "\"Facts\": what hangs, what is pinned, what the best move and the opponent "

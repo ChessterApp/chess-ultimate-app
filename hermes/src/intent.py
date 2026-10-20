@@ -49,8 +49,9 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
     """{"kind": …, …} — what *text* asks for, in the order a coach would hear it:
 
     game_command (resign / takeback / draw / restart), game_request (color, elo), move (san) or idea (in a
-    game), puzzle (theme), review (side), famous_game (key), opening (name), board (a question about the
-    position in front of the student — nothing replaces it), concept (topic), none.
+    game), fact (the present state of the chess world — champion, ratings), puzzle (theme), review (side),
+    famous_game (key), opening (name), board (a question about the position in front of the student —
+    nothing replaces it), concept (topic), none.
     """
     from src.board_lock import _WANTS_NEW_PUZZLE, _board_lock_level
     from src.game_intent import game_command, game_request, game_wish, is_idea
@@ -89,6 +90,12 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
                 if san:
                     return {"kind": "move", "san": san}
         return {"kind": "none"}  # the board is the game's: no example, no puzzle goes up
+    from src.current_facts import asks_current_facts
+
+    if asks_current_facts(t):
+        # «кто сейчас чемпион мира?»: the site fetches the facts now (current_facts) — the voice model's
+        # memory ends before Gukesh (Alexander's screenshot, 20.10).
+        return {"kind": "fact"}
     theme_m = _PUZZLE_ON.search(t)
     if _WANTS_NEW_PUZZLE.search(t) or theme_m or (_SOLVE.search(t) and not puzzle_on_board):
         return {"kind": "puzzle", "theme": theme_m["theme"].strip() if theme_m else None}

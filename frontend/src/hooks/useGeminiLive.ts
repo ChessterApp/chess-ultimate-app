@@ -19,8 +19,7 @@ import {
   gameStartNote,
   mayAskForAGame,
   mayCommandTheGame,
-  mentionsAGame,
-} from '@/lib/coach/voice-game';
+  mentionsAGame, factsNote } from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -36,7 +35,7 @@ export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'err
 /** What the student's words ask for, as Hermes reads them (src/intent.py). */
 export interface VoiceIntent {
   kind: 'game_command' | 'game_request' | 'move' | 'idea' | 'puzzle' | 'review' | 'famous_game' | 'opening'
-    | 'board' | 'concept' | 'none';
+    | 'board' | 'concept' | 'fact' | 'none';
   san?: string;
   moves?: string[];
   command?: string;
@@ -1492,6 +1491,10 @@ export default function useGeminiLive(
           return;
         case 'famous_game':
           if (await siteToolCall('famous_game', { text }, session, famousNote)) conceptDoneRef.current = true;
+          return;
+        case 'fact':
+          // «кто сейчас чемпион мира?»: fetched now from Wikipedia — the model's memory ends before Gukesh (20.10).
+          await siteToolCall('current_facts', { question: text }, session, factsNote);
           return;
         case 'opening':
           conceptDoneRef.current = true;

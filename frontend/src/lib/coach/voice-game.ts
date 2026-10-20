@@ -56,6 +56,12 @@ export function famousNote(result: { found?: boolean; facts?: string } | null): 
   return `[Game record] ${result.facts}`.replace(/\s+/g, ' ').trim();
 }
 
+/** The present state of the chess world, fetched now by Hermes (current_facts): the note the voice model answers from. */
+export function factsNote(result: { note?: string; sources?: unknown[] } | null): string | null {
+  if (!result?.note) return null;
+  return String(result.note).replace(/\s+/g, ' ').trim();
+}
+
 /** Words that may ask for a game («давай сыграем», «спорим, я тебя обыграю», "let's play"): Hermes decides. */
 export function mayAskForAGame(text: string): boolean {
   return /сыгра|поигра|партейк|обыгра|спорим|play|ойна/i.test(text || '');

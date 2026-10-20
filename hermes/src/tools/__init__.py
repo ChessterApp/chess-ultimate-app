@@ -20,7 +20,7 @@ TOOLSET = "chess"
 # Imported here so the toolset is complete from startup — otherwise
 # link_platform / sync_ratings appeared only after the first text chat
 # imported the module, and a voice session minted before it lacked them.
-EXTRA_TOOL_MODULES = ("src.platform_linking",)
+EXTRA_TOOL_MODULES = ("src.platform_linking", "src.current_facts")
 
 
 def discover_and_register() -> list[str]:

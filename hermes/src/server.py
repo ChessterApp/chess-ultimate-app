@@ -1956,6 +1956,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         rules_note = rules_block(body.message)
     except Exception:  # noqa: BLE001
         rules_note = ""
+    # The present state of the chess world («кто сейчас чемпион мира?»), fetched now from Wikipedia — the
+    # model's memory ends before Gukesh (src/current_facts.py; Alexander's screenshot, 20.10).
+    facts_note = ""
+    try:
+        from src.current_facts import asks_current_facts, current_facts, facts_block
+
+        if asks_current_facts(body.message):
+            facts_note = facts_block(await asyncio.to_thread(current_facts, body.message))
+    except Exception:  # noqa: BLE001
+        facts_note = ""
     _mark("opening")
     # Under load (several students' engines at work) the searches are shorter, so
     # the lines are ready within the wait instead of missing it altogether.
@@ -2422,6 +2432,8 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{puzzle_note}"
                 if rules_note:
                     message = f"{message}\n\n{rules_note}"
+                if facts_note:
+                    message = f"{message}\n\n{facts_note}"
                 if endgame:
                     # The textbook endgame with the engine's look at its position (shown or hidden).
                     old_board_blocks.append(endgame_block(endgame, note['note'] if note else None, endgame['shown']))
