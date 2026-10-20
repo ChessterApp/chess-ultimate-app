@@ -282,6 +282,11 @@ COACH_OPENING_PRESTEP = _env_flag("COACH_OPENING_PRESTEP", True)
 # analysed on a second board the student does not see; their own position stays. Kill switch and
 # the engine's time per hidden position.
 COACH_HIDDEN_BOARD = _env_flag("COACH_HIDDEN_BOARD", True)
+# The model goes online for a question about the present («кто сейчас чемпион мира?»): OpenRouter's web
+# plugin by the model-id suffix (src/current_facts.web_model; Asan's choice, 20.10 — about $0.02 a turn,
+# only on such turns). Kill switch and the suffix.
+COACH_WEB_ONLINE = _env_flag("COACH_WEB_ONLINE", True)
+COACH_WEB_ONLINE_SUFFIX = os.environ.get("COACH_WEB_ONLINE_SUFFIX", ":online")
 COACH_HIDDEN_BOARD_MOVETIME_MS = int(os.environ.get("COACH_HIDDEN_BOARD_MOVETIME_MS", "400"))
 # A game asked for in words, or the student's move written on its own during a game: the server
 # starts the game / plays the move before the model answers (src/game_intent.py, 2026-10-12).

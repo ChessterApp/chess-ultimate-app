@@ -146,3 +146,51 @@ def test_search_web_asks_wikipedia_first(monkeypatch):
     monkeypatch.setattr(ws.httpx, "get", _get)
     results = ws.search_web("current world chess champion")
     assert results and results[0]["source"] == "wikipedia-en" and "Gukesh" in results[0]["snippet"]
+
+
+# ── the model goes online for such a turn (OpenRouter `:online`, Asan's choice 20.10) ───────────────
+
+def test_the_model_goes_online_only_for_a_question_about_the_present(monkeypatch):
+    from src import config
+
+    monkeypatch.setattr(config, "COACH_WEB_ONLINE", True)
+    monkeypatch.setattr(config, "COACH_WEB_ONLINE_SUFFIX", ":online")
+    assert cf.web_model("deepseek/deepseek-v4.1-flash", "кто сейчас чемпион мира?") == "deepseek/deepseek-v4.1-flash:online"
+    assert cf.web_model("deepseek/deepseek-v4.1-flash:online", "кто сейчас чемпион мира?") == "deepseek/deepseek-v4.1-flash:online"
+    assert cf.web_model("deepseek/deepseek-v4.1-flash", "что такое вилка") == "deepseek/deepseek-v4.1-flash"
+    monkeypatch.setattr(config, "COACH_WEB_ONLINE", False)
+    assert cf.web_model("deepseek/deepseek-v4.1-flash", "кто сейчас чемпион мира?") == "deepseek/deepseek-v4.1-flash"
+
+
+def test_the_turn_takes_the_online_model_and_its_fallback_online(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from fastapi.testclient import TestClient
+
+    from src import config, server
+    from src.user_profile import UserProfile
+
+    monkeypatch.setattr(cf, "fetch_intro", _fetch_ok)
+    monkeypatch.setattr(config, "COACH_WEB_ONLINE", True)
+    monkeypatch.setattr(config, "COACH_WEB_ONLINE_SUFFIX", ":online")
+    client = TestClient(app := server.app)
+    user = {"X-User-Id": "online-user"}
+    sid = client.post("/api/coach/sessions", headers=user).json()["id"]
+    seen = {}
+    with patch("src.server._create_agent") as mock_agent, patch("src.server.load_user_profile") as mock_profile:
+        mock_profile.return_value = UserProfile(user_id="online-user")
+        agent = MagicMock()
+        agent.chat.side_effect = lambda message, stream_callback=None: (stream_callback("Гукеш.") if stream_callback else None) or "Гукеш."
+        mock_agent.return_value = agent
+        for text in ("Кто сейчас чемпион мира по шахматам?", "что такое вилка?"):
+            client.post("/api/coach/chat", headers=user, json={"message": text, "session_id": sid, "fen": START})
+            seen[text] = mock_agent.call_args.kwargs.get("model")
+    assert seen["Кто сейчас чемпион мира по шахматам?"].endswith(":online")
+    assert not seen["что такое вилка?"].endswith(":online")
+    monkeypatch.setattr(config, "COACH_MODEL_FALLBACK_ENABLED", True)
+    fb = server._turn_fallback_model("deepseek/deepseek-v4.1-flash:online")
+    assert fb is None or fb.endswith(":online")
+    plain = server._turn_fallback_model("deepseek/deepseek-v4.1-flash")
+    assert plain is None or not plain.endswith(":online")
+    assert app is server.app
+

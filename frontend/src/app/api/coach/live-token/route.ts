@@ -56,6 +56,10 @@ function liveThinkingBudget(raw = process.env.COACH_LIVE_THINKING_BUDGET): numbe
 }
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
+// Google Search in the voice session (Asan's choice, 20.10): the model looks up people, events and news itself —
+// the prompt forbids it for moves and positions. COACH_VOICE_GOOGLE_SEARCH=0 turns it off; a mint the API
+// refuses with it is retried without it, so voice never breaks because of search.
+const voiceGoogleSearch = () => (process.env.COACH_VOICE_GOOGLE_SEARCH ?? '1').trim() !== '0';
 
 // Voice persona, aligned with the Hermes text coach (profiles/chess-coach/SOUL.md):
 // the same Chesster coach — Socratic, ask-before-telling, direct and encouraging —
@@ -129,7 +133,9 @@ language — never an English phrase in a Russian or Kazakh conversation.`;
 // Appended when tools are available, so the voice coach uses them instead of guessing.
 const COACH_TOOL_GUIDANCE = `
 
-You have tools. Use board_control to demonstrate ideas directly on the board — set positions, draw arrows,
+You have tools. Google Search (when available) is for people, events and news only — never for moves,
+positions or openings; say what you found and from when, and never claim you searched when you did not.
+Use board_control to demonstrate ideas directly on the board — set positions, draw arrows,
 highlight squares, or step through moves as you explain. Use the engine and database tools (analyze the position,
 search master games, opening and position stats) instead of guessing or inventing lines. Call a tool when it
 makes your point concrete; keep talking naturally while you do.
@@ -617,15 +623,19 @@ export async function POST(request: Request) {
         },
       };
     }
-    if (functionDeclarations.length > 0) {
-      liveConfig.tools = [{ functionDeclarations }];
+    const withSearch = voiceGoogleSearch();
+    const liveTools: unknown[] = [];
+    if (functionDeclarations.length > 0) liveTools.push({ functionDeclarations });
+    if (withSearch) liveTools.push({ googleSearch: {} });
+    if (liveTools.length > 0) {
+      liveConfig.tools = liveTools;
     }
     const thinkingBudget = liveThinkingBudget();
     if (thinkingBudget !== null) {
       liveConfig.thinkingConfig = { thinkingBudget };
     }
 
-    const token = await ai.authTokens.create({
+    const mint = () => ai.authTokens.create({
       config: {
         uses: 1,
         expireTime,
@@ -637,6 +647,17 @@ export async function POST(request: Request) {
         httpOptions: { apiVersion: 'v1alpha' },
       },
     });
+    let token;
+    try {
+      token = await mint();
+    } catch (err) {
+      if (!withSearch || !Array.isArray(liveConfig.tools)) throw err;
+      // The API refused the package with Google Search in it: mint again without it (the tools stay).
+      console.warn('[live-token] mint with googleSearch failed, retrying without it:', err);
+      const withoutSearch = (liveConfig.tools as unknown[]).filter((t) => !(t && typeof t === 'object' && 'googleSearch' in (t as object)));
+      if (withoutSearch.length > 0) liveConfig.tools = withoutSearch; else delete liveConfig.tools;
+      token = await mint();
+    }
 
     return jsonResponse(
       {

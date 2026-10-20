@@ -821,7 +821,12 @@ def _turn_fallback_model(routed_model: str) -> Optional[str]:
     """Fallback for this turn, or ``None`` when failover is switched off."""
     if not config.COACH_MODEL_FALLBACK_ENABLED:
         return None
-    return fallback_model_for(routed_model)
+    suffix = config.COACH_WEB_ONLINE_SUFFIX or ""
+    online = bool(suffix) and (routed_model or "").endswith(suffix)
+    base = routed_model[: -len(suffix)] if online else routed_model
+    fallback = fallback_model_for(base)
+    # A turn that went online stays online on its fallback (the question is about the present).
+    return f"{fallback}{suffix}" if fallback and online and not fallback.endswith(suffix) else fallback
 
 
 def _hedge_state(agent) -> dict:
@@ -1258,6 +1263,14 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 
     # Route model based on query complexity
     model = _resolve_model(body.model, user_message)
+    # «Кто сейчас чемпион мира?»: the model goes online for this turn (OpenRouter's web plugin), beside the
+    # Wikipedia block of src/current_facts.py (Asan's choice, 20.10).
+    try:
+        from src.current_facts import web_model
+
+        model = web_model(model, user_message)
+    except Exception:  # noqa: BLE001
+        pass
 
     # Capture the raw current message before history is prepended — tool
     # subsetting scores keyword relevance and prepended history would dilute it.
@@ -1809,6 +1822,14 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     tiers = _model_config.get("tiers", {})
     route = explain_route(body.message, tiers, _model_config["default"])
     model = route["model"]
+    # «Кто сейчас чемпион мира?»: the model goes online for this turn (OpenRouter's web plugin), beside the
+    # Wikipedia block of src/current_facts.py (Asan's choice, 20.10).
+    try:
+        from src.current_facts import web_model
+
+        model = web_model(model, body.message)
+    except Exception:  # noqa: BLE001
+        pass
 
     msg_extra = {"turn_id": turn_id, "model": model, "prompt_version": prompt_version}
     evt_ctx = {"user_id": user_id, "turn_id": turn_id, "surface": "text", "model": model}

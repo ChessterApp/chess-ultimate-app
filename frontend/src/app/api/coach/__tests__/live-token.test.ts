@@ -221,9 +221,45 @@ describe('POST /api/coach/live-token', () => {
 
     expect(response.status).toBe(200);
     const config = configFromMint();
-    // 3.1 gets the declarations as production had them before 2026-09-28: no behavior field.
-    expect(config.tools).toEqual([{ functionDeclarations: decls }]);
+    // 3.1 gets the declarations as production had them before 2026-09-28: no behavior field; Google Search
+    // comes first (Asan's choice, 20.10).
+    expect(config.tools).toEqual([{ functionDeclarations: decls }, { googleSearch: {} }]);
     expect(config.systemInstruction).toContain('You have tools.');
+  });
+
+  it('COACH_VOICE_GOOGLE_SEARCH=0 leaves Google Search out of the token', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    process.env.COACH_VOICE_GOOGLE_SEARCH = '0';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const decls = [{ name: 'board_control', description: 'control board', parameters: { type: 'object' } }];
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/tools')) return { ok: true, json: async () => ({ tools: decls }) };
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen' }));
+    expect(response.status).toBe(200);
+    expect(configFromMint().tools).toEqual([{ functionDeclarations: decls }]);
+    delete process.env.COACH_VOICE_GOOGLE_SEARCH;
+  });
+
+  it('a mint the API refuses with Google Search is retried without it', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockRejectedValueOnce(new Error('googleSearch not supported')).mockResolvedValueOnce({ name: 'ephemeral-token-2' });
+    const decls = [{ name: 'board_control', description: 'control board', parameters: { type: 'object' } }];
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/tools')) return { ok: true, json: async () => ({ tools: decls }) };
+      return { ok: true, json: async () => ({ messages: [] }) };
+    }) as any;
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ fen: 'somefen' }));
+    expect(response.status).toBe(200);
+    expect(createMock).toHaveBeenCalledTimes(2);
+    const second = createMock.mock.calls[1][0].config.liveConnectConstraints.config;
+    expect(second.tools).toEqual([{ functionDeclarations: decls }]);
+    expect((await response.json()).token).toBe('ephemeral-token-2');
   });
 
   it('enables sessionResumption in the token constraints so the server issues handles', async () => {
@@ -316,7 +352,7 @@ describe('POST /api/coach/live-token', () => {
     const response = await POST(makeRequest({ fen: 'somefen' }));
 
     expect(response.status).toBe(200);
-    expect(configFromMint().tools).toBeUndefined();
+    expect(configFromMint().tools).toEqual([{ googleSearch: {} }]);  // no declarations, Google Search alone (20.10)
     warnSpy.mockRestore();
   });
 
@@ -585,7 +621,7 @@ describe('POST /api/coach/live-token', () => {
 
   it('embeds no tools when Hermes returns none with a usable name', async () => {
     const config = await mintWithTools([{ name: '' }, { description: 'nameless' }]);
-    expect(config.tools).toBeUndefined();
+    expect(config.tools).toEqual([{ googleSearch: {} }]);  // no declarations, Google Search alone (20.10)
   });
 
   it("leaves end-of-speech detection to Google's default", async () => {

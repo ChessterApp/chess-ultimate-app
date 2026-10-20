@@ -172,6 +172,17 @@ def current_facts(question: str, fetch=None) -> Optional[dict]:
             "fallback": fallback}
 
 
+def web_model(model: str, message: str) -> str:
+    """*model* with OpenRouter's web-search suffix when the message asks about the present and the mode is
+    on (config.COACH_WEB_ONLINE): the model reads live web results this turn, beside the Wikipedia block."""
+    from src import config
+
+    suffix = config.COACH_WEB_ONLINE_SUFFIX or ""
+    if not config.COACH_WEB_ONLINE or not suffix or not model or model.endswith(suffix):
+        return model
+    return f"{model}{suffix}" if asks_current_facts(message) else model
+
+
 def facts_text(facts: dict) -> str:
     return "\n".join(f"- {s['title']}" + (f" ({s['url']})" if s.get("url") else "") + f": {s['text']}" for s in facts["sources"])
 
