@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 20.10 (параллельная доска для теории, диаграммы в чате урока) — включает всё из версий 06.10 … 19.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 20.10-2 («ещё задачу» даёт следующую задачу, не ту же) — включает всё из версий 06.10 … 20.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,16 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 20.10-2 (Асан, 20.10: «прошу ещё задачу — даёт ту же самую, на любую тему»; код только `hermes/src/tools/puzzles.py`
+и `hermes/src/sessions.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 20.10 — достаточно шагов 1, 2, 4, 8 и
+проверок 1, 3, 38):
+- **«Ещё задачу» — следующая задача набора, потом следующий набор.** Сессия тренера сама помнит, какие задачи уже ставила (и какая
+  стоит на доске), и исключает их при каждом `get_puzzle` — раньше исключение держалось на том, передаст ли модель `exclude_ids`,
+  а она не передавала. Работает в тексте и голосе.
+- Проверка 38 (две задачи подряд в одной сессии — разные):
+  `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); A=$(curl -s -X POST localhost:8642/api/coach/tool/get_puzzle -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"theme\":\"связка\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['puzzles'][0]['puzzle_id'])"); B=$(curl -s -X POST localhost:8642/api/coach/tool/get_puzzle -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"theme\":\"связка\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['puzzles'][0]['puzzle_id'])"); echo "$A $B $([ -n "$A" ] && [ "$A" != "$B" ] && echo ОК || echo ПРОВЕРЬ)"`
+  → два разных id вида `site:<lesson>:1` и `site:<lesson>:2` и `ОК`.
 
 Новое в версии 20.10 (просьба Асана 16.10: «параллельная доска» для теории и доска диаграмм в чате урока; код `hermes/src/`,
 новый файл `hermes/src/question_position.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 16.10-3 или

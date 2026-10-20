@@ -216,8 +216,8 @@ def get_puzzle(
                    if site.get("next_in_programme") else "the student's own programme")
                 + ": say so, say whose move it is and what to look for, never the solution, and give the set's "
                 "address at the end"
-                + (f": {site['url']}" if site.get("url") else "") + ". For the next task call get_puzzle again "
-                "with this puzzle_id in exclude_ids."
+                + (f": {site['url']}" if site.get("url") else "") + ". For the next task simply call get_puzzle "
+                "again (the same theme, or none): the server remembers the tasks already shown in this session."
             ),
             "board_actions": [shown.model_dump(by_alias=True)],
         }
@@ -277,16 +277,30 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         user_id = resolve_user_id(args, kwargs)
     except Exception:  # noqa: BLE001
         user_id = None
+    # The session remembers every puzzle it has put up: «ещё задачу» moves on to the next task even when
+    # the model forgets exclude_ids (production, 20.10: task 1 of the same set again and again).
+    session = None
+    exclude = {str(x) for x in (args.get("exclude_ids") or []) if x}
+    try:
+        from src.sessions import session_for
+
+        session = session_for(kwargs)
+        if session is not None:
+            exclude |= session.puzzles_shown
+    except Exception:  # noqa: BLE001 — without a session the model's own list is all there is
+        session = None
     result = get_puzzle(
         theme=args.get("theme"),
         rating=args.get("rating"),
         opening=args.get("opening"),
         count=args.get("count", 1),
-        exclude_ids=args.get("exclude_ids"),
+        exclude_ids=sorted(exclude),
         any=bool(args.get("any")),
         user_id=user_id,
         locale=args.get("locale") or "ru",
     )
+    if session is not None and isinstance(result, dict):
+        session.note_puzzles_shown([str(p.get("puzzle_id")) for p in result.get("puzzles") or [] if p.get("puzzle_id")])
     # A puzzle is what the student asked for: only a strict board lock keeps it off the board,
     # and the model then hears so (src/board_truth.py, for every tool).
     return json.dumps(result, indent=2, ensure_ascii=False)

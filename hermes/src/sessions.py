@@ -50,6 +50,25 @@ class Session(BaseModel):
     # coach puts up on purpose goes on — «Есть задачка на мат в два?» asks for one (2026-10-09).
     _board_lock_strict: bool = PrivateAttr(default=False)
     _board_lock_reason: Optional[str] = PrivateAttr(default=None)
+    # The puzzles this session has already put up (get_puzzle), so «ещё задачу» never repeats one: on
+    # production (Asan, 20.10) every «Ещё задачу» brought task 1 of the same set again — the exclusion
+    # relied on the model passing exclude_ids, which it did not. Not serialized (an old session after a
+    # restart may repeat once; the puzzle on a board is always excluded).
+    _puzzles_shown: list = PrivateAttr(default_factory=list)
+
+    def note_puzzles_shown(self, puzzle_ids) -> None:
+        for pid in puzzle_ids or []:
+            if pid and pid not in self._puzzles_shown:
+                self._puzzles_shown.append(pid)
+
+    @property
+    def puzzles_shown(self) -> set:
+        """Every puzzle id put up in this session, and the ones on its boards now."""
+        ids = set(self._puzzles_shown)
+        for b in self.boards:
+            if b.puzzle and b.puzzle.get("puzzle_id"):
+                ids.add(str(b.puzzle["puzzle_id"]))
+        return ids
 
     def lock_board(self, fen: Optional[str], strict: bool = False, reason: str = "asked") -> None:
         self._board_lock = fen
