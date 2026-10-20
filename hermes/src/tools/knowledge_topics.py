@@ -641,8 +641,11 @@ def get_topic(topic: str, locale: Optional[str] = "ru", user_id: Optional[str] =
         lessons = _related_lessons(t, user_id, locale)
     if lessons:
         out["site_lessons"] = lessons
-    if book and book["title_match"]:
-        # The programme's own words for the base's topic («рокировка», «связка»): the model teaches in them.
+    if book:
+        # The programme's own words for the base's topic («рокировка» → «Рокировка и дополнительные правила»,
+        # «связка»): the model teaches in them. Any lesson the words name (src/lesson_texts.book_for_words:
+        # every specific word of the question in its title) — the exact-title rule above decides only
+        # whether the book replaces a weak base match (20.10).
         out["programme_lesson"] = {
             "step": book.get("step"), "lesson": book.get("lesson"), "title": book["title"],
             "text": book["text"][:2000], "diagrams": (book.get("diagrams") or [])[:2],

@@ -37,7 +37,7 @@ from tools.registry import registry
 
 from src.identity import resolve_user_id
 from src.tools.learning_path import (
-    SITE_URL, _cap, _loc, fetch_programme, fetch_progress, iter_lessons, next_lesson,
+    SITE_URL, _cap, _lesson_url, _loc, _slug, fetch_programme, fetch_progress, iter_lessons, next_lesson,
     TITLE_CHAR_CAP,
 )
 
@@ -255,9 +255,12 @@ def _lesson_rec(c: dict, m: dict, l: dict, progress: dict, locale: Optional[str]
         "title": _cap(_loc(l, "title", locale), TITLE_CHAR_CAP),
         "course": _cap(_loc(c, "title", locale), TITLE_CHAR_CAP),
         "module": _cap(_loc(m, "title", locale), TITLE_CHAR_CAP),
-        "lesson_slug": l.get("slug"),
-        "course_slug": c.get("slug"),
-        "url": f"{SITE_URL}/learn/{c.get('slug')}/{l.get('slug')}",
+        # The same addresses as get_learning_path (src/tools/learning_path._lesson_url): a programme read
+        # without slugs (the base-columns fallback after a Supabase hiccup) gave «/learn/None/None» on
+        # production (20.10).
+        "lesson_slug": _slug(l) or None,
+        "course_slug": _slug(c) or None,
+        "url": _lesson_url(c, l),
         "status": status,
         "description": reason,
         "priority": priority,

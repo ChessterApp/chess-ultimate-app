@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 SITE_URL = os.environ.get("SITE_URL", "https://chesster.io").rstrip("/")
 
 PROGRAMME_TTL_SECONDS = 300
+# A programme read through the base columns (the fuller select failed for a reason other than the
+# schema — a hiccup, a timeout) has no slugs, so no lesson addresses: it is kept only this long and the
+# full select is tried again (production 20.10: the recommender served «/learn/None/None» for minutes).
+PROGRAMME_DEGRADED_TTL_SECONDS = 20
 CONTENT_CHAR_CAP = 6000       # lesson text handed to the model per call
 TITLE_CHAR_CAP = 120
 MAX_LESSON_MATCHES = 5
@@ -219,7 +223,8 @@ def fetch_programme(url: str = None, key: str = None, force: bool = False) -> Op
     now = time.monotonic()
     with _programme_lock:
         cached = _programme_cache["value"]
-        if cached is not None and not force and now - _programme_cache["at"] < PROGRAMME_TTL_SECONDS:
+        ttl = _programme_cache.get("ttl") or PROGRAMME_TTL_SECONDS
+        if cached is not None and not force and now - _programme_cache["at"] < ttl:
             return cached
 
     order = {"order": "order_index.asc"}
@@ -254,9 +259,14 @@ def fetch_programme(url: str = None, key: str = None, force: bool = False) -> Op
         ordered_courses.append(c)
 
     programme = {"courses": ordered_courses}
+    degraded = any("slug" not in r for r in courses) or any("slug" not in r for r in lessons)
     with _programme_lock:
         _programme_cache["value"] = programme
         _programme_cache["at"] = now
+        _programme_cache["ttl"] = PROGRAMME_DEGRADED_TTL_SECONDS if degraded else PROGRAMME_TTL_SECONDS
+    if degraded:
+        logger.warning("study programme read without slugs (base columns): kept %ss, then read again",
+                       PROGRAMME_DEGRADED_TTL_SECONDS)
     return programme
 
 

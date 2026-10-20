@@ -278,3 +278,46 @@ class TestLessonDiagram:
         assert events[0]["diagram"]["n"] == 2
         events, prompt = self._events(mock_stream, "какой здесь первый ход?")
         assert not any("diagram" in e for e in events) and "is SHOWN" not in prompt
+
+
+# ── the learning database linkage, re-checked on production 20.10 ────────────
+
+def test_a_base_topic_carries_the_books_lesson_the_words_name():
+    from src.tools import knowledge_topics as kt
+
+    out = kt.get_topic("рокировка", with_lessons=False)
+    assert out["slug"] == "king-safety-and-castling"
+    assert out["programme_lesson"]["title"].startswith("Рокировка") and out["programme_lesson"]["step"] == 1
+
+
+def test_the_recommender_never_writes_a_lesson_address_without_slugs():
+    from src.tools.training_recommender import _lesson_rec
+
+    c = {"id": "c1", "title": "Основы шахмат"}          # a programme read through the base columns: no slug
+    m = {"id": "m1", "title": "Связка"}
+    l = {"id": "l1", "title": "Связка"}
+    rec = _lesson_rec(c, m, l, {}, "ru", reason="r", weakness="w", priority="medium", puzzle_themes=[])
+    assert rec["url"] is None and rec["lesson_slug"] is None and rec["course_slug"] is None
+    rec = _lesson_rec({**c, "slug": "chess-basics"}, m, {**l, "slug": "pin"}, {}, "ru", reason="r", weakness="w",
+                      priority="medium", puzzle_themes=[])
+    assert rec["url"].endswith("/learn/chess-basics/pin") and rec["lesson_slug"] == "pin"
+
+
+def test_a_programme_read_without_slugs_is_kept_only_briefly(monkeypatch):
+    from src.tools import learning_path as lp
+
+    rows = {
+        "courses": [{"id": "c1", "title": "Основы", "order_index": 1}],
+        "modules": [{"id": "m1", "course_id": "c1", "title": "Связка", "order_index": 1}],
+        "lessons": [{"id": "l1", "module_id": "m1", "title": "Связка", "lesson_type": "exercise", "order_index": 1}],
+    }
+    monkeypatch.setattr(lp, "_query_adaptive", lambda table, *a, **k: (rows[table], None))
+    lp.clear_programme_cache()
+    prog = lp.fetch_programme(force=True)
+    assert prog["courses"][0]["modules"][0]["lessons"][0]["id"] == "l1"
+    assert lp._programme_cache["ttl"] == lp.PROGRAMME_DEGRADED_TTL_SECONDS
+    rows["courses"][0]["slug"] = "chess-basics"; rows["lessons"][0]["slug"] = "pin"
+    lp.fetch_programme(force=True)
+    assert lp._programme_cache["ttl"] == lp.PROGRAMME_TTL_SECONDS
+    lp.clear_programme_cache()
+
