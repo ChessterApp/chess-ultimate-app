@@ -1523,6 +1523,21 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(note).toContain('Ra8#');
   });
 
+  it('«дай три задачи»: the tasks lined up after the one on the board, with their solutions (20.10)', async () => {
+    const { puzzleNote } = await import('../useGeminiLive');
+    const note = puzzleNote({ source: 'site_lesson', count: 3, on_board: 'site:l1:1', puzzles: [
+      { puzzle_id: 'site:l1:1', fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', solution: ['Ra8#'], lesson: 'Связка', n: 1, of: 12 },
+      { puzzle_id: 'site:l1:2', fen: '8/7p/8/4K2k/7r/7R/6P1/8 w - - 0 1', solution: ['g4#'], lesson: 'Связка', n: 2, of: 12 },
+      { puzzle_id: 'site:l2:1', fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', solution: ['Ra8#'], lesson: 'Связка. Продолжение', n: 1, of: 9 },
+    ] } as Parameters<typeof puzzleNote>[0]);
+    expect(note).toContain('2 more tasks are lined up');
+    expect(note).toContain('2) task 2 of «Связка», fen 8/7p/8/4K2k/7r/7R/6P1/8 w - - 0 1, solution g4#, puzzle_id site:l1:2');
+    expect(note).toContain('3) task 1 of «Связка. Продолжение»');
+    expect(note).toContain('board_control set_puzzle');
+    const one = puzzleNote({ source: 'site_lesson', puzzles: [{ fen: '6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1', solution: ['Ra8#'], lesson: 'Связка', n: 1, of: 12 }] });
+    expect(one).not.toContain('lined up');
+  });
+
   it("an opening the programme teaches carries the lesson's words", async () => {
     const { openingNote } = await import('../useGeminiLive');
     const note = openingNote({ found: true, name: 'Scotch Game', note: 'Line 1.e4 e5 2.Nf3 Nc6 3.d4.', programme_lesson: { step: 5, lesson: '61', title: 'Шотландская партия', text: 'Шотландская партия относится к открытым дебютам…', parts: [{ title: 'Шотландская Партия (Продолжение)' }] } });

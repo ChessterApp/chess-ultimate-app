@@ -51,6 +51,8 @@ export interface PuzzleSummary {
   fen: string;
   rating?: number;
   themes?: string[];
+  /** «Дай три задачи»: how many more tasks are lined up after this one (20.10). */
+  queued?: number;
 }
 
 export interface CriticalMomentsSummary {
@@ -165,12 +167,14 @@ function opening(o: Obj): OpeningSummary | null {
 function puzzle(o: Obj): PuzzleSummary | null {
   if (!isStr(o.puzzle_id) || !isStr(o.fen)) return null;
   const themes = strings(o.themes, 6);
+  const queued = optNum(o.queued);
   return compact({
     kind: 'puzzle' as const,
     puzzle_id: o.puzzle_id,
     fen: o.fen,
     rating: optNum(o.rating),
     themes: themes.length ? themes : undefined,
+    queued: queued && queued > 0 ? queued : undefined,
   });
 }
 

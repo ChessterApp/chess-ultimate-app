@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 20.10-2 («ещё задачу» даёт следующую задачу, не ту же) — включает всё из версий 06.10 … 20.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 20.10-2 («ещё задачу» даёт следующую, «дай три задачи» — три сразу) — включает всё из версий 06.10 … 20.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -30,12 +30,19 @@
 
 ### Что изменится после обновления
 
-Новое в версии 20.10-2 (Асан, 20.10: «прошу ещё задачу — даёт ту же самую, на любую тему»; код только `hermes/src/tools/puzzles.py`
-и `hermes/src/sessions.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 20.10 — достаточно шагов 1, 2, 4, 8 и
-проверок 1, 3, 38):
+Новое в версии 20.10-2 (Асан, 20.10: «прошу ещё задачу — даёт ту же самую, на любую тему» и «чтобы приводил сразу несколько, когда
+ученик просит»; код `hermes/src/tools/puzzles.py`, `hermes/src/sessions.py`, `hermes/src/tool_summaries.py`; миграций, переменных и
+изменений бэкенда нет; если сервер уже на 20.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 38, 39):
 - **«Ещё задачу» — следующая задача набора, потом следующий набор.** Сессия тренера сама помнит, какие задачи уже ставила (и какая
   стоит на доске), и исключает их при каждом `get_puzzle` — раньше исключение держалось на том, передаст ли модель `exclude_ids`,
   а она не передавала. Работает в тексте и голосе.
+- **«Дай три задачи на связку», «несколько задач», «пару задач»** — столько задач сразу (число читается из слов ученика, если модель
+  его не передала): первая встаёт на доску, остальные приходят в том же ответе по порядку программы (остаток набора, потом следующий
+  набор); тренер говорит, сколько в очереди, и сам ставит следующую, когда ученик решил или сдался. Карточка задачи в чате показывает
+  «ещё N в очереди» (сайт, main). Голос — так же.
+- Проверка 39 (три задачи сразу, в одной сессии с проверкой 38 — продолжение после уже показанных):
+  `curl -s -X POST localhost:8642/api/coach/tool/get_puzzle -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"theme\":\"связка\",\"count\":3},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; ids=[p['puzzle_id'] for p in r.get('puzzles',[])]; print(r.get('count'), ids, 'ОК' if r.get('count')==3 and len(set(ids))==3 else 'ПРОВЕРЬ')"`
+  → `3 ['site:…:3', 'site:…:4', 'site:…:5'] ОК` (номера — следующие после проверки 38).
 - Проверка 38 (две задачи подряд в одной сессии — разные):
   `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); A=$(curl -s -X POST localhost:8642/api/coach/tool/get_puzzle -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"theme\":\"связка\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['puzzles'][0]['puzzle_id'])"); B=$(curl -s -X POST localhost:8642/api/coach/tool/get_puzzle -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"theme\":\"связка\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['result']['puzzles'][0]['puzzle_id'])"); echo "$A $B $([ -n "$A" ] && [ "$A" != "$B" ] && echo ОК || echo ПРОВЕРЬ)"`
   → два разных id вида `site:<lesson>:1` и `site:<lesson>:2` и `ОК`.

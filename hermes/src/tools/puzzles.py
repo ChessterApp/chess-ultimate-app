@@ -9,6 +9,7 @@ verified solution. The first puzzle goes on the board with the result itself
 """
 
 import json
+import re
 import logging
 import random
 from typing import Optional
@@ -50,7 +51,8 @@ GET_PUZZLE_SCHEMA = {
             },
             "count": {
                 "type": "integer",
-                "description": "How many puzzles to return (1–10, default 1).",
+                "description": "How many puzzles to return (1–10, default 1): «дай три задачи», «несколько задач» → 3; "
+                               "the first goes on the board, the rest are lined up in the result.",
             },
             "any": {
                 "type": "boolean",
@@ -77,12 +79,47 @@ _SITE_STEMS = {
 }
 
 
+MAX_COUNT = 10
+_COUNT_WORDS = {"два": 2, "две": 2, "пару": 2, "пара": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6, "несколько": 3,
+                "нескольк": 3, "two": 2, "couple": 2, "three": 3, "four": 4, "five": 5, "several": 3, "a few": 3,
+                "екі": 2, "үш": 3, "төрт": 4, "бес": 5, "бірнеше": 3}
+_COUNT_RE = re.compile(
+    r"(?<![\w-])(?P<n>\d{1,2}|два|две|пару|пара|три|четыре|пять|шесть|несколько|нескольк\w*|two|couple(?:\s+of)?|three|four|"
+    r"five|several|a\s+few|екі|үш|төрт|бес|бірнеше)\s+(?:[\w-]+\s+){0,2}?(?:задач\w*|задани\w*|упражнени\w*|пазл\w*|"
+    r"головоломк\w*|puzzles?|tasks?|exercises?|есеп\w*|жаттығу\w*)(?![\w-])", re.IGNORECASE)
+
+
+def count_in_words(text: str) -> Optional[int]:
+    """The number of puzzles the student's words ask for — «дай три задачи», «пару задач на вилку»,
+    "two puzzles" — or None (one, or no number)."""
+    m = _COUNT_RE.search((text or "").replace("ё", "е"))
+    if not m:
+        return None
+    raw = m.group("n").lower()
+    if raw.isdigit():
+        n = int(raw)
+    else:
+        n = next((v for k, v in _COUNT_WORDS.items() if raw.startswith(k.split()[0])), None)
+        if n is None:
+            return None
+    return max(1, min(n, MAX_COUNT)) if n > 1 else None
+
+
 def site_puzzle(theme: Optional[str], resolved: Optional[str], user_id: Optional[str] = None,
                 locale: Optional[str] = "ru", exclude_ids: Optional[list] = None) -> Optional[dict]:
     """A task from the site's own sets on the theme — the student's programme —
     shaped like a Lichess puzzle, with the set's title and address. The first
     not-completed set whose title matches, its first task not shown yet. None
     when the site has no set for the theme (fail-open: Lichess then)."""
+    found = site_puzzles(theme, resolved, user_id=user_id, locale=locale, exclude_ids=exclude_ids, count=1)
+    return found[0] if found else None
+
+
+def site_puzzles(theme: Optional[str], resolved: Optional[str], user_id: Optional[str] = None,
+                 locale: Optional[str] = "ru", exclude_ids: Optional[list] = None, count: int = 1) -> list:
+    """Up to *count* tasks from the site's sets on the theme, in the programme's order — the rest of the
+    set the student is on, then the next matching set («дай три задачи на связку», 20.10)."""
+    out: list = []
     try:
         from src.tools.learning_path import _loc, fetch_programme, fetch_progress, get_lesson
         from src.tools.training_recommender import match_lessons
@@ -91,13 +128,15 @@ def site_puzzle(theme: Optional[str], resolved: Optional[str], user_id: Optional
             THEME_ALIASES.get(resolved, ()) if resolved else ()) + ((theme.strip().lower(),) if theme else ())
         stems = tuple(dict.fromkeys(s for s in stems if s and len(s) >= 3))
         if not stems:
-            return None
+            return out
         programme = fetch_programme()
         if not programme:
-            return None
+            return out
         progress = (fetch_progress(user_id) or {}) if user_id else {}
         excluded = set(exclude_ids or [])
         for c, m, l in match_lessons(programme, stems, progress, limit=6):
+            if len(out) >= count:
+                break
             if (l.get("lesson_type") or "") not in ("", "exercise", "puzzle", "practice"):
                 continue
             full = get_lesson(l.get("id") or "", user_id=user_id, locale=locale, show=False)
@@ -117,17 +156,19 @@ def site_puzzle(theme: Optional[str], resolved: Optional[str], user_id: Optional
                 except Exception:  # noqa: BLE001
                     continue
                 course = full.get("course") or {}
-                return {
+                out.append({
                     "puzzle_id": pid, "fen": p["fen"], "side_to_move": side, "solution": list(p["solution"]),
                     "rating": None, "themes": [resolved or theme], "hint": p.get("hint") or "",
                     "source": "site_lesson", "lesson": full.get("title"),
                     "course": course.get("title") if isinstance(course, dict) else course,
                     "url": full.get("url"), "n": p.get("n"), "of": len(tasks),
-                }
-        return None
+                })
+                if len(out) >= count:
+                    break
+        return out
     except Exception:  # noqa: BLE001
         logger.debug("site puzzle lookup failed", exc_info=True)
-        return None
+        return out
 
 
 def site_next_puzzle(user_id: Optional[str], locale: Optional[str] = "ru",
@@ -136,18 +177,28 @@ def site_next_puzzle(user_id: Optional[str], locale: Optional[str] = "ru",
     (or the first not completed), its first task not shown yet; the sets after it when that one has
     none (2026-10-16: a themeless request went to Lichess, past the programme). None when the
     programme is unavailable or every set is done (fail-open: Lichess then)."""
+    found = site_next_puzzles(user_id, locale=locale, exclude_ids=exclude_ids, count=1)
+    return found[0] if found else None
+
+
+def site_next_puzzles(user_id: Optional[str], locale: Optional[str] = "ru",
+                      exclude_ids: Optional[list] = None, count: int = 1) -> list:
+    """Up to *count* next tasks of the student's programme, in order (the rest of the set, then the next sets)."""
+    out: list = []
     try:
         from src.tools.learning_path import fetch_programme, fetch_progress, get_lesson, iter_lessons, next_lesson
 
         programme = fetch_programme()
         if not programme:
-            return None
+            return out
         progress = (fetch_progress(user_id) or {}) if user_id else {}
         lessons = list(iter_lessons(programme))
         start = next_lesson(programme, progress)
         idx = next((i for i, t in enumerate(lessons) if start and t[2].get("id") == start[2].get("id")), 0)
         excluded = set(exclude_ids or [])
         for c, m, l in lessons[idx: idx + 12]:
+            if len(out) >= count:
+                break
             if (progress.get(l.get("id")) or {}).get("status") == "completed":
                 continue
             full = get_lesson(l.get("id") or "", user_id=user_id, locale=locale, show=False)
@@ -165,17 +216,19 @@ def site_next_puzzle(user_id: Optional[str], locale: Optional[str] = "ru",
                 except Exception:  # noqa: BLE001
                     continue
                 course = full.get("course") or {}
-                return {
+                out.append({
                     "puzzle_id": pid, "fen": p["fen"], "side_to_move": side, "solution": list(p["solution"]),
                     "rating": None, "themes": [], "hint": p.get("hint") or "",
                     "source": "site_lesson", "next_in_programme": True, "lesson": full.get("title"),
                     "course": course.get("title") if isinstance(course, dict) else course,
                     "url": full.get("url"), "n": p.get("n"), "of": len(tasks),
-                }
-        return None
+                })
+                if len(out) >= count:
+                    break
+        return out
     except Exception:  # noqa: BLE001
         logger.debug("site next puzzle lookup failed", exc_info=True)
-        return None
+        return out
 
 
 def get_puzzle(
@@ -193,20 +246,33 @@ def get_puzzle(
     from src import config
 
     resolved_early = resolve_theme(theme) if theme else None
-    site = None
+    try:
+        count = max(1, min(int(count or 1), MAX_COUNT))
+    except (TypeError, ValueError):
+        count = 1
+    sites: list = []
     if config.COACH_PUZZLES_FROM_SITE and theme and not opening:
-        site = site_puzzle(theme, resolved_early, user_id=user_id, locale=locale, exclude_ids=exclude_ids)
+        sites = site_puzzles(theme, resolved_early, user_id=user_id, locale=locale, exclude_ids=exclude_ids, count=count)
     elif config.COACH_PUZZLES_FROM_SITE and not theme and not opening and not rating and not any and user_id:
-        site = site_next_puzzle(user_id, locale=locale, exclude_ids=exclude_ids)
-    if site:
+        sites = site_next_puzzles(user_id, locale=locale, exclude_ids=exclude_ids, count=count)
+    if sites:
+        site = sites[0]
         shown = SetPuzzle(fen=site["fen"], solution=site["solution"], puzzle_id=site["puzzle_id"])
         where = f"the site's set «{site['lesson']}»" + (f" (course «{site['course']}»)" if site.get("course") else "")
+        # «Дай три задачи»: the first goes on the board, the rest are lined up in the result — the model puts
+        # the next one up itself when the student solves or gives up (no new get_puzzle needed).
+        queued = ("" if len(sites) == 1 else
+                  f" The student asked for several: {len(sites)} tasks are in this result, in the programme's order "
+                  f"({', '.join(f'task {q.get('n')} of «{q.get('lesson')}»' for q in sites[1:])}); tell them how many "
+                  "are lined up, and when they solve the one on the board or give up, put the next one up with "
+                  "board_control set_puzzle (its fen, solution and puzzle_id are below) — do not call get_puzzle again "
+                  "for them.")
         return {
             "theme": resolved_early or theme,
             "rating": None,
-            "count": 1,
+            "count": len(sites),
             "source": "site_lesson",
-            "puzzles": [site],
+            "puzzles": sites,
             "on_board": site["puzzle_id"],
             "how_to_show": (
                 f"The puzzle is already on the student's board — do not call board_control for it. It is task "
@@ -218,6 +284,7 @@ def get_puzzle(
                 "address at the end"
                 + (f": {site['url']}" if site.get("url") else "") + ". For the next task simply call get_puzzle "
                 "again (the same theme, or none): the server remembers the tasks already shown in this session."
+                + queued
             ),
             "board_actions": [shown.model_dump(by_alias=True)],
         }
@@ -289,11 +356,19 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
             exclude |= session.puzzles_shown
     except Exception:  # noqa: BLE001 — without a session the model's own list is all there is
         session = None
+    count = args.get("count") or 1
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        count = 1
+    if count <= 1:
+        # «Дай три задачи на связку», «несколько задач»: the words name the number when the model does not.
+        count = count_in_words(str(kwargs.get("student_message") or kwargs.get("utterance") or "")) or 1
     result = get_puzzle(
         theme=args.get("theme"),
         rating=args.get("rating"),
         opening=args.get("opening"),
-        count=args.get("count", 1),
+        count=count,
         exclude_ids=sorted(exclude),
         any=bool(args.get("any")),
         user_id=user_id,

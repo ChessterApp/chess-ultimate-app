@@ -28,6 +28,9 @@ export default function PuzzleCard({ summary, onSolve, disabled }: PuzzleCardPro
         {summary.rating && (
           <p className="mt-0.5 text-[14px] tabular-nums text-(--coach-text)">{t('cardPuzzleRating', { rating: summary.rating })}</p>
         )}
+        {summary.queued && (
+          <p className="mt-0.5 text-[13px] text-(--coach-text-muted)" data-testid="card-puzzle-queued">{t('cardPuzzleQueued', { n: summary.queued })}</p>
+        )}
         {onSolve && (
           <div className="mt-auto pt-2">
             <button type="button" onClick={onSolve} disabled={disabled} className={cardAction} data-testid="card-puzzle-solve">

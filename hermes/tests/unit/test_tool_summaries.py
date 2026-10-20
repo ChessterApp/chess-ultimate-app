@@ -174,7 +174,7 @@ class TestPuzzle:
         ]})
         s = build_summary("get_puzzle", {}, raw)
         assert s == {"kind": "puzzle", "puzzle_id": "b2", "fen": AFTER_E4, "rating": 1500,
-                     "themes": ["t0", "t1", "t2", "t3", "t4", "t5"]}
+                     "themes": ["t0", "t1", "t2", "t3", "t4", "t5"], "queued": 1}  # one more lined up (20.10)
 
     def test_site_puzzle_without_rating(self):
         raw = json.dumps({"rating": None, "on_board": 42, "puzzles": [{"puzzle_id": 42, "fen": START}]})

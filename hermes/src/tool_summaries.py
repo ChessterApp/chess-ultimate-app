@@ -272,6 +272,9 @@ def _puzzle(data: Any) -> Optional[dict]:
     if puzzle_id in (None, "") or isinstance(puzzle_id, bool) or board is None:
         return None
     out: dict = {"kind": "puzzle", "puzzle_id": str(puzzle_id), "fen": board.fen()}
+    queued = len([p for p in puzzles if p.get("puzzle_id") not in (None, "", on_board)])
+    if queued and len(puzzles) > 1:
+        out["queued"] = queued  # «дай три задачи»: the others lined up after this one (20.10)
     rating = _int(shown.get("rating"))
     if rating:
         out["rating"] = rating

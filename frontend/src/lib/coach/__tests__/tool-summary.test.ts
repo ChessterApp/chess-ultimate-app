@@ -10,6 +10,7 @@ describe('parseToolSummary', () => {
       { kind: 'game_list', games: [{ id: 7, white: 'Kasparov', black: 'Topalov', result: '1-0', eco: 'B07', year: 1999, white_elo: 2812, black_elo: 2700 }] },
       { kind: 'opening', name: 'Sicilian Defense', eco: 'B20', moves_san: ['e4', 'c5'], stats: { white: 35.5, draw: 40, black: 24.5, games: 1200 } },
       { kind: 'puzzle', puzzle_id: 'abc', fen: FEN, rating: 1500, themes: ['fork'] },
+      { kind: 'puzzle', puzzle_id: 'site:l1:1', fen: FEN, queued: 2 },  // «дай три задачи»: two more lined up (20.10)
       { kind: 'critical_moments', moments: [{ ply: 26, san: 'Qxb2', eval_before: 40, eval_after: -260, label: 'blunder' }] },
     ];
     for (const s of samples) expect(parseToolSummary(s)).toEqual(s);

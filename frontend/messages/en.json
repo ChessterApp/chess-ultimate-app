@@ -2326,7 +2326,8 @@
     "attachUpload": "Upload a .pgn file",
     "attachLink": "Link from Lichess or Chess.com",
     "attachPastePlaceholder": "Paste a PGN, FEN or game link…",
-    "coachJustNow": "Coach · just now"
+    "coachJustNow": "Coach · just now",
+    "cardPuzzleQueued": "{n} more lined up"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

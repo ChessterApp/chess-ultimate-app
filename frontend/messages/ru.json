@@ -2326,7 +2326,8 @@
     "attachUpload": "Загрузить файл .pgn",
     "attachLink": "Ссылка с Lichess или Chess.com",
     "attachPastePlaceholder": "Вставьте PGN, FEN или ссылку на партию…",
-    "coachJustNow": "Тренер · только что"
+    "coachJustNow": "Тренер · только что",
+    "cardPuzzleQueued": "ещё {n} в очереди"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

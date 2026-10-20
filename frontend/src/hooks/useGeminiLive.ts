@@ -245,6 +245,13 @@ export function puzzleNote(result: {
   if (!first?.fen) return null;
   const side = first.fen.split(' ')[1] === 'b' ? 'Black' : 'White';
   const solution = Array.isArray(first.solution) ? first.solution.join(' ') : first.solution ?? '';
+  // «Дай три задачи» (20.10): the others are lined up in the result — the coach puts the next one up itself.
+  const rest = (result.puzzles ?? []).slice(1).filter((p) => p.fen);
+  const queued = rest.length
+    ? ` The student asked for several: ${rest.length} more ${rest.length === 1 ? 'task is' : 'tasks are'} lined up after this one — say so; ` +
+      `when they solve it or give up, put the next one up with board_control set_puzzle (no new get_puzzle): ` +
+      rest.map((p, i) => `${i + 2}) ${p.n && p.lesson ? `task ${p.n} of «${p.lesson}», ` : ''}fen ${p.fen}, solution ${Array.isArray(p.solution) ? p.solution.join(' ') : p.solution ?? ''}${(p as { puzzle_id?: string }).puzzle_id ? `, puzzle_id ${(p as { puzzle_id?: string }).puzzle_id}` : ''}`).join('; ') + '.'
+    : '';
   if (result.source === 'site_lesson' && first.lesson) {
     const where = `the site's set «${first.lesson}»${first.course ? ` (course «${first.course}»)` : ''}`;
     const which = first.n && first.of ? `task ${first.n} of ${first.of} of ` : '';
@@ -255,7 +262,7 @@ export function puzzleNote(result: {
       `[Puzzle] On the student's board is ${which}${where}: FEN ${first.fen}, ${side} to move.${why} ` +
       `Solution (private, never read it out unless the student gives up): ${solution}. ` +
       `Say whose move it is and what to look for, let the student try, judge their answer against the solution, ` +
-      `and give the set's address at the end${first.url ? ` (${first.url})` : ''}. Do not call get_puzzle again for this request.`
+      `and give the set's address at the end${first.url ? ` (${first.url})` : ''}. Do not call get_puzzle again for this request.${queued}`
     ).replace(/\s+/g, ' ').trim();
   }
   return (
@@ -263,7 +270,7 @@ export function puzzleNote(result: {
     `${result.theme ? `, theme ${result.theme}` : ''}${first.rating ? `, rating ${first.rating}` : ''}. ` +
     `Solution (private, never read it out unless the student gives up): ${solution}. ` +
     `Say whose move it is and what to look for, then let the student try; judge their answer against the solution. ` +
-    `Do not call get_puzzle again for this request.`
+    `Do not call get_puzzle again for this request.${queued}`
   ).replace(/\s+/g, ' ').trim();
 }
 

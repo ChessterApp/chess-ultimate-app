@@ -72,3 +72,46 @@ def test_the_models_own_exclude_ids_still_count():
 def test_without_a_session_the_tool_works_as_before():
     out = json.loads(pz._handle_get_puzzle({"theme": "связка"}, user_id="u-repeat"))
     assert out["puzzles"][0]["puzzle_id"] == "site:l1:1"
+
+
+# ── «Дай три задачи»: several at once (Asan, 20.10) ─────────────────────────
+
+@pytest.mark.parametrize("text,n", [
+    ("дай три задачи на связку", 3), ("дай мне две задачки", 2), ("пару задач на вилку", 2), ("несколько задач", 3),
+    ("дай 5 задач", 5), ("give me two puzzles", 2), ("a few puzzles on pins", 3), ("дай задачу", None),
+    ("задачу на мат в два хода", None), ("реши три хода", None),
+])
+def test_the_number_of_puzzles_the_words_ask_for(text, n):
+    assert pz.count_in_words(text) == n
+
+
+def test_several_tasks_at_once_from_the_programme_in_order():
+    session = session_store.create(user_id="u-repeat", session_id="puzzle-many-1")
+    out = _call(session.id, theme="связка", count=3)
+    ids = [p["puzzle_id"] for p in out["puzzles"]]
+    assert ids == ["site:l1:1", "site:l1:2", "site:l2:1"] and out["count"] == 3     # the set, then the next set
+    assert out["on_board"] == "site:l1:1" and out["board_actions"][0]["puzzle_id"] == "site:l1:1"
+    assert "3 tasks are in this result" in out["how_to_show"] and "board_control set_puzzle" in out["how_to_show"]
+    assert session.puzzles_shown >= set(ids)
+    # the next request continues after all three
+    assert _call(session.id, theme="связка")["puzzles"][0]["puzzle_id"] == "site:l2:2"
+
+
+def test_the_words_set_the_count_when_the_model_does_not():
+    out = json.loads(pz._handle_get_puzzle({"theme": "связка"}, session_id="puzzle-many-2", user_id="u-repeat",
+                                           student_message="дай мне три задачи на связку"))
+    assert out["count"] == 3 and len(out["puzzles"]) == 3
+    out = json.loads(pz._handle_get_puzzle({"user_id": "u-repeat"}, student_message="дай пару задач"))
+    assert out["count"] == 2 and out["puzzles"][0].get("next_in_programme")
+
+
+def test_the_card_says_how_many_are_lined_up():
+    from src.tool_summaries import build_summary
+
+    session = session_store.create(user_id="u-repeat", session_id="puzzle-many-3")
+    raw = pz._handle_get_puzzle({"theme": "связка", "count": 3}, session_id=session.id, user_id="u-repeat")
+    card = build_summary("get_puzzle", {"theme": "связка", "count": 3}, raw)
+    assert card["kind"] == "puzzle" and card["puzzle_id"] == "site:l1:1" and card["queued"] == 2
+    one = build_summary("get_puzzle", {"theme": "связка"}, pz._handle_get_puzzle({"theme": "связка"}, user_id="u-repeat"))
+    assert "queued" not in one
+

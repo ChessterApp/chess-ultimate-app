@@ -2326,7 +2326,8 @@
     "attachUpload": ".pgn файлын жүктеу",
     "attachLink": "Lichess не Chess.com сілтемесі",
     "attachPastePlaceholder": "PGN, FEN немесе партия сілтемесін қойыңыз…",
-    "coachJustNow": "Жаттықтырушы · жаңа ғана"
+    "coachJustNow": "Жаттықтырушы · жаңа ғана",
+    "cardPuzzleQueued": "кезекте тағы {n}"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",
