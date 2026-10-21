@@ -134,6 +134,12 @@ describe('Action bar', () => {
     expect(within(bar).getByLabelText('More actions')).toBeTruthy();
   });
 
+  it('move list packs wrapped lines at the top instead of stretching them over the panel', () => {
+    render(<Harness pgn="1. e4 e5 2. Nf3 Nc6 3. Bb5" />);
+    const scroll = screen.getByTestId('move-notation-scroll');
+    expect(getComputedStyle(scroll).alignContent).toBe('flex-start');
+  });
+
   it('"More" opens the move menu for the selected move on desktop', () => {
     render(<Harness pgn="1. e4 e5" initialSelected={t => t.children![0].id} />);
     fireEvent.click(screen.getByLabelText('More actions'));

@@ -841,6 +841,8 @@ export default function MoveNotation({ tree, selectedNodeId, onNodeSelect, loadi
           display: 'flex',
           flexWrap: 'wrap',
           alignItems: 'baseline',
+          // Without this, wrapped lines stretch to fill the panel height on desktop (big gaps on short games)
+          alignContent: 'flex-start',
           gap: '1px 2px',
           px: 1,
           py: 0.5,
