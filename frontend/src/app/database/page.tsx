@@ -28,6 +28,7 @@ import { engineVariantLabel } from '@/lib/engine/engineVariantLabel';
 import { useEngineDisplaySettings } from '@/hooks/useEngineDisplaySettings';
 import EngineSettingsMenu from '@/components/engine/EngineSettingsMenu';
 import { StockfishErrorBoundary } from '@/components/chess/StockfishErrorBoundary';
+import StartReviewButton from '@/components/review/StartReviewButton';
 import { useMoveVoiceNotes } from '@/hooks/useMoveVoiceNotes';
 import { nodePathMap } from '@/lib/voiceNotes';
 import { debutBoardSize, evalBarGutter, EVAL_BAR_WIDTH_PX } from '@/lib/debutBoardSize';
@@ -474,6 +475,12 @@ export default function DebutPage() {
   }, [activeGameForTree?.isDraft, flushAutoSave, t]);
 
   const handleRetrySave = useCallback(() => { flushAutoSave(); }, [flushAutoSave]);
+
+  // Review the moves as shown: an edited own game reviews its live tree (the PGN
+  // auto-save writes), so a just-made edit counts before the debounced save lands.
+  const reviewPgn = editTreeIsLive
+    ? (gameMoveTree.tree?.children?.length ? editTreePgn : '')
+    : (activeGameForTree?.moves.length ? activeGameForTree.pgn : '');
 
   const handleViewerDeleteGame = useCallback(async () => {
     if (!activeTab) return;
@@ -1513,6 +1520,25 @@ export default function DebutPage() {
               onComment={handleMyGamesComment}
               onDeleteMove={handleMyGamesDeleteMove}
             />
+          )}
+
+          {/* Every opened game with moves is reviewable, whatever its source. */}
+          {activeTab !== 'debut' && activeGame && reviewPgn && (
+            <Box sx={{
+              width: { xs: 'calc(100% - 32px)', sm: 'calc(100% - 24px)', lg: 520 },
+              maxWidth: 520,
+              mx: 'auto',
+              mt: 1,
+              display: 'flex',
+              justifyContent: 'center',
+            }}>
+              <StartReviewButton
+                game={{ pgn: reviewPgn, orientation: boardOrientation }}
+                source="database"
+                variant="primary"
+                style={{ width: '100%' }}
+              />
+            </Box>
           )}
 
           {/* Stockfish toggle + engine lines — every tab, game and line */}

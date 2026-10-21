@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 //
-// Database page: no "Review this game" on opened games; the Stockfish toggle,
+// Database page: every opened game with moves shows Review (master, own,
+// analysis line, shared); the Stockfish toggle,
 // eval bar and engine lines work on every tab (master games, own games, analysis
 // lines, shared read-only databases, the empty My Games board) and analyse the
 // shown position; the on/off state survives tab switches but is never written
@@ -77,7 +78,19 @@ vi.mock('@/components/openings/DebutBoard', () => ({
   ),
 }));
 vi.mock('@/components/opponent/ReplayEvalBar', () => stub('eval-bar'));
-vi.mock('@/components/openings/MasterGamesPanel', () => stub('master-games'));
+const MASTER_GAME = { id: 'master-1', white: 'Carlsen', black: 'Nakamura', result: '1-0', pgn: '1. e4 c5 2. Nf3 *', source: 'master' };
+vi.mock('@/components/openings/MasterGamesPanel', () => ({
+  default: ({ onOpenGame }: { onOpenGame: (g: unknown) => void }) => (
+    <div data-testid="master-games">
+      <button onClick={() => onOpenGame(MASTER_GAME)}>open master game</button>
+    </div>
+  ),
+}));
+vi.mock('@/components/review/StartReviewButton', () => ({
+  default: (p: { game: { pgn: string; orientation?: string }; source: string; label?: string }) => (
+    <button data-testid="start-review-button" data-pgn={p.game.pgn} data-source={p.source} data-label={p.label ?? ''}>review</button>
+  ),
+}));
 vi.mock('@/components/openings/MoveTree', () => stub('move-tree'));
 vi.mock('@/components/openings/PositionSummary', () => stub('position-summary'));
 vi.mock('@/components/openings/MyGamesMoveList', () => stub('my-games-move-list'));
@@ -95,8 +108,9 @@ const OWN_GAME = { id: 'own-1', user_id: 'u1', white: 'Me', black: 'You', result
 const VARIATION = { id: 'var-1', user_id: 'u1', white: '?', black: '?', result: '*', event: 'Variation', title: 'Sicilian', pgn: '1. e4 c5 *', source: 'user' };
 const SHARED_GAME = { id: 'shared-1', white: 'Owner', black: 'Friend', result: '*', pgn: '1. d4 d5 *', source: 'user' };
 vi.mock('@/components/openings/MyGamesPanel', () => ({
-  default: ({ onOpenGame }: { onOpenGame: (g: unknown) => void }) => (
+  default: ({ onOpenGame, onAddVariation }: { onOpenGame: (g: unknown) => void; onAddVariation?: () => void }) => (
     <div data-testid="my-games-panel">
+      <button onClick={() => onAddVariation?.()}>add variation</button>
       <button onClick={() => onOpenGame(OWN_GAME)}>open own game</button>
       <button onClick={() => onOpenGame(VARIATION)}>open variation</button>
       <button onClick={() => onOpenGame(SHARED_GAME)}>open shared game</button>
@@ -155,18 +169,41 @@ afterEach(() => {
 });
 
 describe('Database page — Review button', () => {
-  it('is not shown for opened own games, analysis lines or shared games', async () => {
+  const reviewButton = () => screen.queryByTestId('start-review-button');
+
+  it('is shown for an opened master game, with its PGN and the always-allowed database source', async () => {
+    await renderPage();
+    await click('pick master');
+    await click('open master game');
+    const btn = reviewButton()!;
+    expect(btn).toBeTruthy();
+    expect(btn.getAttribute('data-pgn')).toBe(MASTER_GAME.pgn);
+    expect(btn.getAttribute('data-source')).toBe('database');
+    // No hardcoded English label: the translated default is used.
+    expect(btn.getAttribute('data-label')).toBe('');
+  });
+
+  it('is shown for opened own games, analysis lines and shared games', async () => {
     await renderPage();
     await click('pick own db');
     for (const name of ['open own game', 'open variation']) {
       await click(name);
       expect(screen.getAllByTestId('game-viewer').length).toBeGreaterThan(0);
-      expect(screen.queryByText(/review this game/i)).toBeNull();
+      expect(reviewButton()).toBeTruthy();
       await click('pick own db');
     }
     await click('pick shared db');
     await click('open shared game');
-    expect(screen.queryByText(/review this game/i)).toBeNull();
+    expect(reviewButton()?.getAttribute('data-pgn')).toBe(SHARED_GAME.pgn);
+  });
+
+  it('is hidden on an empty variation draft and on the explorer tab', async () => {
+    await renderPage();
+    expect(reviewButton()).toBeNull();
+    await click('pick own db');
+    await click('add variation');
+    expect(screen.getAllByTestId('game-viewer').length).toBeGreaterThan(0);
+    expect(reviewButton()).toBeNull();
   });
 });
 
