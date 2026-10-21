@@ -291,6 +291,10 @@ COACH_HIDDEN_BOARD_MOVETIME_MS = int(os.environ.get("COACH_HIDDEN_BOARD_MOVETIME
 # A game asked for in words, or the student's move written on its own during a game: the server
 # starts the game / plays the move before the model answers (src/game_intent.py, 2026-10-12).
 COACH_GAME_PRESTEP = _env_flag("COACH_GAME_PRESTEP", True)
+# A puzzle asked for in words («дай задачу на связку», «ещё задачу», «дай три задачи», «дальше») is put on
+# the board by the server before the model answers (src/server._puzzle_prestep, 21.10): left to the model,
+# «Ещё задачу» on production kept hinting at the old task without calling get_puzzle at all.
+COACH_PUZZLE_PRESTEP = _env_flag("COACH_PUZZLE_PRESTEP", True)
 
 # Answer check (2026-09-30): each finished sentence of a text answer is checked
 # on the board before it is shown (src/answer_check.py) — a piece moving or

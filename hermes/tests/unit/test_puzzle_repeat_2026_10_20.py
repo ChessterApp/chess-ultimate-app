@@ -115,3 +115,76 @@ def test_the_card_says_how_many_are_lined_up():
     one = build_summary("get_puzzle", {"theme": "связка"}, pz._handle_get_puzzle({"theme": "связка"}, user_id="u-repeat"))
     assert "queued" not in one
 
+
+# ── the queue and the text pre-step (21.10: «Ещё задачу» left to the model hinted at the old task) ──────
+
+def test_the_queue_serves_the_next_task_on_dalshe_and_the_last_theme_on_more():
+    session = session_store.create(user_id="u-repeat", session_id="puzzle-queue-1")
+    out = _call(session.id, theme="связка", count=3)
+    assert len(session.puzzle_queue) == 2 and session.last_puzzle_theme == "связка"
+    nxt = json.loads(pz._handle_get_puzzle({}, session_id=session.id, user_id="u-repeat", student_message="дальше"))
+    assert nxt["from_queue"] and nxt["puzzles"][0]["puzzle_id"] == out["puzzles"][1]["puzzle_id"] and nxt["left_in_queue"] == 1
+    assert nxt["board_actions"][0]["type"] == "set_puzzle" and "lined up after it" in nxt["how_to_show"]
+    nxt2 = json.loads(pz._handle_get_puzzle({}, session_id=session.id, user_id="u-repeat", student_message="сдаюсь, давай следующую"))
+    assert nxt2["puzzles"][0]["puzzle_id"] == out["puzzles"][2]["puzzle_id"] and not session.puzzle_queue
+    # «ещё задачу» with the queue empty: the same theme as before, the next task after the three
+    more = json.loads(pz._handle_get_puzzle({}, session_id=session.id, user_id="u-repeat", student_message="ещё задачу"))
+    assert more["puzzles"][0]["puzzle_id"] not in {p["puzzle_id"] for p in out["puzzles"]} and more["theme"] in ("pin", "связка")
+
+
+def test_the_voice_intent_reads_dalshe_only_with_a_queue():
+    from src.intent import read_intent
+
+    assert read_intent("дальше", fen=chess_start(), puzzle_queue=True) == {"kind": "puzzle", "theme": None}
+    assert read_intent("дальше", fen=chess_start(), puzzle_queue=False)["kind"] == "none"
+
+
+def chess_start():
+    return "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+
+
+def test_the_text_turn_puts_the_puzzle_up_itself(monkeypatch):
+    from unittest.mock import MagicMock, patch
+
+    from fastapi.testclient import TestClient
+
+    from src.server import app
+    from src.user_profile import UserProfile
+
+    client = TestClient(app)
+    user = {"X-User-Id": "u-repeat"}
+    sid = client.post("/api/coach/sessions", headers=user).json()["id"]
+    seen = {}
+    with patch("src.server._create_agent") as mock_agent, patch("src.server.load_user_profile") as mock_profile:
+        mock_profile.return_value = UserProfile(user_id="u-repeat")
+        agent = MagicMock()
+
+        def _chat(message, stream_callback=None):
+            seen["message"] = message
+            if stream_callback:
+                stream_callback("Задача на доске.")
+            return "Задача на доске."
+
+        agent.chat.side_effect = _chat
+        mock_agent.return_value = agent
+
+        def turn(text):
+            resp = client.post("/api/coach/chat", headers=user, json={"message": text, "session_id": sid, "fen": chess_start()})
+            frames = [json.loads(l[6:]) for l in resp.text.splitlines() if l.startswith("data: ")]
+            puzzles = [a for f in frames for a in f.get("board_actions", []) if a.get("type") == "set_puzzle"]
+            cards = [f["tool_result"] for f in frames
+                     if isinstance(f.get("tool_result"), dict) and f["tool_result"].get("tool") == "get_puzzle" and f["tool_result"].get("summary")]
+            return puzzles, cards, seen["message"]
+
+        p1, cards, msg = turn("дай задачу на связку")
+        assert p1 and p1[0]["puzzle_id"] == "site:l1:1" and cards and cards[0]["summary"]["kind"] == "puzzle"
+        assert "ALREADY on the board (the system put it there)" in msg and "Do not call get_puzzle" in msg
+        p2, _, _ = turn("Ещё задачу")
+        assert p2 and p2[0]["puzzle_id"] == "site:l1:2"                        # the next, not the same
+        p3, cards3, msg3 = turn("дай три задачи на связку")   # two tasks are left in the fixture after the first two
+        assert p3 and p3[0]["puzzle_id"] == "site:l2:1" and cards3[0]["summary"].get("queued") == 1 and "1 more is lined up" in msg3
+        p4, _, _ = turn("дальше")
+        assert p4 and p4[0]["puzzle_id"] == "site:l2:2"                        # from the queue, no new lookup
+        none, _, msg5 = turn("что такое связка?")
+        assert not none and "the system put it there" not in msg5
+

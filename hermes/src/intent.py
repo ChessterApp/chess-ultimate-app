@@ -45,7 +45,8 @@ def _plies(pgn: Optional[str]) -> int:
 
 
 def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = None,
-                live_game: bool = False, finished_game: bool = False, puzzle_on_board: bool = False) -> dict:
+                live_game: bool = False, finished_game: bool = False, puzzle_on_board: bool = False,
+                puzzle_queue: bool = False) -> dict:
     """{"kind": …, …} — what *text* asks for, in the order a coach would hear it:
 
     game_command (resign / takeback / draw / restart), game_request (color, elo), move (san) or idea (in a
@@ -99,6 +100,12 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
     theme_m = _PUZZLE_ON.search(t)
     if _WANTS_NEW_PUZZLE.search(t) or theme_m or (_SOLVE.search(t) and not puzzle_on_board):
         return {"kind": "puzzle", "theme": theme_m["theme"].strip() if theme_m else None}
+    if puzzle_queue:
+        from src.tools.puzzles import NEXT_IN_QUEUE
+
+        if NEXT_IN_QUEUE.search(t):
+            # «Дальше» after «дай три задачи»: the next one of the queue (src/tools/puzzles, 21.10).
+            return {"kind": "puzzle", "theme": None}
     if _REVIEW.search(t) and _plies(pgn) >= REVIEW_MIN_PLIES:
         side = _REVIEW_SIDE.search(t)
         return {"kind": "review", "side": (None if not side else "black" if side["black"] else "white")}

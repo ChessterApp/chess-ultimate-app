@@ -55,6 +55,26 @@ class Session(BaseModel):
     # relied on the model passing exclude_ids, which it did not. Not serialized (an old session after a
     # restart may repeat once; the puzzle on a board is always excluded).
     _puzzles_shown: list = PrivateAttr(default_factory=list)
+    # «Дай три задачи»: the tasks lined up after the one on the board, and the theme the student last
+    # asked for — «дальше» / «ещё задачу» continue them on the server, not on the model's goodwill (21.10).
+    _puzzle_queue: list = PrivateAttr(default_factory=list)
+    _last_puzzle_theme: Optional[str] = PrivateAttr(default=None)
+
+    @property
+    def puzzle_queue(self) -> list:
+        return list(self._puzzle_queue)
+
+    def set_puzzle_queue(self, puzzles: list, theme: Optional[str] = None) -> None:
+        self._puzzle_queue = [p for p in (puzzles or []) if isinstance(p, dict) and p.get("fen")]
+        if theme is not None:
+            self._last_puzzle_theme = theme or None
+
+    def pop_puzzle(self) -> Optional[dict]:
+        return self._puzzle_queue.pop(0) if self._puzzle_queue else None
+
+    @property
+    def last_puzzle_theme(self) -> Optional[str]:
+        return self._last_puzzle_theme
 
     def note_puzzles_shown(self, puzzle_ids) -> None:
         for pid in puzzle_ids or []:

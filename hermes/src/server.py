@@ -729,6 +729,55 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
     return {"view": view, "block": block}
 
 
+def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str], locale: Optional[str]) -> Optional[dict]:
+    """A puzzle asked for in words — «дай задачу на связку», «ещё задачу», «дай три задачи», «дальше» after
+    them — put on the board here, before the model answers (src/tools/puzzles._handle_get_puzzle does the
+    choosing: the site's sets, no repeats, the queue). Production 21.10: «Ещё задачу» left to the model got
+    a hint at the old task and no get_puzzle call at all. {"result", "block", "summary"} or None."""
+    from src.intent import read_intent
+    from src.tools.game_play import live_game_board
+
+    if live_game_board(session) is not None:
+        return None
+    intent = read_intent(message, fen=getattr(active_board, "fen", None), pgn=getattr(active_board, "pgn", None),
+                         puzzle_on_board=getattr(active_board, "kind", None) == "puzzle",
+                         puzzle_queue=bool(session.puzzle_queue))
+    if intent.get("kind") != "puzzle":
+        return None
+    from src.tools.puzzles import _handle_get_puzzle
+
+    args = {"theme": intent.get("theme")} if intent.get("theme") else {}
+    if re.search(r"(?<![\w-])(?:любую|случайную|any|random)(?![\w-])", message, re.IGNORECASE):
+        args["any"] = True
+    raw = _handle_get_puzzle(args, session_id=session.id, user_id=user_id, student_message=message)
+    try:
+        result = json.loads(raw)
+    except ValueError:
+        return None
+    puzzles = result.get("puzzles") or []
+    actions = result.get("board_actions") or []
+    if not puzzles or not actions or result.get("error"):
+        return None
+    session.apply_board_actions(actions, board_id=active_board.id)
+    first = puzzles[0]
+    queued = len(puzzles) - 1 if not result.get("from_queue") else int(result.get("left_in_queue") or 0)
+    block = (
+        "## The puzzle the student asked for is ALREADY on the board (the system put it there)\n"
+        f"{result.get('how_to_show', '')}\n"
+        f"Puzzle id {first.get('puzzle_id')}, {first.get('side_to_move') or 'White'} to move; solution (private, never read "
+        f"it out unless the student gives up): {' '.join(str(m) for m in first.get('solution') or [])}. "
+        + (f"{queued} more {'is' if queued == 1 else 'are'} lined up: when the student solves this one or gives up, tell them "
+           "to say «дальше» and the system puts the next one up. " if queued else "")
+        + "Do not call get_puzzle or board_control for this request."
+    )
+    summary = None
+    try:
+        summary = build_summary("get_puzzle", args, result)
+    except Exception:  # noqa: BLE001
+        summary = None
+    return {"result": result, "block": block, "summary": summary, "actions": actions}
+
+
 def _puzzle_block(board) -> str:
     """The puzzle on *board* — its solution and how far the student got — while the board still shows
     it or a position along its solution; "" otherwise (a board set to something else since)."""
@@ -1853,6 +1902,16 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             game_step = None
         if game_step:
             active_board = session.ensure_board()  # a game just started is the active board
+    # A puzzle asked for in words: on the board now (src/server._puzzle_prestep, 21.10).
+    puzzle_step = None
+    if config.COACH_PUZZLE_PRESTEP and not game_step:
+        try:
+            puzzle_step = await asyncio.to_thread(_puzzle_prestep, session, active_board, body.message, user_id, body.locale)
+        except Exception:  # noqa: BLE001 — the model can still call get_puzzle
+            logger.warning("puzzle pre-step failed", exc_info=True)
+            puzzle_step = None
+        if puzzle_step:
+            active_board = session.ensure_board()
 
     # Small talk ("Привет", "спасибо") gets one fast tool-free reply instead of
     # the agent loop — see _small_talk_stream.
@@ -2449,6 +2508,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     message = f"{message}\n\n{famous['block']}"
                 if game_step:
                     message = f"{message}\n\n{game_step['block']}"
+                if puzzle_step:
+                    message = f"{message}\n\n{puzzle_step['block']}"
+                    if puzzle_step.get("summary"):
+                        # The puzzle card: the choosing ran here, not as a tool, so its frame is sent from here.
+                        loop.call_soon_threadsafe(queue.put_nowait, ("tool_result", {
+                            "tool": "get_puzzle", "ok": True, "summary": puzzle_step["summary"]}))
                 if puzzle_note:
                     message = f"{message}\n\n{puzzle_note}"
                 if rules_note:
@@ -2685,6 +2750,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if game_step and game_step.get("view"):
             # The game started / the move played by the pre-step: on the page before the first word.
             yield _sse({"board_actions": [{"type": GAME_ACTION, "game": game_step["view"]}]})
+        if puzzle_step and puzzle_step.get("actions"):
+            # The puzzle asked for, put up by the pre-step: on the page before the first word.
+            yield _sse({"board_actions": [{**a, "board_id": active_board.id} for a in puzzle_step["actions"]]})
         if opening_plan and opening_plan.load:
             # So does the opening the student asked about — applied to the
             # session board already (before the engine note); this frame only
@@ -3928,7 +3996,7 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
                 fen = fen or board.fen
                 pgn = pgn or board.pgn
         return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
-                           puzzle_on_board=puzzle)
+                           puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.puzzle_queue))
 
     return await asyncio.to_thread(_read)
 

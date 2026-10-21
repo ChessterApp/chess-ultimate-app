@@ -105,6 +105,36 @@ def count_in_words(text: str) -> Optional[int]:
     return max(1, min(n, MAX_COUNT)) if n > 1 else None
 
 
+# «Ещё», «другую», «следующую» without a theme: the student goes on with what they asked for last.
+_MORE = re.compile(r"(?<![\w-])(?:ещ[её]|еще|друг\w+|следующ\w+|дальше|another|next|more|тағы|келесі)(?![\w-])", re.IGNORECASE)
+# «Дальше», «следующую», «сдаюсь, давай следующую»: the next task of the queue (no noun needed).
+NEXT_IN_QUEUE = re.compile(r"(?<![\w-])(?:следующ\w*|дальше|далее|next|келесі)(?![\w-])", re.IGNORECASE)
+
+
+def queued_puzzle_result(puzzle: dict, left: int) -> dict:
+    """A get_puzzle-shaped result for the next task of the student's queue («дай три задачи» → «дальше»)."""
+    shown = SetPuzzle(fen=puzzle["fen"], solution=puzzle.get("solution") or [], puzzle_id=puzzle.get("puzzle_id"))
+    where = (f"the site's set «{puzzle.get('lesson')}»" + (f" (course «{puzzle.get('course')}»)" if puzzle.get("course") else "")
+             if puzzle.get("lesson") else "the puzzles asked for")
+    return {
+        "theme": (puzzle.get("themes") or [None])[0],
+        "rating": puzzle.get("rating"),
+        "count": 1,
+        "source": puzzle.get("source") or "queue",
+        "from_queue": True,
+        "left_in_queue": left,
+        "puzzles": [puzzle],
+        "on_board": puzzle.get("puzzle_id"),
+        "how_to_show": (
+            f"The next task of what the student asked for is already on the board — do not call board_control for it. "
+            + (f"It is task {puzzle.get('n')} of {puzzle.get('of')} of {where}. " if puzzle.get("n") else "")
+            + f"{left} more {'is' if left == 1 else 'are'} lined up after it. Say whose move it is and what to look for, "
+            "never the solution" + (f"; the set's address: {puzzle['url']}" if puzzle.get("url") else "") + "."
+        ),
+        "board_actions": [shown.model_dump(by_alias=True)],
+    }
+
+
 def site_puzzle(theme: Optional[str], resolved: Optional[str], user_id: Optional[str] = None,
                 locale: Optional[str] = "ru", exclude_ids: Optional[list] = None) -> Optional[dict]:
     """A task from the site's own sets on the theme — the student's programme —
@@ -356,6 +386,7 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
             exclude |= session.puzzles_shown
     except Exception:  # noqa: BLE001 — without a session the model's own list is all there is
         session = None
+    words = str(kwargs.get("student_message") or kwargs.get("utterance") or "")
     count = args.get("count") or 1
     try:
         count = int(count)
@@ -363,9 +394,19 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         count = 1
     if count <= 1:
         # «Дай три задачи на связку», «несколько задач»: the words name the number when the model does not.
-        count = count_in_words(str(kwargs.get("student_message") or kwargs.get("utterance") or "")) or 1
+        count = count_in_words(words) or 1
+    theme = args.get("theme")
+    # «Дальше», «ещё задачу» after «дай три задачи»: the next one of those, from the session's queue — no
+    # new lookup, no repeat (21.10).
+    if session is not None and session.puzzle_queue and not theme and not args.get("any") and not args.get("opening"):
+        nxt = session.pop_puzzle()
+        if nxt:
+            session.note_puzzles_shown([str(nxt.get("puzzle_id"))])
+            return json.dumps(queued_puzzle_result(nxt, len(session.puzzle_queue)), indent=2, ensure_ascii=False)
+    if not theme and session is not None and session.last_puzzle_theme and _MORE.search(words):
+        theme = session.last_puzzle_theme  # «ещё задачу» after «задачу на вилку»: the same theme
     result = get_puzzle(
-        theme=args.get("theme"),
+        theme=theme,
         rating=args.get("rating"),
         opening=args.get("opening"),
         count=count,
@@ -375,7 +416,10 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         locale=args.get("locale") or "ru",
     )
     if session is not None and isinstance(result, dict):
-        session.note_puzzles_shown([str(p.get("puzzle_id")) for p in result.get("puzzles") or [] if p.get("puzzle_id")])
+        puzzles = result.get("puzzles") or []
+        session.note_puzzles_shown([str(p.get("puzzle_id")) for p in puzzles if p.get("puzzle_id")])
+        if puzzles:
+            session.set_puzzle_queue(puzzles[1:], theme=theme or "")
     # A puzzle is what the student asked for: only a strict board lock keeps it off the board,
     # and the model then hears so (src/board_truth.py, for every tool).
     return json.dumps(result, indent=2, ensure_ascii=False)
