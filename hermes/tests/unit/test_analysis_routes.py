@@ -218,6 +218,58 @@ class TestCoachAnalysisStream:
 
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")
+    def test_stream_marks_become_board_actions(self, mock_profile, mock_agent):
+        """Review Explain bubble showed [[arrows: …]] raw (production, 2026-10-21)."""
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        chunks = ["Knight to the centre [[arr", "ows: c6d4 green, d4e2 red]]. ",
+                  "Taking on d5 was weaker [[arrows: d8d5 blue]]."]
+
+        def _chat(message, stream_callback=None):
+            for c in chunks:
+                if stream_callback:
+                    stream_callback(c)
+            return "".join(chunks)
+
+        agent_instance = MagicMock()
+        agent_instance.chat.side_effect = _chat
+        mock_agent.return_value = agent_instance
+
+        resp = self.client.post(
+            "/api/coach/analysis/stream",
+            headers=USER_HEADERS,
+            json={"fen": FEN, "query": "Explain"},
+        )
+        events = _parse_sse(resp.text)
+        text = _deltas(events)
+        assert "[[" not in text and "]]" not in text
+        assert "Knight to the centre" in text and "Taking on d5 was weaker" in text
+        actions = [a for e in events if "board_actions" in e for a in e["board_actions"]]
+        arrows = actions[-1]["arrows"]
+        assert {(a["from"], a["to"], a["brush"]) for a in arrows} == {
+            ("c6", "d4", "green"), ("d4", "e2", "red"), ("d8", "d5", "blue"),
+        }
+        session = session_store.get(events[-1]["conversation_id"], "test-user-123")
+        assert "[[" not in session.messages[-1].content
+
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_stream_marks_stripped_when_nothing_streamed(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id="test-user-123")
+        agent_instance = MagicMock()
+        agent_instance.chat.return_value = "Play Nf6 [[arrows: g8f6 green]]."
+        mock_agent.return_value = agent_instance
+
+        resp = self.client.post(
+            "/api/coach/analysis/stream",
+            headers=USER_HEADERS,
+            json={"fen": FEN, "query": "Explain"},
+        )
+        events = _parse_sse(resp.text)
+        assert "[[" not in _deltas(events)
+        assert any(e.get("board_actions") for e in events)
+
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
     def test_stream_final_done_frame(self, mock_profile, mock_agent):
         mock_profile.return_value = UserProfile(user_id="test-user-123")
         agent_instance = MagicMock()

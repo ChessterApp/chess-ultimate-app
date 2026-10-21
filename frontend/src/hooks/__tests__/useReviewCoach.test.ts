@@ -66,6 +66,8 @@ interface FetchOpts {
   /** GET /review-cache response content (null = cache miss). */
   cacheContent?: string | null;
   onStream?: () => void;
+  /** SSE lines the stream endpoint returns (default STREAM_LINES). */
+  streamLines?: string[];
 }
 
 /** Route by URL + method: review-cache GET/POST + analysis/stream. */
@@ -81,7 +83,7 @@ function installFetch(opts: FetchOpts = {}) {
     }
     if (url.includes('/api/coach/analysis/stream')) {
       opts.onStream?.();
-      return Promise.resolve(sseResponse(STREAM_LINES));
+      return Promise.resolve(sseResponse(opts.streamLines ?? STREAM_LINES));
     }
     if (url.includes('/api/coach/review-cache') && method === 'POST') {
       posts.push({ url, body: init?.body ? JSON.parse(init.body) : null });
@@ -224,6 +226,60 @@ describe('useReviewCoach.explainMove', () => {
     const key = explainCacheKey(MOVE.fen, MOVE.uci, 'en');
     expect(result.current.explainByKey[key].status).toBe('error');
     expect(result.current.explainByKey[key].error).toBe('boom');
+  });
+});
+
+describe('useReviewCoach board marks (raw [[arrows]] leak, 2026-10-21)', () => {
+  const key = explainCacheKey(MOVE.fen, MOVE.uci, 'en');
+
+  it('a cached explanation with raw marks shows clean text and draws its arrows', async () => {
+    installFetch({
+      cacheContent:
+        '[[arrows: c6d4 green, d4e2 red]]. Из центра конь бьёт по b3. Взятие на d5 слабее [[arrows: d8d5 blue]],',
+    });
+    const { result } = renderHook(() => useReviewCoach());
+    await act(async () => {
+      await result.current.explainMove(MOVE, null);
+    });
+
+    const entry = result.current.explainByKey[key];
+    expect(entry.content).not.toContain('[[');
+    expect(entry.content.startsWith('Из центра')).toBe(true);
+    expect(entry.arrows).toEqual([
+      { from: 'c6', to: 'd4', brush: 'green' },
+      { from: 'd4', to: 'e2', brush: 'red' },
+      { from: 'd8', to: 'd5', brush: 'blue' },
+    ]);
+  });
+
+  it('board_actions frames become arrows and are cached with the text', async () => {
+    const { posts } = installFetch({
+      cacheContent: null,
+      streamLines: [
+        'data: {"delta":"The knight jumps in."}\n',
+        'data: {"board_actions":[{"type":"draw_arrows","arrows":[{"from":"c6","to":"d4","brush":"green"}]}]}\n',
+        'data: {"board_actions":[{"type":"draw_arrows","arrows":[{"from":"c6","to":"d4","brush":"green"},{"from":"d4","to":"e2","brush":"red"}]}]}\n',
+        'data: {"done":true}\n',
+      ],
+    });
+    const { result } = renderHook(() => useReviewCoach());
+    await act(async () => {
+      await result.current.explainMove(MOVE, null);
+    });
+
+    const entry = result.current.explainByKey[key];
+    expect(entry.content).toBe('The knight jumps in.');
+    expect(entry.arrows).toHaveLength(2);
+
+    // The cached string carries the arrows, so a later cache hit draws them too.
+    const cached = (posts[0].body as { content: string }).content;
+    installFetch({ cacheContent: cached });
+    const { result: again } = renderHook(() => useReviewCoach());
+    await act(async () => {
+      await again.current.explainMove(MOVE, null);
+    });
+    expect(again.current.explainByKey[key].content).toBe('The knight jumps in.');
+    expect(again.current.explainByKey[key].arrows).toEqual(entry.arrows);
   });
 });
 

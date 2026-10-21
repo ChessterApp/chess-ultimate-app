@@ -81,6 +81,10 @@ export interface ReviewBoardProps {
   animationKey?: number | string;
   /** Reports the board's real rendered pixel size (used to size the eval bar). */
   onBoardSize?: (px: number) => void;
+  /** Arrows from the coach's Explain text; they replace the best-move arrow. */
+  coachArrows?: Array<{ from: string; to: string; brush: string }>;
+  /** Squares the coach's Explain text highlights. */
+  coachSquares?: string[];
 }
 
 function uciSquares(uci?: string): [string, string] | null {
@@ -103,6 +107,8 @@ export default function ReviewBoard({
   move,
   animationKey,
   onBoardSize,
+  coachArrows,
+  coachSquares,
 }: ReviewBoardProps) {
   // The board's real rendered pixel size, measured by ChessgroundBoard. Once
   // known we drive the box height from it so the box is exactly square in every
@@ -147,10 +153,13 @@ export default function ReviewBoard({
         animationDuration={PIECE_ANIMATION_MS}
         lastMove={squares as never}
         arrows={
-          showBestArrow && bestSquares
-            ? [{ from: bestSquares[0] as never, to: bestSquares[1] as never, brush: 'blue' }]
-            : []
+          coachArrows?.length
+            ? coachArrows.map((a) => ({ from: a.from as never, to: a.to as never, brush: a.brush }))
+            : showBestArrow && bestSquares
+              ? [{ from: bestSquares[0] as never, to: bestSquares[1] as never, brush: 'blue' }]
+              : []
         }
+        highlightSquares={(coachSquares ?? []) as never}
       />
 
       {/* Overlay layers — do not intercept pointer events. */}

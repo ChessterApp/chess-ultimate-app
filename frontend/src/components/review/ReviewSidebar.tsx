@@ -9,6 +9,7 @@ import TallyTable from './TallyTable';
 import GameRating from './GameRating';
 import PhaseStats from './PhaseStats';
 import ReviewPanel from './ReviewPanel';
+import type { CoachArrow } from '@/lib/coach/review-markup';
 
 export interface SidebarPlayer {
   name: string;
@@ -25,6 +26,7 @@ export interface ReviewSidebarProps {
   currentPly: number;
   onSetPly: (ply: number) => void;
   onExitReview: () => void;
+  onCoachShapes?: (arrows: CoachArrow[], squares: string[]) => void;
 }
 
 /** Minimal shape of the `gameReview` translator used by {@link coachCopy}. */
@@ -66,6 +68,7 @@ export default function ReviewSidebar({
   currentPly,
   onSetPly,
   onExitReview,
+  onCoachShapes,
 }: ReviewSidebarProps) {
   const t = useTranslations('gameReview');
   if (mode === 'review') {
@@ -75,6 +78,7 @@ export default function ReviewSidebar({
         currentPly={currentPly}
         onSetPly={onSetPly}
         onExitReview={onExitReview}
+        onCoachShapes={onCoachShapes}
       />
     );
   }

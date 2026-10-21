@@ -9,11 +9,25 @@ import { renderIntl } from './intl';
 // Chessground needs a real board runtime; stub it. The stub reports a fixed
 // measured size via onSizeChange so the box-sizing wiring can be tested.
 vi.mock('@/components/chess/ChessgroundBoard', () => ({
-  default: ({ onSizeChange }: { onSizeChange?: (px: number) => void }) => {
+  default: ({
+    onSizeChange,
+    arrows = [],
+    highlightSquares = [],
+  }: {
+    onSizeChange?: (px: number) => void;
+    arrows?: Array<{ from: string; to: string; brush: string }>;
+    highlightSquares?: string[];
+  }) => {
     React.useEffect(() => {
       onSizeChange?.(320);
     }, [onSizeChange]);
-    return <div data-testid="cg-stub" />;
+    return (
+      <div
+        data-testid="cg-stub"
+        data-arrows={arrows.map((a) => `${a.from}${a.to}:${a.brush}`).join(',')}
+        data-highlights={highlightSquares.join(',')}
+      />
+    );
   },
 }));
 
@@ -109,5 +123,31 @@ describe('ReviewBoard sizing', () => {
     const box = getByTestId('review-board');
     expect(box.style.height).toBe('320px');
     expect(box.style.aspectRatio).toBe('');
+  });
+});
+
+describe('ReviewBoard coach arrows (Explain marks, 2026-10-21)', () => {
+  const move = { uci: 'e2e4', classification: 'mistake' as const, best: { uci: 'd2d4' } };
+
+  it('draws the best-move arrow when the coach drew none', () => {
+    const { getByTestId } = renderIntl(<ReviewBoard fen={REVIEW_FIXTURE.moves[0].fen} move={move} />);
+    expect(getByTestId('cg-stub').getAttribute('data-arrows')).toBe('d2d4:blue');
+  });
+
+  it("draws the coach's arrows and highlights instead", () => {
+    const { getByTestId } = renderIntl(
+      <ReviewBoard
+        fen={REVIEW_FIXTURE.moves[0].fen}
+        move={move}
+        coachArrows={[
+          { from: 'c6', to: 'd4', brush: 'green' },
+          { from: 'd4', to: 'e2', brush: 'red' },
+        ]}
+        coachSquares={['b3']}
+      />,
+    );
+    const stub = getByTestId('cg-stub');
+    expect(stub.getAttribute('data-arrows')).toBe('c6d4:green,d4e2:red');
+    expect(stub.getAttribute('data-highlights')).toBe('b3');
   });
 });

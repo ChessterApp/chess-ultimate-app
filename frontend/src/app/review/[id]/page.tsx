@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useDarkMode } from '@/hooks/useDarkMode';
@@ -16,6 +16,7 @@ import {
   ReviewFetchError,
 } from '@/components/review';
 import type { EngineEval } from '@/components/review';
+import type { CoachArrow } from '@/lib/coach/review-markup';
 
 const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 const POLL_MS = 1500;
@@ -43,6 +44,14 @@ function ReviewPageInner() {
   // Board's real rendered pixel size, reported by ReviewBoard. Drives the eval
   // bar height from one measured value so the bar matches the board exactly.
   const [boardPx, setBoardPx] = useState<number | undefined>(undefined);
+  const [coachShapes, setCoachShapes] = useState<{ arrows: CoachArrow[]; squares: string[] }>({
+    arrows: [],
+    squares: [],
+  });
+  const handleCoachShapes = useCallback(
+    (arrows: CoachArrow[], squares: string[]) => setCoachShapes({ arrows, squares }),
+    [],
+  );
 
   // Poll the backend until the analysis is done (or errors).
   const done = data != null;
@@ -151,6 +160,8 @@ function ReviewPageInner() {
                 move={currentMove}
                 animationKey={currentPly}
                 onBoardSize={setBoardPx}
+                coachArrows={coachShapes.arrows}
+                coachSquares={coachShapes.squares}
               />
             </div>
             {/* Replay bar glued directly under the board (both modes) so it's
@@ -174,6 +185,7 @@ function ReviewPageInner() {
               currentPly={currentPly}
               onSetPly={(ply) => dispatch({ type: 'setPly', ply })}
               onExitReview={() => dispatch({ type: 'setMode', mode: 'highlights' })}
+              onCoachShapes={handleCoachShapes}
             />
             <EvalGraph
               moves={data.moves}

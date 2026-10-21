@@ -4802,11 +4802,19 @@ async def coach_analysis_stream(request: Request):
         streamed_any = False
         result_text = None
         error_msg = None
+        # Inline [[arrows: …]] / [[squares: …]] marks become board_actions frames
+        # and never reach the text — the Review "Explain" bubble showed them raw
+        # (production, 2026-10-21).
+        markup = MarkupFilter(fen)
 
         async for kind, payload in _stream_agent_tokens(agent, augmented):
             if kind == "delta":
                 streamed_any = True
-                yield _sse({"delta": payload})
+                text, mark_actions = markup.feed(payload)
+                for action in mark_actions:
+                    yield _sse({"board_actions": [action]})
+                if text:
+                    yield _sse({"delta": text})
             elif kind == "result":
                 result_text = payload
             elif kind == "error":
@@ -4820,9 +4828,17 @@ async def coach_analysis_stream(request: Request):
             result_text or "I wasn't able to generate a response. Please try again."
         )
 
-        # If no tokens streamed (tool-only turn / no callback support), emit the
-        # full text once so concatenated deltas reconstruct the whole message.
-        if not streamed_any:
+        if streamed_any:
+            tail = markup.flush()
+            if tail:
+                yield _sse({"delta": tail})
+            response_text, _ = strip_markup(response_text, fen)
+        else:
+            # No tokens streamed (tool-only turn / no callback support): emit the
+            # full text once so concatenated deltas reconstruct the whole message.
+            response_text, mark_actions = strip_markup(response_text, fen)
+            for action in mark_actions:
+                yield _sse({"board_actions": [action]})
             yield _sse({"delta": response_text})
 
         # Record real token usage for this turn (fire-and-forget; never blocks)

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import type { ReviewResult } from './types';
@@ -10,6 +10,7 @@ import GameRecap from './GameRecap';
 import MoveList from './MoveList';
 import ReviewSounds from './ReviewSounds';
 import { useReviewCoach } from '@/hooks/useReviewCoach';
+import type { CoachArrow } from '@/lib/coach/review-markup';
 
 export interface ReviewPanelProps {
   data: ReviewResult;
@@ -18,6 +19,8 @@ export interface ReviewPanelProps {
   onSetPly: (ply: number) => void;
   /** Return to the Highlights summary. */
   onExitReview: () => void;
+  /** The current move's Explain arrows/highlights, for the review board. */
+  onCoachShapes?: (arrows: CoachArrow[], squares: string[]) => void;
 }
 
 /**
@@ -31,6 +34,7 @@ export default function ReviewPanel({
   currentPly,
   onSetPly,
   onExitReview,
+  onCoachShapes,
 }: ReviewPanelProps) {
   const t = useTranslations('gameReview');
   const params = useParams<{ id: string }>();
@@ -48,6 +52,14 @@ export default function ReviewPanel({
   const currentCoach = currentMove
     ? coach.explainByKey[coach.explainKeyFor(currentMove)]
     : undefined;
+
+  // The explanation's [[arrows: …]] marks are drawn on the review board.
+  const coachArrows = currentCoach?.arrows;
+  const coachSquares = currentCoach?.squares;
+  useEffect(() => {
+    onCoachShapes?.(coachArrows ?? [], coachSquares ?? []);
+  }, [onCoachShapes, coachArrows, coachSquares]);
+  useEffect(() => () => onCoachShapes?.([], []), [onCoachShapes]);
 
   return (
     <aside

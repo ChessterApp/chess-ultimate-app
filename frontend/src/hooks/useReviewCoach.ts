@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useLocale } from 'next-intl';
 import type { ReviewMove, ReviewResult, EngineEval } from '@/components/review/types';
+import { marksFor, parseCoachMarkup, type CoachArrow } from '@/lib/coach/review-markup';
 
 /**
  * Review Coach v1 (F1 per-move Explain + F3 whole-game recap).
@@ -31,11 +32,21 @@ export type CoachStatus = 'idle' | 'streaming' | 'done' | 'error';
 
 export interface CoachEntry {
   status: CoachStatus;
+  /** Clean prose — inline [[arrows: …]] / [[squares: …]] marks removed. */
   content: string;
   error: string | null;
+  /** Board shapes the explanation draws (from its marks / board_actions frames). */
+  arrows: CoachArrow[];
+  squares: string[];
 }
 
-const IDLE: CoachEntry = { status: 'idle', content: '', error: null };
+const IDLE: CoachEntry = { status: 'idle', content: '', error: null, arrows: [], squares: [] };
+
+/** Entry fields for a raw explanation (marks and all), as cached or streamed. */
+function fromRaw(raw: string): Pick<CoachEntry, 'content' | 'arrows' | 'squares'> {
+  const { text, arrows, squares } = parseCoachMarkup(raw);
+  return { content: text, arrows, squares };
+}
 
 export interface OpeningInfo {
   name?: string;
@@ -200,10 +211,14 @@ interface StreamResult {
   model: string | null;
 }
 
-/** Consume the coach SSE proxy, forwarding deltas; resolve on {done}. */
+/**
+ * Consume the coach SSE proxy; resolve on {done}. `onUpdate` gets the raw
+ * answer so far — the text plus the board_actions frames written back as
+ * trailing marks, so one string carries both (and is what gets cached).
+ */
 async function streamCoach(
   body: { fen: string; query: string; context_type: string },
-  onDelta: (text: string) => void,
+  onUpdate: (raw: string) => void,
   signal?: AbortSignal,
 ): Promise<StreamResult> {
   const response = await fetch('/api/coach/analysis/stream', {
@@ -227,8 +242,14 @@ async function streamCoach(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let content = '';
+  let text = '';
+  let arrows: CoachArrow[] = [];
+  let squares: string[] = [];
   let model: string | null = null;
+  const raw = () => {
+    const marks = marksFor(arrows, squares);
+    return marks ? `${text} ${marks}` : text;
+  };
 
   const consumeLine = (line: string) => {
     if (!line.startsWith('data: ')) return;
@@ -239,8 +260,19 @@ async function streamCoach(
       return;
     }
     if (typeof data.delta === 'string') {
-      content += data.delta;
-      onDelta(data.delta);
+      text += data.delta;
+      onUpdate(raw());
+    }
+    if (Array.isArray(data.board_actions)) {
+      // Each action carries every arrow (highlight) of the answer so far.
+      for (const action of data.board_actions as Array<Record<string, unknown>>) {
+        if (action?.type === 'draw_arrows' && Array.isArray(action.arrows)) {
+          arrows = (action.arrows as CoachArrow[]).filter((a) => a?.from && a?.to);
+        } else if (action?.type === 'highlight_squares' && Array.isArray(action.squares)) {
+          squares = (action.squares as unknown[]).filter((q): q is string => typeof q === 'string');
+        }
+      }
+      onUpdate(raw());
     }
     if (typeof data.model === 'string') model = data.model;
     if (typeof data.error === 'string') throw new Error(data.error);
@@ -256,7 +288,7 @@ async function streamCoach(
   }
   if (buffer) consumeLine(buffer);
 
-  return { content, model };
+  return { content: raw(), model };
 }
 
 /** Read the persistent (Supabase) cache layer via the server route. */
@@ -326,18 +358,18 @@ export function useReviewCoach(): UseReviewCoach {
       // Layer 2 — client in-memory.
       const memHit = memRef.current.get(key);
       if (memHit != null) {
-        setEntry(key, { status: 'done', content: memHit, error: null });
+        setEntry(key, { status: 'done', error: null, ...fromRaw(memHit) });
         return;
       }
 
-      setEntry(key, { status: 'streaming', content: '', error: null });
+      setEntry(key, { status: 'streaming', error: null, ...fromRaw('') });
 
       try {
         // Layer 1 — persistent Supabase cache.
         const persisted = await readPersistentCache(key);
         if (persisted != null) {
           memRef.current.set(key, persisted);
-          setEntry(key, { status: 'done', content: persisted, error: null });
+          setEntry(key, { status: 'done', error: null, ...fromRaw(persisted) });
           return;
         }
 
@@ -345,15 +377,11 @@ export function useReviewCoach(): UseReviewCoach {
         const query = buildExplainQuery(move, prev, opening, locale);
         const { content, model } = await streamCoach(
           { fen: move.fen, query, context_type: 'position' },
-          (delta) =>
-            setExplainByKey((prevState) => {
-              const cur = prevState[key] ?? IDLE;
-              return { ...prevState, [key]: { ...cur, content: cur.content + delta } };
-            }),
+          (raw) => setEntry(key, fromRaw(raw)),
         );
 
         memRef.current.set(key, content);
-        setEntry(key, { status: 'done', content, error: null });
+        setEntry(key, { status: 'done', error: null, ...fromRaw(content) });
         void writePersistentCache(key, 'explain', locale, content, model);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
@@ -369,17 +397,17 @@ export function useReviewCoach(): UseReviewCoach {
 
       const memHit = memRef.current.get(key);
       if (memHit != null) {
-        setRecap({ status: 'done', content: memHit, error: null });
+        setRecap({ ...IDLE, status: 'done', ...fromRaw(memHit) });
         return;
       }
 
-      setRecap({ status: 'streaming', content: '', error: null });
+      setRecap({ ...IDLE, status: 'streaming' });
 
       try {
         const persisted = await readPersistentCache(key);
         if (persisted != null) {
           memRef.current.set(key, persisted);
-          setRecap({ status: 'done', content: persisted, error: null });
+          setRecap({ ...IDLE, status: 'done', ...fromRaw(persisted) });
           return;
         }
 
@@ -390,11 +418,11 @@ export function useReviewCoach(): UseReviewCoach {
         const query = buildRecapQuery(data, locale);
         const { content, model } = await streamCoach(
           { fen: finalFen, query, context_type: 'game' },
-          (delta) => setRecap((cur) => ({ ...cur, content: cur.content + delta })),
+          (raw) => setRecap((cur) => ({ ...cur, ...fromRaw(raw) })),
         );
 
         memRef.current.set(key, content);
-        setRecap({ status: 'done', content, error: null });
+        setRecap({ ...IDLE, status: 'done', ...fromRaw(content) });
         void writePersistentCache(key, 'summary', locale, content, model);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';
