@@ -2028,6 +2028,29 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # hint toward Qe2 for a puzzle solved by Qxf1+ — the solution was only in the turn that set it (prod,
     # 2026-10-13).
     puzzle_note = _puzzle_block(active_board)
+    # The position itself recognised (2026-10-22): a task of the site's lessons that came onto the board as a
+    # FEN gets its lesson and solution (src/site_puzzle_lookup — the programme run's misses); a position on a
+    # known trap's line gets the trap's lines (src/trap_positions — «да, можно взять e5» in the Blackburne
+    # Shilling position). Not for a new-puzzle request, a live game or a board the tools already marked.
+    site_puzzle_note = trap_note = ""
+    wants_puzzle_now = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
+    if session.board_state and not live_game and review_future is None and not wants_puzzle_now and not hidden_fen:
+        if config.COACH_SITE_PUZZLE_LOOKUP and not puzzle_note:
+            try:
+                from src.site_puzzle_lookup import site_puzzle_at, site_puzzle_block
+
+                site_puzzle_note = site_puzzle_block(await asyncio.to_thread(site_puzzle_at, session.board_state))
+            except Exception:  # noqa: BLE001 — best-effort
+                logger.debug("site puzzle lookup failed", exc_info=True)
+                site_puzzle_note = ""
+        if config.COACH_TRAP_POSITIONS:
+            try:
+                from src.trap_positions import trap_block
+
+                trap_note = trap_block(session.board_state)
+            except Exception:  # noqa: BLE001
+                logger.debug("trap lookup failed", exc_info=True)
+                trap_note = ""
     # The Laws of Chess a rules question is about (src/rules_facts.py): «кончилось время, у соперника один король»
     # went «ничья» in one run and «победил соперник» in the next (2026-10-13).
     try:
@@ -2516,6 +2539,10 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             "tool": "get_puzzle", "ok": True, "summary": puzzle_step["summary"]}))
                 if puzzle_note:
                     message = f"{message}\n\n{puzzle_note}"
+                if site_puzzle_note:
+                    message = f"{message}\n\n{site_puzzle_note}"
+                if trap_note:
+                    message = f"{message}\n\n{trap_note}"
                 if rules_note:
                     message = f"{message}\n\n{rules_note}"
                 if facts_note:

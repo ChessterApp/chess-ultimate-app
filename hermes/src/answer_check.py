@@ -1266,6 +1266,77 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
     return []
 
 
+# «давит на коня c6», «забираешь коня на e2», "attacks the knight on c6": the OBJECT of an attack or a
+# capture named by its kind and square — some piece of that kind must stand there on a board of the turn
+# (the one in front of the student or one a written move of the answer leads to). Production 19.10: «Bb5+
+# … и заодно давит на коня c6» with the knight on a5 and c6 empty. The object case (коня, ладью, пешку)
+# never names the piece that acts, and «поставить коня на c6» is a destination, so only these verbs.
+_OBJECT_GHOST = re.compile(
+    _B2 + r"(?:(?:бь[её]т|бьют|бь[её]шь|бь[её]те|забира\w+|забер[её]\w*|бер[её]\w+|взять|взял\w*|съесть|съеда\w+|съел\w*|"
+    r"атаку\w+|напада\w+|напад[её]\w*|давит|давишь|давят|угрожа\w+|держит|держишь|держат|защища\w+|прикрыва\w+|"
+    r"связыва\w+|связал\w*|связать|выигрыва\w+|выиграть|теря\w+|потеря\w+|отда[её]\w+|отдать|разменя\w+|меня\w+)"
+    r"\s+(?:на\s+|по\s+)?(?:(?:сво\w+|его|их|е[её]|тво\w+|ваш\w+|мо\w+|ч[её]рн\w+|бел\w+|вражеск\w+|неприятельск\w+|"
+    r"незащищ[её]нн\w+|беззащитн\w+|связанн\w+|лишн\w+|этого|эту|того|ту)\s+)?"
+    rf"(?P<w>коня|слона|ладью|ферзя|короля|пешку)\s+(?:на\s+)?(?P<sq>{SQ})(?![0-9])"
+    r"|(?:attack\w*|hit\w*|tak\w+|captur\w+|win\w*|target\w*|threaten\w*|pin\w*|fork\w*|grab\w*|pick\w+\s+(?:up|off))\s+"
+    r"(?:(?:the|your|his|her|their|my|that|this|black'?s?|white'?s?|enemy|loose|hanging|undefended|unprotected)\s+){0,2}"
+    rf"(?P<w2>knight|bishop|rook|queen|king|pawn)\s+on\s+(?P<sq2>{SQ})(?![0-9]))", re.IGNORECASE)
+
+
+def _object_ghost_issues(text: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None or ctx.current.board_fen() == chess.STARTING_BOARD_FEN:
+        return []
+    if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
+        return []
+    for m in _OBJECT_GHOST.finditer(text):
+        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"])
+        if _NEGATION.search(text[max(0, m.start() - 12):m.start()]):
+            continue
+        ptype = _piece_type(word)
+        if ptype is None:
+            continue
+        sq = chess.parse_square(sq_name.lower())
+        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in ctx.boards):
+            continue
+        there = ctx.current.piece_at(sq)
+        here = f"a {_NAMES[there.piece_type]} stands there" if there else "the square is empty"
+        return [f"there is no {_NAMES[ptype]} on {sq_name.lower()} in this position ({here})"]
+    return []
+
+
+# «e5xd5», «e5:d5»: a capture written from square to square — the piece standing on the first square must
+# be able to take that way (a pawn takes one square diagonally forward: «обычным взятием — e5xd5» with
+# the pawns on e5 and d5 side by side, production 19.10).
+_CAPTURE_CHAIN = re.compile(rf"(?<![A-Za-z0-9])(?P<a>{SQ})\s?[x×:]\s?(?P<b>{SQ})(?![0-9])")
+
+
+def _capture_chain_issues(text: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    issues = []
+    for m in _CAPTURE_CHAIN.finditer(text):
+        a, b = chess.parse_square(m["a"].lower()), chess.parse_square(m["b"].lower())
+        standing = [bd for bd in ctx.boards if bd.piece_at(a) is not None]
+        if not standing:
+            continue  # a plan on a position the turn does not have: not judged
+        ok = False
+        for bd in standing:
+            piece = bd.piece_at(a)
+            if piece.piece_type == chess.PAWN:
+                forward = 1 if piece.color == chess.WHITE else -1
+                if (abs(chess.square_file(a) - chess.square_file(b)) == 1
+                        and chess.square_rank(b) - chess.square_rank(a) == forward):
+                    ok = True
+            elif _geometry_move(piece.piece_type, a, b):
+                ok = True
+        if not ok:
+            piece = ctx.current.piece_at(a) or standing[0].piece_at(a)
+            what = _NAMES[piece.piece_type]
+            why = " (a pawn takes one square diagonally forward)" if piece.piece_type == chess.PAWN else ""
+            issues.append(f"{m['a']}x{m['b']}: a {what} on {m['a'].lower()} cannot capture on {m['b'].lower()}{why}")
+    return issues
+
+
 def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
     if ctx.current is None:
         return []  # no real position of the turn to judge by
@@ -2079,7 +2150,8 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _object_typed_issues(text, original, ctx) + _not_attacked_issues(text, original, ctx)
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
             + _side_piece_issues(text, original, ctx) + _side_move_issues(original, ctx)
-            + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else []))
+            + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else [])
+            + _object_ghost_issues(text, ctx) + _capture_chain_issues(text, ctx))
 
 
 # A sentence in the wrong language: the model answered a Russian question in
