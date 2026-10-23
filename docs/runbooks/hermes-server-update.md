@@ -49,6 +49,22 @@
   считается. Код `hermes/src/intent.py`.
 - **Имя сессии в шапке телефона — первый вопрос ученика**, а не последние слова тренера (над задачей висело «Let me find a
   good tactical puzzle fo…»). Код `hermes/src/server.py` (`_session_summary`).
+- **Решение задачи показывает система, а не модель.** Полная перепроверка прода 23.10: на «Сдаюсь, покажи решение» модель
+  назвала Qf3+ Kg1 Qh1# для задачи с решением Nh3#, хотя решение лежало у неё в контексте. Теперь на такие слова (сдаюсь,
+  не знаю, покажи/скажи решение или ответ, give up) новый инструмент `puzzle_solution` рисует решение стрелками и даёт
+  модели точную строку; в тексте это делает сервер до первого слова, в голосе — сайт по намерению `solution`. Проверка
+  ответа знает решение задачи на доске: «решение — X» или «X ставит мат» с другим ходом не показывается. Код
+  `hermes/src/tools/puzzles.py`, `hermes/src/intent.py`, `hermes/src/server.py`, `hermes/src/answer_check.py`.
+- **Вилка — факт позиции.** «Есть ли здесь вилка?» → «нет» при Nc7+ на доске. В факты позиции (блок движка и факты доски)
+  добавлена строка «a fork is available now: Nc7+ attacks the black king e8, the black rook a8 (with check)» — для ходов,
+  после которых фигура бьёт две цели и сама не теряется. Код `hermes/src/position_facts.py`.
+- **Проверка ответа:** «ферзь b6 у тебя висит» ловится (слова между полем и глаголом), и фраза с «нельзя» в конце больше не
+  выключает проверку призраков в её начале.
+- **6-я партия Карлсен — Непомнящий 2021** (136 ходов, 1-0) добавлена в знаменитые партии с проверенной записью: тренер
+  рассказывал про неё «вничью». Код `hermes/src/famous_games.py`.
+- Проверка 49 (решение задачи, вилка, партия — без базы и модели):
+  `cd /root/hermes-chess && .venv/bin/python -c "import chess; from src.tools.puzzles import asks_solution, numbered_line; from src.position_facts import fork_facts; from src.famous_games import famous_game; a=asks_solution('Сдаюсь, покажи решение') and not asks_solution('сдаюсь, давай следующую'); b=numbered_line('3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24', ['Qf3+','Kg1','Nh3#'])=='24...Qf3+ 25.Kg1 Nh3#'; c=any('Nc7+' in f for f in fork_facts(chess.Board('r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1'))); g=famous_game('покажи 6-ю партию матча Карлсен — Непомнящий 2021'); d=bool(g and '136.Ng7' in g['block']); print(a, b, c, d, 'ОК' if a and b and c and d else 'ПРОВЕРЬ')"`
+  → `True True True True ОК`.
 - Проверка 47 (намерение по словам с телефона):
   `curl -s -X POST localhost:8642/api/coach/voice/intent -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{"text":"Да, по- поставь, пожалуйста, а-а позицию на связку.","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}' | python3 -c "import sys,json; r=json.load(sys.stdin); print(r, 'ОК' if r.get('kind')=='puzzle' and r.get('theme')=='связку' else 'ПРОВЕРЬ')"`
   → `{'kind': 'puzzle', 'theme': 'связку'} ОК`.

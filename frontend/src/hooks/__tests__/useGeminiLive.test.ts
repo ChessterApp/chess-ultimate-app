@@ -1658,6 +1658,21 @@ describe('what the words ask for is read by Hermes (POST /api/coach/voice/intent
       expect(bodiesTo('/api/coach/voice/intent')[0]).toMatchObject({ text: 'Дай мне тактическую задачу' });
     });
 
+    it('«Сдаюсь, покажи решение» puts the verified solution on the board and hands the model the exact line (23.10)', async () => {
+      toolReply = (body) => (body.name === 'puzzle_solution'
+        ? { result: { ok: true, line: '24...Qf3+ 25.Kg1 Nh3#', moves: ['Qf3+', 'Kg1', 'Nh3#'], note: 'The solution is SHOWN on the board with arrows. Say it EXACTLY, move by move: 24...Qf3+ 25.Kg1 Nh3#.' },
+            board_actions: [{ type: 'draw_arrows', arrows: [{ from: 'f6', to: 'f3', brush: 'green' }] }] }
+        : { result: {} });
+      const onToolResult = vi.fn();
+      await connectAsking({ kind: 'solution' }, { getFen: () => '3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24', onToolResult });
+      say('Сдаюсь, покажи решение');
+      await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('puzzle_solution', expect.objectContaining({ board_actions: [{ type: 'draw_arrows', arrows: [{ from: 'f6', to: 'f3', brush: 'green' }] }] })));
+      expect(bodiesTo('/api/coach/tool').find((b: any) => b.name === 'puzzle_solution')).toMatchObject({ args: {}, utterance: 'Сдаюсь, покажи решение' });
+      expect(sent().some((t) => t.startsWith('[Puzzle]') && t.includes('24...Qf3+ 25.Kg1 Nh3#'))).toBe(true);
+      await call('puzzle_solution', {});   // the model asks for it too: the site's result, no second call
+      expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'puzzle_solution')).toHaveLength(1);
+    });
+
     it('a move Hermes read from the words is played as that move', async () => {
       toolReply = () => ({ result: { ok: true, student_move: 'Bc4', engine_reply: 'Nf6' }, board_actions: [{ type: 'game', game: AFTER_GAME }] });
       await connectAsking({ kind: 'move', san: 'Bc4' }, { getGame: () => game(), getFen: () => START });

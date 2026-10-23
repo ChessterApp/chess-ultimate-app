@@ -325,6 +325,10 @@ class CheckContext:
     # an answer about the student's board (production 08.10: «Первый ход чёрных — Qxg2+» passed on a diagram).
     text_keys: set = field(default_factory=set)
     shown_keys: set = field(default_factory=set)
+    # The verified solution of the puzzle on the board, in SAN from its start, when a puzzle is there: a sentence
+    # that gives «the solution» or «the mate» with another move is not shown (prod 23.10: «Qf3+ Kg1 и Qh1#» for
+    # a puzzle solved by Nh3#).
+    puzzle_solution: Optional[list] = None
     MAX_BOARDS = 400
 
     @classmethod
@@ -1238,7 +1242,10 @@ _EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|ap
 # answers, 07.10): a piece named by the square it stands on, which no position of the turn — the board, a
 # tool's position, a game, a line the answer wrote, the student's idea — has there.
 _GHOST = re.compile(
-    _B2 + rf"(?:(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+(?:сейчас\s+|уже\s+|сама\s+|сам\s+)?"
+    # «ферзь b6 у тебя висит» (prod 23.10): a word or two about whose it is, or when, between the square and the verb
+    _B2 + rf"(?:(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+"
+    r"(?:(?:сейчас|уже|сама|сам|теперь|пока|тоже|по-прежнему|всё\s+ещё|все\s+еще|у\s+(?:тебя|вас|меня|него|не[её]|них)|"
+    r"тво[йяёе]\w*|ваш\w*|мо[йяёе]\w*)\s+){0,2}"
     r"(?:бь[её]т|забирает|берёт|берет|защищает|атакует|нападает|держит|стоит|висит|давит|смотрит|прикрывает|связан\w*)(?![а-яa-z])"
     rf"|(?P<w2>{_PIECE_ANY})\s+(?P<sq2>{SQ})\s?[x×:]\s?{SQ}"
     # «свою e3-пешку» with a bishop on e3 (production 08.10)
@@ -1301,6 +1308,52 @@ def _object_ghost_issues(text: str, ctx: CheckContext) -> list[str]:
         there = ctx.current.piece_at(sq)
         here = f"a {_NAMES[there.piece_type]} stands there" if there else "the square is empty"
         return [f"there is no {_NAMES[ptype]} on {sq_name.lower()} in this position ({here})"]
+    return []
+
+
+# «решение: Qf3+ Kg1 и Qh1#», «ферзь на h1 ставит мат», "the solution is Qh1#": a move given as the puzzle's solution
+# or its mate must be the puzzle's own. Only when the sentence is about the solution or claims the mate — a hint or a
+# «what if» is left alone.
+_SOLUTION_WORD = re.compile(r"(?<![а-яa-z])(?:решени[еяю]|ответ|solution|answer)(?![а-яa-z])", re.IGNORECASE)
+# «ферзь на h1 ставит мат», «конь h3 — мат», "the queen on h1 mates": the mating move in words.
+_PIECE_SQUARE_MATES = re.compile(
+    r"(?<![а-яa-z])(?P<piece>конь|кон[её]м|слон|слоном|ладья|ладь[её]й|ферзь|ферз[её]м|король|корол[её]м|пешка|пешкой|"
+    r"knight|bishop|rook|queen|king|pawn)\s+(?:на\s+|on\s+|to\s+)?(?P<sq>[a-h][1-8])(?![0-9])\s*(?:[—–-]|,)?\s*"
+    r"(?:и\s+)?(?:это\s+)?(?:ставит\s+мат|да[её]т\s+мат|объявляет\s+мат|мат(?![а-я])|mates|is\s+mate|gives\s+mate|checkmates?)",
+    re.IGNORECASE)
+_SAN_IN_TEXT = re.compile(r"(?<![A-Za-z0-9])(?:[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|O-O(?:-O)?)[+#]?")
+
+
+def _norm_san(san: str) -> str:
+    return san.replace("+", "").replace("#", "").replace("x", "")
+
+
+def _solution_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    solution = [s for s in (ctx.puzzle_solution or []) if s]
+    if not solution:
+        return []
+    converted, _ = _to_san(original)
+    moves = [m.group(0) for m in _SAN_IN_TEXT.finditer(converted)]
+    if not moves:
+        return []
+    allowed = {_norm_san(s) for s in solution}
+    if _DENIES.search(text) or _NEGATION.search(text[:40]):
+        return []
+    # (a) the mating move: «X#», «X — мат», «X ставит мат», «ферзь на h1 ставит мат»
+    mates = [m.group("san") for m in _MATE_WORD.finditer(converted)] + [m[:-1] for m in moves if m.endswith("#")]
+    for m in _PIECE_SQUARE_MATES.finditer(text):
+        ptype = _piece_type(m["piece"])
+        if ptype is not None:
+            mates.append(chess.piece_symbol(ptype).upper().replace("P", "") + m["sq"].lower())
+    last = _norm_san(solution[-1])
+    for san in mates:
+        if _norm_san(san) != last and _norm_san(san) not in allowed:
+            return [f"the puzzle's solution ends with {solution[-1]}, not {san}: say the puzzle's own line"]
+    # (b) «решение: …» — every move of the line must be the puzzle's
+    if _SOLUTION_WORD.search(text) and not _is_hypothetical(text, original, 0, whole=True):
+        wrong = [m for m in moves if _norm_san(m) not in allowed]
+        if wrong:
+            return [f"the puzzle's solution is {' '.join(solution)}; {wrong[0]} is not in it"]
     return []
 
 
@@ -2141,8 +2194,15 @@ def _legality_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
 
 
 def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
-    if _DENIES.search(text):
-        return _legality_issues(text, original, ctx)
+    denial = _DENIES.search(text)
+    if denial:
+        # «Ферзь b6 у тебя висит под боем коня f7, так что медлить нельзя» (prod 23.10): the denial is a later
+        # clause; the clauses before it are still claims about the board — the ghost checks read them.
+        head = text[: denial.start()]
+        cut = max(head.rfind(","), head.rfind("—"), head.rfind("–"), head.rfind(";"), head.rfind(":"))
+        before = head[:cut] if cut > 0 else ""
+        return (_legality_issues(text, original, ctx)
+                + (_ghost_issues(before, ctx) + _object_ghost_issues(before, ctx) if before.strip() else []))
     return (_hanging_issues(text, original, ctx) + _pin_issues(text, original, ctx)
             + _material_issues(text, original, ctx) + _presence_issues(text, original, ctx)
             + _instrument_issues(text, original, ctx) + _object_first_issues(text, original, ctx)
@@ -2151,7 +2211,7 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
             + _side_piece_issues(text, original, ctx) + _side_move_issues(original, ctx)
             + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else [])
-            + _object_ghost_issues(text, ctx) + _capture_chain_issues(text, ctx))
+            + _object_ghost_issues(text, ctx) + _capture_chain_issues(text, ctx) + _solution_issues(text, original, ctx))
 
 
 # A sentence in the wrong language: the model answered a Russian question in

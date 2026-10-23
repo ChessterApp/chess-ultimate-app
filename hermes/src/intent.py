@@ -115,6 +115,13 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
         if NEXT_IN_QUEUE.search(t):
             # «Дальше» after «дай три задачи»: the next one of the queue (src/tools/puzzles, 21.10).
             return {"kind": "puzzle", "theme": None}
+    if puzzle_on_board:
+        from src.tools.puzzles import asks_solution
+
+        if asks_solution(t):
+            # «Сдаюсь, покажи решение» on the puzzle: the solution is the system's to show (src/tools/puzzles
+            # puzzle_solution, 23.10 — the model told Qh1# for a puzzle solved by Nh3#).
+            return {"kind": "solution"}
     if _REVIEW.search(t) and _plies(pgn) >= REVIEW_MIN_PLIES:
         side = _REVIEW_SIDE.search(t)
         return {"kind": "review", "side": (None if not side else "black" if side["black"] else "white")}

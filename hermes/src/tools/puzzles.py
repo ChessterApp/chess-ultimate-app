@@ -435,6 +435,126 @@ registry.register(
 )
 
 
+# ── The solution of the puzzle on the board, shown by the system (23.10) ────────────────────────────
+# «Сдаюсь, покажи решение» on the mate-in-two puzzle: the solution Qf3+ Kg1 Nh3# was in the model's private
+# block and it still told «Qf3+ Kg1 и Qh1#» (prod, 23.10). The solution is a fact of the puzzle, so the system
+# shows it (arrows) and tells the model the exact line; the model only explains why.
+ASKS_SOLUTION = re.compile(
+    r"(?<![\w-])(?:сда[юё]сь|сдаться|сдалс\w*|не\s+знаю|не\s+вижу|не\s+могу\s+(?:найти|решить)|"
+    r"(?:покажи|скажи|дай|назови|какое|открой|раскрой)\s+(?:мне\s+|уже\s+|тогда\s+)?(?:решени\w*|ответ\w*|правильн\w+\s+ход\w*)|"
+    r"решени[ея]\s*\?|ответ\s*\?|реши\s+(?:её|ее|сам|за\s+меня)|"
+    r"i\s+give\s+up|give\s+up|(?:show|tell)\s+(?:me\s+)?the\s+(?:solution|answer)|what(?:'s|\s+is)\s+the\s+(?:solution|answer)|"
+    r"i\s+don'?t\s+know|берілемін|шешімін\s+(?:көрсет|айт)\w*|жауабы\w*\s+(?:қандай|не))(?![\w-])", re.IGNORECASE)
+# «сдаюсь, давай следующую», «не знаю, дай другую задачу»: the next task, not this one's solution.
+_NOT_SOLUTION = re.compile(r"(?<![\w-])(?:следующ\w*|дальше|далее|друг(?:ую|ой)|ещ[её]|нов(?:ую|ая)|next|another|"
+                           r"подсказк\w*|намёк\w*|hint\w*)(?![\w-])", re.IGNORECASE)
+
+
+def asks_solution(text: str) -> bool:
+    """The student gives up or asks for the solution of the puzzle in front of them."""
+    t = text or ""
+    return bool(ASKS_SOLUTION.search(t)) and not _NOT_SOLUTION.search(t)
+
+
+def solution_line(board_rec) -> Optional[dict]:
+    """The puzzle on *board_rec* and its solution in SAN from its start: {"fen", "sans", "reached", "next"} —
+    *reached* half-moves of it are already on the board; None when the board is not a puzzle or has left the line."""
+    import chess
+
+    pz = getattr(board_rec, "puzzle", None) or {}
+    solution = [str(m) for m in (pz.get("solution") or [])]
+    if getattr(board_rec, "kind", None) != "puzzle" or not pz.get("fen") or not solution:
+        return None
+    try:
+        line = chess.Board(pz["fen"])
+        now = chess.Board(board_rec.fen)
+    except (ValueError, IndexError):
+        return None
+
+    def key(b):
+        return b.board_fen() + (" w" if b.turn else " b")
+
+    sans, ucis, reached = [], [], None
+    for i in range(len(solution) + 1):
+        if reached is None and key(line) == key(now):
+            reached = i
+        if i == len(solution):
+            break
+        try:
+            mv = line.parse_san(solution[i])
+        except ValueError:
+            try:
+                mv = chess.Move.from_uci(solution[i])
+                if mv not in line.legal_moves:
+                    return None
+            except ValueError:
+                return None
+        sans.append(line.san(mv))
+        ucis.append(mv.uci())
+        line.push(mv)
+    if reached is None:
+        return None
+    return {"fen": pz["fen"], "sans": sans, "ucis": ucis, "reached": reached, "next": sans[reached:]}
+
+
+def numbered_line(fen: str, sans: list) -> str:
+    """«1...Qf3+ 2.Kg1 Nh3#» from *fen*."""
+    import chess
+
+    b = chess.Board(fen)
+    out = []
+    for san in sans:
+        if b.turn == chess.WHITE:
+            out.append(f"{b.fullmove_number}.{san}")
+        elif not out:
+            out.append(f"{b.fullmove_number}...{san}")
+        else:
+            out.append(san)
+        b.push_san(san)
+    return " ".join(out)
+
+
+def _handle_puzzle_solution(args: dict, **kwargs) -> str:
+    from src.sessions import session_for
+
+    session = session_for(kwargs)
+    board_rec = None
+    try:
+        board_rec = session.get_board(session.active_board_id) if session is not None else None
+    except Exception:  # noqa: BLE001
+        board_rec = None
+    sol = solution_line(board_rec) if board_rec is not None else None
+    if not sol:
+        return json.dumps({"error": "No puzzle is on the board (or the board has left its line): nothing to show. "
+                                    "Offer a puzzle with get_puzzle."})
+    if not sol["next"]:
+        return json.dumps({"ok": True, "solved": True, "line": numbered_line(sol["fen"], sol["sans"]),
+                           "note": "The puzzle is already solved on the board: say so and offer the next one."})
+    whole = numbered_line(sol["fen"], sol["sans"])
+    arrows = [{"from": u[:2], "to": u[2:4], "brush": "green" if i % 2 == 0 else "blue"}
+              for i, u in enumerate(sol["ucis"][sol["reached"]:])]
+    return json.dumps({
+        "ok": True, "line": whole, "moves": sol["sans"], "from_here": sol["next"], "reached": sol["reached"],
+        "board_actions": [{"type": "draw_arrows", "arrows": arrows[:6]}],
+        "note": (f"The solution is SHOWN on the board with arrows. Say it EXACTLY, move by move: {whole}"
+                 + (f" (from the position on the board: {' '.join(sol['next'])})" if sol["reached"] else "")
+                 + ". Then why each move works. Never substitute another move or another finish — this line is the "
+                   "puzzle's verified solution."),
+    }, ensure_ascii=False)
+
+
+registry.register(
+    name="puzzle_solution",
+    toolset="chess",
+    schema={"name": "puzzle_solution", "description": "Show the verified solution of the puzzle on the board "
+            "(the student gave up or asked for it): arrows on the board and the exact line to say.",
+            "parameters": {"type": "object", "properties": {}}},
+    handler=_handle_puzzle_solution,
+    description="The verified solution of the puzzle on the board, shown with arrows.",
+    emoji="💡",
+)
+
+
 def puzzle_db_stats() -> dict:
     """Health-check helper: is the puzzle DB installed and how big is it."""
     return stats()
