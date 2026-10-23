@@ -2028,6 +2028,48 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     # hint toward Qe2 for a puzzle solved by Qxf1+ — the solution was only in the turn that set it (prod,
     # 2026-10-13).
     puzzle_note = _puzzle_block(active_board)
+    # «Сдаюсь, покажи решение» on the puzzle: the system shows the verified solution (arrows) and hands the model
+    # the exact line to say (src/tools/puzzles.puzzle_solution, 23.10 — left to the model, «Qf3+ Kg1 и Qh1#»
+    # was told for a puzzle solved by Nh3#).
+    solution_step = None
+    if puzzle_note and not live_game:
+        try:
+            from src.tools.puzzles import _handle_puzzle_solution, asks_solution
+
+            if asks_solution(body.message):
+                sol = json.loads(_handle_puzzle_solution({}, session_id=session.id, user_id=user_id))
+                if sol.get("ok") and sol.get("board_actions"):
+                    solution_step = {
+                        "actions": sol["board_actions"],
+                        "block": "## The student gave up / asked for the solution — the system has SHOWN it on the "
+                                 f"board with arrows\n{sol['note']}\nDo not call puzzle_solution or board_control for this.",
+                    }
+        except Exception:  # noqa: BLE001 — the model still has the private solution block
+            logger.debug("solution step failed", exc_info=True)
+            solution_step = None
+    # The position itself recognised (2026-10-22): a task of the site's lessons that came onto the board as a
+    # FEN gets its lesson and solution (src/site_puzzle_lookup — the programme run's misses); a position on a
+    # known trap's line gets the trap's lines (src/trap_positions — «да, можно взять e5» in the Blackburne
+    # Shilling position). Not for a new-puzzle request, a live game or a board the tools already marked.
+    site_puzzle_note = trap_note = ""
+    wants_puzzle_now = bool(_WANTS_NEW_PUZZLE.search(body.message or ""))
+    if session.board_state and not live_game and review_future is None and not wants_puzzle_now and not hidden_fen:
+        if config.COACH_SITE_PUZZLE_LOOKUP and not puzzle_note:
+            try:
+                from src.site_puzzle_lookup import site_puzzle_at, site_puzzle_block
+
+                site_puzzle_note = site_puzzle_block(await asyncio.to_thread(site_puzzle_at, session.board_state))
+            except Exception:  # noqa: BLE001 — best-effort
+                logger.debug("site puzzle lookup failed", exc_info=True)
+                site_puzzle_note = ""
+        if config.COACH_TRAP_POSITIONS:
+            try:
+                from src.trap_positions import trap_block
+
+                trap_note = trap_block(session.board_state)
+            except Exception:  # noqa: BLE001
+                logger.debug("trap lookup failed", exc_info=True)
+                trap_note = ""
     # The Laws of Chess a rules question is about (src/rules_facts.py): «кончилось время, у соперника один король»
     # went «ничья» in one run and «победил соперник» in the next (2026-10-13).
     try:
@@ -2324,6 +2366,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             student_color=student_color,
         )
         check_ctx.language = turn_language  # a sentence in the wrong language is rewritten like a wrong move
+        if puzzle_note:
+            # The puzzle's verified solution: «the solution is X» / «X — мат» with another move is not shown (23.10).
+            try:
+                from src.tools.puzzles import solution_line
+
+                sol_line = solution_line(active_board)
+                check_ctx.puzzle_solution = sol_line["sans"] if sol_line else None
+            except Exception:  # noqa: BLE001
+                check_ctx.puzzle_solution = None
         # A game on the board: the coach's moves are the engine's — «я ответил Кc6» with no such move is
         # not shown (src/answer_check._coach_move_issues; stand, 2026-10-12).
         if active_board.kind == "game" and active_board.game_state:
@@ -2516,6 +2567,12 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                             "tool": "get_puzzle", "ok": True, "summary": puzzle_step["summary"]}))
                 if puzzle_note:
                     message = f"{message}\n\n{puzzle_note}"
+                if solution_step:
+                    message = f"{message}\n\n{solution_step['block']}"
+                if site_puzzle_note:
+                    message = f"{message}\n\n{site_puzzle_note}"
+                if trap_note:
+                    message = f"{message}\n\n{trap_note}"
                 if rules_note:
                     message = f"{message}\n\n{rules_note}"
                 if facts_note:
@@ -2753,6 +2810,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if puzzle_step and puzzle_step.get("actions"):
             # The puzzle asked for, put up by the pre-step: on the page before the first word.
             yield _sse({"board_actions": [{**a, "board_id": active_board.id} for a in puzzle_step["actions"]]})
+        if solution_step and solution_step.get("actions"):
+            # The puzzle's solution asked for: its arrows on the page before the first word.
+            yield _sse({"board_actions": [{**a, "board_id": active_board.id} for a in solution_step["actions"]]})
         if opening_plan and opening_plan.load:
             # So does the opening the student asked about — applied to the
             # session board already (before the engine note); this frame only
@@ -4058,6 +4118,10 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
 
 def _session_summary(s) -> dict:
     last = s.messages[-1] if s.messages else None
+    # The session's label on the site (the list, the phone's context bar) is its first question — not the
+    # coach's last words («Let me find a good tactical puzzle for you…» over a puzzle, Alexander's screenshot 23.10).
+    first_question = next((m for m in s.messages if getattr(m, "role", "") == "user" and (m.content or "").strip()), None)
+    named_by = first_question or last
     return {
         "id": s.id,
         "title": s.title,
@@ -4067,7 +4131,7 @@ def _session_summary(s) -> dict:
         "board_state": s.board_state,
         "active_board_id": s.active_board_id,
         "board_count": len(s.boards),
-        "preview": (last.content[:120] if last else ""),
+        "preview": (named_by.content[:120] if named_by else ""),
     }
 
 

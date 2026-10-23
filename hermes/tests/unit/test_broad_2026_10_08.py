@@ -329,7 +329,7 @@ def test_famous_games_are_verified_scores():
     from src.famous_games import GAMES, _replay
 
     endings = {"opera": "Rd8#", "immortal": "Be7#", "evergreen": "Bxe7#", "game-of-the-century": "Rc2#",
-               "kasparov-topalov": "Qa7"}
+               "kasparov-topalov": "Qa7", "wch2021-g6": "Ng7"}   # Dubai 2021, game 6: Black resigned after 136.Ng7
     for g in GAMES:
         game, _moves = _replay(g)
         assert not game.errors and game.end().san() == endings[g["key"]]

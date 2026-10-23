@@ -72,3 +72,28 @@ def test_the_endpoint_reads_the_game_from_the_session(monkeypatch):
     out = client.post("/api/coach/voice/intent", headers={"X-User-Id": "intent-endpoint"},
                       json={"text": "е два е четыре", "session_id": session.id}).json()
     assert out == {"kind": "move", "san": "e4"}
+
+# 23.10, Alexander's voice test: «Да, поставь, пожалуйста, позицию на связку» was nobody's request — the model
+# only said «посмотри на эту позицию» and the board stayed. A position or an example asked for by theme is a
+# puzzle of that theme (src/intent._POSITION_ON); the board itself is never a theme.
+@pytest.mark.parametrize("text,theme", [
+    ("Да, по- поставь, пожалуйста, а-а позицию на связку.", "связку"),
+    ("поставь позицию на связку", "связку"),
+    ("покажи пример на вилку", "вилку"),
+    ("Хочу позицию со связкой", "связкой"),
+    ("можно пример про двойной удар?", "двойной удар"),
+    ("Put up a position on pins", "pins"),
+])
+def test_a_position_or_example_asked_for_by_theme_is_a_puzzle(text, theme):
+    assert read_intent(text, fen=POS) == {"kind": "puzzle", "theme": theme}
+
+
+@pytest.mark.parametrize("text,kind", [
+    ("в этой позиции на доске что делать?", "board"),
+    ("объясни позицию на доске", "board"),
+    ("какой лучший ход в этой позиции на связку?", "board"),
+    ("поставь позицию на доске заново", "none"),
+    ("Нет. Нет, не вижу. Ты не поменял доску.", "none"),
+])
+def test_the_board_itself_is_not_a_theme(text, kind):
+    assert read_intent(text, fen=POS)["kind"] == kind

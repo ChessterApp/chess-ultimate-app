@@ -18,7 +18,9 @@ stay hints and the coach never moves for the student.
 from __future__ import annotations
 
 import io
+import logging
 import random
+import threading
 import time
 from typing import Optional
 
@@ -27,6 +29,26 @@ import chess.pgn
 
 from src.boards import Board
 from src.game_engine import clamp_elo, get_engine
+
+logger = logging.getLogger(__name__)
+
+# One game is changed by one call at a time (2026-10-23, Alexander's phone: the voice model and the site
+# both played the student's «E4» — in parallel, both read the start position, both appended «e4», and
+# every call after that failed on the second e4: «IllegalMoveError: illegal san: 'e4'»).
+_BOARD_LOCKS: dict = {}
+_BOARD_LOCKS_GUARD = threading.Lock()
+# A second start of the same game within this time (the site's and the model's calls for one request) is
+# the same game, not a restart.
+SAME_START_WINDOW_S = 20.0
+
+
+def board_lock(board_rec) -> threading.Lock:
+    key = getattr(board_rec, "id", None) or id(board_rec)
+    with _BOARD_LOCKS_GUARD:
+        lock = _BOARD_LOCKS.get(key)
+        if lock is None:
+            lock = _BOARD_LOCKS[key] = threading.Lock()
+        return lock
 
 COMMENT_MODES = ("quiet", "mistakes", "every")
 DEFAULT_COMMENT_MODE = "mistakes"
@@ -63,10 +85,61 @@ def new_game_state(student_color: str, elo: int, comment_mode: str) -> dict:
 
 
 def _replay(moves: list[str]) -> chess.Board:
+    """The position after *moves* — up to the first move that cannot be played there: a game record broken
+    by two parallel calls (see board_lock) is read as far as it goes, never raised on."""
     board = chess.Board()
     for san in moves:
-        board.push_san(san)
+        try:
+            board.push_san(san)
+        except ValueError:
+            logger.warning("game record broken at ply %d (%r after %s): read up to there", len(board.move_stack) + 1,
+                           san, " ".join(moves[: len(board.move_stack)]) or "the start")
+            break
     return board
+
+
+def _repair(state: dict, board: chess.Board) -> bool:
+    """Cut the game record at the broken move *board* stopped at; True when something was cut."""
+    kept = len(board.move_stack)
+    if kept >= len(state.get("moves") or []):
+        return False
+    state["moves"] = state["moves"][:kept]
+    state["annotations"] = [a for a in state.get("annotations") or [] if a.get("ply", 0) <= kept]
+    return True
+
+
+def _just_played(state: dict, move_str: str, parse=None) -> Optional[tuple[dict, Optional[dict]]]:
+    """(the student's last move's annotation, the engine's reply) when *move_str* is that very move — a
+    second call for the move already played (the model's and the site's calls for one «e4»); else None.
+    *parse*(board, text) → Move or None reads the words (the tools' own reader); default: SAN or UCI."""
+    parse = parse or _parse_student_move
+    annotations = state.get("annotations") or []
+    if not annotations:
+        return None
+    last = annotations[-1]
+    ply = int(last.get("ply") or 0)
+    moves = state.get("moves") or []
+    if ply < 1 or ply > len(moves):
+        return None
+    before = _replay(moves[: ply - 1])
+    if len(before.move_stack) != ply - 1:
+        return None
+    try:
+        move = parse(before, move_str)
+    except (GameError, ValueError):
+        return None
+    if move is None or before.san(move) != moves[ply - 1]:
+        return None
+    reply = moves[ply] if len(moves) > ply else None
+    engine = None
+    if reply:
+        after = before.copy(stack=False)
+        after.push(move)
+        try:
+            engine = {"san": reply, "uci": after.parse_san(reply).uci()}
+        except ValueError:
+            engine = {"san": reply, "uci": None}
+    return {**last, "uci": move.uci()}, engine
 
 
 def _pgn(state: dict, board: chess.Board) -> str:
@@ -207,19 +280,64 @@ def _parse_student_move(board: chess.Board, move_str: str) -> chess.Move:
     return move
 
 
+def repair_game(session, board_rec: Board) -> bool:
+    """A game record broken by parallel calls (see board_lock), cut at the broken move and answered by the
+    engine where it is the engine's turn; True when something was repaired. Cheap when nothing is wrong."""
+    state = board_rec.game_state
+    if board_rec.kind != "game" or not state or state.get("status") != "playing":
+        return False
+    with board_lock(board_rec):
+        board = _replay(state["moves"])
+        if not _repair(state, board):
+            return False
+        if not _student_to_move(state, board) and not _finish(state, board):
+            _push_engine_move(state, board)
+            _finish(state, board)
+        _sync_board(board_rec, state, board)
+        session.save_board(board_rec)
+        return True
+
+
 def play_move(session, board_rec: Board, move_str: str) -> dict:
-    """The student's move, its verdict, and the engine's reply."""
+    """The student's move, its verdict, and the engine's reply. One call at a time per game: a second call
+    for the move just played gets the same result again (``already_played``), never a second move."""
+    with board_lock(board_rec):
+        return _play_move_locked(session, board_rec, move_str)
+
+
+def _play_move_locked(session, board_rec: Board, move_str: str) -> dict:
     state = board_rec.game_state
     if board_rec.kind != "game" or not state:
         raise GameError("This board is not a game.")
     if state["status"] != "playing":
         raise GameError("The game is over.")
     board = _replay(state["moves"])
+    repaired = _repair(state, board)
+    if repaired and not _student_to_move(state, board) and not _finish(state, board):
+        # The record was cut after the student's move: the engine answers it now, as it should have.
+        _push_engine_move(state, board)
+        _finish(state, board)
+    if repaired:
+        _sync_board(board_rec, state, board)
+        session.save_board(board_rec)
+        if state["status"] != "playing":
+            raise GameError("The game is over.")
+    student_color = chess.WHITE if state["student_color"] == "white" else chess.BLACK
+    already = _just_played(state, move_str) if not _student_to_move(state, board) or repaired else None
+    if already is None and _student_to_move(state, board):
+        try:
+            move = _parse_student_move(board, move_str)
+        except GameError:
+            already = _just_played(state, move_str)
+            if already is None:
+                raise
+    if already is not None:
+        student, engine = already
+        payload = _payload(board_rec, state, board, student=student, engine=engine)
+        payload["already_played"] = True
+        return payload
     if not _student_to_move(state, board):
         raise GameError("It is not your move.")
-    student_color = chess.WHITE if state["student_color"] == "white" else chess.BLACK
-
-    move = _parse_student_move(board, move_str)
     cp_before, best = _evaluate(board.fen(), student_color)
     san = board.san(move)
     board.push(move)
@@ -250,25 +368,33 @@ def play_move(session, board_rec: Board, move_str: str) -> dict:
 def set_strength(session, board_rec: Board, elo: int) -> dict:
     """The engine's strength for the rest of the game — the student asked for a harder or easier opponent
     («играй посложнее», «уровень 2000»); the position and the moves stay."""
-    state = board_rec.game_state
-    if board_rec.kind != "game" or not state:
-        raise GameError("This board is not a game.")
-    if state["status"] != "playing":
-        raise GameError("The game is over.")
-    state["engine_elo"] = clamp_elo(elo)
-    board = _replay(state["moves"])
-    _sync_board(board_rec, state, board)
-    session.save_board(board_rec)
-    return _payload(board_rec, state, board)
+    with board_lock(board_rec):
+        state = board_rec.game_state
+        if board_rec.kind != "game" or not state:
+            raise GameError("This board is not a game.")
+        if state["status"] != "playing":
+            raise GameError("The game is over.")
+        state["engine_elo"] = clamp_elo(elo)
+        board = _replay(state["moves"])
+        _repair(state, board)
+        _sync_board(board_rec, state, board)
+        session.save_board(board_rec)
+        return _payload(board_rec, state, board)
 
 
 def resign(session, board_rec: Board) -> dict:
+    with board_lock(board_rec):
+        return _resign_locked(session, board_rec)
+
+
+def _resign_locked(session, board_rec: Board) -> dict:
     state = board_rec.game_state
     if board_rec.kind != "game" or not state:
         raise GameError("This board is not a game.")
     if state["status"] != "playing":
         raise GameError("The game is over.")
     board = _replay(state["moves"])
+    _repair(state, board)
     state.update({
         "status": "finished",
         "result": "0-1" if state["student_color"] == "white" else "1-0",
@@ -297,27 +423,35 @@ def draw_decision(board_rec: Board) -> tuple[bool, int]:
 
 def agree_draw(session, board_rec: Board) -> dict:
     """End the game as a draw by agreement."""
-    state = board_rec.game_state
-    if board_rec.kind != "game" or not state:
-        raise GameError("This board is not a game.")
-    if state["status"] != "playing":
-        raise GameError("The game is over.")
-    board = _replay(state["moves"])
-    state.update({"status": "finished", "result": "1/2-1/2", "termination": "draw", "winner": None,
-                  "finished_at": time.time()})
-    _sync_board(board_rec, state, board)
-    session.save_board(board_rec)
-    return _payload(board_rec, state, board)
+    with board_lock(board_rec):
+        state = board_rec.game_state
+        if board_rec.kind != "game" or not state:
+            raise GameError("This board is not a game.")
+        if state["status"] != "playing":
+            raise GameError("The game is over.")
+        board = _replay(state["moves"])
+        _repair(state, board)
+        state.update({"status": "finished", "result": "1/2-1/2", "termination": "draw", "winner": None,
+                      "finished_at": time.time()})
+        _sync_board(board_rec, state, board)
+        session.save_board(board_rec)
+        return _payload(board_rec, state, board)
 
 
 def takeback(session, board_rec: Board) -> dict:
     """Undo the student's last move (and the engine's reply to it)."""
+    with board_lock(board_rec):
+        return _takeback_locked(session, board_rec)
+
+
+def _takeback_locked(session, board_rec: Board) -> dict:
     state = board_rec.game_state
     if board_rec.kind != "game" or not state:
         raise GameError("This board is not a game.")
     if state["status"] != "playing":
         raise GameError("The game is over.")
     board = _replay(state["moves"])
+    _repair(state, board)
     student_plies = [a["ply"] for a in state["annotations"]]
     if not student_plies:
         raise GameError("Nothing to take back.")

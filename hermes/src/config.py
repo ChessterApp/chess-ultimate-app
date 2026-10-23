@@ -295,6 +295,12 @@ COACH_GAME_PRESTEP = _env_flag("COACH_GAME_PRESTEP", True)
 # the board by the server before the model answers (src/server._puzzle_prestep, 21.10): left to the model,
 # «Ещё задачу» on production kept hinting at the old task without calling get_puzzle at all.
 COACH_PUZZLE_PRESTEP = _env_flag("COACH_PUZZLE_PRESTEP", True)
+# The position on the board recognised (2026-10-22): a task of the site's lessons found by its position
+# gets its lesson and solution in the turn (src/site_puzzle_lookup — the programme run's 14 misses were
+# tasks that came as a FEN, not through get_lesson); a position on a known opening trap's line gets the
+# trap's lines (src/trap_positions — «да, можно взять e5» in the Blackburne Shilling position, prod 19.10).
+COACH_SITE_PUZZLE_LOOKUP = _env_flag("COACH_SITE_PUZZLE_LOOKUP", True)
+COACH_TRAP_POSITIONS = _env_flag("COACH_TRAP_POSITIONS", True)
 
 # Answer check (2026-09-30): each finished sentence of a text answer is checked
 # on the board before it is shown (src/answer_check.py) — a piece moving or

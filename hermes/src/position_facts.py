@@ -72,7 +72,40 @@ def static_facts(board: chess.Board) -> list[str]:
     facts = []
     for group in (hanging, cheaper, pinned, defended):
         facts.extend(group[:MAX_ITEMS_PER_KIND])
+    facts.extend(fork_facts(board))
     return facts
+
+
+def fork_facts(board: chess.Board, limit: int = 2) -> list[str]:
+    """Forks the side to move has NOW: one move after which the moved piece attacks two or more enemy
+    pieces (the king or a piece worth a knight or more) from a square where it is not simply lost —
+    «Есть ли здесь вилка?» → «нет» with Nc7+ on the board (prod, 23.10). With check first."""
+    if not board.is_valid():
+        return []
+    mover = board.turn
+    found = []
+    for move in board.legal_moves:
+        if move.promotion:
+            continue
+        after = board.copy(stack=False)
+        after.push(move)
+        to = move.to_square
+        targets = [s for s in after.attacks(to)
+                   if (p := after.piece_at(s)) is not None and p.color != mover
+                   and (p.piece_type == chess.KING or VALUES[p.piece_type] >= 3)]
+        if len(targets) < 2:
+            continue
+        moved = VALUES[board.piece_type_at(move.from_square)]
+        attackers = after.attackers(not mover, to)
+        if attackers:
+            cheapest = min(VALUES[after.piece_type_at(a)] for a in attackers)
+            defended = bool(after.attackers(mover, to))
+            if cheapest < moved or not defended:
+                continue  # the forking piece is just taken
+        found.append((0 if after.is_check() else 1, -len(targets), board.san(move), targets, after))
+    found.sort(key=lambda x: (x[0], x[1], x[2]))
+    return [f"a fork is available now: {san} attacks {_pieces(after, targets)}" + (" (with check)" if check == 0 else "")
+            for check, _, san, targets, after in found[:limit]]
 
 
 def _score(line: dict) -> float:

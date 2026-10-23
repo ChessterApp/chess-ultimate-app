@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 21.10 (задача по словам ставится сервером: «ещё задачу», «дальше» по очереди) — включает всё из версий 06.10 … 20.10-2
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.10 (партия голосом не ломается на первом ходу; «поставь позицию на связку» ставит задачу; позиция на доске узнаётся) — включает всё из версий 06.10 … 22.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,81 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 23.10 (тест Александра голосом с телефона 23.10, аккаунт dagamavsco210@gmail.com: «1.e4 — невозможный ход» на
+первом же ходу партии с тренером, «поставь позицию на связку» без смены доски; код `hermes/src/game_mode.py`,
+`hermes/src/tools/game_play.py`, `hermes/src/intent.py`, `hermes/src/server.py`; миграций, переменных и изменений бэкенда
+нет; если сервер уже на 22.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 47, 48; если на 21.10 или 20.10-2 — ещё
+проверки 43, 44, 45, и 42 для 20.10-2):
+- **Партия не ломается, когда ход приходит дважды.** В голосе ход ученика «e4» играют и сайт (по расшифровке), и модель
+  (своим вызовом make_game_move) — одновременно. У партии не было блокировки: оба вызова прочитали стартовую позицию и
+  оба записали «e4», после чего каждый следующий вызов падал, воспроизводя запись: «Tool execution failed:
+  IllegalMoveError: illegal san: 'e4' in … b KQkq - 0 1» (скриншот). Теперь партию меняет один вызов за раз; второй
+  вызов того же хода получает результат первого (`already_played`), а не отказ; испорченная запись читается до битого
+  хода и обрезается (партия Александра починится сама при следующем ходе); второй старт той же партии сразу после первого,
+  когда ничего другого не просили, — та же партия (`already_started`), а не перезапуск. Сайт со своей стороны тоже
+  перестал делать второй вызов, пока первый в пути (frontend, выкатывается с main сам).
+- **«Поставь позицию на связку» — просьба о задаче** (доска осталась стартовой, модель лишь сказала «посмотри на эту
+  позицию»). Позиция или пример, запрошенные по теме («поставь/покажи/дай/хочу … позицию (пример) на/про/со …»), читаются
+  как задача этой темы — сайт в голосе и сервер в тексте ставят её сами, не дожидаясь модели. «Позиция на доске» темой не
+  считается. Код `hermes/src/intent.py`.
+- **Имя сессии в шапке телефона — первый вопрос ученика**, а не последние слова тренера (над задачей висело «Let me find a
+  good tactical puzzle fo…»). Код `hermes/src/server.py` (`_session_summary`).
+- **Решение задачи показывает система, а не модель.** Полная перепроверка прода 23.10: на «Сдаюсь, покажи решение» модель
+  назвала Qf3+ Kg1 Qh1# для задачи с решением Nh3#, хотя решение лежало у неё в контексте. Теперь на такие слова (сдаюсь,
+  не знаю, покажи/скажи решение или ответ, give up) новый инструмент `puzzle_solution` рисует решение стрелками и даёт
+  модели точную строку; в тексте это делает сервер до первого слова, в голосе — сайт по намерению `solution`. Проверка
+  ответа знает решение задачи на доске: «решение — X» или «X ставит мат» с другим ходом не показывается. Код
+  `hermes/src/tools/puzzles.py`, `hermes/src/intent.py`, `hermes/src/server.py`, `hermes/src/answer_check.py`.
+- **Вилка — факт позиции.** «Есть ли здесь вилка?» → «нет» при Nc7+ на доске. В факты позиции (блок движка и факты доски)
+  добавлена строка «a fork is available now: Nc7+ attacks the black king e8, the black rook a8 (with check)» — для ходов,
+  после которых фигура бьёт две цели и сама не теряется. Код `hermes/src/position_facts.py`.
+- **Проверка ответа:** «ферзь b6 у тебя висит» ловится (слова между полем и глаголом), и фраза с «нельзя» в конце больше не
+  выключает проверку призраков в её начале.
+- **6-я партия Карлсен — Непомнящий 2021** (136 ходов, 1-0) добавлена в знаменитые партии с проверенной записью: тренер
+  рассказывал про неё «вничью». Код `hermes/src/famous_games.py`.
+- Проверка 49 (решение задачи, вилка, партия — без базы и модели):
+  `cd /root/hermes-chess && .venv/bin/python -c "import chess; from src.tools.puzzles import asks_solution, numbered_line; from src.position_facts import fork_facts; from src.famous_games import famous_game; a=asks_solution('Сдаюсь, покажи решение') and not asks_solution('сдаюсь, давай следующую'); b=numbered_line('3rkr2/1Qpb4/p1B1pq2/7p/3PN1p1/B1P3P1/P4nKP/R4R2 b - - 3 24', ['Qf3+','Kg1','Nh3#'])=='24...Qf3+ 25.Kg1 Nh3#'; c=any('Nc7+' in f for f in fork_facts(chess.Board('r3k3/8/8/3N4/8/8/8/4K3 w - - 0 1'))); g=famous_game('покажи 6-ю партию матча Карлсен — Непомнящий 2021'); d=bool(g and '136.Ng7' in g['block']); print(a, b, c, d, 'ОК' if a and b and c and d else 'ПРОВЕРЬ')"`
+  → `True True True True ОК`.
+- Проверка 47 (намерение по словам с телефона):
+  `curl -s -X POST localhost:8642/api/coach/voice/intent -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{"text":"Да, по- поставь, пожалуйста, а-а позицию на связку.","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}' | python3 -c "import sys,json; r=json.load(sys.stdin); print(r, 'ОК' if r.get('kind')=='puzzle' and r.get('theme')=='связку' else 'ПРОВЕРЬ')"`
+  → `{'kind': 'puzzle', 'theme': 'связку'} ОК`.
+- Проверка 48 (один ход дважды — партия цела; `H` как в проверке 38, новая сессия):
+  `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/start_game -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"color\":\"white\"},\"session_id\":\"$SID\"}"; (curl -s -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"move\":\"e4\"},\"session_id\":\"$SID\"}" > /tmp/m1.json &); curl -s -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"е4\"},\"session_id\":\"$SID\",\"utterance\":\"е4\"}" > /tmp/m2.json; sleep 3; python3 -c "import json; a=json.load(open('/tmp/m1.json'))['result']; b=json.load(open('/tmp/m2.json'))['result']; ok=a.get('ok') and b.get('ok') and (a.get('already_played') or b.get('already_played')) and 'error' not in a and 'error' not in b; print(a.get('student_move'), a.get('engine_reply'), '|', b.get('student_move'), b.get('engine_reply'), 'ОК' if ok else 'ПРОВЕРЬ')"`
+  → `e4 <ответ> | e4 <ответ> ОК` (у одного из двух `already_played`, ошибок нет; партия после этого на 2-м ходу).
+
+Новое в версии 22.10 (разбор слабых мест прогонов прода 19.10: из 184 задач программы первый ход совпал с решением сайта в 170,
+«Можно взять e5 конём?» в позиции ловушки Блэкберна — «да, можно», «давит на коня c6» без коня на c6, «e5xd5 обычным взятием»;
+код `hermes/src/server.py`, `hermes/src/answer_check.py`, `hermes/src/config.py`, новые `hermes/src/site_puzzle_lookup.py` и
+`hermes/src/trap_positions.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 21.10 или 20.10-2 — достаточно
+шагов 1, 2, 4, 8 и проверок 1, 3, 43, 44, 45; если на 20.10-2 — ещё проверки 42):
+- **Задача урока сайта узнаётся по позиции.** Все задачи уроков (`lesson_puzzles` и `exercise_fen` уроков, ~1900 позиций)
+  читаются из Supabase раз в 10 минут постранично и индексируются по позиции. Когда на доске стоит такая задача — пришла ли она
+  с страницы урока, вставленным FEN или через инструменты — модель получает блок «это задача N урока «…» (модуль, курс),
+  решение …» и обязана назвать именно его. Раньше решение знал только ход через get_lesson/get_puzzle; по FEN модель угадывала
+  по движку и в 14 случаях из 184 называла другой ход. Локальный прогон 22.10 на тех же 17 промахах: 13 стали верными, 3
+  называют второй выигрывающий ход (оба верны), 1 промах. Выключатель `COACH_SITE_PUZZLE_LOOKUP=0`.
+- **Известная ловушка узнаётся по позиции, а не по названию.** Позиции вдоль линий из книги ловушек (`openings_book.TRAPS`:
+  детский мат, мат Легаля, ловушка Блэкберна с защитами) индексируются; доска на такой линии получает блок: какой ход здесь
+  проигрывает и как наказывается (линия до мата), какое продолжение правильное. «Можно взять e5?» → «нет, это ловушка
+  Блэкберна: 4.Nxe5 Qg5 … 7.Be2 Nf3#; правильно 4.Nxd4 exd4 5.c3». Выключатель `COACH_TRAP_POSITIONS=0`.
+- **Проверка ответа.** Два новых правила: объект нападения или взятия, названный по виду и полю («давит на коня c6»,
+  «забираешь коня на e2», "attacks the knight on c6"), должен стоять там хоть на одной позиции хода; взятие, записанное
+  с поля на поле («e5xd5»), должно быть возможно для фигуры на первом поле (пешка бьёт на одно поле по диагонали вперёд).
+  Такие фразы не показываются, остаток ответа переписывается, как и раньше.
+- Проверка 43 (индекс задач сайта по позиции — читается прямо из Supabase с переменными сервера; ~1900 позиций, задача 1
+  урока «Стоимость фигур» → Rc3#):
+  `cd /root/hermes-chess && set -a && . ./.env && set +a && HERMES_HOME=/root/hermes-chess/profiles/chess-coach .venv/bin/python -c "from src.site_puzzle_lookup import site_puzzle_index, site_puzzle_at; idx=site_puzzle_index(); h=site_puzzle_at('2r5/4kp2/3p1p2/3RpP2/1p2P2P/1P1K1QP1/r5B1/8 b - - 0 1', idx); print(len(idx or {}), h and (h['lesson'], h['solution']), 'ОК' if idx and len(idx) > 1500 and h and h['solution'] == ['Rc3#'] else 'ПРОВЕРЬ')"`
+  → `17xx ('Стоимость фигур', ['Rc3#']) ОК`. Если `0 None ПРОВЕРЬ` — Supabase с сервера недоступен или в `.env` нет
+  `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` (см. шаг 5); тренер при этом работает, просто без этого блока.
+- Проверка 44 (ловушка по позиции, без базы):
+  `cd /root/hermes-chess && .venv/bin/python -c "from src.trap_positions import trap_block; b=trap_block('r1bqkbnr/pppp1ppp/8/4p3/2BnP3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4'); print('ОК' if 'Nxe5 here LOSES' in b and '4.Nxd4 exd4 5.c3' in b else 'ПРОВЕРЬ')"`
+  → `ОК`.
+- Проверка 45 (проверка ответа: фигура-призрак и взятие не по правилам):
+  `cd /root/hermes-chess && .venv/bin/python -c "from src.answer_check import CheckContext, check_sentence as c; a=c('Bb5+ уводит слона и заодно давит на коня c6.', CheckContext.from_fens(['r1bqkb1r/ppp2ppp/5n2/n2Pp1N1/2B5/8/PPPP1PPP/RNBQK2R w KQkq - 1 6'])); b=c('На d5 можно пойти обычным взятием — e5xd5.', CheckContext.from_fens(['rnbqkbnr/1pp1ppp1/p6p/3pP3/8/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 4'])); print(a, b, 'ОК' if a and b else 'ПРОВЕРЬ')"`
+  → `['there is no knight on c6 …'] ['e5xd5: a pawn on e5 cannot capture …'] ОК`.
+- Проверка 46 (живой ответ модели, необязательная, до 90 с): `curl -sN --max-time 90 -X POST localhost:8642/api/coach/chat -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{"message":"Можно мне взять пешку e5 конём?","fen":"r1bqkbnr/pppp1ppp/8/4p3/2BnP3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4","locale":"ru"}' | grep -o '"delta": *"[^"]*"' | tr -d '\n' | grep -c -i "блэкберн"`
+  → число больше 0 (тренер назвал ловушку и отсоветовал взятие).
 
 Новое в версии 21.10 (перепроверка прода после 20.10-2: в текстовом чате на «Ещё задачу» модель не вызвала инструмент и
 продолжила подсказывать по старой задаче; код `hermes/src/server.py`, `hermes/src/tools/puzzles.py`, `hermes/src/sessions.py`,

@@ -34,7 +34,7 @@ export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'err
 
 /** What the student's words ask for, as Hermes reads them (src/intent.py). */
 export interface VoiceIntent {
-  kind: 'game_command' | 'game_request' | 'move' | 'idea' | 'puzzle' | 'review' | 'famous_game' | 'opening'
+  kind: 'game_command' | 'game_request' | 'move' | 'idea' | 'puzzle' | 'solution' | 'review' | 'famous_game' | 'opening'
     | 'board' | 'concept' | 'fact' | 'none';
   san?: string;
   moves?: string[];
@@ -193,9 +193,17 @@ export function verdictNote(verdict: { kind?: string; headline?: string } | null
 }
 // Tools the site calls itself from the student's words (see lookUpConcept).
 export const SITE_FETCHED_TOOLS = new Set([
-  'get_topic', 'lookup_opening', 'get_puzzle', 'review_game', 'famous_game', 'start_game', 'make_game_move',
-  'game_action',
+  'get_topic', 'lookup_opening', 'get_puzzle', 'puzzle_solution', 'review_game', 'famous_game', 'start_game',
+  'make_game_move', 'game_action',
 ]);
+
+/** The line after the site showed the puzzle's verified solution (the student gave up, 23.10). */
+export function solutionNote(result: { ok?: boolean; line?: string; note?: string; solved?: boolean } | null): string | null {
+  if (!result?.ok || !result.line) return null;
+  if (result.solved) return `[Puzzle] ${result.note ?? 'The puzzle is already solved on the board.'}`.replace(/\s+/g, ' ').trim();
+  return `[Puzzle] ${result.note ?? `The solution is shown on the board with arrows. Say it exactly: ${result.line}.`}`
+    .replace(/\s+/g, ' ').trim();
+}
 
 // What the coach said is checked on the board sentence by sentence (the same
 // check the text coach's answers pass before they are shown — a spoken
@@ -1079,7 +1087,19 @@ export default function useGeminiLive(
         try {
           // The site already made this call for the student's words: the model
           // gets the same result — the board keeps what the student was told about.
-          const siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
+          let siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
+          if (!siteResult && fc.name && SITE_FETCHED_TOOLS.has(fc.name)) {
+            // …or is making it right now: wait for it rather than call Hermes a second time.
+            const pending = sitePendingRef.current.get(fc.name);
+            if (pending) {
+              try {
+                await pending;
+              } catch {
+                /* the site's call failed: the model's own call goes ahead */
+              }
+              siteResult = siteResultsRef.current.get(fc.name);
+            }
+          }
           if (siteResult) {
             clearTimeout(timeout);
             return {
@@ -1278,6 +1298,10 @@ export default function useGeminiLive(
   // puzzle on the board and the puzzle in the model's note were two different
   // puzzles (production, 01.10).
   const siteResultsRef = useRef<Map<string, unknown>>(new Map());
+  // The site's calls still in flight, by tool name: a model call for the same tool waits for that result
+  // instead of making a second one (Alexander's phone, 23.10: the site's and the model's «e4» ran in parallel,
+  // both reached Hermes, and the game record broke on a second e4).
+  const sitePendingRef = useRef<Map<string, Promise<unknown>>>(new Map());
 
   // One voice tool call the site makes on the student's behalf; the result's
   // board actions reach the board and the note reaches the model.
@@ -1318,39 +1342,48 @@ export default function useGeminiLive(
       }
       return false;
     };
-    try {
-      const res = await fetch('/api/coach/tool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name,
-          args,
-          session_id: await sessionIdForCall(),
-          utterance: userUtteranceRef.current || undefined,
-        }),
-      });
-      if (!res.ok) return failed(`http_${res.status}`, `HTTP ${res.status}`);
-      const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
-      const error = data?.error ?? (data?.result as { error?: unknown } | null | undefined)?.error;
-      if (!data?.result || error) return failed(error ? 'refused' : 'empty', String(error || 'no result'));
-      const note = makeNote(data.result as never);
-      if (!note) return failed('no_note', 'nothing to tell');
-      if (sessionRef.current !== session) return false;
-      reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
-      siteResultsRef.current.set(name, data);
-      const game = gameFromActions(data.board_actions);
-      if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+    const work = (async (): Promise<boolean> => {
       try {
-        optionsRef.current.onToolResult?.(name, data);
-      } catch {
-        /* UI callback errors must not break the session */
+        const res = await fetch('/api/coach/tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name,
+            args,
+            session_id: await sessionIdForCall(),
+            utterance: userUtteranceRef.current || undefined,
+          }),
+        });
+        if (!res.ok) return failed(`http_${res.status}`, `HTTP ${res.status}`);
+        const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
+        const error = data?.error ?? (data?.result as { error?: unknown } | null | undefined)?.error;
+        if (!data?.result || error) return failed(error ? 'refused' : 'empty', String(error || 'no result'));
+        const note = makeNote(data.result as never);
+        if (!note) return failed('no_note', 'nothing to tell');
+        if (sessionRef.current !== session) return false;
+        reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
+        siteResultsRef.current.set(name, data);
+        const game = gameFromActions(data.board_actions);
+        if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+        try {
+          optionsRef.current.onToolResult?.(name, data);
+        } catch {
+          /* UI callback errors must not break the session */
+        }
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+        return true;
+      } catch (err) {
+        /* unavailable (an older Hermes) — the coach can still call the tool itself */
+        return failed('network', err instanceof Error ? err.message : 'tool call failed');
       }
-      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
-      return true;
-    } catch (err) {
-      /* unavailable (an older Hermes) — the coach can still call the tool itself */
-      return failed('network', err instanceof Error ? err.message : 'tool call failed');
+    })();
+    // While it runs, a model call for the same tool waits for this result (see sitePendingRef).
+    sitePendingRef.current.set(name, work);
+    try {
+      return await work;
+    } finally {
+      if (sitePendingRef.current.get(name) === work) sitePendingRef.current.delete(name);
     }
   }, [ensureTurnId, reportMetric, sessionIdForCall]);
 
@@ -1491,6 +1524,11 @@ export default function useGeminiLive(
           return;
         case 'famous_game':
           if (await siteToolCall('famous_game', { text }, session, famousNote)) conceptDoneRef.current = true;
+          return;
+        case 'solution':
+          // «Сдаюсь, покажи решение»: the puzzle's verified solution goes on the board as arrows and the model
+          // gets the exact line — it told another mate from memory (23.10).
+          if (await siteToolCall('puzzle_solution', {}, session, solutionNote, true)) conceptDoneRef.current = true;
           return;
         case 'fact':
           // «кто сейчас чемпион мира?»: fetched now from Wikipedia — the model's memory ends before Gukesh (20.10).
