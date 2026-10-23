@@ -42,8 +42,14 @@ def test_start_game_starts_the_buttons_game_and_says_the_engines_first_move():
     assert out["engine_first_move"] and out["to_move"] == "the student's move"
     board = session.get_board(session.active_board_id)
     assert board.kind == "game" and board.game_state["status"] == "playing"
-    # one game at a time: a second start_game restarts (the first is counted as resigned; 2026-10-16)
-    again = _call("start_game", {}, session)
+    # a bare second start right after the first, nothing played: the same game (the site's and the model's
+    # calls for one request, 2026-10-23) — not a restart
+    same = _call("start_game", {}, session)
+    assert same["ok"] and same["already_started"] and not same.get("restarted")
+    assert [b.game_state["status"] for b in session.boards if b.kind == "game"] == ["playing"]
+    # one game at a time: a second start_game asking for something else restarts (the first is counted as
+    # resigned; 2026-10-16)
+    again = _call("start_game", {"color": "white"}, session)
     assert again["ok"] and again["restarted"] and "resigned" in again["note"]
     assert [b.game_state["status"] for b in session.boards if b.kind == "game"] == ["finished", "playing"]
 

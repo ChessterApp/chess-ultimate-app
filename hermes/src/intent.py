@@ -19,6 +19,15 @@ import chess
 # «задачу на вилку», "a puzzle on pins", «реши задачу» with no puzzle on the board, "let's solve"
 _PUZZLE_ON = re.compile(r"(?<![\w-])(?:задач(?:у|и|ку|ки)|упражнени[ея]|puzzles?)\s+(?:на|про|по|on|about|for)\s+(?P<theme>[^,.!?]+)",
                         re.IGNORECASE)
+# «поставь позицию на связку», «покажи пример на вилку», "put up a position on pins": a position or an example
+# asked for BY THEME is a puzzle of that theme — Alexander's voice test 23.10: «Да, поставь, пожалуйста, позицию на
+# связку» was nobody's request (the model only said «посмотри на эту позицию», the board stayed). A request word
+# must come first («в этой позиции на доске» is not one), and the theme is never the board itself.
+_POSITION_ON = re.compile(
+    r"(?<![\w-])(?:поставь\w*|поставить|покажи\w*|показать|дай\w*|давай(?:те)?|хочу|хотел\w*|хотим|загрузи\w*|выведи\w*|"
+    r"подбери\w*|найди\w*|нужн\w+|можно|можешь|show|give|put|set\s+up|load|want|find|need|көрсет\w*|қой\w*|бер\w*)"
+    r"(?:[\s,]+[\w-]+){0,4}?[\s,]+(?:позици[юия]|положени[ея]|пример\w*|example|position)\s+"
+    r"(?:на|про|по|с|со|on|about|for|with)\s+(?!(?:доск|экран|board|screen))(?P<theme>[^,.!?]+)", re.IGNORECASE)
 _SOLVE = re.compile(r"(?<![\w-])(?:реши\w*\s+(?:мне\s+)?задач\w*|давай\s+решать|solve\s+a\s+puzzle|let'?s\s+solve|"
                     r"есеп\s+шығар\w*)(?![\w-])", re.IGNORECASE)
 _REVIEW = re.compile(
@@ -97,7 +106,7 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
         # «кто сейчас чемпион мира?»: the site fetches the facts now (current_facts) — the voice model's
         # memory ends before Gukesh (Alexander's screenshot, 20.10).
         return {"kind": "fact"}
-    theme_m = _PUZZLE_ON.search(t)
+    theme_m = _PUZZLE_ON.search(t) or _POSITION_ON.search(t)
     if _WANTS_NEW_PUZZLE.search(t) or theme_m or (_SOLVE.search(t) and not puzzle_on_board):
         return {"kind": "puzzle", "theme": theme_m["theme"].strip() if theme_m else None}
     if puzzle_queue:

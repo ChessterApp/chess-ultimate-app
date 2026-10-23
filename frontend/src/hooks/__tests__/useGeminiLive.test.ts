@@ -1493,6 +1493,33 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(g.session.sendToolResponse.mock.calls.at(-1)[0].functionResponses[0].response.result).toMatchObject({ student_move: 'e4' });
   });
 
+  // Alexander's phone, 23.10: the site's «e4» was still on its way to Hermes when the model called make_game_move
+  // for the same «e4»; both reached the game at once and its record broke. The model's call now waits for the
+  // site's result instead.
+  it("a move the site is still playing is not played a second time by the model's call", async () => {
+    let release: (() => void) | null = null;
+    toolReply = async (body) => {
+      if (body.name === 'make_game_move' && body.args.said === 'е4') {
+        await new Promise<void>((r) => { release = r; });
+        return { result: { ok: true, student_move: 'e4', engine_reply: 'd5' }, board_actions: [{ type: 'game', game: AFTER_GAME }] };
+      }
+      return { result: {} };
+    };
+    const onToolResult = vi.fn();
+    await connectWith({ getGame: () => game(), onToolResult });
+    say('е4');
+    await waitFor(() => expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'make_game_move')).toHaveLength(1));
+    const modelCall = call('make_game_move', { move: 'e4' });   // the model, while the site's call is in flight
+    await new Promise((r) => setTimeout(r, 10));
+    expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'make_game_move')).toHaveLength(1);  // still one
+    await act(async () => { release!(); });
+    await modelCall;
+    await waitFor(() => expect(g.session.sendToolResponse).toHaveBeenCalled());
+    expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'make_game_move')).toHaveLength(1);
+    expect(g.session.sendToolResponse.mock.calls.at(-1)[0].functionResponses[0].response.result).toMatchObject({ student_move: 'e4' });
+    expect(onToolResult).toHaveBeenCalledTimes(1);
+  });
+
   it('a game asked for in words is started by Hermes for the words', async () => {
     toolReply = (body) => (body.name === 'start_game'
       ? { result: { ok: true, student_color: 'black', note: 'The engine opened with e4.' }, board_actions: [{ type: 'game', game: game({ student_color: 'black' }) }] }

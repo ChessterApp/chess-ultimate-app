@@ -4085,6 +4085,10 @@ async def coach_voice_idea(body: VoiceIdeaRequest, request: Request):
 
 def _session_summary(s) -> dict:
     last = s.messages[-1] if s.messages else None
+    # The session's label on the site (the list, the phone's context bar) is its first question — not the
+    # coach's last words («Let me find a good tactical puzzle for you…» over a puzzle, Alexander's screenshot 23.10).
+    first_question = next((m for m in s.messages if getattr(m, "role", "") == "user" and (m.content or "").strip()), None)
+    named_by = first_question or last
     return {
         "id": s.id,
         "title": s.title,
@@ -4094,7 +4098,7 @@ def _session_summary(s) -> dict:
         "board_state": s.board_state,
         "active_board_id": s.active_board_id,
         "board_count": len(s.boards),
-        "preview": (last.content[:120] if last else ""),
+        "preview": (named_by.content[:120] if named_by else ""),
     }
 
 

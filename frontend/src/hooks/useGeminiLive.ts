@@ -1079,7 +1079,19 @@ export default function useGeminiLive(
         try {
           // The site already made this call for the student's words: the model
           // gets the same result — the board keeps what the student was told about.
-          const siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
+          let siteResult = fc.name && SITE_FETCHED_TOOLS.has(fc.name) ? siteResultsRef.current.get(fc.name) : undefined;
+          if (!siteResult && fc.name && SITE_FETCHED_TOOLS.has(fc.name)) {
+            // …or is making it right now: wait for it rather than call Hermes a second time.
+            const pending = sitePendingRef.current.get(fc.name);
+            if (pending) {
+              try {
+                await pending;
+              } catch {
+                /* the site's call failed: the model's own call goes ahead */
+              }
+              siteResult = siteResultsRef.current.get(fc.name);
+            }
+          }
           if (siteResult) {
             clearTimeout(timeout);
             return {
@@ -1278,6 +1290,10 @@ export default function useGeminiLive(
   // puzzle on the board and the puzzle in the model's note were two different
   // puzzles (production, 01.10).
   const siteResultsRef = useRef<Map<string, unknown>>(new Map());
+  // The site's calls still in flight, by tool name: a model call for the same tool waits for that result
+  // instead of making a second one (Alexander's phone, 23.10: the site's and the model's «e4» ran in parallel,
+  // both reached Hermes, and the game record broke on a second e4).
+  const sitePendingRef = useRef<Map<string, Promise<unknown>>>(new Map());
 
   // One voice tool call the site makes on the student's behalf; the result's
   // board actions reach the board and the note reaches the model.
@@ -1318,39 +1334,48 @@ export default function useGeminiLive(
       }
       return false;
     };
-    try {
-      const res = await fetch('/api/coach/tool', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name,
-          args,
-          session_id: await sessionIdForCall(),
-          utterance: userUtteranceRef.current || undefined,
-        }),
-      });
-      if (!res.ok) return failed(`http_${res.status}`, `HTTP ${res.status}`);
-      const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
-      const error = data?.error ?? (data?.result as { error?: unknown } | null | undefined)?.error;
-      if (!data?.result || error) return failed(error ? 'refused' : 'empty', String(error || 'no result'));
-      const note = makeNote(data.result as never);
-      if (!note) return failed('no_note', 'nothing to tell');
-      if (sessionRef.current !== session) return false;
-      reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
-      siteResultsRef.current.set(name, data);
-      const game = gameFromActions(data.board_actions);
-      if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+    const work = (async (): Promise<boolean> => {
       try {
-        optionsRef.current.onToolResult?.(name, data);
-      } catch {
-        /* UI callback errors must not break the session */
+        const res = await fetch('/api/coach/tool', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            name,
+            args,
+            session_id: await sessionIdForCall(),
+            utterance: userUtteranceRef.current || undefined,
+          }),
+        });
+        if (!res.ok) return failed(`http_${res.status}`, `HTTP ${res.status}`);
+        const data = (await res.json().catch(() => null)) as { result?: unknown; board_actions?: unknown[]; error?: unknown } | null;
+        const error = data?.error ?? (data?.result as { error?: unknown } | null | undefined)?.error;
+        if (!data?.result || error) return failed(error ? 'refused' : 'empty', String(error || 'no result'));
+        const note = makeNote(data.result as never);
+        if (!note) return failed('no_note', 'nothing to tell');
+        if (sessionRef.current !== session) return false;
+        reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
+        siteResultsRef.current.set(name, data);
+        const game = gameFromActions(data.board_actions);
+        if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+        try {
+          optionsRef.current.onToolResult?.(name, data);
+        } catch {
+          /* UI callback errors must not break the session */
+        }
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+        return true;
+      } catch (err) {
+        /* unavailable (an older Hermes) — the coach can still call the tool itself */
+        return failed('network', err instanceof Error ? err.message : 'tool call failed');
       }
-      session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
-      return true;
-    } catch (err) {
-      /* unavailable (an older Hermes) — the coach can still call the tool itself */
-      return failed('network', err instanceof Error ? err.message : 'tool call failed');
+    })();
+    // While it runs, a model call for the same tool waits for this result (see sitePendingRef).
+    sitePendingRef.current.set(name, work);
+    try {
+      return await work;
+    } finally {
+      if (sitePendingRef.current.get(name) === work) sitePendingRef.current.delete(name);
     }
   }, [ensureTurnId, reportMetric, sessionIdForCall]);
 

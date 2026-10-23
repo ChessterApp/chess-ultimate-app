@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 22.10 (позиция на доске узнаётся: задача урока сайта с её решением, известная ловушка; проверка ответа строже) — включает всё из версий 06.10 … 21.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.10 (партия голосом не ломается на первом ходу; «поставь позицию на связку» ставит задачу; позиция на доске узнаётся) — включает всё из версий 06.10 … 22.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,32 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 23.10 (тест Александра голосом с телефона 23.10, аккаунт dagamavsco210@gmail.com: «1.e4 — невозможный ход» на
+первом же ходу партии с тренером, «поставь позицию на связку» без смены доски; код `hermes/src/game_mode.py`,
+`hermes/src/tools/game_play.py`, `hermes/src/intent.py`, `hermes/src/server.py`; миграций, переменных и изменений бэкенда
+нет; если сервер уже на 22.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 47, 48; если на 21.10 или 20.10-2 — ещё
+проверки 43, 44, 45, и 42 для 20.10-2):
+- **Партия не ломается, когда ход приходит дважды.** В голосе ход ученика «e4» играют и сайт (по расшифровке), и модель
+  (своим вызовом make_game_move) — одновременно. У партии не было блокировки: оба вызова прочитали стартовую позицию и
+  оба записали «e4», после чего каждый следующий вызов падал, воспроизводя запись: «Tool execution failed:
+  IllegalMoveError: illegal san: 'e4' in … b KQkq - 0 1» (скриншот). Теперь партию меняет один вызов за раз; второй
+  вызов того же хода получает результат первого (`already_played`), а не отказ; испорченная запись читается до битого
+  хода и обрезается (партия Александра починится сама при следующем ходе); второй старт той же партии сразу после первого,
+  когда ничего другого не просили, — та же партия (`already_started`), а не перезапуск. Сайт со своей стороны тоже
+  перестал делать второй вызов, пока первый в пути (frontend, выкатывается с main сам).
+- **«Поставь позицию на связку» — просьба о задаче** (доска осталась стартовой, модель лишь сказала «посмотри на эту
+  позицию»). Позиция или пример, запрошенные по теме («поставь/покажи/дай/хочу … позицию (пример) на/про/со …»), читаются
+  как задача этой темы — сайт в голосе и сервер в тексте ставят её сами, не дожидаясь модели. «Позиция на доске» темой не
+  считается. Код `hermes/src/intent.py`.
+- **Имя сессии в шапке телефона — первый вопрос ученика**, а не последние слова тренера (над задачей висело «Let me find a
+  good tactical puzzle fo…»). Код `hermes/src/server.py` (`_session_summary`).
+- Проверка 47 (намерение по словам с телефона):
+  `curl -s -X POST localhost:8642/api/coach/voice/intent -H 'Content-Type: application/json' -H 'X-User-Id: deploy-check' -d '{"text":"Да, по- поставь, пожалуйста, а-а позицию на связку.","fen":"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"}' | python3 -c "import sys,json; r=json.load(sys.stdin); print(r, 'ОК' if r.get('kind')=='puzzle' and r.get('theme')=='связку' else 'ПРОВЕРЬ')"`
+  → `{'kind': 'puzzle', 'theme': 'связку'} ОК`.
+- Проверка 48 (один ход дважды — партия цела; `H` как в проверке 38, новая сессия):
+  `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/start_game -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"color\":\"white\"},\"session_id\":\"$SID\"}"; (curl -s -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"move\":\"e4\"},\"session_id\":\"$SID\"}" > /tmp/m1.json &); curl -s -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"е4\"},\"session_id\":\"$SID\",\"utterance\":\"е4\"}" > /tmp/m2.json; sleep 3; python3 -c "import json; a=json.load(open('/tmp/m1.json'))['result']; b=json.load(open('/tmp/m2.json'))['result']; ok=a.get('ok') and b.get('ok') and (a.get('already_played') or b.get('already_played')) and 'error' not in a and 'error' not in b; print(a.get('student_move'), a.get('engine_reply'), '|', b.get('student_move'), b.get('engine_reply'), 'ОК' if ok else 'ПРОВЕРЬ')"`
+  → `e4 <ответ> | e4 <ответ> ОК` (у одного из двух `already_played`, ошибок нет; партия после этого на 2-м ходу).
 
 Новое в версии 22.10 (разбор слабых мест прогонов прода 19.10: из 184 задач программы первый ход совпал с решением сайта в 170,
 «Можно взять e5 конём?» в позиции ловушки Блэкберна — «да, можно», «давит на коня c6» без коня на c6, «e5xd5 обычным взятием»;
