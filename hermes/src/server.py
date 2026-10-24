@@ -4011,7 +4011,11 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         spoken = _spoken_language(body.question)
         if spoken in ("ru", "kk"):
             ctx.language = spoken  # an answer in Latin letters to a Russian question is read back
-        issues = check_sentence(body.text[:1000], ctx)
+        # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to
+        # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
+        from src.game_intent import spoken_squares
+
+        issues = check_sentence(spoken_squares(body.text[:1000]), ctx)
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
         # The coach's recommendation («сыграй Rg1») against the engine, as in the

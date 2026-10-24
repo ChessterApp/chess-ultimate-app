@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.10 (партия голосом не ломается на первом ходу; «поставь позицию на связку» ставит задачу; позиция на доске узнаётся) — включает всё из версий 06.10 … 22.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 24.10 (голос: «напал на слона c4», которого никто не бьёт, и стрелки на невозможные ходы отсеиваются) — включает всё из версий 06.10 … 23.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,25 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 24.10 (тест Александра голосом с телефона 24.10 вечером, партия с тренером: «конь на d4 напал на коня на f3 и
+ещё на пешку на e2. И на слона на цэ четыре тоже нападает» — пешки на e2 нет, слона c4 никто не бьёт, и стрелки с d4 на c4
+на доске; код `hermes/src/answer_check.py`, `hermes/src/tool_bridge.py`, `hermes/src/server.py`; миграций, переменных и
+изменений бэкенда нет; если сервер уже на 23.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 50):
+- **Проверка ответа: названная целью фигура должна быть на доске и под ударом.** Фраза «напал / нападает / угрожает /
+  бьёт … коня (слона, пешку) на X» проверяется по клаузе целиком, кем бы ни был подлежащий — конь из прошлой фразы,
+  «он» или никто: такой фигуры нет на X → фраза не показывается; фигура есть, но её никто не атакует → тоже. Стартовая
+  позиция больше не «находит» пешку на e2. Поля словами из расшифровки («цэ четыре», «эф три», «е два») читаются как
+  поля. Отрицания («никто не атакует») и фразы про другую позицию («удар конём на f7», когда коня на f7 нет) не трогаются.
+  В голосе это уходит модели строкой [Check] после реплики, как и раньше.
+- **Стрелки с невозможными ходами не рисуются в голосе.** Текстовый ход отсеивал их с 01.10
+  (`board_markup.prune_arrows`), голосовой `board_control` возвращал как есть. Теперь стрелка от фигуры на поле, куда эта
+  фигура ходить не может, отбрасывается, а модели в результате приходит `arrows_dropped` и просьба не называть это атакой.
+- Проверка 50 (без базы и модели):
+  `cd /root/hermes-chess && .venv/bin/python -c "from src.answer_check import CheckContext, check_sentence as c; from src.game_intent import spoken_squares as sp; F='r1bqkb1r/pppp1ppp/5n2/4p3/2BnP3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 6'; a=c(sp('И на слона на цэ четыре тоже нападает.'), CheckContext.from_fens([F])); b=c('Конь на d4 напал на коня на f3 и ещё на пешку на e2.', CheckContext.from_fens([F])); ok=any('c4 is not attacked' in x for x in a) and any('no pawn on e2' in x for x in b); print(a, b, 'ОК' if ok else 'ПРОВЕРЬ')"`
+  → две строки с замечаниями и `ОК`. И стрелки, `H` как в проверке 38, новая сессия с этой позицией:
+  `H='X-User-Id: deploy-check'; S=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}'); SID=$(echo "$S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); BID=$(echo "$S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["active_board_id"])'); curl -s -o /dev/null -X PATCH localhost:8642/api/coach/sessions/$SID/boards/$BID -H "$H" -H 'Content-Type: application/json' -d '{"fen":"r1bqkb1r/pppp1ppp/5n2/4p3/2BnP3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 6"}'; curl -s -X POST localhost:8642/api/coach/tool/board_control -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"action_type\":\"draw_arrows\",\"arrows\":[{\"from\":\"d4\",\"to\":\"c4\",\"brush\":\"red\"},{\"from\":\"d4\",\"to\":\"f3\",\"brush\":\"red\"}]},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin); arrows=[a['from']+a['to'] for x in r.get('board_actions',[]) for a in x.get('arrows',[])]; print(arrows, r['result'].get('arrows_dropped'), 'ОК' if arrows==['d4f3'] else 'ПРОВЕРЬ')"`
+  → `['d4f3'] ['d4c4: a knight cannot go there'] ОК`.
 
 Новое в версии 23.10 (тест Александра голосом с телефона 23.10, аккаунт dagamavsco210@gmail.com: «1.e4 — невозможный ход» на
 первом же ходу партии с тренером, «поставь позицию на связку» без смены доски; код `hermes/src/game_mode.py`,
