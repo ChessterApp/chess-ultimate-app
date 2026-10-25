@@ -13,6 +13,7 @@ import { useTranslations } from 'next-intl';
 import { Chess } from 'chess.js';
 import { russianToSan } from '@/lib/russianNotation';
 import useGeminiLive from '@/hooks/useGeminiLive';
+import usePipelineVoice, { readVoiceMode } from '@/hooks/usePipelineVoice';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
@@ -441,6 +442,34 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     getGame,
   });
 
+  // The voice pipeline prototype (2026-10-25, `?voice=pipeline`): the student's words, transcribed,
+  // go through the ordinary text turn below (sendMessage), and its streamed answer is read aloud.
+  const [voiceMode] = useState(() => readVoiceMode());
+  const sendMessageRef = useRef<(text: string) => void>(() => {});
+  const abortForVoiceRef = useRef<() => void>(() => {});
+  const pipeline = usePipelineVoice({
+    onUtterance: (text) => {
+      abortForVoiceRef.current();  // the student talks over an answer still streaming: that turn ends
+      setTimeout(() => sendMessageRef.current(text), 120);
+    },
+    locale: () => (typeof document !== 'undefined' ? document.documentElement.lang || 'ru' : 'ru'),
+  });
+  const pipelineRef = useRef(pipeline);
+  pipelineRef.current = pipeline;
+  const togglePipeline = useCallback(async () => {
+    if (pipeline.isActive) {
+      pipeline.disconnect();
+      return;
+    }
+    try {
+      await pipeline.prepare();
+    } catch {
+      return;
+    }
+    void ensureSessionRef.current();
+    void pipeline.connect();
+  }, [pipeline]);
+
   // While voice mode is live, push every board change into the session so the
   // voice coach stays in sync (the connect-time token only carries the initial
   // FEN). Debounced to coalesce premoves/takebacks; skips the initial FEN since
@@ -786,6 +815,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             // The message's own data (text, stages, cards, board actions, turn id).
             setMessages((prev) => prev.map((m) => (m.id === assistantId ? applyStreamFrame(m, data) : m)));
             if (data.delta) fullContent += data.delta;
+            if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data);
 
             if (data.tool_call) {
               setToolActive(data.tool_call);
@@ -927,6 +957,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   const handleAbort = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+  sendMessageRef.current = (text: string) => { void sendMessage(text); };
+  abortForVoiceRef.current = handleAbort;
 
   // «Paste PGN/FEN» and «Link» in the attach sheet: read the clipboard when the
   // browser allows it; otherwise the field asks for a paste (onPaste loads it).
@@ -1091,7 +1123,19 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         onAttachOpenChange={setAttachOpen}
         attachDisabled={isStreaming || photoBusy}
         onAttach={handleAttach}
-        voice={{
+        voice={voiceMode === 'pipeline' ? {
+          supported: pipeline.isSupported,
+          status: pipeline.status,
+          active: pipeline.isActive,
+          error: pipeline.error,
+          notice: pipeline.timings.firstSoundMs !== null
+            ? `связка: слова ${pipeline.timings.sttMs ?? '–'} мс · звук ${pipeline.timings.firstSoundMs} мс · ответ ${pipeline.timings.firstAnswerMs ?? '…'} мс`
+            : voiceNotice,
+          quotaExhausted: false,
+          remainingSeconds: null,
+          onToggle: () => void togglePipeline(),
+          onPrefetch: () => {},
+        } : {
           supported: voiceSupported,
           status: voiceStatus,
           active: voiceActive,
