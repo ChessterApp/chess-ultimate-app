@@ -2233,9 +2233,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if moves_note:
         turn_board_blocks.append(moves_note)
     if history_messages:
-        recent = history_messages[-20:]  # last ~10 turns
+        from src.conversation_digest import KEEP_MESSAGES, conversation_digest
+
+        recent = history_messages[-KEEP_MESSAGES:]  # last ~10 turns, in full
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
-        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current_message}"
+        # The exchanges before those, one quoted line each (src/conversation_digest.py): a long session no
+        # longer forgets what was discussed fifteen turns back (the voice pipeline, 25.10).
+        digest = conversation_digest(history_messages, keep=KEEP_MESSAGES)
+        augmented_message = (f"{digest}\n\n" if digest else "") + \
+            f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current_message}"
     else:
         augmented_message = current_message
 
