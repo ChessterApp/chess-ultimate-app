@@ -29,6 +29,8 @@ interface CoachBoardProps {
   onNext: () => void;
   onLast: () => void;
   onFlip: () => void;
+  /** Piece animation in ms (the coach page's setting); 0 = instant. */
+  animationDuration?: number;
 }
 
 export default function CoachBoard({
@@ -40,6 +42,7 @@ export default function CoachBoard({
   overlay,
   flash,
   onMove,
+  animationDuration,
   onReset,
   onFirst,
   onPrev,
@@ -60,6 +63,7 @@ export default function CoachBoard({
         movable={movable}
         viewOnly={false}
         boardSize={size}
+        animationDuration={animationDuration}
       />
       <BoardFlash flash={flash} />
       {overlay}

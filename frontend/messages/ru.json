@@ -2327,7 +2327,15 @@
     "attachLink": "Ссылка с Lichess или Chess.com",
     "attachPastePlaceholder": "Вставьте PGN, FEN или ссылку на партию…",
     "coachJustNow": "Тренер · только что",
-    "cardPuzzleQueued": "ещё {n} в очереди"
+    "cardPuzzleQueued": "ещё {n} в очереди",
+    "viewingPast": "Просмотр: после хода {ply} из {total}. Партия продолжается",
+    "continueHere": "Продолжить отсюда",
+    "backToGame": "К партии",
+    "animationSpeed": "Анимация",
+    "animationOff": "выкл",
+    "animationFast": "быстро",
+    "animationNormal": "обычно",
+    "animationSlow": "медленно"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

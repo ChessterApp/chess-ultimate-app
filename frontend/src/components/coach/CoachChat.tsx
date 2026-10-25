@@ -14,6 +14,7 @@ import { Chess } from 'chess.js';
 import { russianToSan } from '@/lib/russianNotation';
 import useGeminiLive from '@/hooks/useGeminiLive';
 import usePipelineVoice, { readVoiceMode } from '@/hooks/usePipelineVoice';
+import { movePhrase, type PipelineLocale } from '@/lib/coach/voice-pipeline';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
@@ -81,6 +82,8 @@ interface CoachChatProps {
   contextNote?: string;
   /** The game against the coach on the board, if any — the voice coach hears its moves (src/lib/coach/voice-game.ts). */
   game?: GameStateView | null;
+  /** The ply of the game's earlier position the student is looking at (the move panel), null at the live one (26.10). */
+  viewPly?: number | null;
   /** Hide the composer (a game's action bar stands in for it); voice controls stay while voice is on. */
   composerHidden?: boolean;
   /** A finished assistant answer or remark — the play strip quotes it in the coach's bubble. */
@@ -124,6 +127,10 @@ export interface CoachChatHandle {
   streamAssistant: (url: string, body: Record<string, unknown>) => Promise<void>;
   /** Open the composer's attach sheet (paste / upload / photo / link). */
   openAttach: () => void;
+  /** The voice pipeline says the move the student made by hand, with the engine's reply (26.10). */
+  announceGame: (view: GameStateView) => void;
+  /** Whether the voice pipeline is listening: a hand-made move then gets the coach's spoken comment. */
+  voicePipelineOn: () => boolean;
 }
 
 /** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
@@ -188,6 +195,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     onOpenGame,
     contextNote,
     game = null,
+    viewPly = null,
     composerHidden = false,
     onAssistantReply,
     view = 'thread',
@@ -419,6 +427,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   gameRef.current = game;
   const getGame = useCallback(() => gameRef.current, []);
 
+  // The ply of the game's earlier position on the board (the move panel): the voice hooks and the chat turn read it (26.10).
+  const viewPlyRef = useRef<number | null | undefined>(viewPly);
+  viewPlyRef.current = viewPly;
   const {
     status: voiceStatus,
     isSupported: voiceSupported,
@@ -434,6 +445,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     getFen,
     getPgn,
     getSessionId,
+    getViewPly: () => viewPlyRef.current ?? null,
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
     onQuotaExhausted: handleVoiceQuotaExhausted,
@@ -785,6 +797,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           // The answer will be read aloud (the voice pipeline): the server keeps it short and does not
           // restate a move the system already said.
           speech: pipelineRef.current.isActive ? true : undefined,
+          // The earlier position of the game on the board, when the student browsed back (26.10).
+          view_ply: viewPlyRef.current ?? undefined,
         }),
         signal: controller.signal,
       });
@@ -913,6 +927,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
                 content += data.delta;
                 patch(content);
               }
+              if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data);  // the comment is read aloud (26.10)
               if (data.error) {
                 content += `${content ? '\n\n' : ''}*${t('errorLabel')}: ${data.error}*`;
                 patch(content);
@@ -927,6 +942,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : t('unknownError');
         patch(`*${t('connectionErrorLabel')}: ${message}*`);
+      } finally {
+        if (pipelineRef.current.isActive) pipelineRef.current.feedFrame({ done: true });
       }
     },
     [t],
@@ -942,6 +959,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       },
       streamAssistant,
       openAttach: () => setAttachOpen(true),
+      announceGame: (view: GameStateView) => {
+        if (!pipelineRef.current.isActive) return;
+        const lang = typeof document !== 'undefined' ? document.documentElement.lang : '';
+        const phrase = movePhrase(view, (lang === 'kk' || lang === 'kz' ? 'kk' : lang === 'en' ? 'en' : 'ru') as PipelineLocale);
+        if (phrase) pipelineRef.current.announce(phrase, true);
+      },
+      voicePipelineOn: () => pipelineRef.current.isActive,
     }),
     [sendMessage, streamAssistant],
   );

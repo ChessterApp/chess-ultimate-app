@@ -164,6 +164,46 @@ def bare_move(text: str, board: chess.Board) -> Optional[str]:
 # What the game's buttons do, said in words (2026-10-13: «Сдаюсь» was talked out of, «Ой, верни ход назад» got
 # «в партии отмены не бывает», «Давай начнём заново» got «считай, что предыдущая аннулирована» with the old
 # game still on the board). Short messages only: «сдаюсь, покажи решение» on a puzzle is no game command.
+# The commands a long sentence may carry (up to _LONG_COMMAND_WORDS words): «Верни партию на два хода назад, до
+# того как я сходил конём» (Alexander's list, 26.10). The short ones below keep their 8-word limit: «предлагаю
+# ничью» inside a 13-word question is a question, not an offer.
+_LONG_COMMANDS = (
+    # «ты ошибся», «это не мой ход», «верни как было»: the system misread the student's move, or moved wrong —
+    # the last move is undone and the student is asked what they meant (item 5 of the list).
+    ("mistake", re.compile(
+        r"(?<![\w-])(?:ты\s+(?:ошиб\w*|не\s+тот\s+ход|неправильно|не\s+так\s+(?:понял\w*|сходил\w*|поставил\w*))"
+        r"|(?:ты|вы)\s+сделал\w*\s+не\s+тот|это\s+не\s+мой\s+ход|я\s+так\s+не\s+ходил\w*|я\s+не\s+это\s+(?:сказал|говорил)\w*"
+        r"|верни\s+(?:вс[её]\s+)?как\s+было|not\s+my\s+move|you\s+(?:made\s+a\s+mistake|got\s+it\s+wrong|misheard)"
+        r"|that(?:'s|\s+is)\s+(?:the\s+)?wrong\s+move|қате\s+жүрді\w*)(?![\w-])", re.IGNORECASE)),
+    # «продолжим отсюда», «давай играть с этой позиции»: the game goes on from the position the student is
+    # looking at (its record cut there) — only when they say so (item 4).
+    ("continue_here", re.compile(
+        r"(?<![\w-])(?:(?:продолж\w*|игра\w*|сыграем|давай|поиграем)\s+(?:партию\s+|играть\s+|играем\s+)?"
+        r"(?:отсюда|с\s+этого\s+места|с\s+этой\s+позиции|с\s+текущей\s+позиции|с\s+этого\s+хода|с\s+этой\s+точки)"
+        r"|(?:continue|play|go\s+on)\s+from\s+here|осы\s+жерден\s+жалғаст\w*)(?![\w-])", re.IGNORECASE)),
+    # «вернись к партии», «покажи текущую позицию»: the board shows the game's latest position again (item 8).
+    ("view_live", re.compile(
+        r"(?<![\w-])(?:(?:верн\w*|вернемся|назад|покажи|обратно)\s+(?:к\s+партии|к\s+игре|в\s+партию|в\s+игру|(?:к\s+|на\s+)?текущ\w+\s+позици\w*"
+        r"|(?:к\s+|на\s+)?последн\w+\s+позици\w*|(?:к\s+|в\s+)?конц\w*\s+партии|(?:к\s+|на\s+)?живую\s+позицию)|back\s+to\s+the\s+game"
+        r"|(?:the\s+)?current\s+position|ойынға\s+қайт\w*)(?![\w-])", re.IGNORECASE)),
+    # «покажи позицию после 10-го хода», «отмотай на три хода назад посмотреть», «покажи, как было до моего хода
+    # конём»: the board shows an earlier position; the game itself goes on (items 4 and 8).
+    ("view", re.compile(
+        r"(?<![\w-])(?:покажи|посмотрим|посмотреть|открой|перемотай|отмотай|промотай|пролистай|хочу\s+посмотреть|давай\s+посмотрим"
+        r"|show\s+(?:me\s+)?|rewind|go\s+back\s+to)\w*\s*(?:мне\s+)?(?:позици\w*|как\s+было|партию|the\s+position|move)?"
+        r"[^.!?]{0,40}?(?:после|до|на|к|перед|after|before|to)\s+[^.!?]{0,30}?(?:ход\w*|move\w*|начал\w*|start)(?![\w-])",
+        re.IGNORECASE)),
+    ("takeback", re.compile(
+        r"(?<![\w-])(?:верн\w*\s+(?:мой\s+|мне\s+|пожалуйста\s+)?(?:ход|назад)|отмен\w*\s+(?:[\w-]+\s+){0,3}?ход\w*"
+        r"|верн\w*\s+(?:партию|позицию|игру|все|всё)\s+(?:на\s+)?[^.!?]{0,20}?(?:ход\w*|назад)|(?:на\s+)?(?:\d+|\w+)\s+ход\w*\s+назад"
+        r"|верн\w*[^.!?]{0,25}?\d+\s*-?\s*(?:го|му|й|ому)?\s*ход\w*|^(?:до|перед)\s+(?:того\s+как\s+)?(?:я\s+)?(?:сходил|пошел|походил|сыграл)\w*"
+        r"|верн\w*[^.!?]{0,20}?(?:в\s+начало|к\s+началу|на\s+начало)"
+        r"|(?:можно|дай(?:те)?|давай)\s+переход\w*|перехожу|переходить|ход\s+назад|откат\w*|отмотай\s+(?:партию\s+)?назад"
+        r"|take\s*(?:it\s+)?back|undo(?:\s+(?:my\s+|the\s+|last\s+)?(?:\w+\s+)?moves?)?"
+        r"|жүрісті\s+қайтар\w*|қайтар\w*\s+жүріс\w*)", re.IGNORECASE)),
+)
+_LONG_COMMAND_WORDS = 16
+
 _COMMANDS = (
     ("takeback", re.compile(
         r"(?<![\w-])(?:верн\w*\s+(?:мой\s+|мне\s+|пожалуйста\s+)?(?:ход|назад)|отмен\w*\s+(?:мой\s+|последний\s+)?ход"
@@ -255,6 +295,10 @@ def game_command(text: str) -> Optional[str]:
     t = (text or "").replace("ё", "е").replace("Ё", "Е").strip()
     if corrects_move(t):
         return "correct"
+    if t and len(t.split()) <= _LONG_COMMAND_WORDS:
+        for name, rx in _LONG_COMMANDS:
+            if rx.search(t):
+                return name
     if not t or len(t.split()) > 8:
         return None
     for name, rx in _COMMANDS:
@@ -274,3 +318,86 @@ _MOVE_LIKE = re.compile(
 def move_attempt(text: str) -> bool:
     """*text* is written as one move to play (legal or not)."""
     return bool(_MOVE_LIKE.match((text or "").strip().rstrip(".!")))
+
+
+# ── where to cut the game back to, or which position to look at, in words (26.10) ──────────
+_NUM_WORDS = {"один": 1, "одного": 1, "одна": 1, "два": 2, "две": 2, "двух": 2, "три": 3, "трех": 3, "четыре": 4, "четырех": 4,
+              "пять": 5, "пяти": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9, "десять": 10, "one": 1, "two": 2,
+              "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
+_COUNT_BACK = re.compile(r"(?<![\w-])(?:на\s+)?(\d{1,2}|один|одного|одну|два|две|двух|три|трех|четыре|четырех|пять|пяти|шесть|семь|восемь|девять|десять"
+                         r"|one|two|three|four|five|six|seven|eight)\s+(?:последн\w+\s+|моих\s+|своих\s+)?(?:ход\w*|moves?)(?![\w-])", re.IGNORECASE)
+_MOVE_NUMBER = re.compile(r"(?<![\w-])(после|до|к|на|перед|after|before|to)\s+(\d{1,3})\s*-?\s*(?:го|й|му|ому|ого|ый|th|st|nd|rd)?\s*(?:ход\w*|move\w*)(?![\w-])",
+                          re.IGNORECASE)
+_MY_MOVE = re.compile(r"(?<![\w-])(после|до|перед|after|before)\s+(?:того\s+как\s+)?(?:я\s+|мо\w+\s+)?(?:сходил\w*|пошел|пошла|походил\w*|ход\w*|сыграл\w*|поставил\w*|played|moved|move)?"
+                      r"\s*(?:мо\w+\s+)?(кон\w*|слон\w*|ладь\w*|ферз\w*|корол\w*|пешк\w*|knight|bishop|rook|queen|king|pawn)?\s*(?:на\s+|to\s+|on\s+)?([a-h][1-8])?(?![\w-])",
+                      re.IGNORECASE)
+_TO_START = re.compile(r"(?<![\w-])(?:(?:до|в|к|на)\s+(?:самого\s+|самое\s+)?начал\w*|с\s+начала|с\s+самого\s+начала|to\s+the\s+start|from\s+the\s+start)(?![\w-])",
+                       re.IGNORECASE)
+_PIECE_LETTER = {"кон": "N", "слон": "B", "ладь": "R", "ферз": "Q", "корол": "K", "пешк": "P", "knight": "N", "bishop": "B", "rook": "R",
+                 "queen": "Q", "king": "K", "pawn": "P"}
+
+
+def _student_ply_of(state: dict, piece: Optional[str], square: Optional[str]) -> Optional[tuple[int, str]]:
+    """The ply and SAN of the student's last move by *piece* and/or to *square*, from the record's annotations."""
+    letter = None
+    if piece:
+        key = next((k for k in _PIECE_LETTER if piece.lower().startswith(k)), None)
+        letter = _PIECE_LETTER.get(key) if key else None
+    for a in reversed(state.get("annotations") or []):
+        san = (a.get("san") or "").rstrip("+#!?")
+        if square and not san.replace("=", "").endswith(square) and not re.search(rf"{square}(?:=[QRBN])?$", san):
+            continue
+        if letter == "P" and not re.match(r"^[a-h]", san):
+            continue
+        if letter and letter != "P" and not san.startswith(letter):
+            if not (letter == "K" and san.startswith("O-O")):
+                continue
+        return int(a["ply"]), a.get("san") or ""
+    return None
+
+
+def cut_target(text: str, state: dict, *, default_count: int = 1) -> dict:
+    """{"ply": int, "why": str}: the ply to cut the game back to for a takeback — «на два хода назад» (the student's
+    last two moves), «до 10-го хода» (before White's 10th), «до того как я сходил конём» / «до хода на e4», «до
+    начала»; with none of those, the last *default_count* student moves."""
+    t = spoken_squares((text or "").replace("ё", "е"))
+    moves = state.get("moves") or []
+    student_plies = [int(a["ply"]) for a in state.get("annotations") or []]
+    if _TO_START.search(t):
+        return {"ply": 0, "why": "the start of the game"}
+    m = _MOVE_NUMBER.search(t)
+    if m:
+        n = int(m.group(2))
+        if m.group(1).lower() in ("после", "after"):
+            return {"ply": min(len(moves), 2 * n), "why": f"after move {n}"}
+        return {"ply": max(0, min(len(moves), 2 * (n - 1))), "why": f"before move {n}"}
+    m = _MY_MOVE.search(t)
+    if m and (m.group(2) or m.group(3)):
+        found = _student_ply_of(state, m.group(2), m.group(3))
+        if found is not None:
+            ply, san = found
+            if m.group(1).lower() in ("после", "after"):
+                return {"ply": ply, "why": f"after the student's move {san} (ply {ply})"}
+            return {"ply": ply - 1, "why": f"before the student's move {san} (ply {ply})"}
+    m = _COUNT_BACK.search(t)
+    count = default_count
+    if m:
+        raw = m.group(1).lower()
+        count = int(raw) if raw.isdigit() else _NUM_WORDS.get(raw, default_count)
+    if not student_plies:
+        return {"ply": 0, "why": "the start of the game"}
+    count = max(1, min(count, len(student_plies)))
+    return {"ply": student_plies[-count] - 1, "why": f"the student's last {count} move(s)"}
+
+
+def view_target(text: str, state: dict) -> dict:
+    """{"ply": int, "why": str}: the position to show — the same words as cut_target, but «на N ходов назад» counts
+    whole moves of both sides back from the end, and «покажи, как было после моего хода конём» lands after it."""
+    t = spoken_squares((text or "").replace("ё", "е"))
+    moves = state.get("moves") or []
+    m = _COUNT_BACK.search(t)
+    if m and not _MOVE_NUMBER.search(t) and not _MY_MOVE.search(t) and not _TO_START.search(t):
+        raw = m.group(1).lower()
+        count = int(raw) if raw.isdigit() else _NUM_WORDS.get(raw, 1)
+        return {"ply": max(0, len(moves) - 2 * count), "why": f"{count} move(s) back from the end"}
+    return cut_target(text, state, default_count=1)

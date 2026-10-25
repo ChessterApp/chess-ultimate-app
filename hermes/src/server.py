@@ -651,7 +651,7 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
-def _game_prestep(session, active_board, message: str, spoken: bool = False) -> Optional[dict]:
+def _game_prestep(session, active_board, message: str, spoken: bool = False, view_ply: Optional[int] = None) -> Optional[dict]:
     """A game asked for, or the student's move written on its own in the game on the board
     (src/game_intent.py): started / played here, before the model answers — left to the model, it
     sometimes played by talking (stand, 2026-10-12). {"view", "block"} or None."""
@@ -686,7 +686,7 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False) -> 
         # A new game asked for while one is on: resigned and restarted with the named colour and strength.
         return game_command_step(session, live, "restart", message)
     if command:
-        return game_command_step(session, live, command, message)
+        return game_command_step(session, live, command, message, view_ply=view_ply)
     board = game_mode._replay(live.game_state["moves"])
     if not game_mode._student_to_move(live.game_state, board):
         return None
@@ -713,6 +713,14 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False) -> 
             f"The student asks about {', '.join(dict.fromkeys(asked))}: the board did not change and nothing was "
             "played. Answer the question as their coach in the game — what the move would do, a hint, not the best "
             "move. Do not call make_game_move and never answer with a move of yours: they play it by writing it."
+        )}
+    if view_ply is not None and int(view_ply) < len((live.game_state or {}).get("moves") or []):
+        # A move named while an earlier position is on the board (26.10): the game is not cut by a move alone.
+        return {"view": None, "block": (
+            "## A move named while the student looks at an EARLIER position — nothing was played\n"
+            f"The board shows the position after ply {int(view_ply)}; the game stands further on. Ask in one sentence "
+            "whether they want to continue the game from the shown position («продолжим отсюда» — the later moves "
+            "are then undone) or go back to the game's current position. Never play the move yourself."
         )}
     view = game_mode.play_move(session, live, san)
     student = view.get("student") or {}
@@ -1425,6 +1433,9 @@ class CoachChatRequest(BaseModel):
     # The answer will be read aloud (the site's voice pipeline, 25.10): kept short, and a move the
     # system has already said («е четыре. Отвечаю е пять.») is not restated.
     speech: Optional[bool] = None
+    # The ply of the game's earlier position the student is looking at (the move panel, 26.10): the coach
+    # answers about that position; «продолжим отсюда» cuts the game there; a bare move is not played.
+    view_ply: Optional[int] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -1911,7 +1922,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     game_step = None
     if config.COACH_GAME_PRESTEP:
         try:
-            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message, bool(body.speech))
+            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message, bool(body.speech), body.view_ply)
         except Exception:  # noqa: BLE001 — the model can still use the tools
             logger.warning("game pre-step failed", exc_info=True)
             game_step = None
@@ -2229,6 +2240,26 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    if body.view_ply is not None and active_board.kind == "game" and active_board.game_state:
+        # The student is looking at an earlier position of the game (the move panel, 26.10): the coach answers
+        # about it and knows the game itself stands further on.
+        try:
+            from src.game_mode import _moves_text, position_at
+
+            st = active_board.game_state
+            n = len(st.get("moves") or [])
+            if 0 <= int(body.view_ply) < n:
+                shown = position_at(st, int(body.view_ply))
+                viewed_note = (
+                    "## The student is looking at an EARLIER position of the game, not the live one\n"
+                    f"Shown: the position after ply {int(body.view_ply)} ({_moves_text(st['moves'][: int(body.view_ply)]) or 'the start'}), "
+                    f"FEN {shown.fen()}, {'White' if shown.turn else 'Black'} to move there. The game itself stands at ply {n} and goes "
+                    "on from its live position unless the student says «продолжим отсюда». Answer about the shown position; "
+                    "nothing is played by talking."
+                )
+                turn_context = f"{turn_context}\n\n{viewed_note}" if turn_context else viewed_note
+        except Exception:  # noqa: BLE001 — never block a turn on this
+            logger.debug("viewed-position block failed", exc_info=True)
     # Moves the student named («могу ли я сыграть Qxg7?»): their legality is a
     # fact of the board, decided here, not left to the model.
     moves_note = None
@@ -2837,6 +2868,9 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         if game_step and game_step.get("view"):
             # The game started / the move played by the pre-step: on the page before the first word.
             yield _sse({"board_actions": [{"type": GAME_ACTION, "game": game_step["view"]}]})
+        if game_step and game_step.get("actions"):
+            # The board shows another position of the game (game_view, 26.10): on the page before the first word.
+            yield _sse({"board_actions": game_step["actions"]})
         if puzzle_step and puzzle_step.get("actions"):
             # The puzzle asked for, put up by the pre-step: on the page before the first word.
             yield _sse({"board_actions": [{**a, "board_id": active_board.id} for a in puzzle_step["actions"]]})
@@ -4466,6 +4500,24 @@ async def coach_game_takeback(session_id: str, board_id: str, request: Request):
     board = _get_game_board_or_404(session, board_id)
     try:
         return game_mode.takeback(session, board)
+    except game_mode.GameError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+class CoachGameContinueRequest(BaseModel):
+    ply: int   # the game goes on from the position after this many plies (the move panel's «continue from here»)
+
+
+@app.post("/api/coach/sessions/{session_id}/game/{board_id}/continue")
+async def coach_game_continue(session_id: str, board_id: str, body: CoachGameContinueRequest, request: Request):
+    """The game cut back to an earlier position of its own record and continued from there (26.10): the
+    later moves are undone; if the engine is then to move, it moves."""
+    from src import game_mode
+
+    session = await _get_session_or_404(session_id, request)
+    board = _get_game_board_or_404(session, board_id)
+    try:
+        return game_mode.truncate(session, board, body.ply)
     except game_mode.GameError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

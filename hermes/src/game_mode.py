@@ -464,6 +464,56 @@ def _takeback_locked(session, board_rec: Board) -> dict:
     return _payload(board_rec, state, board)
 
 
+def truncate(session, board_rec: Board, ply: int) -> dict:
+    """The game cut back to the position after *ply* plies — earlier moves of both sides undone (Alexander,
+    26.10: «верни партию на 2 хода назад», «продолжим отсюда» from a position the student is looking at).
+    A finished game reopens there. If the engine is then to move, it moves, so the student is to move."""
+    with board_lock(board_rec):
+        return _truncate_locked(session, board_rec, ply)
+
+
+def _truncate_locked(session, board_rec: Board, ply: int) -> dict:
+    state = board_rec.game_state
+    if board_rec.kind != "game" or not state:
+        raise GameError("This board is not a game.")
+    board = _replay(state["moves"])
+    _repair(state, board)
+    ply = max(0, min(int(ply), len(state["moves"])))
+    if ply == len(state["moves"]) and state["status"] == "playing":
+        return _payload(board_rec, state, board)  # nothing to cut
+    state["moves"] = state["moves"][:ply]
+    state["annotations"] = [a for a in state["annotations"] if a["ply"] <= ply]
+    if state["status"] == "finished":
+        state.update(status="playing", result=None, termination=None, winner=None, finished_at=None)
+    board = _replay(state["moves"])
+    engine = None
+    if not _student_to_move(state, board) and not _finish(state, board):
+        engine = _push_engine_move(state, board)
+        _finish(state, board)
+    _sync_board(board_rec, state, board)
+    session.save_board(board_rec)
+    return _payload(board_rec, state, board, engine=engine)
+
+
+def takeback_moves(session, board_rec: Board, count: int) -> dict:
+    """The student's last *count* moves undone, each with the engine's reply to it (one: the game's button)."""
+    with board_lock(board_rec):
+        state = board_rec.game_state
+        if board_rec.kind != "game" or not state:
+            raise GameError("This board is not a game.")
+        student_plies = [a["ply"] for a in state["annotations"]]
+        if not student_plies:
+            raise GameError("Nothing to take back.")
+        count = max(1, min(int(count), len(student_plies)))
+        return _truncate_locked(session, board_rec, student_plies[-count] - 1)
+
+
+def position_at(state: dict, ply: int) -> chess.Board:
+    """The position after *ply* plies of the game's record."""
+    moves = state.get("moves") or []
+    return _replay(moves[: max(0, min(int(ply), len(moves)))])
+
+
 def _payload(board_rec: Board, state: dict, board: chess.Board, student: Optional[dict] = None,
              engine: Optional[dict] = None) -> dict:
     mode = state.get("comment_mode", DEFAULT_COMMENT_MODE)

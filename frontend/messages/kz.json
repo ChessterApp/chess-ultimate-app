@@ -2327,7 +2327,15 @@
     "attachLink": "Lichess не Chess.com сілтемесі",
     "attachPastePlaceholder": "PGN, FEN немесе партия сілтемесін қойыңыз…",
     "coachJustNow": "Жаттықтырушы · жаңа ғана",
-    "cardPuzzleQueued": "кезекте тағы {n}"
+    "cardPuzzleQueued": "кезекте тағы {n}",
+    "viewingPast": "Қарау: {total} жүрістен {ply}-жүрістен кейін. Ойын жалғасады",
+    "continueHere": "Осы жерден жалғастыру",
+    "backToGame": "Ойынға",
+    "animationSpeed": "Анимация",
+    "animationOff": "өшірулі",
+    "animationFast": "жылдам",
+    "animationNormal": "қалыпты",
+    "animationSlow": "баяу"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

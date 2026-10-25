@@ -4,10 +4,10 @@ import { requireApiAccess } from '@/lib/require-api-access';
 import { proxyToHermes } from '@/lib/coach/hermes-proxy';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
-const ACTIONS = new Set(['move', 'resign', 'takeback', 'comment']);
+const ACTIONS = new Set(['move', 'resign', 'takeback', 'continue', 'comment']);  // continue: the game goes on from an earlier ply (26.10)
 
 /**
- * POST /api/coach/sessions/[id]/game/[boardId]/(move|resign|takeback|comment)
+ * POST /api/coach/sessions/[id]/game/[boardId]/(move|resign|takeback|continue|comment)
  * move / resign / takeback answer JSON (Hermes' game payload, or its error
  * `detail` with the same status). comment streams SSE straight through.
  */

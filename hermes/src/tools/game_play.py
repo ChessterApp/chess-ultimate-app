@@ -300,7 +300,8 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     return _reply(view, summary)
 
 
-def game_command_step(session, board_rec, command: str, words: str = "", wish: Optional[dict] = None) -> Optional[dict]:
+def game_command_step(session, board_rec, command: str, words: str = "", wish: Optional[dict] = None,
+                      view_ply: Optional[int] = None) -> Optional[dict]:
     """Resign / take back / draw / a new game / the engine's strength, asked for in words: done here as the
     game's buttons do it (src/game_mode.py), and the model is told what happened. {"view", "block"}. A new game
     takes the colour and strength named in *words* («сыграем ещё раз чёрными, посложнее»), else *wish* (the
@@ -357,11 +358,83 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                 + (" and let them move." if view.get("student_to_move") else ".")
             )}
         if command == "takeback":
-            view = game_mode.takeback(session, board_rec)
+            # «Верни ход», «верни партию на два хода назад», «до того как я сходил конём», «до 10-го хода»
+            # (Alexander's list, 26.10, item 2): the record is cut back to the place the words name.
+            from src.game_intent import cut_target
+
+            target = cut_target(words, state)
+            before = len(state.get("moves") or [])
+            view = game_mode.truncate(session, board_rec, target["ply"])
+            undone = before - len(view.get("moves") or []) + (1 if view.get("engine") else 0)
+            if undone <= 0:
+                return {"view": None, "block": (
+                    "## Nothing to take back — the game is at its start\n"
+                    "Say so in one sentence and let the student move."
+                )}
+            engine = (view.get("engine") or {}).get("san")
             return {"view": view, "block": (
-                "## The student's last move was taken back (the system did it)\n"
-                f"Their move and the engine's reply to it are undone; the position is {view.get('fen')} and it is "
-                "the student's move again. Say it in one sentence and let them move."
+                "## The game was taken back (the system did it)\n"
+                f"Cut to {target['why']}: {undone} ply undone. The position is {view.get('fen')}"
+                + (f"; the engine then moved {engine}" if engine else "")
+                + ("; it is the student's move." if view.get("student_to_move") else ".")
+                + " Say it in one sentence — which moves are undone — and let them move."
+            )}
+        if command == "mistake":
+            # «Ты ошибся», «это не мой ход», «верни как было» (item 5): the system misread the move or moved wrong —
+            # the student's last move and the reply are undone, and they are asked what they meant.
+            try:
+                view = game_mode.takeback_moves(session, board_rec, 1)
+            except game_mode.GameError:
+                return {"view": None, "block": (
+                    "## The student says something went wrong on the board, but no move of theirs is recorded\n"
+                    "Nothing changed. Apologise in a word and ask them to say the move they want."
+                )}
+            return {"view": view, "block": (
+                "## The student says the last move was not what they meant — it is undone (the system did it)\n"
+                f"Their last move and the engine's reply are taken back; the position is {view.get('fen')} and it is "
+                "the student's move. Apologise in a word, say the move is undone, and ask which move they want — "
+                "the piece and the square. Never argue that the move was right."
+            )}
+        if command == "continue_here":
+            # «Продолжим отсюда» while looking at an earlier position (item 4): the record is cut there and the game
+            # goes on; with the live position on the board there is nothing to do.
+            moves = state.get("moves") or []
+            if view_ply is None or int(view_ply) >= len(moves):
+                return {"view": None, "block": (
+                    "## The student asks to continue from here, but the board already shows the game's latest position\n"
+                    "Nothing changed. Say the game is at its current position and whose move it is"
+                    + (" (the student's)." if game_mode._student_to_move(state, game_mode._replay(moves)) else " (the engine's).")
+                )}
+            view = game_mode.truncate(session, board_rec, int(view_ply))
+            engine = (view.get("engine") or {}).get("san")
+            return {"view": view, "block": (
+                "## The game now continues from the position the student was looking at (the system cut the record there)\n"
+                f"The moves after ply {int(view_ply)} are gone; the position is {view.get('fen')}"
+                + (f"; the engine moved {engine} from there" if engine else "")
+                + ("; it is the student's move." if view.get("student_to_move") else ".")
+                + " Say it in one sentence and let them move."
+            )}
+        if command in ("view", "view_live"):
+            # «Покажи позицию после 10-го хода», «вернись к партии» (items 4 and 8): the board shows an earlier
+            # position, or the live one again; the game itself does not change.
+            from src.game_intent import view_target
+
+            moves = state.get("moves") or []
+            if command == "view_live":
+                return {"view": None, "actions": [{"type": "game_view", "board_id": board_rec.id, "ply": None}], "block": (
+                    "## The board shows the game's latest position again (the system did it)\n"
+                    f"Ply {len(moves)}; it is " + ("the student's move." if game_mode._student_to_move(state, game_mode._replay(moves))
+                                                     else "the engine's move.") + " Say so in a few words."
+                )}
+            target = view_target(words, state)
+            ply = max(0, min(int(target["ply"]), len(moves)))
+            shown = game_mode.position_at(state, ply)
+            return {"view": None, "actions": [{"type": "game_view", "board_id": board_rec.id, "ply": ply, "fen": shown.fen()}], "block": (
+                "## The board now shows an EARLIER position of the game (the system did it); the game itself goes on\n"
+                f"Shown: {target['why']} — the position after ply {ply} ({game_mode._moves_text(moves[:ply]) or 'the start'}), "
+                f"FEN {shown.fen()}, {'White' if shown.turn else 'Black'} to move there. The game stands at ply {len(moves)} and "
+                "continues from its live position unless the student says «продолжим отсюда». Describe or answer about the "
+                "shown position in a sentence or two; nothing is played by talking."
             )}
         if command == "draw":
             accepted, cp = game_mode.draw_decision(board_rec)
@@ -412,7 +485,8 @@ GAME_ACTION_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart", "level", "correct"]},
+            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart", "level", "correct", "mistake", "continue_here", "view", "view_live"]},
+            "view_ply": {"type": "integer", "description": "The ply of the game's position the student is looking at, when it is not the live one (continue_here)."},
             "said": {"type": "string", "description": "Leave empty (the site passes the student's words here)."},
         },
     },
@@ -438,19 +512,24 @@ def _handle_game_action(args: dict, **kwargs) -> str:
             action = "restart"
         if action is None:
             return json.dumps({"error": "The student's words do not ask the game for anything."})
-    if action not in ("resign", "takeback", "draw", "restart", "level", "correct"):
-        return json.dumps({"error": "action must be resign, takeback, draw, restart, level or correct."})
+    if action not in ("resign", "takeback", "draw", "restart", "level", "correct", "mistake", "continue_here", "view", "view_live"):
+        return json.dumps({"error": "action must be resign, takeback, draw, restart, level, correct, mistake, continue_here, view or view_live."})
     board_rec = live_game_board(session)
     if board_rec is None and action == "restart":
         board_rec = next((b for b in reversed(session.boards or []) if b.kind == "game" and b.game_state), None)
     if board_rec is None:
         return json.dumps({"error": "No game is on: start_game starts one."})
-    step = game_command_step(session, board_rec, action, str(args.get("said") or ""))
+    view_ply = args.get("view_ply")
+    step = game_command_step(session, board_rec, action, str(args.get("said") or ""),
+                             view_ply=int(view_ply) if isinstance(view_ply, (int, float)) else None)
     if not step:
         return json.dumps({"error": "Nothing was done."})
     note = step["block"].split("\n", 1)[-1]
     if step.get("view") is None:
-        return json.dumps({"ok": action == "draw", "action": action, "done": False, "note": note}, ensure_ascii=False)
+        out = {"ok": action == "draw" or bool(step.get("actions")), "action": action, "done": bool(step.get("actions")), "note": note}
+        if step.get("actions"):
+            out["board_actions"] = step["actions"]  # the board shows another position of the game (game_view)
+        return json.dumps(out, ensure_ascii=False)
     if action == "level":
         return _reply(step["view"], {"ok": True, "action": action, "done": True, "engine_elo": step["view"]["engine_elo"],
                                      "note": note})

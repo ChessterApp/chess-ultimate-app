@@ -56,6 +56,14 @@ export interface GameAction {
   game: GameStateView;
 }
 
+/** The board shows another position of the game against the coach (an earlier ply, or the live one again when
+ *  ply is null) — the game itself does not change (26.10). */
+export interface GameViewAction {
+  type: 'game_view';
+  ply: number | null;
+  fen?: string;
+}
+
 /** Every action may name the board (tab) it targets; absent = the active board. */
 type Addressed = { board_id?: string };
 
@@ -70,6 +78,7 @@ export type BoardAction = Addressed &
   | FlipBoardAction
   | ClearBoardAction
   | GameAction
+  | GameViewAction
   );
 
 // ─── Game Results (from TWIC search) ─────────────────────────────────────
