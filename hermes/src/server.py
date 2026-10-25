@@ -3789,6 +3789,7 @@ class VoiceCheckRequest(BaseModel):
     fen: SiteFen = None            # the board at the time
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
     question: Optional[str] = None  # the student's words (moves it quoted are not claims)
+    session_id: Optional[str] = None  # the coach session: in a game, «я пойду d3» must be the engine's move (25.10)
 
 
 class VoiceIdeaRequest(BaseModel):
@@ -3989,7 +3990,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     model to correct itself aloud. Returns {"issues": [...]} — empty when
     nothing checkable is wrong.
     """
-    _get_user_id(request)
+    user_id = _get_user_id(request)
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
     from src.answer_check import CheckContext, check_sentence
 
@@ -4011,6 +4012,19 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         spoken = _spoken_language(body.question)
         if spoken in ("ru", "kk"):
             ctx.language = spoken  # an answer in Latin letters to a Russian question is read back
+        if body.session_id:
+            # The game on the board: the coach's moves are the engine's — «я пойду d3» with no such move is read
+            # back (Alexander's phone, 25.10: the model narrated moves the engine never made).
+            try:
+                from src.tools.game_play import live_game_board
+
+                game_session = session_store.get(body.session_id, user_id)
+                live = live_game_board(game_session) if game_session is not None else None
+                if live is not None and live.game_state:
+                    ctx.game_engine_moves = _engine_moves(live.game_state)
+                    ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
+            except Exception:  # noqa: BLE001 — the check still runs without the game
+                pass
         # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to
         # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
         from src.game_intent import spoken_squares

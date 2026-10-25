@@ -1532,6 +1532,13 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(sent().some((t) => t.startsWith('[Game] The student asked to play') && t.includes('the student plays black'))).toBe(true);
   });
 
+  it("the coach's spoken move goes to the check with the session, so Hermes reads it against the game (25.10)", async () => {
+    await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text: 'Хорошо. Я пойду конём на d3. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(1));
+    expect(bodiesTo('/api/coach/voice/check')[0]).toMatchObject({ text: expect.stringContaining('d3'), fen: START, session_id: 's1' });
+  });
+
   it('stopping the voice saves what was said so far (open utterances close)', async () => {
     const onTranscript = vi.fn();
     const { result } = await connectWith({ onTranscript });
@@ -1687,6 +1694,23 @@ describe('what the words ask for is read by Hermes (POST /api/coach/voice/intent
       await waitFor(() => expect(bodiesTo('/api/coach/voice/intent')).toHaveLength(1));
       await new Promise((r) => setTimeout(r, 50));
       expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'get_topic')).toHaveLength(0);
+    });
+
+    it('words that sound like a move nobody can read: the model is told nothing was played (25.10)', async () => {
+      // Alexander's phone: «конь за шесть» → the model said «отличный ход» and the board did not move.
+      await connectAsking({ kind: 'unclear_move', text: 'конь на f3' }, { getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      say('конь на f3');
+      await waitFor(() => expect(sent().some((t) => t.startsWith('[Game]') && t.includes('«конь на f3»') && t.includes('NOTHING was played'))).toBe(true));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(bodiesTo('/api/coach/tool')).toHaveLength(0);
+    });
+
+    it('a correction of the move just played goes to the game as the words (25.10)', async () => {
+      toolReply = () => ({ result: { ok: true, action: 'correct', done: true, note: 'c6 is played instead.' }, board_actions: [{ type: 'game', game: AFTER_GAME }] });
+      await connectAsking({ kind: 'game_command', command: 'correct' }, { getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      say('Не конь, а пешка на c6');
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'game_action')).toBe(true));
+      expect(bodiesTo('/api/coach/tool').find((b: any) => b.name === 'game_action')).toMatchObject({ args: { said: 'Не конь, а пешка на c6' } });
     });
   });
 });

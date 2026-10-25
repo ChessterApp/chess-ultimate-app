@@ -105,6 +105,15 @@ export function mayCommandTheGame(text: string): boolean {
 /** The game's tools: a refusal of theirs must reach the model as «nothing happened», never as a move. */
 export const GAME_TOOLS = new Set(['start_game', 'make_game_move', 'game_action']);
 
+/** The student seems to have named a move that could not be read: nothing was played, ask them to say it plainly. */
+export function unclearMoveNote(words: string): string {
+  return (
+    `[Game] The student's words «${words.trim()}» sound like a move, but no legal move could be read from them — ` +
+    'NOTHING was played and the board did not change. Ask them, in one short sentence, to say the move plainly: ' +
+    'the piece and the square («пешка c6», «конь f3»). Never say a move was played or praise a move that was not made.'
+  ).replace(/\s+/g, ' ').trim();
+}
+
 /** The line after a game tool refused the site's call for the student's words: no move, no game, no change. */
 export function gameRefusedNote(name: string, reason: string): string {
   const what = name === 'start_game' ? 'no game started' : name === 'game_action' ? 'the game did nothing' : 'no move was played';

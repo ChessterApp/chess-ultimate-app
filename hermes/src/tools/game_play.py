@@ -332,6 +332,30 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                 f"Result {view.get('result')} (resignation). Say the game is over in one kind sentence, without "
                 "talking them out of it, and offer to review it or to play again."
             )}
+        if command == "correct":
+            # «Я хотел не конь c6, а c6 пешкой»: the move just played goes back and the one they meant is played.
+            from src.game_intent import correction_move
+
+            plies = [a.get("ply") for a in state.get("annotations") or []]
+            if not plies:
+                return {"view": None, "block": ("## The student corrects a move, but they have not moved yet — nothing to correct\n"
+                                                "Ask them to say the move they want to play.")}
+            before = game_mode._replay((state.get("moves") or [])[: int(plies[-1]) - 1])
+            san = correction_move(words, before)
+            if san is None:
+                return {"view": None, "block": (
+                    "## The student says they meant another move, but which one was not understood — nothing changed\n"
+                    f"Their words: «{words.strip()}». Ask them to name the move plainly («пешка c6», «конь f3»); their "
+                    "last move stays on the board until then. Never say a move was played.")}
+            game_mode.takeback(session, board_rec)
+            view = game_mode.play_move(session, board_rec, san)
+            engine = (view.get("engine") or {}).get("san")
+            return {"view": view, "block": (
+                "## The student's last move was replaced by the one they meant (the system did it)\n"
+                f"Their previous move and the engine's reply are undone; {san} is played instead"
+                + (f" and the engine answered {engine}" if engine else "") + ". Say it in one sentence"
+                + (" and let them move." if view.get("student_to_move") else ".")
+            )}
         if command == "takeback":
             view = game_mode.takeback(session, board_rec)
             return {"view": view, "block": (
@@ -388,7 +412,7 @@ GAME_ACTION_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart", "level"]},
+            "action": {"type": "string", "enum": ["resign", "takeback", "draw", "restart", "level", "correct"]},
             "said": {"type": "string", "description": "Leave empty (the site passes the student's words here)."},
         },
     },
@@ -414,8 +438,8 @@ def _handle_game_action(args: dict, **kwargs) -> str:
             action = "restart"
         if action is None:
             return json.dumps({"error": "The student's words do not ask the game for anything."})
-    if action not in ("resign", "takeback", "draw", "restart", "level"):
-        return json.dumps({"error": "action must be resign, takeback, draw, restart or level."})
+    if action not in ("resign", "takeback", "draw", "restart", "level", "correct"):
+        return json.dumps({"error": "action must be resign, takeback, draw, restart, level or correct."})
     board_rec = live_game_board(session)
     if board_rec is None and action == "restart":
         board_rec = next((b for b in reversed(session.boards or []) if b.kind == "game" and b.game_state), None)

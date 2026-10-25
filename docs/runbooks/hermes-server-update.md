@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 24.10 (голос: «напал на слона c4», которого никто не бьёт, и стрелки на невозможные ходы отсеиваются) — включает всё из версий 06.10 … 23.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 25.10 (голос: буквы полей «с шесть», исправление хода словами, «ход не разобран» вместо «отличный ход», «я пойду d3» сверяется с партией) — включает всё из версий 06.10 … 24.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,39 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 25.10 (тест Александра голосом с телефона 25.10, партия с тренером, скриншоты «Управление доской так и не
+работает»: «конь за шесть» / «с шесть» — ход не сыгран, а модель ответила «отличный ход»; «Я хотел не конь за шесть, а с
+шесть пойти пешкой» — исправить ход голосом было нельзя; «Я пойду d3» — модель рассказывала ходы, которых движок не делал;
+код `hermes/src/move_text.py`, `hermes/src/game_intent.py`, `hermes/src/tools/game_play.py`, `hermes/src/intent.py`,
+`hermes/src/server.py`, `hermes/src/answer_check.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 24.10 —
+достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 51; если на 23.10 — ещё проверка 50):
+- **Буквы полей, как их пишет расшифровка.** «с шесть», «д четыре», «г пять», «б пять», «ф три», «х шесть» читаются как c6,
+  d4, g5, b5, f3, h6; «за шесть» (так телефон записал «це шесть») — как c6. Одиночная буква считается полем только рядом с
+  числом ряда, а в длинной фразе — только возле слов о ходе, поэтому «с ума сойти» и «за шесть лет …» в рассказе не трогаются.
+  Код `hermes/src/move_text.py` — одно место для текстового хода, голосового намерения и проверки ответа.
+- **Исправление хода словами.** «Не конь, а пешка на c6», «Я хотел не конь за шесть, а с шесть пойти пешкой», «я имел в виду
+  конь на f6», «вместо этого d6», «верни ход, я хотел пешкой на c6» — новая команда партии `correct`: последний ход ученика и
+  ответ движка откатываются, играется названный ход, модель получает одну строку о том, что сделано. Если ход из слов не
+  читается («не тот ход, слон») — ничего не меняется, модель просит назвать фигуру и поле. Работает в тексте (предшаг партии)
+  и в голосе (намерение `game_command`, инструмент `game_action` с `said`). Код `hermes/src/game_intent.py`,
+  `hermes/src/tools/game_play.py`.
+- **Ход, который не разобрался, — не «отличный ход».** В партии слова, похожие на один ход («конь на f3», «е пять»), для
+  которых в этой позиции нет такого хода, дают намерение `unclear_move`: сайт сразу говорит модели, что НИЧЕГО не сыграно, и
+  просит переспросить фигуру и поле. Вопрос про поле («что делает конь на f3»), «ладно», «конечно» ходом не считаются. Код
+  `hermes/src/intent.py` (и сайт, выкатывается с main сам).
+- **Проверка голоса знает партию.** Сайт передаёт в `/api/coach/voice/check` ещё `session_id`; фраза тренера «я пойду /
+  иду / хожу / отвечаю / мой ход — X» сверяется с ходами движка в партии этой сессии: такого хода движок не делал → модель
+  получает [Check] и поправляется вслух (раньше это правило работало только в тексте). Код `hermes/src/server.py`,
+  `hermes/src/answer_check.py`.
+- Проверка 51 (без базы и модели):
+  `cd /root/hermes-chess && .venv/bin/python -c "import chess; from src.game_intent import spoken_squares as sp, game_command as gc, correction_move as cm; from src.intent import read_intent as ri; b=chess.Board(); [b.push_san(m) for m in ('e4','e5','Nf3')]; a=sp('конь за шесть')=='конь c6' and sp('с шесть')=='c6'; c=gc('не конь, а пешка на c6')=='correct' and cm('Я хотел не конь за шесть, а с шесть пойти пешкой', b)=='c6'; u=ri('конь на f3', fen=b.fen(), pgn='1. e4 e5 2. Nf3', live_game=True)['kind']=='unclear_move'; m=ri('с шесть', fen=b.fen(), pgn='1. e4 e5 2. Nf3', live_game=True)=={'kind':'move','san':'c6'}; print(a, c, u, m, 'ОК' if a and c and u and m else 'ПРОВЕРЬ')"`
+  → `True True True True ОК`. И проверка голоса по партии, `H` как в проверке 38, новая сессия (движок отвечает на e4, поэтому
+  до 10 с):
+  `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/start_game -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"color\":\"white\"},\"session_id\":\"$SID\"}"; curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"move\":\"e4\"},\"session_id\":\"$SID\"}"; curl -s -X POST localhost:8642/api/coach/voice/check -H "$H" -H 'Content-Type: application/json' -d "{\"text\":\"Я пойду d3.\",\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r, 'ОК' if any('did not play d3' in i for i in r.get('issues',[])) else 'ПРОВЕРЬ')"`
+  → `{'issues': ['in this game the engine plays your moves and it did not play d3 (its last move was …): …']} ОК`.
+  И исправление хода через инструмент (та же сессия): `curl -s -X POST localhost:8642/api/coach/tool/game_action -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"не пешка, а конь на f3\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print(r.get('action'), r.get('note','')[:90], 'ОК' if r.get('ok') and 'Nf3 is played instead' in r.get('note','') else 'ПРОВЕРЬ')"`
+  → `correct Their previous move and the engine's reply are undone; Nf3 is played instead … ОК`.
 
 Новое в версии 24.10 (тест Александра голосом с телефона 24.10 вечером, партия с тренером: «конь на d4 напал на коня на f3 и
 ещё на пешку на e2. И на слона на цэ четыре тоже нападает» — пешки на e2 нет, слона c4 никто не бьёт, и стрелки с d4 на c4
