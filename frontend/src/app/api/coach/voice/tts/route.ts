@@ -10,12 +10,14 @@ export const preferredRegion = 'iad1';
  *
  * Through OpenRouter when OPENROUTER_API_KEY is set, on the coach's one balance with no per-day cap —
  * Google's own API allows a project 100 TTS calls a day on Tier 1, which the stand used up in half an
- * hour (25.10). Russian and English: ElevenLabs Flash, which streams and starts in ~0.6 s on the stand
- * (Gemini through OpenRouter comes whole, after ~3 s). Kazakh: Gemini Flash TTS, the one heard reading it
- * well. Straight to Google otherwise (GEMINI_API_KEY), streamed as the model produces it.
+ * hour (25.10). The same Gemini Flash TTS as before (Asan's choice, 25.10: the voice already heard in
+ * Russian and Kazakh); OpenRouter hands its audio over whole, ~3 s for a short chunk, so the first chunk
+ * of an answer is kept short (usePipelineVoice). ElevenLabs Flash streams and starts in ~0.6 s and can be
+ * put in by COACH_TTS_MODEL / COACH_TTS_VOICE (a voice ID, e.g. elevenlabs/eleven-flash-v2.5 +
+ * 21m00Tcm4TlvDq8ikWAM «Rachel»). Straight to Google otherwise (GEMINI_API_KEY), streamed as produced.
  */
-const TTS_MODEL = () => process.env.COACH_TTS_MODEL || 'elevenlabs/eleven-flash-v2.5';
-const TTS_VOICE = () => process.env.COACH_TTS_VOICE || '21m00Tcm4TlvDq8ikWAM';   // ElevenLabs «Rachel»
+const TTS_MODEL = () => process.env.COACH_TTS_MODEL || 'google/gemini-3.8-flash-tts';
+const TTS_VOICE = () => process.env.COACH_TTS_VOICE || 'Kore';
 const TTS_MODEL_KK = () => process.env.COACH_TTS_MODEL_KK || 'google/gemini-3.8-flash-tts';
 const TTS_VOICE_KK = () => process.env.COACH_TTS_VOICE_KK || 'Kore';
 const GOOGLE_TTS_MODEL = () => process.env.COACH_TTS_MODEL_GOOGLE || 'gemini-3.8-flash-tts';

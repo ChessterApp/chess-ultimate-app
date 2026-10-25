@@ -47,7 +47,7 @@ describe('POST /api/coach/voice/tts (the voice pipeline, 25.10)', () => {
     vi.restoreAllMocks();
   });
 
-  it('reads a chunk through OpenRouter when its key is set: ElevenLabs Flash for Russian, raw PCM passed through', async () => {
+  it('reads a chunk through OpenRouter when its key is set: the same Gemini Flash TTS, raw PCM passed through', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_1' });
     process.env.OPENROUTER_API_KEY = 'sk-or-test';
     process.env.GEMINI_API_KEY = 'AQ.test-key';
@@ -59,24 +59,28 @@ describe('POST /api/coach/voice/tts (the voice pipeline, 25.10)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/octet-stream');
     expect(res.headers.get('X-Sample-Rate')).toBe('24000');
-    expect(res.headers.get('X-Tts-Model')).toBe('elevenlabs/eleven-flash-v2.5');
+    expect(res.headers.get('X-Tts-Model')).toBe('google/gemini-3.8-flash-tts');
     expect([...Buffer.from(await res.arrayBuffer())]).toEqual([1, 0, 2, 0, 3, 0]);
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('https://openrouter.ai/api/v1/audio/speech');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sk-or-test');
-    expect(JSON.parse(init.body as string)).toEqual({ model: 'elevenlabs/eleven-flash-v2.5', input: 'Сейчас посмотрю на позицию.', voice: '21m00Tcm4TlvDq8ikWAM', response_format: 'pcm' });
+    expect(JSON.parse(init.body as string)).toEqual({ model: 'google/gemini-3.8-flash-tts', input: 'Сейчас посмотрю на позицию.', voice: 'Kore', response_format: 'pcm' });
   });
 
-  it('reads Kazakh through Gemini on OpenRouter, the model heard reading it well', async () => {
+  it('Kazakh has its own model and voice settings (the same Gemini by default)', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_1' });
     process.env.OPENROUTER_API_KEY = 'sk-or-test';
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, body: rawBody([Buffer.from([1, 0])]), headers: new Headers({ 'content-type': 'audio/pcm;rate=24000;channels=1' }), text: async () => '' }));
     global.fetch = fetchMock as any;
     const { POST } = await import('../voice/tts/route');
+    process.env.COACH_TTS_MODEL = 'elevenlabs/eleven-flash-v2.5';
+    process.env.COACH_TTS_VOICE = '21m00Tcm4TlvDq8ikWAM';
     const res = await POST(makeRequest({ text: 'Жақсы жүріс!', locale: 'kk' }));
     expect(res.status).toBe(200);
-    expect(res.headers.get('X-Tts-Model')).toBe('google/gemini-3.8-flash-tts');
+    expect(res.headers.get('X-Tts-Model')).toBe('google/gemini-3.8-flash-tts');   // Kazakh stays on its own default
     expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toMatchObject({ model: 'google/gemini-3.8-flash-tts', voice: 'Kore' });
+    const ru = await POST(makeRequest({ text: 'Хороший ход.', locale: 'ru' }));
+    expect(ru.headers.get('X-Tts-Model')).toBe('elevenlabs/eleven-flash-v2.5');
   });
 
   it('goes straight to Google without an OpenRouter key: the SSE frames become bytes, the key stays on the server', async () => {
