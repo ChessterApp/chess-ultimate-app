@@ -2328,7 +2328,7 @@
     "attachPastePlaceholder": "Paste a PGN, FEN or game link…",
     "coachJustNow": "Coach · just now",
     "cardPuzzleQueued": "{n} more lined up",
-    "viewingPast": "Viewing: after ply {ply} of {total}. The game goes on",
+    "viewingPast": "Viewing: the position after {move}. The game goes on",
     "continueHere": "Continue from here",
     "backToGame": "Back to the game",
     "animationSpeed": "Animation",
@@ -2336,7 +2336,8 @@
     "animationFast": "fast",
     "animationNormal": "normal",
     "animationSlow": "slow",
-    "gameNav": "Game moves"
+    "gameNav": "Game moves",
+    "viewingStart": "Viewing: the starting position. The game goes on"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

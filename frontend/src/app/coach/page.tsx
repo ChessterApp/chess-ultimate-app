@@ -923,7 +923,7 @@ export default function CoachPage() {
             {verdictToast && <VerdictToast verdict={verdictToast} onDone={clearVerdictToast} />}
             {viewPly !== null && (
               <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-2 bg-black/70 px-3 py-2 text-xs text-white" data-testid="game-viewing">
-                <span>{t('viewingPast', { ply: viewPly, total: game.moves.length })}</span>
+                <span>{viewPly === 0 ? t('viewingStart') : t('viewingPast', { move: `${Math.ceil(viewPly / 2)}.${viewPly % 2 ? '' : '…'}${game.moves[viewPly - 1] ?? ''}` })}</span>
                 <span className="flex shrink-0 gap-2">
                   <button type="button" className="rounded bg-white/15 px-2 py-1" onClick={() => void handleGameContinue()} disabled={gameThinking}>{t('continueHere')}</button>
                   <button type="button" className="rounded bg-white/15 px-2 py-1" onClick={board.lastMove}>{t('backToGame')}</button>

@@ -2328,7 +2328,7 @@
     "attachPastePlaceholder": "Вставьте PGN, FEN или ссылку на партию…",
     "coachJustNow": "Тренер · только что",
     "cardPuzzleQueued": "ещё {n} в очереди",
-    "viewingPast": "Просмотр: после хода {ply} из {total}. Партия продолжается",
+    "viewingPast": "Просмотр: позиция после {move}. Партия продолжается",
     "continueHere": "Продолжить отсюда",
     "backToGame": "К партии",
     "animationSpeed": "Анимация",
@@ -2336,7 +2336,8 @@
     "animationFast": "быстро",
     "animationNormal": "обычно",
     "animationSlow": "медленно",
-    "gameNav": "Ходы партии"
+    "gameNav": "Ходы партии",
+    "viewingStart": "Просмотр: начальная позиция. Партия продолжается"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

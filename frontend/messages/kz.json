@@ -2328,7 +2328,7 @@
     "attachPastePlaceholder": "PGN, FEN немесе партия сілтемесін қойыңыз…",
     "coachJustNow": "Жаттықтырушы · жаңа ғана",
     "cardPuzzleQueued": "кезекте тағы {n}",
-    "viewingPast": "Қарау: {total} жүрістен {ply}-жүрістен кейін. Ойын жалғасады",
+    "viewingPast": "Қарау: {move} жүрісінен кейінгі позиция. Ойын жалғасады",
     "continueHere": "Осы жерден жалғастыру",
     "backToGame": "Ойынға",
     "animationSpeed": "Анимация",
@@ -2336,7 +2336,8 @@
     "animationFast": "жылдам",
     "animationNormal": "қалыпты",
     "animationSlow": "баяу",
-    "gameNav": "Ойын жүрістері"
+    "gameNav": "Ойын жүрістері",
+    "viewingStart": "Қарау: бастапқы позиция. Ойын жалғасады"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",
