@@ -650,7 +650,7 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
-def _game_prestep(session, active_board, message: str) -> Optional[dict]:
+def _game_prestep(session, active_board, message: str, spoken: bool = False) -> Optional[dict]:
     """A game asked for, or the student's move written on its own in the game on the board
     (src/game_intent.py): started / played here, before the model answers — left to the model, it
     sometimes played by talking (stand, 2026-10-12). {"view", "block"} or None."""
@@ -721,6 +721,17 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
         facts += f" (a better move was {student['best']})"
     end = (f" The game is over: {view.get('result')} ({view.get('termination')})." if view.get("status") != "playing"
            else "")
+    if spoken:
+        # The voice pipeline has already read the moves out («е четыре. Отвечаю е пять.», 25.10): the model
+        # goes straight to the comment, or the student hears both moves twice.
+        said = f"{student.get('san')}" + (f", and your reply {engine}" if engine else "")
+        block = (
+            "## The student's move was played and ALREADY SAID ALOUD (the system did both)\n"
+            f"{facts}.{end} The student has just heard «{said}» from the system — do NOT repeat the moves. Start with "
+            "the comment itself: one or two short sentences as their coach in the game — a hint, never the best move "
+            "unless they ask. Do not call make_game_move for this move: it is played."
+        )
+        return {"view": view, "block": block}
     block = (
         "## The student's move was played on the board (the system played it)\n"
         f"{facts}.{end} Tell them the engine's reply in a sentence and comment as their coach in the game — a "
@@ -1410,6 +1421,9 @@ class CoachChatRequest(BaseModel):
     # One of the student's saved games (user_games.id) to review this turn — the daily plan's
     # «review my last game» card. The server loads it and finds its critical moments up front.
     review_game_id: Optional[str] = None
+    # The answer will be read aloud (the site's voice pipeline, 25.10): kept short, and a move the
+    # system has already said («е четыре. Отвечаю е пять.») is not restated.
+    speech: Optional[bool] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -1896,7 +1910,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     game_step = None
     if config.COACH_GAME_PRESTEP:
         try:
-            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message)
+            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message, bool(body.speech))
         except Exception:  # noqa: BLE001 — the model can still use the tools
             logger.warning("game pre-step failed", exc_info=True)
             game_step = None
@@ -2226,6 +2240,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
     except Exception:  # noqa: BLE001 — never block a turn on this
         logger.debug("moves-in-question block failed", exc_info=True)
+    if body.speech:
+        # The site's voice pipeline reads the answer aloud sentence by sentence, with a pause before the first
+        # (25.10): the point first and short, nothing a listener cannot follow.
+        spoken_note = (
+            "## Spoken answer\nThe student HEARS this answer read aloud, sentence by sentence, and waits for the first "
+            "one. First sentence: the point, in at most twelve words. Then at most three short sentences. No lists, "
+            "no headings, no markdown, no lines of moves longer than three moves; name a move by piece and square."
+        )
+        turn_context = f"{turn_context}\n\n{spoken_note}" if turn_context else spoken_note
     current_message = attach_turn_context(current_message, turn_context)
     # The blocks about the board the student sent — its state and analysis, the moves they named —
     # leave the model's later calls once a tool puts a different position up (_forget_old_board).

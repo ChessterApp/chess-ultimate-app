@@ -180,3 +180,18 @@ def test_the_voice_check_reads_the_coach_s_moves_against_the_game(engine):
     resp = client.post("/api/coach/voice/check", headers={"X-User-Id": "words-user"},
                        json={"text": "Я пойду d3.", "fen": fen, "pgn": "1. e4 d5", "question": "мой ход e4"})
     assert resp.json()["issues"] == []
+
+
+# ── the voice pipeline says the move itself: the model is told not to repeat it ───
+
+def test_the_played_move_block_for_a_spoken_answer_tells_the_model_not_to_restate(engine):
+    from src.server import _game_prestep
+
+    session = _game()
+    board_rec = live_game_board(session)
+    step = _game_prestep(session, board_rec, "e4", spoken=True)
+    assert step and step["view"]["student"]["san"] == "e4"
+    assert "ALREADY SAID ALOUD" in step["block"] and "do NOT repeat the moves" in step["block"]
+    assert "e4, and your reply d5" in step["block"]
+    plain = _game_prestep(session, live_game_board(session), "Nf3")
+    assert plain and "Tell them the engine's reply" in plain["block"]

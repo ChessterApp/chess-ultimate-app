@@ -67,6 +67,12 @@
   тренера, в кавычках, без пересказа моделью (ничего не выдумывается), новые из старых — в первую очередь, под потолком
   3500 знаков; модели сказано, сколько ещё более ранних обменов не показано. Код `hermes/src/conversation_digest.py`,
   `hermes/src/server.py`.
+- **Ответ для голоса: коротко и без повтора хода.** Сайт в голосовой связке шлёт в ход чата флаг `speech: true`
+  (`CoachChatRequest.speech`). Тогда модель получает блок «ответ слушают»: первое предложение — суть, не длиннее
+  двенадцати слов, дальше не больше трёх коротких, без списков и разметки. А в партии ход ученика и ответ движка
+  сайт озвучивает сам из факта сервера («е четыре. Отвечаю е пять.») ещё до слов модели, поэтому блок сыгранного
+  хода в этом режиме велит модели ходы не повторять и начинать с комментария. Код `hermes/src/server.py`
+  (`_game_prestep(spoken=…)`, блок «Spoken answer»).
 - Проверка 51 (без базы и модели):
   `cd /root/hermes-chess && .venv/bin/python -c "import chess; from src.game_intent import spoken_squares as sp, game_command as gc, correction_move as cm; from src.intent import read_intent as ri; b=chess.Board(); [b.push_san(m) for m in ('e4','e5','Nf3')]; a=sp('конь за шесть')=='конь c6' and sp('с шесть')=='c6'; c=gc('не конь, а пешка на c6')=='correct' and cm('Я хотел не конь за шесть, а с шесть пойти пешкой', b)=='c6'; u=ri('конь на f3', fen=b.fen(), pgn='1. e4 e5 2. Nf3', live_game=True)['kind']=='unclear_move'; m=ri('с шесть', fen=b.fen(), pgn='1. e4 e5 2. Nf3', live_game=True)=={'kind':'move','san':'c6'}; print(a, c, u, m, 'ОК' if a and c and u and m else 'ПРОВЕРЬ')"`
   → `True True True True ОК`. И сводка разговора:
