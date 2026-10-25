@@ -1128,9 +1128,11 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           status: pipeline.status,
           active: pipeline.isActive,
           error: pipeline.error,
-          notice: pipeline.timings.firstSoundMs !== null
-            ? `связка: слова ${pipeline.timings.sttMs ?? '–'} мс · звук ${pipeline.timings.firstSoundMs} мс · ответ ${pipeline.timings.firstAnswerMs ?? '…'} мс`
-            : voiceNotice,
+          notice: pipeline.ttsState !== 'ok'
+            ? (pipeline.ttsState === 'quota' ? 'Озвучка сейчас недоступна (исчерпана квота) — ответы в тексте' : 'Озвучка сейчас недоступна — ответы в тексте')
+            : pipeline.timings.firstSoundMs !== null
+              ? `связка: слова ${pipeline.timings.sttMs ?? '–'} мс · звук ${pipeline.timings.firstSoundMs} мс · ответ ${pipeline.timings.firstAnswerMs ?? '…'} мс`
+              : voiceNotice,
           quotaExhausted: false,
           remainingSeconds: null,
           onToggle: () => void togglePipeline(),

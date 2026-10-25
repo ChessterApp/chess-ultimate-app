@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, fillerFor, groupChunks, localeOf, newWords, rotationDue, speakable, splitLong,
+  STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, fillerFor, groupChunks, localeOf, newWords, rotationDue, speakable, splitLong,
   takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 
@@ -99,6 +99,10 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timings, setTimings] = useState<PipelineTimings>({ sttMs: null, firstSoundMs: null, firstAnswerMs: null });
+  // Whether the reading works: «quota» once a chunk was left unread for a 429 that no waiting cured, «down»
+  // for a failing TTS — the page tells the student to read the text; back to «ok» on the next chunk read.
+  const [ttsState, setTtsState] = useState<'ok' | 'quota' | 'down'>('ok');
+  const ttsBlockedUntilRef = useRef(0);
 
   const streamRef = useRef<MediaStream | null>(null);
   const captureCtxRef = useRef<AudioContext | null>(null);
@@ -190,14 +194,22 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         body: JSON.stringify({ text, locale }),
         signal: turn.controller.signal,
       });
+      const blocked = performance.now() < ttsBlockedUntilRef.current;
       let res = await call();
       let attempt = 0;
       let waited = 0;
       while (!res.ok) {
         // The minute's quota (429) is waited out and the chunk is read in its turn — no sentence is
-        // dropped from the reading (25.10); a blip (5xx) gets a second, three times.
-        const delay = ttsRetryDelay(res.status, attempt, waited);
-        if (delay === null) return;  // the text stands alone on the screen
+        // dropped from the reading (25.10); a blip (5xx) gets a second, three times. Once a chunk was
+        // left unread anyway, the next ones get one try each for a minute (TTS_BLOCK_MS).
+        const delay = blocked ? null : ttsRetryDelay(res.status, attempt, waited);
+        if (delay === null) {
+          if (res.status === 429 || res.status >= 500) {
+            ttsBlockedUntilRef.current = performance.now() + TTS_BLOCK_MS;
+            setTtsState(res.status === 429 ? 'quota' : 'down');
+          }
+          return;  // the text stands alone on the screen
+        }
         console.warn('[pipeline] tts', res.status, 'waiting', delay, 'ms');
         attempt += 1;
         waited += delay;
@@ -206,6 +218,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         res = await call();
       }
       if (!res.body) return;
+      if (ttsBlockedUntilRef.current) { ttsBlockedUntilRef.current = 0; setTtsState('ok'); }
       const reader = res.body.getReader();
       let carry: Uint8Array | null = null;
       for (;;) {
@@ -282,7 +295,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const end = speechEndAtRef.current;
     setTimings({ sttMs: end !== null ? Math.round(performance.now() - end) : null, firstSoundMs: null, firstAnswerMs: null });
     const locale = localeOf(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
-    void playFiller(turn, locale);
+    if (performance.now() >= ttsBlockedUntilRef.current) void playFiller(turn, locale);  // no «сейчас посмотрю» before a silence
     try {
       optionsRef.current.onUtterance(text);
     } catch (err) {
@@ -525,5 +538,5 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  return { status, isSupported, isActive, error, timings, prepare, connect, disconnect, feedFrame };
+  return { status, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame };
 }

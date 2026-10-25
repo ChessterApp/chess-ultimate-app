@@ -189,6 +189,10 @@ export function rotationDue(
 /** The minute's quota (429) is waited out, up to this long per chunk, so no sentence is dropped from the reading. */
 export const TTS_WAIT_MAX_MS = 45_000;
 
+/** Once a chunk was left unread for the quota, the next chunks get one try each this long, no waiting: the day's
+ *  quota (the stand, 25.10: 429 for 20 minutes straight) cannot be waited out, and the student reads the text. */
+export const TTS_BLOCK_MS = 60_000;
+
 /** How long to wait before trying the chunk again, or null to leave it unread (the text is on the screen). */
 export function ttsRetryDelay(status: number, attempt: number, waitedMs: number): number | null {
   if (waitedMs >= TTS_WAIT_MAX_MS) return null;
