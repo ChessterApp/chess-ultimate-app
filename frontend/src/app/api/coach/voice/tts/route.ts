@@ -1,25 +1,21 @@
 import { auth } from '@clerk/nextjs/server';
 import { requireCoachAccess } from '@/lib/coach-access';
+import { resolveUserTier } from '@/lib/subscription-tier';
 
 export const runtime = 'nodejs';
 export const preferredRegion = 'iad1';
 
+const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
+
 /**
  * POST /api/coach/voice/tts — one chunk of the coach's answer read aloud (the voice pipeline, 2026-10-25).
- * Body: { text, locale? }. Answers raw 16-bit PCM, 24 kHz, mono; the keys never leave the server.
+ * Body: { text, locale? }. Answers raw 16-bit PCM, mono, the sample rate in X-Sample-Rate.
  *
- * Through OpenRouter when OPENROUTER_API_KEY is set, on the coach's one balance with no per-day cap —
- * Google's own API allows a project 100 TTS calls a day on Tier 1, which the stand used up in half an
- * hour (25.10). The same Gemini Flash TTS as before (Asan's choice, 25.10: the voice already heard in
- * Russian and Kazakh); OpenRouter hands its audio over whole, ~3 s for a short chunk, so the first chunk
- * of an answer is kept short (usePipelineVoice). ElevenLabs Flash streams and starts in ~0.6 s and can be
- * put in by COACH_TTS_MODEL / COACH_TTS_VOICE (a voice ID, e.g. elevenlabs/eleven-flash-v2.5 +
- * 21m00Tcm4TlvDq8ikWAM «Rachel»). Straight to Google otherwise (GEMINI_API_KEY), streamed as produced.
+ * The reading is Hermes' (src/voice_tts.py: OpenRouter's speech endpoint on the coach's one balance, the
+ * key on that server — the site holds none; Asan, 25.10). An older Hermes answers 404: then the chunk
+ * goes straight to Google with GEMINI_API_KEY, streamed as the model produces it — a project is allowed
+ * 100 such calls a day on Tier 1, which is why the reading moved.
  */
-const TTS_MODEL = () => process.env.COACH_TTS_MODEL || 'google/gemini-3.8-flash-tts';
-const TTS_VOICE = () => process.env.COACH_TTS_VOICE || 'Kore';
-const TTS_MODEL_KK = () => process.env.COACH_TTS_MODEL_KK || 'google/gemini-3.8-flash-tts';
-const TTS_VOICE_KK = () => process.env.COACH_TTS_VOICE_KK || 'Kore';
 const GOOGLE_TTS_MODEL = () => process.env.COACH_TTS_MODEL_GOOGLE || 'gemini-3.8-flash-tts';
 const GOOGLE_TTS_VOICE = () => process.env.COACH_TTS_VOICE_GOOGLE || 'Kore';
 const MAX_CHARS = 600;
@@ -45,9 +41,6 @@ export async function POST(request: Request) {
   if (!userId) return Response.json({ error: 'Unauthorized' }, { status: 401 });
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
-  const openRouterKey = process.env.OPENROUTER_API_KEY;
-  const googleKey = process.env.GEMINI_API_KEY;
-  if (!openRouterKey && !googleKey) return Response.json({ error: 'Voice not configured' }, { status: 500 });
 
   let body: { text?: unknown; locale?: unknown } = {};
   try {
@@ -57,32 +50,38 @@ export async function POST(request: Request) {
   }
   const text = typeof body.text === 'string' ? body.text.trim().slice(0, MAX_CHARS) : '';
   if (!text) return Response.json({ error: 'Missing text' }, { status: 400 });
-  const locale = body.locale === 'kk' ? 'kk' : 'other';
+  const locale = typeof body.locale === 'string' ? body.locale.slice(0, 8) : undefined;
 
-  return openRouterKey ? viaOpenRouter(openRouterKey, text, locale) : viaGoogle(googleKey!, text);
+  const viaHermes = await throughHermes(userId, text, locale);
+  if (viaHermes) return viaHermes;
+  const googleKey = process.env.GEMINI_API_KEY;
+  if (!googleKey) return Response.json({ error: 'Voice not configured' }, { status: 500 });
+  return viaGoogle(googleKey, text);
 }
 
-/** OpenRouter's speech endpoint: raw PCM bytes, streamed by the providers that stream (ElevenLabs). */
-async function viaOpenRouter(key: string, text: string, locale: 'kk' | 'other'): Promise<Response> {
-  const model = locale === 'kk' ? TTS_MODEL_KK() : TTS_MODEL();
-  const voice = locale === 'kk' ? TTS_VOICE_KK() : TTS_VOICE();
-  const upstream = await fetch('https://openrouter.ai/api/v1/audio/speech', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://chesster.io',
-      'X-Title': 'Chesster coach',
-    },
-    body: JSON.stringify({ model, input: text, voice, response_format: 'pcm' }),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+/** Hermes reads the chunk; null when this Hermes has no such route yet (404) or cannot be reached. */
+async function throughHermes(userId: string, text: string, locale: string | undefined): Promise<Response | null> {
+  let upstream: Response;
+  try {
+    const tier = await resolveUserTier(userId);
+    upstream = await fetch(`${HERMES_URL}/api/coach/voice/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-User-Id': userId, 'x-subscription-tier': tier },
+      body: JSON.stringify({ text, locale }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    console.warn('[voice/tts] hermes unreachable', err instanceof Error ? err.message : err);
+    return null;
+  }
+  if (upstream.status === 404) return null;
   if (!upstream.ok || !upstream.body) {
     const detail = await upstream.text().catch(() => '');
-    console.warn('[voice/tts] openrouter', upstream.status, detail.slice(0, 200));
+    console.warn('[voice/tts] hermes', upstream.status, detail.slice(0, 200));
     return failure(upstream.status, upstream.headers);
   }
-  const rate = /rate=(\d+)/.exec(upstream.headers?.get?.('content-type') || '')?.[1] || '24000';
+  const rate = upstream.headers?.get?.('x-sample-rate') || '24000';
+  const model = upstream.headers?.get?.('x-tts-model') || 'hermes';
   return new Response(upstream.body, { status: 200, headers: pcmHeaders(model, rate) });
 }
 
