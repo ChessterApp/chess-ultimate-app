@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  fillerFor, groupChunks, localeOf, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
   SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS, STT_ROTATE_MS, STT_ROTATE_HARD_MS, STT_QUIET_MS, TTS_WAIT_MAX_MS,
 } from '../voice-pipeline';
 
@@ -106,5 +106,34 @@ describe('a TTS call that failed (25.10)', () => {
     expect(ttsRetryDelay(502, 3, 3000)).toBeNull();
     expect(ttsRetryDelay(400, 0, 0)).toBeNull();
     expect(ttsRetryDelay(401, 0, 0)).toBeNull();
+  });
+});
+
+describe('a move said by the system before the model speaks (25.10)', () => {
+  it('reads SAN as a listener follows it', () => {
+    expect(spokenMove('e4')).toBe('е четыре');
+    expect(spokenMove('Nf3')).toBe('конь эф три');
+    expect(spokenMove('exd5')).toBe('е бьёт дэ пять');
+    expect(spokenMove('Bxc6+')).toBe('слон бьёт цэ шесть, шах');
+    expect(spokenMove('Qh7#')).toBe('ферзь аш семь, мат');
+    expect(spokenMove('O-O')).toBe('короткая рокировка');
+    expect(spokenMove('O-O-O+')).toBe('длинная рокировка, шах');
+    expect(spokenMove('e8=Q')).toBe('е восемь превращается в ферзь');
+    expect(spokenMove('Nf3', 'en')).toBe('knight f3');
+    expect(spokenMove('exd5', 'en')).toBe('e takes d5');
+    expect(spokenMove('Nf3', 'kk')).toBe('ат эф үш');
+    expect(spokenMove('weird')).toBe('weird');
+  });
+
+  it('phrases the move and the reply, or nothing when no move of the student is in the view', () => {
+    expect(movePhrase({ student: { san: 'e4' }, engine: { san: 'e5' }, status: 'playing' })).toBe('е четыре. Отвечаю е пять.');
+    expect(movePhrase({ student: { san: 'Qxf7#' }, engine: null, status: 'finished' })).toBe('ферзь бьёт эф семь, мат. Партия окончена.');
+    expect(movePhrase({ student: { san: 'e4' }, engine: { san: 'c5' }, status: 'playing' }, 'en')).toBe('e4. I reply c5.');
+    expect(movePhrase({ student: null, engine: { san: 'e4' }, status: 'playing' })).toBeNull();
+  });
+
+  it('knows a move from a question, so the filler is skipped only for moves', () => {
+    for (const t of ['е четыре', 'конь эф три', 'Ну, слон цэ четыре.', 'e4', 'я пойду d4', 'короткая рокировка', 'Коня в три.']) expect(looksLikeMove(t), t).toBe(true);
+    for (const t of ['что думаешь про позицию', 'дай задачу на связку', 'а если конь эф три, это хорошо или плохо?', 'ладно']) expect(looksLikeMove(t), t).toBe(false);
   });
 });

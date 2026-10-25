@@ -782,6 +782,9 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           board_id: boardId || undefined,
           // The daily plan's «review my last game»: the server loads and reviews that saved game.
           review_game_id: options?.reviewGameId,
+          // The answer will be read aloud (the voice pipeline): the server keeps it short and does not
+          // restate a move the system already said.
+          speech: pipelineRef.current.isActive ? true : undefined,
         }),
         signal: controller.signal,
       });

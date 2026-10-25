@@ -12,9 +12,9 @@
 
 // The model's own final transcript is what sends an utterance (usually 0.3–0.5 s after speech ends); an
 // interim transcript stands in only when no final comes: unchanged this long with a terminal mark…
-export const STT_STABLE_MS = 900;
-export const STT_STABLE_SLOW_MS = 1300;  // …or this long without one (the stand, 25.10: «Коня в три.» went at 350 ms, «конь f3» came after)
-export const SILENCE_MS = 400;         // no speech energy for this long before an utterance may close
+export const STT_STABLE_MS = 700;       // (900 until 25.10 evening: a third of a second shaved off every turn)
+export const STT_STABLE_SLOW_MS = 1000;  // …or this long without one (the stand, 25.10: «Коня в три.» went at 350 ms, «конь f3» came after)
+export const SILENCE_MS = 300;         // no speech energy for this long before an utterance may close
 
 /** The text a sentence is read from: markdown and board markup stripped, whitespace collapsed. */
 export function speakable(text: string): string {
@@ -203,4 +203,71 @@ export function ttsRetryDelay(status: number, attempt: number, waitedMs: number)
   if (status === 429) return Math.min(8000, 1000 * 2 ** attempt);  // 1, 2, 4, 8, 8… seconds
   if (status >= 500) return attempt < 3 ? 1000 : null;             // a blip: a second, three times
   return null;
+}
+
+// ── a move, said by the system before the model speaks (25.10) ───────────────
+// In a game the server plays the student's move and gets the engine's reply before the model says a word
+// (src/server._game_prestep); the `game` board action carries both. The pipeline reads them out at once —
+// «е четыре. Отвечаю е пять.» — and the model's comment follows (the server tells it not to restate them).
+const RU_FILES: Record<string, string> = { a: 'а', b: 'бэ', c: 'цэ', d: 'дэ', e: 'е', f: 'эф', g: 'же', h: 'аш' };
+const RU_RANKS = ['один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь'];
+const KK_RANKS = ['бір', 'екі', 'үш', 'төрт', 'бес', 'алты', 'жеті', 'сегіз'];
+const PIECES: Record<PipelineLocale, Record<string, string>> = {
+  ru: { K: 'король', Q: 'ферзь', R: 'ладья', B: 'слон', N: 'конь', P: 'пешка' },
+  kk: { K: 'король', Q: 'ферзь', R: 'тура', B: 'піл', N: 'ат', P: 'пешка' },
+  en: { K: 'king', Q: 'queen', R: 'rook', B: 'bishop', N: 'knight', P: 'pawn' },
+};
+const WORDS: Record<PipelineLocale, { takes: string; check: string; mate: string; short: string; long: string; promotes: string }> = {
+  ru: { takes: 'бьёт', check: 'шах', mate: 'мат', short: 'короткая рокировка', long: 'длинная рокировка', promotes: 'превращается в' },
+  kk: { takes: 'алады', check: 'шах', mate: 'мат', short: 'қысқа рокировка', long: 'ұзын рокировка', promotes: 'айналады' },
+  en: { takes: 'takes', check: 'check', mate: 'mate', short: 'short castle', long: 'long castle', promotes: 'promotes to' },
+};
+
+function spokenSquare(sq: string, locale: PipelineLocale): string {
+  if (locale === 'en') return sq;
+  const rank = Number(sq[1]) - 1;
+  return `${RU_FILES[sq[0]] ?? sq[0]} ${(locale === 'kk' ? KK_RANKS : RU_RANKS)[rank] ?? sq[1]}`;
+}
+
+/** A move in SAN as a listener follows it: «конь эф три», «е бьёт дэ пять, шах», «короткая рокировка». */
+export function spokenMove(san: string, locale: PipelineLocale = 'ru'): string {
+  const w = WORDS[locale];
+  const p = PIECES[locale];
+  const mark = san.includes('#') ? `, ${w.mate}` : san.includes('+') ? `, ${w.check}` : '';
+  const core = san.replace(/[+#!?]+$/g, '');
+  if (/^O-O-O/.test(core)) return `${w.long}${mark}`;
+  if (/^O-O/.test(core)) return `${w.short}${mark}`;
+  const m = /^([KQRBN])?([a-h])?([1-8])?(x)?([a-h][1-8])(?:=([QRBN]))?$/.exec(core);
+  if (!m) return san;
+  const [, piece, fromFile, , capture, to, promo] = m;
+  const target = spokenSquare(to, locale);
+  let out: string;
+  if (!piece) {
+    out = capture && fromFile ? `${locale === 'en' ? fromFile : RU_FILES[fromFile]} ${w.takes} ${target}` : target;
+    if (promo) out += ` ${w.promotes} ${p[promo]}`;
+  } else {
+    out = `${p[piece]} ${capture ? `${w.takes} ` : ''}${target}`;
+  }
+  return `${out}${mark}`;
+}
+
+/** What the system says the moment a game view with the student's move arrives, or null when there is nothing to say. */
+export function movePhrase(view: { student?: { san: string } | null; engine?: { san: string } | null; status?: string }, locale: PipelineLocale = 'ru'): string | null {
+  const student = view.student?.san;
+  if (!student) return null;
+  const engine = view.engine?.san;
+  const over = view.status === 'finished';
+  const reply = locale === 'kk' ? 'Жауабым:' : locale === 'en' ? 'I reply' : 'Отвечаю';
+  const end = locale === 'kk' ? ' Партия аяқталды.' : locale === 'en' ? ' The game is over.' : ' Партия окончена.';
+  return `${spokenMove(student, locale)}.${engine ? ` ${reply} ${spokenMove(engine, locale)}.` : ''}${over ? end : ''}`;
+}
+
+const MOVE_LEAD = /^(?:(?:ну|так|хорошо|ладно|давай|тогда|я|пойду|хожу|сыграю|играю|ход|ставлю|мой|пожалуй|наверное|может|ok|okay|i|play|go|move)[\s,]+)+/i;
+const MOVE_WORDS = /^(?:[a-h]\s*[1-8]|[а-яё]{1,3}\s*(?:[1-8]|один|два|три|четыре|пять|шесть|семь|восемь)|(?:короткая|длинная|short|long|kingside|queenside)\s+(?:рокир|castl)|(?:кон[ьяюеиё][а-яё]{0,2}|слон[а-яё]*|ладь[а-яё]*|ферз[а-яё]*|корол[а-яё]*|пешк[а-яё]*|knight|bishop|rook|queen|king|pawn|рокир[а-яё]*|castl[a-z]*)(?![а-яёa-z]))/i;  // \w and \b are ASCII-only in JS
+
+/** The words are probably a move («е четыре», «конь эф три», «ну, слон цэ четыре»): no filler, the move's own phrase comes within a second. */
+export function looksLikeMove(text: string): boolean {
+  const t = (text || '').trim().replace(/^[\s,.!—–-]+/, '').replace(/[.!?…]+$/, '');
+  if (!t || t.split(/\s+/).length > 6) return false;
+  return MOVE_WORDS.test(t.replace(MOVE_LEAD, ''));
 }

@@ -14,9 +14,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  FIRST_CHUNK_MAX_CHARS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, fillerFor, groupChunks, localeOf, newWords,
-  rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
+  FIRST_CHUNK_MAX_CHARS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, fillerFor, groupChunks, localeOf, looksLikeMove,
+  movePhrase, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
+import { gameFromActions } from '@/lib/coach/voice-game';
 
 export type VoiceMode = 'live' | 'pipeline';
 
@@ -41,6 +42,8 @@ export interface PipelineFrame {
   delta?: string;
   stage?: string;
   done?: boolean;
+  /** The server's board actions of this frame: a `game` view with the move just played is read out at once. */
+  board_actions?: unknown;
 }
 
 export interface UsePipelineVoiceOptions {
@@ -84,6 +87,7 @@ interface Turn {
   quiet: boolean;      // the quick reaction streams: not read aloud (the filler stands for it)
   pieces: Piece[];     // the chunks queued for reading, in order; a piece leaves once it is played out
   firstQueued: boolean;  // the first chunk went alone and short, for the earliest first word
+  factSpoken: boolean;   // the move of the game was read out from the server's view (movePhrase)
   spokenAnswer: boolean;
   done: boolean;
 }
@@ -298,6 +302,17 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     else if (frame.stage === 'answer') turn.quiet = false;
     if (typeof frame.delta === 'string' && frame.delta && !turn.quiet) turn.buffer += frame.delta;
     const locale = localeOf(turn.buffer || turn.waiting.join(' '), (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+    if (frame.board_actions && !turn.factSpoken) {
+      // The server played the move and got the engine's reply before the model spoke: say so now.
+      const view = gameFromActions(frame.board_actions);
+      const phrase = view ? movePhrase(view, locale) : null;
+      if (phrase) {
+        turn.factSpoken = true;
+        turn.pieces.push({ text: phrase, locale, parts: [], played: 0, started: false, done: false });
+        turn.firstQueued = true;
+        startFetches(turn);
+      }
+    }
     const { sentences, rest } = takeSentences(turn.buffer, !!frame.done);
     turn.buffer = rest;
     const all = [...turn.waiting, ...sentences];
@@ -352,12 +367,13 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const previous = turnRef.current;
     if (previous) { previous.controller.abort(); previous.done = true; }
     stopSources();
-    const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', waiting: [], quiet: false, pieces: [], firstQueued: false, spokenAnswer: false, done: false };
+    const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', waiting: [], quiet: false, pieces: [], firstQueued: false, factSpoken: false, spokenAnswer: false, done: false };
     turnRef.current = turn;
     const end = speechEndAtRef.current;
     setTimings({ sttMs: end !== null ? Math.round(performance.now() - end) : null, firstSoundMs: null, firstAnswerMs: null });
     const locale = localeOf(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
-    if (performance.now() >= ttsBlockedUntilRef.current) void playFiller(turn, locale);  // no «сейчас посмотрю» before a silence
+    // No «сейчас посмотрю» before a silence (the TTS is down) nor before a move: its own phrase comes within a second.
+    if (performance.now() >= ttsBlockedUntilRef.current && !looksLikeMove(text)) void playFiller(turn, locale);
     try {
       optionsRef.current.onUtterance(text);
     } catch (err) {

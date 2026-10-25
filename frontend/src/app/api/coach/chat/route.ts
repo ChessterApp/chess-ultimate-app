@@ -37,6 +37,7 @@ export async function POST(request: NextRequest) {
     context_note?: string;
     board_id?: string;
     review_game_id?: string;
+    speech?: boolean;
   };
   try {
     body = await request.json();
@@ -95,6 +96,8 @@ export async function POST(request: NextRequest) {
             // The daily plan's «review my last game»: Hermes loads that saved game and reviews it.
             review_game_id:
               typeof body.review_game_id === 'string' && body.review_game_id ? body.review_game_id : undefined,
+            // The voice pipeline: the answer is read aloud — short, and the move already said is not restated.
+            speech: body.speech === true ? true : undefined,
           }),
           signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });
