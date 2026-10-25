@@ -498,11 +498,38 @@ export async function POST(request: Request) {
   }
 
   // No required inputs — tolerate a missing or malformed body.
-  let body: { fen?: string; session_id?: string; locale?: string } = {};
+  let body: { fen?: string; session_id?: string; locale?: string; mode?: string } = {};
   try {
     body = await request.json();
   } catch {
     body = {};
+  }
+
+  // The voice pipeline prototype (2026-10-25): a token for the transcription-only Live model —
+  // no prompt, no tools, no answers; the words go to the text coach and come back as TTS.
+  if (body.mode === 'stt') {
+    const sttLocale = body.locale && typeof body.locale === 'string' ? body.locale : readCookie(request, 'NEXT_LOCALE') || 'ru';
+    const sttModel = process.env.COACH_STT_MODEL || 'gemini-3.5-transcribe-live';
+    const transcription = transcriptionConfig(sttLocale);
+    const now = Date.now();
+    const expireTime = new Date(now + 30 * 60 * 1000).toISOString();
+    const newSessionExpireTime = new Date(now + 60 * 1000).toISOString();
+    try {
+      const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1alpha' } });
+      const token = await ai.authTokens.create({
+        config: {
+          uses: 1,
+          expireTime,
+          newSessionExpireTime,
+          liveConnectConstraints: { model: sttModel, config: { inputAudioTranscription: transcription } },
+          httpOptions: { apiVersion: 'v1alpha' },
+        },
+      });
+      return jsonResponse({ token: token.name, model: sttModel, expiresAt: expireTime, transcription, mode: 'stt' }, 200);
+    } catch (err) {
+      console.error('[live-token] failed to mint the transcription token:', err);
+      return jsonResponse({ error: 'Failed to start transcription' }, 502);
+    }
   }
 
   const fen = body.fen && typeof body.fen === 'string' ? body.fen : undefined;

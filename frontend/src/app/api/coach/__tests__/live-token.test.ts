@@ -41,6 +41,24 @@ describe('POST /api/coach/live-token', () => {
     vi.restoreAllMocks();
   });
 
+  it('mode "stt" mints a token for the transcription-only model: no prompt, no tools (the voice pipeline, 25.10)', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'stt-token' });
+    global.fetch = vi.fn() as any;
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({ mode: 'stt', locale: 'kk' }));
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json).toMatchObject({ token: 'stt-token', model: 'gemini-3.5-transcribe-live', mode: 'stt' });
+    const constraints = createMock.mock.calls[0][0].config.liveConnectConstraints;
+    expect(constraints.model).toBe('gemini-3.5-transcribe-live');
+    expect(constraints.config.tools).toBeUndefined();
+    expect(constraints.config.systemInstruction).toBeUndefined();
+    expect(constraints.config.inputAudioTranscription.languageCodes).toContain('kk-KZ');
+    expect(global.fetch).not.toHaveBeenCalled();  // nothing fetched from Hermes for a transcription token
+  });
+
   it('3.1 keeps the game tools and famous games from Hermes; the acknowledgment is in the student\'s language', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_123' });
     process.env.GEMINI_API_KEY = 'AQ.test-key';
