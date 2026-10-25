@@ -14,8 +14,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  FIRST_CHUNK_MAX_CHARS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, fillerFor, groupChunks, localeOf, looksLikeMove,
-  movePhrase, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
+  FIRST_CHUNK_MAX_CHARS, INTERIM_REPLACE_MS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, extendsSentText, fillerFor,
+  groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 import { gameFromActions } from '@/lib/coach/voice-game';
 
@@ -136,6 +137,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   // The transcript as the model keeps it, and what of it was already sent.
   const transcriptRef = useRef('');
   const baselineRef = useRef('');
+  // The last utterance sent from an interim transcript, and when: the model's final may replace it whole.
+  const interimSentRef = useRef<{ text: string; at: number } | null>(null);
   const lastChangeAtRef = useRef(0);
   const lastSpeechAtRef = useRef<number | null>(null);
   const speechEndAtRef = useRef<number | null>(null);
@@ -395,6 +398,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const words = newWords(transcript, baselineRef.current);
     baselineRef.current = transcript;
     if (!words) return;
+    interimSentRef.current = { text: words, at: now };
     sendUtterance(words);
   }, [sendUtterance]);
 
@@ -483,10 +487,22 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
             }
             if (typeof final === 'string' && final.trim()) {
               // The model's final transcript: the utterance goes now (the interim fallback waits longer).
-              const words = newWords(final, baselineRef.current);
-              baselineRef.current = final;
-              transcriptRef.current = final;
-              if (words) sendUtteranceRef.current(words);
+              const sent = interimSentRef.current;
+              const whole = newWords(final, '');
+              if (sent && performance.now() - sent.at < INTERIM_REPLACE_MS && extendsSentText(whole, sent.text)) {
+                // The interim text went out a moment ago and this is the same utterance, whole: the partial
+                // turn is replaced (the page aborts it), not followed by its tail as a second turn.
+                interimSentRef.current = null;
+                baselineRef.current = final;
+                transcriptRef.current = final;
+                sendUtteranceRef.current(whole);
+              } else {
+                const words = newWords(final, baselineRef.current);
+                baselineRef.current = final;
+                transcriptRef.current = final;
+                interimSentRef.current = null;
+                if (words) sendUtteranceRef.current(words);
+              }
             }
             const activity = (sc.voiceActivity as { speechState?: string } | undefined)?.speechState;
             if (activity === 'SPEECH') {

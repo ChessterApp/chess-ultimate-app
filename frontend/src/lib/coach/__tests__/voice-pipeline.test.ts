@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  extendsSentText, fillerFor, groupChunks, localeOf, looksLikeMove, movePhrase, newWords, rotationDue, speakable, spokenMove, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
   SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS, STT_ROTATE_MS, STT_ROTATE_HARD_MS, STT_QUIET_MS, TTS_WAIT_MAX_MS,
 } from '../voice-pipeline';
 
@@ -135,5 +135,15 @@ describe('a move said by the system before the model speaks (25.10)', () => {
   it('knows a move from a question, so the filler is skipped only for moves', () => {
     for (const t of ['е четыре', 'конь эф три', 'Ну, слон цэ четыре.', 'e4', 'я пойду d4', 'короткая рокировка', 'Коня в три.']) expect(looksLikeMove(t), t).toBe(true);
     for (const t of ['что думаешь про позицию', 'дай задачу на связку', 'а если конь эф три, это хорошо или плохо?', 'ладно']) expect(looksLikeMove(t), t).toBe(false);
+  });
+});
+
+describe('the final transcript that extends an interim one already sent (25.10)', () => {
+  it('is the same utterance when it only adds words or changes punctuation', () => {
+    expect(extendsSentText('Давай сыграем, я белыми.', 'Давай сыграем.')).toBe(true);
+    expect(extendsSentText('Конь эф три!', 'конь эф')).toBe(true);
+    expect(extendsSentText('Давай сыграем.', 'Давай сыграем.')).toBe(false);   // nothing new: no second send
+    expect(extendsSentText('Что думаешь про позицию?', 'Давай сыграем.')).toBe(false);
+    expect(extendsSentText('', 'Давай')).toBe(false);
   });
 });

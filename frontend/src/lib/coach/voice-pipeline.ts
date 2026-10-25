@@ -12,9 +12,9 @@
 
 // The model's own final transcript is what sends an utterance (usually 0.3–0.5 s after speech ends); an
 // interim transcript stands in only when no final comes: unchanged this long with a terminal mark…
-export const STT_STABLE_MS = 700;       // (900 until 25.10 evening: a third of a second shaved off every turn)
-export const STT_STABLE_SLOW_MS = 1000;  // …or this long without one (the stand, 25.10: «Коня в три.» went at 350 ms, «конь f3» came after)
-export const SILENCE_MS = 300;         // no speech energy for this long before an utterance may close
+export const STT_STABLE_MS = 900;       // (700/1000/300 were tried 25.10: the interim text went out garbled before the final)
+export const STT_STABLE_SLOW_MS = 1300;  // …or this long without one (the stand, 25.10: «Коня в три.» went at 350 ms, «конь f3» came after)
+export const SILENCE_MS = 400;         // no speech energy for this long before an utterance may close
 
 /** The text a sentence is read from: markdown and board markup stripped, whitespace collapsed. */
 export function speakable(text: string): string {
@@ -137,6 +137,23 @@ export function newWords(transcript: string, baseline: string): string {
   const b = baseline.trim();
   if (b && t.startsWith(b)) return t.slice(b.length).trim();
   return t;
+}
+
+/** The final transcript extends words already sent from the interim one within this long: the turn is sent again whole. */
+export const INTERIM_REPLACE_MS = 2500;
+
+const normWords = (x: string) => x.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * Whether the model's final transcript is the same utterance as the interim text sent a moment ago, only
+ * longer or punctuated differently («Давай сыграем.» → «Давай сыграем, я белыми.»): then the partial turn
+ * is replaced by the whole one instead of a second turn («я белыми.») following it (the stand, 25.10).
+ */
+export function extendsSentText(finalText: string, sentText: string): boolean {
+  const f = normWords(finalText);
+  const s = normWords(sentText);
+  if (!f || !s || f === s) return false;
+  return f.startsWith(s + ' ') || f.startsWith(s);
 }
 
 export type PipelineLocale = 'ru' | 'kk' | 'en';
