@@ -24,16 +24,18 @@ FILES = {
 
 # Squares said aloud, as speech recognition writes them: «си четыре», «це 4», «эф три», «е два е четыре»
 # (voice, 2026-10-14: «слон си четыре» was no move).
+# …and the bare Russian letters the transcription writes for a file said quickly («с шесть», «д четыре»,
+# «г пять»), plus «за» — what it heard for «це» on Alexander's phone («конь за шесть» = Nc6, 25.10).
 _SPOKEN_FILE = {
-    "a": ("а", "эй"), "b": ("бэ", "бе", "би"), "c": ("цэ", "це", "си", "сэ"), "d": ("дэ", "де", "ди"),
-    "e": ("е", "э"), "f": ("эф", "эфф"), "g": ("гэ", "ге", "же", "джи"), "h": ("аш", "аша", "ха", "эйч"),
+    "a": ("а", "эй"), "b": ("бэ", "бе", "би", "б"), "c": ("цэ", "це", "си", "сэ", "с", "за"), "d": ("дэ", "де", "ди", "д"),
+    "e": ("е", "э"), "f": ("эф", "эфф", "ф"), "g": ("гэ", "ге", "же", "джи", "г", "ж"), "h": ("аш", "аша", "ха", "эйч", "х"),
 }
 _SPOKEN_RANK = {"один": "1", "одна": "1", "раз": "1", "два": "2", "две": "2", "три": "3", "четыре": "4",
                 "четыри": "4", "пять": "5", "шесть": "6", "семь": "7", "восемь": "8"}
 _FILE_WORD = {w: f for f, words in _SPOKEN_FILE.items() for w in words}
 # Letter names that are also ordinary words («а три хода назад», «же», «ха»): a square only next to a piece
 # word or a move cue, or in a short utterance.
-_AMBIGUOUS = {"а", "е", "э", "же", "ха"}
+_AMBIGUOUS = {"а", "е", "э", "же", "ха", "с", "за", "д", "г", "ж", "х", "б", "ф"}
 _SPOKEN_SQUARE = re.compile(
     r"(?<![\w-])(" + "|".join(sorted(list(_FILE_WORD) + list("abcdefgh"), key=len, reverse=True)) + r")[\s-]*("
     + "|".join(sorted(_SPOKEN_RANK, key=len, reverse=True)) + r"|[1-8])(?![\w-])",

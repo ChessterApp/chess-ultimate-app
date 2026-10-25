@@ -203,9 +203,58 @@ _COMMANDS = (
 )
 
 
+# «Я хотел не конь за шесть, а с шесть пойти пешкой», «не тот ход, я имел в виду пешку на c6», «вместо
+# этого слон c4»: the student corrects the move just played (Alexander's phone, 25.10 — nobody could do
+# that by voice: it is a takeback and the move they meant).
+_CORRECT = re.compile(
+    r"(?<![\w-])(?:я\s+хотел\w*\s+не(?![\w-])|не\s+(?:кон|слон|лад|ферз|корол|пешк)\w*,?\s+а(?![\w-])|имел\w*\s+в\s+виду|"
+    r"не\s+тот\s+ход|не\s+т[ауою]\s+(?:фигур|ход)\w*|вместо\s+(?:этого|него|не[её])|i\s+meant|not\s+that\s+move|"
+    r"instead\s+of\s+that|wrong\s+piece)(?![\w-])", re.IGNORECASE)
+_CORRECT_SPLIT = re.compile(r",?\s+а\s+(?!не\b)|имел\w*\s+в\s+виду\s+|хотел\w*\s+(?:сказать\s+|пойти\s+|сыграть\s+|ходить\s+)?|"
+                            r"вместо\s+(?:этого|него|не[её])\s+|i\s+meant\s+|instead\s+of\s+that\s+", re.IGNORECASE)
+_TAKEBACK_WORD = re.compile(r"верн[иу]|отмен|назад|take\s*back|undo", re.IGNORECASE)
+_MEANT = re.compile(r"(?<![\w-])(?:хотел\w*|имел\w*\s+в\s+виду|meant)(?![\w-])", re.IGNORECASE)
+
+
+def corrects_move(text: str) -> bool:
+    """«Не конь, а пешка на c6», «я хотел не …, а …», «верни ход, я хотел пешкой на c6», «имел в виду …»."""
+    t = (text or "").replace("ё", "е")
+    if len(t.split()) > 14:
+        return False
+    return bool(_CORRECT.search(t)) or bool(_TAKEBACK_WORD.search(t) and _MEANT.search(t))
+
+
+def correction_move(text: str, board: chess.Board) -> Optional[str]:
+    """The move the student meant, read from the words after «а» / «хотел» / «имел в виду» on *board* (the
+    position before the move being corrected), in SAN; None when no single legal move is named there."""
+    from src.tools.game_play import _student_move
+
+    t = spoken_squares((text or "").replace("ё", "е").strip().rstrip(".!"))
+    parts = _CORRECT_SPLIT.split(t)
+    tail = parts[-1].strip() if len(parts) > 1 else t
+    tail = re.sub(r"(?<![\w-])(?:пойти|сыграть|ходить|походить|сходить|пешкой|конем|слоном|ладьей|ферзем|королем|на)(?![\w-])", " ", tail)
+    tail = re.sub(r"\s+", " ", tail).strip()
+    if not tail:
+        return None
+    san = bare_move(tail, board)
+    if san:
+        return san
+    # «с шесть пойти пешкой» → c6: a square alone, when exactly one legal move goes there — a pawn's when a pawn is named
+    squares = re.findall(r"(?<![\w-])([a-h][1-8])(?![\w-])", tail)
+    pawn = bool(re.search(r"пешк\w*|pawn", (text or ""), re.IGNORECASE))
+    if len(squares) == 1:
+        to = chess.parse_square(squares[0])
+        fits = [mv for mv in board.legal_moves if mv.to_square == to and (not pawn or board.piece_type_at(mv.from_square) == chess.PAWN)]
+        if len(fits) == 1:
+            return board.san(fits[0])
+    return _student_move(board, tail)
+
+
 def game_command(text: str) -> Optional[str]:
-    """«resign» | «takeback» | «restart» | «draw» when a short message asks the game for that, else None."""
+    """«resign» | «takeback» | «restart» | «draw» | «correct» when a short message asks the game for that, else None."""
     t = (text or "").replace("ё", "е").replace("Ё", "Е").strip()
+    if corrects_move(t):
+        return "correct"
     if not t or len(t.split()) > 8:
         return None
     for name, rx in _COMMANDS:

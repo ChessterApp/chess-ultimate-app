@@ -19,7 +19,7 @@ import {
   gameStartNote,
   mayAskForAGame,
   mayCommandTheGame,
-  mentionsAGame, factsNote } from '@/lib/coach/voice-game';
+  mentionsAGame, factsNote, unclearMoveNote } from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -34,8 +34,10 @@ export type LiveStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'err
 
 /** What the student's words ask for, as Hermes reads them (src/intent.py). */
 export interface VoiceIntent {
-  kind: 'game_command' | 'game_request' | 'move' | 'idea' | 'puzzle' | 'solution' | 'review' | 'famous_game' | 'opening'
+  kind: 'game_command' | 'game_request' | 'move' | 'idea' | 'unclear_move' | 'puzzle' | 'solution' | 'review' | 'famous_game' | 'opening'
     | 'board' | 'concept' | 'fact' | 'none';
+  /** unclear_move: the words that looked like a move. */
+  text?: string;
   san?: string;
   moves?: string[];
   command?: string;
@@ -1279,6 +1281,8 @@ export default function useGeminiLive(
           text: sentence,
           fen: optionsRef.current.getFen?.(),
           question: userUtteranceRef.current || undefined,
+          // In a game the coach's moves must be the engine's: Hermes reads the game from the session (25.10).
+          session_id: optionsRef.current.getSessionId?.() ?? undefined,
         }),
       });
       if (!res.ok) return;
@@ -1513,6 +1517,12 @@ export default function useGeminiLive(
           return;
         case 'idea':
           ideaLookupRef.current?.(text, true);
+          return;
+        case 'unclear_move':
+          // «с шесть», «конь за шесть» that no reading turns into a legal move (Alexander's phone, 25.10): the
+          // model is told at once that nothing was played, so it asks again instead of «отличный ход».
+          conceptDoneRef.current = true;
+          session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: unclearMoveNote(intent.text || text) }] }], turnComplete: false });
           return;
         case 'puzzle':
           conceptDoneRef.current = true;

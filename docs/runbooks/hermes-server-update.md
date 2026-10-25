@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 23.10 (партия голосом не ломается на первом ходу; «поставь позицию на связку» ставит задачу; позиция на доске узнаётся) — включает всё из версий 06.10 … 22.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 25.10 (голос: буквы полей «с шесть», исправление хода словами, «ход не разобран» вместо «отличный ход», «я пойду d3» сверяется с партией; длинный разговор не забывается; озвучка голосовой связки через сервер) — включает всё из версий 06.10 … 24.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -29,6 +29,84 @@
   работают без него.
 
 ### Что изменится после обновления
+
+Новое в версии 25.10 (тест Александра голосом с телефона 25.10, партия с тренером, скриншоты «Управление доской так и не
+работает»: «конь за шесть» / «с шесть» — ход не сыгран, а модель ответила «отличный ход»; «Я хотел не конь за шесть, а с
+шесть пойти пешкой» — исправить ход голосом было нельзя; «Я пойду d3» — модель рассказывала ходы, которых движок не делал;
+код `hermes/src/move_text.py`, `hermes/src/game_intent.py`, `hermes/src/tools/game_play.py`, `hermes/src/intent.py`,
+`hermes/src/server.py`, `hermes/src/answer_check.py`, новые `hermes/src/conversation_digest.py` и `hermes/src/voice_tts.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на 24.10 —
+достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 51, 52; если на 23.10 — ещё проверка 50):
+- **Буквы полей, как их пишет расшифровка.** «с шесть», «д четыре», «г пять», «б пять», «ф три», «х шесть» читаются как c6,
+  d4, g5, b5, f3, h6; «за шесть» (так телефон записал «це шесть») — как c6. Одиночная буква считается полем только рядом с
+  числом ряда, а в длинной фразе — только возле слов о ходе, поэтому «с ума сойти» и «за шесть лет …» в рассказе не трогаются.
+  Код `hermes/src/move_text.py` — одно место для текстового хода, голосового намерения и проверки ответа.
+- **Исправление хода словами.** «Не конь, а пешка на c6», «Я хотел не конь за шесть, а с шесть пойти пешкой», «я имел в виду
+  конь на f6», «вместо этого d6», «верни ход, я хотел пешкой на c6» — новая команда партии `correct`: последний ход ученика и
+  ответ движка откатываются, играется названный ход, модель получает одну строку о том, что сделано. Если ход из слов не
+  читается («не тот ход, слон») — ничего не меняется, модель просит назвать фигуру и поле. Работает в тексте (предшаг партии)
+  и в голосе (намерение `game_command`, инструмент `game_action` с `said`). Код `hermes/src/game_intent.py`,
+  `hermes/src/tools/game_play.py`.
+- **Ход, который не разобрался, — не «отличный ход».** В партии слова, похожие на один ход («конь на f3», «е пять»), для
+  которых в этой позиции нет такого хода, дают намерение `unclear_move`: сайт сразу говорит модели, что НИЧЕГО не сыграно, и
+  просит переспросить фигуру и поле. Вопрос про поле («что делает конь на f3»), «ладно», «конечно» ходом не считаются. Код
+  `hermes/src/intent.py` (и сайт, выкатывается с main сам).
+- **Проверка голоса знает партию.** Сайт передаёт в `/api/coach/voice/check` ещё `session_id`; фраза тренера «я пойду /
+  иду / хожу / отвечаю / мой ход — X» сверяется с ходами движка в партии этой сессии: такого хода движок не делал → модель
+  получает [Check] и поправляется вслух (раньше это правило работало только в тексте). Код `hermes/src/server.py`,
+  `hermes/src/answer_check.py`.
+- **Долгий разговор не забывается.** Текстовый ход показывал модели последние 10 обменов и ничего до них; с голосовой
+  связкой разговор в 20–30 обменов становится обычным, и «а что ты говорил про тот план?» пятнадцать реплик назад
+  оставалось без ответа. Теперь более ранние обмены идут в каждый ход одной строкой каждый: слова ученика и первые слова
+  тренера, в кавычках, без пересказа моделью (ничего не выдумывается), новые из старых — в первую очередь, под потолком
+  3500 знаков; модели сказано, сколько ещё более ранних обменов не показано. Код `hermes/src/conversation_digest.py`,
+  `hermes/src/server.py`.
+- **Ответ для голоса: коротко и без повтора хода.** Сайт в голосовой связке шлёт в ход чата флаг `speech: true`
+  (`CoachChatRequest.speech`). Тогда модель получает блок «ответ слушают»: первое предложение — суть, не длиннее
+  двенадцати слов, дальше не больше трёх коротких, без списков и разметки. А в партии ход ученика и ответ движка
+  сайт озвучивает сам из факта сервера («е четыре. Отвечаю е пять.») ещё до слов модели, поэтому блок сыгранного
+  хода в этом режиме велит модели ходы не повторять и начинать с комментария. Код `hermes/src/server.py`
+  (`_game_prestep(spoken=…)`, блок «Spoken answer»).
+- **Озвучка голосовой связки — через этот сервер.** Сайт в тестовом голосовом режиме (`chesster.io/coach?voice=pipeline`)
+  читает ответ тренера вслух кусками; раньше звук брался у Google напрямую с ключа сайта, а Google на нём разрешает
+  100 озвучек в сутки на проект (стенд потратил их за полчаса). Теперь новый маршрут `POST /api/coach/voice/tts`
+  ({text, locale}) ходит в OpenRouter (`/api/v1/audio/speech`, та же Gemini Flash TTS) с ключом `OPENROUTER_API_KEY`
+  этого сервера и отдаёт сырой PCM потоком; сайту ключ не нужен. Переменные необязательные: `COACH_TTS_MODEL` /
+  `COACH_TTS_VOICE` (по умолчанию google/gemini-3.8-flash-tts, Kore), `COACH_TTS_MODEL_KK` / `COACH_TTS_VOICE_KK` для
+  казахского. Пока сервер старый, сайт получает 404 и читает через Google, как раньше. Код `hermes/src/voice_tts.py`,
+  `hermes/src/server.py`.
+- Проверка 51 (без базы и модели):
+  `cd /root/hermes-chess && .venv/bin/python -c "import chess; from src.game_intent import spoken_squares as sp, game_command as gc, correction_move as cm; from src.intent import read_intent as ri; b=chess.Board(); [b.push_san(m) for m in ('e4','e5','Nf3')]; a=sp('конь за шесть')=='конь c6' and sp('с шесть')=='c6'; c=gc('не конь, а пешка на c6')=='correct' and cm('Я хотел не конь за шесть, а с шесть пойти пешкой', b)=='c6'; u=ri('конь на f3', fen=b.fen(), pgn='1. e4 e5 2. Nf3', live_game=True)['kind']=='unclear_move'; m=ri('с шесть', fen=b.fen(), pgn='1. e4 e5 2. Nf3', live_game=True)=={'kind':'move','san':'c6'}; print(a, c, u, m, 'ОК' if a and c and u and m else 'ПРОВЕРЬ')"`
+  → `True True True True ОК`. И сводка разговора:
+  `cd /root/hermes-chess && .venv/bin/python -c "from src.conversation_digest import conversation_digest as d; from src.sessions import SessionMessage as M; msgs=[M(role='user', content='Расскажи про план с f4'), M(role='assistant', content='План с f4 хорош после рокировки.')]+[M(role='user', content=f'вопрос {i}') for i in range(20)]; x=d(msgs); print(x.split(chr(10))[1], 'ОК' if 'план с f4' in x and 'Earlier in this conversation' in x else 'ПРОВЕРЬ')"`
+  → `- student: «Расскажи про план с f4» — coach: «План с f4 хорош после рокировки.» ОК`.
+- Проверка 52 (озвучка через сервер; нужен ключ OpenRouter в `.env`, один платный вызов на доли цента):
+  `curl -s -o /tmp/tts.pcm -w "%{http_code} %{size_download} bytes\n" -X POST localhost:8642/api/coach/voice/tts -H 'X-User-Id: deploy-check' -H 'Content-Type: application/json' -d '{"text":"Конь эф три.","locale":"ru"}'`
+  → `200` и больше 50000 bytes (секунда-две звука PCM 24 кГц). `429` с текстом про quota — лимит OpenRouter, повторить
+  через минуту; `402` — на счёте OpenRouter нет денег. И проверка голоса по партии, `H` как в проверке 38, новая сессия (движок отвечает на e4, поэтому
+  до 10 с):
+  `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/start_game -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"color\":\"white\"},\"session_id\":\"$SID\"}"; curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"move\":\"e4\"},\"session_id\":\"$SID\"}"; curl -s -X POST localhost:8642/api/coach/voice/check -H "$H" -H 'Content-Type: application/json' -d "{\"text\":\"Я пойду d3.\",\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r, 'ОК' if any('did not play d3' in i for i in r.get('issues',[])) else 'ПРОВЕРЬ')"`
+  → `{'issues': ['in this game the engine plays your moves and it did not play d3 (its last move was …): …']} ОК`.
+  И исправление хода через инструмент (та же сессия): `curl -s -X POST localhost:8642/api/coach/tool/game_action -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"не пешка, а конь на f3\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print(r.get('action'), r.get('note','')[:90], 'ОК' if r.get('ok') and 'Nf3 is played instead' in r.get('note','') else 'ПРОВЕРЬ')"`
+  → `correct Their previous move and the engine's reply are undone; Nf3 is played instead … ОК`.
+
+Новое в версии 24.10 (тест Александра голосом с телефона 24.10 вечером, партия с тренером: «конь на d4 напал на коня на f3 и
+ещё на пешку на e2. И на слона на цэ четыре тоже нападает» — пешки на e2 нет, слона c4 никто не бьёт, и стрелки с d4 на c4
+на доске; код `hermes/src/answer_check.py`, `hermes/src/tool_bridge.py`, `hermes/src/server.py`; миграций, переменных и
+изменений бэкенда нет; если сервер уже на 23.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 50):
+- **Проверка ответа: названная целью фигура должна быть на доске и под ударом.** Фраза «напал / нападает / угрожает /
+  бьёт … коня (слона, пешку) на X» проверяется по клаузе целиком, кем бы ни был подлежащий — конь из прошлой фразы,
+  «он» или никто: такой фигуры нет на X → фраза не показывается; фигура есть, но её никто не атакует → тоже. Стартовая
+  позиция больше не «находит» пешку на e2. Поля словами из расшифровки («цэ четыре», «эф три», «е два») читаются как
+  поля. Отрицания («никто не атакует») и фразы про другую позицию («удар конём на f7», когда коня на f7 нет) не трогаются.
+  В голосе это уходит модели строкой [Check] после реплики, как и раньше.
+- **Стрелки с невозможными ходами не рисуются в голосе.** Текстовый ход отсеивал их с 01.10
+  (`board_markup.prune_arrows`), голосовой `board_control` возвращал как есть. Теперь стрелка от фигуры на поле, куда эта
+  фигура ходить не может, отбрасывается, а модели в результате приходит `arrows_dropped` и просьба не называть это атакой.
+- Проверка 50 (без базы и модели):
+  `cd /root/hermes-chess && .venv/bin/python -c "from src.answer_check import CheckContext, check_sentence as c; from src.game_intent import spoken_squares as sp; F='r1bqkb1r/pppp1ppp/5n2/4p3/2BnP3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 6'; a=c(sp('И на слона на цэ четыре тоже нападает.'), CheckContext.from_fens([F])); b=c('Конь на d4 напал на коня на f3 и ещё на пешку на e2.', CheckContext.from_fens([F])); ok=any('c4 is not attacked' in x for x in a) and any('no pawn on e2' in x for x in b); print(a, b, 'ОК' if ok else 'ПРОВЕРЬ')"`
+  → две строки с замечаниями и `ОК`. И стрелки, `H` как в проверке 38, новая сессия с этой позицией:
+  `H='X-User-Id: deploy-check'; S=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}'); SID=$(echo "$S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); BID=$(echo "$S" | python3 -c 'import sys,json; print(json.load(sys.stdin)["active_board_id"])'); curl -s -o /dev/null -X PATCH localhost:8642/api/coach/sessions/$SID/boards/$BID -H "$H" -H 'Content-Type: application/json' -d '{"fen":"r1bqkb1r/pppp1ppp/5n2/4p3/2BnP3/5N2/PPPP1PPP/RNBQ1RK1 w kq - 0 6"}'; curl -s -X POST localhost:8642/api/coach/tool/board_control -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"action_type\":\"draw_arrows\",\"arrows\":[{\"from\":\"d4\",\"to\":\"c4\",\"brush\":\"red\"},{\"from\":\"d4\",\"to\":\"f3\",\"brush\":\"red\"}]},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin); arrows=[a['from']+a['to'] for x in r.get('board_actions',[]) for a in x.get('arrows',[])]; print(arrows, r['result'].get('arrows_dropped'), 'ОК' if arrows==['d4f3'] else 'ПРОВЕРЬ')"`
+  → `['d4f3'] ['d4c4: a knight cannot go there'] ОК`.
 
 Новое в версии 23.10 (тест Александра голосом с телефона 23.10, аккаунт dagamavsco210@gmail.com: «1.e4 — невозможный ход» на
 первом же ходу партии с тренером, «поставь позицию на связку» без смены доски; код `hermes/src/game_mode.py`,

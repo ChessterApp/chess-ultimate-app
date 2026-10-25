@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { text?: unknown; fen?: unknown; pgn?: unknown; question?: unknown };
+  let body: { text?: unknown; fen?: unknown; pgn?: unknown; question?: unknown; session_id?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest) {
         fen: typeof body.fen === 'string' ? body.fen : undefined,
         pgn: typeof body.pgn === 'string' ? body.pgn : undefined,
         question: typeof body.question === 'string' ? body.question : undefined,
+        session_id: typeof body.session_id === 'string' ? body.session_id : undefined,
       }),
       signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
     });

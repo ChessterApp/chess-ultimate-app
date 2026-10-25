@@ -1265,7 +1265,7 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
         if ptype is None:
             continue
         sq = chess.parse_square(sq_name.lower())
-        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in ctx.boards):
+        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in _turn_boards(ctx)):
             continue
         there = ctx.current.piece_at(sq)
         here = f"there is a {_NAMES[there.piece_type]} there" if there else "nothing stands there"
@@ -1273,21 +1273,100 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
     return []
 
 
-# «давит на коня c6», «забираешь коня на e2», "attacks the knight on c6": the OBJECT of an attack or a
-# capture named by its kind and square — some piece of that kind must stand there on a board of the turn
-# (the one in front of the student or one a written move of the answer leads to). Production 19.10: «Bb5+
-# … и заодно давит на коня c6» with the knight on a5 and c6 empty. The object case (коня, ладью, пешку)
-# never names the piece that acts, and «поставить коня на c6» is a destination, so only these verbs.
-_OBJECT_GHOST = re.compile(
-    _B2 + r"(?:(?:бь[её]т|бьют|бь[её]шь|бь[её]те|забира\w+|забер[её]\w*|бер[её]\w+|взять|взял\w*|съесть|съеда\w+|съел\w*|"
-    r"атаку\w+|напада\w+|напад[её]\w*|давит|давишь|давят|угрожа\w+|держит|держишь|держат|защища\w+|прикрыва\w+|"
-    r"связыва\w+|связал\w*|связать|выигрыва\w+|выиграть|теря\w+|потеря\w+|отда[её]\w+|отдать|разменя\w+|меня\w+)"
-    r"\s+(?:на\s+|по\s+)?(?:(?:сво\w+|его|их|е[её]|тво\w+|ваш\w+|мо\w+|ч[её]рн\w+|бел\w+|вражеск\w+|неприятельск\w+|"
-    r"незащищ[её]нн\w+|беззащитн\w+|связанн\w+|лишн\w+|этого|эту|того|ту)\s+)?"
-    rf"(?P<w>коня|слона|ладью|ферзя|короля|пешку)\s+(?:на\s+)?(?P<sq>{SQ})(?![0-9])"
-    r"|(?:attack\w*|hit\w*|tak\w+|captur\w+|win\w*|target\w*|threaten\w*|pin\w*|fork\w*|grab\w*|pick\w+\s+(?:up|off))\s+"
-    r"(?:(?:the|your|his|her|their|my|that|this|black'?s?|white'?s?|enemy|loose|hanging|undefended|unprotected)\s+){0,2}"
-    rf"(?P<w2>knight|bishop|rook|queen|king|pawn)\s+on\s+(?P<sq2>{SQ})(?![0-9]))", re.IGNORECASE)
+# «давит на коня c6», «забираешь коня на e2», «напал на коня f3 и ещё на пешку e2», «и на слона на c4 тоже
+# нападает», "attacks the knight on c6": the OBJECT of an attack, a capture, a threat or a defence, named by its
+# kind and square. Two facts of the board about it (prod 19.10 and Alexander's phone 24.10):
+#   * a piece of that kind stands there on a board of the turn (the start position does not count — every turn
+#     carries it for opening lines, and «пешку на e2» found its pawn there);
+#   * for an attack or a threat about the board as it is: SOMETHING attacks that square — whoever the subject is
+#     (a pronoun, the piece of the sentence before, nobody): «напал на слона c4» with no black piece touching c4.
+# Russian object cases (коня, ладью, пешке) never name the actor, so the verb may stand anywhere in the clause;
+# an English noun is read only right after the verb. «поставить коня на c6» is a destination: not these verbs.
+_RU_OBJ = r"коня|слона|ладью|ферзя|короля|пешку|коню|слону|ладье|ферзю|королю|пешке"
+_OBJ_ADJ = (r"(?:(?:сво\w+|его|их|е[её]|тво\w+|ваш\w+|мо\w+|ч[её]рн\w+|бел\w+|вражеск\w+|неприятельск\w+|"
+            r"незащищ[её]нн\w+|беззащитн\w+|связанн\w+|лишн\w+|этого|эту|того|ту|этому|этой|тому|той|одного|одну|"
+            r"the|your|my|his|her|their|that|this|black|white|enemy|loose|hanging|undefended|unprotected)\s+){0,2}")
+_RU_OBJECT = re.compile(_B2 + r"(?:(?:на|по|за)\s+)?" + _OBJ_ADJ + rf"(?P<w>{_RU_OBJ})\s+(?:на\s+)?(?P<sq>{SQ})(?![0-9])")
+_EN_OBJECT = re.compile(
+    r"(?<![a-z])(?:attack\w*|hit\w*|tak\w+|captur\w+|win\w*|target\w*|threaten\w*|pin\w*|fork\w*|grab\w*|defend\w*|"
+    r"protect\w*|guard\w*)\s+" + _OBJ_ADJ + rf"(?P<w>knight|bishop|rook|queen|king|pawn)\s+on\s+(?P<sq>{SQ})(?![0-9])",
+    re.IGNORECASE)
+# The verbs a clause needs for its objects to be claims: of attack/threat (checked for an attacker), of capture,
+# defence, loss or exchange (checked for the piece only). Finite forms: «напади», «атакуй», «напасть» are plans.
+_ATTACK_FINITE = (r"бь[её]т|бьют|бь[её]шь|бь[её]те|напал\w*|напада(?:ет|ют|ешь|ете)|напад[её]т|нападут|атаку(?:ет|ют|ешь|ете)|"
+                  r"атаковал\w*|угрожа(?:ет|ют|ешь|ете)|угроз\w+|давит|давят|давишь|нацел\w+|"
+                  r"attacks|attacking|threatens|threatening|hits|hitting|targets|targeting")
+_OTHER_FINITE = (r"забира\w+|забер[её]\w*|бер[её]\w+|взять|взял\w*|съесть|съеда\w+|съел\w*|держит|держишь|держат|"
+                 r"защища\w+|прикрыва\w+|связыва\w+|связал\w*|связать|выигрыва\w+|выиграть|теря\w+|потеря\w+|"
+                 r"отда[её]\w+|отдать|разменя\w+|меня\w+|takes?|taking|captur\w+|wins?|defends?|protects?|guards?")
+_CAPTURE_VERB = re.compile(_B2 + r"(?:забира\w+|забер[её]\w*|бер[её]\w+|взять|взял\w*|съесть|съеда\w+|съел\w*|выигрыва\w+|выиграть|takes?|taking|captur\w+|wins?)" + _E, re.IGNORECASE)
+_ATTACK_IN_CLAUSE = re.compile(_B2 + "(?:" + _ATTACK_FINITE + ")" + _E, re.IGNORECASE)
+_OBJECT_VERB_IN_CLAUSE = re.compile(_B2 + "(?:" + _ATTACK_FINITE + "|" + _OTHER_FINITE + ")" + _E, re.IGNORECASE)
+_CLAUSE_SPLIT = re.compile(r"[;—–]|,\s*(?:а|но|однако|зато|хотя|поэтому|так\s+что|while|but|so|yet)\s", re.IGNORECASE)
+
+
+def _clauses(text: str) -> list[str]:
+    return [c for c in _CLAUSE_SPLIT.split(text) if c and c.strip()]
+
+
+# «Конь забирает пешку h7 с шахом, и это вилка: он бьёт короля f8 и коня f6»: from the clause that tells a move or a
+# capture on, the sentence is about the position after it — those clauses are not judged against the board as it is.
+_NARRATED_MOVE = re.compile(
+    _B2 + r"(?:забира\w+|забер[её]\w*|бер[её]т|бер[её]шь|берут|взял\w*|съеда\w+|съел\w*|ид[её]т|пойд[её]т|прыга\w+|прыгн\w+|"
+    r"вста[её]т|встан\w+|перевод\w+|отступ\w+|уход\w+|уйд[её]т|играет|сыграет|ходит|сходит|рокиру\w+|"
+    r"takes|captures|goes|jumps|lands|moves|retreats|castles)" + _E, re.IGNORECASE)
+
+
+def _clauses_about_now(text: str) -> list[str]:
+    out = []
+    for clause in _clauses(text):
+        if _NARRATED_MOVE.search(clause):
+            break
+        out.append(clause)
+    return out
+
+
+def _turn_boards(ctx: CheckContext) -> list:
+    """The boards of the turn a named piece may stand on — without the bare start position unless it is
+    the position in front of the student."""
+    if ctx.current is not None and ctx.current.board_fen() == chess.STARTING_BOARD_FEN:
+        return ctx.boards
+    return [b for b in ctx.boards if b.board_fen() != chess.STARTING_BOARD_FEN]
+
+
+def _objects(clause: str):
+    for m in _RU_OBJECT.finditer(clause):
+        yield m
+    for m in _EN_OBJECT.finditer(clause):
+        yield m
+
+
+# A clause that denies («никто не атакует», «не защищает») claims nothing; a clause whose SUBJECT piece is not on
+# the board («удар конём на f7: конь на f7 бьёт ферзя d8», "your rook on g1 hits the queen on h4") tells a line
+# the turn may not have — its objects are judged elsewhere, not against this board.
+_CLAUSE_NEG = re.compile(r"(?<![а-яa-z])(?:не|нет|ни|никто|ничто|никем|ничем|нельзя|not|n't|no|nobody|nothing|never|"
+                         r"neither)(?![а-яa-z])", re.IGNORECASE)
+_EN_OBJECT_BEFORE = re.compile(
+    r"(?:attack\w*|hit\w*|tak\w+|captur\w+|win\w*|target\w*|threaten\w*|pin\w*|fork\w*|grab\w*|defend\w*|protect\w*|"
+    r"guard\w*)\s+(?:(?:the|your|my|his|her|their|that|this|black|white|enemy|loose|hanging|undefended|unprotected)\s+){0,2}$",
+    re.IGNORECASE)
+_CLAUSE_SUBJECT = re.compile(
+    _B2 + rf"(?:(?P<ru>конь|слон|ладья|ферзь|король|пешка)\s+(?:на\s+)?(?P<a>{SQ})"
+    rf"|(?P<en>knight|bishop|rook|queen|king|pawn)\s+(?:on|at)\s+(?P<b>{SQ}))(?![0-9])", re.IGNORECASE)
+
+
+def _clause_judged_here(clause: str, ctx: CheckContext) -> bool:
+    if _CLAUSE_NEG.search(clause):
+        return False
+    for m in _CLAUSE_SUBJECT.finditer(clause):
+        if m["en"] and _EN_OBJECT_BEFORE.search(clause[: m.start()]):
+            continue  # "attacks the knight on c6": the object, not the subject
+        ptype = _piece_type((m["ru"] or m["en"]).lower())
+        sq = chess.parse_square((m["a"] or m["b"]).lower())
+        piece = ctx.current.piece_at(sq) if ctx.current is not None else None
+        if piece is None or (ptype is not None and piece.piece_type != ptype):
+            return False
+    return True
 
 
 def _object_ghost_issues(text: str, ctx: CheckContext) -> list[str]:
@@ -1295,19 +1374,77 @@ def _object_ghost_issues(text: str, ctx: CheckContext) -> list[str]:
         return []
     if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
         return []
-    for m in _OBJECT_GHOST.finditer(text):
-        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"])
-        if _NEGATION.search(text[max(0, m.start() - 12):m.start()]):
+    boards = _turn_boards(ctx)
+    for clause in _clauses_about_now(text):
+        if not _OBJECT_VERB_IN_CLAUSE.search(clause) or not _clause_judged_here(clause, ctx):
             continue
-        ptype = _piece_type(word)
-        if ptype is None:
+        for m in _objects(clause):
+            if _NEGATION.search(clause[max(0, m.start() - 12):m.start()]):
+                continue
+            ptype = _piece_type(m["w"])
+            if ptype is None:
+                continue
+            sq = chess.parse_square(m["sq"].lower())
+            if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in boards):
+                continue
+            there = ctx.current.piece_at(sq)
+            if there is not None and there.piece_type in _actors(clause):
+                continue  # «конь забирает пешку h7» with the knight now on h7: the capture just made, told
+            if there is None and _CAPTURE_VERB.search(clause) and not _ATTACK_IN_CLAUSE.search(clause):
+                continue  # «конь забирает пешку h7» with h7 empty: a capture of a line, not a claim about now
+            here = f"a {_NAMES[there.piece_type]} stands there" if there else "the square is empty"
+            return [f"there is no {_NAMES[ptype]} on {m['sq'].lower()} in this position ({here})"]
+    return []
+
+
+_ACTOR = re.compile(_B2 + r"(?P<p>конь|кон[её]м|слон|слоном|ладья|ладь[её]й|ферзь|ферз[её]м|король|корол[её]м|пешка|пешкой|"
+                    r"knight|bishop|rook|queen|king|pawn)" + _E, re.IGNORECASE)
+
+
+def _actors(clause: str) -> set:
+    """The kinds of piece named as acting in *clause* (nominative or instrumental; an English noun not right
+    after an object verb)."""
+    out = set()
+    for m in _ACTOR.finditer(clause):
+        if m["p"].isascii() and _EN_OBJECT_BEFORE.search(clause[: m.start()]):
             continue
-        sq = chess.parse_square(sq_name.lower())
-        if any((pc := b.piece_at(sq)) is not None and pc.piece_type == ptype for b in ctx.boards):
+        ptype = _piece_type(m["p"].lower())
+        if ptype is not None:
+            out.add(ptype)
+    return out
+
+
+def _unattacked_object_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
+    if ctx.current is None:
+        return []
+    if _DENIES.search(text):
+        return []
+    for clause in _clauses_about_now(text):
+        if not _ATTACK_IN_CLAUSE.search(clause) or not _clause_judged_here(clause, ctx):
             continue
-        there = ctx.current.piece_at(sq)
-        here = f"a {_NAMES[there.piece_type]} stands there" if there else "the square is empty"
-        return [f"there is no {_NAMES[ptype]} on {sq_name.lower()} in this position ({here})"]
+        for m in _objects(clause):
+            if _NEGATION.search(clause[max(0, m.start() - 12):m.start()]):
+                continue
+            at = text.find(clause)
+            upto = (at if at >= 0 else 0) + m.start()
+            if _is_hypothetical(text, original, upto):
+                continue  # «после Nb5 конь нападёт на пешку c7»: a line, judged on the derived boards elsewhere
+            if _SAN_IN_TEXT.search(_to_san(original[:upto])[0]):
+                continue  # «cxd4: пешка c5 … нападает на ферзя c3»: after the move written before it
+            ptype = _piece_type(m["w"])
+            if ptype is None:
+                continue
+            sq = chess.parse_square(m["sq"].lower())
+            piece = ctx.current.piece_at(sq)
+            if piece is None or piece.piece_type != ptype:
+                continue  # a ghost: _object_ghost_issues says so
+            if ctx.current.attackers(not piece.color, sq):
+                continue
+            if piece.piece_type == chess.PAWN and any(
+                    ctx.current.is_en_passant(mv) and mv.to_square + (-8 if ctx.current.turn == chess.WHITE else 8) == sq
+                    for mv in ctx.current.legal_moves):
+                continue  # the pawn that just passed: taken en passant
+            return [f"the {_NAMES[ptype]} on {m['sq'].lower()} is not attacked by anything in this position"]
     return []
 
 
@@ -2211,7 +2348,8 @@ def _fact_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
             + _not_defended_issues(text, original, ctx) + _eval_issues(text, original, ctx)
             + _side_piece_issues(text, original, ctx) + _side_move_issues(original, ctx)
             + (_ghost_issues(text, ctx) if not _is_hypothetical(text, original, 0, whole=True) else [])
-            + _object_ghost_issues(text, ctx) + _capture_chain_issues(text, ctx) + _solution_issues(text, original, ctx))
+            + _object_ghost_issues(text, ctx) + _capture_chain_issues(text, ctx) + _solution_issues(text, original, ctx)
+            + _unattacked_object_issues(text, original, ctx))
 
 
 # A sentence in the wrong language: the model answered a Russian question in
@@ -2576,7 +2714,7 @@ def _echoes_question(sentence: str, ctx: CheckContext) -> bool:
 
 # The coach says it made a move: «я ответил Кc6», «отвечаю e5», «мой ход — d5», "I play Nf6".
 _COACH_MOVE = re.compile(
-    r"(?:(?<![\w-])я\s+(?:тоже\s+|сразу\s+|просто\s+)?(?:отвечаю|ответил[аи]?|играю|сыграл[аи]?|пош[её]л|хожу|делаю\s+ход)"
+    r"(?:(?<![\w-])я\s+(?:тоже\s+|сразу\s+|просто\s+)?(?:отвечаю|ответил[аи]?|играю|сыграл[аи]?|пош[её]л|пойду|иду|хожу|с?делаю\s+ход)"
     r"|(?:^|[.!—–:]\s*)(?:отвечаю|ответил[аи]?)"
     r"|(?<![\w-])мой\s+(?:ответ|ход)\s*(?:[—–:-]|это|будет)?"
     r"|(?<![\w-])i\s+(?:play|played|answer|answered|reply|replied)"

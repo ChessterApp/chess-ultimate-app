@@ -431,6 +431,40 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     if body.session_id and board_actions:
         session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
         if session is not None:
+            # Arrows a piece cannot draw are dropped here as in the text turn (board_markup.prune_arrows): the
+            # voice model drew «the knight d4 attacks c4» on Alexander's phone (24.10) — the text path had the
+            # pruning since 01.10, the voice path returned the arrows as drawn.
+            board_actions, dropped = _prune_voice_arrows(board_actions, session.board_state)
+            if dropped and isinstance(parsed, dict):
+                parsed = {**parsed, "arrows_dropped": dropped,
+                          "arrows_note": "These arrows were NOT drawn — the piece on the square cannot move that way. "
+                                         "Do not describe them as attacks or threats."}
             _sync_session_board(session, board_actions)
 
     return {"result": parsed, "board_actions": board_actions}
+
+
+def _prune_voice_arrows(actions: list, fen: Optional[str]) -> tuple[list, list]:
+    """(the actions with impossible arrows removed, the arrows removed as 'd4c4: a knight cannot go there')."""
+    from src.board_markup import prune_arrows
+
+    kept, dropped = [], []
+    for action in actions:
+        if not isinstance(action, dict) or action.get("type") != "draw_arrows" or not fen:
+            kept.append(action)
+            continue
+        pruned = prune_arrows(action, fen)
+        left = {(a.get("from"), a.get("to")) for a in (pruned.get("arrows") or [])} if pruned else set()
+        try:
+            board = chess.Board(fen)
+        except ValueError:
+            board = None
+        for arrow in action.get("arrows") or []:
+            if (arrow.get("from"), arrow.get("to")) in left:
+                continue
+            piece = board.piece_at(chess.parse_square(str(arrow.get("from")))) if board else None
+            what = chess.piece_name(piece.piece_type) if piece else "piece"
+            dropped.append(f"{arrow.get('from')}{arrow.get('to')}: a {what} cannot go there")
+        if pruned:
+            kept.append(pruned)
+    return kept, dropped

@@ -50,6 +50,7 @@ from src.middleware.rate_limiter import (  # noqa: E402
     rate_limiter,
     voice_token_rate_limiter,
     voice_tool_rate_limiter,
+    voice_tts_rate_limiter,
     get_user_tier,
     DEFAULT_TIER,
 )
@@ -650,7 +651,7 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
-def _game_prestep(session, active_board, message: str) -> Optional[dict]:
+def _game_prestep(session, active_board, message: str, spoken: bool = False) -> Optional[dict]:
     """A game asked for, or the student's move written on its own in the game on the board
     (src/game_intent.py): started / played here, before the model answers — left to the model, it
     sometimes played by talking (stand, 2026-10-12). {"view", "block"} or None."""
@@ -721,6 +722,17 @@ def _game_prestep(session, active_board, message: str) -> Optional[dict]:
         facts += f" (a better move was {student['best']})"
     end = (f" The game is over: {view.get('result')} ({view.get('termination')})." if view.get("status") != "playing"
            else "")
+    if spoken:
+        # The voice pipeline has already read the moves out («е четыре. Отвечаю е пять.», 25.10): the model
+        # goes straight to the comment, or the student hears both moves twice.
+        said = f"{student.get('san')}" + (f", and your reply {engine}" if engine else "")
+        block = (
+            "## The student's move was played and ALREADY SAID ALOUD (the system did both)\n"
+            f"{facts}.{end} The student has just heard «{said}» from the system — do NOT repeat the moves. Start with "
+            "the comment itself: one or two short sentences as their coach in the game — a hint, never the best move "
+            "unless they ask. Do not call make_game_move for this move: it is played."
+        )
+        return {"view": view, "block": block}
     block = (
         "## The student's move was played on the board (the system played it)\n"
         f"{facts}.{end} Tell them the engine's reply in a sentence and comment as their coach in the game — a "
@@ -1410,6 +1422,9 @@ class CoachChatRequest(BaseModel):
     # One of the student's saved games (user_games.id) to review this turn — the daily plan's
     # «review my last game» card. The server loads it and finds its critical moments up front.
     review_game_id: Optional[str] = None
+    # The answer will be read aloud (the site's voice pipeline, 25.10): kept short, and a move the
+    # system has already said («е четыре. Отвечаю е пять.») is not restated.
+    speech: Optional[bool] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -1896,7 +1911,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     game_step = None
     if config.COACH_GAME_PRESTEP:
         try:
-            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message)
+            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message, bool(body.speech))
         except Exception:  # noqa: BLE001 — the model can still use the tools
             logger.warning("game pre-step failed", exc_info=True)
             game_step = None
@@ -2226,6 +2241,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
             turn_context = f"{turn_context}\n\n{moves_note}" if turn_context else moves_note
     except Exception:  # noqa: BLE001 — never block a turn on this
         logger.debug("moves-in-question block failed", exc_info=True)
+    if body.speech:
+        # The site's voice pipeline reads the answer aloud sentence by sentence, with a pause before the first
+        # (25.10): the point first and short, nothing a listener cannot follow.
+        spoken_note = (
+            "## Spoken answer\nThe student HEARS this answer read aloud, sentence by sentence, and waits for the first "
+            "one. First sentence: the point, in at most twelve words. Then at most three short sentences. No lists, "
+            "no headings, no markdown, no lines of moves longer than three moves; name a move by piece and square."
+        )
+        turn_context = f"{turn_context}\n\n{spoken_note}" if turn_context else spoken_note
     current_message = attach_turn_context(current_message, turn_context)
     # The blocks about the board the student sent — its state and analysis, the moves they named —
     # leave the model's later calls once a tool puts a different position up (_forget_old_board).
@@ -2233,9 +2257,15 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     if moves_note:
         turn_board_blocks.append(moves_note)
     if history_messages:
-        recent = history_messages[-20:]  # last ~10 turns
+        from src.conversation_digest import KEEP_MESSAGES, conversation_digest
+
+        recent = history_messages[-KEEP_MESSAGES:]  # last ~10 turns, in full
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
-        augmented_message = f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current_message}"
+        # The exchanges before those, one quoted line each (src/conversation_digest.py): a long session no
+        # longer forgets what was discussed fifteen turns back (the voice pipeline, 25.10).
+        digest = conversation_digest(history_messages, keep=KEEP_MESSAGES)
+        augmented_message = (f"{digest}\n\n" if digest else "") + \
+            f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current_message}"
     else:
         augmented_message = current_message
 
@@ -3784,11 +3814,17 @@ class VoiceEngineNoteRequest(BaseModel):
     session_id: Optional[str] = None  # the game or the puzzle on the board come from the session
 
 
+class VoiceTtsRequest(BaseModel):
+    text: str                      # one chunk of the coach's answer, to read aloud
+    locale: Optional[str] = None   # ru | kk | en — the model and voice are chosen by it
+
+
 class VoiceCheckRequest(BaseModel):
     text: str                      # what the coach just said (its output transcription)
     fen: SiteFen = None            # the board at the time
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
     question: Optional[str] = None  # the student's words (moves it quoted are not claims)
+    session_id: Optional[str] = None  # the coach session: in a game, «я пойду d3» must be the engine's move (25.10)
 
 
 class VoiceIdeaRequest(BaseModel):
@@ -3979,6 +4015,18 @@ def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Opti
     return note
 
 
+@app.post("/api/coach/voice/tts")
+async def coach_voice_tts(body: VoiceTtsRequest, request: Request):
+    """One chunk of the coach's answer read aloud for the site's voice pipeline (src/voice_tts.py): raw
+    16-bit PCM streamed back, the sample rate in X-Sample-Rate. The site proxies here with the student's
+    id; the OpenRouter key stays on this server (25.10)."""
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tts_rate_limiter)
+    from src.voice_tts import speak
+
+    return await speak(body.text, body.locale)
+
+
 @app.post("/api/coach/voice/check")
 async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     """Check a sentence the voice coach said against the board (src/answer_check.py).
@@ -3989,7 +4037,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     model to correct itself aloud. Returns {"issues": [...]} — empty when
     nothing checkable is wrong.
     """
-    _get_user_id(request)
+    user_id = _get_user_id(request)
     await enforce_rate_limit(request, limiter=voice_tool_rate_limiter)
     from src.answer_check import CheckContext, check_sentence
 
@@ -4011,7 +4059,24 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
         spoken = _spoken_language(body.question)
         if spoken in ("ru", "kk"):
             ctx.language = spoken  # an answer in Latin letters to a Russian question is read back
-        issues = check_sentence(body.text[:1000], ctx)
+        if body.session_id:
+            # The game on the board: the coach's moves are the engine's — «я пойду d3» with no such move is read
+            # back (Alexander's phone, 25.10: the model narrated moves the engine never made).
+            try:
+                from src.tools.game_play import live_game_board
+
+                game_session = session_store.get(body.session_id, user_id)
+                live = live_game_board(game_session) if game_session is not None else None
+                if live is not None and live.game_state:
+                    ctx.game_engine_moves = _engine_moves(live.game_state)
+                    ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
+            except Exception:  # noqa: BLE001 — the check still runs without the game
+                pass
+        # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to
+        # the check (src/game_intent.spoken_squares; Alexander's phone, 24.10).
+        from src.game_intent import spoken_squares
+
+        issues = check_sentence(spoken_squares(body.text[:1000]), ctx)
         if issues or not body.fen or not config.COACH_MOVE_VERIFY:
             return issues
         # The coach's recommendation («сыграй Rg1») against the engine, as in the

@@ -53,6 +53,21 @@ def _plies(pgn: Optional[str]) -> int:
         return 0
 
 
+# «Ну, с шесть», «я пойду конь за шесть»: the words are one move, once the fillers in front are dropped — the
+# text path's move_attempt (src/game_intent.py), so a question about a square or «ладно» is never read as one.
+_MOVE_LEAD = re.compile(r"^(?:(?:ну|так|хорошо|ладно|давай|тогда|я|пойду|хожу|сыграю|играю|ход|ставлю|мой|пожалуй|наверное|"
+                        r"может|быть|эм|ээ|ok|okay|i|play|go|let's|lets|move)\s+)+", re.IGNORECASE)
+
+
+def _looks_like_a_move(text: str) -> bool:
+    from src.game_intent import move_attempt
+    from src.move_text import spoken_squares
+
+    t = spoken_squares((text or "").strip().rstrip(".!?"))
+    t = re.sub(r"\s+", " ", re.sub(r"[,—–-]+", " ", t)).strip()
+    return move_attempt(_MOVE_LEAD.sub("", t))
+
+
 def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = None,
                 live_game: bool = False, finished_game: bool = False, puzzle_on_board: bool = False,
                 puzzle_queue: bool = False) -> dict:
@@ -97,6 +112,10 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
                 return {"kind": "idea", "moves": [m["san"] for m in named]} if named else {"kind": "none"}
             if len(t.split()) <= 8:
                 san = one_move(t, board)
+                if not san and _looks_like_a_move(t):
+                    # «с шесть», «конь за шесть» that no reading turns into a legal move: say so, do not pretend
+                    # (Alexander's phone, 25.10 — the model answered «отличный ход» to nothing).
+                    return {"kind": "unclear_move", "text": t}
                 if san:
                     return {"kind": "move", "san": san}
         return {"kind": "none"}  # the board is the game's: no example, no puzzle goes up
