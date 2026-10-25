@@ -88,6 +88,10 @@ export function groupChunks(sentences: string[], final = false, minChars = MIN_C
 
 /** A chunk longer than this is read in parts split at commas, dashes or colons: one long call took 8.6 s. */
 export const MAX_CHUNK_CHARS = 150;
+/** The first chunk of an answer is shorter still: OpenRouter answers a chunk whole, so its length is the wait. */
+export const FIRST_CHUNK_MAX_CHARS = 90;
+/** Chunks fetched ahead at once while the earlier ones play. */
+export const TTS_IN_FLIGHT = 2;
 
 export function splitLong(chunk: string, maxChars = MAX_CHUNK_CHARS): string[] {
   const out: string[] = [];

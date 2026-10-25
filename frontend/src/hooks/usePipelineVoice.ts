@@ -14,8 +14,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, fillerFor, groupChunks, localeOf, newWords, rotationDue, speakable, splitLong,
-  takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
+  FIRST_CHUNK_MAX_CHARS, STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, TTS_BLOCK_MS, TTS_IN_FLIGHT, fillerFor, groupChunks, localeOf, newWords,
+  rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 
 export type VoiceMode = 'live' | 'pipeline';
@@ -66,13 +66,24 @@ const BARGE_IN_RMS = 0.05;
 const BARGE_IN_SUSTAIN_MS = 250;
 const TICK_MS = 100;
 
+/** One chunk of the answer on its way to the speaker: fetched ahead (TTS_IN_FLIGHT at a time), played in order. */
+interface Piece {
+  text: string;
+  locale: PipelineLocale;
+  parts: Int16Array[];
+  played: number;     // parts already handed to playback
+  started: boolean;
+  done: boolean;
+}
+
 interface Turn {
   id: number;
   controller: AbortController;
   buffer: string;
   waiting: string[];  // short sentences held for the next one (groupChunks)
   quiet: boolean;      // the quick reaction streams: not read aloud (the filler stands for it)
-  chain: Promise<void>;
+  pieces: Piece[];     // the chunks queued for reading, in order; a piece leaves once it is played out
+  firstQueued: boolean;  // the first chunk went alone and short, for the earliest first word
   spokenAnswer: boolean;
   done: boolean;
 }
@@ -165,7 +176,8 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     onFirst?.();
     src.onended = () => {
       playSourcesRef.current.delete(src);
-      if (playSourcesRef.current.size === 0 && statusRef.current === 'speaking' && (turnRef.current?.done ?? true)) {
+      const turn = turnRef.current;
+      if (playSourcesRef.current.size === 0 && statusRef.current === 'speaking' && (!turn || (turn.done && turn.pieces.length === 0))) {
         setStatus('listening');
       }
     };
@@ -183,15 +195,42 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   }, [stopSources, setStatus]);
 
   // ── the answer, read aloud ────────────────────────────────────────────────
-  const speakSentence = useCallback(async (turn: Turn, sentence: string, locale: PipelineLocale) => {
-    const text = speakable(sentence);
-    if (!text || turn.controller.signal.aborted) return;
+  // The pieces of a turn are fetched ahead, TTS_IN_FLIGHT at a time (OpenRouter answers a chunk whole, ~3 s
+  // for a short one, 25.10), and played strictly in order: the head piece's parts go to the speaker as they
+  // come, the next piece waits its turn with its audio already in hand.
+  const drainRef = useRef<(turn: Turn) => void>(() => {});
+  const startFetchesRef = useRef<(turn: Turn) => void>(() => {});
+
+  const drain = useCallback((turn: Turn) => {
+    if (turnRef.current !== turn || turn.controller.signal.aborted) return;
+    while (turn.pieces.length) {
+      const head = turn.pieces[0];
+      for (; head.played < head.parts.length; head.played++) {
+        enqueue(head.parts[head.played], () => {
+          if (!turn.spokenAnswer) {
+            turn.spokenAnswer = true;
+            const end = speechEndAtRef.current;
+            if (end !== null) setTimings((t) => ({ ...t, firstAnswerMs: Math.round(performance.now() - end) }));
+          }
+        });
+      }
+      if (!head.done) break;
+      turn.pieces.shift();
+    }
+    if (turn.done && turn.pieces.length === 0 && playSourcesRef.current.size === 0 && statusRef.current === 'speaking') setStatus('listening');
+  }, [enqueue, setStatus]);
+  drainRef.current = drain;
+
+  const fetchPiece = useCallback(async (turn: Turn, piece: Piece) => {
+    piece.started = true;
+    const text = speakable(piece.text);
     try {
+      if (!text || turn.controller.signal.aborted) return;
       const call = () => fetch('/api/coach/voice/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text, locale }),
+        body: JSON.stringify({ text, locale: piece.locale }),
         signal: turn.controller.signal,
       });
       const blocked = performance.now() < ttsBlockedUntilRef.current;
@@ -204,7 +243,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         // left unread anyway, the next ones get one try each for a minute (TTS_BLOCK_MS).
         const delay = blocked ? null : ttsRetryDelay(res.status, attempt, waited);
         if (delay === null) {
-          if (res.status === 429 || res.status >= 500) {
+          if (res.status === 429 || res.status === 402 || res.status >= 500) {
             ttsBlockedUntilRef.current = performance.now() + TTS_BLOCK_MS;
             setTtsState(res.status === 429 ? 'quota' : 'down');
           }
@@ -228,19 +267,29 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         if (carry) { const merged = new Uint8Array(carry.length + bytes.length); merged.set(carry); merged.set(bytes, carry.length); bytes = merged; carry = null; }
         const even = bytes.length - (bytes.length % 2);
         if (even < bytes.length) carry = bytes.slice(even);
-        const int16 = new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + even));
-        enqueue(int16, () => {
-          if (!turn.spokenAnswer) {
-            turn.spokenAnswer = true;
-            const end = speechEndAtRef.current;
-            if (end !== null) setTimings((t) => ({ ...t, firstAnswerMs: Math.round(performance.now() - end) }));
-          }
-        });
+        if (even > 0) {
+          piece.parts.push(new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + even)));
+          drainRef.current(turn);
+        }
       }
     } catch {
       /* aborted by a barge-in, or the TTS is down: the text is on the screen anyway */
+    } finally {
+      piece.done = true;
+      drainRef.current(turn);
+      startFetchesRef.current(turn);
     }
-  }, [enqueue]);
+  }, []);
+
+  const startFetches = useCallback((turn: Turn) => {
+    if (turnRef.current !== turn || turn.controller.signal.aborted) return;
+    let inFlight = turn.pieces.filter((p) => p.started && !p.done).length;
+    for (const piece of turn.pieces) {
+      if (inFlight >= TTS_IN_FLIGHT) break;
+      if (!piece.started) { inFlight += 1; void fetchPiece(turn, piece); }
+    }
+  }, [fetchPiece]);
+  startFetchesRef.current = startFetches;
 
   const feedFrame = useCallback((frame: PipelineFrame) => {
     const turn = turnRef.current;
@@ -251,18 +300,31 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const locale = localeOf(turn.buffer || turn.waiting.join(' '), (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
     const { sentences, rest } = takeSentences(turn.buffer, !!frame.done);
     turn.buffer = rest;
-    const { chunks, waiting } = groupChunks([...turn.waiting, ...sentences], !!frame.done);
-    turn.waiting = waiting;
-    for (const s of chunks.flatMap((c) => splitLong(c))) {
-      turn.chain = turn.chain.then(() => speakSentence(turn, s, locale));
+    const all = [...turn.waiting, ...sentences];
+    let chunks: string[];
+    let waiting: string[];
+    if (!turn.firstQueued && all.length) {
+      // The first sentence goes alone and short: the first word of the answer as early as the TTS allows.
+      const [head, ...tail] = all;
+      const grouped = groupChunks(tail, !!frame.done);
+      chunks = [...splitLong(head, FIRST_CHUNK_MAX_CHARS), ...grouped.chunks.flatMap((c) => splitLong(c))];
+      waiting = grouped.waiting;
+    } else {
+      const grouped = groupChunks(all, !!frame.done);
+      chunks = grouped.chunks.flatMap((c) => splitLong(c));
+      waiting = grouped.waiting;
     }
+    turn.waiting = waiting;
+    for (const text of chunks) {
+      turn.pieces.push({ text, locale, parts: [], played: 0, started: false, done: false });
+      turn.firstQueued = true;
+    }
+    startFetches(turn);
     if (frame.done) {
       turn.done = true;
-      void turn.chain.then(() => {
-        if (turnRef.current === turn && playSourcesRef.current.size === 0) setStatus('listening');
-      });
+      drain(turn);
     }
-  }, [speakSentence, setStatus]);
+  }, [startFetches, drain]);
 
   const playFiller = useCallback(async (turn: Turn, locale: PipelineLocale) => {
     const path = fillerFor(locale);
@@ -290,7 +352,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const previous = turnRef.current;
     if (previous) { previous.controller.abort(); previous.done = true; }
     stopSources();
-    const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', waiting: [], quiet: false, chain: Promise.resolve(), spokenAnswer: false, done: false };
+    const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', waiting: [], quiet: false, pieces: [], firstQueued: false, spokenAnswer: false, done: false };
     turnRef.current = turn;
     const end = speechEndAtRef.current;
     setTimings({ sttMs: end !== null ? Math.round(performance.now() - end) : null, firstSoundMs: null, firstAnswerMs: null });
