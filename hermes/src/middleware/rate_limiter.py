@@ -101,6 +101,15 @@ VOICE_TOOL_TIER_LIMITS = {
 }
 voice_tool_rate_limiter = SlidingWindowRateLimiter(tier_limits=VOICE_TOOL_TIER_LIMITS)
 
+# The voice pipeline's reading (src/voice_tts.py): a chunk of the answer per call, three to five per
+# answer, so the window holds a long conversation (25.10).
+VOICE_TTS_TIER_LIMITS = {
+    "free": 300,
+    "premium": 600,
+    "pro": 1500,
+}
+voice_tts_rate_limiter = SlidingWindowRateLimiter(tier_limits=VOICE_TTS_TIER_LIMITS)
+
 # Live-token minting: cap how many voice sessions a user can spawn per hour by
 # tier so sessions can't be created unboundedly (each mint opens a billable
 # Gemini Live channel). Longer window, small per-tier counts.

@@ -50,6 +50,7 @@ from src.middleware.rate_limiter import (  # noqa: E402
     rate_limiter,
     voice_token_rate_limiter,
     voice_tool_rate_limiter,
+    voice_tts_rate_limiter,
     get_user_tier,
     DEFAULT_TIER,
 )
@@ -3813,6 +3814,11 @@ class VoiceEngineNoteRequest(BaseModel):
     session_id: Optional[str] = None  # the game or the puzzle on the board come from the session
 
 
+class VoiceTtsRequest(BaseModel):
+    text: str                      # one chunk of the coach's answer, to read aloud
+    locale: Optional[str] = None   # ru | kk | en — the model and voice are chosen by it
+
+
 class VoiceCheckRequest(BaseModel):
     text: str                      # what the coach just said (its output transcription)
     fen: SiteFen = None            # the board at the time
@@ -4007,6 +4013,18 @@ def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Opti
             note["note"] = note["note"] + " " + puzzle.replace("\n", " ")
             note["kind"] = "puzzle"
     return note
+
+
+@app.post("/api/coach/voice/tts")
+async def coach_voice_tts(body: VoiceTtsRequest, request: Request):
+    """One chunk of the coach's answer read aloud for the site's voice pipeline (src/voice_tts.py): raw
+    16-bit PCM streamed back, the sample rate in X-Sample-Rate. The site proxies here with the student's
+    id; the OpenRouter key stays on this server (25.10)."""
+    _get_user_id(request)
+    await enforce_rate_limit(request, limiter=voice_tts_rate_limiter)
+    from src.voice_tts import speak
+
+    return await speak(body.text, body.locale)
 
 
 @app.post("/api/coach/voice/check")
