@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  fillerFor, groupChunks, localeOf, newWords, speakable, takeSentences, utteranceReady,
+  fillerFor, groupChunks, localeOf, newWords, speakable, splitLong, takeSentences, utteranceReady,
   SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS,
 } from '../voice-pipeline';
 
@@ -56,5 +56,14 @@ describe('voice pipeline helpers', () => {
     expect(groupChunks(['Отлично, играем!', 'Ты белыми, ход твой.', long])).toEqual({ chunks: [`Отлично, играем! Ты белыми, ход твой. ${long}`], waiting: [] });
     expect(groupChunks(['Жду ход.'], true)).toEqual({ chunks: ['Жду ход.'], waiting: [] });
     expect(groupChunks([long, 'Жду.'], false)).toEqual({ chunks: [long], waiting: ['Жду.'] });
+  });
+
+  it('reads a long chunk in parts split at commas, never mid-word', () => {
+    const long = 'Беру задачу на связку, сначала посмотрю позицию на доске: вот твоя программа, ступень один, урок «Связка», и в нём как раз показано, как устроена связка и как её использовать в партии.';
+    const parts = splitLong(long, 80);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.length <= 80)).toBe(true);
+    expect(parts.join(' ').replace(/\s+/g, ' ')).toBe(long.replace(/[,:]/g, (m) => m).replace(/\s+/g, ' '));
+    expect(splitLong('Короткая фраза.')).toEqual(['Короткая фраза.']);
   });
 });

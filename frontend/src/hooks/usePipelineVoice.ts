@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  fillerFor, groupChunks, localeOf, newWords, speakable, takeSentences, utteranceReady, type PipelineLocale,
+  fillerFor, groupChunks, localeOf, newWords, speakable, splitLong, takeSentences, utteranceReady, type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 
 export type VoiceMode = 'live' | 'pipeline';
@@ -225,7 +225,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     turn.buffer = rest;
     const { chunks, waiting } = groupChunks([...turn.waiting, ...sentences], !!frame.done);
     turn.waiting = waiting;
-    for (const s of chunks) {
+    for (const s of chunks.flatMap((c) => splitLong(c))) {
       turn.chain = turn.chain.then(() => speakSentence(turn, s, locale));
     }
     if (frame.done) {

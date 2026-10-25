@@ -86,6 +86,25 @@ export function groupChunks(sentences: string[], final = false, minChars = MIN_C
   return { chunks, waiting: current };
 }
 
+/** A chunk longer than this is read in parts split at commas, dashes or colons: one long call took 8.6 s. */
+export const MAX_CHUNK_CHARS = 150;
+
+export function splitLong(chunk: string, maxChars = MAX_CHUNK_CHARS): string[] {
+  const out: string[] = [];
+  let rest = chunk.trim();
+  while (rest.length > maxChars) {
+    const window = rest.slice(0, maxChars);
+    let cut = Math.max(window.lastIndexOf(', '), window.lastIndexOf('; '), window.lastIndexOf(': '), window.lastIndexOf(' — '), window.lastIndexOf(' – '));
+    if (cut < maxChars / 3) cut = window.lastIndexOf(' ');
+    if (cut <= 0) break;
+    const sep = rest[cut] === ' ' ? 1 : (rest.slice(cut, cut + 3) === ' — ' || rest.slice(cut, cut + 3) === ' – ' ? 3 : 2);
+    out.push(rest.slice(0, cut + (sep === 1 ? 0 : 1)).trim());
+    rest = rest.slice(cut + sep).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
 /**
  * Whether the transcript heard so far is the student's whole utterance: speech energy stopped
  * SILENCE_MS ago, and the text has not changed for STT_STABLE_MS (with a terminal mark) or
