@@ -2335,7 +2335,8 @@
     "animationOff": "выкл",
     "animationFast": "быстро",
     "animationNormal": "обычно",
-    "animationSlow": "медленно"
+    "animationSlow": "медленно",
+    "gameNav": "Ходы партии"
   },
   "gameEnd": {
     "winTitle": "Мат! Ты победил!",

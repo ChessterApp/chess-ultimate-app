@@ -2335,7 +2335,8 @@
     "animationOff": "өшірулі",
     "animationFast": "жылдам",
     "animationNormal": "қалыпты",
-    "animationSlow": "баяу"
+    "animationSlow": "баяу",
+    "gameNav": "Ойын жүрістері"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

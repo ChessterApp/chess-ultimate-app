@@ -2335,7 +2335,8 @@
     "animationOff": "off",
     "animationFast": "fast",
     "animationNormal": "normal",
-    "animationSlow": "slow"
+    "animationSlow": "slow",
+    "gameNav": "Game moves"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

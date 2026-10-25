@@ -968,6 +968,15 @@ export default function CoachPage() {
       setAnimationMs(ms);
       try { window.localStorage.setItem(ANIMATION_KEY, String(ms)); } catch { /* storage may be blocked */ }
     },
+    // Browsing the game's record (item 8): the board's own history, loaded from the game's PGN.
+    nav: {
+      index: Math.max(0, board.moveIndex),
+      total: Math.max(0, board.fens.length - 1),
+      onFirst: board.firstMove,
+      onPrev: board.prevMove,
+      onNext: board.nextMove,
+      onLast: board.lastMove,
+    },
   };
 
   const puzzleFlow = onPuzzle && board.puzzleState && (
