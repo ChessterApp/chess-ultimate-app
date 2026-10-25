@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  fillerFor, groupChunks, localeOf, newWords, speakable, splitLong, takeSentences, utteranceReady,
-  SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS,
+  fillerFor, groupChunks, localeOf, newWords, rotationDue, speakable, splitLong, takeSentences, ttsRetryDelay, utteranceReady,
+  SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS, STT_ROTATE_MS, STT_ROTATE_HARD_MS, STT_QUIET_MS, TTS_WAIT_MAX_MS,
 } from '../voice-pipeline';
 
 describe('voice pipeline helpers', () => {
@@ -65,5 +65,46 @@ describe('voice pipeline helpers', () => {
     expect(parts.every((p) => p.length <= 80)).toBe(true);
     expect(parts.join(' ').replace(/\s+/g, ' ')).toBe(long.replace(/[,:]/g, (m) => m).replace(/\s+/g, ' '));
     expect(splitLong('Короткая фраза.')).toEqual(['Короткая фраза.']);
+  });
+});
+
+describe('the transcription connection over a long session (25.10)', () => {
+  const opened = 100_000;
+
+  it('is swapped in a quiet moment once it is seven minutes old, never while the student talks or words wait', () => {
+    const t = opened + STT_ROTATE_MS;
+    expect(rotationDue(t - 1000, opened, null, false)).toBeNull();                       // too young
+    expect(rotationDue(t, opened, null, false)).toBe('soft');                             // quiet, nothing unsent
+    expect(rotationDue(t, opened, t - STT_QUIET_MS + 100, false)).toBeNull();             // still talking
+    expect(rotationDue(t, opened, t - STT_QUIET_MS - 100, false)).toBe('soft');
+    expect(rotationDue(t, opened, null, true)).toBeNull();                                // words not yet sent
+  });
+
+  it('is swapped as soon as the server says goAway, in the next quiet moment', () => {
+    expect(rotationDue(opened + 60_000, opened, null, false, true)).toBe('soft');
+    expect(rotationDue(opened + 60_000, opened, opened + 59_500, false, true)).toBeNull();
+  });
+
+  it('is swapped regardless once it is nine minutes old', () => {
+    const t = opened + STT_ROTATE_HARD_MS;
+    expect(rotationDue(t, opened, t - 100, true)).toBe('hard');
+  });
+});
+
+describe('a TTS call that failed (25.10)', () => {
+  it('waits out the quota, longer each time, and never past the cap', () => {
+    expect(ttsRetryDelay(429, 0, 0)).toBe(1000);
+    expect(ttsRetryDelay(429, 1, 1000)).toBe(2000);
+    expect(ttsRetryDelay(429, 3, 7000)).toBe(8000);
+    expect(ttsRetryDelay(429, 6, 31_000)).toBe(8000);
+    expect(ttsRetryDelay(429, 7, TTS_WAIT_MAX_MS)).toBeNull();
+  });
+
+  it('gives a blip a second, three times, and gives up on anything else', () => {
+    expect(ttsRetryDelay(502, 0, 0)).toBe(1000);
+    expect(ttsRetryDelay(503, 2, 2000)).toBe(1000);
+    expect(ttsRetryDelay(502, 3, 3000)).toBeNull();
+    expect(ttsRetryDelay(400, 0, 0)).toBeNull();
+    expect(ttsRetryDelay(401, 0, 0)).toBeNull();
   });
 });

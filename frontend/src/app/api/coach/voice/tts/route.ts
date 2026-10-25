@@ -50,7 +50,11 @@ export async function POST(request: Request) {
   if (!upstream.ok || !upstream.body) {
     const detail = await upstream.text().catch(() => '');
     console.warn('[voice/tts] upstream', upstream.status, detail.slice(0, 200));
-    return Response.json({ error: `TTS failed: ${upstream.status}` }, { status: 502 });
+    // The minute's quota (429) is told apart from a failure: the browser waits it out and reads the
+    // chunk in its turn instead of dropping it (25.10).
+    const status = upstream.status === 429 ? 429 : 502;
+    const retryAfter = upstream.headers.get('retry-after');
+    return Response.json({ error: `TTS failed: ${upstream.status}` }, { status, headers: retryAfter ? { 'Retry-After': retryAfter } : undefined });
   }
 
   // The SSE frames carry base64 audio parts; only the bytes go to the browser.

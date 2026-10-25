@@ -159,3 +159,40 @@ export function fillerFor(locale: PipelineLocale, pick: number = Math.random()):
   const list = FILLERS[locale] ?? FILLERS.ru;
   return list[Math.min(list.length - 1, Math.floor(pick * list.length))];
 }
+
+// ── the transcription connection's lifetime (25.10) ─────────────────────────
+// A Live connection lives about ten minutes. Rather than letting it drop mid-sentence, a fresh one is
+// opened and takes over in a quiet moment after STT_ROTATE_MS, or as soon as the server says goAway;
+// no later than STT_ROTATE_HARD_MS even while the student talks (the words heard so far go first).
+export const STT_ROTATE_MS = 7 * 60 * 1000;
+export const STT_ROTATE_HARD_MS = 9 * 60 * 1000;
+export const STT_QUIET_MS = 1500;
+export const STT_ROTATE_RETRY_MS = 30 * 1000;
+/** After an unexpected drop: a new connection, these pauses before each try; then the microphone stops with a message. */
+export const STT_RECONNECT_DELAYS_MS = [300, 1000, 2500];
+
+export function rotationDue(
+  now: number,
+  openedAt: number,
+  lastSpeechAt: number | null,
+  unsent: boolean,
+  goAway = false,
+): 'soft' | 'hard' | null {
+  const age = now - openedAt;
+  if (age >= STT_ROTATE_HARD_MS) return 'hard';
+  const quiet = (lastSpeechAt === null || now - lastSpeechAt >= STT_QUIET_MS) && !unsent;
+  if ((age >= STT_ROTATE_MS || goAway) && quiet) return 'soft';
+  return null;
+}
+
+// ── a TTS call that failed ────────────────────────────────────────────────────
+/** The minute's quota (429) is waited out, up to this long per chunk, so no sentence is dropped from the reading. */
+export const TTS_WAIT_MAX_MS = 45_000;
+
+/** How long to wait before trying the chunk again, or null to leave it unread (the text is on the screen). */
+export function ttsRetryDelay(status: number, attempt: number, waitedMs: number): number | null {
+  if (waitedMs >= TTS_WAIT_MAX_MS) return null;
+  if (status === 429) return Math.min(8000, 1000 * 2 ** attempt);  // 1, 2, 4, 8, 8… seconds
+  if (status >= 500) return attempt < 3 ? 1000 : null;             // a blip: a second, three times
+  return null;
+}

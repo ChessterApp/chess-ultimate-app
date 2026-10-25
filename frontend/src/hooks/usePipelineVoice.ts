@@ -14,7 +14,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  fillerFor, groupChunks, localeOf, newWords, speakable, splitLong, takeSentences, utteranceReady, type PipelineLocale,
+  STT_RECONNECT_DELAYS_MS, STT_ROTATE_RETRY_MS, fillerFor, groupChunks, localeOf, newWords, rotationDue, speakable, splitLong,
+  takeSentences, ttsRetryDelay, utteranceReady, type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 
 export type VoiceMode = 'live' | 'pipeline';
@@ -106,6 +107,12 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const sessionRef = useRef<LiveSessionLike | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The transcription connection lives about ten minutes: when this one was opened, whether the server
+  // said goAway, and whether a fresh one is being opened to take over (rotationDue, 25.10).
+  const openedAtRef = useRef(0);
+  const goAwayRef = useRef(false);
+  const rotatingRef = useRef(false);
+  const rotateRef = useRef<(reason: 'soft' | 'hard') => void>(() => {});
 
   // The transcript as the model keeps it, and what of it was already sent.
   const transcriptRef = useRef('');
@@ -184,13 +191,21 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         signal: turn.controller.signal,
       });
       let res = await call();
-      if (!res.ok) {
-        // A moment's quota (429 behind the 502) or a blip: once more after a pause, then the text stands alone.
-        await new Promise((r) => setTimeout(r, 800));
+      let attempt = 0;
+      let waited = 0;
+      while (!res.ok) {
+        // The minute's quota (429) is waited out and the chunk is read in its turn — no sentence is
+        // dropped from the reading (25.10); a blip (5xx) gets a second, three times.
+        const delay = ttsRetryDelay(res.status, attempt, waited);
+        if (delay === null) return;  // the text stands alone on the screen
+        console.warn('[pipeline] tts', res.status, 'waiting', delay, 'ms');
+        attempt += 1;
+        waited += delay;
+        await new Promise((r) => setTimeout(r, delay));
         if (turn.controller.signal.aborted) return;
         res = await call();
       }
-      if (!res.ok || !res.body) return;
+      if (!res.body) return;
       const reader = res.body.getReader();
       let carry: Uint8Array | null = null;
       for (;;) {
@@ -281,6 +296,10 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   const tick = useCallback(() => {
     const now = performance.now();
     const transcript = transcriptRef.current;
+    if (sessionRef.current && !rotatingRef.current) {
+      const due = rotationDue(now, openedAtRef.current, lastSpeechAtRef.current, newWords(transcript, baselineRef.current) !== '', goAwayRef.current);
+      if (due) rotateRef.current(due);
+    }
     if (!utteranceReady(transcript, now, lastChangeAtRef.current, lastSpeechAtRef.current)) return;
     const words = newWords(transcript, baselineRef.current);
     baselineRef.current = transcript;
@@ -338,25 +357,28 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     }
   }, [acquireMedia, fail]);
 
-  const connect = useCallback(async () => {
-    if (sessionRef.current) return;
-    setError(null);
-    setStatus('connecting');
-    try {
-      await acquireMedia();
-      const res = await fetch('/api/coach/live-token', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ mode: 'stt', locale: optionsRef.current.locale?.() || 'ru' }),
-      });
-      if (!res.ok) throw new Error(`token ${res.status}`);
-      const { token, model, transcription } = (await res.json()) as { token: string; model: string; transcription?: Record<string, unknown> };
-      const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
-      const session = (await ai.live.connect({
+  // One transcription connection: a fresh token (each is for one connection), the Live model that only
+  // transcribes, and the callbacks that act only while this connection is the current one.
+  const openStt = useCallback(async (): Promise<LiveSessionLike> => {
+    const res = await fetch('/api/coach/live-token', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ mode: 'stt', locale: optionsRef.current.locale?.() || 'ru' }),
+    });
+    if (!res.ok) throw new Error(`token ${res.status}`);
+    const { token, model, transcription } = (await res.json()) as { token: string; model: string; transcription?: Record<string, unknown> };
+    const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
+    const holder: { s: LiveSessionLike | null } = { s: null };
+    const session = (await ai.live.connect({
         model,
         config: { inputAudioTranscription: transcription ?? {} } as never,
         callbacks: {
           onopen: () => { /* connected */ },
           onmessage: (m: unknown) => {
+            if (holder.s && sessionRef.current !== holder.s) return;  // an old connection on its way out
+            if ((m as { goAway?: unknown }).goAway) {
+              goAwayRef.current = true;  // the server will close this connection soon: a fresh one takes over in a quiet moment
+              console.info('[pipeline] stt goAway');
+            }
             const sc = (m as { serverContent?: Record<string, unknown> }).serverContent;
             if (!sc) return;
             const interim = (sc.interimInputTranscription as { text?: string } | undefined)?.text;
@@ -382,10 +404,80 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
             }
           },
           onerror: (e: unknown) => console.warn('[pipeline] stt error', e),
-          onclose: () => { if (sessionRef.current) { sessionRef.current = null; if (statusRef.current !== 'idle') fail('Соединение прервалось — нажмите микрофон ещё раз'); } },
+          onclose: () => {
+            if (!holder.s || sessionRef.current !== holder.s) return;  // closed on purpose (a swap, or the stop)
+            sessionRef.current = null;
+            if (statusRef.current !== 'idle' && tickRef.current) void reconnectRef.current();
+          },
         },
       })) as unknown as LiveSessionLike;
-      sessionRef.current = session;
+    holder.s = session;
+    openedAtRef.current = performance.now();
+    goAwayRef.current = false;
+    return session;
+  }, [endTurn]);
+
+  // A fresh connection takes over before this one's lifetime ends: opened first, swapped in, the old one
+  // closed. «hard» (overdue, the student still talking): the words heard so far go to the coach first.
+  const rotate = useCallback(async (reason: 'soft' | 'hard') => {
+    if (rotatingRef.current || !sessionRef.current) return;
+    rotatingRef.current = true;
+    try {
+      const fresh = await openStt();
+      const old = sessionRef.current;
+      if (!tickRef.current || !old) { try { fresh.close(); } catch { /* fine */ } return; }
+      if (reason === 'hard') {
+        const words = newWords(transcriptRef.current, baselineRef.current);
+        if (words) sendUtteranceRef.current(words);
+      }
+      transcriptRef.current = '';
+      baselineRef.current = '';
+      sessionRef.current = fresh;
+      try { old.close(); } catch { /* fine */ }
+      console.info('[pipeline] stt connection rotated', reason);
+    } catch (err) {
+      console.warn('[pipeline] stt rotation failed, trying again later', err);
+      openedAtRef.current += STT_ROTATE_RETRY_MS;
+    } finally {
+      rotatingRef.current = false;
+    }
+  }, [openStt]);
+  rotateRef.current = rotate;
+
+  // The connection dropped on its own: a new one, a few tries; what was heard before the drop goes to the
+  // coach; only when every try fails does the microphone stop with a message.
+  const reconnect = useCallback(async () => {
+    if (statusRef.current === 'listening') setStatus('connecting');
+    for (let i = 0; i < STT_RECONNECT_DELAYS_MS.length; i++) {
+      await new Promise((r) => setTimeout(r, STT_RECONNECT_DELAYS_MS[i]));
+      if (!tickRef.current) return;  // stopped meanwhile
+      try {
+        const fresh = await openStt();
+        if (!tickRef.current) { try { fresh.close(); } catch { /* fine */ } return; }
+        const words = newWords(transcriptRef.current, baselineRef.current);
+        transcriptRef.current = '';
+        baselineRef.current = '';
+        sessionRef.current = fresh;
+        if (statusRef.current === 'connecting') setStatus('listening');
+        console.warn('[pipeline] stt reconnected after a drop, try', i + 1);
+        if (words) sendUtteranceRef.current(words);
+        return;
+      } catch (err) {
+        console.warn('[pipeline] stt reconnect failed, try', i + 1, err);
+      }
+    }
+    fail('Соединение прервалось — нажмите микрофон ещё раз');
+  }, [openStt, fail, setStatus]);
+  const reconnectRef = useRef(reconnect);
+  reconnectRef.current = reconnect;
+
+  const connect = useCallback(async () => {
+    if (sessionRef.current) return;
+    setError(null);
+    setStatus('connecting');
+    try {
+      await acquireMedia();
+      sessionRef.current = await openStt();
 
       const ctx = captureCtxRef.current!;
       const stream = streamRef.current!;
@@ -411,7 +503,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
           }
         }
         try {
-          session.sendRealtimeInput({ audio: { data: toBase64(data.pcm), mimeType: 'audio/pcm;rate=16000' } });
+          sessionRef.current?.sendRealtimeInput({ audio: { data: toBase64(data.pcm), mimeType: 'audio/pcm;rate=16000' } });
         } catch { /* closing */ }
       };
       source.connect(node);
@@ -423,7 +515,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       console.error('[pipeline] connect failed', err);
       fail('Голосовой режим сейчас недоступен — продолжайте текстом.');
     }
-  }, [acquireMedia, fail, setStatus, tick, endTurn]);
+  }, [acquireMedia, fail, setStatus, tick, endTurn, openStt]);
 
   const disconnect = useCallback(() => {
     cleanup();
