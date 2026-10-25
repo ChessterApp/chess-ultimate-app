@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  fillerFor, localeOf, newWords, speakable, takeSentences, utteranceReady,
+  fillerFor, groupChunks, localeOf, newWords, speakable, takeSentences, utteranceReady,
   SILENCE_MS, STT_STABLE_MS, STT_STABLE_SLOW_MS,
 } from '../voice-pipeline';
 
@@ -48,5 +48,13 @@ describe('voice pipeline helpers', () => {
     expect(localeOf('', 'kk')).toBe('kk');
     expect(fillerFor('ru', 0)).toBe('/voice/fillers/ru-1.pcm');
     expect(fillerFor('en', 0.99)).toBe('/voice/fillers/en-2.pcm');
+  });
+
+  it('groups short sentences into one TTS call and keeps a short tail for the next', () => {
+    const long = 'Под ударом твой слон на c4, его атакует конь с a5, а защитников у слона нет.';
+    expect(groupChunks(['Отлично, играем!', 'Ты белыми, ход твой.'])).toEqual({ chunks: [], waiting: ['Отлично, играем!', 'Ты белыми, ход твой.'] });
+    expect(groupChunks(['Отлично, играем!', 'Ты белыми, ход твой.', long])).toEqual({ chunks: [`Отлично, играем! Ты белыми, ход твой. ${long}`], waiting: [] });
+    expect(groupChunks(['Жду ход.'], true)).toEqual({ chunks: ['Жду ход.'], waiting: [] });
+    expect(groupChunks([long, 'Жду.'], false)).toEqual({ chunks: [long], waiting: ['Жду.'] });
   });
 });

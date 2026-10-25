@@ -14,7 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { GoogleGenAI } from '@google/genai';
 import type { LiveStatus } from './useGeminiLive';
 import {
-  fillerFor, localeOf, newWords, speakable, takeSentences, utteranceReady, type PipelineLocale,
+  fillerFor, groupChunks, localeOf, newWords, speakable, takeSentences, utteranceReady, type PipelineLocale,
 } from '@/lib/coach/voice-pipeline';
 
 export type VoiceMode = 'live' | 'pipeline';
@@ -69,6 +69,7 @@ interface Turn {
   id: number;
   controller: AbortController;
   buffer: string;
+  waiting: string[];  // short sentences held for the next one (groupChunks)
   quiet: boolean;      // the quick reaction streams: not read aloud (the filler stands for it)
   chain: Promise<void>;
   spokenAnswer: boolean;
@@ -175,13 +176,20 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const text = speakable(sentence);
     if (!text || turn.controller.signal.aborted) return;
     try {
-      const res = await fetch('/api/coach/voice/tts', {
+      const call = () => fetch('/api/coach/voice/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ text, locale }),
         signal: turn.controller.signal,
       });
+      let res = await call();
+      if (!res.ok) {
+        // A moment's quota (429 behind the 502) or a blip: once more after a pause, then the text stands alone.
+        await new Promise((r) => setTimeout(r, 800));
+        if (turn.controller.signal.aborted) return;
+        res = await call();
+      }
       if (!res.ok || !res.body) return;
       const reader = res.body.getReader();
       let carry: Uint8Array | null = null;
@@ -212,10 +220,12 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     if (frame.stage === 'quick') turn.quiet = true;
     else if (frame.stage === 'answer') turn.quiet = false;
     if (typeof frame.delta === 'string' && frame.delta && !turn.quiet) turn.buffer += frame.delta;
-    const locale = localeOf(turn.buffer, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+    const locale = localeOf(turn.buffer || turn.waiting.join(' '), (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
     const { sentences, rest } = takeSentences(turn.buffer, !!frame.done);
     turn.buffer = rest;
-    for (const s of sentences) {
+    const { chunks, waiting } = groupChunks([...turn.waiting, ...sentences], !!frame.done);
+    turn.waiting = waiting;
+    for (const s of chunks) {
       turn.chain = turn.chain.then(() => speakSentence(turn, s, locale));
     }
     if (frame.done) {
@@ -252,7 +262,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     const previous = turnRef.current;
     if (previous) { previous.controller.abort(); previous.done = true; }
     stopSources();
-    const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', quiet: false, chain: Promise.resolve(), spokenAnswer: false, done: false };
+    const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', waiting: [], quiet: false, chain: Promise.resolve(), spokenAnswer: false, done: false };
     turnRef.current = turn;
     const end = speechEndAtRef.current;
     setTimings({ sttMs: end !== null ? Math.round(performance.now() - end) : null, firstSoundMs: null, firstAnswerMs: null });
@@ -264,6 +274,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
       console.error('[pipeline] onUtterance failed', err);
     }
   }, [playFiller, stopSources]);
+
+  const sendUtteranceRef = useRef(sendUtterance);
+  sendUtteranceRef.current = sendUtterance;
 
   const tick = useCallback(() => {
     const now = performance.now();
@@ -348,12 +361,19 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
             if (!sc) return;
             const interim = (sc.interimInputTranscription as { text?: string } | undefined)?.text;
             const final = (sc.inputTranscription as { text?: string } | undefined)?.text;
-            const text = interim ?? final;
+            const text = final ?? interim;
             if (typeof text === 'string' && text && text !== transcriptRef.current) {
               // A shorter text than the baseline: the model began a new transcript — start over.
               if (baselineRef.current && !text.startsWith(baselineRef.current.slice(0, 8))) baselineRef.current = '';
               transcriptRef.current = text;
               lastChangeAtRef.current = performance.now();
+            }
+            if (typeof final === 'string' && final.trim()) {
+              // The model's final transcript: the utterance goes now (the interim fallback waits longer).
+              const words = newWords(final, baselineRef.current);
+              baselineRef.current = final;
+              transcriptRef.current = final;
+              if (words) sendUtteranceRef.current(words);
             }
             const activity = (sc.voiceActivity as { speechState?: string } | undefined)?.speechState;
             if (activity === 'SPEECH') {

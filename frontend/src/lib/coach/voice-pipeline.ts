@@ -10,8 +10,10 @@
  * src/hooks/usePipelineVoice.ts.
  */
 
-export const STT_STABLE_MS = 350;      // a transcript unchanged this long after speech ended is final…
-export const STT_STABLE_SLOW_MS = 900;  // …or this long when it has no terminal punctuation
+// The model's own final transcript is what sends an utterance (usually 0.3–0.5 s after speech ends); an
+// interim transcript stands in only when no final comes: unchanged this long with a terminal mark…
+export const STT_STABLE_MS = 900;
+export const STT_STABLE_SLOW_MS = 1300;  // …or this long without one (the stand, 25.10: «Коня в три.» went at 350 ms, «конь f3» came after)
 export const SILENCE_MS = 400;         // no speech energy for this long before an utterance may close
 
 /** The text a sentence is read from: markdown and board markup stripped, whitespace collapsed. */
@@ -55,6 +57,33 @@ export function takeSentences(buffer: string, final = false): { sentences: strin
     rest = '';
   }
   return { sentences, rest };
+}
+
+/** Sentences shorter than this are read together with the next one: fewer TTS calls, the same flow. */
+export const MIN_CHUNK_CHARS = 60;
+
+/**
+ * Sentences grouped into chunks of at least MIN_CHUNK_CHARS for one TTS call each; a short tail waits
+ * for the next sentence unless *final*. Returns the chunks and the sentences still waiting.
+ */
+export function groupChunks(sentences: string[], final = false, minChars = MIN_CHUNK_CHARS): { chunks: string[]; waiting: string[] } {
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let length = 0;
+  for (const s of sentences) {
+    current.push(s);
+    length += s.length;
+    if (length >= minChars) {
+      chunks.push(current.join(' '));
+      current = [];
+      length = 0;
+    }
+  }
+  if (final && current.length) {
+    chunks.push(current.join(' '));
+    current = [];
+  }
+  return { chunks, waiting: current };
 }
 
 /**
