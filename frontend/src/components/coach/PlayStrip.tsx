@@ -42,12 +42,15 @@ interface PlayStripProps {
   nav?: GameNavProps;
   /** An earlier position is on the board: what is shown, «continue from here», «back to the game». */
   viewing?: ViewingProps;
+  /** The game's notation with its side lines (GameNotation), shown under the move buttons on desktop. */
+  notation?: React.ReactNode;
 }
 
 export interface ViewingProps {
   label: string;
   busy?: boolean;
-  onContinue: () => void;
+  /** Absent while a side line is shown: the game continues from the main line only. */
+  onContinue?: () => void;
   onBack: () => void;
 }
 
@@ -58,7 +61,7 @@ export function ViewingStrip({ label, busy, onContinue, onBack }: ViewingProps) 
     <div data-testid="game-viewing" className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-(--coach-accent-soft,rgba(124,58,237,0.12)) px-3 py-1.5 text-xs text-(--coach-text)">
       <span>{label}</span>
       <span className="flex shrink-0 gap-2">
-        <button type="button" className="rounded bg-(--coach-accent) px-2 py-1 text-white disabled:opacity-50" onClick={onContinue} disabled={busy}>{t('continueHere')}</button>
+        {onContinue && <button type="button" className="rounded bg-(--coach-accent) px-2 py-1 text-white disabled:opacity-50" onClick={onContinue} disabled={busy}>{t('continueHere')}</button>}
         <button type="button" className="rounded border border-(--coach-border) px-2 py-1" onClick={onBack}>{t('backToGame')}</button>
       </span>
     </div>
@@ -120,6 +123,7 @@ export default function PlayStrip({
   onAnimationChange,
   nav,
   viewing,
+  notation,
 }: PlayStripProps) {
   return (
     <div className="flex flex-col gap-2" style={{ width }} data-testid="play-strip">
@@ -127,6 +131,7 @@ export default function PlayStrip({
       {children}
       {viewing && <ViewingStrip {...viewing} />}
       {nav && nav.total > 0 && <GameNav {...nav} />}
+      {notation && <div className="max-h-24 overflow-hidden rounded-lg border border-(--coach-border)">{notation}</div>}
       <PlayStudentRow game={game} thinking={thinking} />
       <PlayActionBar
         game={game}

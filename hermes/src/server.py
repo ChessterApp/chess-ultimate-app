@@ -651,7 +651,8 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
-def _game_prestep(session, active_board, message: str, spoken: bool = False, view_ply: Optional[int] = None) -> Optional[dict]:
+def _game_prestep(session, active_board, message: str, spoken: bool = False, view_ply: Optional[int] = None,
+                  view_line: Optional[list] = None) -> Optional[dict]:
     """A game asked for, or the student's move written on its own in the game on the board
     (src/game_intent.py): started / played here, before the model answers — left to the model, it
     sometimes played by talking (stand, 2026-10-12). {"view", "block"} or None."""
@@ -713,6 +714,12 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
             f"The student asks about {', '.join(dict.fromkeys(asked))}: the board did not change and nothing was "
             "played. Answer the question as their coach in the game — what the move would do, a hint, not the best "
             "move. Do not call make_game_move and never answer with a move of yours: they play it by writing it."
+        )}
+    if view_line:
+        return {"view": None, "block": (
+            "## A move named while the student looks at a SIDE LINE of the game — nothing was played\n"
+            "The board shows a line that was taken back, not the game's position. Ask in one sentence whether they want "
+            "to go back to the game («вернись к партии») — moves are played from the game's live position only."
         )}
     if view_ply is not None and int(view_ply) < len((live.game_state or {}).get("moves") or []):
         # A move named while an earlier position is on the board (26.10): the game is not cut by a move alone.
@@ -1436,6 +1443,8 @@ class CoachChatRequest(BaseModel):
     # The ply of the game's earlier position the student is looking at (the move panel, 26.10): the coach
     # answers about that position; «продолжим отсюда» cuts the game there; a bare move is not played.
     view_ply: Optional[int] = None
+    # A side line of the game on the board (a variation kept after a takeback, 26.10): the moves from the start.
+    view_line: Optional[list[str]] = None
 
 
 class CoachSessionCreateRequest(BaseModel):
@@ -1922,7 +1931,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
     game_step = None
     if config.COACH_GAME_PRESTEP:
         try:
-            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message, bool(body.speech), body.view_ply)
+            game_step = await asyncio.to_thread(_game_prestep, session, active_board, body.message, bool(body.speech), body.view_ply, body.view_line)
         except Exception:  # noqa: BLE001 — the model can still use the tools
             logger.warning("game pre-step failed", exc_info=True)
             game_step = None
@@ -2240,6 +2249,23 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    if body.view_line and active_board.kind == "game" and active_board.game_state:
+        # A side line kept after a takeback is on the board (26.10): the coach answers about it and knows it is not
+        # the game's position.
+        try:
+            from src.game_mode import _moves_text, _replay
+
+            shown = _replay([str(m) for m in body.view_line])
+            st = active_board.game_state
+            side_note = (
+                "## The student is looking at a SIDE LINE of the game (a line taken back and kept in the notation)\n"
+                f"Shown: {_moves_text([str(m) for m in body.view_line][: len(shown.move_stack)])}, FEN {shown.fen()}, "
+                f"{'White' if shown.turn else 'Black'} to move there. The game itself stands at {_moves_text(st.get('moves') or []) or 'the start'} "
+                "and goes on from its live position. Answer about the shown line; nothing is played by talking."
+            )
+            turn_context = f"{turn_context}\n\n{side_note}" if turn_context else side_note
+        except Exception:  # noqa: BLE001 — never block a turn on this
+            logger.debug("side-line block failed", exc_info=True)
     if body.view_ply is not None and active_board.kind == "game" and active_board.game_state:
         # The student is looking at an earlier position of the game (the move panel, 26.10): the coach answers
         # about it and knows the game itself stands further on.

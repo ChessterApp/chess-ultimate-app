@@ -59,6 +59,8 @@ export interface GameStateView {
   pgn: string;
   ply: number;
   moves: string[];
+  /** Lines taken back and kept in the notation: the moves after `at_ply` plies of the main line (26.10). */
+  variations?: Array<{ at_ply: number; moves: string[] }>;
   student_to_move: boolean;
   in_check: boolean;
   /** The student's move just played, with the engine's verdict. */

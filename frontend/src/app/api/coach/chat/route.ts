@@ -39,6 +39,7 @@ export async function POST(request: NextRequest) {
     review_game_id?: string;
     speech?: boolean;
     view_ply?: number;
+    view_line?: string[];
   };
   try {
     body = await request.json();
@@ -101,6 +102,9 @@ export async function POST(request: NextRequest) {
             speech: body.speech === true ? true : undefined,
             // The ply of the game's earlier position on the board (the move panel): the coach answers about it.
             view_ply: typeof body.view_ply === 'number' && Number.isFinite(body.view_ply) ? Math.max(0, Math.floor(body.view_ply)) : undefined,
+            // A side line of the game on the board (26.10): its moves from the start.
+            view_line: Array.isArray(body.view_line) && body.view_line.length <= 400 && body.view_line.every((m) => typeof m === 'string' && m.length <= 10)
+              ? body.view_line : undefined,
           }),
           signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });
