@@ -280,3 +280,38 @@ def test_the_better_move_question_gets_the_engines_verdict(engine, monkeypatch):
     assert server._ASKS_BETTER_MOVE.search("Что здесь было лучше вместо моего хода?")
     assert server._ASKS_BETTER_MOVE.search("как надо было сыграть?")
     assert not server._ASKS_BETTER_MOVE.search("какой план лучше?")
+
+
+# ── continuing from a side line (item 4: «из текущей позиции на доске») ────
+
+def test_the_game_continues_from_a_side_line_and_keeps_the_old_line(engine):
+    session = _game_with(["e4", "Nf3", "Bc4"])
+    board_rec = live_game_board(session)
+    game_mode.takeback_moves(session, board_rec, 2)                         # the side line 2.Nf3 Nc6 3.Bc4 Nf6 kept
+    json.loads(_handle_make_game_move({"move": "d4"}, session_id=session.id, user_id=USER))
+    main_before = list(board_rec.game_state["moves"])                       # e4 e5 d4 …
+    view = game_mode.continue_from_line(session, board_rec, ["e4", "e5", "Nf3", "Nc6"])
+    assert view["moves"][:4] == ["e4", "e5", "Nf3", "Nc6"] and view["student_to_move"]
+    lines = [v["moves"] for v in view["variations"]]
+    assert main_before[2:] in lines                                         # the old main continuation stays
+    assert ["Bc4", "Nf6"] in lines                                          # the rest of the side line stays
+    assert [a["ply"] for a in board_rec.game_state["annotations"]] == [1, 3]
+
+
+def test_continue_here_by_words_on_a_side_line(engine):
+    session = _game_with(["e4", "Nf3"])
+    board_rec = live_game_board(session)
+    game_mode.takeback_moves(session, board_rec, 1)
+    _handle_make_game_move({"move": "d4"}, session_id=session.id, user_id=USER)
+    r = _act(session, said="продолжим отсюда", view_line=["e4", "e5", "Nf3"])
+    assert r["ok"] and _moves(session)[:3] == ["e4", "e5", "Nf3"] and len(_moves(session)) == 4   # the engine answered
+
+
+def test_the_continue_route_takes_a_line(engine):
+    session = _game_with(["e4", "Nf3"])
+    board_rec = live_game_board(session)
+    game_mode.takeback_moves(session, board_rec, 1)
+    _handle_make_game_move({"move": "d4"}, session_id=session.id, user_id=USER)
+    resp = TestClient(app).post(f"/api/coach/sessions/{session.id}/game/{board_rec.id}/continue",
+                                headers={"X-User-Id": USER}, json={"line": ["e4", "e5", "Nf3", "Nc6"]})
+    assert resp.status_code == 200 and resp.json()["moves"][:4] == ["e4", "e5", "Nf3", "Nc6"]

@@ -478,10 +478,15 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                 "the piece and the square. Never argue that the move was right."
             )}
         if command == "continue_here" and view_line:
-            return {"view": None, "block": (
-                "## The student asks to continue from a SIDE LINE — the game continues only from its main line\n"
-                "Nothing changed. Say that this line was taken back earlier; to play it they go back to the game "
-                "(«вернись к партии»), take back to where the line starts and play its moves again."
+            # «Продолжим отсюда» on a side line (item 4): the side line becomes the game, the old continuation is kept.
+            view = game_mode.continue_from_line(session, board_rec, [str(m) for m in view_line])
+            engine = (view.get("engine") or {}).get("san")
+            return {"view": view, "block": (
+                "## The game now continues from the SIDE LINE the student was looking at (the system made it the main line)\n"
+                f"The record now: {game_mode._moves_text(view.get('moves') or [])}; the old continuation is kept in the notation"
+                + (f"; the engine moved {engine} from there — say this move aloud in words" if engine else "")
+                + ("; it is the student's move." if view.get("student_to_move") else ".")
+                + " Say it in one sentence and let them move."
             )}
         if command == "continue_here":
             # «Продолжим отсюда» while looking at an earlier position (item 4): the record is cut there and the game

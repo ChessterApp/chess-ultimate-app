@@ -4584,7 +4584,8 @@ async def coach_game_takeback(session_id: str, board_id: str, request: Request):
 
 
 class CoachGameContinueRequest(BaseModel):
-    ply: int   # the game goes on from the position after this many plies (the move panel's «continue from here»)
+    ply: int = 0   # the game goes on from the position after this many plies (the move panel's «continue from here»)
+    line: Optional[list[str]] = None  # …or from a side line on the board: its moves from the start (26.10)
 
 
 @app.post("/api/coach/sessions/{session_id}/game/{board_id}/continue")
@@ -4596,6 +4597,8 @@ async def coach_game_continue(session_id: str, board_id: str, body: CoachGameCon
     session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     try:
+        if body.line:
+            return game_mode.continue_from_line(session, board, body.line)
         return game_mode.truncate(session, board, body.ply)
     except game_mode.GameError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

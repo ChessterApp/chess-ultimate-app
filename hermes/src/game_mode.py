@@ -567,6 +567,60 @@ def _truncate_locked(session, board_rec: Board, ply: int) -> dict:
     return _payload(board_rec, state, board, engine=engine)
 
 
+def continue_from_line(session, board_rec: Board, line: list[str]) -> dict:
+    """The game goes on from a side line on the board (Alexander's item 4, 26.10: «продолжить партию из текущей позиции
+    на доске»). *line* is the side line's moves from the start, up to the position shown. The main line is cut where the
+    side line leaves it (its continuation kept as a variation, as any cut keeps it), the side line's moves become the
+    main line, the rest of the side line stays a variation. If the engine is then to move, it moves."""
+    with board_lock(board_rec):
+        state = board_rec.game_state
+        if board_rec.kind != "game" or not state:
+            raise GameError("This board is not a game.")
+        board = _replay(state["moves"])
+        _repair(state, board)
+        line = [str(m) for m in line or []]
+        moves = state.get("moves") or []
+        at = 0
+        while at < min(len(line), len(moves)) and line[at] == moves[at]:
+            at += 1
+        tail = line[at:]
+        if not tail:
+            return _truncate_locked(session, board_rec, at)  # the line is the main line itself: a plain cut
+        replay = _replay(moves[:at])
+        try:
+            for san in tail:
+                replay.push_san(san)
+        except ValueError:
+            raise GameError("The side line does not replay from the game's position.")
+        _cut(state, at)
+        # the promoted line leaves the variations (what is left of it beyond the shown move stays one)
+        variations = state.setdefault("variations", [])
+        for v in list(variations):
+            vm = list(v.get("moves") or [])
+            if int(v.get("at_ply", -1)) == at and vm[: len(tail)] == tail:
+                variations.remove(v)
+                if len(vm) > len(tail):
+                    variations.append({"at_ply": at + len(tail), "moves": vm[len(tail):], "at": v.get("at")})
+        if state["status"] == "finished":
+            state.update(status="playing", result=None, termination=None, winner=None, finished_at=None)
+        board = _replay(state["moves"])
+        student_color = chess.WHITE if state["student_color"] == "white" else chess.BLACK
+        for san in tail:
+            mover = board.turn
+            board.push_san(san)
+            state["moves"].append(san)
+            if mover == student_color:
+                state["annotations"].append({"ply": len(state["moves"]), "san": san, "verdict": "ok", "cp_loss": 0,
+                                             "eval_after": 0, "best": None})
+        engine = None
+        if not _finish(state, board) and not _student_to_move(state, board):
+            engine = _push_engine_move(state, board)
+            _finish(state, board)
+        _sync_board(board_rec, state, board)
+        session.save_board(board_rec)
+        return _payload(board_rec, state, board, engine=engine)
+
+
 def takeback_moves(session, board_rec: Board, count: int) -> dict:
     """The student's last *count* moves undone, each with the engine's reply to it (one: the game's button)."""
     with board_lock(board_rec):

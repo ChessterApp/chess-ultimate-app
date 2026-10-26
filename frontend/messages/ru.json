@@ -2338,7 +2338,7 @@
     "animationSlow": "медленно",
     "gameNav": "Ходы партии",
     "viewingStart": "Просмотр: начальная позиция. Партия продолжается",
-    "viewingLine": "Вариант: {line}. Партия продолжается с основной линии",
+    "viewingLine": "Вариант: {line}",
     "gameNavCounter": "Ход {index} из {total}"
   },
   "gameEnd": {

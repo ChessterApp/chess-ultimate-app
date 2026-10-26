@@ -2338,7 +2338,7 @@
     "animationSlow": "slow",
     "gameNav": "Game moves",
     "viewingStart": "Viewing: the starting position. The game goes on",
-    "viewingLine": "Side line: {line}. The game goes on from the main line",
+    "viewingLine": "Side line: {line}",
     "gameNavCounter": "Ply {index} of {total}"
   },
   "gameEnd": {

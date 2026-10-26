@@ -228,6 +228,8 @@ export default function CoachPage() {
   const viewLine = variationLine ? variationLine.slice(0, Math.max(0, board.moveIndex)) : null;
   const viewingVariationRef = useRef(viewingVariation);
   viewingVariationRef.current = viewingVariation;
+  const viewLineRef = useRef<string[] | null>(viewLine);
+  viewLineRef.current = viewLine;
   // applyGameView, for the board actions handled above it (a `game` action from the coach).
   const applyGameViewRef = useRef<((view: GameStateView) => void) | null>(null);
   gameRef.current = game;
@@ -699,10 +701,12 @@ export default function CoachPage() {
   const handleGameContinue = useCallback(async () => {
     const current = gameRef.current;
     const ply = viewPlyRef.current;
-    if (!sessionId || !current || ply === null) return;
+    // A side line on the board: the game goes on from the position shown on it (item 4, 26.10).
+    const line = viewingVariationRef.current ? viewLineRef.current : null;
+    if (!sessionId || !current || (ply === null && !line)) return;
     setGameThinking(true);
     try {
-      const view = await coachApi.gameContinue(sessionId, current.board_id, ply);
+      const view = await coachApi.gameContinue(sessionId, current.board_id, ply ?? 0, line ?? undefined);
       applyGameView(view);
       chatRef.current?.announceGame(view, true);  // the engine's move from the new point, if it moved
     } catch (err: unknown) {
@@ -1074,6 +1078,7 @@ export default function CoachPage() {
         ? t('viewingLine', { line: variationLine.slice(variationAt, variationAt + variationCount).map((san, k) => moveLabel(variationAt + k + 1, san, k === 0)).join(' ') })
         : board.moveIndex <= 0 ? t('viewingStart') : t('viewingPast', { move: moveLabel(board.moveIndex, variationLine[board.moveIndex - 1] ?? '') }),
       busy: gameThinking,
+      onContinue: () => void handleGameContinue(),
       onBack: backToMainLine,
     } : viewPly === null ? undefined : {
       label: viewPly === 0 ? t('viewingStart') : t('viewingPast', { move: moveLabel(viewPly, game.moves[viewPly - 1] ?? '') }),
