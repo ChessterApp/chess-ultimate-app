@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
     board_id?: string;
     review_game_id?: string;
     speech?: boolean;
+    view_ply?: number;
   };
   try {
     body = await request.json();
@@ -98,6 +99,8 @@ export async function POST(request: NextRequest) {
               typeof body.review_game_id === 'string' && body.review_game_id ? body.review_game_id : undefined,
             // The voice pipeline: the answer is read aloud — short, and the move already said is not restated.
             speech: body.speech === true ? true : undefined,
+            // The ply of the game's earlier position on the board (the move panel): the coach answers about it.
+            view_ply: typeof body.view_ply === 'number' && Number.isFinite(body.view_ply) ? Math.max(0, Math.floor(body.view_ply)) : undefined,
           }),
           signal: AbortSignal.timeout(HERMES_TIMEOUT_MS),
         });

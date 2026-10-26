@@ -365,13 +365,37 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     }
   }, [enqueue]);
 
-  // ── the student's words ───────────────────────────────────────────────────
-  const sendUtterance = useCallback((text: string) => {
+  // A fresh turn: whatever was being read stops, the new answer is read from its first chunk.
+  const newTurn = useCallback((): Turn => {
     const previous = turnRef.current;
     if (previous) { previous.controller.abort(); previous.done = true; }
     stopSources();
     const turn: Turn = { id: ++turnSeqRef.current, controller: new AbortController(), buffer: '', waiting: [], quiet: false, pieces: [], firstQueued: false, factSpoken: false, spokenAnswer: false, done: false };
     turnRef.current = turn;
+    return turn;
+  }, [stopSources]);
+
+  /**
+   * A phrase of the system's own, said now — the move the student made by hand with the engine's reply
+   * («е четыре. Отвечаю е пять.», 26.10). With `more`, the coach's comment streams into the same turn
+   * (feedFrame) after it; without, the turn ends with the phrase.
+   */
+  const announce = useCallback((text: string, more = false) => {
+    if (!text.trim() || !sessionRef.current) return;
+    const turn = newTurn();
+    const locale = localeOf(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
+    turn.pieces.push({ text, locale, parts: [], played: 0, started: false, done: false });
+    turn.firstQueued = true;
+    turn.factSpoken = true;
+    speechEndAtRef.current = null;
+    setTimings({ sttMs: null, firstSoundMs: null, firstAnswerMs: null });
+    startFetches(turn);
+    if (!more) { turn.done = true; drain(turn); }
+  }, [newTurn, startFetches, drain]);
+
+  // ── the student's words ───────────────────────────────────────────────────
+  const sendUtterance = useCallback((text: string) => {
+    const turn = newTurn();
     const end = speechEndAtRef.current;
     setTimings({ sttMs: end !== null ? Math.round(performance.now() - end) : null, firstSoundMs: null, firstAnswerMs: null });
     const locale = localeOf(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
@@ -382,7 +406,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     } catch (err) {
       console.error('[pipeline] onUtterance failed', err);
     }
-  }, [playFiller, stopSources]);
+  }, [playFiller, newTurn]);
 
   const sendUtteranceRef = useRef(sendUtterance);
   sendUtteranceRef.current = sendUtterance;
@@ -632,5 +656,5 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  return { status, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame };
+  return { status, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame, announce };
 }

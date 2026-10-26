@@ -2327,7 +2327,17 @@
     "attachLink": "Link from Lichess or Chess.com",
     "attachPastePlaceholder": "Paste a PGN, FEN or game link…",
     "coachJustNow": "Coach · just now",
-    "cardPuzzleQueued": "{n} more lined up"
+    "cardPuzzleQueued": "{n} more lined up",
+    "viewingPast": "Viewing: the position after {move}. The game goes on",
+    "continueHere": "Continue from here",
+    "backToGame": "Back to the game",
+    "animationSpeed": "Animation",
+    "animationOff": "off",
+    "animationFast": "fast",
+    "animationNormal": "normal",
+    "animationSlow": "slow",
+    "gameNav": "Game moves",
+    "viewingStart": "Viewing: the starting position. The game goes on"
   },
   "gameEnd": {
     "winTitle": "Checkmate! You win!",

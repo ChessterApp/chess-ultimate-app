@@ -408,6 +408,8 @@ export interface UseGeminiLiveOptions {
   getPgn?: () => string | null | undefined;
   /** Current coach session id, so the minted token carries the shared conversation memory. */
   getSessionId?: () => string | null | undefined;
+  /** The ply of the game's earlier position on the board (the move panel), null at the live one (26.10). */
+  getViewPly?: () => number | null | undefined;
   onTranscript?: (t: {
     role: 'user' | 'model';
     text: string;
@@ -1506,7 +1508,7 @@ export default function useGeminiLive(
     if (intent && sessionRef.current === session) {
       switch (intent.kind) {
         case 'game_command':
-          if (await siteToolCall('game_action', { said: text }, session, gameActionNote, true)) conceptDoneRef.current = true;
+          if (await siteToolCall('game_action', { said: text, view_ply: optionsRef.current.getViewPly?.() ?? undefined }, session, gameActionNote, true)) conceptDoneRef.current = true;
           return;
         case 'game_request':
           if (await siteToolCall('start_game', { said: text }, session, gameStartNote, true)) conceptDoneRef.current = true;
@@ -1561,7 +1563,7 @@ export default function useGeminiLive(
     // Resign, take back, a draw, a new game said in words: the game's buttons, pressed by Hermes.
     const commandTheGame = async () =>
       mayCommandTheGame(text) && text.trim().split(/\s+/).length <= 8
-      && (await siteToolCall('game_action', { said: text }, session, gameActionNote));
+      && (await siteToolCall('game_action', { said: text, view_ply: optionsRef.current.getViewPly?.() ?? undefined }, session, gameActionNote));
     if (gameLive()) {
       if (await commandTheGame()) {
         conceptDoneRef.current = true;

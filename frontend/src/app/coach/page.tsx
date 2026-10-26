@@ -128,6 +128,22 @@ function gameViewFromBoard(b: BoardRecord): GameStateView | null {
   };
 }
 
+// Piece animation on the game board (Alexander's list, 26.10, item 7): the student's move, then the engine's
+// reply, each animated; the speed is the student's setting, kept in the browser.
+export const ANIMATION_KEY = 'coachBoardAnimationMs';
+export const DEFAULT_ANIMATION_MS = 250;
+export function readAnimationMs(): number {
+  if (typeof window === 'undefined') return DEFAULT_ANIMATION_MS;
+  try {
+    const raw = window.localStorage.getItem(ANIMATION_KEY);
+    if (raw === null) return DEFAULT_ANIMATION_MS;
+    const v = Number(raw);
+    return Number.isFinite(v) && v >= 0 ? v : DEFAULT_ANIMATION_MS;
+  } catch {
+    return DEFAULT_ANIMATION_MS;
+  }
+}
+
 export default function CoachPage() {
   const { isSignedIn, isLoaded, getToken, userId } = useAuth();
   const { user } = useUser();
@@ -176,6 +192,17 @@ export default function CoachPage() {
   // The composer is swapped for the game's action bar; «Чат» brings it back.
   const [playChatOpen, setPlayChatOpen] = useState(false);
   const gameRef = useRef<GameStateView | null>(null);
+  const [animationMs, setAnimationMs] = useState<number>(DEFAULT_ANIMATION_MS);
+  const animationMsRef = useRef(animationMs);
+  animationMsRef.current = animationMs;
+  useEffect(() => { setAnimationMs(readAnimationMs()); }, []);
+  const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The earlier position of the game the student browsed to with the move buttons (26.10): the game itself
+  // goes on; a move by hand is not taken there; the coach is told what is shown.
+  const viewPly = game && game.status === 'playing' && board.fens.length > 1 && board.moveIndex >= 0 && board.moveIndex < board.fens.length - 1
+    ? board.moveIndex : null;
+  const viewPlyRef = useRef<number | null>(viewPly);
+  viewPlyRef.current = viewPly;
   // applyGameView, for the board actions handled above it (a `game` action from the coach).
   const applyGameViewRef = useRef<((view: GameStateView) => void) | null>(null);
   gameRef.current = game;
@@ -261,7 +288,14 @@ export default function CoachPage() {
   // (board_id) navigate it or draw on it; everything else goes to the study
   // board, which the server keeps in step (see Session.apply_board_actions).
   const handleBoardActions = useCallback(
-    (actions: BoardAction[]) => {
+    (incoming: BoardAction[]) => {
+      // The board shows another position of the game against the coach (game_view, 26.10): browsed, not played.
+      for (const a of incoming) {
+        if (a.type !== 'game_view') continue;
+        if (a.ply === null) board.lastMove();
+        else board.goToMove(a.ply);
+      }
+      const actions = incoming.filter((a) => a.type !== 'game_view');
       const routed = routeBoardActions(actions, openedGames.map((g) => g.id));
       // A game the coach started or moved on (start_game / make_game_move, text or voice): shown
       // exactly as a game started with the button (2026-10-12).
@@ -302,7 +336,7 @@ export default function CoachPage() {
         }
       }
     },
-    [board.applyBoardActions, openedGames, sessionId, studyBoardId, setActiveGameId]
+    [board, openedGames, sessionId, studyBoardId, setActiveGameId]
   );
 
   // The coach's actions may switch the active board server-side.
@@ -481,11 +515,23 @@ export default function CoachPage() {
   // ── Game against the coach ─────────────────────────────────────────────
   const applyGameView = useCallback(
     (view: GameStateView) => {
+      const prevMoves = gameRef.current?.moves.length ?? 0;
       setGame(view);
       setGameError(null);
       dispatchMode({ type: 'game_started' });
-      if (view.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: view.pgn });
-      else board.applyBoardAction({ type: 'set_fen', fen: view.fen });
+      if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
+      if (view.pgn) {
+        board.applyBoardAction({ type: 'load_pgn', pgn: view.pgn });
+        const total = view.moves.length;
+        if (animationMsRef.current > 0 && total - prevMoves === 2 && view.student && view.engine) {
+          // The student's move first, the engine's reply after it has been seen (26.10): two moves, not one jump.
+          board.goToMove(total - 1);
+          animTimerRef.current = setTimeout(() => {
+            animTimerRef.current = null;
+            board.goToMove(total);
+          }, animationMsRef.current + 150);
+        }
+      } else board.applyBoardAction({ type: 'set_fen', fen: view.fen });
       board.setOrientation(view.student_color);
     },
     [board],
@@ -541,7 +587,9 @@ export default function CoachPage() {
         const view = await coachApi.gameMove(sessionId, current.board_id, uci);
         applyGameView(view);
         setVerdictToast(moveVerdict(view.student));
-        if (view.comment_wanted) requestGameComment(sessionId, view);
+        // The voice pipeline says the move and the reply at once and then reads the coach's comment (26.10).
+        chatRef.current?.announceGame(view);
+        if (view.comment_wanted || chatRef.current?.voicePipelineOn()) requestGameComment(sessionId, view);
       } catch (err: unknown) {
         const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
         setGameError(t('gameMoveFailed', { reason }));
@@ -559,6 +607,7 @@ export default function CoachPage() {
       const current = gameRef.current;
       if (current && current.status === 'playing') {
         if (!current.student_to_move || gameThinking) return;
+        if (viewPlyRef.current !== null) return;  // browsing an earlier position: the game is not changed by a move there
         void submitGameMove(`${from}${to}${promotion ?? ''}`);
         return;
       }
@@ -572,6 +621,23 @@ export default function CoachPage() {
     const view = await coachApi.gameTakeback(sessionId, game.board_id);
     if (view) applyGameView(view);
   }, [sessionId, game, applyGameView]);
+
+  const handleGameContinue = useCallback(async () => {
+    const current = gameRef.current;
+    const ply = viewPlyRef.current;
+    if (!sessionId || !current || ply === null) return;
+    setGameThinking(true);
+    try {
+      const view = await coachApi.gameContinue(sessionId, current.board_id, ply);
+      applyGameView(view);
+      chatRef.current?.announceGame(view);
+    } catch (err: unknown) {
+      const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
+      setGameError(t('gameMoveFailed', { reason }));
+    } finally {
+      setGameThinking(false);
+    }
+  }, [sessionId, applyGameView, t]);
 
   const handleGameResign = useCallback(async () => {
     if (!sessionId || !game) return;
@@ -855,9 +921,19 @@ export default function CoachPage() {
           <>
             {verdict && <VerdictBadge verdict={verdict} orientation={board.orientation} />}
             {verdictToast && <VerdictToast verdict={verdictToast} onDone={clearVerdictToast} />}
+            {viewPly !== null && (
+              <div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-2 bg-black/70 px-3 py-2 text-xs text-white" data-testid="game-viewing">
+                <span>{viewPly === 0 ? t('viewingStart') : t('viewingPast', { move: `${Math.ceil(viewPly / 2)}.${viewPly % 2 ? '' : '…'}${game.moves[viewPly - 1] ?? ''}` })}</span>
+                <span className="flex shrink-0 gap-2">
+                  <button type="button" className="rounded bg-white/15 px-2 py-1" onClick={() => void handleGameContinue()} disabled={gameThinking}>{t('continueHere')}</button>
+                  <button type="button" className="rounded bg-white/15 px-2 py-1" onClick={board.lastMove}>{t('backToGame')}</button>
+                </span>
+              </div>
+            )}
           </>
         )
       }
+      animationDuration={animationMs}
       onMove={momentsOn ? moments.move : onPuzzle ? puzzle.move : handleStudyMove}
       onReset={gameLive ? () => {} : board.resetBoard}
       onFirst={board.firstMove}
@@ -887,6 +963,20 @@ export default function CoachPage() {
     onReview: () => chatRef.current?.send(t('reviewMessage')),
     onRematch: () => void handleStartGame(rematchOptions(game, lastGameOptions)),
     onClose: handleGameClose,
+    animationMs,
+    onAnimationChange: (ms: number) => {
+      setAnimationMs(ms);
+      try { window.localStorage.setItem(ANIMATION_KEY, String(ms)); } catch { /* storage may be blocked */ }
+    },
+    // Browsing the game's record (item 8): the board's own history, loaded from the game's PGN.
+    nav: {
+      index: Math.max(0, board.moveIndex),
+      total: Math.max(0, board.fens.length - 1),
+      onFirst: board.firstMove,
+      onPrev: board.prevMove,
+      onNext: board.nextMove,
+      onLast: board.lastMove,
+    },
   };
 
   const puzzleFlow = onPuzzle && board.puzzleState && (
@@ -932,6 +1022,7 @@ export default function CoachPage() {
       onActiveBoardChanged={handleActiveBoardChanged}
       onOpenGame={handleOpenGame}
       game={game}
+      viewPly={viewPly}
       composerHidden={gameLive && !playChatOpen}
       onAssistantReply={handleAssistantReply}
       // Phones: the sheet hosts the chat — its peek, the game's actions or the puzzle's steps.

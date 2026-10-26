@@ -2,7 +2,7 @@
 
 import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { ChevronDown, Flag, Lightbulb, MessageCircle, Undo2, User } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Flag, Lightbulb, MessageCircle, Undo2, User } from 'lucide-react';
 import type { GameStateView } from '@/lib/coach/boards-api';
 import { eloLevel } from '@/lib/coach/play';
 import CoachAvatar from './CoachAvatar';
@@ -35,7 +35,43 @@ interface PlayStripProps {
   onReview: () => void;
   onRematch: () => void;
   onClose: () => void;
+  /** Piece animation on the board in ms, the student's setting (26.10); 0 = instant. */
+  animationMs?: number;
+  onAnimationChange?: (ms: number) => void;
+  /** Browsing the game's own moves back and forth (item 8 of Alexander's list, 26.10): the game does not change. */
+  nav?: GameNavProps;
 }
+
+export interface GameNavProps {
+  index: number;   // the ply shown (0 = the start)
+  total: number;   // the plies of the game
+  onFirst: () => void;
+  onPrev: () => void;
+  onNext: () => void;
+  onLast: () => void;
+}
+
+/** ⏮ ◀ N / M ▶ ⏭ under the game's board: the record browsed, the game untouched (the page shows a strip while browsing). */
+export function GameNav({ index, total, onFirst, onPrev, onNext, onLast }: GameNavProps) {
+  const t = useTranslations('coach');
+  const atStart = index <= 0;
+  const atEnd = index >= total;
+  const cls = 'flex h-8 w-9 items-center justify-center rounded text-(--coach-muted) hover:bg-(--coach-hover) hover:text-(--coach-text) disabled:opacity-35';
+  return (
+    <div role="toolbar" aria-label={t('gameNav')} data-testid="game-nav" className="flex items-center justify-center gap-1 text-xs">
+      <button type="button" className={cls} title={t('firstMove')} aria-label={t('firstMove')} onClick={onFirst} disabled={atStart}><ChevronsLeft size={16} aria-hidden /></button>
+      <button type="button" className={cls} title={t('previousMove')} aria-label={t('previousMove')} onClick={onPrev} disabled={atStart}><ChevronLeft size={16} aria-hidden /></button>
+      <span className="min-w-12 text-center tabular-nums text-(--coach-muted)">{index} / {total}</span>
+      <button type="button" className={cls} title={t('nextMove')} aria-label={t('nextMove')} onClick={onNext} disabled={atEnd}><ChevronRight size={16} aria-hidden /></button>
+      <button type="button" className={cls} title={t('lastMove')} aria-label={t('lastMove')} onClick={onLast} disabled={atEnd}><ChevronsRight size={16} aria-hidden /></button>
+    </div>
+  );
+}
+
+/** The animation speeds the setting offers, in ms. */
+export const ANIMATION_CHOICES: Array<{ ms: number; key: 'animationOff' | 'animationFast' | 'animationNormal' | 'animationSlow' }> = [
+  { ms: 0, key: 'animationOff' }, { ms: 150, key: 'animationFast' }, { ms: 300, key: 'animationNormal' }, { ms: 600, key: 'animationSlow' },
+];
 
 /**
  * The game against the coach: coach row with a speech bubble, the board, the
@@ -57,11 +93,15 @@ export default function PlayStrip({
   onReview,
   onRematch,
   onClose,
+  animationMs,
+  onAnimationChange,
+  nav,
 }: PlayStripProps) {
   return (
     <div className="flex flex-col gap-2" style={{ width }} data-testid="play-strip">
       <PlayCoachRow game={game} thinking={thinking} comment={comment} />
       {children}
+      {nav && nav.total > 0 && <GameNav {...nav} />}
       <PlayStudentRow game={game} thinking={thinking} />
       <PlayActionBar
         game={game}
@@ -74,6 +114,8 @@ export default function PlayStrip({
         onReview={onReview}
         onRematch={onRematch}
         onClose={onClose}
+        animationMs={animationMs}
+        onAnimationChange={onAnimationChange}
       />
     </div>
   );
@@ -208,11 +250,16 @@ export function PlayActionBar({
   onReview,
   onRematch,
   onClose,
+  animationMs,
+  onAnimationChange,
+  nav,
 }: Omit<PlayStripProps, 'comment' | 'width' | 'children'>) {
   const t = useTranslations('coach');
   const [confirmResign, setConfirmResign] = useState(false);
+  const chosen = ANIMATION_CHOICES.reduce((best, c) => (Math.abs(c.ms - (animationMs ?? 250)) < Math.abs(best.ms - (animationMs ?? 250)) ? c : best), ANIMATION_CHOICES[0]);
   return (
     <>
+      {nav && nav.total > 0 && <GameNav {...nav} />}
       {game.status === 'finished' ? (
         <ResultCard game={game} onReview={onReview} onRematch={onRematch} onClose={onClose} />
       ) : (
@@ -227,6 +274,21 @@ export function PlayActionBar({
           <ActionButton icon={Flag} label={t('gameResign')} onClick={() => setConfirmResign(true)} disabled={thinking} />
           <ActionButton icon={MessageCircle} label={t('playChat')} onClick={onToggleChat} pressed={chatOpen} />
         </div>
+      )}
+      {game.status !== 'finished' && onAnimationChange && (
+        <label className="mt-1 flex items-center justify-end gap-2 text-xs text-(--coach-muted)">
+          <span>{t('animationSpeed')}</span>
+          <select
+            aria-label={t('animationSpeed')}
+            className="rounded border border-(--coach-border) bg-transparent px-1 py-0.5 text-xs text-(--coach-text)"
+            value={chosen.ms}
+            onChange={(e) => onAnimationChange(Number(e.target.value))}
+          >
+            {ANIMATION_CHOICES.map((c) => (
+              <option key={c.ms} value={c.ms}>{t(c.key)}</option>
+            ))}
+          </select>
+        </label>
       )}
 
       <CoachDialog
