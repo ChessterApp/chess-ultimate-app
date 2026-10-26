@@ -77,7 +77,8 @@ def new_game_state(student_color: str, elo: int, comment_mode: str) -> dict:
         "result": None,               # 1-0 | 0-1 | 1/2-1/2
         "termination": None,          # checkmate | stalemate | insufficient | repetition | fifty_moves | resign | move_limit
         "winner": None,               # student | engine | None
-        "moves": [],                  # SAN, from the start
+        "moves": [],                  # SAN, from the start — the main line
+        "variations": [],             # lines taken back and left in the notation: {at_ply, moves, at} (Alexander, 26.10)
         "annotations": [],            # one per student move: {ply, san, verdict, cp_loss, best, eval_after}
         "started_at": time.time(),
         "finished_at": None,
@@ -142,6 +143,49 @@ def _just_played(state: dict, move_str: str, parse=None) -> Optional[tuple[dict,
     return {**last, "uci": move.uci()}, engine
 
 
+def numbered_from(moves: list, start_ply: int) -> str:
+    """«3.Nc3 Nf6 4.a3 Bf5» for *moves* played after *start_ply* plies."""
+    out = []
+    for i, san in enumerate(moves):
+        ply = start_ply + i + 1
+        if ply % 2 == 1:
+            out.append(f"{(ply + 1) // 2}.{san}")
+        elif not out:
+            out.append(f"{ply // 2}...{san}")
+        else:
+            out.append(san)
+    return " ".join(out)
+
+
+def _cut(state: dict, ply: int) -> list:
+    """The record cut to *ply* plies; the moves cut off are kept as a variation at that ply (the notation keeps
+    every line the game went through — Alexander, 26.10: «оригинальные варианты сохраняются, просто в нотации
+    добавляется новая линия»). Returns the moves cut off."""
+    moves = state.get("moves") or []
+    ply = max(0, min(int(ply), len(moves)))
+    gone = list(moves[ply:])
+    if gone:
+        variations = state.setdefault("variations", [])
+        same = next((v for v in variations if int(v.get("at_ply", -1)) == ply and list(v.get("moves") or []) == gone), None)
+        if same is None:
+            # a longer line at the same ply swallows a shorter one it starts with
+            variations[:] = [v for v in variations if not (int(v.get("at_ply", -1)) == ply and gone[: len(v.get("moves") or [])] == list(v.get("moves") or []))]
+            variations.append({"at_ply": ply, "moves": gone, "at": time.time()})
+    state["moves"] = moves[:ply]
+    state["annotations"] = [a for a in state.get("annotations") or [] if a["ply"] <= ply]
+    return gone
+
+
+def variations_text(state: dict) -> str:
+    """One line per kept variation, for the model: «after 2...d6: 3.Bc4 g6 4.Qf3 Nf6»."""
+    out = []
+    for v in state.get("variations") or []:
+        at = int(v.get("at_ply", 0))
+        head = _moves_text((state.get("moves") or [])[:at]) if at else "the start"
+        out.append(f"after {head}: {numbered_from(list(v.get('moves') or []), at)}")
+    return "\n".join(out)
+
+
 def _pgn(state: dict, board: chess.Board) -> str:
     game = chess.pgn.Game()
     game.headers["Event"] = "Game with the coach"
@@ -154,11 +198,30 @@ def _pgn(state: dict, board: chess.Board) -> str:
     game.headers["Result"] = state.get("result") or "*"
     node = game
     replay = chess.Board()
+    nodes = [game]  # the node after each ply of the main line
     for san in state["moves"]:
         move = replay.parse_san(san)
         node = node.add_variation(move)
         replay.push(move)
-    return game.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False))
+        nodes.append(node)
+    # The lines taken back, as variations at the ply they left the main line (chess.js on the site keeps the
+    # main line; src/hooks/useGameMoveTree.pgnToTree shows the variations).
+    for v in state.get("variations") or []:
+        at = int(v.get("at_ply", 0))
+        if at >= len(state["moves"]):
+            # a line cut at the very end of the main line has no main move beside it: in PGN it would BECOME
+            # the main line, so it stays out until the student plays on (the view and the model have it anyway)
+            continue
+        side = nodes[at]
+        b = position_at(state, at)
+        try:
+            for san in v.get("moves") or []:
+                move = b.parse_san(san)
+                side = side.add_variation(move)
+                b.push(move)
+        except ValueError:
+            continue  # a line that does not replay (a broken record) is left out
+    return game.accept(chess.pgn.StringExporter(headers=True, variations=True, comments=False))
 
 
 def _student_to_move(state: dict, board: chess.Board) -> bool:
@@ -456,8 +519,7 @@ def _takeback_locked(session, board_rec: Board) -> dict:
     if not student_plies:
         raise GameError("Nothing to take back.")
     last_student_ply = student_plies[-1]
-    state["moves"] = state["moves"][: last_student_ply - 1]
-    state["annotations"] = [a for a in state["annotations"] if a["ply"] < last_student_ply]
+    _cut(state, last_student_ply - 1)
     board = _replay(state["moves"])
     _sync_board(board_rec, state, board)
     session.save_board(board_rec)
@@ -481,8 +543,7 @@ def _truncate_locked(session, board_rec: Board, ply: int) -> dict:
     ply = max(0, min(int(ply), len(state["moves"])))
     if ply == len(state["moves"]) and state["status"] == "playing":
         return _payload(board_rec, state, board)  # nothing to cut
-    state["moves"] = state["moves"][:ply]
-    state["annotations"] = [a for a in state["annotations"] if a["ply"] <= ply]
+    _cut(state, ply)
     if state["status"] == "finished":
         state.update(status="playing", result=None, termination=None, winner=None, finished_at=None)
     board = _replay(state["moves"])
@@ -537,6 +598,7 @@ def _payload(board_rec: Board, state: dict, board: chess.Board, student: Optiona
         "pgn": board_rec.pgn,
         "ply": len(state["moves"]),
         "moves": list(state["moves"]),
+        "variations": [{"at_ply": int(v.get("at_ply", 0)), "moves": list(v.get("moves") or [])} for v in state.get("variations") or []],
         "student_to_move": (not finished) and _student_to_move(state, board),
         "student": student,
         "engine": engine,
@@ -574,6 +636,8 @@ def game_context(board_rec: Board) -> str:
         "## Live game (the student is playing against you)",
         f"Student plays {state['student_color']}; your moves are made by an engine at about {state['engine_elo']} Elo.",
         f"Moves so far: {_moves_text(state.get('moves', [])) or '(none yet)'}",
+        *( [f"Lines taken back and kept in the notation (not the game's position now):\n{variations_text(state)}"]
+           if state.get("variations") else [] ),
         f"Current FEN: {board.fen()}",
     ]
     if state.get("status") == "finished":

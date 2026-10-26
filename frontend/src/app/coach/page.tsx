@@ -22,6 +22,7 @@ import PlayStrip, { PlayActionBar, PlayCoachRow, PlayStudentRow } from '@/compon
 import CoachShell from '@/components/coach/CoachShell';
 import ContextBar from '@/components/coach/ContextBar';
 import MoveStrip from '@/components/coach/MoveStrip';
+import GameNotation from '@/components/coach/GameNotation';
 import PlaySetupSheet from '@/components/coach/PlaySetupSheet';
 import PuzzleFlow, { usePuzzleStep } from '@/components/coach/PuzzleFlow';
 import MomentsFlow, { useMomentsFlow } from '@/components/coach/MomentsFlow';
@@ -199,10 +200,18 @@ export default function CoachPage() {
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The earlier position of the game the student browsed to with the move buttons (26.10): the game itself
   // goes on; a move by hand is not taken there; the coach is told what is shown.
-  const viewPly = game && game.status === 'playing' && board.fens.length > 1 && board.moveIndex >= 0 && board.moveIndex < board.fens.length - 1
+  // A side line of the game (taken back, kept in the notation) shown on the board: which one and how far (26.10).
+  const [viewingVariation, setViewingVariation] = useState<{ index: number; count: number } | null>(null);
+  const viewPly = !viewingVariation && game && game.status === 'playing' && board.fens.length > 1 && board.moveIndex >= 0 && board.moveIndex < board.fens.length - 1
     ? board.moveIndex : null;
   const viewPlyRef = useRef<number | null>(viewPly);
   viewPlyRef.current = viewPly;
+  const variationLine = viewingVariation && game?.variations?.[viewingVariation.index]
+    ? [...game.moves.slice(0, game.variations[viewingVariation.index].at_ply), ...game.variations[viewingVariation.index].moves.slice(0, viewingVariation.count)]
+    : null;
+  const viewLine = variationLine ? variationLine.slice(0, Math.max(0, board.moveIndex)) : null;
+  const viewingVariationRef = useRef(viewingVariation);
+  viewingVariationRef.current = viewingVariation;
   // applyGameView, for the board actions handled above it (a `game` action from the coach).
   const applyGameViewRef = useRef<((view: GameStateView) => void) | null>(null);
   gameRef.current = game;
@@ -517,6 +526,7 @@ export default function CoachPage() {
     (view: GameStateView) => {
       const prevMoves = gameRef.current?.moves.length ?? 0;
       setGame(view);
+      setViewingVariation(null);
       setGameError(null);
       dispatchMode({ type: 'game_started' });
       if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
@@ -607,7 +617,7 @@ export default function CoachPage() {
       const current = gameRef.current;
       if (current && current.status === 'playing') {
         if (!current.student_to_move || gameThinking) return;
-        if (viewPlyRef.current !== null) return;  // browsing an earlier position: the game is not changed by a move there
+        if (viewPlyRef.current !== null || viewingVariationRef.current) return;  // browsing: the game is not changed by a move there
         void submitGameMove(`${from}${to}${promotion ?? ''}`);
         return;
       }
@@ -621,6 +631,25 @@ export default function CoachPage() {
     const view = await coachApi.gameTakeback(sessionId, game.board_id);
     if (view) applyGameView(view);
   }, [sessionId, game, applyGameView]);
+
+  // A side line on the board: the main line up to its ply, then its moves — the game itself untouched.
+  const showVariation = useCallback((index: number, count: number) => {
+    const current = gameRef.current;
+    const v = current?.variations?.[index];
+    if (!current || !v) return;
+    const line = [...current.moves.slice(0, v.at_ply), ...v.moves.slice(0, count)];
+    const pgn = line.map((san, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${san}` : san)).join(' ');
+    setViewingVariation({ index, count });
+    board.applyBoardAction({ type: 'load_pgn', pgn: `${pgn} *` });
+  }, [board]);
+
+  const backToMainLine = useCallback(() => {
+    const current = gameRef.current;
+    setViewingVariation(null);
+    if (!current) return;
+    if (current.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: current.pgn });
+    else board.applyBoardAction({ type: 'set_fen', fen: current.fen });
+  }, [board]);
 
   const handleGameContinue = useCallback(async () => {
     const current = gameRef.current;
@@ -943,6 +972,19 @@ export default function CoachPage() {
     subtitle: [g.result, g.event, g.date].filter(Boolean).join(' · '),
   }));
 
+  // The game's notation with its side lines (26.10): under the board on phones (the stage), under the move
+  // buttons on desktop (PlayStrip).
+  const gameNotation = game ? (
+    <GameNotation
+      moves={game.moves}
+      variations={game.variations}
+      currentIndex={viewingVariation ? null : board.moveIndex - 1}
+      currentVariation={viewingVariation}
+      onJump={(i) => { if (viewingVariationRef.current) backToMainLine(); board.goToMove(i + 1); }}
+      onJumpVariation={showVariation}
+    />
+  ) : null;
+
   const playActions = game && {
     game,
     thinking: gameThinking,
@@ -960,7 +1002,11 @@ export default function CoachPage() {
       try { window.localStorage.setItem(ANIMATION_KEY, String(ms)); } catch { /* storage may be blocked */ }
     },
     // An earlier position on the board: the line under it (it used to cover the first rank, 26.10).
-    viewing: viewPly === null ? undefined : {
+    viewing: viewingVariation && variationLine ? {
+      label: t('viewingLine', { line: variationLine.slice(game.variations?.[viewingVariation.index]?.at_ply ?? 0).map((san, k) => { const ply = (game.variations?.[viewingVariation.index]?.at_ply ?? 0) + k + 1; return (ply % 2 ? `${(ply + 1) / 2}.` : k === 0 ? `${ply / 2}…` : '') + san; }).join(' ') }),
+      busy: gameThinking,
+      onBack: backToMainLine,
+    } : viewPly === null ? undefined : {
       label: viewPly === 0 ? t('viewingStart') : t('viewingPast', { move: `${Math.ceil(viewPly / 2)}.${viewPly % 2 ? '' : '…'}${game.moves[viewPly - 1] ?? ''}` }),
       busy: gameThinking,
       onContinue: () => void handleGameContinue(),
@@ -1021,6 +1067,7 @@ export default function CoachPage() {
       onOpenGame={handleOpenGame}
       game={game}
       viewPly={viewPly}
+      viewLine={viewLine}
       composerHidden={gameLive && !playChatOpen}
       onAssistantReply={handleAssistantReply}
       // Phones: the sheet hosts the chat — its peek, the game's actions or the puzzle's steps.
@@ -1110,9 +1157,9 @@ export default function CoachPage() {
       );
       belowBoard = (
         <>
-          {/* Tall phones: the move strip fills the slack; elsewhere its box is 0 tall. */}
+          {/* Tall phones: the notation fills the slack; elsewhere its box is 0 tall. */}
           <div className="shrink-0 overflow-hidden" style={{ height: playStageCss(peekPx).moveStrip }}>
-            {belowBoard}
+            {gameNotation}
           </div>
           <div className="flex shrink-0 flex-col justify-center px-2" style={{ height: PLAY_STUDENT_ROW_PX }}>
             <PlayStudentRow game={game} thinking={gameThinking} />
@@ -1279,7 +1326,7 @@ export default function CoachPage() {
               </div>
             ) : game ? (
               <div className="flex flex-col items-center gap-1">
-                <PlayStrip comment={coachLine} width={responsiveBoardSize} {...playActions!}>
+                <PlayStrip comment={coachLine} width={responsiveBoardSize} {...playActions!} notation={gameNotation}>
                   {studyBoard}
                 </PlayStrip>
                 {gameErrorLine}

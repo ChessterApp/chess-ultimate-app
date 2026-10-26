@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from src import config
-from src.board_protocol import GAME_ACTION, ActionType
+from src.board_protocol import GAME_ACTION, ActionType, GAME_VIEW_ACTION
 from src.cost_monitor import record_voice_event
 from src.event_logger import log_event
 from src.middleware.rate_limiter import enforce_rate_limit, voice_tool_rate_limiter
@@ -58,7 +58,7 @@ _UNSUPPORTED_SCHEMA_KEYS = frozenset(
 # these — they are always overridden server-side with the authenticated user.
 _IDENTITY_ARG_KEYS = frozenset({"user_id"})
 
-_BOARD_ACTION_TYPES = frozenset({e.value for e in ActionType} | {GAME_ACTION})
+_BOARD_ACTION_TYPES = frozenset({e.value for e in ActionType} | {GAME_ACTION, GAME_VIEW_ACTION})  # game_view: the voice path kept dropping it (prod, 26.10)
 
 
 def clean_gemini_schema(node: Any) -> Any:

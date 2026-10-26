@@ -84,6 +84,8 @@ interface CoachChatProps {
   game?: GameStateView | null;
   /** The ply of the game's earlier position the student is looking at (the move panel), null at the live one (26.10). */
   viewPly?: number | null;
+  /** A side line of the game on the board (taken back, kept in the notation): its moves from the start (26.10). */
+  viewLine?: string[] | null;
   /** Hide the composer (a game's action bar stands in for it); voice controls stay while voice is on. */
   composerHidden?: boolean;
   /** A finished assistant answer or remark — the play strip quotes it in the coach's bubble. */
@@ -196,6 +198,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     contextNote,
     game = null,
     viewPly = null,
+    viewLine = null,
     composerHidden = false,
     onAssistantReply,
     view = 'thread',
@@ -430,6 +433,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // The ply of the game's earlier position on the board (the move panel): the voice hooks and the chat turn read it (26.10).
   const viewPlyRef = useRef<number | null | undefined>(viewPly);
   viewPlyRef.current = viewPly;
+  const viewLineRef = useRef<string[] | null | undefined>(viewLine);
+  viewLineRef.current = viewLine;
   const {
     status: voiceStatus,
     isSupported: voiceSupported,
@@ -799,6 +804,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           speech: pipelineRef.current.isActive ? true : undefined,
           // The earlier position of the game on the board, when the student browsed back (26.10).
           view_ply: viewPlyRef.current ?? undefined,
+          view_line: viewLineRef.current ?? undefined,
         }),
         signal: controller.signal,
       });

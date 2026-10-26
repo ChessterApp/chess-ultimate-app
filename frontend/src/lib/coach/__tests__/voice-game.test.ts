@@ -81,6 +81,10 @@ describe('voice: the game\'s buttons said in words (Hermes game_action)', () => 
     expect(gameActionNote({ action: 'resign', done: true, note: 'Result 0-1.' })).toMatch(/^\[Game\] The student resigned/);
     expect(gameActionNote({ action: 'draw', done: false, note: 'Declined because it is too early.' })).toContain('offered a draw');
     expect(gameActionNote(null)).toBeNull();
+    // 26.10: the audio-mode controls the site does for the student's words
+    expect(gameActionNote({ action: 'view', done: true, note: 'Shown: after move 1.' })).toMatch(/EARLIER position.*goes on from its live position/);
+    expect(gameActionNote({ action: 'mistake', done: true, note: 'Undone.' })).toContain('ask which move they want');
+    expect(gameActionNote({ action: 'continue_here', done: true, note: '' })).toContain('cut there');
     expect(gameActionNote({})).toBeNull();
   });
 });

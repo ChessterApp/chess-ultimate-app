@@ -300,6 +300,18 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     return _reply(view, summary)
 
 
+# A takeback asked for once arrives twice in the voice game: the model's own game_action call and the site's
+# (Alexander, 26.10: «попросил вернуть ход, он вернул сразу 2»). The second one within this window, with the
+# record unchanged since the first, gets the first result again — like already_played for a move.
+SAME_TAKEBACK_WINDOW_S = 12.0
+
+
+def _just_taken_back(state: dict, command: str) -> bool:
+    last = state.get("last_takeback") or {}
+    return (last.get("command") == command and time.time() - float(last.get("at") or 0) < SAME_TAKEBACK_WINDOW_S
+            and len(state.get("moves") or []) == int(last.get("plies_after", -1)))
+
+
 def game_command_step(session, board_rec, command: str, words: str = "", wish: Optional[dict] = None,
                       view_ply: Optional[int] = None) -> Optional[dict]:
     """Resign / take back / draw / a new game / the engine's strength, asked for in words: done here as the
@@ -357,27 +369,42 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                 + (f" and the engine answered {engine}" if engine else "") + ". Say it in one sentence"
                 + (" and let them move." if view.get("student_to_move") else ".")
             )}
+        if command in ("takeback", "mistake") and _just_taken_back(state, command):
+            board = game_mode._replay(state.get("moves") or [])
+            view = game_mode._payload(board_rec, state, board)
+            view["already_done"] = True
+            return {"view": view, "block": (
+                "## The takeback was already done a moment ago (this is the same request again)\n"
+                f"Nothing more was undone. The record: {game_mode._moves_text(view.get('moves') or []) or 'the start'}; "
+                f"the position is {view.get('fen')}; it is " + ("the student's move." if view.get("student_to_move") else "the engine's move.")
+                + " Say the position once and let them move."
+            )}
         if command == "takeback":
             # «Верни ход», «верни партию на два хода назад», «до того как я сходил конём», «до 10-го хода»
             # (Alexander's list, 26.10, item 2): the record is cut back to the place the words name.
             from src.game_intent import cut_target
 
             target = cut_target(words, state)
-            before = len(state.get("moves") or [])
+            moves_before = list(state.get("moves") or [])
+            cut_at = max(0, min(int(target["ply"]), len(moves_before)))
+            gone = moves_before[cut_at:]
             view = game_mode.truncate(session, board_rec, target["ply"])
-            undone = before - len(view.get("moves") or []) + (1 if view.get("engine") else 0)
-            if undone <= 0:
+            if not gone and not view.get("engine"):
                 return {"view": None, "block": (
                     "## Nothing to take back — the game is at its start\n"
                     "Say so in one sentence and let the student move."
                 )}
             engine = (view.get("engine") or {}).get("san")
+            kept = game_mode._moves_text(view.get("moves") or []) or "the start"
+            state["last_takeback"] = {"command": "takeback", "at": time.time(), "plies_after": len(view.get("moves") or [])}
+            session.save_board(board_rec)
             return {"view": view, "block": (
                 "## The game was taken back (the system did it)\n"
-                f"Cut to {target['why']}: {undone} ply undone. The position is {view.get('fen')}"
+                f"Cut to {target['why']}. UNDONE, exactly these moves: {game_mode.numbered_from(gone, cut_at) or 'none'}. "
+                f"The record now: {kept}; the position is {view.get('fen')}"
                 + (f"; the engine then moved {engine}" if engine else "")
                 + ("; it is the student's move." if view.get("student_to_move") else ".")
-                + " Say it in one sentence — which moves are undone — and let them move."
+                + " Say in one sentence which moves were undone — name them as listed, never other moves — and let them move."
             )}
         if command == "mistake":
             # «Ты ошибся», «это не мой ход», «верни как было» (item 5): the system misread the move or moved wrong —
@@ -389,6 +416,8 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                     "## The student says something went wrong on the board, but no move of theirs is recorded\n"
                     "Nothing changed. Apologise in a word and ask them to say the move they want."
                 )}
+            state["last_takeback"] = {"command": "mistake", "at": time.time(), "plies_after": len(view.get("moves") or [])}
+            session.save_board(board_rec)
             return {"view": view, "block": (
                 "## The student says the last move was not what they meant — it is undone (the system did it)\n"
                 f"Their last move and the engine's reply are taken back; the position is {view.get('fen')} and it is "
