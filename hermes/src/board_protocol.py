@@ -32,6 +32,9 @@ class ActionType(str, Enum):
 # state (game_mode._payload) for the page to show. Not a board_control action — the game tools
 # (src/tools/game_play.py) send it, for the text and the voice coach alike (2026-10-12).
 GAME_ACTION = "game"
+# The board shows another position of the game against the coach (an earlier ply, or the live one again): the
+# game itself does not change (26.10). {"type": "game_view", "board_id", "ply": int|None, "fen"?}
+GAME_VIEW_ACTION = "game_view"
 
 
 class NavigateDirection(str, Enum):

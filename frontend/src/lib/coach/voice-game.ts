@@ -130,10 +130,16 @@ export function gameActionNote(
   if (!result?.action) return null;
   const what: Record<string, string> = {
     resign: 'resigned — the game is over',
-    takeback: 'asked to take back their move — it is undone',
+    takeback: 'asked to take back moves — they are undone',
     draw: 'offered a draw',
     restart: 'asked for a new game — it has started',
     level: "asked for a different strength — the engine's level is changed",
+    // 26.10: the audio-mode game controls
+    correct: 'corrected their last move — the move they meant is played instead',
+    mistake: 'said the last move was not what they meant — it is undone; ask which move they want',
+    view: 'asked to see an EARLIER position — the board shows it now; the game itself goes on from its live position, nothing is played there',
+    view_live: "asked for the game's current position — the board shows it again",
+    continue_here: 'asked to continue the game from the position shown — the record is cut there and the game goes on',
   };
   const head = what[result.action] ?? result.action;
   return (

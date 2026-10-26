@@ -249,3 +249,17 @@ def test_the_button_takeback_keeps_the_line_too_and_a_longer_line_swallows_a_sho
     game_mode.takeback_moves(session, board_rec, 2)                # back to after 1...e5: the longer line replaces the short one
     vs = board_rec.game_state["variations"]
     assert [v["moves"] for v in vs] == [["Nf3", "Nc6", "Bc4", "Nf6"]]
+
+
+def test_the_voice_tool_path_keeps_the_game_view_action(engine):
+    """The Live model's own game_action call goes through the tool bridge, which dropped game_view as an unknown type
+    (prod, 26.10: «покажи позицию после первого хода» answered ok with no board action)."""
+    session = _game_with(["e4", "Nf3"])
+    client = TestClient(app)
+    resp = client.post("/api/coach/tool/game_action", headers={"X-User-Id": USER},
+                       json={"args": {"said": "покажи позицию после первого хода"}, "session_id": session.id, "utterance": "покажи позицию после первого хода"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["result"]["ok"] and data["board_actions"] and data["board_actions"][0]["type"] == "game_view"
+    assert data["board_actions"][0]["ply"] == 2
+    assert live_game_board(session).game_state["moves"] == ["e4", "e5", "Nf3", "Nc6"]   # the game itself untouched
