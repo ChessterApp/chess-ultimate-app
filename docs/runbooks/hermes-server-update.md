@@ -37,6 +37,9 @@
 - **Откат не срабатывает дважды** (Александр 26.10: «попросил вернуть ход, он вернул сразу два»). В голосе откат
   приходит и от сайта, и от самой модели; теперь повторный откат в течение 12 с, пока в партии ничего не сыграно,
   возвращает прежний результат, а не откатывает ещё раз (`last_takeback` в записи партии). Код `hermes/src/tools/game_play.py`.
+- **«Покажи позицию…» в старом голосовом режиме двигает доску.** Действие показа (`game_view`) отсеивалось мостом
+  инструментов как неизвестный тип на пути вызовов самой модели (`/api/coach/tool/game_action`): на проде команда
+  отвечала «ок», а доска стояла. Код `hermes/src/tool_bridge.py`, `hermes/src/board_protocol.py`.
 - **Снятые ходы остаются в нотации** (Александр 26.10: «оригинальные варианты сохраняются, в нотации добавляется новая
   линия»). При любом откате (кнопка, слова, «продолжим отсюда») снятые ходы записываются как побочная линия с той
   позиции, где они ушли от основной (`variations` в записи партии: `{at_ply, moves}`); в PGN партии они идут в скобках,
@@ -74,6 +77,8 @@
   → `True True True ОК`. И откат по словам в живой партии, `H` как в проверке 38, новая сессия:
   `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/start_game -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"color\":\"white\"},\"session_id\":\"$SID\"}"; for m in e4 Nf3 Bc4; do curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"move\":\"$m\"},\"session_id\":\"$SID\"}"; done; curl -s -X POST localhost:8642/api/coach/tool/game_action -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"верни партию на два хода назад\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print(r.get('action'), len(r.get('board_actions',[{}])[0].get('game',{}).get('moves',[])), 'ОК' if r.get('ok') and len(r['board_actions'][0]['game']['moves'])==2 else 'ПРОВЕРЬ')"`
   → `takeback 2 ОК` (из шести полуходов остались e4 и ответ движка).
+  И показ позиции по пути голосовой модели (та же сессия): `curl -s -X POST localhost:8642/api/coach/tool/game_action -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"покажи позицию после первого хода\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin); a=r.get('board_actions') or []; print(a[:1], 'ОК' if a and a[0].get('type')=='game_view' else 'ПРОВЕРЬ')"`
+  → `[{'type': 'game_view', …, 'ply': 2, …}] ОК`.
 
 Новое в версии 25.10 (тест Александра голосом с телефона 25.10, партия с тренером, скриншоты «Управление доской так и не
 работает»: «конь за шесть» / «с шесть» — ход не сыгран, а модель ответила «отличный ход»; «Я хотел не конь за шесть, а с
