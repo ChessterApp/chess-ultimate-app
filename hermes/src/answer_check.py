@@ -99,6 +99,7 @@ _RU_SUBJECTS = [
 # square after a placement verb («встаёт на g1», "lands on g1"), count.
 _RU_VERBS = (r"(?<![а-я])(?:бь[её]т|бьют|бил[аи]?\s+бы|атакует|атакуют|атаковал\w*|нападает|нападают|напал[аи]?|"
              r"угрожает|угрожают|держит|держат|смотрит|смотрят|давит|давят|целится|целятся|"
+             r"бер[её]т|забирает|возьм[её]т|забер[её]т|съест|съедает|"
              r"защищает|защищают|контролирует|контролируют|вилк\w*|"
              r"буд(?:ет|ут)\s+(?:бить|атаковать|нападать|угрожать|держать|смотреть|давить|защищать|контролировать)|"
              r"удар(?:ит|ят)|напад[её]т|нападут|простреливает|простреливают|обстреливает|обстреливают|"
@@ -623,10 +624,38 @@ def _moved_in_sentence(text: str, ptype: int, a: int, ctx: Optional["CheckContex
     return None
 
 
+# «пешка h2 под боем ладьи h8, и конь f3 держит её»: the object pronoun after a defence/attack verb is the piece named
+# last before it with the pronoun's gender (её — пешка, ладья; его — конь, слон, ферзь, король). Replaced by that
+# piece's square so the claim is judged (prod long run 26.10: the knight on f3 does not defend h2).
+_OBJ_PRONOUN = re.compile(r"(?<![а-яa-z])(?P<verb>держит|держат|защищает|защищают|прикрывает|прикрывают|охраняет|бь[её]т|атакует|нападает\s+на)\s+"
+                          r"(?P<pron>е[её]|его)(?![а-яa-z])", re.IGNORECASE)
+_PIECE_SQ_BEFORE = re.compile(rf"(?<![а-яa-z])(?P<piece>пешк\w*|ладь\w*|лад\w*|кон\w*|слон\w*|ферз\w*|корол\w*)\s+(?:на\s+)?(?P<sq>{SQ})(?![0-9])",
+                              re.IGNORECASE)
+
+
+def _resolve_object_pronouns(text: str) -> str:
+    out, last = [], 0
+    for m in _OBJ_PRONOUN.finditer(text):
+        fem = m["pron"].lower() in ("её", "ее")
+        named = [n for n in _PIECE_SQ_BEFORE.finditer(text[: m.start()])
+                 if (n["piece"].lower().startswith(("пешк", "лад"))) == fem]
+        if not named:
+            continue
+        # the piece the sentence is about: a nominative («пешка h2 под боем ладьи h8 … держит её» — the pawn, not the
+        # rook in the genitive), else an accusative object, else the last one named
+        nominative = [n for n in named if n["piece"].lower() in ("пешка", "ладья", "конь", "слон", "ферзь", "король")]
+        accusative = [n for n in named if n["piece"].lower() in ("пешку", "ладью", "коня", "слона", "ферзя", "короля")]
+        pick = (nominative or accusative or named)[-1]
+        out.append(text[last: m.start("pron")] + pick["sq"].lower())
+        last = m.end("pron")
+    return "".join(out) + text[last:] if out else text
+
+
 def _attack_issues(text: str, original: Optional[str] = None, ctx: Optional["CheckContext"] = None) -> list[str]:
     """*text* is lowercased for the piece words; *original* keeps the case of
     written moves (Rg1, Лг1) for the subject scan."""
     issues = []
+    text = _resolve_object_pronouns(text)
     for ptype, rx in _ATTACK_CLAIMS:
         for m in rx.finditer(text):
             if ctx is not None:
@@ -1243,7 +1272,11 @@ _EXCEPT = re.compile(r"\s*,?\s*(?:кроме|помимо|except|other\s+than|ap
 # tool's position, a game, a line the answer wrote, the student's idea — has there.
 _GHOST = re.compile(
     # «ферзь b6 у тебя висит» (prod 23.10): a word or two about whose it is, or when, between the square and the verb
-    _B2 + rf"(?:(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+"
+    _B2 + rf"(?:(?P<w4>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq4>{SQ})(?![0-9])\s+(?:сама\s+|сам\s+|только\s+что\s+|уже\s+)?"
+    r"(?:взял[аи]?|побил[аи]?|съел[аи]?|забрал[аи]?|срубил[аи]?)(?![а-яa-z])"
+    rf"|(?P<w5>конь|слон|ладья|ферзь|король|пешка)\s+на\s+(?P<sq5>{SQ})(?![0-9])\s+(?:сейчас\s+|уже\s+|по-прежнему\s+)?"
+    r"(?:стоит|висит|связан\w*|защищает|прикрывает|держит)(?![а-яa-z])"
+    rf"|(?P<w>конь|слон|ладья|ферзь|король|пешка)\s+(?P<sq>{SQ})(?![0-9])\s+"
     r"(?:(?:сейчас|уже|сама|сам|теперь|пока|тоже|по-прежнему|всё\s+ещё|все\s+еще|у\s+(?:тебя|вас|меня|него|не[её]|них)|"
     r"тво[йяёе]\w*|ваш\w*|мо[йяёе]\w*)\s+){0,2}"
     r"(?:бь[её]т|забирает|берёт|берет|защищает|атакует|нападает|держит|стоит|висит|давит|смотрит|прикрывает|связан\w*)(?![а-яa-z])"
@@ -1258,7 +1291,10 @@ def _ghost_issues(text: str, ctx: CheckContext) -> list[str]:
     if re.search(r"(?<![а-яa-z])(?:партии|партия|партию|game|played)(?![а-яa-z])", text):
         return []  # a game named in the words may be one the turn does not have
     for m in _GHOST.finditer(text):
-        word, sq_name = (m["w"], m["sq"]) if m["w"] else (m["w2"], m["sq2"]) if m["w2"] else (m["w3"], m["sq3"])
+        word, sq_name = next(((m[w], m[q]) for w, q in (("w", "sq"), ("w2", "sq2"), ("w3", "sq3"), ("w4", "sq4"), ("w5", "sq5"))
+                              if m[w]), (None, None))
+        if word is None:
+            continue
         if _NEGATION.search(text[max(0, m.start() - 12):m.start()]):
             continue
         ptype = _piece_type(word)
@@ -2715,7 +2751,7 @@ def _echoes_question(sentence: str, ctx: CheckContext) -> bool:
 # The coach says it made a move: «я ответил Кc6», «отвечаю e5», «мой ход — d5», "I play Nf6".
 _COACH_MOVE = re.compile(
     r"(?:(?<![\w-])я\s+(?:тоже\s+|сразу\s+|просто\s+)?(?:отвечаю|ответил[аи]?|играю|сыграл[аи]?|пош[её]л|пойду|иду|хожу|с?делаю\s+ход)"
-    r"|(?:^|[.!—–:]\s*)(?:отвечаю|ответил[аи]?)"
+    r"|(?:^|[.!—–:]\s*)(?:отвечаю|ответил[аи]?|хожу|иду|пойду|сыграю|ставлю|беру|бью)(?![а-я])"
     r"|(?<![\w-])мой\s+(?:ответ|ход)\s*(?:[—–:-]|это|будет)?"
     r"|(?<![\w-])i\s+(?:play|played|answer|answered|reply|replied)"
     r"|(?<![\w-])my\s+(?:reply|move|answer)\s+(?:is|was)?)"

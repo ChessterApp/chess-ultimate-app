@@ -662,10 +662,19 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
 
     live = live_game_board(session)
     command = game_command(message)
-    if live is None and command == "restart" and active_board is not None and active_board.kind == "game" \
-            and active_board.game_state:
-        # «Давай ещё раз» after a game: the same game again, as the panel's «New game» button does.
-        return game_command_step(session, active_board, "restart", message)
+    if live is None and command:
+        # After the game: «давай ещё раз» starts the same game again (the panel's «New game»); «верни ход», «ты
+        # ошибся», «покажи позицию после…», «продолжим отсюда» act on the finished game on the board — a mis-made
+        # last move that ended it can be undone and the game reopens (audit 26.10).
+        from src.tools.game_play import POST_GAME_COMMANDS, last_game_board
+
+        last = last_game_board(session)
+        on_board = last is not None and active_board is not None and active_board.id == last.id
+        named = bool(re.search(r"парти|игр|реванш|сыгра|game|rematch", message, re.IGNORECASE))
+        if last is not None and command == "restart" and (on_board or named):
+            return game_command_step(session, last, "restart", message)
+        if last is not None and on_board and command in POST_GAME_COMMANDS:
+            return game_command_step(session, last, command, message, view_ply=view_ply)
     if live is None:
         req = game_request(message)
         if not req:
@@ -675,8 +684,8 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
         block = (
             "## The game has started on the board (the system started it)\n"
             f"The student asked to play: the game is on — the student plays {view['student_color']}, the engine "
-            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {engine}. " if engine else
-                                                   "The student moves first. ")
+            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {engine}: say this move aloud in words (piece and "
+                                                   f"square), then that it is their move. " if engine else "The student moves first. ")
             + "Tell them it is on and whose move it is. Never play or invent a move of yours: every move of the "
             "student goes through make_game_move, and the engine makes yours."
         )
@@ -687,8 +696,27 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
         # A new game asked for while one is on: resigned and restarted with the named colour and strength.
         return game_command_step(session, live, "restart", message)
     if command:
-        return game_command_step(session, live, command, message, view_ply=view_ply)
+        return game_command_step(session, live, command, message, view_ply=view_ply, view_line=view_line)
     board = game_mode._replay(live.game_state["moves"])
+    browsing_ply = view_ply is not None and int(view_ply) < len(live.game_state.get("moves") or [])
+    if view_line or browsing_ply:
+        # The board shows another position (a side line, or an earlier ply): a move named now is read on THAT board
+        # and never played in the live game (audit 26.10: it was parsed on the live board first and played).
+        shown = game_mode._replay([str(m) for m in view_line]) if view_line else game_mode.position_at(live.game_state, int(view_ply))
+        if bare_move(message, shown) or bare_move(message, board) or move_attempt(message):
+            if view_line:
+                return {"view": None, "block": (
+                    "## A move named while the student looks at a SIDE LINE of the game — nothing was played\n"
+                    "The board shows a line that was taken back, not the game's position. Ask in one sentence whether they want "
+                    "to go back to the game («вернись к партии») — moves are played from the game's live position only."
+                )}
+            return {"view": None, "block": (
+                "## A move named while the student looks at an EARLIER position — nothing was played\n"
+                f"The board shows the position after ply {int(view_ply)}; the game stands further on. Ask in one sentence "
+                "whether they want to continue the game from the shown position («продолжим отсюда» — the later moves "
+                "are then undone) or go back to the game's current position. Never play the move yourself."
+            )}
+        return None
     if not game_mode._student_to_move(live.game_state, board):
         return None
     san = bare_move(message, board)
@@ -714,20 +742,6 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
             f"The student asks about {', '.join(dict.fromkeys(asked))}: the board did not change and nothing was "
             "played. Answer the question as their coach in the game — what the move would do, a hint, not the best "
             "move. Do not call make_game_move and never answer with a move of yours: they play it by writing it."
-        )}
-    if view_line:
-        return {"view": None, "block": (
-            "## A move named while the student looks at a SIDE LINE of the game — nothing was played\n"
-            "The board shows a line that was taken back, not the game's position. Ask in one sentence whether they want "
-            "to go back to the game («вернись к партии») — moves are played from the game's live position only."
-        )}
-    if view_ply is not None and int(view_ply) < len((live.game_state or {}).get("moves") or []):
-        # A move named while an earlier position is on the board (26.10): the game is not cut by a move alone.
-        return {"view": None, "block": (
-            "## A move named while the student looks at an EARLIER position — nothing was played\n"
-            f"The board shows the position after ply {int(view_ply)}; the game stands further on. Ask in one sentence "
-            "whether they want to continue the game from the shown position («продолжим отсюда» — the later moves "
-            "are then undone) or go back to the game's current position. Never play the move yourself."
         )}
     view = game_mode.play_move(session, live, san)
     student = view.get("student") or {}
@@ -1421,6 +1435,12 @@ async def chat_completions(body: ChatCompletionRequest, request: Request):
 SiteFen = Annotated[Optional[str], AfterValidator(repair_fen)]
 
 
+# «что было лучше вместо моего хода», «как надо было сыграть», "what should I have played" (26.10)
+_ASKS_BETTER_MOVE = re.compile(
+    r"(?<![\w-])(?:лучше\s+(?:было|бы)|вместо\s+(?:моего|этого)\s+хода|что\s+(?:надо|нужно|следовало)\s+было|как\s+(?:надо|нужно)\s+было\s+(?:сыграть|пойти|ходить)"
+    r"|где\s+я\s+ошиб\w*|what\s+should\s+i\s+have\s+played|what\s+was\s+better|better\s+move\s+(?:was|instead))", re.IGNORECASE)
+
+
 class CoachChatRequest(BaseModel):
     message: str
     fen: SiteFen = None
@@ -1509,6 +1529,7 @@ class CoachGameMoveRequest(BaseModel):
 class CoachGameCommentRequest(BaseModel):
     locale: Optional[str] = None
     event: str = "move"           # move | end
+    speech: Optional[bool] = None  # read aloud after the system said the moves (the voice pipeline, 26.10)
 
 
 class CoachFeedbackRequest(BaseModel):
@@ -2249,6 +2270,31 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     turn_context = f"{turn_context}\n\n{facts_note}"
         except Exception:  # noqa: BLE001 — never block a turn on the game note
             logger.debug("game context failed", exc_info=True)
+    if active_board.kind == "game" and active_board.game_state and _ASKS_BETTER_MOVE.search(body.message or ""):
+        # «Что было лучше вместо моего хода?»: the engine judged the student's last move when it was played; its better
+        # move is a fact — the model guessed another, illegal one on the long prod run (26.10: «слон c1 бьёт на h6»
+        # through its own queen on d2).
+        try:
+            from src.game_mode import _moves_text, position_at
+
+            st = active_board.game_state
+            ann = (st.get("annotations") or [])
+            if ann:
+                last = ann[-1]
+                before = position_at(st, int(last["ply"]) - 1)
+                better = last.get("best")
+                better_note = (
+                    "## The student asks what was better than their last move — the engine's verdict (facts)\n"
+                    f"Their last move: {last.get('san')} (ply {last.get('ply')}), verdict {last.get('verdict')}, lost "
+                    f"{last.get('cp_loss', 0)} centipawns; the position before it: FEN {before.fen()} "
+                    f"({_moves_text((st.get('moves') or [])[: int(last['ply']) - 1]) or 'the start'}). "
+                    + (f"The engine's better move there: {better} — name exactly this move as the better one; it is legal there. "
+                       if better else "The engine found no clearly better move: say their move was fine. ")
+                    + "Never offer another move as «better» unless it is this one."
+                )
+                turn_context = f"{turn_context}\n\n{better_note}" if turn_context else better_note
+        except Exception:  # noqa: BLE001 — never block a turn on this
+            logger.debug("better-move block failed", exc_info=True)
     if body.view_line and active_board.kind == "game" and active_board.game_state:
         # A side line kept after a takeback is on the board (26.10): the coach answers about it and knows it is not
         # the game's position.
@@ -4129,6 +4175,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 live = live_game_board(game_session) if game_session is not None else None
                 if live is not None and live.game_state:
                     ctx.game_engine_moves = _engine_moves(live.game_state)
+                    if live.pgn:
+                        ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
             except Exception:  # noqa: BLE001 — the check still runs without the game
                 pass
@@ -4177,6 +4225,11 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
                 fen = game.fen
             elif board is not None:
                 finished = board.kind == "game" and bool(board.game_state)
+            if not live and not finished:
+                # The panel was closed after a game: «давай ещё раз» still means the same game again (audit 26.10).
+                from src.tools.game_play import last_game_board
+
+                finished = last_game_board(session) is not None
                 puzzle = board.kind == "puzzle"
                 fen = fen or board.fen
                 pgn = pgn or board.pgn
@@ -4560,7 +4613,7 @@ async def coach_game_comment(session_id: str, board_id: str, body: CoachGameComm
     session = await _get_session_or_404(session_id, request)
     board = _get_game_board_or_404(session, board_id)
     comment_language = _session_language(session, body.locale)[0]
-    messages = game_mode.comment_prompt(board, comment_language, body.event)
+    messages = game_mode.comment_prompt(board, comment_language, body.event, spoken=bool(body.speech))
     model = quick_model()
     loop = asyncio.get_event_loop()
     # The comment is checked on the board like a chat answer (2026-10-05; the

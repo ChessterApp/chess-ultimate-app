@@ -164,13 +164,24 @@ def _cut(state: dict, ply: int) -> list:
     moves = state.get("moves") or []
     ply = max(0, min(int(ply), len(moves)))
     gone = list(moves[ply:])
-    if gone:
-        variations = state.setdefault("variations", [])
-        same = next((v for v in variations if int(v.get("at_ply", -1)) == ply and list(v.get("moves") or []) == gone), None)
+    variations = state.setdefault("variations", [])
+    # Lines kept further along the part of the main line being cut: re-rooted at the cut, or they would hang off a
+    # position that is no longer in the game (audit 26.10: two takebacks in a row left an orphan in the PGN).
+    rerooted = []
+    for v in list(variations):
+        at = int(v.get("at_ply", -1))
+        if at > ply:
+            variations.remove(v)
+            rerooted.append({"at_ply": ply, "moves": list(moves[ply:at]) + list(v.get("moves") or []), "at": v.get("at")})
+    for line in [gone] + [r["moves"] for r in rerooted]:
+        if not line:
+            continue
+        same = next((v for v in variations if int(v.get("at_ply", -1)) == ply
+                     and list(v.get("moves") or [])[: len(line)] == line), None)
         if same is None:
             # a longer line at the same ply swallows a shorter one it starts with
-            variations[:] = [v for v in variations if not (int(v.get("at_ply", -1)) == ply and gone[: len(v.get("moves") or [])] == list(v.get("moves") or []))]
-            variations.append({"at_ply": ply, "moves": gone, "at": time.time()})
+            variations[:] = [v for v in variations if not (int(v.get("at_ply", -1)) == ply and line[: len(v.get("moves") or [])] == list(v.get("moves") or []))]
+            variations.append({"at_ply": ply, "moves": line, "at": time.time()})
     state["moves"] = moves[:ply]
     state["annotations"] = [a for a in state.get("annotations") or [] if a["ply"] <= ply]
     return gone
@@ -713,7 +724,7 @@ def fallback_comment(board_rec: Board, locale: Optional[str], event: str = "move
     return text.strip()
 
 
-def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move") -> list[dict]:
+def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move", spoken: bool = False) -> list[dict]:
     """Messages for the tool-free comment call after a student's move or at the end.
 
     *locale* is the language of the comment: the server passes the session's
@@ -750,8 +761,10 @@ def comment_prompt(board_rec: Board, locale: Optional[str], event: str = "move")
                 f"{a['ply']}. {a['san']} ({a['verdict']}" + (f", better {a['best']}" if a.get("best") else "") + ")"
                 for a in bad[-5:]))
     facts.append(f"FEN: {board.fen()}")
+    spoken_rule = ("\nThe student has just HEARD both moves read out by the system («…, отвечаю …»): do not restate them — "
+                   "begin with the comment itself, short, for the ear." if spoken else "")
     return [
         {"role": "system", "content": COMMENT_SYSTEM.format(language=language, max_sentences=max_sentences)
-                                       + "\n" + COMMENT_RULES[verdict] + (f"\n{terms}" if terms else "")},
+                                       + "\n" + COMMENT_RULES[verdict] + (f"\n{terms}" if terms else "") + spoken_rule},
         {"role": "user", "content": "\n".join(facts)},
     ]
