@@ -66,7 +66,7 @@ RECORD = {"moves": ["e4", "e5", "Nf3", "Nc6", "Bc4", "Nf6", "d3", "d6"],
 
 @pytest.mark.parametrize("said,command,ply", [
     ("верни ход", "takeback", 6),
-    ("Верни партию на 2 хода назад", "takeback", 2),
+    ("Верни партию на 2 хода назад", "takeback", 4),       # the student's last two moves, not «move 2»
     ("верни позицию на два хода назад, до того как я сходил конём", "takeback", 2),
     ("отмени последние три хода", "takeback", 2),
     ("до того как я сходил слоном", "takeback", 4),
@@ -93,6 +93,10 @@ def test_the_other_commands_and_non_commands(said, command):
 
 @pytest.mark.parametrize("said,ply", [
     ("покажи позицию после 2-го хода", 4),
+    ("Покажи позицию после второго хода.", 4),     # the transcription writes the number as a word (Asan's phone, 26.10)
+    ("Я говорю, после второго хода.", 4),          # the student correcting which position — a view on its own
+    ("нет, до третьего", 4),
+    ("покажи позицию после хода номер три", 6),
     ("покажи, как было до моего хода конём", 2),
     ("отмотай на два хода назад посмотреть", 4),
     ("покажи позицию после моего хода слоном", 5),

@@ -1,4 +1,4 @@
-# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 26.10 (партия в голосовом режиме: откат на любое число ходов, «ты ошибся», просмотр позиции без изменения партии, «продолжим отсюда») — включает всё из версий 06.10 … 25.10
+# Обновление Hermes (ИИ-тренер Chesster) на сервере — версия 26.10-2 (партия в голосовом режиме: откат на любое число ходов, «ты ошибся», просмотр позиции без изменения партии, «продолжим отсюда»; числительные словами) — включает всё из версий 06.10 … 26.10
 
 > Эта инструкция лежит в репозитории: `docs/runbooks/hermes-server-update.md`. Актуальная версия — всегда в `main`; после шага 1 она есть и в клоне `/root/hermes-update/chess-ultimate-app/`.
 
@@ -30,6 +30,13 @@
 
 ### Что изменится после обновления
 
+Новое в версии 26.10-2 (тест Асана с телефона 26.10: «покажи позицию после второго хода» показало позицию после 4…c5; код
+`hermes/src/game_intent.py`; если сервер уже на 26.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 53):
+- **Числительные словами.** Расшифровка пишет «после второго хода», «до третьего», «ходу номер три», а не «2-го»: теперь
+  порядковые и количественные числительные словами читаются и в просмотре позиции, и в откате. «После второго хода» само по
+  себе (уточнение после «покажи…») — тоже команда показа. «На два хода назад» — всегда отсчёт последних ходов, а не «ход 2».
+- Проверка 53 ниже дополнена этой фразой.
+
 Новое в версии 26.10 (список Александра для аудиорежима, 26.10; код `hermes/src/game_mode.py`, `hermes/src/game_intent.py`,
 `hermes/src/tools/game_play.py`, `hermes/src/server.py`; миграций, переменных и изменений бэкенда нет; если сервер уже на
 25.10 — достаточно шагов 1, 2, 4, 8 и проверок 1, 3, 53):
@@ -47,7 +54,7 @@
 - **«Продолжим отсюда».** Пока на доске прежняя позиция, эти слова обрезают партию там и продолжают игру; новый маршрут
   `POST /api/coach/sessions/{sid}/game/{board}/continue` ({ply}) — то же для кнопки на сайте.
 - Проверка 53 (без базы и модели):
-  `cd /root/hermes-chess && .venv/bin/python -c "from src.game_intent import game_command as g, cut_target as c, view_target as v; R={'moves':['e4','e5','Nf3','Nc6','Bc4','Nf6','d3','d6'],'annotations':[{'ply':1,'san':'e4'},{'ply':3,'san':'Nf3'},{'ply':5,'san':'Bc4'},{'ply':7,'san':'d3'}]}; a=g('Верни партию на два хода назад, до того как я сходил конём')=='takeback' and c('до того как я сходил конём',R)['ply']==2; b=g('ты ошибся')=='mistake' and g('продолжим отсюда')=='continue_here' and g('вернись к партии')=='view_live'; d=g('покажи позицию после 2-го хода')=='view' and v('покажи позицию после 2-го хода',R)['ply']==4; print(a,b,d,'ОК' if a and b and d else 'ПРОВЕРЬ')"`
+  `cd /root/hermes-chess && .venv/bin/python -c "from src.game_intent import game_command as g, cut_target as c, view_target as v; R={'moves':['e4','e5','Nf3','Nc6','Bc4','Nf6','d3','d6'],'annotations':[{'ply':1,'san':'e4'},{'ply':3,'san':'Nf3'},{'ply':5,'san':'Bc4'},{'ply':7,'san':'d3'}]}; a=g('Верни партию на два хода назад, до того как я сходил конём')=='takeback' and c('до того как я сходил конём',R)['ply']==2; b=g('ты ошибся')=='mistake' and g('продолжим отсюда')=='continue_here' and g('вернись к партии')=='view_live'; d=g('Покажи позицию после второго хода.')=='view' and v('Покажи позицию после второго хода.',R)['ply']==4 and g('после второго хода')=='view'; print(a,b,d,'ОК' if a and b and d else 'ПРОВЕРЬ')"`
   → `True True True ОК`. И откат по словам в живой партии, `H` как в проверке 38, новая сессия:
   `H='X-User-Id: deploy-check'; SID=$(curl -s -X POST localhost:8642/api/coach/sessions -H "$H" -H 'Content-Type: application/json' -d '{}' | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])'); curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/start_game -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"color\":\"white\"},\"session_id\":\"$SID\"}"; for m in e4 Nf3 Bc4; do curl -s -o /dev/null -X POST localhost:8642/api/coach/tool/make_game_move -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"move\":\"$m\"},\"session_id\":\"$SID\"}"; done; curl -s -X POST localhost:8642/api/coach/tool/game_action -H "$H" -H 'Content-Type: application/json' -d "{\"args\":{\"said\":\"верни партию на два хода назад\"},\"session_id\":\"$SID\"}" | python3 -c "import sys,json; r=json.load(sys.stdin)['result']; print(r.get('action'), len(r.get('board_actions',[{}])[0].get('game',{}).get('moves',[])), 'ОК' if r.get('ok') and len(r['board_actions'][0]['game']['moves'])==2 else 'ПРОВЕРЬ')"`
   → `takeback 2 ОК` (из шести полуходов остались e4 и ответ движка).

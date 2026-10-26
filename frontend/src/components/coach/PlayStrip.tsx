@@ -40,6 +40,29 @@ interface PlayStripProps {
   onAnimationChange?: (ms: number) => void;
   /** Browsing the game's own moves back and forth (item 8 of Alexander's list, 26.10): the game does not change. */
   nav?: GameNavProps;
+  /** An earlier position is on the board: what is shown, «continue from here», «back to the game». */
+  viewing?: ViewingProps;
+}
+
+export interface ViewingProps {
+  label: string;
+  busy?: boolean;
+  onContinue: () => void;
+  onBack: () => void;
+}
+
+/** The line under the board while the student browses the record (26.10; it used to cover the first rank). */
+export function ViewingStrip({ label, busy, onContinue, onBack }: ViewingProps) {
+  const t = useTranslations('coach');
+  return (
+    <div data-testid="game-viewing" className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-(--coach-accent-soft,rgba(124,58,237,0.12)) px-3 py-1.5 text-xs text-(--coach-text)">
+      <span>{label}</span>
+      <span className="flex shrink-0 gap-2">
+        <button type="button" className="rounded bg-(--coach-accent) px-2 py-1 text-white disabled:opacity-50" onClick={onContinue} disabled={busy}>{t('continueHere')}</button>
+        <button type="button" className="rounded border border-(--coach-border) px-2 py-1" onClick={onBack}>{t('backToGame')}</button>
+      </span>
+    </div>
+  );
 }
 
 export interface GameNavProps {
@@ -96,11 +119,13 @@ export default function PlayStrip({
   animationMs,
   onAnimationChange,
   nav,
+  viewing,
 }: PlayStripProps) {
   return (
     <div className="flex flex-col gap-2" style={{ width }} data-testid="play-strip">
       <PlayCoachRow game={game} thinking={thinking} comment={comment} />
       {children}
+      {viewing && <ViewingStrip {...viewing} />}
       {nav && nav.total > 0 && <GameNav {...nav} />}
       <PlayStudentRow game={game} thinking={thinking} />
       <PlayActionBar
@@ -253,12 +278,14 @@ export function PlayActionBar({
   animationMs,
   onAnimationChange,
   nav,
+  viewing,
 }: Omit<PlayStripProps, 'comment' | 'width' | 'children'>) {
   const t = useTranslations('coach');
   const [confirmResign, setConfirmResign] = useState(false);
   const chosen = ANIMATION_CHOICES.reduce((best, c) => (Math.abs(c.ms - (animationMs ?? 250)) < Math.abs(best.ms - (animationMs ?? 250)) ? c : best), ANIMATION_CHOICES[0]);
   return (
     <>
+      {viewing && <ViewingStrip {...viewing} />}
       {nav && nav.total > 0 && <GameNav {...nav} />}
       {game.status === 'finished' ? (
         <ResultCard game={game} onReview={onReview} onRematch={onRematch} onClose={onClose} />

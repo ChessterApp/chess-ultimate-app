@@ -167,6 +167,13 @@ def bare_move(text: str, board: chess.Board) -> Optional[str]:
 # The commands a long sentence may carry (up to _LONG_COMMAND_WORDS words): «Верни партию на два хода назад, до
 # того как я сходил конём» (Alexander's list, 26.10). The short ones below keep their 8-word limit: «предлагаю
 # ничью» inside a 13-word question is a question, not an offer.
+_ORDINALS = {"перв": 1, "втор": 2, "трет": 3, "четверт": 4, "пят": 5, "шест": 6, "седьм": 7, "восьм": 8, "девят": 9, "десят": 10,
+             "одиннадцат": 11, "двенадцат": 12, "тринадцат": 13, "четырнадцат": 14, "пятнадцат": 15, "двадцат": 20,
+             "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
+_ORDINAL_RX = (r"\d{1,3}\s*-?\s*(?:го|й|му|ому|ого|ый|th|st|nd|rd)?|перв\w*|втор\w*|трет\w*|четв[её]рт\w*|пят\w*|шест\w*|седьм\w*|восьм\w*"
+               r"|девят\w*|десят\w*|одиннадцат\w*|двенадцат\w*|тринадцат\w*|четырнадцат\w*|пятнадцат\w*|двадцат\w*"
+               r"|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth")
+
 _LONG_COMMANDS = (
     # «ты ошибся», «это не мой ход», «верни как было»: the system misread the student's move, or moved wrong —
     # the last move is undone and the student is asked what they meant (item 5 of the list).
@@ -191,7 +198,11 @@ _LONG_COMMANDS = (
     ("view", re.compile(
         r"(?<![\w-])(?:покажи|посмотрим|посмотреть|открой|перемотай|отмотай|промотай|пролистай|хочу\s+посмотреть|давай\s+посмотрим"
         r"|show\s+(?:me\s+)?|rewind|go\s+back\s+to)\w*\s*(?:мне\s+)?(?:позици\w*|как\s+было|партию|the\s+position|move)?"
-        r"[^.!?]{0,40}?(?:после|до|на|к|перед|after|before|to)\s+[^.!?]{0,30}?(?:ход\w*|move\w*|начал\w*|start)(?![\w-])",
+        r"[^.!?]{0,40}?(?:после|до|на|к|перед|after|before|to)\s+[^.!?]{0,30}?(?:ход\w*|move\w*|начал\w*|start)(?![\w-])"
+        # «после второго хода», «я говорю, после второго хода», «нет, до третьего» on their own: the student
+        # correcting which position to show (Asan's phone, 26.10 — the model drew arrows instead)
+        r"|^(?:я\s+говорю,?\s*|нет,?\s*|не\s+так,?\s*|имею\s+в\s+виду\s*)?(?:после|до|перед|after|before)\s+(?:хода\s+номер\s+)?(?:"
+        + _ORDINAL_RX + r")(?:\s+ход\w*|\s+move\w*)?\s*[.!]?$",
         re.IGNORECASE)),
     ("takeback", re.compile(
         r"(?<![\w-])(?:верн\w*\s+(?:мой\s+|мне\s+|пожалуйста\s+)?(?:ход|назад)|отмен\w*\s+(?:[\w-]+\s+){0,3}?ход\w*"
@@ -326,8 +337,26 @@ _NUM_WORDS = {"один": 1, "одного": 1, "одна": 1, "два": 2, "д�
               "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8}
 _COUNT_BACK = re.compile(r"(?<![\w-])(?:на\s+)?(\d{1,2}|один|одного|одну|два|две|двух|три|трех|четыре|четырех|пять|пяти|шесть|семь|восемь|девять|десять"
                          r"|one|two|three|four|five|six|seven|eight)\s+(?:последн\w+\s+|моих\s+|своих\s+)?(?:ход\w*|moves?)(?![\w-])", re.IGNORECASE)
-_MOVE_NUMBER = re.compile(r"(?<![\w-])(после|до|к|на|перед|after|before|to)\s+(\d{1,3})\s*-?\s*(?:го|й|му|ому|ого|ый|th|st|nd|rd)?\s*(?:ход\w*|move\w*)(?![\w-])",
-                          re.IGNORECASE)
+# «после 2-го хода», «после второго хода», «до десятого хода» — the transcription writes the number as a word (26.10)
+_CARDINAL_RX = r"один|одного|два|две|двух|три|трех|четыре|пять|шесть|семь|восемь|девять|десять"
+# «после 2-го хода», «после второго хода», «до десятого», «к ходу номер три» — the transcription writes the number
+# as a word (26.10); «на два хода назад» is a count, not a number: «на» is not a prefix here.
+_MOVE_NUMBER = re.compile(r"(?<![\w-])(после|до|к|перед|after|before|to)\s+(?:(?:хода|ходу)\s+номер\s+(" + _CARDINAL_RX + r"|\d{1,3})|("
+                          + _ORDINAL_RX + r"))(?:\s*(?:ход\w*|move\w*))?(?![\w-])", re.IGNORECASE)
+_NAZAD = re.compile(r"(?<![\w-])(?:назад|back)(?![\w-])", re.IGNORECASE)
+
+
+def _move_number(raw: str) -> Optional[int]:
+    t = (raw or "").strip().replace("ё", "е").lower()
+    m = re.match(r"\d{1,3}", t)
+    if m:
+        return int(m.group(0))
+    if t in _NUM_WORDS:
+        return _NUM_WORDS[t]
+    for key, n in _ORDINALS.items():
+        if t.startswith(key):
+            return n
+    return None
 _MY_MOVE = re.compile(r"(?<![\w-])(после|до|перед|after|before)\s+(?:того\s+как\s+)?(?:я\s+|мо\w+\s+)?(?:сходил\w*|пошел|пошла|походил\w*|ход\w*|сыграл\w*|поставил\w*|played|moved|move)?"
                       r"\s*(?:мо\w+\s+)?(кон\w*|слон\w*|ладь\w*|ферз\w*|корол\w*|пешк\w*|knight|bishop|rook|queen|king|pawn)?\s*(?:на\s+|to\s+|on\s+)?([a-h][1-8])?(?![\w-])",
                       re.IGNORECASE)
@@ -365,9 +394,10 @@ def cut_target(text: str, state: dict, *, default_count: int = 1) -> dict:
     student_plies = [int(a["ply"]) for a in state.get("annotations") or []]
     if _TO_START.search(t):
         return {"ply": 0, "why": "the start of the game"}
-    m = _MOVE_NUMBER.search(t)
-    if m:
-        n = int(m.group(2))
+    back = _COUNT_BACK.search(t) if _NAZAD.search(t) else None   # «на два хода назад»: a count, before anything else
+    m = None if back else _MOVE_NUMBER.search(t)
+    if m and _move_number(m.group(2) or m.group(3)) is not None:
+        n = _move_number(m.group(2) or m.group(3))
         if m.group(1).lower() in ("после", "after"):
             return {"ply": min(len(moves), 2 * n), "why": f"after move {n}"}
         return {"ply": max(0, min(len(moves), 2 * (n - 1))), "why": f"before move {n}"}
@@ -379,7 +409,7 @@ def cut_target(text: str, state: dict, *, default_count: int = 1) -> dict:
             if m.group(1).lower() in ("после", "after"):
                 return {"ply": ply, "why": f"after the student's move {san} (ply {ply})"}
             return {"ply": ply - 1, "why": f"before the student's move {san} (ply {ply})"}
-    m = _COUNT_BACK.search(t)
+    m = back or _COUNT_BACK.search(t)
     count = default_count
     if m:
         raw = m.group(1).lower()

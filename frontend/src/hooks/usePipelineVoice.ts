@@ -356,6 +356,7 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
         fillerCacheRef.current.set(path, pcm);
       }
       if (turn.controller.signal.aborted) return;
+      if (turn.pieces.length || turn.spokenAnswer) return;  // the answer is already being read: no «сейчас посмотрю» after it (26.10)
       enqueue(pcm, () => {
         const end = speechEndAtRef.current;
         if (end !== null) setTimings((t) => ({ ...t, firstSoundMs: Math.round(performance.now() - end) }));
