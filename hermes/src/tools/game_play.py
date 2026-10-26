@@ -300,6 +300,20 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     return _reply(view, summary)
 
 
+def _numbered_from(moves: list, start_ply: int) -> str:
+    """«3.Nc3 Nf6 4.a3 Bf5» for the moves after *start_ply* plies — so the model names the undone moves, not guesses them."""
+    out = []
+    for i, san in enumerate(moves):
+        ply = start_ply + i + 1
+        if ply % 2 == 1:
+            out.append(f"{(ply + 1) // 2}.{san}")
+        elif not out:
+            out.append(f"{ply // 2}...{san}")
+        else:
+            out.append(san)
+    return " ".join(out)
+
+
 def game_command_step(session, board_rec, command: str, words: str = "", wish: Optional[dict] = None,
                       view_ply: Optional[int] = None) -> Optional[dict]:
     """Resign / take back / draw / a new game / the engine's strength, asked for in words: done here as the
@@ -363,21 +377,24 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
             from src.game_intent import cut_target
 
             target = cut_target(words, state)
-            before = len(state.get("moves") or [])
+            moves_before = list(state.get("moves") or [])
+            cut_at = max(0, min(int(target["ply"]), len(moves_before)))
+            gone = moves_before[cut_at:]
             view = game_mode.truncate(session, board_rec, target["ply"])
-            undone = before - len(view.get("moves") or []) + (1 if view.get("engine") else 0)
-            if undone <= 0:
+            if not gone and not view.get("engine"):
                 return {"view": None, "block": (
                     "## Nothing to take back — the game is at its start\n"
                     "Say so in one sentence and let the student move."
                 )}
             engine = (view.get("engine") or {}).get("san")
+            kept = game_mode._moves_text(view.get("moves") or []) or "the start"
             return {"view": view, "block": (
                 "## The game was taken back (the system did it)\n"
-                f"Cut to {target['why']}: {undone} ply undone. The position is {view.get('fen')}"
+                f"Cut to {target['why']}. UNDONE, exactly these moves: {_numbered_from(gone, cut_at) or 'none'}. "
+                f"The record now: {kept}; the position is {view.get('fen')}"
                 + (f"; the engine then moved {engine}" if engine else "")
                 + ("; it is the student's move." if view.get("student_to_move") else ".")
-                + " Say it in one sentence — which moves are undone — and let them move."
+                + " Say in one sentence which moves were undone — name them as listed, never other moves — and let them move."
             )}
         if command == "mistake":
             # «Ты ошибся», «это не мой ход», «верни как было» (item 5): the system misread the move or moved wrong —

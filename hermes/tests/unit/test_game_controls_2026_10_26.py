@@ -147,6 +147,7 @@ def test_takeback_by_words_cuts_to_the_place_named(engine):
     assert reply["ok"] and reply["action"] == "takeback" and reply["done"]
     assert live_game_board(session).game_state["moves"] == ["e4", "e5", "Nf3", "Nc6"]
     assert "before the student's move Bc4" in reply["note"]
+    assert "UNDONE, exactly these moves: 3.Bc4 Nf6 4.d3 d6" in reply["note"]   # the model names these, not guesses (prod, 26.10)
 
 
 def test_a_mistake_undoes_the_last_move_and_asks_what_was_meant(engine):
