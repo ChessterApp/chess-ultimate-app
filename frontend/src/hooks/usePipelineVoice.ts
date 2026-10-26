@@ -298,9 +298,12 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
   }, [fetchPiece]);
   startFetchesRef.current = startFetches;
 
-  const feedFrame = useCallback((frame: PipelineFrame) => {
+  // A frame belongs to the turn it was asked for: a comment still streaming after the student spoke again, or a chat
+  // answer still streaming after a hand move, is not read into the new turn (audit 26.10).
+  const feedFrame = useCallback((frame: PipelineFrame, turnId?: number) => {
     const turn = turnRef.current;
     if (!turn || turn.controller.signal.aborted) return;
+    if (turnId !== undefined && turn.id !== turnId) return;
     if (frame.stage === 'quick') turn.quiet = true;
     else if (frame.stage === 'answer') turn.quiet = false;
     if (typeof frame.delta === 'string' && frame.delta && !turn.quiet) turn.buffer += frame.delta;
@@ -381,8 +384,9 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
    * («е четыре. Отвечаю е пять.», 26.10). With `more`, the coach's comment streams into the same turn
    * (feedFrame) after it; without, the turn ends with the phrase.
    */
-  const announce = useCallback((text: string, more = false) => {
-    if (!text.trim() || !sessionRef.current) return;
+  const announce = useCallback((text: string, more = false): number | undefined => {
+    // The reading needs the speaker, not the transcription session (a move made during its reconnect is still said).
+    if (!text.trim() || !playbackCtxRef.current) return undefined;
     const turn = newTurn();
     const locale = localeOf(text, (optionsRef.current.locale?.() as PipelineLocale) || 'ru');
     turn.pieces.push({ text, locale, parts: [], played: 0, started: false, done: false });
@@ -392,7 +396,11 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
     setTimings({ sttMs: null, firstSoundMs: null, firstAnswerMs: null });
     startFetches(turn);
     if (!more) { turn.done = true; drain(turn); }
+    return turn.id;
   }, [newTurn, startFetches, drain]);
+
+  /** The turn now being read, for a stream that feeds it (feedFrame's turnId). */
+  const currentTurnId = useCallback(() => turnRef.current?.id, []);
 
   // ── the student's words ───────────────────────────────────────────────────
   const sendUtterance = useCallback((text: string) => {
@@ -657,5 +665,5 @@ export default function usePipelineVoice(options: UsePipelineVoiceOptions) {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
-  return { status, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame, announce };
+  return { status, isSupported, isActive, error, timings, ttsState, prepare, connect, disconnect, feedFrame, announce, currentTurnId };
 }

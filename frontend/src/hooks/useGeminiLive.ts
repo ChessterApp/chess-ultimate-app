@@ -19,7 +19,7 @@ import {
   gameStartNote,
   mayAskForAGame,
   mayCommandTheGame,
-  mentionsAGame, factsNote, unclearMoveNote } from '@/lib/coach/voice-game';
+  mentionsAGame, factsNote, unclearMoveNote, browsingNote } from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -410,6 +410,8 @@ export interface UseGeminiLiveOptions {
   getSessionId?: () => string | null | undefined;
   /** The ply of the game's earlier position on the board (the move panel), null at the live one (26.10). */
   getViewPly?: () => number | null | undefined;
+  /** A side line of the game on the board (taken back, kept in the notation): its moves from the start (26.10). */
+  getViewLine?: () => string[] | null | undefined;
   onTranscript?: (t: {
     role: 'user' | 'model';
     text: string;
@@ -630,6 +632,16 @@ export default function useGeminiLive(
   // The game position the voice coach was last told about (by a tool result or a [Game] line):
   // the board change it causes is not reported a second time.
   const gameToldFenRef = useRef<string | null>(null);
+  const gameToldPlyRef = useRef<number | undefined>(undefined);
+  // What the board shows besides the live game, for the game tools (view_ply / view_line).
+  const browsingArgs = useCallback((): Record<string, unknown> => {
+    const viewPly = optionsRef.current.getViewPly?.();
+    const viewLine = optionsRef.current.getViewLine?.();
+    return {
+      ...(typeof viewPly === 'number' ? { view_ply: viewPly } : {}),
+      ...(viewLine && viewLine.length ? { view_line: viewLine } : {}),
+    };
+  }, []);
   const gameLive = () => optionsRef.current.getGame?.()?.status === 'playing';
 
 
@@ -1118,7 +1130,8 @@ export default function useGeminiLive(
             credentials: 'include',
             body: JSON.stringify({
               name: fc.name,
-              args: fc.args ?? {},
+              // The model's own game calls carry what the board shows (audit 26.10: a move said while browsing was played).
+              args: fc.name === 'make_game_move' || fc.name === 'game_action' ? { ...browsingArgs(), ...(fc.args ?? {}) } : fc.args ?? {},
               session_id: sessionId,
               // Hermes decides the board lock from the student's words, as for a text turn.
               utterance: userUtteranceRef.current || undefined,
@@ -1237,7 +1250,7 @@ export default function useGeminiLive(
     } catch {
       /* session may be closing */
     }
-  }, [reportMetric, ensureTurnId]);
+  }, [browsingArgs, reportMetric, ensureTurnId]);
 
   // Gemini rarely marks a transcription `finished`, so an utterance also ends at
   // the turn's edges: the student's when the coach starts answering (speech or a
@@ -1508,14 +1521,14 @@ export default function useGeminiLive(
     if (intent && sessionRef.current === session) {
       switch (intent.kind) {
         case 'game_command':
-          if (await siteToolCall('game_action', { said: text, view_ply: optionsRef.current.getViewPly?.() ?? undefined }, session, gameActionNote, true)) conceptDoneRef.current = true;
+          if (await siteToolCall('game_action', { said: text, ...browsingArgs() }, session, gameActionNote, true)) conceptDoneRef.current = true;
           return;
         case 'game_request':
           if (await siteToolCall('start_game', { said: text }, session, gameStartNote, true)) conceptDoneRef.current = true;
           return;
         case 'move':
           // The move Hermes read («слон си четыре» → Bc4), played as the student's.
-          if (await siteToolCall('make_game_move', { move: intent.san }, session, gameMoveNote, true)) conceptDoneRef.current = true;
+          if (await siteToolCall('make_game_move', { move: intent.san, ...browsingArgs() }, session, gameMoveNote, true)) conceptDoneRef.current = true;
           return;
         case 'idea':
           ideaLookupRef.current?.(text, true);
@@ -1563,13 +1576,13 @@ export default function useGeminiLive(
     // Resign, take back, a draw, a new game said in words: the game's buttons, pressed by Hermes.
     const commandTheGame = async () =>
       mayCommandTheGame(text) && text.trim().split(/\s+/).length <= 8
-      && (await siteToolCall('game_action', { said: text, view_ply: optionsRef.current.getViewPly?.() ?? undefined }, session, gameActionNote));
+      && (await siteToolCall('game_action', { said: text, ...browsingArgs() }, session, gameActionNote));
     if (gameLive()) {
       if (await commandTheGame()) {
         conceptDoneRef.current = true;
         return;
       }
-      if (text.trim().split(/\s+/).length <= 6 && (await siteToolCall('make_game_move', { said: text }, session, gameMoveNote))) {
+      if (text.trim().split(/\s+/).length <= 6 && (await siteToolCall('make_game_move', { said: text, ...browsingArgs() }, session, gameMoveNote))) {
         conceptDoneRef.current = true;
       }
       return;  // the board is the game's: no example goes up
@@ -1613,7 +1626,7 @@ export default function useGeminiLive(
     if (keepsBoard(text, optionsRef.current.getFen?.())) return;
     conceptDoneRef.current = true;
     await showTopic();
-  }, [askIntent, lookUpOpening, lookUpPuzzle, lookUpReview, siteToolCall]);
+  }, [browsingArgs, askIntent, lookUpOpening, lookUpPuzzle, lookUpReview, siteToolCall]);
   // The student names a move: play it on the board at Hermes, let Stockfish look
   // at the position after it, and hand the model the "[Idea]" line — before it
   // answers from its head (text coach: src/hypothetical.py, same facts).
@@ -1978,11 +1991,28 @@ export default function useGeminiLive(
     // line — that would hand the voice coach the best move to tell (the text coach hints too).
     const game = optionsRef.current.getGame?.();
     const inGame = !!game && game.fen.split(' ')[0] === fen.split(' ')[0];
+    const viewPly = optionsRef.current.getViewPly?.();
+    const viewLine = optionsRef.current.getViewLine?.();
+    if (game && game.status === 'playing' && !inGame && (typeof viewPly === 'number' || (viewLine && viewLine.length))) {
+      // Browsing the game's record or a side line: told as such, with no engine line for that position (audit 26.10).
+      try {
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: browsingNote(game, typeof viewPly === 'number' ? viewPly : null, viewLine ?? null, fen) }] }], turnComplete: false });
+      } catch {
+        /* session may be closing */
+      }
+      gameToldFenRef.current = null;  // the way back to the live position is told again
+      return;
+    }
     if (inGame) {
       if (gameToldFenRef.current === game.fen) return;  // the tool result already said it
       gameToldFenRef.current = game.fen;
+      const previousPly = gameToldPlyRef.current;
+      gameToldPlyRef.current = game.ply;
+      // A move made by hand (no tool told it): the engine's reply is spoken now, in a turn of its own — with
+      // turnComplete false the model only took the line in and said nothing (audit 26.10).
+      const speakNow = !!game.engine && statusRef.current !== 'speaking';
       try {
-        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameNote(game) }] }], turnComplete: false });
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameNote(game, previousPly) }] }], turnComplete: speakNow });
       } catch {
         /* session may be closing */
       }

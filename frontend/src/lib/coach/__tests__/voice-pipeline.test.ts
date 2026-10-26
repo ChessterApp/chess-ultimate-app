@@ -129,12 +129,16 @@ describe('a move said by the system before the model speaks (25.10)', () => {
     expect(movePhrase({ student: { san: 'e4' }, engine: { san: 'e5' }, status: 'playing' })).toBe('е четыре. Отвечаю е пять.');
     expect(movePhrase({ student: { san: 'Qxf7#' }, engine: null, status: 'finished' })).toBe('ферзь бьёт эф семь, мат. Партия окончена.');
     expect(movePhrase({ student: { san: 'e4' }, engine: { san: 'c5' }, status: 'playing' }, 'en')).toBe('e4. I reply c5.');
-    expect(movePhrase({ student: null, engine: { san: 'e4' }, status: 'playing' })).toBeNull();
+    // the engine alone (audit 26.10): its first move as Black, its move after «продолжить отсюда»
+    expect(movePhrase({ student: null, engine: { san: 'e4' }, status: 'playing', ply: 1 })).toBe('Мой первый ход: е четыре.');
+    expect(movePhrase({ student: null, engine: { san: 'Nf6' }, status: 'playing', ply: 4 })).toBe('Отвечаю конь эф шесть.');
+    expect(movePhrase({ student: { san: 'e4' }, engine: { san: 'e5' }, status: 'playing' }, 'ru', true)).toBe('Отвечаю е пять.');
+    expect(movePhrase({ student: null, engine: null, status: 'playing' })).toBeNull();
   });
 
   it('knows a move from a question, so the filler is skipped only for moves', () => {
     for (const t of ['е четыре', 'конь эф три', 'Ну, слон цэ четыре.', 'e4', 'я пойду d4', 'короткая рокировка', 'Коня в три.']) expect(looksLikeMove(t), t).toBe(true);
-    for (const t of ['что думаешь про позицию', 'дай задачу на связку', 'а если конь эф три, это хорошо или плохо?', 'ладно']) expect(looksLikeMove(t), t).toBe(false);
+    for (const t of ['что думаешь про позицию', 'дай задачу на связку', 'а если конь эф три, это хорошо или плохо?', 'ладно', 'на два хода назад', 'верни ход']) expect(looksLikeMove(t), t).toBe(false);
   });
 });
 

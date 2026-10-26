@@ -72,13 +72,14 @@ export default function GameNotation({ moves, variations = [], currentIndex, cur
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-b border-(--coach-border) bg-(--coach-bg)" data-testid="game-notation">
+    <div className="flex min-h-full flex-col border-b border-(--coach-border) bg-(--coach-bg)" data-testid="game-notation">
       <nav aria-label={t('viewerMoves')} className="flex min-h-0 flex-1 flex-wrap content-start items-center gap-0.5 overflow-y-auto px-2 py-1 [scrollbar-width:thin]">
         {moves.length === 0 && variations.length === 0 && <span className="px-1 text-sm text-(--coach-muted)">{t('moveStripEmpty')}</span>}
         {byPly.get(0)?.map(({ index, v }) => sideLine(index, v))}
         {moves.map((san, i) => (
           <React.Fragment key={i}>
             {i % 2 === 0 && <span className="shrink-0 pl-1 text-[12px] tabular-nums text-(--coach-muted)/70">{i / 2 + 1}.</span>}
+            {i % 2 === 1 && byPly.has(i) && <span className="shrink-0 pl-1 text-[12px] tabular-nums text-(--coach-muted)/70">{(i + 1) / 2}…</span>}
             {moveButton(san, currentIndex === i, () => onJump(i), `m${i}`)}
             {byPly.get(i + 1)?.map(({ index, v }) => sideLine(index, v))}
           </React.Fragment>

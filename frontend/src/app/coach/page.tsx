@@ -18,7 +18,7 @@ import type { BoardAction, GameResult } from '@/types/coach';
 import type { OpenedGame } from '@/components/openings/GameViewerPanel';
 import { parseGamePgn } from '@/components/openings/GameViewerPanel';
 import CoachSessions from '@/components/coach/CoachSessions';
-import PlayStrip, { PlayActionBar, PlayCoachRow, PlayStudentRow } from '@/components/coach/PlayStrip';
+import PlayStrip, { PlayActionBar, PlayCoachRow, PlayStudentRow, ViewingStrip, moveLabel } from '@/components/coach/PlayStrip';
 import CoachShell from '@/components/coach/CoachShell';
 import ContextBar from '@/components/coach/ContextBar';
 import MoveStrip from '@/components/coach/MoveStrip';
@@ -51,6 +51,7 @@ import {
 } from '@/lib/coach/sheet-detent';
 import { sanMoves } from '@/lib/coach/move-strip';
 import type { Key } from 'chessground/types';
+import { Chess } from 'chess.js';
 
 /** Rebuild an OpenedGame tab from a persisted master_game board, or a finished game against the coach. */
 function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: string }): OpenedGame | null {
@@ -198,17 +199,32 @@ export default function CoachPage() {
   animationMsRef.current = animationMs;
   useEffect(() => { setAnimationMs(readAnimationMs()); }, []);
   const animTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The position shown for the first step of an animated pair (the student's move before the engine's reply, or the
+  // start before the engine's first move) — display only: the board's history stays at the game's end, so nothing
+  // else (the viewing strip, view_ply, the voice model's position) takes the step for browsing (audit 26.10).
+  const [shownFen, setShownFen] = useState<string | null>(null);
+  const stopAnimation = useCallback(() => {
+    if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
+    setShownFen(null);
+  }, []);
+  useEffect(() => () => { if (animTimerRef.current) clearTimeout(animTimerRef.current); }, []);
   // The earlier position of the game the student browsed to with the move buttons (26.10): the game itself
   // goes on; a move by hand is not taken there; the coach is told what is shown.
   // A side line of the game (taken back, kept in the notation) shown on the board: which one and how far (26.10).
   const [viewingVariation, setViewingVariation] = useState<{ index: number; count: number } | null>(null);
-  const viewPly = !viewingVariation && game && game.status === 'playing' && board.fens.length > 1 && board.moveIndex >= 0 && board.moveIndex < board.fens.length - 1
-    ? board.moveIndex : null;
+  const viewPly = !viewingVariation && game && board.fens.length > 1 && board.moveIndex >= 0 && board.moveIndex < board.fens.length - 1
+    ? board.moveIndex : null;  // a finished game can be browsed and continued from too (audit 26.10)
   const viewPlyRef = useRef<number | null>(viewPly);
   viewPlyRef.current = viewPly;
-  const variationLine = viewingVariation && game?.variations?.[viewingVariation.index]
-    ? [...game.moves.slice(0, game.variations[viewingVariation.index].at_ply), ...game.variations[viewingVariation.index].moves.slice(0, viewingVariation.count)]
-    : null;
+  const variationAt = viewingVariation && game?.variations?.[viewingVariation.index] ? game.variations[viewingVariation.index].at_ply : 0;
+  const variationLine = useMemo(
+    () => (viewingVariation && game?.variations?.[viewingVariation.index]
+      ? [...game.moves.slice(0, variationAt), ...game.variations[viewingVariation.index].moves]
+      : null),
+    [viewingVariation, game, variationAt],
+  );
+  // Where on the side line the board is (◀ ▶ move along it): its moves shown so far, 0 = still on the main line part.
+  const variationCount = viewingVariation ? Math.max(0, board.moveIndex - variationAt) : 0;
   const viewLine = variationLine ? variationLine.slice(0, Math.max(0, board.moveIndex)) : null;
   const viewingVariationRef = useRef(viewingVariation);
   viewingVariationRef.current = viewingVariation;
@@ -258,14 +274,14 @@ export default function CoachPage() {
   }, []);
   // Height the mode's strip takes under the board (moves, play rows, step panel).
   // «Моменты» sit in the chat column's footer, not under the board.
-  const below = mode === 'viewer' ? 52 : mode === 'play' ? 190 : mode === 'puzzle' ? 170 : 0;
+  const below = mode === 'viewer' ? 52 : mode === 'play' ? 300 : mode === 'puzzle' ? 170 : 0;
 
   // Desktop: the mode's strip renders under the board too.
   const responsiveBoardSize = useMemo(() => {
     if (!boardArea.width) return 520;
-    const byHeight = boardArea.height ? boardArea.height - 44 - below : 520;
+    const byHeight = boardArea.height ? boardArea.height - (mode === 'play' ? 0 : 44) - below : 520;
     return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8, byHeight)));
-  }, [boardArea.width, boardArea.height, below]);
+  }, [boardArea.width, boardArea.height, below, mode]);
 
   // An opened master game: the move list sits beside the board when the board
   // keeps at least MIN_BESIDE px that way, else under it — with the board sized
@@ -301,6 +317,7 @@ export default function CoachPage() {
       // The board shows another position of the game against the coach (game_view, 26.10): browsed, not played.
       for (const a of incoming) {
         if (a.type !== 'game_view') continue;
+        if (viewingVariationRef.current) backToMainLineRef.current();  // a side line on the board: the main line first
         if (a.ply === null) board.lastMove();
         else board.goToMove(a.ply);
       }
@@ -524,35 +541,55 @@ export default function CoachPage() {
   // ── Game against the coach ─────────────────────────────────────────────
   const applyGameView = useCallback(
     (view: GameStateView) => {
-      const prevMoves = gameRef.current?.moves.length ?? 0;
+      const previous = gameRef.current;
+      const newGame = !previous || previous.board_id !== view.board_id;
+      const prevMoves = newGame ? 0 : previous.moves.length;
       setGame(view);
       setViewingVariation(null);
       setGameError(null);
+      if (newGame) {
+        // a new game by voice or words: the old game's remark and verdict go (audit 26.10)
+        setCoachLine(null);
+        setVerdictToast(null);
+      }
       dispatchMode({ type: 'game_started' });
-      if (animTimerRef.current) { clearTimeout(animTimerRef.current); animTimerRef.current = null; }
+      stopAnimation();
+      board.setOrientation(view.student_color);
       if (view.pgn) {
         board.applyBoardAction({ type: 'load_pgn', pgn: view.pgn });
         const total = view.moves.length;
-        if (animationMsRef.current > 0 && total - prevMoves === 2 && view.student && view.engine) {
-          // The student's move first, the engine's reply after it has been seen (26.10): two moves, not one jump.
-          board.goToMove(total - 1);
-          animTimerRef.current = setTimeout(() => {
-            animTimerRef.current = null;
-            board.goToMove(total);
-          }, animationMsRef.current + 150);
+        // The student's move first, the engine's reply after it has been seen; on a new game as Black the start
+        // first, then the engine's opening move (26.10): moves one after the other, not one jump.
+        const firstStep = animationMsRef.current <= 0 ? null
+          : !newGame && total - prevMoves === 2 && view.student && view.engine ? total - 1
+          : newGame && total === 1 && view.engine ? 0
+          : null;
+        if (firstStep !== null) {
+          const replay = new Chess();
+          try {
+            for (const san of view.moves.slice(0, firstStep)) replay.move(san);
+            setShownFen(replay.fen());
+            animTimerRef.current = setTimeout(() => {
+              animTimerRef.current = null;
+              setShownFen(null);
+            }, animationMsRef.current + 150);
+          } catch {
+            setShownFen(null);
+          }
         }
       } else board.applyBoardAction({ type: 'set_fen', fen: view.fen });
-      board.setOrientation(view.student_color);
     },
-    [board],
+    [board, stopAnimation],
   );
   applyGameViewRef.current = applyGameView;
 
   const requestGameComment = useCallback(
-    (sid: string, view: GameStateView) => {
+    (sid: string, view: GameStateView, turnId?: number) => {
       void chatRef.current?.streamAssistant(
         `/api/coach/sessions/${encodeURIComponent(sid)}/game/${encodeURIComponent(view.board_id)}/comment`,
-        { event: view.status === 'finished' ? 'end' : 'move' },
+        // speech: the moves were just said aloud — the comment does not restate them (audit 26.10)
+        { event: view.status === 'finished' ? 'end' : 'move', speech: chatRef.current?.voiceSpeaks() || undefined },
+        turnId,
       );
     },
     [],
@@ -578,6 +615,7 @@ export default function CoachPage() {
         setPlayChatOpen(false);
         board.resetBoard();
         applyGameView(view);
+        chatRef.current?.announceGame(view);  // the engine's first move when the student plays Black
       } catch (err: unknown) {
         const reason = err instanceof Error ? err.message : 'unknown';
         setGameError(t('gameStartFailed', { reason }));
@@ -597,9 +635,10 @@ export default function CoachPage() {
         const view = await coachApi.gameMove(sessionId, current.board_id, uci);
         applyGameView(view);
         setVerdictToast(moveVerdict(view.student));
-        // The voice pipeline says the move and the reply at once and then reads the coach's comment (26.10).
-        chatRef.current?.announceGame(view);
-        if (view.comment_wanted || chatRef.current?.voicePipelineOn()) requestGameComment(sessionId, view);
+        // The voice pipeline says the engine's reply (the student saw their own move) and then reads the coach's
+        // comment into the same turn (26.10).
+        const turnId = chatRef.current?.announceGame(view, true);
+        if (view.comment_wanted || chatRef.current?.voicePipelineOn()) requestGameComment(sessionId, view, turnId);
       } catch (err: unknown) {
         const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
         setGameError(t('gameMoveFailed', { reason }));
@@ -631,25 +670,31 @@ export default function CoachPage() {
     const view = await coachApi.gameTakeback(sessionId, game.board_id);
     if (view) applyGameView(view);
   }, [sessionId, game, applyGameView]);
+  const backToMainLineRef = useRef<() => void>(() => {});
 
   // A side line on the board: the main line up to its ply, then its moves — the game itself untouched.
   const showVariation = useCallback((index: number, count: number) => {
     const current = gameRef.current;
     const v = current?.variations?.[index];
     if (!current || !v) return;
-    const line = [...current.moves.slice(0, v.at_ply), ...v.moves.slice(0, count)];
+    // the whole side line is loaded, the board on the clicked move: ◀ ▶ walk the line (audit 26.10)
+    const line = [...current.moves.slice(0, v.at_ply), ...v.moves];
     const pgn = line.map((san, i) => (i % 2 === 0 ? `${i / 2 + 1}. ${san}` : san)).join(' ');
     setViewingVariation({ index, count });
+    viewingVariationRef.current = { index, count };
     board.applyBoardAction({ type: 'load_pgn', pgn: `${pgn} *` });
+    board.goToMove(v.at_ply + count);
   }, [board]);
 
   const backToMainLine = useCallback(() => {
     const current = gameRef.current;
     setViewingVariation(null);
+    viewingVariationRef.current = null;
     if (!current) return;
     if (current.pgn) board.applyBoardAction({ type: 'load_pgn', pgn: current.pgn });
     else board.applyBoardAction({ type: 'set_fen', fen: current.fen });
   }, [board]);
+  backToMainLineRef.current = backToMainLine;
 
   const handleGameContinue = useCallback(async () => {
     const current = gameRef.current;
@@ -659,7 +704,7 @@ export default function CoachPage() {
     try {
       const view = await coachApi.gameContinue(sessionId, current.board_id, ply);
       applyGameView(view);
-      chatRef.current?.announceGame(view);
+      chatRef.current?.announceGame(view, true);  // the engine's move from the new point, if it moved
     } catch (err: unknown) {
       const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
       setGameError(t('gameMoveFailed', { reason }));
@@ -678,18 +723,22 @@ export default function CoachPage() {
   }, [sessionId, game, applyGameView, requestGameComment]);
 
   const handleGameClose = useCallback(() => {
+    stopAnimation();
+    setViewingVariation(null);
     setGame(null);
     setGameError(null);
     setCoachLine(null);
     setVerdictToast(null);
     dispatchMode({ type: 'game_closed' });
     if (sessionId && studyBoardId) void coachApi.updateSession(sessionId, { active_board_id: studyBoardId });
-  }, [sessionId, studyBoardId]);
+  }, [sessionId, studyBoardId, stopAnimation]);
 
   // Switch to another saved session (from the sessions panel).
   const handleSelectSession = useCallback(
     (id: string) => {
       if (id === sessionId) return;
+      stopAnimation();
+      setViewingVariation(null);
       board.resetBoard();
       setOpenedGames([]);
       setGameMoveIndices({});
@@ -700,7 +749,7 @@ export default function CoachPage() {
       lastSyncedFenRef.current = null;
       handleSessionCreated(id);
     },
-    [sessionId, board, handleSessionCreated]
+    [sessionId, board, handleSessionCreated, stopAnimation]
   );
 
   const handleNewSession = useCallback(() => {
@@ -935,11 +984,29 @@ export default function CoachPage() {
 
   const viewerAnnotations = (activeGameId && tabAnnotations[activeGameId]) || EMPTY_ANNOTATIONS;
   const onPuzzle = modeState.base === 'puzzle' && board.puzzleState !== null;
+  // The move just shown on the game's board, highlighted (the engine's reply after a move, the student's move during
+  // the first animation step, the move of a browsed ply) — audit 26.10: no highlight at all on voice moves.
+  const gameLastMove = ((): [Key, Key] | null => {
+    if (!game) return null;
+    const line = variationLine ?? game.moves;
+    const ply = shownFen !== null ? board.fens.indexOf(shownFen) : board.moveIndex;
+    if (ply <= 0 || ply > line.length) return null;
+    try {
+      const replay = new Chess();
+      let last = null as null | { from: string; to: string };
+      for (const san of line.slice(0, ply)) last = replay.move(san);
+      return last ? [last.from as Key, last.to as Key] : null;
+    } catch {
+      return null;
+    }
+  })();
 
   const momentBoard = momentsOn ? moments.board : null;
   const studyBoard = (
     <CoachBoard
-      fen={momentBoard ? momentBoard.fen : onPuzzle ? puzzle.boardFen : board.fen}
+      fen={momentBoard ? momentBoard.fen : onPuzzle ? puzzle.boardFen : (shownFen ?? board.fen)}
+      lastMove={momentBoard || onPuzzle ? null : gameLastMove}
+      controls={!(isDesktop && game)}
       arrows={momentBoard ? (momentBoard.arrows as Array<{ from: Key; to: Key; brush: string }>) : board.arrows}
       highlights={momentBoard ? (momentBoard.highlights as Key[]) : board.highlights}
       orientation={momentBoard ? momentBoard.orientation : board.orientation}
@@ -978,8 +1045,8 @@ export default function CoachPage() {
     <GameNotation
       moves={game.moves}
       variations={game.variations}
-      currentIndex={viewingVariation ? null : board.moveIndex - 1}
-      currentVariation={viewingVariation}
+      currentIndex={viewingVariation && variationCount > 0 ? null : board.moveIndex - 1}
+      currentVariation={viewingVariation && variationCount > 0 ? { index: viewingVariation.index, count: variationCount } : null}
       onJump={(i) => { if (viewingVariationRef.current) backToMainLine(); board.goToMove(i + 1); }}
       onJumpVariation={showVariation}
     />
@@ -1003,11 +1070,13 @@ export default function CoachPage() {
     },
     // An earlier position on the board: the line under it (it used to cover the first rank, 26.10).
     viewing: viewingVariation && variationLine ? {
-      label: t('viewingLine', { line: variationLine.slice(game.variations?.[viewingVariation.index]?.at_ply ?? 0).map((san, k) => { const ply = (game.variations?.[viewingVariation.index]?.at_ply ?? 0) + k + 1; return (ply % 2 ? `${(ply + 1) / 2}.` : k === 0 ? `${ply / 2}…` : '') + san; }).join(' ') }),
+      label: variationCount > 0
+        ? t('viewingLine', { line: variationLine.slice(variationAt, variationAt + variationCount).map((san, k) => moveLabel(variationAt + k + 1, san, k === 0)).join(' ') })
+        : board.moveIndex <= 0 ? t('viewingStart') : t('viewingPast', { move: moveLabel(board.moveIndex, variationLine[board.moveIndex - 1] ?? '') }),
       busy: gameThinking,
       onBack: backToMainLine,
     } : viewPly === null ? undefined : {
-      label: viewPly === 0 ? t('viewingStart') : t('viewingPast', { move: `${Math.ceil(viewPly / 2)}.${viewPly % 2 ? '' : '…'}${game.moves[viewPly - 1] ?? ''}` }),
+      label: viewPly === 0 ? t('viewingStart') : t('viewingPast', { move: moveLabel(viewPly, game.moves[viewPly - 1] ?? '') }),
       busy: gameThinking,
       onContinue: () => void handleGameContinue(),
       onBack: board.lastMove,
@@ -1016,6 +1085,7 @@ export default function CoachPage() {
     nav: {
       index: Math.max(0, board.moveIndex),
       total: Math.max(0, board.fens.length - 1),
+      label: board.moveIndex > 0 ? moveLabel(board.moveIndex, (variationLine ?? game.moves)[board.moveIndex - 1] ?? '') : '—',
       onFirst: board.firstMove,
       onPrev: board.prevMove,
       onNext: board.nextMove,
@@ -1075,7 +1145,7 @@ export default function CoachPage() {
       onExpand={() => dispatchSheet({ type: 'expand' })}
       onComposerFocus={isDesktop ? undefined : () => dispatchSheet({ type: 'composer_focus' })}
       footerHugs={!isDesktop && !!playActions}
-      footer={isDesktop ? momentsFlow || undefined : playActions ? <PlayActionBar {...playActions} /> : momentsFlow || puzzleFlow || undefined}
+      footer={isDesktop ? momentsFlow || undefined : playActions ? <PlayActionBar {...playActions} viewing={undefined} /> : momentsFlow || puzzleFlow || undefined}
       mode={mode}
       // Phones: a card put something on the board — drop the sheet so it shows.
       onShowBoard={isDesktop ? undefined : () => dispatchSheet({ type: 'snap', detent: 'peek' })}
@@ -1161,8 +1231,9 @@ export default function CoachPage() {
           <div className="shrink-0 overflow-hidden" style={{ height: playStageCss(peekPx).moveStrip }}>
             {gameNotation}
           </div>
-          <div className="flex shrink-0 flex-col justify-center px-2" style={{ height: PLAY_STUDENT_ROW_PX }}>
-            <PlayStudentRow game={game} thinking={gameThinking} />
+          <div className="flex shrink-0 flex-col justify-center overflow-hidden px-2" style={{ height: PLAY_STUDENT_ROW_PX }}>
+            {/* Browsing: the strip takes the student row's place, so the sheet's measured height never changes (audit 26.10). */}
+            {playActions?.viewing ? <ViewingStrip {...playActions.viewing} compact /> : <PlayStudentRow game={game} thinking={gameThinking} />}
           </div>
         </>
       );

@@ -85,6 +85,28 @@ describe('voice: the game\'s buttons said in words (Hermes game_action)', () => 
     expect(gameActionNote({ action: 'view', done: true, note: 'Shown: after move 1.' })).toMatch(/EARLIER position.*goes on from its live position/);
     expect(gameActionNote({ action: 'mistake', done: true, note: 'Undone.' })).toContain('ask which move they want');
     expect(gameActionNote({ action: 'continue_here', done: true, note: '' })).toContain('cut there');
+    // refused: nothing changed, never «it is undone» (audit 26.10)
+    const refused = gameActionNote({ action: 'takeback', done: false, note: 'Nothing to take back.' }) ?? '';
+    expect(refused).toContain('NOTHING was changed');
+    expect(refused).not.toContain('it is undone');
     expect(gameActionNote({})).toBeNull();
+  });
+});
+
+describe('the Live model told about the game (audit 26.10)', () => {
+  it('a takeback by the panel is told as one, not as a bare position', async () => {
+    const { gameNote } = await import('../voice-game');
+    const view = { board_id: 'b', student_color: 'white', engine_elo: 1200, comment_mode: 'quiet', status: 'playing', result: null,
+      termination: null, winner: null, fen: 'F', pgn: '', ply: 2, moves: ['e4', 'e5'], student_to_move: true, in_check: false,
+      student: null, engine: null, comment_wanted: false } as never;
+    expect(gameNote(view, 6)).toContain('TAKEN BACK from ply 6 to ply 2');
+    expect(gameNote(view)).not.toContain('TAKEN BACK');
+  });
+
+  it('browsing is told as an earlier position, never as the current one', async () => {
+    const { browsingNote } = await import('../voice-game');
+    const view = { ply: 8 } as never;
+    expect(browsingNote(view, 3, null, 'FEN3')).toMatch(/EARLIER position of the game \(after ply 3 of 8\).*nothing is played/);
+    expect(browsingNote(view, null, ['e4', 'e5', 'Nf3'], 'FENL')).toContain('SIDE LINE');
   });
 });

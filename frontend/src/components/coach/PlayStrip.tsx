@@ -46,8 +46,17 @@ interface PlayStripProps {
   notation?: React.ReactNode;
 }
 
+/** «3.Nf3» for a white move (odd ply), «3…Nc6» for a black one; the number is dropped for a black move inside a line
+ *  unless it opens it. */
+export function moveLabel(ply: number, san: string, opensLine = true): string {
+  if (ply % 2 === 1) return `${(ply + 1) / 2}.${san}`;
+  return opensLine ? `${ply / 2}…${san}` : san;
+}
+
 export interface ViewingProps {
   label: string;
+  /** One line, for the phone stage's student-row slot. */
+  compact?: boolean;
   busy?: boolean;
   /** Absent while a side line is shown: the game continues from the main line only. */
   onContinue?: () => void;
@@ -55,11 +64,12 @@ export interface ViewingProps {
 }
 
 /** The line under the board while the student browses the record (26.10; it used to cover the first rank). */
-export function ViewingStrip({ label, busy, onContinue, onBack }: ViewingProps) {
+export function ViewingStrip({ label, busy, onContinue, onBack, compact }: ViewingProps) {
   const t = useTranslations('coach');
   return (
-    <div data-testid="game-viewing" className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-(--coach-accent-soft,rgba(124,58,237,0.12)) px-3 py-1.5 text-xs text-(--coach-text)">
-      <span>{label}</span>
+    <div data-testid="game-viewing" role="status" aria-live="polite"
+      className={`flex items-center justify-between gap-2 rounded-lg bg-(--coach-accent-soft,rgba(124,58,237,0.12)) text-xs text-(--coach-text) ${compact ? 'h-full flex-nowrap px-2 py-0.5' : 'flex-wrap px-3 py-1.5'}`}>
+      <span className={compact ? 'min-w-0 truncate' : ''}>{label}</span>
       <span className="flex shrink-0 gap-2">
         {onContinue && <button type="button" className="rounded bg-(--coach-accent) px-2 py-1 text-white disabled:opacity-50" onClick={onContinue} disabled={busy}>{t('continueHere')}</button>}
         <button type="button" className="rounded border border-(--coach-border) px-2 py-1" onClick={onBack}>{t('backToGame')}</button>
@@ -71,6 +81,8 @@ export function ViewingStrip({ label, busy, onContinue, onBack }: ViewingProps) 
 export interface GameNavProps {
   index: number;   // the ply shown (0 = the start)
   total: number;   // the plies of the game
+  /** The shown move as «4…Nc6» (moveLabel), «—» at the start. */
+  label?: string;
   onFirst: () => void;
   onPrev: () => void;
   onNext: () => void;
@@ -78,7 +90,7 @@ export interface GameNavProps {
 }
 
 /** ⏮ ◀ N / M ▶ ⏭ under the game's board: the record browsed, the game untouched (the page shows a strip while browsing). */
-export function GameNav({ index, total, onFirst, onPrev, onNext, onLast }: GameNavProps) {
+export function GameNav({ index, total, label, onFirst, onPrev, onNext, onLast }: GameNavProps) {
   const t = useTranslations('coach');
   const atStart = index <= 0;
   const atEnd = index >= total;
@@ -87,7 +99,7 @@ export function GameNav({ index, total, onFirst, onPrev, onNext, onLast }: GameN
     <div role="toolbar" aria-label={t('gameNav')} data-testid="game-nav" className="flex items-center justify-center gap-1 text-xs">
       <button type="button" className={cls} title={t('firstMove')} aria-label={t('firstMove')} onClick={onFirst} disabled={atStart}><ChevronsLeft size={16} aria-hidden /></button>
       <button type="button" className={cls} title={t('previousMove')} aria-label={t('previousMove')} onClick={onPrev} disabled={atStart}><ChevronLeft size={16} aria-hidden /></button>
-      <span className="min-w-12 text-center tabular-nums text-(--coach-muted)">{index} / {total}</span>
+      <span className="min-w-16 text-center tabular-nums text-(--coach-muted)" aria-label={t('gameNavCounter', { index, total })}>{label ?? `${index} / ${total}`}</span>
       <button type="button" className={cls} title={t('nextMove')} aria-label={t('nextMove')} onClick={onNext} disabled={atEnd}><ChevronRight size={16} aria-hidden /></button>
       <button type="button" className={cls} title={t('lastMove')} aria-label={t('lastMove')} onClick={onLast} disabled={atEnd}><ChevronsRight size={16} aria-hidden /></button>
     </div>
@@ -130,8 +142,8 @@ export default function PlayStrip({
       <PlayCoachRow game={game} thinking={thinking} comment={comment} />
       {children}
       {viewing && <ViewingStrip {...viewing} />}
-      {nav && nav.total > 0 && <GameNav {...nav} />}
-      {notation && <div className="max-h-24 overflow-hidden rounded-lg border border-(--coach-border)">{notation}</div>}
+      {nav && <GameNav {...nav} />}
+      {notation && <div className="h-24 overflow-y-auto rounded-lg border border-(--coach-border)">{notation}</div>}
       <PlayStudentRow game={game} thinking={thinking} />
       <PlayActionBar
         game={game}
@@ -291,7 +303,7 @@ export function PlayActionBar({
   return (
     <>
       {viewing && <ViewingStrip {...viewing} />}
-      {nav && nav.total > 0 && <GameNav {...nav} />}
+      {nav && <GameNav {...nav} />}
       {game.status === 'finished' ? (
         <ResultCard game={game} onReview={onReview} onRematch={onRematch} onClose={onClose} />
       ) : (

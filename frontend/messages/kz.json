@@ -2338,7 +2338,8 @@
     "animationSlow": "баяу",
     "gameNav": "Ойын жүрістері",
     "viewingStart": "Қарау: бастапқы позиция. Ойын жалғасады",
-    "viewingLine": "Нұсқа: {line}. Ойын негізгі желіден жалғасады"
+    "viewingLine": "Нұсқа: {line}. Ойын негізгі желіден жалғасады",
+    "gameNavCounter": "{total} жүрістің {index}-і"
   },
   "gameEnd": {
     "winTitle": "Мат! Сен жеңдің!",

@@ -29,6 +29,10 @@ interface CoachBoardProps {
   onNext: () => void;
   onLast: () => void;
   onFlip: () => void;
+  /** The move to highlight (from, to). */
+  lastMove?: [Key, Key] | null;
+  /** The board's own move buttons; off when the game strip shows its own (desktop game, audit 26.10). */
+  controls?: boolean;
   /** Piece animation in ms (the coach page's setting); 0 = instant. */
   animationDuration?: number;
 }
@@ -43,6 +47,8 @@ export default function CoachBoard({
   flash,
   onMove,
   animationDuration,
+  lastMove = null,
+  controls = true,
   onReset,
   onFirst,
   onPrev,
@@ -64,6 +70,7 @@ export default function CoachBoard({
         viewOnly={false}
         boardSize={size}
         animationDuration={animationDuration}
+        lastMove={lastMove}
       />
       <BoardFlash flash={flash} />
       {overlay}
@@ -80,7 +87,7 @@ export default function CoachBoard({
   return (
     <div className="flex flex-col items-center">
       {board(boardSize)}
-      <CoachBoardControls
+      {controls && <CoachBoardControls
         onReset={onReset}
         onFirst={onFirst}
         onPrev={onPrev}
@@ -88,7 +95,7 @@ export default function CoachBoard({
         onLast={onLast}
         onFlip={onFlip}
         boardSize={boardSize}
-      />
+      />}
     </div>
   );
 }
