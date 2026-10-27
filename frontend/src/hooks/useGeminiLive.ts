@@ -1284,7 +1284,9 @@ export default function useGeminiLive(
   const speechCheckPendingRef = useRef<Promise<void>[]>([]);
 
   const checkSpokenSentence = useCallback(async (sentence: string, session: NonNullable<typeof sessionRef.current>) => {
-    if (!SPEECH_CHECKABLE_RE.test(sentence) || sentence.trim().split(/\s+/).length < 4) return;
+    // In a game a short announcement is a claim too: «Я пойду d3.» is checked against the engine's moves (audit 26.10).
+    const liveGame = optionsRef.current.getGame?.()?.status === 'playing';
+    if (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4)) return;
     if (speechChecksRef.current >= SPEECH_CHECK_MAX_PER_TURN) return;
     speechChecksRef.current += 1;
     try {

@@ -143,7 +143,7 @@ export default function PlayStrip({
       {children}
       {viewing && <ViewingStrip {...viewing} />}
       {nav && <GameNav {...nav} />}
-      {notation && <div className="h-24 overflow-y-auto rounded-lg border border-(--coach-border)">{notation}</div>}
+      {notation && <div className="max-h-24 min-h-9 overflow-y-auto rounded-lg border border-(--coach-border)">{notation}</div>}
       <PlayStudentRow game={game} thinking={thinking} />
       <PlayActionBar
         game={game}
