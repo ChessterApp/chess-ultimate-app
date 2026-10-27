@@ -126,13 +126,16 @@ export interface CoachChatHandle {
    * Show an assistant message streamed from elsewhere (a game comment): POSTs
    * `url` with `body`, reads `delta` SSE frames into one assistant bubble.
    */
-  streamAssistant: (url: string, body: Record<string, unknown>) => Promise<void>;
+  streamAssistant: (url: string, body: Record<string, unknown>, turnId?: number) => Promise<void>;
   /** Open the composer's attach sheet (paste / upload / photo / link). */
   openAttach: () => void;
-  /** The voice pipeline says the move the student made by hand, with the engine's reply (26.10). */
-  announceGame: (view: GameStateView) => void;
+  /** The voice pipeline says the engine's reply to a move made by hand (or its first move); the turn id is returned
+   *  for the comment that follows (streamAssistant's turnId). */
+  announceGame: (view: GameStateView, replyOnly?: boolean) => number | undefined;
   /** Whether the voice pipeline is listening: a hand-made move then gets the coach's spoken comment. */
   voicePipelineOn: () => boolean;
+  /** Whether the pipeline can read aloud now (on, and the TTS not out of quota): the server then keeps answers short. */
+  voiceSpeaks: () => boolean;
 }
 
 /** A pasted text that is a whole game in PGN (move numbers + SAN), not a question. */
@@ -435,6 +438,18 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   viewPlyRef.current = viewPly;
   const viewLineRef = useRef<string[] | null | undefined>(viewLine);
   viewLineRef.current = viewLine;
+  const commentAbortRef = useRef<AbortController | null>(null);
+  // The pipeline's timings pill is a developer's tool: ?voiceDebug=1 (kept in the browser) shows it (audit 26.10).
+  const [voiceDebug] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      const q = new URLSearchParams(window.location.search).get('voiceDebug');
+      if (q === '1' || q === '0') window.localStorage.setItem('coachVoiceDebug', q);
+      return window.localStorage.getItem('coachVoiceDebug') === '1';
+    } catch {
+      return false;
+    }
+  });
   const {
     status: voiceStatus,
     isSupported: voiceSupported,
@@ -451,6 +466,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     getPgn,
     getSessionId,
     getViewPly: () => viewPlyRef.current ?? null,
+    getViewLine: () => viewLineRef.current ?? null,
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
     onQuotaExhausted: handleVoiceQuotaExhausted,
@@ -784,6 +800,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     abortRef.current = controller;
 
     try {
+      // The pipeline's turn this answer is read into (frames of another turn are dropped).
+      const voiceTurn = pipelineRef.current.isActive ? pipelineRef.current.currentTurnId() : undefined;
       const response = await fetch('/api/coach/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -801,7 +819,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           review_game_id: options?.reviewGameId,
           // The answer will be read aloud (the voice pipeline): the server keeps it short and does not
           // restate a move the system already said.
-          speech: pipelineRef.current.isActive ? true : undefined,
+          speech: pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok' ? true : undefined,
           // The earlier position of the game on the board, when the student browsed back (26.10).
           view_ply: viewPlyRef.current ?? undefined,
           view_line: viewLineRef.current ?? undefined,
@@ -838,7 +856,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             // The message's own data (text, stages, cards, board actions, turn id).
             setMessages((prev) => prev.map((m) => (m.id === assistantId ? applyStreamFrame(m, data) : m)));
             if (data.delta) fullContent += data.delta;
-            if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data);
+            if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data, voiceTurn);
 
             if (data.tool_call) {
               setToolActive(data.tool_call);
@@ -903,7 +921,11 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   // (the coach's remark during a game). Same SSE frames as the chat: `delta`s
   // into one bubble, `error` as the answer text.
   const streamAssistant = useCallback(
-    async (url: string, body: Record<string, unknown>) => {
+    async (url: string, body: Record<string, unknown>, turnId?: number) => {
+      // A new comment or the student's words cut the previous comment (audit 26.10: two streams read as one).
+      commentAbortRef.current?.abort();
+      const commentController = new AbortController();
+      commentAbortRef.current = commentController;
       const assistantId = crypto.randomUUID();
       setMessages((prev) => [...prev, { id: assistantId, role: 'assistant', content: '', timestamp: new Date() }]);
       let content = '';
@@ -914,6 +936,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: commentController.signal,
         });
         const reader = response.body?.getReader();
         if (!response.ok || !reader) throw new Error(`HTTP ${response.status}`);
@@ -933,7 +956,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
                 content += data.delta;
                 patch(content);
               }
-              if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data);  // the comment is read aloud (26.10)
+              if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data, turnId);  // the comment is read aloud (26.10)
               if (data.error) {
                 content += `${content ? '\n\n' : ''}*${t('errorLabel')}: ${data.error}*`;
                 patch(content);
@@ -949,7 +972,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
         const message = err instanceof Error ? err.message : t('unknownError');
         patch(`*${t('connectionErrorLabel')}: ${message}*`);
       } finally {
-        if (pipelineRef.current.isActive) pipelineRef.current.feedFrame({ done: true });
+        if (pipelineRef.current.isActive) pipelineRef.current.feedFrame({ done: true }, turnId);
+        if (commentAbortRef.current === commentController) commentAbortRef.current = null;
       }
     },
     [t],
@@ -965,13 +989,14 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
       },
       streamAssistant,
       openAttach: () => setAttachOpen(true),
-      announceGame: (view: GameStateView) => {
-        if (!pipelineRef.current.isActive) return;
+      announceGame: (view: GameStateView, replyOnly = false) => {
+        if (!pipelineRef.current.isActive) return undefined;
         const lang = typeof document !== 'undefined' ? document.documentElement.lang : '';
-        const phrase = movePhrase(view, (lang === 'kk' || lang === 'kz' ? 'kk' : lang === 'en' ? 'en' : 'ru') as PipelineLocale);
-        if (phrase) pipelineRef.current.announce(phrase, true);
+        const phrase = movePhrase(view, (lang === 'kk' || lang === 'kz' ? 'kk' : lang === 'en' ? 'en' : 'ru') as PipelineLocale, replyOnly);
+        return phrase ? pipelineRef.current.announce(phrase, true) : pipelineRef.current.currentTurnId();
       },
       voicePipelineOn: () => pipelineRef.current.isActive,
+      voiceSpeaks: () => pipelineRef.current.isActive && pipelineRef.current.ttsState === 'ok',
     }),
     [sendMessage, streamAssistant],
   );
@@ -989,6 +1014,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
   const handleAbort = useCallback(() => {
     abortRef.current?.abort();
+    commentAbortRef.current?.abort();
   }, []);
   sendMessageRef.current = (text: string) => { void sendMessage(text); };
   abortForVoiceRef.current = handleAbort;
@@ -1163,7 +1189,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           error: pipeline.error,
           notice: pipeline.ttsState !== 'ok'
             ? (pipeline.ttsState === 'quota' ? 'Озвучка сейчас недоступна (исчерпана квота) — ответы в тексте' : 'Озвучка сейчас недоступна — ответы в тексте')
-            : pipeline.timings.firstSoundMs !== null
+            : voiceDebug && pipeline.timings.firstSoundMs !== null
               ? `связка: слова ${pipeline.timings.sttMs ?? '–'} мс · звук ${pipeline.timings.firstSoundMs} мс · ответ ${pipeline.timings.firstAnswerMs ?? '…'} мс`
               : voiceNotice,
           quotaExhausted: false,

@@ -253,10 +253,11 @@ export const coachApi = {
     ),
 
   /** The game goes on from the position after `ply` plies of its own record: the later moves are undone (26.10). */
-  gameContinue: (sessionId: string, boardId: string, ply: number) =>
+  gameContinue: (sessionId: string, boardId: string, ply: number, line?: string[]) =>
     callWithError<GameStateView>(
       `/api/coach/sessions/${encodeURIComponent(sessionId)}/game/${encodeURIComponent(boardId)}/continue`,
-      { method: 'POST', body: JSON.stringify({ ply }) },
+      // line: a side line on the board, its moves from the start — the game goes on from it (26.10)
+      { method: 'POST', body: JSON.stringify(line && line.length ? { ply, line } : { ply }) },
     ),
 
   loadMessages: (sessionId: string) =>

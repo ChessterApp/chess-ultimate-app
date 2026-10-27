@@ -27,8 +27,12 @@ function sideToMove(view: GameStateView): string {
 }
 
 /** The [Game] line the voice coach gets when the game's position changed on the board. */
-export function gameNote(view: GameStateView): string {
+export function gameNote(view: GameStateView, previousPly?: number): string {
   const parts: string[] = [];
+  if (previousPly !== undefined && view.ply < previousPly) {
+    // the panel's «Вернуть» / «Продолжить отсюда»: the record was cut (audit 26.10: told as a bare position)
+    parts.push(`the game was TAKEN BACK from ply ${previousPly} to ply ${view.ply} (the moves after it are undone)`);
+  }
   if (view.student) {
     const v = view.student.verdict && view.student.verdict !== 'ok' ? ` (${view.student.verdict})` : '';
     parts.push(`the student played ${view.student.san}${v}`);
@@ -140,10 +144,29 @@ export function gameActionNote(
     view: 'asked to see an EARLIER position — the board shows it now; the game itself goes on from its live position, nothing is played there',
     view_live: "asked for the game's current position — the board shows it again",
     continue_here: 'asked to continue the game from the position shown — the record is cut there and the game goes on',
+    coach_move: "objected to the engine's last move — nothing was changed; say which move you made",
   };
+  if (result.done === false && result.action !== 'draw') {
+    // Refused or nothing to do (audit 26.10: the note said «it is undone» when the server had changed nothing).
+    return (
+      `[Game] The student asked the game to ${result.action}, but NOTHING was changed on the board: ${result.note ?? ''} ` +
+      'Never say a move was undone, a game started or a level changed.'
+    ).replace(/\s+/g, ' ').trim();
+  }
   const head = what[result.action] ?? result.action;
   return (
     `[Game] The student ${head} (the system did it on the board). ${result.note ?? ''} ` +
     'Never pretend the game did something it did not.'
   ).replace(/\s+/g, ' ').trim();
+}
+
+/** The board shows an earlier position (or a side line) of the game: told so, not as «the current position» (audit 26.10). */
+export function browsingNote(view: GameStateView, viewPly: number | null, viewLine: string[] | null, fen: string): string {
+  const where = viewLine?.length
+    ? `a SIDE LINE taken back earlier (${viewLine.join(' ')})`
+    : `an EARLIER position of the game (after ply ${viewPly ?? 0} of ${view.ply})`;
+  return (
+    `[Game] The board now shows ${where}; FEN ${fen}. The game itself stands at ply ${view.ply} and goes on from its live ` +
+    'position unless the student says «продолжим отсюда». Answer about the shown position if asked; nothing is played there.'
+  );
 }

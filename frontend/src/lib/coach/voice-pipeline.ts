@@ -268,15 +268,27 @@ export function spokenMove(san: string, locale: PipelineLocale = 'ru'): string {
   return `${out}${mark}`;
 }
 
-/** What the system says the moment a game view with the student's move arrives, or null when there is nothing to say. */
-export function movePhrase(view: { student?: { san: string } | null; engine?: { san: string } | null; status?: string }, locale: PipelineLocale = 'ru'): string | null {
-  const student = view.student?.san;
-  if (!student) return null;
+/**
+ * What the system says the moment a game view arrives: the student's move and the engine's reply; the reply alone
+ * when there is no student move (a game started as Black, «продолжить отсюда» with the engine to move — audit
+ * 26.10) or when `replyOnly` (a move made by hand: the student saw their own move). Null when there is nothing.
+ */
+export function movePhrase(
+  view: { student?: { san: string } | null; engine?: { san: string } | null; status?: string; ply?: number },
+  locale: PipelineLocale = 'ru',
+  replyOnly = false,
+): string | null {
+  const student = replyOnly ? undefined : view.student?.san;
   const engine = view.engine?.san;
+  if (!student && !engine) return null;
   const over = view.status === 'finished';
-  const reply = locale === 'kk' ? 'Жауабым:' : locale === 'en' ? 'I reply' : 'Отвечаю';
+  const opening = !view.student && view.ply === 1;  // a game started as Black: the engine's first move
+  const reply = opening
+    ? (locale === 'kk' ? 'Бастаймын:' : locale === 'en' ? 'I open with' : 'Мой первый ход:')
+    : (locale === 'kk' ? 'Жауабым:' : locale === 'en' ? 'I reply' : 'Отвечаю');
   const end = locale === 'kk' ? ' Партия аяқталды.' : locale === 'en' ? ' The game is over.' : ' Партия окончена.';
-  return `${spokenMove(student, locale)}.${engine ? ` ${reply} ${spokenMove(engine, locale)}.` : ''}${over ? end : ''}`;
+  const parts = [student ? `${spokenMove(student, locale)}.` : '', engine ? `${reply} ${spokenMove(engine, locale)}.` : ''].filter(Boolean);
+  return `${parts.join(' ')}${over ? end : ''}`;
 }
 
 const MOVE_LEAD = /^(?:(?:ну|так|хорошо|ладно|давай|тогда|я|пойду|хожу|сыграю|играю|ход|ставлю|мой|пожалуй|наверное|может|ok|okay|i|play|go|move)[\s,]+)+/i;
@@ -286,5 +298,7 @@ const MOVE_WORDS = /^(?:[a-h]\s*[1-8]|[а-яё]{1,3}\s*(?:[1-8]|один|два|
 export function looksLikeMove(text: string): boolean {
   const t = (text || '').trim().replace(/^[\s,.!—–-]+/, '').replace(/[.!?…]+$/, '');
   if (!t || t.split(/\s+/).length > 6) return false;
+  // «на два хода назад», «верни ход»: a game command, not a move — the filler plays (audit 26.10)
+  if (/(?:^|[^а-яёa-z])(?:назад|верн|отмен|ход(?:а|ов)?(?:[^а-яёa-z]|$)|back|undo)/i.test(t)) return false;
   return MOVE_WORDS.test(t.replace(MOVE_LEAD, ''));
 }

@@ -428,6 +428,13 @@ export default function ChessgroundBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]); // Only run once, when the board size is known
 
+  // Update orientation — before the position: a new game as Black flips the board, then its first move animates
+  // on the flipped board (audit 26.10: the flip in the same frame cancelled the animation)
+  useEffect(() => {
+    if (!cgRef.current) return;
+    cgRef.current.set({ orientation });
+  }, [orientation]);
+
   // Update position when FEN changes
   const hadLastMoveRef = useRef(!!lastMove);
   useEffect(() => {
@@ -467,12 +474,6 @@ export default function ChessgroundBoard({
     // A board that can't be moved on mustn't keep a stale selection.
     if (!movable || viewOnly) cgRef.current.selectSquare(null);
   }, [fen, movable, viewOnly, check, lastMove, editable, getLegalMoves, getTurnColor, isInCheck]);
-
-  // Update orientation
-  useEffect(() => {
-    if (!cgRef.current) return;
-    cgRef.current.set({ orientation });
-  }, [orientation]);
 
   // Update arrows/shapes
   useEffect(() => {
