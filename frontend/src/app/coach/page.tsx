@@ -276,7 +276,23 @@ export default function CoachPage() {
   }, []);
   // Height the mode's strip takes under the board (moves, play rows, step panel).
   // «Моменты» sit in the chat column's footer, not under the board.
-  const below = mode === 'viewer' ? 52 : mode === 'play' ? 300 : mode === 'puzzle' ? 170 : 0;
+  // The game strip's height besides the board, measured (it grows with the viewing strip, the notation, the result).
+  const [playChrome, setPlayChrome] = useState(0);
+  const playStripObserver = useRef<ResizeObserver | null>(null);
+  const boardSizeRef = useRef(520);
+  const measurePlayStrip = useCallback((el: HTMLDivElement | null) => {
+    playStripObserver.current?.disconnect();
+    playStripObserver.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const chrome = Math.max(0, el.offsetHeight - boardSizeRef.current);
+      setPlayChrome((prev) => (Math.abs(prev - chrome) > 4 ? chrome : prev));
+    };
+    measure();
+    playStripObserver.current = new ResizeObserver(measure);
+    playStripObserver.current.observe(el);
+  }, []);
+  const below = mode === 'viewer' ? 52 : mode === 'play' ? (playChrome || 220) + 8 : mode === 'puzzle' ? 170 : 0;
 
   // Desktop: the mode's strip renders under the board too.
   const responsiveBoardSize = useMemo(() => {
@@ -284,6 +300,7 @@ export default function CoachPage() {
     const byHeight = boardArea.height ? boardArea.height - (mode === 'play' ? 0 : 44) - below : 520;
     return snapTo8(Math.max(280, Math.min(520, boardArea.width - 8, byHeight)));
   }, [boardArea.width, boardArea.height, below, mode]);
+  boardSizeRef.current = responsiveBoardSize;
 
   // An opened master game: the move list sits beside the board when the board
   // keeps at least MIN_BESIDE px that way, else under it — with the board sized
@@ -1402,9 +1419,13 @@ export default function CoachPage() {
               </div>
             ) : game ? (
               <div className="flex flex-col items-center gap-1">
-                <PlayStrip comment={coachLine} width={responsiveBoardSize} {...playActions!} notation={gameNotation}>
-                  {studyBoard}
-                </PlayStrip>
+                {/* Desktop: the coach's words are in the chat beside the board (and spoken in voice mode) — no bubble
+                    over the board; the strip's real height is measured so board + strip always fit (Asan, 27.10). */}
+                <div ref={measurePlayStrip}>
+                  <PlayStrip comment={null} width={responsiveBoardSize} {...playActions!} notation={gameNotation}>
+                    {studyBoard}
+                  </PlayStrip>
+                </div>
                 {gameErrorLine}
               </div>
             ) : puzzleFlow ? (

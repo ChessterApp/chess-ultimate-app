@@ -320,6 +320,24 @@ def start_game(session, color: str = "white", elo: int = 1500,
     return board_rec, _payload(board_rec, state, board, student=None, engine=engine_move)
 
 
+def _absorb_variations(state: dict) -> None:
+    """The move just played is the first move of a kept line at that ply: the line now goes on from the next ply
+    (prod 27.10: the engine replayed e5 and the notation showed «1… e5» next to «( 1… e5 2. Nf3 … )»)."""
+    moves = state.get("moves") or []
+    ply = len(moves) - 1
+    if ply < 0:
+        return
+    variations = state.get("variations") or []
+    for v in list(variations):
+        vm = list(v.get("moves") or [])
+        if int(v.get("at_ply", -1)) == ply and vm and vm[0] == moves[-1]:
+            variations.remove(v)
+            rest = vm[1:]
+            if rest and not any(int(o.get("at_ply", -1)) == ply + 1 and list(o.get("moves") or [])[: len(rest)] == rest
+                                for o in variations):
+                variations.append({"at_ply": ply + 1, "moves": rest, "at": v.get("at")})
+
+
 def _push_engine_move(state: dict, board: chess.Board) -> dict:
     uci = _engine_move(board.fen(), state["engine_elo"])
     move = chess.Move.from_uci(uci)
@@ -328,6 +346,7 @@ def _push_engine_move(state: dict, board: chess.Board) -> dict:
     san = board.san(move)
     board.push(move)
     state["moves"].append(san)
+    _absorb_variations(state)
     return {"san": san, "uci": uci}
 
 
@@ -416,6 +435,7 @@ def _play_move_locked(session, board_rec: Board, move_str: str) -> dict:
     san = board.san(move)
     board.push(move)
     state["moves"].append(san)
+    _absorb_variations(state)
     cp_after, _ = _evaluate(board.fen(), student_color)
     cp_loss = max(0, cp_before - cp_after)
     verdict = _verdict(cp_loss)

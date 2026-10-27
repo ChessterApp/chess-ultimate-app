@@ -315,3 +315,15 @@ def test_the_continue_route_takes_a_line(engine):
     resp = TestClient(app).post(f"/api/coach/sessions/{session.id}/game/{board_rec.id}/continue",
                                 headers={"X-User-Id": USER}, json={"line": ["e4", "e5", "Nf3", "Nc6"]})
     assert resp.status_code == 200 and resp.json()["moves"][:4] == ["e4", "e5", "Nf3", "Nc6"]
+
+
+def test_a_move_that_starts_a_kept_line_moves_the_line_on(engine):
+    """Prod 27.10: after a takeback the same move again showed twice in the notation."""
+    session = _game_with(["e4", "Nf3"])
+    board_rec = live_game_board(session)
+    game_mode.takeback_moves(session, board_rec, 1)                 # kept: 2.Nf3 Nc6 at ply 2
+    r = json.loads(_handle_make_game_move({"move": "Nf3"}, session_id=session.id, user_id=USER))   # the same move again
+    assert r["ok"]
+    vs = board_rec.game_state.get("variations") or []
+    assert all(not (v["at_ply"] == 2 and v["moves"][:1] == ["Nf3"]) for v in vs), vs
+    assert "( 2." not in r["board_actions"][0]["game"]["pgn"]
