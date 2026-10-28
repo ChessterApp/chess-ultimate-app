@@ -187,3 +187,28 @@ def test_the_students_move_called_the_coachs_last_move_is_read_back(text):
     ctx2 = CheckContext.from_fens([fen])
     ctx2.game_engine_moves = ["e5", "Nc6", "d6"]
     assert not check_sentence(spoken_squares("Мой последний ход был d6."), ctx2)
+
+
+# ── numbered claims (stand text game 28.10: «Мой последний ход был 2...Nc6» — the student's move — passed because the
+# claim was read up to the first dot) ─────────────────────────────────────────────────────────────────────────────
+
+AFTER_D4 = "r1bqkbnr/pppp1ppp/2n5/4p3/3P4/2N1P3/PPP2PPP/R1BQKBNR b KQkq - 0 3"  # 1.e3 e5 2.Nc3 Nc6 3.d4
+
+
+def _claims(text, engine=("e3", "Nc3", "d4")):
+    ctx = CheckContext.from_fens([AFTER_D4])
+    ctx.game_engine_moves = list(engine)
+    ctx.student_color = chess.BLACK
+    return check_sentence(spoken_squares(text), ctx)
+
+
+@pytest.mark.unit
+def test_a_numbered_move_of_the_student_called_the_coachs_is_read_back():
+    assert any("did not play Nc6" in i for i in _claims("Мой последний ход был 2...Nc6 — конь вышел на c6."))
+
+
+@pytest.mark.unit
+def test_the_number_of_the_coachs_own_move_must_be_the_records():
+    assert any("was 3.d4, not 4.d4" in i for i in _claims("Мой ответ: 4.d4 — пешка в центр."))
+    assert not _claims("Мой ответ: 3.d4 — пешка в центр.")
+    assert not _claims("Я ответил 2.Nc3.")

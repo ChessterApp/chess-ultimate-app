@@ -2767,12 +2767,46 @@ _COACH_MOVE = re.compile(
 )
 
 
+# «2...Nc6», «3.d4»: the move number before a move. The claims below read up to the first dot, so «Мой последний ход
+# был 2...Nc6» (the student's move) came through as «2» once the coach got the moves numbered (stand run 28.10).
+_MOVE_NUMBER = re.compile(r"(?<![\w.])\d{1,3}\s?(?:\.\.\.|…|\.)\s?(?=[KQRBNOКФЛСa-h])")
+
+
+# «Мой ответ: 4.e4» when the game's record has 3.e4 (prod text game 28.10: three numbers in a row one too high).
+_NUMBERED_CLAIM = re.compile(
+    r"(?:(?<![\w-])мой\s+(?:\w+\s+)?(?:ответ|ход)(?:\s+был)?|(?<![\w-])я\s+(?:ответил[аи]?|сыграл[аи]?|пош[её]л|отвечаю|играю|хожу)"
+    r"|(?<![\w-])my\s+(?:\w+\s+)?(?:reply|move|answer)\s+(?:is|was)|(?<![\w-])i\s+(?:played|answered|replied))"
+    r"\s*[—–:-]?\s*(?P<num>\d{1,3})\s?(?P<dots>\.\.\.|…|\.)\s?"
+    r"(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?|O-O-O|O-O)",
+    re.IGNORECASE)
+
+
+def _move_number_issues(text: str, played: list, student_color) -> list[str]:
+    """The number the coach gives its own move must be the move's number in the game (a game from the start)."""
+    if student_color is None:
+        return []
+    engine_white = student_color == chess.BLACK
+    out = []
+    for m in _NUMBERED_CLAIM.finditer(text):
+        san = m.group("san")
+        idx = next((i for i in range(len(played) - 1, -1, -1) if played[i].rstrip("+#") == san), None)
+        if idx is None:
+            continue  # not the engine's move at all: the rule below says so
+        num, black_dots = int(m.group("num")), m.group("dots") in ("...", "…")
+        if num != idx + 1 or black_dots == engine_white:
+            right = f"{idx + 1}{'.' if engine_white else '...'}{san}"
+            out.append(f"in this game your move {san} was {right}, not {m.group('num')}{m.group('dots')}{san}: "
+                       "number the game's moves as its record does")
+    return out
+
+
 def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
     """In a game, a move the coach says it made must be one the engine made."""
     played = ctx.game_engine_moves
     if played is None:
         return []
-    out = []
+    out = _move_number_issues(text, played, ctx.student_color)
+    text = _MOVE_NUMBER.sub("", text)
     norm = {m.rstrip("+#") for m in played}
     for m in _COACH_MOVE.finditer(text):
         sans, _ = _to_san(m.group("rest"))
@@ -2868,6 +2902,7 @@ def _castling_issues(text: str, last: str) -> list[str]:
 
 
 def _last_move_issues(text: str, last: str) -> list[str]:
+    text = _MOVE_NUMBER.sub("", text)
     out = _castling_issues(text, last)
     for m in _MY_REPLY.finditer(text):
         if _in_a_line(text, m.start()):
