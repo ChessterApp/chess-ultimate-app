@@ -8,6 +8,8 @@ import {
   buildFutureMoveRequest,
   readAnalysisReply,
   samePosition,
+  placeCoachArrows,
+  coachArrowsFor,
   type ClickAnalysisInput,
 } from '../click-analysis';
 
@@ -127,5 +129,24 @@ describe('packAnalysisRequest (review 28.10: no silent loss while an older Herme
     const r = packAnalysisRequest(FEN, 'Analyze e4.', `<analysis_context>\n${'x'.repeat(2500)}\n</analysis_context>`);
     expect(r.query).toBe('Analyze e4.');
     expect(r.context_note?.length).toBeGreaterThan(2000);
+  });
+});
+
+describe('placeCoachArrows / coachArrowsFor (review 28.10: arrows on a position the board was not showing)', () => {
+  const A = [{ from: 'e7', to: 'e5', brush: 'green' }];
+  const BOARD = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+  const ABOUT = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+  const OTHER = 'rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq - 0 1';
+
+  it('drawn on the board the student asked from and on the position the answer is about', () => {
+    const placed = placeCoachArrows(A, BOARD, ABOUT);
+    expect(coachArrowsFor(placed, BOARD)).toEqual(A);
+    expect(coachArrowsFor(placed, ABOUT)).toEqual(A);
+    expect(coachArrowsFor(placed, OTHER)).toEqual([]);
+  });
+
+  it('nothing to place without arrows; one position when they are the same', () => {
+    expect(placeCoachArrows([], BOARD, ABOUT)).toBeNull();
+    expect(placeCoachArrows(A, BOARD, BOARD)).toEqual({ fen: BOARD, arrows: A });
   });
 });

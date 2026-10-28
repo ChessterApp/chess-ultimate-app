@@ -21,6 +21,7 @@ import {
   arrowsFromBoardActions,
   buildClickAnalysisRequest,
   buildFutureMoveRequest,
+  placeCoachArrows,
   readAnalysisReply,
   type ClickAnalysisType,
   type CoachArrowsOnBoard,
@@ -66,7 +67,7 @@ interface ChessterState {
   chatLoading: boolean;
   isStreaming: boolean;
   sessionMode: boolean;
-  /** Arrows of the last analysis answer and the position they are about. */
+  /** Arrows of the last analysis answer and the positions they are drawn on. */
   coachArrows: CoachArrowsOnBoard | null;
 }
 
@@ -301,6 +302,8 @@ export default function useChesster(fen: string) {
     }
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    // The position on the board as the student asks: the answer's arrows are drawn there (28.10).
+    const boardFen = currentFenRef.current;
     // A new answer replaces the last one's arrows.
     setState(prev => (prev.coachArrows ? { ...prev, coachArrows: null } : prev));
 
@@ -367,7 +370,7 @@ export default function useChesster(fen: string) {
       const reply = readAnalysisReply(data);
       setState(prev => ({
         ...prev,
-        coachArrows: reply.arrows.length ? { fen, arrows: reply.arrows } : null,
+        coachArrows: placeCoachArrows(reply.arrows, boardFen, fen),
       }));
       return { message: reply.message, maxTokens: reply.maxTokens, arrows: reply.arrows };
     } catch (error) {
@@ -399,6 +402,7 @@ export default function useChesster(fen: string) {
       }
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      const boardFen = currentFenRef.current;
       setState(prev => (prev.coachArrows ? { ...prev, coachArrows: null } : prev));
 
       try {
@@ -470,7 +474,7 @@ export default function useChesster(fen: string) {
                 if (data.board_actions) {
                   const arrows = arrowsFromBoardActions(data.board_actions);
                   if (arrows.length) {
-                    setState(prev => ({ ...prev, coachArrows: { fen, arrows } }));
+                    setState(prev => ({ ...prev, coachArrows: placeCoachArrows(arrows, boardFen, fen) }));
                   }
                 }
                 if (data.done) {
