@@ -7,6 +7,7 @@ Supabase and cache misses lazy-load from it so conversations survive a Hermes
 restart. With no backend configured everything runs pure in-memory as before.
 """
 
+import logging
 import time
 import uuid
 from typing import Optional
@@ -15,7 +16,33 @@ import chess
 from pydantic import BaseModel, Field, PrivateAttr
 
 from src.boards import Board, board_from_row, new_board
-from src.session_persistence import SessionPersistence
+from src.session_persistence import SessionLoadError, SessionPersistence
+
+logger = logging.getLogger(__name__)
+
+
+# How far a client's own time stamp may be from the server's and still be used (a wrong device clock, 28.10).
+CLIENT_TS_SKEW_S = 600.0
+
+
+def _stored_time(*values) -> Optional[float]:
+    """The first of *values* that reads as a time (epoch seconds or an ISO string from Supabase), else None.
+    A session reloaded after a restart got the load time on every message (seam audit 28.10): the session
+    list then showed one time for all and lost its «latest activity» order."""
+    from datetime import datetime, timezone
+
+    for value in values:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+        if isinstance(value, str) and value.strip():
+            try:
+                stamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            return stamp.timestamp()
+    return None
 
 
 class SessionMessage(BaseModel):
@@ -218,9 +245,14 @@ class Session(BaseModel):
         are only passed by the instrumented text chat path — other callers are
         unchanged.
         """
-        self.messages.append(
-            SessionMessage(role=role, content=content, source=source)
-        )
+        message = SessionMessage(role=role, content=content, source=source)
+        # The utterance time the client stamped (voice) — the same time the reloaded row will carry.
+        when = _stored_time((extra or {}).get("client_ts"))
+        # A device with a wrong clock must not move the session in the list: the client's stamp only within
+        # CLIENT_TS_SKEW_S of the server's own time (review 28.10).
+        if when is not None and abs(when - message.timestamp) <= CLIENT_TS_SKEW_S:
+            message.timestamp = when
+        self.messages.append(message)
         if self._persistence is not None:
             self._persistence.persist_message(
                 self.id, role, content, source, extra=extra, evt=evt
@@ -275,7 +307,9 @@ class SessionStore:
         """Get a session by ID, optionally scoped to a user.
 
         On cache miss, lazy-loads the session + its messages from the
-        persistence backend (survives restarts).
+        persistence backend (survives restarts). Raises SessionLoadError when a
+        read failed: the caller answers 503 instead of running without the game
+        (28.10), and the next access tries again.
         """
         session = self._sessions.get(session_id)
         if session is None:
@@ -287,7 +321,20 @@ class SessionStore:
         return session
 
     def _load(self, session_id: str) -> Optional[Session]:
-        """Reconstruct a session from the persistence backend, or None."""
+        """Reconstruct a session from the persistence backend, or None when it has none.
+
+        A failed read raises SessionLoadError and caches nothing: a session cached
+        without its boards ran every endpoint in "no game" mode until the next
+        restart (28.10).
+        """
+        try:
+            return self._load_whole(session_id)
+        except SessionLoadError:
+            logger.warning("coach session %s not restored (Supabase read failed); retried on next access",
+                           session_id)
+            raise
+
+    def _load_whole(self, session_id: str) -> Optional[Session]:
         row = self._persistence.load_session(session_id)
         if row is None:
             return None
@@ -298,6 +345,9 @@ class SessionStore:
             board_state=row.get("board_state") or chess.STARTING_FEN,
             active_board_id=row.get("active_board_id"),
         )
+        created = _stored_time(row.get("created_at"))
+        if created is not None:
+            session.created_at = created
         # Boards and messages depend on the session id only: two roundtrips at
         # once instead of one after the other (250–500 ms each from production).
         from concurrent.futures import ThreadPoolExecutor
@@ -317,13 +367,18 @@ class SessionStore:
             session.board_state = active.fen
         for m in message_rows:
             # Append directly to avoid re-persisting loaded messages.
-            session.messages.append(
-                SessionMessage(
-                    role=m["role"],
-                    content=m["content"],
-                    source=m.get("source", "text") or "text",
-                )
+            message = SessionMessage(
+                role=m["role"],
+                content=m["content"],
+                source=m.get("source", "text") or "text",
             )
+            # Its real time: the client's utterance stamp, else the row's own (28.10).
+            stamped = _stored_time(m.get("client_ts"))
+            written = _stored_time(m.get("created_at"))
+            when = stamped if stamped is not None and (written is None or abs(stamped - written) <= CLIENT_TS_SKEW_S) else written
+            if when is not None:
+                message.timestamp = when
+            session.messages.append(message)
         session._persistence = self._persistence
         self._sessions[session.id] = session
         return session
@@ -340,8 +395,15 @@ class SessionStore:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=min(8, len(missing)), thread_name_prefix="session-list") as pool:
-                list(pool.map(self._load, missing))
+                list(pool.map(self._load_for_list, missing))
         return [s for s in self._sessions.values() if s.user_id == user_id]
+
+    def _load_for_list(self, session_id: str) -> Optional[Session]:
+        # One session that failed to load is left out of this listing (and not cached), not the whole list.
+        try:
+            return self._load(session_id)
+        except SessionLoadError:
+            return None
 
     def delete(self, session_id: str, user_id: str = None) -> bool:
         """Delete a session. Returns True if deleted, False if not found."""
@@ -385,6 +447,8 @@ def _tool_session(kwargs: Optional[dict]):
         return None
     try:
         return session_store.get(str(session_id))
+    except SessionLoadError:
+        raise  # the game is unknown, not absent: never "no session" (28.10)
     except Exception:  # noqa: BLE001
         return None
 

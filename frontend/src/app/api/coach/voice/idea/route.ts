@@ -8,6 +8,8 @@ const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
 // Up to three moves played and analysed for ~300 ms each, plus the position before.
 const IDEA_TIMEOUT_MS = 6000;
+// Same bound as /api/coach/voice/intent.
+const PGN_MAX = 20000;
 
 /**
  * POST /api/coach/voice/idea — the student's spoken idea («а если я поставлю
@@ -15,7 +17,7 @@ const IDEA_TIMEOUT_MS = 6000;
  * judged by Stockfish, as one "[Idea] …" line the voice hook feeds into Gemini
  * Live before the coach answers — the voice twin of the text coach's block
  * (2026-10-04: the voice coach reasoned about such positions from its head).
- * Body: { text, fen, live_game? }. Returns Hermes' { note, moves, fens }; the
+ * Body: { text, fen, live_game?, pgn? }. Returns Hermes' { note, moves, fens }; the
  * client treats any failure as "no line" (an older Hermes answers 404).
  */
 export async function POST(request: NextRequest) {
@@ -27,7 +29,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { text?: unknown; fen?: unknown; live_game?: unknown };
+  let body: { text?: unknown; fen?: unknown; live_game?: unknown; pgn?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -50,7 +52,13 @@ export async function POST(request: NextRequest) {
         'X-User-Id': userId,
         'x-subscription-tier': tier,
       },
-      body: JSON.stringify({ text: body.text, fen: body.fen, live_game: body.live_game === true }),
+      body: JSON.stringify({
+        text: body.text,
+        fen: body.fen,
+        live_game: body.live_game === true,
+        // The game on the board: Hermes judges «на 8-м ходу…» at that move; dropping it judged the final position (28.10).
+        pgn: typeof body.pgn === 'string' && body.pgn.trim() ? body.pgn.slice(0, PGN_MAX) : undefined,
+      }),
       signal: AbortSignal.timeout(IDEA_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));

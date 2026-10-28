@@ -376,11 +376,15 @@ def _live_game_turn(fen: str, kwargs: dict) -> str | None:
     sid = kwargs.get("session_id")
     if not sid:
         return None
+    from src.session_persistence import SessionLoadError
+
     try:
         from src.game_mode import game_turn
         from src.sessions import session_store
 
         return game_turn(session_store.get(sid, kwargs.get("user_id")), fen)
+    except SessionLoadError:
+        raise  # a game we could not load must not get Stockfish's best line (28.10)
     except Exception:  # noqa: BLE001 — the guard never breaks the analysis
         return None
 

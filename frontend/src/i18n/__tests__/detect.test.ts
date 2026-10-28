@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { localeFromAcceptLanguage, resolveLocale } from '../detect';
+import { localeFromAcceptLanguage, requestLocale, resolveLocale } from '../detect';
 
 describe('localeFromAcceptLanguage', () => {
   it.each([
@@ -37,5 +37,19 @@ describe('resolveLocale', () => {
   it('uses the header when no cookie is saved', () => {
     expect(resolveLocale(undefined, 'kk')).toBe('kz');
     expect(resolveLocale(undefined, undefined)).toBe('ru');
+  });
+});
+
+// Seam audit 28.10: the coach proxies read the language as the page does.
+
+describe('requestLocale', () => {
+  const r = (cookie: string | undefined, accept: string | null) => ({
+    cookies: { get: (name: string) => (name === 'NEXT_LOCALE' && cookie !== undefined ? { value: cookie } : undefined) },
+    headers: new Headers(accept ? { 'accept-language': accept } : {}),
+  });
+  it('cookie first, then Accept-Language, then ru', () => {
+    expect(requestLocale(r('en', 'kk'))).toBe('en');
+    expect(requestLocale(r('bogus', 'kk-KZ'))).toBe('kz');
+    expect(requestLocale(r(undefined, null))).toBe('ru');
   });
 });

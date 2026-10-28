@@ -24,6 +24,8 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import AfterValidator, BaseModel, Field
 
+from src.request_skew import CoachRequest, current_scope as _request_scope, note_unknown_fields
+
 from src.config import (
     load_env,
     load_profile_config,
@@ -272,6 +274,16 @@ from src.tool_bridge import router as tool_bridge_router
 app.include_router(tool_bridge_router)
 
 
+from src.session_persistence import SessionLoadError  # noqa: E402
+
+
+@app.exception_handler(SessionLoadError)
+async def _session_not_loaded(request: Request, exc: SessionLoadError):
+    """A session that could not be restored from Supabase is not a session without a game (28.10):
+    the request fails with 503 and the next one retries, instead of answering in "no game" mode."""
+    return JSONResponse(status_code=503, content={"detail": "The coach session could not be loaded; try again."})
+
+
 # ── Request ID middleware ──────────────────────────────────────────────
 
 
@@ -287,6 +299,8 @@ async def add_request_id(request: Request, call_next):
     identity_token = current_user_id.set(
         request.headers.get("x-user-id") or request.headers.get("x-clerk-user-id") or ""
     )
+    # The body models log fields they do not know by the route that got them (src/request_skew.py).
+    scope_token = _request_scope.set(request.scope)
 
     logger.info(
         "request_start method=%s path=%s request_id=%s",
@@ -300,6 +314,7 @@ async def add_request_id(request: Request, call_next):
         response = await call_next(request)
     finally:
         current_user_id.reset(identity_token)
+        _request_scope.reset(scope_token)
     elapsed = round((time.monotonic() - start) * 1000, 2)
 
     response.headers["X-Request-Id"] = request_id
@@ -790,6 +805,9 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
     args = {"theme": intent.get("theme")} if intent.get("theme") else {}
     if re.search(r"(?<![\w-])(?:любую|случайную|any|random)(?![\w-])", message, re.IGNORECASE):
         args["any"] = True
+    if locale:
+        # The lesson/course names and hints in the student's interface language (seam audit 28.10: dropped here).
+        args["locale"] = locale
     raw = _handle_get_puzzle(args, session_id=session.id, user_id=user_id, student_message=message)
     try:
         result = json.loads(raw)
@@ -1441,7 +1459,7 @@ _ASKS_BETTER_MOVE = re.compile(
     r"|где\s+я\s+ошиб\w*|what\s+should\s+i\s+have\s+played|what\s+was\s+better|better\s+move\s+(?:was|instead))", re.IGNORECASE)
 
 
-class CoachChatRequest(BaseModel):
+class CoachChatRequest(CoachRequest):
     message: str
     fen: SiteFen = None
     session_id: Optional[str] = None
@@ -1467,16 +1485,16 @@ class CoachChatRequest(BaseModel):
     view_line: Optional[list[str]] = None
 
 
-class CoachSessionCreateRequest(BaseModel):
+class CoachSessionCreateRequest(CoachRequest):
     title: Optional[str] = None
 
 
-class CoachSessionUpdateRequest(BaseModel):
+class CoachSessionUpdateRequest(CoachRequest):
     title: Optional[str] = None
     active_board_id: Optional[str] = None
 
 
-class CoachBoardCreateRequest(BaseModel):
+class CoachBoardCreateRequest(CoachRequest):
     kind: str = "study"
     title: Optional[str] = None
     pgn: Optional[str] = None
@@ -1487,7 +1505,7 @@ class CoachBoardCreateRequest(BaseModel):
     activate: bool = True
 
 
-class CoachBoardUpdateRequest(BaseModel):
+class CoachBoardUpdateRequest(CoachRequest):
     title: Optional[str] = None
     pgn: Optional[str] = None
     # fen: a new study position (drops the loaded game). position: the FEN the
@@ -1501,7 +1519,7 @@ class CoachBoardUpdateRequest(BaseModel):
     active: Optional[bool] = None
 
 
-class CoachMessageRequest(BaseModel):
+class CoachMessageRequest(CoachRequest):
     role: str
     content: str
     source: Optional[str] = None
@@ -1512,27 +1530,27 @@ class CoachMessageRequest(BaseModel):
     turn_id: Optional[str] = None
 
 
-class CoachImportUrlRequest(BaseModel):
+class CoachImportUrlRequest(CoachRequest):
     url: str
 
 
-class CoachGameStartRequest(BaseModel):
+class CoachGameStartRequest(CoachRequest):
     color: str = "white"          # white | black | random
     elo: int = 1500
     comment_mode: str = "mistakes"  # quiet | mistakes | every
 
 
-class CoachGameMoveRequest(BaseModel):
+class CoachGameMoveRequest(CoachRequest):
     move: str                     # SAN or UCI
 
 
-class CoachGameCommentRequest(BaseModel):
+class CoachGameCommentRequest(CoachRequest):
     locale: Optional[str] = None
     event: str = "move"           # move | end
     speech: Optional[bool] = None  # read aloud after the system said the moves (the voice pipeline, 26.10)
 
 
-class CoachFeedbackRequest(BaseModel):
+class CoachFeedbackRequest(CoachRequest):
     # turn_id / rating are validated in the handler (returning 400, not 422) so a
     # malformed body is a clean client error per the feedback contract.
     turn_id: Optional[str] = None
@@ -1543,7 +1561,7 @@ class CoachFeedbackRequest(BaseModel):
     client_ts: Optional[str] = None
 
 
-class CheckoutRequest(BaseModel):
+class CheckoutRequest(CoachRequest):
     tier: str
     redirect_url: Optional[str] = None
 
@@ -3908,24 +3926,24 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-class VoicePromptRequest(BaseModel):
+class VoicePromptRequest(CoachRequest):
     fen: SiteFen = None
     locale: Optional[str] = None
     tools_available: bool = True
     session_id: Optional[str] = None   # the chat session the voice continues: its language holds
 
 
-class VoiceEngineNoteRequest(BaseModel):
+class VoiceEngineNoteRequest(CoachRequest):
     fen: Annotated[str, AfterValidator(repair_fen)]
     session_id: Optional[str] = None  # the game or the puzzle on the board come from the session
 
 
-class VoiceTtsRequest(BaseModel):
+class VoiceTtsRequest(CoachRequest):
     text: str                      # one chunk of the coach's answer, to read aloud
     locale: Optional[str] = None   # ru | kk | en — the model and voice are chosen by it
 
 
-class VoiceCheckRequest(BaseModel):
+class VoiceCheckRequest(CoachRequest):
     text: str                      # what the coach just said (its output transcription)
     fen: SiteFen = None            # the board at the time
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
@@ -3933,14 +3951,14 @@ class VoiceCheckRequest(BaseModel):
     session_id: Optional[str] = None  # the coach session: in a game, «я пойду d3» must be the engine's move (25.10)
 
 
-class VoiceIdeaRequest(BaseModel):
+class VoiceIdeaRequest(CoachRequest):
     text: str                      # the student's words (input transcription)
     fen: Annotated[str, AfterValidator(repair_fen)]  # the board at the time
     live_game: Optional[bool] = False
     pgn: Optional[str] = None      # the game on the board, for «на 8-м ходу» (src/past_move.py)
 
 
-class VoiceIntentRequest(BaseModel):
+class VoiceIntentRequest(CoachRequest):
     text: str                      # the student's words (input transcription)
     session_id: Optional[str] = None
     fen: Optional[str] = None      # the board at the time
@@ -4190,6 +4208,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                     if live.pgn:
                         ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
+            except SessionLoadError:
+                raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
                 pass
         # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to
@@ -4242,9 +4262,11 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
                 from src.tools.game_play import last_game_board
 
                 finished = last_game_board(session) is not None
-                puzzle = board.kind == "puzzle"
-                fen = fen or board.fen
-                pgn = pgn or board.pgn
+                # A session with no board (made by /messages or /v1/chat) answered 500 here (28.10).
+                if board is not None:
+                    puzzle = board.kind == "puzzle"
+                    fen = fen or board.fen
+                    pgn = pgn or board.pgn
         return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
                            puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.puzzle_queue))
 
@@ -4595,7 +4617,7 @@ async def coach_game_takeback(session_id: str, board_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-class CoachGameContinueRequest(BaseModel):
+class CoachGameContinueRequest(CoachRequest):
     ply: int = 0   # the game goes on from the position after this many plies (the move panel's «continue from here»)
     line: Optional[list[str]] = None  # …or from a side line on the board: its moves from the start (26.10)
 
@@ -4823,17 +4845,30 @@ async def coach_feedback(body: CoachFeedbackRequest, request: Request):
 # injection — no parallel LLM path.
 
 
+# The page's grounding for a click-analysis (master stats, ChessDB candidates,
+# engine lines) travels apart from ``query``: glued onto it, it passed the
+# 2000-character query cap and every click got 400 (2026-10-28).
+ANALYSIS_CONTEXT_MAX = 12000
+
+
+_ANALYSIS_FIELDS = frozenset({"fen", "query", "conversation_id", "context_type", "context_note"})
+
+
 def _validate_analysis_body(data: Optional[dict]):
     """Validate an analysis request body against the Flask contract.
 
-    Returns (fen, query, conversation_id, context_type) on success, or a
-    JSONResponse (400) to return directly on failure.
+    Returns (fen, query, conversation_id, context_type, context_note) on
+    success, or a JSONResponse (400) to return directly on failure.
     """
     if not data or "fen" not in data or "query" not in data:
         return JSONResponse(
             status_code=400,
             content={"success": False, "error": "Missing required fields: fen, query"},
         )
+    # Read as raw JSON, so no body model logs what this Hermes does not read (src/request_skew.py).
+    unknown = [k for k in data if k not in _ANALYSIS_FIELDS] if isinstance(data, dict) else []
+    if unknown:
+        note_unknown_fields(unknown, model="the analysis request")
     fen = data["fen"]
     query = (data.get("query") or "").strip()
     conversation_id = data.get("conversation_id")
@@ -4849,7 +4884,22 @@ def _validate_analysis_body(data: Optional[dict]):
             status_code=400,
             content={"success": False, "error": "Query too long (max 2000 characters)"},
         )
-    return fen, query, conversation_id, context_type
+    context_note = data.get("context_note")
+    if context_note is not None and not isinstance(context_note, str):
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "context_note must be a string"},
+        )
+    context_note = (context_note or "").strip() or None
+    if context_note and len(context_note) > ANALYSIS_CONTEXT_MAX:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": f"Context too long (max {ANALYSIS_CONTEXT_MAX} characters)",
+            },
+        )
+    return fen, query, conversation_id, context_type, context_note
 
 
 def _check_analysis_rate_limit(request: Request, user_id: str):
@@ -4895,11 +4945,12 @@ def _resolve_analysis_session(user_id: str, conversation_id: Optional[str]):
     return session_store.create(user_id=user_id)
 
 
-def _prepare_analysis_turn(session, fen: str, query: str):
+def _prepare_analysis_turn(session, fen: str, query: str, context_note: Optional[str] = None):
     """Set the board, record the user message, and build the agent inputs.
 
     Returns (agent, augmented_message). The system prompt is built with the FEN
-    so the <board_analysis> tactical context is auto-injected.
+    so the <board_analysis> tactical context is auto-injected. ``context_note``
+    reaches the model for this turn only — history keeps the request itself.
     """
     if fen:
         try:
@@ -4920,14 +4971,15 @@ def _prepare_analysis_turn(session, fen: str, query: str):
     # Prepend recent conversation history (excluding the just-added user message)
     # so multi-turn analysis threads keep context — mirrors coach_chat.
     history_messages = session.messages[:-1]
+    current = f"{context_note}\n\n{query}" if context_note else query
     if history_messages:
         recent = history_messages[-20:]
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
         augmented = (
-            f"Previous conversation:\n{history_text}\n\nCurrent message:\n{query}"
+            f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current}"
         )
     else:
-        augmented = query
+        augmented = current
 
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session.id,
@@ -4981,7 +5033,7 @@ async def coach_analysis(request: Request):
     validated = _validate_analysis_body(data)
     if isinstance(validated, JSONResponse):
         return validated
-    fen, query, conversation_id, _context_type = validated
+    fen, query, conversation_id, _context_type, context_note = validated
 
     limited = _check_analysis_rate_limit(request, user_id)
     if isinstance(limited, JSONResponse):
@@ -4992,7 +5044,9 @@ async def coach_analysis(request: Request):
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
+    agent, augmented = await asyncio.to_thread(
+        _prepare_analysis_turn, session, fen, query, context_note
+    )
 
     loop = asyncio.get_event_loop()
     try:
@@ -5021,6 +5075,10 @@ async def coach_analysis(request: Request):
         )
         response_text = "I wasn't able to generate a response. Please try again."
 
+    # The same marks the stream turns into board_actions; here they reached
+    # the /position, /game, /puzzle click-analysis text raw (2026-10-28).
+    response_text, board_actions = strip_markup(response_text, fen)
+
     # Record real token usage for this turn (fire-and-forget; never blocks/raises)
     _record_turn_usage(
         agent, user_id, session.id, getattr(agent, "model", "unknown"),
@@ -5033,6 +5091,7 @@ async def coach_analysis(request: Request):
     return {
         "success": True,
         "response": response_text,
+        "board_actions": board_actions,
         "conversation_id": session.id,
         "tokens_used": tokens_used,
         "usage": {
@@ -5061,7 +5120,7 @@ async def coach_analysis_stream(request: Request):
     validated = _validate_analysis_body(data)
     if isinstance(validated, JSONResponse):
         return validated
-    fen, query, conversation_id, _context_type = validated
+    fen, query, conversation_id, _context_type, context_note = validated
 
     limited = _check_analysis_rate_limit(request, user_id)
     if isinstance(limited, JSONResponse):
@@ -5071,7 +5130,9 @@ async def coach_analysis_stream(request: Request):
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
+    agent, augmented = await asyncio.to_thread(
+        _prepare_analysis_turn, session, fen, query, context_note
+    )
 
     async def event_stream():
         streamed_any = False

@@ -17,6 +17,16 @@ import { useLocalStorage } from "usehooks-ts";
 import useGameReview, { MoveAnalysis, MoveQuality } from "./useGameReview";
 import { ApiSettings } from "../components/tabs/ModelSetting";
 import { DEFAULT_ENGINE_LINES, DEFAULT_ENGINE_DEPTH, MAX_PV_MOVES, ANALYSIS_DELAY } from "@/lib/setting/helper";
+import {
+  arrowsFromBoardActions,
+  buildClickAnalysisRequest,
+  buildFutureMoveRequest,
+  placeCoachArrows,
+  readAnalysisReply,
+  type ClickAnalysisType,
+  type CoachArrowsOnBoard,
+} from "@/lib/coach/click-analysis";
+import type { CoachArrow } from "@/lib/coach/review-markup";
 
 // Types
 export interface ChatMessage {
@@ -34,9 +44,11 @@ export interface ChatMessage {
 export interface AgentMessage {
   message: string,
   maxTokens: number,
-  provider: string,
-  model: string,
+  // Hermes sends no model/provider/timing; left empty rather than invented (28.10).
+  provider?: string,
+  model?: string,
   response_time_ms?: number,
+  arrows?: CoachArrow[],
 }
 
 interface ChessterState {
@@ -55,6 +67,8 @@ interface ChessterState {
   chatLoading: boolean;
   isStreaming: boolean;
   sessionMode: boolean;
+  /** Arrows of the last analysis answer and the positions they are drawn on. */
+  coachArrows: CoachArrowsOnBoard | null;
 }
 
 // Analysis data types
@@ -121,6 +135,7 @@ export default function useChesster(fen: string) {
     chatLoading: false,
     isStreaming: false,
     sessionMode: true,
+    coachArrows: null,
   });
 
   // Engine settings with localStorage
@@ -281,12 +296,16 @@ export default function useChesster(fen: string) {
   }, [session, updateState]);
 
   const makeApiRequest = useCallback(
-  async (fen: string, query: string, mode: string): Promise<AgentMessage> => {
+  async (fen: string, query: string, mode: string, contextNote?: string): Promise<AgentMessage> => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     const controller = new AbortController();
     abortControllerRef.current = controller;
+    // The position on the board as the student asks: the answer's arrows are drawn there (28.10).
+    const boardFen = currentFenRef.current;
+    // A new answer replaces the last one's arrows.
+    setState(prev => (prev.coachArrows ? { ...prev, coachArrows: null } : prev));
 
     try {
       const token = await session?.getToken();
@@ -312,6 +331,8 @@ export default function useChesster(fen: string) {
           body: JSON.stringify({
             fen,
             query,
+            // Master stats / engine lines: apart from the query, which Hermes caps at 2000 (28.10).
+            context_note: contextNote,
             conversation_id: conversationIdRef.current, // Maintain conversation context
             context_type: contextType
           }),
@@ -344,14 +365,14 @@ export default function useChesster(fen: string) {
         }
       }
 
-      // Return in AgentMessage format for compatibility with existing code
-      return {
-        message: data.response,
-        maxTokens: data.tokens_used || 0,
-        provider: 'anthropic',
-        model: 'claude-3-5-sonnet-20241022',
-        response_time_ms: data.response_time_ms
-      };
+      // Clean text plus the arrows the answer drew (they showed raw as
+      // «[[arrows: …]]», 28.10); the arrows go on the board for that position.
+      const reply = readAnalysisReply(data);
+      setState(prev => ({
+        ...prev,
+        coachArrows: placeCoachArrows(reply.arrows, boardFen, fen),
+      }));
+      return { message: reply.message, maxTokens: reply.maxTokens, arrows: reply.arrows };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error("Request cancelled");
@@ -373,7 +394,7 @@ export default function useChesster(fen: string) {
       query: string,
       mode: string,
       onToken: (token: string) => void,
-      onComplete: (data: { conversation_id: string; tokens_used: number; route?: string; model?: string; provider?: string }) => void,
+      onComplete: (data: { conversation_id: string; tokens_used: number }) => void,
       onError: (error: string) => void
     ): Promise<void> => {
       if (abortControllerRef.current) {
@@ -381,6 +402,8 @@ export default function useChesster(fen: string) {
       }
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      const boardFen = currentFenRef.current;
+      setState(prev => (prev.coachArrows ? { ...prev, coachArrows: null } : prev));
 
       try {
         const token = await session?.getToken();
@@ -447,6 +470,13 @@ export default function useChesster(fen: string) {
                 if (data.delta) {
                   onToken(data.delta);
                 }
+                // The coach's arrows: drawn on the board for this position (28.10).
+                if (data.board_actions) {
+                  const arrows = arrowsFromBoardActions(data.board_actions);
+                  if (arrows.length) {
+                    setState(prev => ({ ...prev, coachArrows: placeCoachArrows(arrows, boardFen, fen) }));
+                  }
+                }
                 if (data.done) {
                   // Save conversation ID
                   if (data.conversation_id) {
@@ -460,9 +490,6 @@ export default function useChesster(fen: string) {
                   onComplete({
                     conversation_id: data.conversation_id,
                     tokens_used: data.tokens_used,
-                    route: data.route,
-                    model: data.model,
-                    provider: data.provider
                   });
                 }
                 if (data.error) {
@@ -846,14 +873,12 @@ ${candidateMoves}
           });
         },
         // onComplete - update metadata and stop loading
-        (data: { conversation_id: string; tokens_used: number; route?: string; model?: string; provider?: string }) => {
+        (data: { conversation_id: string; tokens_used: number }) => {
           setState(prev => {
             const updatedMessages = [...prev.chatMessages];
             const lastMsg = updatedMessages[updatedMessages.length - 1];
             if (lastMsg && lastMsg.id === assistantMessageId) {
               lastMsg.maxTokens = data.tokens_used;
-              if (data.model) lastMsg.model = data.model;
-              if (data.provider) lastMsg.provider = data.provider;
             }
             return { ...prev, chatMessages: updatedMessages, chatLoading: false, isStreaming: false };
           });
@@ -906,237 +931,19 @@ ${candidateMoves}
       updateState({ chatLoading: true, analysisTab: 1 });
 
       try {
-        // Build query based on analysis type
-        let query = "";
-        let currentFen = currentFenRef.current;
+        // The request goes in the query, the grounding (master stats, ChessDB,
+        // engine lines) in context_note: glued together they passed Hermes'
+        // 2000-character cap and every click got 400 (28.10).
+        const type = analysisType as ClickAnalysisType;
+        const reviewData = type === "moveCoach" || type === "annotation" ? (data as MoveAnalysis) : undefined;
+        const requestFen = reviewData ? reviewData.fen : currentFenRef.current;
 
-        switch (analysisType) {
-          case "engineLine":
-            const engineData = data as EngineLineData;
-            const formattedLine = formatLineForLLM(engineData.line, engineData.lineIndex);
-            const chessInstance = new Chess(currentFen);
-            const sideToMovew = chessInstance.turn() === "w" ? "White" : "Black";
-            
-            query = `<chess_analysis_request>
-
-<analysis_type>Engine Line Analysis</analysis_type>
-
-<position_context>
-Current FEN: ${currentFen}
-Side to Move: ${sideToMovew}
-</position_context>
-
-<engine_line>
-${formattedLine}
-</engine_line>
-
-<analysis_instructions>
-Please follow this structure in your analysis:
-1. First, describe the board state and key features of the position before the move (pawn structure, piece activity, king safety, imbalances, threats, etc).
-2. Next, analyze the move itself: what does it change in the position, and what are its immediate tactical or strategic consequences?
-3. Then, consider the engine lines and candidate moves: what alternatives were available, and how do they compare to the move played?
-4. Take account of 1, 2, 3 and provide the analysis for this engine line.
-
-Be concise but thorough, and use clear chess language.
-</analysis_instructions>`;
-            break;
-
-          case "openingMove":
-            const move = data as Moves;
-            const totalGames = (move.white ?? 0) + (move.draws ?? 0) + (move.black ?? 0);
-            const whiteWinRate = ((move.white / totalGames) * 100 || 0).toFixed(1);
-            const drawRate = ((move.draws / totalGames) * 100 || 0).toFixed(1);
-            const blackWinRate = ((move.black / totalGames) * 100 || 0).toFixed(1);
-            const chessMoveInstance = new Chess(currentFen);
-            const moveSideToMove = chessMoveInstance.turn() === "w" ? "White" : "Black";
-
-            query = `<chess_analysis_request>
-
-<analysis_type>Opening Move Analysis</analysis_type>
-
-<position_context>
-Current FEN: ${currentFen}
-Opening: ${state.openingData?.opening?.name || "Unknown"} (${state.openingData?.opening?.eco || "N/A"})
-Side to Move: ${moveSideToMove}
-</position_context>
-
-<move_information>
-Move: ${move.san}
-Games played: ${totalGames}
-Average rating: ${move.averageRating}
-White wins: ${whiteWinRate}%
-Draws: ${drawRate}%
-Black wins: ${blackWinRate}%
-</move_information>
-
-<analysis_instructions>
-Please follow this structure in your analysis:
-1. First, describe the board state and key features of the position before the move (pawn structure, piece activity, king safety, imbalances, threats, etc).
-2. Next, analyze the move itself: what does it change in the position, and what are its immediate tactical or strategic consequences?
-3. Then, understand the opening stats, the win, draw, loss rates and amount of games that were played by masters.
-4. Then, consider the engine lines and candidate moves: what alternatives were available, and how do they compare to the move played?
-5. Take account of 1, 2, 3, 4 and provide the analysis for this move.
-
-Be concise but thorough, and use clear chess language.
-</analysis_instructions>`;
-            break;
-
-          case "candidateMove":
-            const candidateMove = data as CandidateMove;
-            const candidateChessInstance = new Chess(currentFen);
-            const candidateSideToMove = candidateChessInstance.turn() === "w" ? "White" : "Black";
-
-            query = `<chess_analysis_request>
-
-<analysis_type>Candidate Move Analysis</analysis_type>
-
-<position_context>
-Current FEN: ${currentFen}
-Side to Move: ${candidateSideToMove}
-</position_context>
-
-<move_information>
-Move: ${candidateMove.san} (${candidateMove.uci})
-ChessDb Score: ${candidateMove.score}
-ChessDb Winrate: ${candidateMove.winrate}
-</move_information>
-
-<analysis_instructions>
-Please follow this structure in your analysis:
-1. First, understand and describe the board state and key features of the position before the move (pawn structure, piece activity, king safety, imbalances, threats, etc).
-2. Next, analyze the move itself: what does it change in the position, and what are its immediate tactical or strategic consequences?
-3. Then, consider the engine lines and candidate moves: what alternatives were available, and how do they compare to the move played?
-4. Take account of 1, 2, 3 and provide analysis of the candidate move and how it impacts the position.
-
-Be concise but thorough, and use clear chess language.
-</analysis_instructions>`;
-            break;
-
-          case "moveCoach":
-            const coachReview = data as MoveAnalysis;
-            const coachPastFen = coachReview.fen;
-            const coachSideToMove = coachReview.player === "w" ? "White" : "Black";
-            const coachMoveNumber = Math.floor(coachReview.plyNumber / 2) + 1;
-            const coachIsWhiteMove = coachReview.plyNumber % 2 === 0;
-            const coachMoveNotation = coachIsWhiteMove ? `${coachMoveNumber}.` : `${coachMoveNumber}...`;
-
-            query = `<chess_analysis_request>
-
-<analysis_type>Move Coach Analysis</analysis_type>
-
-<position_context>
-Position FEN: ${coachPastFen}
-Side: ${coachSideToMove}
-</position_context>
-
-<move_information>
-Move: ${coachMoveNotation} ${coachReview.notation}
-Classification: ${coachReview.quality}
-Player: ${coachSideToMove}
-Ply Number: ${coachReview.plyNumber}
-</move_information>
-
-<analysis_instructions>
-As a chess buddy, please follow this structure in your analysis:
-1. First, understand and describe the board state and key features of the position before the move (pawn structure, piece activity, king safety, imbalances, threats, etc).
-2. Next, analyze the move itself: what does it change in the position, and what are its immediate tactical or strategic consequences?
-3. Then, consider the engine lines and candidate moves: what alternatives were available, and how do they compare to the move played?
-4. Take account of 1, 2, 3 and explain why this move is classified as a ${coachReview.quality} move.
-
-Be concise but thorough, and use clear chess language.
-</analysis_instructions>`;
-            currentFen = coachPastFen;
-            break;
-
-          case "annotation":
-            const review = data as MoveAnalysis;
-            const pastFen = review.fen;
-            const sideToMove = review.player === "w" ? "White" : "Black";
-            const moveNumber = Math.floor(review.plyNumber / 2) + 1;
-            const isWhiteMove = review.plyNumber % 2 === 0;
-            const moveNotation = isWhiteMove ? `${moveNumber}.` : `${moveNumber}...`;
-
-            if (analysisType === "annotation") {
-              query = `<chess_annotation_request>
-
-<analysis_type>Move Annotation</analysis_type>
-
-<position_context>
-Position FEN: ${pastFen}
-Current FEN: ${currentFen}
-Side: ${sideToMove}
-</position_context>
-
-<move_information>
-Move: ${review.notation}
-Classification: ${review.quality}
-Move Number: ${moveNotation}
-</move_information>
-
-<annotation_instructions>
-Please provide annotation about this move:
-1. Talk about how/why the move is ${review.quality} based on the NEXT ply engine analysis
-2. Talk about candidates in this position using the CURRENT ply engine analysis
-3. How the move can impact the game
-4. Keep the response in paragraph format
-
-Start the response with "Chesster Annotation:"
-</annotation_instructions>`;
-            } else {
-              query = `<chess_analysis_request>
-
-<analysis_type>Move Coach Analysis</analysis_type>
-
-<position_context>
-Position FEN: ${pastFen}
-Side: ${sideToMove}
-</position_context>
-
-<move_information>
-Move: ${moveNotation} ${review.notation}
-Classification: ${review.quality}
-Player: ${sideToMove}
-</move_information>
-
-<analysis_instructions>
-Please follow this structure in your analysis:
-1. First, understand and describe the board state and key features of the position before the move (pawn structure, piece activity, king safety, imbalances, threats, etc).
-2. Next, analyze the move itself: what does it change in the position, and what are its immediate tactical or strategic consequences?
-3. Then, consider the engine lines and candidate moves: what alternatives were available, and how do they compare to the move played?
-4. Take account of 1, 2, 3 and explain why this move is classified as a ${review.quality} move.
-
-Be concise but thorough, and use clear chess language.
-</analysis_instructions>`;
-            }
-            currentFen = pastFen;
-            break;
-        }
-
-        // Add contextual information
-        if (state.openingData) {
-          const openingSpeech = getOpeningStatSpeech(state.openingData);
-          query += `
-
-<opening_information>
-${openingSpeech}
-</opening_information>`;
-        }
-
-        if (chessdbdata) {
-          const candidateMoves = getChessDBSpeech(chessdbdata);
-          query += `
-
-<database_analysis>
-${candidateMoves}
-</database_analysis>`;
-        }
-
-        // Add engine analysis if needed
+        let engineAnalysis: string | null = null;
         if (state.stockfishAnalysisResult || engine) {
           let engineResult = state.stockfishAnalysisResult;
           if (!engineResult && engine) {
             engineResult = await engine.evaluatePositionWithUpdate({
-              fen: currentFen,
+              fen: requestFen,
               depth: engineDepth,
               multiPv: engineLines,
               setPartialEval: () => {},
@@ -1159,31 +966,27 @@ ${candidateMoves}
                 return formattedLine;
               })
               .join("\n\n");
-
-            query += `
-
-<engine_analysis>
-Depth: ${engineDepth}
-${formattedEngineLines}
-</engine_analysis>`;
+            engineAnalysis = `Depth: ${engineDepth}\n${formattedEngineLines}`;
           }
         }
 
-        if (customQuery) {
-          query += `
+        const engineLineData = type === "engineLine" ? (data as EngineLineData) : undefined;
+        const request = buildClickAnalysisRequest({
+          type,
+          currentFen: currentFenRef.current,
+          engineLineText: engineLineData ? formatLineForLLM(engineLineData.line, engineLineData.lineIndex) : undefined,
+          move: type === "openingMove" ? (data as Moves) : undefined,
+          openingData: state.openingData,
+          candidate: type === "candidateMove" ? (data as CandidateMove) : undefined,
+          review: reviewData,
+          customQuery,
+          grounding: {
+            openingSpeech: state.openingData ? getOpeningStatSpeech(state.openingData) : null,
+            databaseSpeech: chessdbdata ? getChessDBSpeech(chessdbdata) : null,
+            engineAnalysis,
+          },
+        });
 
-<additional_considerations>
-${customQuery}
-</additional_considerations>`;
-        }
-
-      
-        query += `
-</chess_analysis_request>`;
-
-        if (analysisType === "annotation") {
-          query = query.replace("</chess_analysis_request>", "</chess_annotation_request>");
-        }
         // Determine message content based on analysis type
         let messageContent = "";
         switch (analysisType) {
@@ -1214,7 +1017,7 @@ ${customQuery}
         }
 
         const userMessage = createChatMessage("user", fen, messageContent);
-        const result = await makeApiRequest(currentFen, query, analysisType === "annotation" ? "annotation" : "position");
+        const result = await makeApiRequest(request.fen, request.query, analysisType === "annotation" ? "annotation" : "position", request.context_note);
         const assistantMessage = createChatMessage("assistant", fen, result.message, result.maxTokens, result.provider, result.model, (Date.now() + 1).toString(), result.response_time_ms);
 
 
@@ -1307,24 +1110,7 @@ ${customQuery}
         const sideToMove = chessInstance.turn() === "w" ? "White" : "Black";
         const newOpeningData = await getOpeningStats(futureFen);
 
-        let query = `Analyze the chess move ${move} in this position:
-
-Position: ${futureFen}
-Side To Move: ${sideToMove}
-
-Please follow this structure in your analysis:
-1. First, understand and describe the board state and key features of the position before the move
-2. Next, analyze the move itself: what does it change in the position
-3. Then, consider the engine lines and candidate moves: what alternatives were available
-4. Take account of 1, 2, 3 and provide analysis of the candidate move and how it impacts the position
-
-Be concise but thorough, and use clear chess language.`;
-
-        if (newOpeningData) {
-          const openingSpeech = getOpeningStatSpeech(newOpeningData);
-          query += `\n\nOpening Information:\n${openingSpeech}`;
-        }
-
+        let engineAnalysis: string | null = null;
         if (engine) {
           const engineResult = await engine.evaluatePositionWithUpdate({
             fen: futureFen,
@@ -1334,17 +1120,20 @@ Be concise but thorough, and use clear chess language.`;
           });
 
           if (engineResult) {
-            const formattedEngineLines = engineResult.lines
+            engineAnalysis = engineResult.lines
               .map((line, index) => formatLineForLLM(line, index))
               .join("\n");
-            query += `\n\nStockfish Analysis:\n${formattedEngineLines}`;
           }
         }
 
-        query += `\n\nAnalyze this move from different points of view.`;
+        // Stats and engine lines in context_note, under Hermes' query cap (28.10).
+        const request = buildFutureMoveRequest(move, futureFen, {
+          openingSpeech: newOpeningData ? getOpeningStatSpeech(newOpeningData) : null,
+          engineAnalysis,
+        });
 
         const userMessage = createChatMessage("user", fen, `Analyze move: ${move}`);
-        const result = await makeApiRequest(futureFen, query, "position");
+        const result = await makeApiRequest(request.fen, request.query, "position", request.context_note);
         const assistantMessage = createChatMessage("assistant", fen, result.message, result.maxTokens, result.provider, result.model, (Date.now() + 1).toString(), result.response_time_ms);
 
 
@@ -1556,6 +1345,7 @@ Be concise but thorough, and use clear chess language.`;
       setChatLoading: (loading: boolean) => updateState({ chatLoading: loading }),
       isStreaming: state.isStreaming,
       sessionMode: state.sessionMode,
+      coachArrows: state.coachArrows,
       setSessionMode: (mode: boolean) => updateState({ sessionMode: mode }),
 
       // Engine Settings

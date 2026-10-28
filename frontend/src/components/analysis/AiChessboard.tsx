@@ -70,6 +70,7 @@ import { EvalBar } from "./EvalBar";
 import BoardEditor from "@/components/editor/BoardEditor";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { useHaptic } from "@/hooks/useHaptic";
+import { coachArrowsFor, type CoachArrowsOnBoard } from "@/lib/coach/click-analysis";
 
 interface AiChessboardPanelProps {
   fen: string;
@@ -106,6 +107,8 @@ interface AiChessboardPanelProps {
   editorMode?: boolean;
   onEditorModeChange?: (mode: boolean) => void;
   onEditorStateChange?: (state: import("@/components/editor/BoardEditor").EditorState) => void;
+  /** Arrows the coach's analysis answer drew, for the position it was about. */
+  coachArrows?: CoachArrowsOnBoard | null;
 }
 
 export default function AiChessboardPanel({
@@ -135,6 +138,7 @@ export default function AiChessboardPanel({
   editorMode = false,
   onEditorModeChange,
   onEditorStateChange,
+  coachArrows,
 }: AiChessboardPanelProps) {
   const tEditor = useTranslations("editor");
   const tBoard = useTranslations("board");
@@ -561,11 +565,16 @@ export default function AiChessboardPanel({
   };
 
   const customArrows = useMemo((): Array<{ from: Key; to: Key; brush: string }> => {
+    // The coach's own arrows (its «see the arrow» answers, 28.10): only on the
+    // position the answer was about, and regardless of the engine-arrow switch.
+    const coach: Array<{ from: Key; to: Key; brush: string }> = coachArrowsFor(coachArrows, fen).map(
+      (a) => ({ from: a.from as Key, to: a.to as Key, brush: a.brush }),
+    );
     if (!showArrows) {
-      return [];
+      return coach;
     }
 
-    const arrows: Array<{ from: Key; to: Key; brush: string }> = [];
+    const arrows: Array<{ from: Key; to: Key; brush: string }> = [...coach];
 
     // Only show review arrow if reviewMove exists and corresponds to current position
     if (reviewMove) {
@@ -615,7 +624,7 @@ export default function AiChessboardPanel({
     }
 
     return arrows;
-  }, [showArrows, reviewMove, stockfishAnalysisResult, currentMoveIndex]);
+  }, [showArrows, reviewMove, stockfishAnalysisResult, currentMoveIndex, coachArrows, fen]);
 
   // Navigation callbacks
   const goToPreviousMove = useCallback(() => {

@@ -26,6 +26,7 @@ from tools.registry import registry
 from src import config
 from src import knowledge_base as kb
 from src.identity import resolve_user_id
+from src.session_persistence import SessionLoadError
 
 logger = logging.getLogger(__name__)
 
@@ -737,6 +738,8 @@ def _handle_list_topics(args: dict, **kwargs) -> str:
 def _handle_get_topic(args: dict, **kwargs) -> str:
     try:
         user_id = resolve_user_id(args, kwargs) or None
+    except SessionLoadError:
+        raise  # the session is unknown, not absent (28.10)
     except Exception:
         user_id = None
     from src.sessions import BOARD_KEPT_NOTE, HIDDEN_BOARD_NOTE, board_lock_for, board_lock_reason_for

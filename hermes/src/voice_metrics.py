@@ -236,12 +236,15 @@ def beacon_to_event(payload: Any, user_id: Optional[str]) -> Optional[dict]:
         "surface": "voice",
     }
 
+    # A voice started on the site's hard-coded prompt (this server gave none) carries
+    # error_code "prompt_fallback_*": kept and marked warn so it is seen (28.10).
+    mark = {"severity": "warn", "error_code": error_code} if error_code else {}
     if event == "connect":
-        return {**base, "event_type": "voice_connect", "duration_ms": connect_ms,
+        return {**base, "event_type": "voice_connect", "duration_ms": connect_ms, **mark,
                 "payload": _compact({"connect_ms": connect_ms, "token_ms": token_ms,
                                      "prompt_bytes": prompt_bytes})}
     if event == "reconnect":
-        return {**base, "event_type": "voice_reconnect", "duration_ms": connect_ms,
+        return {**base, "event_type": "voice_reconnect", "duration_ms": connect_ms, **mark,
                 "payload": _compact({"connect_ms": connect_ms, "token_ms": token_ms})}
     if event in ("error", "drop"):
         return {**base, "event_type": "voice_drop", "severity": "error", "ok": False,

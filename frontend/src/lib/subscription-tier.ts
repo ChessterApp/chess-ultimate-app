@@ -1,7 +1,8 @@
 /**
  * Shared subscription-tier resolution for the coach proxies.
  *
- * Every coach proxy (`chat`, `tool`, `live-token`, `voice-usage`) resolves the
+ * Every coach proxy (`chat`, `tool`, `live-token`, `voice-usage`, `analysis`,
+ * `analysis/stream`) resolves the
  * caller's tier server-side through THIS one helper and forwards it to Hermes as
  * the `x-subscription-tier` header, so tier logic lives in exactly one place.
  *

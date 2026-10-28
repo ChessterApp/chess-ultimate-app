@@ -270,6 +270,26 @@ class TestBeaconToEvent:
         assert evt["duration_ms"] == 300
         assert evt["payload"]["token_ms"] == 40
 
+    def test_connect_on_the_fallback_prompt_is_marked(self):
+        # 28.10: a voice started on the hard-coded prompt (Hermes voice/prompt down) was only a server warning.
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "connect", "connect_ms": 300, "error_code": "prompt_fallback_http_503"},
+            "u1",
+        )
+        assert evt["event_type"] == "voice_connect"
+        assert evt["severity"] == "warn"
+        assert evt["error_code"] == "prompt_fallback_http_503"
+        plain = beacon_to_event({"sessionId": "s1", "event": "connect", "connect_ms": 300}, "u1")
+        assert "severity" not in plain and "error_code" not in plain
+
+    def test_reconnect_on_the_fallback_prompt_is_marked(self):
+        evt = beacon_to_event(
+            {"sessionId": "s1", "event": "reconnect", "connect_ms": 90, "error_code": "prompt_fallback_network"},
+            "u1",
+        )
+        assert evt["severity"] == "warn"
+        assert evt["error_code"] == "prompt_fallback_network"
+
     def test_reconnect(self):
         evt = beacon_to_event({"sessionId": "s1", "event": "reconnect", "connect_ms": 90}, "u1")
         assert evt["event_type"] == "voice_reconnect"

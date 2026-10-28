@@ -125,6 +125,7 @@ export default function PositionPage() {
     error,
     refetch,
     requestAnalysis,
+    coachArrows,
   } = useChesster(fen);
 
   // Chat session handlers
@@ -296,6 +297,7 @@ export default function PositionPage() {
         {/* Chessboard Section */}
         <Box sx={{ flex: "0 0 auto", width: { xs: "100%", lg: "auto" }, display: "flex", justifyContent: "center" }}>
           <AiChessboardPanel
+            coachArrows={coachArrows}
             game={game}
             fen={fen}
             moveSquares={moveSquares}

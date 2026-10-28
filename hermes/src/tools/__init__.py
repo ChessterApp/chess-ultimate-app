@@ -12,6 +12,8 @@ from pathlib import Path
 
 from tools.registry import registry
 
+from src.session_persistence import SessionLoadError
+
 logger = logging.getLogger(__name__)
 
 TOOLSET = "chess"
@@ -108,6 +110,21 @@ def turn_session(task_id: str, session_id: str, student_message: str = "", game_
         _turn_sessions.pop(task_id, None)
 
 
+# A session whose read from Supabase failed (28.10): its game and board are unknown, not absent. The tool
+# answers this instead of running in "no game" mode (the best line in a live game, a new board over it).
+SESSION_NOT_LOADED_HINT = ("The coach session (its board and game) could not be loaded just now. Do not answer as if "
+                           "there were no game or board: tell the student in one short sentence that something went "
+                           "wrong and to ask again in a moment.")
+
+
+def _session_not_loaded(exc) -> str:
+    import json
+
+    logger.warning("tool ran on a coach session that could not be loaded: %s", exc)
+    return json.dumps({"error": "The coach session could not be loaded.",
+                       "hint": SESSION_NOT_LOADED_HINT}, ensure_ascii=False)
+
+
 def _tell_the_board() -> None:
     """Every tool sees its coach session, and what it put on the board is what the model hears
     (src/board_truth.py)."""
@@ -123,7 +140,10 @@ def _tell_the_board() -> None:
                 turn = _turn_sessions.get(kwargs.get("task_id") or "")
                 if turn:
                     kwargs = {**kwargs, **turn}
-            return board_truth(_inner(args, **kwargs), kwargs)
+            try:
+                return board_truth(_inner(args, **kwargs), kwargs)
+            except SessionLoadError as exc:
+                return _session_not_loaded(exc)
 
         handler._tells_board = True
         handler._hints_errors = getattr(entry.handler, "_hints_errors", False)

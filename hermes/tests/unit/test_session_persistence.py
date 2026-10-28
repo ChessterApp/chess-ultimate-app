@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import httpx
 import pytest
 
-from src.session_persistence import SessionPersistence
+from src.session_persistence import SessionLoadError, SessionPersistence
 from src.sessions import SessionStore
 
 
@@ -386,13 +386,20 @@ class TestFirstTurnRace:
             _, kwargs = mock_httpx.get.call_args
             assert kwargs["params"]["order"] == "id.asc"
 
-    def test_read_swallows_exceptions(self):
+    def test_listing_read_swallows_exceptions(self):
         p = self._persistence()
         with patch("src.session_persistence.httpx") as mock_httpx:
             mock_httpx.get.side_effect = RuntimeError("boom")
-            assert p.load_session("sid-1") is None
             assert p.load_user_sessions("user1") == []
-            assert p.load_messages("sid-1") == []
+
+    def test_session_reads_raise_on_failure_not_empty(self):
+        # 28.10: a failed read is not an empty session (it was cached as one without its game).
+        p = self._persistence()
+        with patch("src.session_persistence.httpx") as mock_httpx:
+            mock_httpx.get.side_effect = RuntimeError("boom")
+            for load in (p.load_session, p.load_boards, p.load_messages):
+                with pytest.raises(SessionLoadError):
+                    load("sid-1")
 
     def test_write_swallows_exceptions(self):
         p = self._persistence()

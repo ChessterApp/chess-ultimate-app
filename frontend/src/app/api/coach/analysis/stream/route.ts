@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { requireApiAccess } from '@/lib/require-api-access';
+import { resolveUserTier } from '@/lib/subscription-tier';
+import { contextNoteOf } from '@/lib/coach/click-analysis';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -8,7 +10,9 @@ const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
  * POST /api/coach/analysis/stream — SSE analysis proxy to Hermes.
  * Mirrors the Flask /api/chat/analysis/stream contract, streaming Hermes'
  * text/event-stream straight through. Frames: {delta} … {done,
- * conversation_id, tokens_used} … {error}.
+ * conversation_id, tokens_used} … {board_actions} … {error}.
+ * Hermes' validation / rate-limit / not-found errors come back as plain JSON
+ * with Hermes' status and text, before any frame.
  */
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
@@ -27,6 +31,7 @@ export async function POST(request: NextRequest) {
     query?: string;
     conversation_id?: string;
     context_type?: string;
+    context_note?: string;
   };
   try {
     body = await request.json();
@@ -50,7 +55,64 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Same tier the coach proxies send; without it Hermes rate-limits every
+  // analysis as free (28.10).
+  const tier = await resolveUserTier(userId);
+
+  // Hermes is asked before the stream opens: its error answer (400 «Query too
+  // long», 404, 429 «Rate limit exceeded…») goes back as is. Inside a 200
+  // stream it became «Hermes error: 429» in the chat (28.10).
+  let hermesResponse: Response;
+  try {
+    hermesResponse = await fetch(`${HERMES_URL}/api/coach/analysis/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Id': userId,
+        'x-subscription-tier': tier,
+      },
+      body: JSON.stringify({
+        fen: body.fen,
+        query: body.query,
+        conversation_id: body.conversation_id,
+        context_type: body.context_type,
+        context_note: contextNoteOf(body.context_note),
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: message }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  if (!hermesResponse.ok) {
+    let payload: Record<string, unknown> = { error: `Hermes error: ${hermesResponse.status}` };
+    try {
+      const data = await hermesResponse.json();
+      if (data && typeof data === 'object') {
+        payload = { ...data };
+        // FastAPI's own errors carry `detail`, not `error`.
+        if (typeof payload.error !== 'string' && typeof payload.detail === 'string') {
+          payload.error = payload.detail;
+        }
+        if (typeof payload.error !== 'string') payload.error = `Hermes error: ${hermesResponse.status}`;
+      }
+    } catch {
+      // not JSON: keep the status line
+    }
+    // Hermes' 404 is «conversation not found»: sent as 410, because the mobile app reads a 404 from this route as
+    // «route not deployed» and silently retries on the old Flask one (review 28.10).
+    return new Response(JSON.stringify(payload), {
+      status: hermesResponse.status === 404 ? 410 : hermesResponse.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const encoder = new TextEncoder();
+  const upstream = hermesResponse.body;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -59,29 +121,8 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        const hermesResponse = await fetch(`${HERMES_URL}/api/coach/analysis/stream`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-Id': userId,
-          },
-          body: JSON.stringify({
-            fen: body.fen,
-            query: body.query,
-            conversation_id: body.conversation_id,
-            context_type: body.context_type,
-          }),
-          signal: AbortSignal.timeout(60000),
-        });
-
-        if (!hermesResponse.ok) {
-          sendEvent({ error: `Hermes error: ${hermesResponse.status}` });
-          controller.close();
-          return;
-        }
-
-        if (hermesResponse.body) {
-          const reader = hermesResponse.body.getReader();
+        if (upstream) {
+          const reader = upstream.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
 

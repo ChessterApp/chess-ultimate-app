@@ -6,11 +6,13 @@ import { resolveUserTier } from '@/lib/subscription-tier';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 const CHECK_TIMEOUT_MS = 4000;
+// Same bound as /api/coach/voice/intent: the hook now sends the loaded game's pgn here (28.10).
+const PGN_MAX = 20000;
 
 /**
  * POST /api/coach/voice/check — a sentence the voice coach just said, checked
  * on the board by Hermes (the same check the text coach's answers pass before
- * they are shown). Body: { text, fen?, pgn?, question? }. Returns Hermes'
+ * they are shown). Body: { text, fen?, pgn?, question?, session_id? }. Returns Hermes'
  * { issues: string[] }; any failure is "no issues" (an older Hermes answers 404).
  */
 export async function POST(request: NextRequest) {
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         text: body.text,
         fen: typeof body.fen === 'string' ? body.fen : undefined,
-        pgn: typeof body.pgn === 'string' ? body.pgn : undefined,
+        pgn: typeof body.pgn === 'string' && body.pgn.trim() ? body.pgn.slice(0, PGN_MAX) : undefined,
         question: typeof body.question === 'string' ? body.question : undefined,
         session_id: typeof body.session_id === 'string' ? body.session_id : undefined,
       }),

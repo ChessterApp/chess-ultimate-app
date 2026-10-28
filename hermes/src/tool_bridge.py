@@ -22,6 +22,8 @@ from typing import Any, Optional
 import chess
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+from src.request_skew import CoachRequest
 from starlette.concurrency import run_in_threadpool
 
 from src import config
@@ -29,6 +31,7 @@ from src.board_protocol import GAME_ACTION, ActionType, GAME_VIEW_ACTION
 from src.cost_monitor import record_voice_event
 from src.event_logger import log_event
 from src.middleware.rate_limiter import enforce_rate_limit, voice_tool_rate_limiter
+from src.session_persistence import SessionLoadError
 from src.sessions import session_store
 from src.tool_selector import select_tool_subset
 
@@ -288,12 +291,30 @@ def dispatch_tool_safely(name: str, args: dict, **kwargs) -> str:
         return json.dumps(_tool_error_payload(name, exc))
 
 
-class ToolDispatchRequest(BaseModel):
+class ToolDispatchRequest(CoachRequest):
     args: dict[str, Any] = {}
     session_id: Optional[str] = None
     # The student's last words (voice): the board lock is decided from them, as the text coach's
     # turn decides it from the message (src/board_lock.py).
     utterance: Optional[str] = None
+    # The site's interface language (the proxy resolves it as the page does): the tools below read
+    # args["locale"] for their lesson/topic texts and fell back to Russian (seam audit 28.10).
+    locale: Optional[str] = None
+
+
+# Tools whose handler reads args["locale"] (src/tools: puzzles, knowledge_topics, learning_path,
+# training_recommender). Only these get it: the others never see an argument they do not declare.
+_LOCALE_TOOLS = frozenset({
+    "get_puzzle", "get_topic", "list_topics", "get_lesson", "get_learning_path", "training_recommender",
+})
+_SITE_LOCALES = frozenset({"ru", "en", "kz"})
+
+
+def _with_locale(name: str, args: dict, locale: Optional[str]) -> dict:
+    """*args* with the interface *locale* for a tool that reads it; the model's own choice stays."""
+    if name not in _LOCALE_TOOLS or locale not in _SITE_LOCALES or args.get("locale"):
+        return args
+    return {**args, "locale": locale}
 
 
 # The board lock a voice tool call runs under. Calls of one model turn come in parallel: the lock
@@ -381,7 +402,7 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     # per-session tool-call count can be reconstructed for cost estimation.
     record_voice_event(user_id, body.session_id, tool_name=name)
 
-    args = _override_identity_args(name, body.args or {}, user_id)
+    args = _with_locale(name, _override_identity_args(name, body.args or {}, user_id), body.locale)
 
     # registry.dispatch is synchronous and can block for seconds (e.g. a
     # Stockfish analysis at depth 18). Run it off the event loop so slow tools
@@ -395,6 +416,8 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     if body.session_id:
         try:
             session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
+        except SessionLoadError:
+            raise  # the game is unknown, not absent: 503, never the tool in "no game" mode (28.10)
         except Exception:  # noqa: BLE001 — the tool still runs, without the session
             session = None
     started = time.monotonic()

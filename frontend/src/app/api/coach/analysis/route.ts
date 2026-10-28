@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { requireApiAccess } from '@/lib/require-api-access';
+import { resolveUserTier } from '@/lib/subscription-tier';
+import { contextNoteOf } from '@/lib/coach/click-analysis';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -24,6 +26,7 @@ export async function POST(request: NextRequest) {
     query?: string;
     conversation_id?: string;
     context_type?: string;
+    context_note?: string;
   };
   try {
     body = await request.json();
@@ -38,18 +41,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing query' }, { status: 400 });
   }
 
+  // Same tier the coach proxies send; without it Hermes rate-limits every
+  // analysis as free (28.10).
+  const tier = await resolveUserTier(userId);
+
   try {
     const response = await fetch(`${HERMES_URL}/api/coach/analysis`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-User-Id': userId,
+        'x-subscription-tier': tier,
       },
       body: JSON.stringify({
         fen: body.fen,
         query: body.query,
         conversation_id: body.conversation_id,
         context_type: body.context_type,
+        // Master stats / engine lines of a click-analysis: apart from the
+        // query, which Hermes caps at 2000 characters (28.10).
+        context_note: contextNoteOf(body.context_note),
       }),
       signal: AbortSignal.timeout(60000),
     });

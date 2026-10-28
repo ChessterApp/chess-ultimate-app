@@ -313,6 +313,7 @@ export default function PuzzlePage() {
     abortChatMessage,
     formatPrincipalVariation,
     handleEngineLineClick,
+    coachArrows,
   } = useChesster(fen);
 
   
@@ -654,6 +655,7 @@ export default function PuzzlePage() {
         <Stack direction={{ xs: "column", lg: "row" }} spacing={{ xs: 2, sm: 3, lg: 4 }} >
            <Box sx={{ flex: '0 0 auto', width: { xs: "100%", lg: "auto" }, display: "flex", justifyContent: "center" }}>
              <AiChessboardPanel
+            coachArrows={coachArrows}
             game={game}
             fen={fen}
             moveSquares={moveSquares}

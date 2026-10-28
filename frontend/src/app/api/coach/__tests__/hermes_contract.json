@@ -1,0 +1,240 @@
+{
+ "PATCH /api/coach/sessions/{session_id}": {
+  "model": "CoachSessionUpdateRequest",
+  "fields": [
+   "title",
+   "active_board_id"
+  ]
+ },
+ "PATCH /api/coach/sessions/{session_id}/boards/{board_id}": {
+  "model": "CoachBoardUpdateRequest",
+  "fields": [
+   "title",
+   "pgn",
+   "fen",
+   "position",
+   "ply",
+   "orientation",
+   "annotations",
+   "game_state",
+   "active"
+  ]
+ },
+ "POST /api/coach/analysis": {
+  "model": null,
+  "fields": null
+ },
+ "POST /api/coach/analysis/stream": {
+  "model": null,
+  "fields": null
+ },
+ "POST /api/coach/chat": {
+  "model": "CoachChatRequest",
+  "fields": [
+   "message",
+   "fen",
+   "session_id",
+   "locale",
+   "context_note",
+   "board_id",
+   "review_game_id",
+   "speech",
+   "view_ply",
+   "view_line"
+  ]
+ },
+ "POST /api/coach/create-checkout-session": {
+  "model": "CheckoutRequest",
+  "fields": [
+   "tier",
+   "redirect_url"
+  ]
+ },
+ "POST /api/coach/feedback": {
+  "model": "CoachFeedbackRequest",
+  "fields": [
+   "turn_id",
+   "rating",
+   "session_id",
+   "comment",
+   "surface",
+   "client_ts"
+  ]
+ },
+ "POST /api/coach/import-url": {
+  "model": "CoachImportUrlRequest",
+  "fields": [
+   "url"
+  ]
+ },
+ "POST /api/coach/metrics": {
+  "model": null,
+  "fields": null
+ },
+ "POST /api/coach/sessions": {
+  "model": "CoachSessionCreateRequest",
+  "fields": [
+   "title"
+  ]
+ },
+ "POST /api/coach/sessions/{session_id}/boards": {
+  "model": "CoachBoardCreateRequest",
+  "fields": [
+   "kind",
+   "title",
+   "pgn",
+   "fen",
+   "ply",
+   "orientation",
+   "source",
+   "activate"
+  ]
+ },
+ "POST /api/coach/sessions/{session_id}/game": {
+  "model": "CoachGameStartRequest",
+  "fields": [
+   "color",
+   "elo",
+   "comment_mode"
+  ]
+ },
+ "POST /api/coach/sessions/{session_id}/game/{board_id}/comment": {
+  "model": "CoachGameCommentRequest",
+  "fields": [
+   "locale",
+   "event",
+   "speech"
+  ]
+ },
+ "POST /api/coach/sessions/{session_id}/game/{board_id}/continue": {
+  "model": "CoachGameContinueRequest",
+  "fields": [
+   "ply",
+   "line"
+  ]
+ },
+ "POST /api/coach/sessions/{session_id}/game/{board_id}/move": {
+  "model": "CoachGameMoveRequest",
+  "fields": [
+   "move"
+  ]
+ },
+ "POST /api/coach/sessions/{session_id}/game/{board_id}/resign": {
+  "model": null,
+  "fields": null
+ },
+ "POST /api/coach/sessions/{session_id}/game/{board_id}/takeback": {
+  "model": null,
+  "fields": null
+ },
+ "POST /api/coach/sessions/{session_id}/messages": {
+  "model": "CoachMessageRequest",
+  "fields": [
+   "role",
+   "content",
+   "source",
+   "client_ts",
+   "turn_id"
+  ]
+ },
+ "POST /api/coach/tool/{name}": {
+  "model": "ToolDispatchRequest",
+  "fields": [
+   "args",
+   "session_id",
+   "utterance",
+   "locale"
+  ]
+ },
+ "POST /api/coach/voice/check": {
+  "model": "VoiceCheckRequest",
+  "fields": [
+   "text",
+   "fen",
+   "pgn",
+   "question",
+   "session_id"
+  ]
+ },
+ "POST /api/coach/voice/engine-note": {
+  "model": "VoiceEngineNoteRequest",
+  "fields": [
+   "fen",
+   "session_id"
+  ]
+ },
+ "POST /api/coach/voice/idea": {
+  "model": "VoiceIdeaRequest",
+  "fields": [
+   "text",
+   "fen",
+   "live_game",
+   "pgn"
+  ]
+ },
+ "POST /api/coach/voice/intent": {
+  "model": "VoiceIntentRequest",
+  "fields": [
+   "text",
+   "session_id",
+   "fen",
+   "pgn"
+  ]
+ },
+ "POST /api/coach/voice/prompt": {
+  "model": "VoicePromptRequest",
+  "fields": [
+   "fen",
+   "locale",
+   "tools_available",
+   "session_id"
+  ]
+ },
+ "POST /api/coach/voice/tts": {
+  "model": "VoiceTtsRequest",
+  "fields": [
+   "text",
+   "locale"
+  ]
+ },
+ "POST /api/coach/whop-webhook": {
+  "model": null,
+  "fields": null
+ },
+ "POST /api/lesson/chat": {
+  "model": "LessonChatRequest",
+  "fields": [
+   "message",
+   "lesson_title",
+   "lesson_content",
+   "history",
+   "locale",
+   "puzzle_context",
+   "lesson_id",
+   "course_slug",
+   "lesson_slug"
+  ]
+ },
+ "POST /internal/voice/heartbeat": {
+  "model": "VoiceHeartbeatRequest",
+  "fields": [
+   "user_id",
+   "session_id",
+   "seconds_delta"
+  ]
+ },
+ "POST /v1/chat/completions": {
+  "model": "ChatCompletionRequest",
+  "fields": [
+   "messages",
+   "model",
+   "session_id",
+   "temperature",
+   "max_tokens"
+  ]
+ },
+ "PUT /api/coach/profile": {
+  "model": null,
+  "fields": null
+ }
+}

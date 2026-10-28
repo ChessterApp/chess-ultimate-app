@@ -3,6 +3,7 @@ import { requireCoachAccess } from '@/lib/coach-access';
 import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
+import { resolveLocale } from '@/i18n/detect';
 
 // Region pin is load-bearing: Gemini mint calls are geo-blocked outside iad1.
 export const runtime = 'nodejs';
@@ -90,13 +91,56 @@ function readCookie(request: Request, name: string): string | undefined {
   return undefined;
 }
 
-function languageDirective(locale: string): string {
+// The interface's own rule (i18n/detect.ts): a valid NEXT_LOCALE cookie, else Accept-Language, else ru.
+// The cookie-or-'ru' rule gave a Kazakh browser that never used the switcher a Russian coach (28.10).
+function uiLocale(request: Request): string {
+  return resolveLocale(readCookie(request, 'NEXT_LOCALE'), request.headers.get('accept-language'));
+}
+
+function languageDirective(locale: string, sessionLocale?: string | null): string {
   const language = LOCALE_TO_LANGUAGE[locale] ?? locale;
+  // Hermes starts a voice in the language the chat already speaks; without Hermes the recap is the only
+  // trace of it (28.10): the first words follow the talk, not the interface.
+  const talk = sessionLocale ? LOCALE_TO_LANGUAGE[sessionLocale] : undefined;
+  const first = talk
+    ? `The interface language is ${language}. This conversation so far is in ${talk}: use ${talk} for the first
+thing you say; when the player's words show no language of their own, keep to the language of the conversation.`
+    : `The interface language is ${language}: use it for the first thing you say and when the player's words show
+no language of their own.`;
   return `CRITICAL LANGUAGE RULE: Answer in the language the player speaks to you in — Russian, Kazakh or
-English — even when it differs from the interface language. The interface language is ${language}: use it for
-the first thing you say and when the player's words show no language of their own. Never mix languages in one reply.
+English — even when it differs from the interface language. ${first} Never mix languages in one reply.
 
 `;
+}
+
+// Kazakh letters and Kazakh words spelt in Russian letters, as Hermes' _script_language reads them
+// (prompt_builder.py) — a short copy for the fallback prompt only.
+const KAZAKH_LETTERS_RE = /[әғқңөұүһіӘҒҚҢӨҰҮҺІ]/;
+const KAZAKH_WORDS = new Set(
+  'мен сен керек және болады болды болса емес ойнау ойнаймын ойнадым ойнайды ойнаса неге иә енді кейін деген дейді менің сенің маған саған осында сондықтан жасау жасаймын алу алады беру береді жүр жүру жүрем жүрді кім қай нені несі болу бар екен барма жеңу жеңді жеңемін ұтты'.split(' '),
+);
+const NOTATION_RE = /^(?:[KQRBNO]?[a-h]?[1-8]?x?[a-h][1-8](?:=?[QRBN])?[+#]?|[a-h][1-8][a-h][1-8][qrbn]?|O-O(?:-O)?)$/i;
+
+/** The language of one message by its script: 'kz', 'ru', 'en', or null when it carries none (a move, «ok»). */
+function scriptLocale(text: string): string | null {
+  if (KAZAKH_LETTERS_RE.test(text)) return 'kz';
+  const cyr = text.match(/[А-Яа-яЁё][А-Яа-яЁё-]*/g) ?? [];
+  if (cyr.filter((w) => KAZAKH_WORDS.has(w.toLowerCase().replace(/ё/g, 'е'))).length >= 2) return 'kz';
+  const lat = (text.match(/[A-Za-z][A-Za-z0-9+#=x'-]*/g) ?? []).filter((w) => w.length >= 2 && !NOTATION_RE.test(w));
+  const nCyr = cyr.filter((w) => w.length >= 2).length;
+  if (!nCyr) return lat.reduce((n, w) => n + w.length, 0) >= 4 ? 'en' : null;
+  return nCyr >= lat.length ? 'ru' : 'en';
+}
+
+/** The language the session speaks: that of the student's newest message that has one, else null. */
+function sessionLocale(messages: Array<{ role?: string; content?: string }>): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== 'user' || typeof m.content !== 'string') continue;
+    const found = scriptLocale(m.content);
+    if (found) return found;
+  }
+  return null;
 }
 
 // Speech recognition hints (AudioTranscriptionConfig). Without them Live heard
@@ -234,7 +278,9 @@ async function fetchToolDeclarations(): Promise<unknown[]> {
 
 type VoiceContext =
   | { ok: true; systemPrompt: string }
-  | { ok: false; rateLimited: true; retryAfter?: number };
+  | { ok: false; rateLimited: true; retryAfter?: number }
+  // Hermes gave no prompt: why, for the fallback mark on the session's connect beacon (28.10).
+  | { ok: false; rateLimited?: false; unavailable: string };
 
 /**
  * Fetch the single-source spoken system prompt from Hermes (persona + profile +
@@ -284,16 +330,16 @@ async function fetchVoiceContext(
     }
     if (!res.ok) {
       console.warn('[live-token] voice/prompt returned', res.status);
-      return null;
+      return { ok: false, unavailable: `http_${res.status}` };
     }
     const data = await res.json();
     if (typeof data?.system_prompt === 'string' && data.system_prompt) {
       return { ok: true, systemPrompt: data.system_prompt };
     }
-    return null;
+    return { ok: false, unavailable: 'empty' };
   } catch (err) {
     console.warn('[live-token] voice/prompt fetch failed:', err);
-    return null;
+    return { ok: false, unavailable: err instanceof Error && err.name === 'TimeoutError' ? 'timeout' : 'network' };
   }
 }
 
@@ -508,7 +554,7 @@ export async function POST(request: Request) {
   // The voice pipeline prototype (2026-10-25): a token for the transcription-only Live model —
   // no prompt, no tools, no answers; the words go to the text coach and come back as TTS.
   if (body.mode === 'stt') {
-    const sttLocale = body.locale && typeof body.locale === 'string' ? body.locale : readCookie(request, 'NEXT_LOCALE') || 'ru';
+    const sttLocale = body.locale && typeof body.locale === 'string' ? body.locale : uiLocale(request);
     const sttModel = process.env.COACH_STT_MODEL || 'gemini-3.5-transcribe-live';
     const transcription = transcriptionConfig(sttLocale);
     const now = Date.now();
@@ -533,14 +579,13 @@ export async function POST(request: Request) {
   }
 
   const fen = body.fen && typeof body.fen === 'string' ? body.fen : undefined;
-  // Same source as the text proxy (/api/coach/chat): an explicit body value
-  // wins, otherwise the UI locale cookie. Without this the language directive
-  // in Hermes' build_voice_prompt() was never reached and the voice coach was
-  // left to guess the language from an English-only prompt.
+  // An explicit body value wins, otherwise the UI locale (cookie → Accept-Language). Without this
+  // the language directive in Hermes' build_voice_prompt() was never reached and the voice coach
+  // was left to guess the language from an English-only prompt.
   const locale =
     body.locale && typeof body.locale === 'string'
       ? body.locale
-      : readCookie(request, 'NEXT_LOCALE') || 'ru';
+      : uiLocale(request);
   const sessionId =
     body.session_id && typeof body.session_id === 'string'
       ? body.session_id
@@ -584,7 +629,7 @@ export async function POST(request: Request) {
   }
 
   // Rate limited by Hermes → refuse to mint so sessions can't spawn unboundedly.
-  if (voiceContext && voiceContext.ok === false) {
+  if (voiceContext && voiceContext.ok === false && voiceContext.rateLimited) {
     void reportMintRejected(userId, sessionId, 'rate_limited');
     return jsonResponse(
       {
@@ -603,10 +648,13 @@ export async function POST(request: Request) {
   // + spoken tool directives, all rendered from SOUL.md). Fall back to the
   // hardcoded constants in this file if Hermes was unreachable.
   let systemInstruction: string;
+  // Set when the voice runs on the hard-coded prompt: the client puts it on its connect beacon (28.10).
+  let promptFallback: string | undefined;
   if (voiceContext && voiceContext.ok) {
     systemInstruction = voiceContext.systemPrompt;
   } else {
-    systemInstruction = languageDirective(locale) + COACH_VOICE_PROMPT;
+    promptFallback = voiceContext && 'unavailable' in voiceContext ? voiceContext.unavailable : 'unavailable';
+    systemInstruction = languageDirective(locale, sessionLocale(recapMessages)) + COACH_VOICE_PROMPT;
     if (fen) {
       systemInstruction += `\nThe current board position (FEN) is: ${fen}. Refer to it when relevant.`;
     }
@@ -700,6 +748,7 @@ export async function POST(request: Request) {
         // it. null when the tier is unlimited or the quota lookup failed open.
         remainingSeconds: quota ? quota.remainingSeconds : null,
         limitSeconds: quota ? quota.limitSeconds : null,
+        ...(promptFallback ? { promptFallback } : {}),
       },
       200,
     );
