@@ -132,7 +132,14 @@ class TestAnalysisContextNote:
         assert frames[-1].get("done") is True
         assert "<opening_information>" in agent.chat.call_args[0][0]
 
-    def test_context_note_over_cap_400(self):
+    # The agent is mocked as in the tests above: with a configured LLM a missing check would
+    # otherwise call the real model, and without one fail for that reason, not this (review 28.10).
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_context_note_over_cap_400(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id=USER)
+        agent = _agent()
+        mock_agent.return_value = agent
         resp = self.client.post(
             "/api/coach/analysis",
             headers=HEADERS,
@@ -140,14 +147,22 @@ class TestAnalysisContextNote:
         )
         assert resp.status_code == 400
         assert "context" in resp.json()["error"].lower()
+        assert not agent.chat.called and not mock_agent.called
 
-    def test_context_note_not_a_string_400(self):
+    @patch("src.server._create_agent")
+    @patch("src.server.load_user_profile")
+    def test_context_note_not_a_string_400(self, mock_profile, mock_agent):
+        mock_profile.return_value = UserProfile(user_id=USER)
+        agent = _agent()
+        mock_agent.return_value = agent
         resp = self.client.post(
             "/api/coach/analysis",
             headers=HEADERS,
             json={"fen": FEN, "query": "Explain", "context_note": {"a": 1}},
         )
         assert resp.status_code == 400
+        assert "context_note" in resp.json()["error"]
+        assert not agent.chat.called and not mock_agent.called
 
     @patch("src.server._create_agent")
     @patch("src.server.load_user_profile")

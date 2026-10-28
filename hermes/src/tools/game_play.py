@@ -77,8 +77,12 @@ def _session(kwargs: Optional[dict]):
     sid = (kwargs or {}).get("session_id")
     if not sid:
         return None
+    from src.session_persistence import SessionLoadError
+
     try:
         return session_store.get(str(sid))
+    except SessionLoadError:
+        raise  # the game is unknown, not absent: never "no session" (28.10)
     except Exception:  # noqa: BLE001
         return None
 

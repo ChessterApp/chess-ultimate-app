@@ -35,6 +35,7 @@ import chess
 from tools.registry import registry
 
 from src.identity import resolve_user_id
+from src.session_persistence import SessionLoadError
 from src.tools.user_data import _supabase_query_ex
 
 logger = logging.getLogger(__name__)
@@ -798,6 +799,8 @@ def _handle_get_learning_path(args: dict, **kwargs) -> str:
 def _handle_get_lesson(args: dict, **kwargs) -> str:
     try:
         user_id = resolve_user_id(args, kwargs)
+    except SessionLoadError:
+        raise  # the session is unknown, not absent (28.10)
     except Exception:
         user_id = None
     from src.sessions import BOARD_KEPT_NOTE, HIDDEN_BOARD_NOTE, board_lock_for, board_lock_reason_for

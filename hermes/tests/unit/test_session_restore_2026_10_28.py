@@ -122,6 +122,9 @@ def restarted(monkeypatch):
         capture, sid, fen = _game_in_supabase()
         sb = _FakeSupabase(capture, fail)
         monkeypatch.setattr("src.session_persistence._sb", lambda: sb)
+        # Writes run inline, not in daemon threads: `sb.writes == []` then proves nothing was written,
+        # instead of racing a write still on its way (review 28.10).
+        monkeypatch.setattr(SessionPersistence, "_run_bg", staticmethod(lambda fn, *args: fn(*args)))
         monkeypatch.setattr(session_store, "_persistence", SessionPersistence(url="https://sb.example", key="k"))
         session_store._sessions.pop(sid, None)
         voice_tool_rate_limiter.reset()

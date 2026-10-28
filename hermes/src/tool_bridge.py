@@ -22,6 +22,8 @@ from typing import Any, Optional
 import chess
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+from src.request_skew import CoachRequest
 from starlette.concurrency import run_in_threadpool
 
 from src import config
@@ -289,7 +291,7 @@ def dispatch_tool_safely(name: str, args: dict, **kwargs) -> str:
         return json.dumps(_tool_error_payload(name, exc))
 
 
-class ToolDispatchRequest(BaseModel):
+class ToolDispatchRequest(CoachRequest):
     args: dict[str, Any] = {}
     session_id: Optional[str] = None
     # The student's last words (voice): the board lock is decided from them, as the text coach's

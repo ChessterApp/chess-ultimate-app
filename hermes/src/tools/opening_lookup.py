@@ -21,6 +21,7 @@ from typing import Optional
 from tools.registry import registry
 
 from src.opening_knowledge import plan_opening
+from src.session_persistence import SessionLoadError
 
 LOOKUP_OPENING_SCHEMA = {
     "name": "lookup_opening",
@@ -106,6 +107,8 @@ def _handle_lookup_opening(args: dict, **kwargs) -> str:
             if board is not None:
                 show = show_on_board(str(kwargs.get("student_message") or args.get("question") or ""), board)
                 fen, pgn = fen or board.fen, pgn or (board.pgn or None)
+    except SessionLoadError:
+        raise  # the board is unknown, not absent (28.10)
     except Exception:  # noqa: BLE001 — without a session the old rule holds
         show = None
     result = lookup_opening(question=args.get("question") or "", fen=fen, pgn=pgn, show=show)
