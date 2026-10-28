@@ -212,3 +212,44 @@ def test_the_number_of_the_coachs_own_move_must_be_the_records():
     assert any("was 3.d4, not 4.d4" in i for i in _claims("Мой ответ: 4.d4 — пешка в центр."))
     assert not _claims("Мой ответ: 3.d4 — пешка в центр.")
     assert not _claims("Я ответил 2.Nc3.")
+
+
+# ── attacks told in the past, on the turn's own written move (stand text game 28.10: «7.Bb5, слон вышел на b5 и напал
+# на твою пешку c6» — c6 held White's own pawn; «2.Nc3, конь вышел на c3 и напал на твою пешку e5») ──────────────
+
+GAME = "e3 e5 Nc3 Nc6 d4 Nf6 a3 Be7 d5 O-O dxc6 d6 Bb5".split()
+
+
+def _game_ctx(moves):
+    board = chess.Board()
+    for san in moves:
+        board.push_san(san)
+    ctx = CheckContext.from_fens([board.fen()])
+    ctx.game_moves = list(moves)
+    ctx.game_engine_moves = list(moves[::2])
+    ctx.student_color = chess.BLACK
+    return ctx
+
+
+@pytest.mark.unit
+def test_an_attack_on_a_piece_of_ones_own_side_is_read_back():
+    issues = check_sentence("Белые ответили 7.Bb5, слон вышел на b5 и напал на твою пешку c6.", _game_ctx(GAME))
+    assert any("its own side's piece stands there" in i for i in issues)
+
+
+@pytest.mark.unit
+def test_a_piece_that_went_somewhere_and_attacks_what_it_cannot_is_read_back():
+    issues = check_sentence("Соперник ответил 2.Nc3, конь вышел на c3 и напал на твою пешку e5.", _game_ctx(GAME[:3]))
+    assert any("does not attack e5" in i for i in issues)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("text", [
+    "А если 8.Ba4, слон нападёт на пешку c6.",       # a line to imagine stays unchecked on the board
+    "Слон b5 держит пешку c6.",                        # holding one's own pawn is fine
+    "Пешка h6 бьёт твоего слона g5.",                  # names a bishop where a pawn stands: another position
+])
+def test_true_or_other_position_attack_words_pass(text):
+    moves = GAME if "b5" in text or "c6" in text else "d4 d5 Nf3 Nf6 Bg5 h6 Bh4 g5".split()
+    issues = check_sentence(text, _game_ctx(moves))
+    assert not any("its own side's piece" in i or "does not attack" in i for i in issues)

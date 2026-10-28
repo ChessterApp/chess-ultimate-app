@@ -115,7 +115,10 @@ _EN_VERBS = (r"(?<![a-z])(?:attacks|attack|hits|hit|forks|targets|eyes|threatens
 _INVERTED = re.compile(r"^\s*(?:[^\s,]+\s+){0,2}?(?:конь|слон|ладья|ферзь|король|пешка)(?![а-яa-z])")
 # «ладья встаёт на g1 …», "the rook lands on g1 …": the piece's square after a placement verb.
 _RU_PLACED = (r"(?:(?:вста[её]т|встанет|встанут|ид[её]т|пойд[её]т|переходит|перейд[её]т|прыгает|прыгнет|"
-              r"попада[её]т|попад[её]т|окажется|оказывается|становится|стоит|стоящ\w*|будет|уже|теперь|сейчас)\s+)?")
+              r"попада[её]т|попад[её]т|окажется|оказывается|становится|стоит|стоящ\w*|будет|уже|теперь|сейчас|"
+              # the game told in the past: «конь вышел на c3 и напал на пешку e5» (prod text game 28.10)
+              r"вышел|вышла|встал|встала|пош[её]л|пошла|переш[её]л|перешла|прыгнул|прыгнула|отош[её]л|отошла|"
+              r"двинулся|двинулась|оказался|оказалась)\s+)?")
 _EN_PLACED = (r"(?:(?:sits|stands|lands|goes|comes|moves|arrives|jumps|hops|drops|swings|is|gets|"
               r"sitting|standing|landing|ends\s+up|will\s+be|would\s+be)\s+)?")
 # «на g1, бьющая h4», "on g1, which attacks h4": the comma of a participle or
@@ -303,6 +306,9 @@ class CheckContext:
     # A game against the coach on the board: the moves the engine made in it (src/server.py). The coach
     # plays only through the engine — «я ответил Кc6» names one of them or is not shown (2026-10-12).
     game_engine_moves: Optional[list] = None
+    # …and the game's whole record: the turn's own moves written in an answer («7.Bb5, слон напал на …») tell what is on
+    # the board now, not a line to imagine — the claims after them are checked on the board (prod text game 28.10).
+    game_moves: Optional[list] = None
     # The student's message: «можно мне рокироваться?» makes «нет, нельзя» a claim about this board.
     question: str = ""
     question_raw: str = ""
@@ -442,7 +448,13 @@ def _move_issues(text: str) -> list[str]:
 from src.claim_scope import CONDITIONAL as _HYPO  # noqa: E402
 
 
-def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False) -> bool:
+def _just_played(ctx: Optional["CheckContext"]) -> Optional[set]:
+    """The turn's own moves of a game on the board — the student's last and the engine's reply."""
+    moves = getattr(ctx, "game_moves", None) if ctx is not None else None
+    return {m.rstrip("+#") for m in moves[-2:]} if moves else None
+
+
+def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False, played: Optional[set] = None) -> bool:
     """A marker or a written move BEFORE the claim; what follows it («у чёрных
     лишняя пешка, и после Rg1 Nxa4…») does not excuse the claim itself — a
     claim about the position after those moves holds on the derived boards.
@@ -451,14 +463,18 @@ def _is_hypothetical(text: str, original: str, upto: int, whole: bool = False) -
     if _HYPO.search(text if whole else text[:upto]):
         return True
     converted, _ = _to_san(original[:upto])
-    return any(m["san"] for m in _MOVE.finditer(converted) if m["num"] or m["bdots"] or m["san"][0] in "KQRBN")
+    return any(m["san"] for m in _MOVE.finditer(converted)
+               if (m["num"] or m["bdots"] or m["san"][0] in "KQRBN") and m["san"].rstrip("+#") not in (played or ()))
 
 
 # Verbs that say a piece reaches a square now — blockers count; «смотрит»,
 # "eyes", "x-rays" look through pieces and are not checked for them.
-_HARD_VERB = re.compile(r"бь[её]т|бьют|атаку|напада|угрожа|держ|защища|контролир|вилк|"
+_HARD_VERB = re.compile(r"бь[её]т|бьют|атаку|напада|напал|угрожа|держ|защища|контролир|вилк|"
                         r"attack|hit|fork|target|threaten|defend|protect|control|cover|guard|pin", re.IGNORECASE)
 from src.claim_scope import FUTURE_VERB as _FUTURE_VERB  # noqa: E402
+# An attack on the enemy (not «держит», «контролирует»: one's own piece may be held, a square controlled).
+_ENEMY_VERB = re.compile(r"бь[её]т|бьют|атаку|напада|напал|угрожа|attack|hits|threaten|fork", re.IGNORECASE)
+_TARGET_PIECE_WORD = (r"(?:пешк[уиа]|кон[яь]|слон[аы]?|ладь[юя]|ферз[яь]|корол[яь]|pawn|knight|bishop|rook|queen|king)")
 
 
 class _WithSquare:
@@ -522,6 +538,25 @@ def _ep_victim(board: chess.Board, a: int) -> Optional[int]:
     return None
 
 
+def _own_targets(ptype: int, a: int, targets: list, m, boards: list) -> Optional[str]:
+    """«слон вышел на b5 и напал на твою пешку c6» — c6 held the bishop's OWN pawn (prod text game 28.10): an attack
+    on a piece named as a piece («пешку c6», not «поле c6») that is of the attacker's own side in every position."""
+    if not targets or not boards or not _ENEMY_VERB.search(m["verb"]) or _FUTURE_VERB.search(m["verb"]):
+        return None
+    own = []
+    for t in targets:
+        named = re.search("(?P<w>" + _TARGET_PIECE_WORD + rf")\s+(?:на\s+)?{t}(?![0-9])", m["targets"], re.IGNORECASE)
+        kind = _piece_type(named["w"].lower()) if named else None
+        # the piece named must be the one standing there: «твоего слона g5» over a pawn on g5 is about another
+        # position (after 8.Bxg5) — not this board's claim
+        if kind is not None and all((tp := b.piece_at(chess.parse_square(t))) is not None and tp.piece_type == kind
+                                    and (me := b.piece_at(a)) is not None and tp.color == me.color for b in boards):
+            own.append(t)
+    if own:
+        return f"the {_NAMES[ptype]} on {chess.square_name(a)} does not attack {', '.join(own)}: its own side's piece stands there"
+    return None
+
+
 def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None,
                   original: Optional[str] = None, about_now: bool = False) -> Optional[str]:
     """*about_now*: the subject's square is the position the claim is about
@@ -544,7 +579,8 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
         return None  # "the f2 pawn is under attack from the queen on h4": the pawn is the one attacked
     a = chess.parse_square(m["a"])
     targets = [t for t in _clause_targets(m["targets"]) if t != m["a"] and not _negated_target(m["targets"], t)]
-    now = about_now or not _is_hypothetical(text, original if original is not None else text, m.start())
+    now = about_now or not _is_hypothetical(text, original if original is not None else text, m.start(),
+                                            played=_just_played(ctx))
     # (Only for a piece named in words by its square: a written move as the subject already stands where it went.)
     went = None if about_now else _moved_in_sentence(original if original is not None else text, ptype, a, ctx)
     if went is not None:
@@ -556,6 +592,9 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
         wrong = [t for t in targets if not _geometry_attack(ptype, dest, chess.parse_square(t))]
         if wrong:
             return f"a {_NAMES[ptype]} on {chess.square_name(dest)} does not attack {', '.join(wrong)}"
+        own = _own_targets(ptype, dest, targets, m, [after]) if now else None
+        if own:
+            return own
         blocked = [t for t in targets if chess.parse_square(t) not in after.attacks(dest)]
         return f"a {_NAMES[ptype]} on {chess.square_name(dest)} does not reach {', '.join(blocked)}: a piece is in the way" \
             if blocked and now and _HARD_VERB.search(m["verb"]) else None
@@ -579,6 +618,12 @@ def _attack_issue(ptype: int, m, text: str, ctx: Optional["CheckContext"] = None
     wrong = [t for t in targets if not _geometry_attack(ptype, a, chess.parse_square(t))]
     if wrong:
         return f"a {_NAMES[ptype]} on {m['a']} does not attack {', '.join(wrong)}"
+    # «слон вышел на b5 и напал на твою пешку c6» — c6 held the bishop's OWN pawn (prod text game 28.10): an attack on
+    # a piece named as a piece («пешку c6», not «поле c6») that is of the attacker's own side in every position.
+    if ctx is not None and now:
+        own = _own_targets(ptype, a, targets, m, [b for b in ctx.boards if (pc := b.piece_at(a)) is not None and pc.piece_type == ptype])
+        if own:
+            return own
     # The pattern fits; does the piece that really stands there reach the
     # square, or is something in the way? Only for what is said about now (or
     # about the position a written move leads to, which is on the boards).

@@ -2537,6 +2537,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # not shown (src/answer_check._coach_move_issues; stand, 2026-10-12).
         if active_board.kind == "game" and active_board.game_state:
             check_ctx.game_engine_moves = _engine_moves(active_board.game_state)
+            check_ctx.game_moves = list(active_board.game_state.get("moves") or [])
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter(session.board_state)
@@ -2656,6 +2657,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     for action in actions:
                         if isinstance(action, dict) and action.get("type") == GAME_ACTION and action.get("game"):
                             check_ctx.game_engine_moves = _engine_moves(action["game"])  # a move played mid-answer
+                            check_ctx.game_moves = list(action["game"].get("moves") or [])
                         if isinstance(action, dict) and action.get("type") in POSITION_ACTIONS:
                             new_fen = position_after(action)
                             if (new_fen or "").split(" ")[0] != (board_moved["from"] or "").split(" ")[0]:
@@ -4212,6 +4214,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 live = live_game_board(game_session) if game_session is not None else None
                 if live is not None and live.game_state:
                     ctx.game_engine_moves = _engine_moves(live.game_state)
+                    ctx.game_moves = list(live.game_state.get("moves") or [])
                     if live.pgn:
                         ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
