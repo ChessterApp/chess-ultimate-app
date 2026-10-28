@@ -69,3 +69,19 @@ def test_castling_the_engine_did_not_just_play_is_caught(played, sentence):
 ])
 def test_a_true_castling_or_a_line_passes(played, sentence):
     assert not _claimed_wrongly(played, sentence)
+
+
+@pytest.mark.parametrize("sentence", [
+    "После Nf3 я рокируюсь.",
+    "Я рокируюсь только после того, как разовью коня.",
+    "Сначала я разовью слона, а я рокируюсь после.",
+    "Хочу сказать: я рокируюсь в ближайшее время.",
+    "I castle after Nf3.",
+])
+def test_a_castling_plan_is_not_a_move_claimed(sentence):
+    """Review 28.10: a plan to castle later is not «I castle now»."""
+    from src.answer_check import CheckContext, _coach_move_issues
+
+    ctx = CheckContext.from_fens()
+    ctx.game_engine_moves = ["e5", "Nc6", "a6"]
+    assert _coach_move_issues(sentence.replace("ё", "е"), ctx) == []

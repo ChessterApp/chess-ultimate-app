@@ -2836,7 +2836,11 @@ _MY_CASTLING = re.compile(
 # Not the move just made: later, usually, if, in such openings, a wish (the clause around the claim).
 _NOT_NOW = re.compile(r"(?<![а-яa-z])(?:скоро|потом|позже|позднее|затем|дальше|следом|следующ\w*|обычно|всегда|часто|никогда|"
                       r"рано|бы|если|когда|как\s+правило|схем\w*|дебют\w*|партиях|таких|later|soon|next|then|usually|"
-                      r"always|often|never|early|would|could|should|if|when|unless|most|games|openings?|systems?|such)(?![а-яa-z])",
+                      r"always|often|never|early|would|could|should|if|when|unless|most|games|openings?|systems?|such|"
+                      # a plan, not the move just made: «после Nf3 я рокируюсь», «только после того, как разовью коня»,
+                      # «сначала…», «хочу», «в ближайшее время», "after", "before", "once", "going to" (review 28.10)
+                      r"после|до|перед|только|сначала|как\s+только|хочу|хотел\w*|планир\w*|собира\w*|ближайш\w*|"
+                      r"after|before|once|first|plan\w*|want\w*|going|until)(?![а-яa-z])",
                       re.IGNORECASE)
 
 
