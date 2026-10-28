@@ -251,6 +251,63 @@ def build_block(name: str, eco: str, pgn: str, branches: list, loaded: bool, fac
     return "\n".join(lines)
 
 
+# «как называется дебют …», «что за дебют», "what opening is …", «қандай дебют»: the name is asked for.
+_ASKS_THE_NAME = re.compile(
+    r"как\s+(?:он\s+|это\s+)?называ|что\s+(?:это\s+)?за\s+(?:дебют|защит|вариант|систем|начал)|какой\s+(?:это\s+)?дебют"
+    r"|какая\s+(?:это\s+)?(?:защита|система)|какой\s+(?:это\s+)?вариант|назван\w*\s+(?:дебют|защит|вариант)"
+    r"|what\s+(?:opening|defen[cs]e|variation)|which\s+opening|name\s+of\s+(?:the|this)\s+(?:opening|line)"
+    r"|қандай\s+дебют|дебют\w*\s+ат", re.IGNORECASE)
+_PIECE_BEFORE = {"кон": "N", "слон": "B", "лад": "R", "ферз": "Q", "корол": "K", "knight": "N", "bishop": "B",
+                 "rook": "R", "queen": "Q", "king": "K"}
+_LINE_TOKEN = re.compile(r"(?<![\w-])(?:O-O(?:-O)?|[KQRBNКФЛСКр]{0,2}[a-h]?[1-8]?[x:х×]?[a-h][1-8](?:=[QRBN])?)(?![\w-])")
+
+
+def line_named(message: str) -> list[str]:
+    """The moves *message* lists from the start, in order — «е4 … е6», «1.e4 c5 2.Кf3», «конь f3» — as SAN; a token
+    that is no legal move of the line so far is passed over."""
+    from src.move_text import normalize
+    from src.notation import russian_to_san
+
+    # «e2-e4 e7-e5»: each from-to move joined first, or normalize() pairs «e4 e7» across the space
+    text = normalize(re.sub(r"(?<![\w-])([a-h][1-8])\s*[-–—]\s*([a-h][1-8])(?![\w-])", r"\1\2", message or ""))
+    board, sans = chess.Board(), []
+
+    def play(token: str, piece: Optional[str]) -> bool:
+        for cand in ([piece + token] if piece and token[0] in "abcdefgh" else []) + [token]:
+            try:
+                move = board.parse_san(cand)
+            except ValueError:
+                continue
+            sans.append(board.san(move))
+            board.push(move)
+            return True
+        return False
+
+    for m in _LINE_TOKEN.finditer(text):
+        token = russian_to_san(m.group(0))
+        before = text[max(0, m.start() - 14):m.start()].lower()
+        piece = next((p for w, p in _PIECE_BEFORE.items() if re.search(w + r"\w*\s+(?:на\s+|to\s+)?$", before)), None)
+        if re.fullmatch(r"[a-h][1-8][a-h][1-8]", token):
+            # normalize() joins «e4 c5» into «e4c5» (a move said square to square): a move from-to if it is one,
+            # else the two moves of the line
+            move = chess.Move.from_uci(token)
+            if move in board.legal_moves:
+                sans.append(board.san(move))
+                board.push(move)
+            else:
+                play(token[:2], piece)
+                play(token[2:], None)
+        else:
+            play(token, piece)
+        if len(sans) >= 30:
+            break
+    return sans
+
+
+def _numbered(sans: list[str]) -> str:
+    return " ".join((f"{i // 2 + 1}." if i % 2 == 0 else "") + san for i, san in enumerate(sans))
+
+
 def plan_opening(message: str, board_fen: Optional[str] = None,
                  board_pgn: Optional[str] = None, show: Optional[bool] = None) -> Optional[OpeningPlan]:
     """The opening *message* names, ready for the turn — or None.
@@ -262,6 +319,13 @@ def plan_opening(message: str, board_fen: Optional[str] = None,
     if not message or _SEARCH_RE.search(message):
         return None
     name = named_opening(message)
+    named_line: list[str] = []
+    if not name:
+        # «Как называется дебют, где белые играют е4, а чёрные отвечают е6?» — no name in the words, the moves are:
+        # the book names them (stand run 28.10: the voice coach got «found: false» and said it could not tell).
+        named_line = line_named(message) if _ASKS_THE_NAME.search(message) else []
+        identified = get_book().identify(named_line) if len(named_line) >= 2 else None
+        name = (identified or {}).get("name")
     if not name:
         return None
     book = get_book()
@@ -282,6 +346,9 @@ def plan_opening(message: str, board_fen: Optional[str] = None,
     load = load and not hidden
     branches = book.branches(full_name, pgn)
     block = build_block(full_name, eco, pgn, branches, load, _facts(final), message, relative, hidden)
+    if named_line:
+        block = (f"The moves the student named — {_numbered(named_line)} — are the opening below (the ECO book, by those "
+                 "moves): say its name.\n" + block)
     return OpeningPlan(
         name=full_name, eco=eco, pgn=pgn, final_fen=final.fen(), load=load,
         block=block, branches=branches, relative=relative is not None, hidden=hidden,

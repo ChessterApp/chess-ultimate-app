@@ -111,7 +111,14 @@ def _handle_lookup_opening(args: dict, **kwargs) -> str:
         raise  # the board is unknown, not absent (28.10)
     except Exception:  # noqa: BLE001 — without a session the old rule holds
         show = None
-    result = lookup_opening(question=args.get("question") or "", fen=fen, pgn=pgn, show=show)
+    question = args.get("question") or ""
+    result = lookup_opening(question=question, fen=fen, pgn=pgn, show=show)
+    if not result.get("found") and args.get("pgn"):
+        # The name asked for moves the model wrote out as pgn («1.e4 e6»), not in the words: the book names them.
+        from src.opening_knowledge import _ASKS_THE_NAME
+
+        if _ASKS_THE_NAME.search(question):
+            result = lookup_opening(question=f"{question} {args['pgn']}", fen=fen, pgn=pgn, show=show)
     return json.dumps(result, ensure_ascii=False)
 
 
