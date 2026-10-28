@@ -8,6 +8,7 @@
  * is what the browser tells the Live model itself: the [Game] line after a move made on the board,
  * and the verified score of a famous game the student named.
  */
+import { Chess } from 'chess.js';
 import type { BoardAction } from '@/types/coach';
 import type { GameStateView } from '@/lib/coach/boards-api';
 
@@ -164,9 +165,38 @@ export function gameActionNote(
 export function browsingNote(view: GameStateView, viewPly: number | null, viewLine: string[] | null, fen: string): string {
   const where = viewLine?.length
     ? `a SIDE LINE taken back earlier (${viewLine.join(' ')})`
+    : viewLine
+      ? 'the position where a SIDE LINE taken back earlier starts (none of its moves shown yet)'
     : `an EARLIER position of the game (after ply ${viewPly ?? 0} of ${view.ply})`;
   return (
     `[Game] The board now shows ${where}; FEN ${fen}. The game itself stands at ply ${view.ply} and goes on from its live ` +
     'position unless the student says «продолжим отсюда». Answer about the shown position if asked; nothing is played there.'
   );
+}
+
+/**
+ * The board shows one of the game's own positions that is not its live one: a ply of its record, or the live
+ * position one move on (the student's hand move, the engine's reply still on its way). Nothing is told for it — the
+ * [Game] lines say the game; as a plain board position it got the engine line with the best move, which the voice
+ * coach announced as its own move (Alexander 27.10: «Мой ответ — конь на f6» while the engine played a6).
+ */
+export function ownGamePosition(view: Pick<GameStateView, 'fen' | 'moves'>, fen: string): boolean {
+  const placement = fen.split(' ')[0];
+  try {
+    const live = new Chess(view.fen);
+    if (live.moves({ verbose: true }).some((m) => m.after.split(' ')[0] === placement)) return true;
+  } catch {
+    /* a live FEN chess.js cannot read: the record still says */
+  }
+  const replay = new Chess();
+  if (replay.fen().split(' ')[0] === placement) return true;
+  for (const san of view.moves ?? []) {
+    try {
+      replay.move(san);
+    } catch {
+      break;  // a record chess.js cannot read: judged by what was read so far
+    }
+    if (replay.fen().split(' ')[0] === placement) return true;
+  }
+  return false;
 }

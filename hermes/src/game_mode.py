@@ -660,6 +660,89 @@ def position_at(state: dict, ply: int) -> chess.Board:
     return _replay(moves[: max(0, min(int(ply), len(moves)))])
 
 
+def shown_game(session):
+    """The session's game in progress when it is what the board shows: None when another board (a master game, a
+    puzzle, an example) is active. The study board counts as the game's: the coach page's «coach board» tab sets it
+    active while the game is on it (review 28.10)."""
+    from src.tools.game_play import live_game_board
+
+    game = live_game_board(session) if session is not None else None
+    if game is None:
+        return None
+    active = session.get_board(session.active_board_id) if getattr(session, "active_board_id", None) else None
+    if active is not None and active.id != game.id and active.kind != "study":
+        return None
+    return game
+
+
+def game_turn(session, fen: str) -> Optional[str]:
+    """'live' when *fen* is the shown game's live position, 'ahead' when it is that position one move on (the
+    student's move, the engine's reply still to come); None otherwise. The engine's tools give the coach no line
+    of its own for these: the engine plays its moves at the game's strength (Alexander 27.10)."""
+    game = shown_game(session)
+    if game is None or not isinstance(fen, str) or not fen.strip():
+        return None
+    placement = fen.split()[0]
+    if game.fen.split()[0] == placement:
+        return "live"
+    try:
+        board = chess.Board(game.fen)
+    except ValueError:
+        return None
+    for move in list(board.legal_moves):
+        board.push(move)
+        hit = board.board_fen() == placement
+        board.pop()
+        if hit:
+            return "ahead"
+    return None
+
+
+GAME_TOOL_NOTE = ("This is the live game against the student: the engine plays your moves at the game's strength, so "
+                  "no line of yours is given. Your move is only the one the game plays (make_game_move result or the "
+                  "[Game] line) — never announce another.")
+
+
+def belongs_to_game(state: dict, fen: str) -> bool:
+    """Is *fen* one of the game's own positions: any ply of its record, any position of a kept side line, or the
+    live position one move on (the student's move on the board, the engine's reply still on its way)?
+
+    The voice coach got the full engine line — with the best move — for such positions, because only the live
+    position counted as the game's: Alexander 27.10, a hand move «Bc4» showed for a moment, the note said
+    «Best: Nf6», and the coach announced «Мой ответ — конь на f6» while the engine played a6."""
+    try:
+        placement = fen.split()[0]
+    except (AttributeError, IndexError):
+        return False
+    moves = state.get("moves") or []
+    board = chess.Board()
+    if board.board_fen() == placement:
+        return True
+    for san in moves:
+        try:
+            board.push_san(san)
+        except ValueError:
+            break
+        if board.board_fen() == placement:
+            return True
+    for move in list(board.legal_moves):  # the live position one move on
+        board.push(move)
+        hit = board.board_fen() == placement
+        board.pop()
+        if hit:
+            return True
+    for v in state.get("variations") or []:
+        try:  # a broken kept line is skipped, never raised on (as _replay reads a broken record)
+            line = position_at(state, int(v.get("at_ply", 0)))
+            for san in v.get("moves") or []:
+                line.push_san(san)
+                if line.board_fen() == placement:
+                    return True
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return False
+
+
 def _payload(board_rec: Board, state: dict, board: chess.Board, student: Optional[dict] = None,
              engine: Optional[dict] = None) -> dict:
     mode = state.get("comment_mode", DEFAULT_COMMENT_MODE)

@@ -2770,12 +2770,94 @@ def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
     for m in _COACH_MOVE.finditer(text):
         sans, _ = _to_san(m.group("rest"))
         named = [x.group("san").rstrip("+#") for x in _MOVE.finditer(sans)]
-        if named and not any(n in norm for n in named):
+        mover = _spoken_mover(m.group("rest"))  # «беру ферзём на c6» is not Bxc6
+        if named and not any(_same_move(n, p) and (mover is None or _piece_of(p) == mover) for n in named for p in norm):
             last = played[-1] if played else None
             out.append(f"in this game the engine plays your moves and it did not play {named[0]}"
                        + (f" (its last move was {last})" if last else "")
                        + ": never say you made a move the game did not record")
+    if played and not out:
+        last = played[-1].rstrip("+#")
+        for wrong in _last_move_issues(text, last):
+            out.append(f"in this game the engine plays your moves and its last move was {last}, not {wrong}: "
+                       "never announce a move the game did not play")
     return out
+
+# Two claims checked against the engine's LAST move (Alexander 27.10), on top of the rule above:
+# «Мой ответ — конь на f6» (an announcement: a dash, a colon, «это», «будет» right after «мой ответ / мой ход»)…
+_MY_REPLY = re.compile(r"(?<![\w-])(?:мой\s+(?:ответ|ход)|my\s+(?:reply|move|answer))\s*(?:[—–:]|-\s|это\s|будет\s|is\s)"
+                        r"(?P<rest>[^.!?;,]{0,30})", re.IGNORECASE)
+# …and «Я забираю его слоном» (a capture by a named piece, no square).
+_TAKES_WITH = re.compile(r"(?<![\w-])(?:я\s+)?(?:забираю|беру|бью|съедаю)\s+(?:(?:его|е[её]|их|эт[уо]\w*|пешку|коня|слона|ладью|ферзя)\s+)?"
+                         r"(?P<sq1>на\s+[a-h][1-8]\s+)?"
+                         r"(?P<piece>слоном|кон[её]м|ладь[её]й|ферз[её]м|корол[её]м|пешкой)(?![а-я])(?P<rest>[^.!?;]{0,30})", re.IGNORECASE)
+_NOMINATIVE = {"конь": "N", "слон": "B", "ладья": "R", "ферзь": "Q", "король": "K", "пешка": "P",
+               "knight": "N", "bishop": "B", "rook": "R", "queen": "Q", "king": "K", "pawn": "P"}
+_INSTRUMENTAL = {"слоном": "B", "конем": "N", "ладьей": "R", "ферзем": "Q", "королем": "K", "пешкой": "P"}
+
+
+def _spoken_mover(rest: str) -> Optional[str]:
+    """The piece that moved, as speech names it: «…слоном», or «конь на f6» right before the square."""
+    low = rest.lower().replace("ё", "е")
+    found = list(re.finditer(r"(?<![а-я])(слоном|конем|ладьей|ферзем|королем|пешкой)(?![а-я])", low))
+    if found:
+        # the one nearest the square («отвечаю на твой ход слоном пешкой a6» — the pawn moved)
+        square = re.search(r"[a-h][1-8]", low)
+        before = [f for f in found if square and f.start() < square.start()]
+        return _INSTRUMENTAL[(before[-1] if before else found[0]).group(1)]
+    m = re.match(r"\s*([а-яa-z]+)\s+(?:на\s+|to\s+)?[a-h][1-8]", low)
+    return _NOMINATIVE.get(m.group(1)) if m else None
+
+
+def _piece_of(san: str) -> str:
+    return "K" if san.startswith("O") else (san[0] if san[:1] in ("K", "Q", "R", "B", "N") else "P")
+
+
+_LINE_BEFORE = re.compile(r"(?<![а-яa-z])(?:если|в случае|когда|if|when)(?![а-яa-z])|(?<![а-я])ты\s+[а-я]+(?:ешь|ишь)(?![а-я])")
+
+
+def _in_a_line(text: str, at: int) -> bool:
+    """«если ты возьмёшь…, я заберу», «ты берёшь на c6 — я забираю пешкой»: a line, not the move just made."""
+    return bool(_LINE_BEFORE.search(re.split(r"[.!?]", text[:at])[-1].lower().replace("ё", "е")))
+
+
+def _last_move_issues(text: str, last: str) -> list[str]:
+    out = []
+    for m in _MY_REPLY.finditer(text):
+        if _in_a_line(text, m.start()):
+            continue
+        rest = m.group("rest")
+        sans, _ = _to_san(rest)
+        named = [x.group("san").rstrip("+#") for x in _MOVE.finditer(sans)]
+        if not named:
+            continue
+        lead = re.match(r"\s*([а-яa-z]+)\s+(?:на\s+|to\s+)?[a-h][1-8]", rest.lower().replace("ё", "е"))
+        piece = _NOMINATIVE.get(lead.group(1)) if lead else None
+        if not (_same_move(named[0], last) and (piece is None or _piece_of(last) == piece)):
+            out.append(named[0])
+    for m in _TAKES_WITH.finditer(text):
+        if _in_a_line(text, m.start()):
+            continue
+        piece = _INSTRUMENTAL[m.group("piece").lower().replace("ё", "е")]
+        square = re.search(r"[a-h][1-8]", (m.group("sq1") or "") + m.group("rest"))
+        took = "x" in last and _piece_of(last) == piece and (square is None or last.endswith(square.group(0)))
+        if not took:
+            out.append(f"a capture with that piece ({piece})" + (f" on {square.group(0)}" if square else ""))
+    return out
+
+
+def _same_move(named: str, played: str) -> bool:
+    """*named* (as read from speech) is *played*: the same SAN, or the same target square when speech lost the piece
+    («конём f6» reads as «f6») or the piece agrees."""
+    named, played = named.rstrip("+#"), played.rstrip("+#")
+    if named == played:
+        return True
+    to_n, to_p = re.findall(r"[a-h][1-8]", named), re.findall(r"[a-h][1-8]", played)
+    if not to_n or not to_p or to_n[-1] != to_p[-1]:
+        return False
+    piece_n = named[0] if named[0] in "KQRBN" else None
+    piece_p = played[0] if played[0] in "KQRBN" else None
+    return piece_n is None or piece_n == piece_p
 
 
 def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[str]:

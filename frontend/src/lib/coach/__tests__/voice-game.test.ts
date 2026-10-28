@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { famousNote, gameActionNote, gameFromActions, gameMoveNote, gameNote, gameStartNote, mayAskForAGame, mayCommandTheGame, mentionsAGame } from '../voice-game';
+import { famousNote, gameActionNote, gameFromActions, gameMoveNote, gameNote, gameStartNote, mayAskForAGame, mayCommandTheGame, mentionsAGame, ownGamePosition, browsingNote } from '../voice-game';
 import type { GameStateView } from '../boards-api';
 
 const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
@@ -108,5 +108,24 @@ describe('the Live model told about the game (audit 26.10)', () => {
     const view = { ply: 8 } as never;
     expect(browsingNote(view, 3, null, 'FEN3')).toMatch(/EARLIER position of the game \(after ply 3 of 8\).*nothing is played/);
     expect(browsingNote(view, null, ['e4', 'e5', 'Nf3'], 'FENL')).toContain('SIDE LINE');
+  });
+});
+
+// Alexander 27.10: a game position other than the live one got the engine line with the best move.
+describe('ownGamePosition', () => {
+  const LIVE = 'rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2';  // 1.e4 e5 2.Nf3, Black to move
+  const view = { fen: LIVE, moves: ['e4', 'e5', 'Nf3'] };
+  it('knows a ply of the record, the start, and the live position one move on', () => {
+    expect(ownGamePosition(view, 'rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2')).toBe(true);
+    expect(ownGamePosition(view, 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe(true);
+    expect(ownGamePosition(view, 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3')).toBe(true);
+  });
+  it('does not take another position for the game, and survives a record it cannot read', () => {
+    expect(ownGamePosition(view, 'rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2')).toBe(false);
+    expect(ownGamePosition({ fen: LIVE, moves: ['e4', 'Zz9'] }, 'rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w KQkq - 0 2')).toBe(false);
+    expect(ownGamePosition({ fen: 'not a fen', moves: ['e4'] }, 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1')).toBe(true);
+  });
+  it('a side line shown at its start is told as such', () => {
+    expect(browsingNote({ ply: 3 } as any, null, [], LIVE)).toContain('SIDE LINE');
   });
 });

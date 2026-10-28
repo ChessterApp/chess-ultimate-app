@@ -1197,7 +1197,9 @@ def voice_idea_note(moves: list, hypo: Optional[dict], live_game: bool = False,
         "not listed here, and never read out numbers."
     )
     if live_game:
-        parts.append("This is a live game: do not name a better move instead — say what happens after the idea.")
+        parts.append("This is a live game: do not name a better move instead — say what happens after the idea. "
+                     "The opponent's reply above is only what COULD follow, not the move the engine will play in "
+                     "the game: never announce it as yours (27.10: «я заберу слоном», the engine took with the pawn).")
     if language:
         # The line is English; the voice coach once answered a Russian question in
         # English right after it (voice bench, 2026-10-06).
@@ -1432,7 +1434,13 @@ VOICE_STYLE_LAYER = (
     "- Never break character or say things like \"as a chess AI\".\n"
     "- The [Engine] line and the tool results are your private notes: never say "
     "\"the engine says\" and never read out numbers like \"plus zero point four\" — "
-    "say in words who is better and why."
+    "say in words who is better and why.\n"
+    "- Lines in square brackets ([Engine], [Game], [Board]…) are private notes, never speech: use what they "
+    "say in your own words, but never read one out, and never say a FEN, a search depth or a numeric evaluation.\n"
+    "- In a game against the student, the only move you call yours is the engine's reply from the game's "
+    "make_game_move result or [Game] line. After the student's move, never name your reply before that line "
+    "comes — say you are thinking, nothing more; never a «best move» or a line from a note or a tool "
+    "(27.10: the coach called a Stockfish line «мой ответ», the engine had played another)."
 )
 
 VOICE_TOOL_LAYER = (
@@ -1452,7 +1460,8 @@ VOICE_TOOL_LAYER = (
     "opening yourself. When it matches the current position, answer from it straight away, no "
     "tool call, and explain WHY from those facts — never name an attack, a defence or a "
     "threat that is not in them. Otherwise, or for any other position, call "
-    "analyze_position.\n"
+    "analyze_position — except in a game against the student, where the [Game] lines are your facts for the "
+    "game's position and the engine, not you, finds your moves.\n"
     "- A move the student names («а если Rg1?», «поставлю ладью на g1»): the system adds "
     "a line starting with \"[Idea]\" — that move played on the board and analysed: whether it "
     "is legal, what the piece really attacks from its new square, whether it can be taken, the "
