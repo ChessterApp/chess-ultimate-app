@@ -2752,9 +2752,16 @@ def _echoes_question(sentence: str, ctx: CheckContext) -> bool:
 _COACH_MOVE = re.compile(
     r"(?:(?<![\w-])я\s+(?:тоже\s+|сразу\s+|просто\s+)?(?:отвечаю|ответил[аи]?|играю|сыграл[аи]?|пош[её]л|пойду|иду|хожу|с?делаю\s+ход)"
     r"|(?:^|[.!—–:]\s*)(?:отвечаю|ответил[аи]?|хожу|иду|пойду|сыграю|ставлю|беру|бью)(?![а-я])"
-    r"|(?<![\w-])мой\s+(?:ответ|ход)\s*(?:[—–:-]|это|будет)?"
-    r"|(?<![\w-])i\s+(?:play|played|answer|answered|reply|replied)"
-    r"|(?<![\w-])my\s+(?:reply|move|answer)\s+(?:is|was)?)"
+    r"|(?<![\w-])мой\s+(?:первый\s+|следующий\s+|очередной\s+|последний\s+|предыдущий\s+)?(?:ответ|ход)"
+    r"(?:\s+был)?\s*(?:[—–:-]|это|будет)?"
+    # the engine's opening move told (prod Live run 28.10: «Мой первый ход — пешка на е4» when it opened 1.Nf3)
+    # («начну с того, что…» is not a move: «с» counts only right before one)
+    # (the past only with «я» / «движок»: «белые начали с e4» in an example is not the game's move)
+    r"|(?<![\w-])(?:(?:я|движок|компьютер)\s+(?:начал[аи]?|открыл[аи]?)|(?:я\s+)?(?:начинаю|начну|открываю))"
+    r"(?:\s+партию)?\s+(?:ходом|с\s+хода"
+    r"|с(?=\s+(?:(?:пешк|кон|слон|лад|ферз|корол)\w*\s+(?:на\s+)?)?[a-h][1-8](?!\w)))"
+    r"|(?<![\w-])i\s+(?:play|played|answer|answered|reply|replied|open(?:ed)?\s+with|start(?:ed)?\s+with)"
+    r"|(?<![\w-])my\s+(?:first\s+|next\s+|last\s+|previous\s+)?(?:reply|move|answer)\s+(?:is|was)?)"
     r"(?![^.!?]*\bбы\b)(?P<rest>[^.!?;]{0,40})",
     re.IGNORECASE,
 )
@@ -2785,7 +2792,7 @@ def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
 
 # Two claims checked against the engine's LAST move (Alexander 27.10), on top of the rule above:
 # «Мой ответ — конь на f6» (an announcement: a dash, a colon, «это», «будет» right after «мой ответ / мой ход»)…
-_MY_REPLY = re.compile(r"(?<![\w-])(?:мой\s+(?:ответ|ход)|my\s+(?:reply|move|answer))\s*(?:[—–:]|-\s|это\s|будет\s|is\s)"
+_MY_REPLY = re.compile(r"(?<![\w-])(?:мой\s+(?:первый\s+|следующий\s+)?(?:ответ|ход)|my\s+(?:first\s+|next\s+)?(?:reply|move|answer))\s*(?:[—–:]|-\s|это\s|будет\s|is\s)"
                         r"(?P<rest>[^.!?;,]{0,30})", re.IGNORECASE)
 # …and «Я забираю его слоном» (a capture by a named piece, no square).
 _TAKES_WITH = re.compile(r"(?<![\w-])(?:я\s+)?(?:забираю|беру|бью|съедаю)\s+(?:(?:его|е[её]|их|эт[уо]\w*|пешку|коня|слона|ладью|ферзя)\s+)?"

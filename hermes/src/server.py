@@ -761,7 +761,13 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
     view = game_mode.play_move(session, live, san)
     student = view.get("student") or {}
     engine = (view.get("engine") or {}).get("san")
-    facts = f"{student.get('san')} ({student.get('verdict')})" + (f"; the engine answered {engine}" if engine else "")
+    # numbered and in words: a bare «e4» came back as «4.e4» for 3.e4 and «dxc6 берёт пешку» for the knight (28.10)
+    n = len(view.get("moves") or [])
+    student_told = game_mode.told_ply(view, n - 1 if engine else n) or student.get("san")
+    engine_told = game_mode.told_ply(view, n) if engine else None
+    facts = f"{student_told}, verdict {student.get('verdict')}" + (
+        f"; the engine answered {engine_told or engine} — name exactly that piece, and if you give a move number, "
+        "this one" if engine else "")
     if student.get("verdict") in ("mistake", "blunder") and student.get("best"):
         facts += f" (a better move was {student['best']})"
     end = (f" The game is over: {view.get('result')} ({view.get('termination')})." if view.get("status") != "playing"

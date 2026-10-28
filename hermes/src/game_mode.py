@@ -375,6 +375,17 @@ def ply_words(state: dict, ply: int) -> Optional[str]:
         return None
 
 
+def told_ply(state: dict, ply: int) -> Optional[str]:
+    """«3.e4 (pawn from e2 to e4)»: the game's move number *ply* with its number and in words, as the coach tells it.
+    The text coach got a bare «e4» and numbered it itself — «4.e4» for 3.e4 — and called «dxc6» «берёт твою пешку»
+    when it took the knight (prod run 28.10)."""
+    moves = state.get("moves") or []
+    if not 1 <= ply <= len(moves):
+        return None
+    words = ply_words(state, ply)
+    return numbered_from([moves[ply - 1]], ply - 1) + (f" ({words})" if words else "")
+
+
 def _push_engine_move(state: dict, board: chess.Board) -> dict:
     uci = _engine_move(board.fen(), state["engine_elo"])
     move = chess.Move.from_uci(uci)

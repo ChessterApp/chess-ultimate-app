@@ -1221,7 +1221,9 @@ export default function useGeminiLive(
           // A game started or a move played (start_game / make_game_move): the model has the result,
           // so the board change it brings is not reported again as a [Game] line.
           const game = gameFromActions((data as { board_actions?: unknown[] }).board_actions);
-          if (game) gameToldFenRef.current = game.fen;
+          // …and its ply: the first hand move after a game the model started is then announced (prod Live run
+          // 28.10: with the ply unknown, 1.e4 c5 by hand went untold).
+          if (game) { gameToldFenRef.current = game.fen; gameToldPlyRef.current = game.ply; }
           // The game refused the model's call («'e4' is not a legal move here»): the model reads it in the
           // result; the page shows it, so a refusal is never mistaken for a board that «does not move».
           const refused = (data as { result?: { error?: unknown } })?.result?.error;
@@ -1548,7 +1550,7 @@ export default function useGeminiLive(
           reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
           siteResultsRef.current.set(name, data);
           const game = gameFromActions(data.board_actions);
-          if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+          if (game) { gameToldFenRef.current = game.fen; gameToldPlyRef.current = game.ply; }  // the note below says it: no [Game] line for it
         }
         try {
           optionsRef.current.onToolResult?.(name, data);
@@ -2205,7 +2207,10 @@ export default function useGeminiLive(
     // the [Game] lines tell the game, and an engine line would name the best move (Alexander 27.10).
     if (game && game.status === 'playing' && boardIsGame && !inGame && ownGamePosition(game, fen)) return;
     if (inGame) {
-      if (gameToldFenRef.current === game.fen) return;  // the tool result already said it
+      if (gameToldFenRef.current === game.fen) {
+        gameToldPlyRef.current = game.ply;  // the tool result already said it — and so its ply
+        return;
+      }
       gameToldFenRef.current = game.fen;
       const previousPly = gameToldPlyRef.current;
       gameToldPlyRef.current = game.ply;

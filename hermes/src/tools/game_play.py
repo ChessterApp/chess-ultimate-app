@@ -141,11 +141,29 @@ def _already_played_reply(board_rec, text: str, parse) -> str:
         "ok": True, "already_played": True, "student_move": student.get("san"), "verdict": student.get("verdict"),
         "engine_reply": reply, "engine_reply_words": words,
         "note": "This move was already played a moment ago; nothing changed now. "
-                + (f"Tell the student the engine's reply {reply} ({words})." if reply and words
+                + (f"Tell the student the engine's reply {game_mode.told_ply(state, len(state.get('moves') or []))}."
+                   if reply and game_mode.told_ply(state, len(state.get("moves") or []))
+                   else f"Tell the student the engine's reply {reply} ({words})." if reply and words
                    else f"Tell the student the engine's reply {reply}." if reply
                    else "Wait for the engine's reply." if view.get("status") == "playing"
                    else "The game is over: say the result."),
     })
+
+
+def _opened_with(state: dict, engine: Optional[str]) -> str:
+    """«The engine opened with Nf3 (knight from g1 to f3): …» — its first move in words, as each reply is (28.10)."""
+    from src import game_mode
+
+    words = game_mode.ply_words(state, 1) if engine else None
+    return f"The engine opened with {engine}" + (f" ({words})" if words else "")
+
+
+def _record_start(session, view: dict, heard: str) -> None:
+    """What started the game: the same words again a moment later are the same request (game_command_step)."""
+    board_rec = session.get_board(view.get("board_id")) if view.get("board_id") else None
+    if board_rec is not None and board_rec.game_state is not None:
+        board_rec.game_state["started_by"] = {"words": _norm_words(heard), "at": time.time()}
+        session.save_board(board_rec)
 
 
 def _handle_start_game(args: dict, **kwargs) -> str:
@@ -160,6 +178,7 @@ def _handle_start_game(args: dict, **kwargs) -> str:
     color = args.get("color") if args.get("color") in ("white", "black", "random") else "white"
     elo = args.get("elo")
     words = str(args.get("said") or "")
+    heard = words or str(kwargs.get("student_message") or kwargs.get("utterance") or "")
     if words:
         # The site's call with the student's words (voice): only when they ask for a game.
         from src.game_intent import game_request
@@ -168,10 +187,17 @@ def _handle_start_game(args: dict, **kwargs) -> str:
         if req is None:
             return json.dumps({"error": "The student's words do not ask for a game."})
         color, elo = req["color"], req["elo"] or elo
+        asked_color, asked_elo = req["color"], req["elo"]
+    else:
+        # The model's own call: the colour and strength the student named win over its arguments (prod Live run
+        # 28.10: «я белыми» came as color=black, and the site's call for the same words then restarted the game).
+        from src.game_intent import game_wish
+
+        named = game_wish(heard)
+        color, elo = named.get("color") or color, named.get("elo") or elo
+        asked_color, asked_elo = named.get("color") or args.get("color"), named.get("elo") or args.get("elo")
     if live is not None:
         state = live.game_state or {}
-        asked_color = req["color"] if words else args.get("color")
-        asked_elo = req["elo"] if words else args.get("elo")
         same_game = ((not asked_color or asked_color == "random" or asked_color == state.get("student_color"))
                      and (asked_elo is None or _strength(asked_elo) == state.get("engine_elo")))
         fresh = (same_game and not state.get("annotations") and state.get("status") == "playing"
@@ -185,39 +211,46 @@ def _handle_start_game(args: dict, **kwargs) -> str:
             return _reply(view, {
                 "ok": True, "already_started": True,
                 "student_color": view["student_color"], "engine_elo": view["engine_elo"], "engine_first_move": engine,
+                "engine_first_move_words": game_mode.ply_words(state, 1) if engine else None,
                 "note": "The game is already on (it was started a moment ago for this very request). "
-                        + (f"The engine opened with {engine}: tell the student, then wait for their move."
-                           if engine else "The student moves first: ask for their move."),
+                        + (f"{_opened_with(state, engine)}: tell the student, naming exactly that piece, then wait "
+                           "for their move." if engine else "The student moves first: ask for their move."),
             })
         # A new game asked for while one is on («хочу сыграть партию с самым сильным ботом 2500», voice
         # 2026-10-15: the answer was «A game is already on» and the model improvised «давай перезапустим»): the
         # old game is resigned and the new one starts with the named colour and strength, as «New game» does.
-        wish = {k: v for k, v in (("color", args.get("color")), ("elo", elo)) if v} if not words else None
+        wish = {k: v for k, v in (("color", asked_color), ("elo", elo)) if v} if not words else None
         step = game_command_step(session, live, "restart", words, wish=wish)
         if not step or not step.get("view"):
             return json.dumps({"error": (step or {}).get("block", "The game could not restart.")})
         view = step["view"]
+        _record_start(session, view, heard)
         engine = (view.get("engine") or {}).get("san")
+        new_state = {"moves": view.get("moves") or []}
         return _reply(view, {
             "ok": True, "restarted": True,
             "student_color": view["student_color"], "engine_elo": view["engine_elo"], "engine_first_move": engine,
+            "engine_first_move_words": game_mode.ply_words(new_state, 1) if engine else None,
             "note": "The previous game was still on: it is counted as resigned and a new game has started. "
-                    + (f"The engine opened with {engine}: tell the student, then wait for their move."
-                       if engine else "The student moves first: say the new game is on and ask for their move."),
+                    + (f"{_opened_with(new_state, engine)}: tell the student, naming exactly that piece, then wait "
+                       "for their move." if engine else "The student moves first: say the new game is on and ask for their move."),
         })
     try:
         _, view = game_mode.start_game(session, color, _strength(elo), "quiet")
     except Exception as exc:  # noqa: BLE001 — the engine may be down
         logger.warning("start_game failed: %s", exc)
         return json.dumps({"error": f"The game could not start: {exc}"})
+    _record_start(session, view, heard)
     engine = (view.get("engine") or {}).get("san")
+    new_state = {"moves": view.get("moves") or []}
     return _reply(view, {
         "ok": True,
         "student_color": view["student_color"],
         "engine_elo": view["engine_elo"],
         "engine_first_move": engine,
-        "note": (f"The game is on. The engine opened with {engine}: tell the student, then wait for their move."
-                 if engine else "The game is on and the student moves first: ask for their move."),
+        "engine_first_move_words": game_mode.ply_words(new_state, 1) if engine else None,
+        "note": (f"The game is on. {_opened_with(new_state, engine)}: tell the student, naming exactly that piece, "
+                 "then wait for their move." if engine else "The game is on and the student moves first: ask for their move."),
     })
 
 
@@ -294,7 +327,8 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
     engine = (view.get("engine") or {}).get("san")
     # the piece and squares in words: from a bare «c6» the voice coach said «мой конь на c6» (prod Live run 28.10)
     words = (view.get("engine") or {}).get("words")
-    told = f"{engine} ({words})" if engine and words else engine
+    told = (game_mode.told_ply(view, len(view.get("moves") or [])) if engine else None) or (
+        f"{engine} ({words})" if engine and words else engine)
     summary = {
         "ok": True,
         "student_move": student.get("san"),
@@ -438,10 +472,13 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
             view = game_mode.play_move(session, board_rec, san)
             engine = (view.get("engine") or {}).get("san")
             _remember_undo(session, board_rec, "correct", words, view)
+            n = len(view.get("moves") or [])
             return {"view": view, "block": (
                 "## The student's last move was replaced by the one they meant (the system did it)\n"
-                f"Their previous move and the engine's reply are undone; {san} is played instead"
-                + (f" and the engine answered {engine}" if engine else "") + ". Say it in one sentence"
+                f"Their previous move and the engine's reply are undone; {game_mode.told_ply(view, n - 1 if engine else n) or san} "
+                "is played instead"
+                + (f" and the engine answered {game_mode.told_ply(view, n) or engine}, naming exactly that piece" if engine else "")
+                + ". Say it in one sentence"
                 + (" and let them move." if view.get("student_to_move") else ".")
             )}
         if command == "takeback":
@@ -556,21 +593,28 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
         if command == "restart":
             # The same request again (the site's call and the model's, seconds apart): the game just started, no
             # student move yet, and the words name nothing different — it stays (audit 26.10: doubled restarts).
-            wish_now = game_wish(words, state.get("engine_elo")) if words else dict(wish or {})
+            # Every start records its words — the model's start_game too (prod Live run 28.10: it recorded none, so the
+            # site's call for the same words a second later restarted the game, 1.e4 became 1.Nf3, and the coach
+            # announced e4). Other words («давай лучше заново») are a new request even inside the window.
+            wish_now = {**dict(wish or {}), **(game_wish(words, state.get("engine_elo")) if words else {})}
             started_by = state.get("started_by") or {}
             fresh = (state.get("status") == "playing" and not state.get("annotations")
                      and time.time() - float(started_by.get("at") or 0) < game_mode.SAME_START_WINDOW_S
                      and (not _norm_words(words) or _norm_words(words) == started_by.get("words"))
-                     and (not wish_now.get("color") or wish_now.get("color") == state.get("student_color"))
+                     and (not wish_now.get("color") or wish_now.get("color") in ("random", state.get("student_color")))
                      and (not wish_now.get("elo") or _strength(wish_now["elo"]) == state.get("engine_elo")))
             if fresh:
                 board_now = game_mode._replay(state.get("moves") or [])
                 view = game_mode._payload(board_rec, state, board_now)
                 view["already_started"] = True
+                engine = (state.get("moves") or [None])[0] if state.get("student_color") == "black" else None
                 return {"view": view, "block": (
                     "## The new game was already started a moment ago (this is the same request again)\n"
-                    f"The student plays {state.get('student_color')}; " + ("it is their move." if view.get("student_to_move")
-                                                                         else "it is the engine's move.")
+                    "It is already on; nothing changed now. "
+                    f"The student plays {state.get('student_color')}. "
+                    + (f"{_opened_with(state, engine)} — if you named its first move, it must be exactly this one. "
+                       if engine else "")
+                    + ("It is their move." if view.get("student_to_move") else "It is the engine's move.")
                     + " Say it once."
                 )}
             # The site offers «New game» only once a game is over: a game still on is resigned first, so two
@@ -578,7 +622,7 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
             abandoned = state.get("status") == "playing"
             if abandoned:
                 game_mode.resign(session, board_rec)
-            wish = game_wish(words, state.get("engine_elo")) if words else dict(wish or {})
+            wish = wish_now
             new_board, view = game_mode.start_game(session, wish.get("color") or state.get("student_color") or "white",
                                                    _strength(wish.get("elo") or state.get("engine_elo") or 1200),
                                                    state.get("comment_mode") or "quiet")
@@ -591,8 +635,8 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                 "## A new game has started on the board (the system started it)\n"
                 + ("The previous game was still on: it is counted as resigned. " if abandoned else "")
                 + f"The student plays {view['student_color']} again, the engine about {view['engine_elo']} Elo. "
-                + (f"The engine opened with {engine}: say this move aloud in words (piece and square). " if engine
-                   else "The student moves first. ")
+                + (f"{_opened_with({'moves': view.get('moves') or []}, engine)}: say this move aloud in words, naming "
+                   "exactly that piece and square. " if engine else "The student moves first. ")
                 + "Tell them it is on and whose move it is."
             )}
     except game_mode.GameError as exc:
