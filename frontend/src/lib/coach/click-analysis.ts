@@ -333,7 +333,23 @@ export function placeCoachArrows(
 ): CoachArrowsOnBoard | null {
   if (!arrows.length) return null;
   if (!boardFen || samePosition(boardFen, requestFen)) return { fen: requestFen, arrows };
+  // Shown on the board's position only when it is one move from the analysed one (the move being analysed: before
+  // or after it). Any other position — an «Annotate with AI» on a far move, the game report looping over key moves —
+  // keeps them on their own position, drawn when the board gets there (review 28.10).
+  if (!oneMoveApart(boardFen, requestFen)) return { fen: requestFen, arrows };
   return { fen: boardFen, about: requestFen, arrows };
+}
+
+function oneMoveApart(a: string, b: string): boolean {
+  const reaches = (from: string, to: string) => {
+    try {
+      const target = to.split(' ')[0];
+      return new Chess(from).moves({ verbose: true }).some((m) => m.after.split(' ')[0] === target);
+    } catch {
+      return false;
+    }
+  };
+  return reaches(a, b) || reaches(b, a);
 }
 
 export interface AnalysisReply {

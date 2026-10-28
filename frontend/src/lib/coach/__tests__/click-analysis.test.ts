@@ -149,4 +149,13 @@ describe('placeCoachArrows / coachArrowsFor (review 28.10: arrows on a position 
     expect(placeCoachArrows([], BOARD, ABOUT)).toBeNull();
     expect(placeCoachArrows(A, BOARD, BOARD)).toEqual({ fen: BOARD, arrows: A });
   });
+
+  it('a far position on the board (Annotate with AI on another move, the game report) does not get the arrows', () => {
+    // 1.e4 e5 2.Nf3 Nc6 on the board, the request is about the start: not one move apart
+    const FAR = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3';
+    const placed = placeCoachArrows(A, FAR, ABOUT);
+    expect(placed).toEqual({ fen: ABOUT, arrows: A });
+    expect(coachArrowsFor(placed, FAR)).toEqual([]);
+    expect(coachArrowsFor(placed, ABOUT)).toEqual(A);
+  });
 });
