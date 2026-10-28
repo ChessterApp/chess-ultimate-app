@@ -64,3 +64,33 @@ def test_after_a_resignation_a_move_is_nothing_played_and_play_again_starts_one(
     assert step["view"]["status"] == "playing" and step["view"]["student_color"] == "white"
     step = _game_prestep(session, session.get_board(session.active_board_id), "d4")
     assert step["view"]["moves"][:1] == ["d4"]
+
+
+@pytest.mark.unit
+def test_after_a_resignation_on_a_fresh_board_the_page_opened_too():
+    """Stand run 28.10: after «Сдаюсь» the page opened a fresh coach board — the game was no longer the active board."""
+    from src.server import _game_prestep
+
+    session = session_store.create("u")
+    game_mode.start_game(session, "black", 1200, "quiet")
+    _game_prestep(session, session.get_board(session.active_board_id), "e5")
+    _game_prestep(session, session.get_board(session.active_board_id), "Сдаюсь")
+    session.add_board(kind="study", title="Доска тренера")  # what the page does after the game
+
+    step = _game_prestep(session, session.get_board(session.active_board_id), "d4")
+    assert step["view"] is None and "No game is on — nothing was played" in step["block"]
+    step = _game_prestep(session, session.get_board(session.active_board_id), "Давай ещё раз, я белыми")
+    assert step["view"]["status"] == "playing" and step["view"]["student_color"] == "white"
+
+
+@pytest.mark.unit
+def test_long_after_a_game_a_move_on_a_fresh_board_is_left_alone(monkeypatch):
+    from src import server
+    from src.server import _game_prestep
+
+    session = session_store.create("u")
+    board, _ = game_mode.start_game(session, "white", 1200, "quiet")
+    _game_prestep(session, session.get_board(session.active_board_id), "Сдаюсь")
+    board.game_state["finished_at"] -= server.AFTER_GAME_WINDOW_S + 60
+    session.add_board(kind="study", title="Доска тренера")
+    assert _game_prestep(session, session.get_board(session.active_board_id), "e4") is None

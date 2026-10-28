@@ -1249,6 +1249,93 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
     return out
 
 
+# The game told move by move (stand text games 28.10): «3...Кf6 — конь вышел и прикрыл f7», «слон с f8 поднялся на e7 и
+# прикрыл f7», «d6 перекрыла дорогу слону c8», «чёрные атакуют её ходом е6» — each false, none checked before.
+_GONE = (r"(?:вышел|вышла|пош[её]л|пошла|встал|встала|поднялся|поднялась|отош[её]л|отошла|отступил|отступила|вернулся|"
+         r"вернулась|уш[её]л|ушла|двинулся|двинулась|прыгнул|прыгнула|переш[её]л|перешла)")
+_MOVED_CLAIM = re.compile(
+    rf"(?<![а-яё])(?P<piece>конь|слон|ладья|ферзь|пешка|король)\s+(?:с\s+(?P<frm>{SQ})\s+)?{_GONE}(?:\s+(?:на|в)\s+(?P<to>{SQ}))?"
+    r"[^.!?;:]{0,12}?\s*(?:\s+и\s+|\s*—\s*|,\s*)(?:сразу\s+|тоже\s+|заодно\s+|уже\s+)?"
+    r"(?P<verb>прикрыл\w*|защитил\w*|напал\w*(?:\s+на)?|атаковал\w*|атакует|бь[её]т|держит|нацелил\w*(?:\s+на)?|смотрит\s+на|давит\s+на)\s+"
+    r"(?:тво\w+\s+|мо\w+\s+|сво\w+\s+|его\s+|е[её]\s+)?(?:поле\s+|пункт\s+|пешк\w+\s+|кон\w+\s+|слон\w*\s+|ладь\w+\s+|ферз\w+\s+|корол\w+\s+)?"
+    rf"(?:на\s+)?(?P<target>{SQ})(?![0-9])", re.IGNORECASE)
+_BLOCK_ACTIVE = re.compile(
+    rf"(?<![a-z0-9])(?P<b>{SQ})\s+(?:сразу\s+|тоже\s+|ещ[её]\s+)?(?:перекрыл\w*|закрыл\w*|запер\w*|перекрывает|закрывает|запирает)\s+"
+    r"(?:дорогу\s+|путь\s+|диагональ\s+|линию\s+)?(?:сво\w+\s+|тво\w+\s+|мо\w+\s+)?(?P<pw>слон\w*|ладь\w+|ферз\w+)\s+(?:на\s+)?"
+    rf"(?P<p>{SQ})(?![0-9])", re.IGNORECASE)
+_BLOCK_PASSIVE = re.compile(
+    rf"(?P<pw>слон|ладья|ферзь)\s+(?:на\s+)?(?P<p>{SQ})\s+(?:сейчас\s+|вс[её]\s+ещ[её]\s+|пока\s+)?(?:заперт\w*|закрыт\w*|перекрыт\w*)\s+"
+    rf"(?:сво\w+\s+)?(?:пешк\w+|кон\w+|слон\w+|фигур\w+)\s+(?:на\s+)?(?P<b>{SQ})(?![0-9])", re.IGNORECASE)
+_BY_OBJ = rf"(?:её|ее|его|(?:(?:пешк\w+|кон\w+|слон\w*|ладь\w+|ферз\w+)\s+(?:на\s+)?)?{SQ})"
+_BY_VERB = r"(?:атаку\w+|напада\w+|бь[её]т|бьют)"
+_BY_MOVE = re.compile(
+    rf"(?:{_BY_VERB}\s+(?P<obj>{_BY_OBJ})|(?P<obj2>{_BY_OBJ})\s+(?:сразу\s+|тут\s+же\s+|уже\s+)?{_BY_VERB})\s+"
+    r"ходом\s+(?P<mv>[^\s,.;!?]+)", re.IGNORECASE)
+_SLIDER = {"слон": chess.BISHOP, "ладь": chess.ROOK, "ферз": chess.QUEEN}
+_MOVER = {"конь": chess.KNIGHT, "слон": chess.BISHOP, "ладья": chess.ROOK, "ферзь": chess.QUEEN, "пешка": chess.PAWN,
+          "король": chess.KING}
+
+
+def _told_move_issues(text: str, original: str, ctx: Optional[CheckContext]) -> list[str]:
+    if ctx is None or not ctx.boards:
+        return []
+    issues = []
+    played = _just_played(ctx)
+    for m in _MOVED_CLAIM.finditer(text):
+        if _is_hypothetical(text, original, m.start(), played=played):
+            continue
+        ptype = _MOVER[m["piece"].lower()]
+        sq = m["to"]
+        if not sq:  # «3...Кf6 — конь вышел и прикрыл f7»: the square of the move written before it
+            converted, _ = _to_san(original[:m.start()])
+            letter = {chess.KNIGHT: "N", chess.BISHOP: "B", chess.ROOK: "R", chess.QUEEN: "Q", chess.KING: "K"}.get(ptype)
+            hits = [x["san"] for x in _MOVE.finditer(converted)
+                    if (x["san"][0] == letter if letter else x["san"][0] in "abcdefgh")]
+            sq = re.findall(SQ, hits[-1])[-1] if hits else None
+        if not sq or sq == m["target"]:
+            continue
+        a, t = chess.parse_square(sq), chess.parse_square(m["target"])
+        standing = [b for b in ctx.boards if (pc := b.piece_at(a)) is not None and pc.piece_type == ptype]
+        if not standing:
+            continue
+        if not any(t in b.attacks(a) for b in standing):
+            reach = "does not attack" if not _geometry_attack(ptype, a, t) else "does not reach"
+            issues.append(f"a {_NAMES[ptype]} on {sq} {reach} {m['target']}")
+    for rx in (_BLOCK_ACTIVE, _BLOCK_PASSIVE):
+        for m in rx.finditer(text):
+            if _NEGATION.search(text[max(0, m.start() - 25):m.start()]):
+                continue
+            ptype = next(v for k, v in _SLIDER.items() if m["pw"].lower().startswith(k))
+            p, b = chess.parse_square(m["p"]), chess.parse_square(m["b"])
+            if p != b and not _geometry_move(ptype, p, b):
+                issues.append(f"{m['b']} is not on any line of the {_NAMES[ptype]} on {m['p']}: it blocks nothing for it")
+    for m in _BY_MOVE.finditer(text):
+        obj = m["obj"] or m["obj2"]
+        sqs = re.findall(SQ, obj or "")
+        target = sqs[-1] if sqs else _pronoun_square(text, m.start(), ctx)
+        if not target:
+            continue
+        san, _ = _to_san(m["mv"])
+        mv_m = _MOVE.search(san)
+        if not mv_m:
+            continue
+        legal_somewhere, attacks = False, False
+        for board in ctx.boards:
+            try:
+                move = board.parse_san(mv_m["san"])
+            except ValueError:
+                continue
+            legal_somewhere = True
+            after = board.copy(stack=False)
+            after.push(move)
+            if chess.parse_square(target) in after.attacks(move.to_square):
+                attacks = True
+                break
+        if legal_somewhere and not attacks:
+            issues.append(f"after {mv_m['san']} the piece that moved does not attack {target}")
+    return issues
+
+
 def _opening_issues(text: str) -> list[str]:
     """Moves from 1. next to an opening name must be that opening's line."""
     from src.openings_book import get_book, named_openings, _split_moves
@@ -3120,7 +3207,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     from src.answer_check_rules import rules_issues
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
-              + _opening_issues(text) + _opening_identity_issues(text, ctx) + _fact_issues(lowered, text, ctx)
+              + _opening_issues(text) + _opening_identity_issues(text, ctx) + _told_move_issues(lowered, text, ctx)
+              + _fact_issues(lowered, text, ctx)
               + _plan_move_issues(lowered, text, ctx)
               + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
     if not san_issues:

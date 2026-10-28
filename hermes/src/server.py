@@ -666,6 +666,23 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
+AFTER_GAME_WINDOW_S = 15 * 60
+
+
+def _after_the_game(session, active_board, last) -> bool:
+    """The student is still «after» the last game: it is on the board, or it ended a moment ago and the board shows no
+    other material (stand run 28.10: after «Сдаюсь» the page opened a fresh coach board, so «давай ещё раз, я белыми»
+    started nothing and the coach invented a game)."""
+    if last is None or active_board is None:
+        return False
+    if active_board.id == last.id:
+        return True
+    if getattr(active_board, "kind", None) not in ("study", None) or (last.game_state or {}).get("status") == "playing":
+        return False
+    ended = float((last.game_state or {}).get("finished_at") or getattr(last, "updated_at", 0) or 0)
+    return time.time() - ended < AFTER_GAME_WINDOW_S
+
+
 def _game_prestep(session, active_board, message: str, spoken: bool = False, view_ply: Optional[int] = None,
                   view_line: Optional[list] = None) -> Optional[dict]:
     """A game asked for, or the student's move written on its own in the game on the board
@@ -684,7 +701,7 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
         from src.tools.game_play import POST_GAME_COMMANDS, last_game_board
 
         last = last_game_board(session)
-        on_board = last is not None and active_board is not None and active_board.id == last.id
+        on_board = _after_the_game(session, active_board, last)
         named = bool(re.search(r"парти|игр|реванш|сыгра|game|rematch", message, re.IGNORECASE))
         if last is not None and command == "restart" and (on_board or named):
             return game_command_step(session, last, "restart", message)
@@ -698,7 +715,7 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
             from src.tools.game_play import last_game_board
 
             last = last_game_board(session)
-            if last is not None and active_board is not None and active_board.id == last.id and last.game_state:
+            if last is not None and last.game_state and _after_the_game(session, active_board, last):
                 final = game_mode._replay(last.game_state.get("moves") or [])
                 if bare_move(message, final) or move_attempt(message):
                     state = last.game_state

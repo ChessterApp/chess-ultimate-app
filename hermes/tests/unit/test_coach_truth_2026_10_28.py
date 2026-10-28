@@ -128,3 +128,36 @@ def test_an_invented_opening_position_does_not_go_up_and_a_verified_one_does():
     ending = "8/8/8/4k3/8/8/4P3/4K3 w - - 0 1"  # a sparse set-up stays the model's to set
     out = json.loads(registry.dispatch("board_control", {"action_type": "set_fen", "fen": ending}, **kw))
     assert out["board_actions"][0]["fen"] == ending
+
+
+# ── the game told move by move: what the moved piece does, what blocks what, the move as the attacker ─────────
+
+def _told(moves: str, text: str) -> list:
+    board = _board(moves)
+    ctx = CheckContext.from_fens([board.fen()])
+    ctx.add_line(moves)
+    ctx.game_moves = moves.split()
+    return check_sentence(spoken_squares(text), ctx)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("moves, text, wrong", [
+    ("e4 e5 Nf3 Nc6 Bc4 Nf6", "3...Кf6 — конь вышел и прикрыл f7, это итальянская партия.", "a knight on f6 does not attack f7"),
+    ("e4 e5 Nf3 Nc6 Bc4 Nf6 d3 Be7", "Соперник ответил 4...Be7: слон с f8 поднялся на e7 и прикрыл f7.", "a bishop on e7 does not attack f7"),
+    ("e4 e5 Nf3 d6", "Его пешка e5 теперь защищена, но зато d6 перекрыла дорогу слону c8.", "d6 is not on any line of the bishop on c8"),
+    ("e4 e6", "Белые захватывают центр пешкой на е4, а чёрные сразу её атакуют ходом е6.", "after e6 the piece that moved does not attack e4"),
+])
+def test_told_moves_that_do_not_do_what_is_said_are_read_back(moves, text, wrong):
+    assert any(wrong in i for i in _told(moves, text))
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("moves, text", [
+    ("e4 e5 Nf3 Nc6", "2...Кc6 — конь вышел и прикрыл e5."),
+    ("e4 e5 Nf3 Nc6 Bc4", "3.Сc4 — слон вышел на c4 и нацелился на f7."),
+    ("e4 e5 Nf3 d6", "Пешка d6 закрыла слону f8 диагональ."),
+    ("e4 e5 Nf3 Nc6 Bc4 Nf6", "Слон f8 заперт пешкой e7."),
+    ("d4 d5 c4", "Белые атакуют пешку d5 ходом c4."),
+])
+def test_told_moves_that_are_true_pass(moves, text):
+    assert not _told(moves, text)
