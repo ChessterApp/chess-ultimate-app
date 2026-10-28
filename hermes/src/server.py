@@ -24,6 +24,8 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import AfterValidator, BaseModel, Field
 
+from src.request_skew import CoachRequest, current_scope as _request_scope, note_unknown_fields
+
 from src.config import (
     load_env,
     load_profile_config,
@@ -297,6 +299,8 @@ async def add_request_id(request: Request, call_next):
     identity_token = current_user_id.set(
         request.headers.get("x-user-id") or request.headers.get("x-clerk-user-id") or ""
     )
+    # The body models log fields they do not know by the route that got them (src/request_skew.py).
+    scope_token = _request_scope.set(request.scope)
 
     logger.info(
         "request_start method=%s path=%s request_id=%s",
@@ -310,6 +314,7 @@ async def add_request_id(request: Request, call_next):
         response = await call_next(request)
     finally:
         current_user_id.reset(identity_token)
+        _request_scope.reset(scope_token)
     elapsed = round((time.monotonic() - start) * 1000, 2)
 
     response.headers["X-Request-Id"] = request_id
@@ -1454,7 +1459,7 @@ _ASKS_BETTER_MOVE = re.compile(
     r"|где\s+я\s+ошиб\w*|what\s+should\s+i\s+have\s+played|what\s+was\s+better|better\s+move\s+(?:was|instead))", re.IGNORECASE)
 
 
-class CoachChatRequest(BaseModel):
+class CoachChatRequest(CoachRequest):
     message: str
     fen: SiteFen = None
     session_id: Optional[str] = None
@@ -1480,16 +1485,16 @@ class CoachChatRequest(BaseModel):
     view_line: Optional[list[str]] = None
 
 
-class CoachSessionCreateRequest(BaseModel):
+class CoachSessionCreateRequest(CoachRequest):
     title: Optional[str] = None
 
 
-class CoachSessionUpdateRequest(BaseModel):
+class CoachSessionUpdateRequest(CoachRequest):
     title: Optional[str] = None
     active_board_id: Optional[str] = None
 
 
-class CoachBoardCreateRequest(BaseModel):
+class CoachBoardCreateRequest(CoachRequest):
     kind: str = "study"
     title: Optional[str] = None
     pgn: Optional[str] = None
@@ -1500,7 +1505,7 @@ class CoachBoardCreateRequest(BaseModel):
     activate: bool = True
 
 
-class CoachBoardUpdateRequest(BaseModel):
+class CoachBoardUpdateRequest(CoachRequest):
     title: Optional[str] = None
     pgn: Optional[str] = None
     # fen: a new study position (drops the loaded game). position: the FEN the
@@ -1514,7 +1519,7 @@ class CoachBoardUpdateRequest(BaseModel):
     active: Optional[bool] = None
 
 
-class CoachMessageRequest(BaseModel):
+class CoachMessageRequest(CoachRequest):
     role: str
     content: str
     source: Optional[str] = None
@@ -1525,27 +1530,27 @@ class CoachMessageRequest(BaseModel):
     turn_id: Optional[str] = None
 
 
-class CoachImportUrlRequest(BaseModel):
+class CoachImportUrlRequest(CoachRequest):
     url: str
 
 
-class CoachGameStartRequest(BaseModel):
+class CoachGameStartRequest(CoachRequest):
     color: str = "white"          # white | black | random
     elo: int = 1500
     comment_mode: str = "mistakes"  # quiet | mistakes | every
 
 
-class CoachGameMoveRequest(BaseModel):
+class CoachGameMoveRequest(CoachRequest):
     move: str                     # SAN or UCI
 
 
-class CoachGameCommentRequest(BaseModel):
+class CoachGameCommentRequest(CoachRequest):
     locale: Optional[str] = None
     event: str = "move"           # move | end
     speech: Optional[bool] = None  # read aloud after the system said the moves (the voice pipeline, 26.10)
 
 
-class CoachFeedbackRequest(BaseModel):
+class CoachFeedbackRequest(CoachRequest):
     # turn_id / rating are validated in the handler (returning 400, not 422) so a
     # malformed body is a clean client error per the feedback contract.
     turn_id: Optional[str] = None
@@ -1556,7 +1561,7 @@ class CoachFeedbackRequest(BaseModel):
     client_ts: Optional[str] = None
 
 
-class CheckoutRequest(BaseModel):
+class CheckoutRequest(CoachRequest):
     tier: str
     redirect_url: Optional[str] = None
 
@@ -3921,24 +3926,24 @@ async def lesson_chat(body: LessonChatRequest, request: Request):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-class VoicePromptRequest(BaseModel):
+class VoicePromptRequest(CoachRequest):
     fen: SiteFen = None
     locale: Optional[str] = None
     tools_available: bool = True
     session_id: Optional[str] = None   # the chat session the voice continues: its language holds
 
 
-class VoiceEngineNoteRequest(BaseModel):
+class VoiceEngineNoteRequest(CoachRequest):
     fen: Annotated[str, AfterValidator(repair_fen)]
     session_id: Optional[str] = None  # the game or the puzzle on the board come from the session
 
 
-class VoiceTtsRequest(BaseModel):
+class VoiceTtsRequest(CoachRequest):
     text: str                      # one chunk of the coach's answer, to read aloud
     locale: Optional[str] = None   # ru | kk | en — the model and voice are chosen by it
 
 
-class VoiceCheckRequest(BaseModel):
+class VoiceCheckRequest(CoachRequest):
     text: str                      # what the coach just said (its output transcription)
     fen: SiteFen = None            # the board at the time
     pgn: Optional[str] = None      # the moves on the board, if a game is loaded
@@ -3946,14 +3951,14 @@ class VoiceCheckRequest(BaseModel):
     session_id: Optional[str] = None  # the coach session: in a game, «я пойду d3» must be the engine's move (25.10)
 
 
-class VoiceIdeaRequest(BaseModel):
+class VoiceIdeaRequest(CoachRequest):
     text: str                      # the student's words (input transcription)
     fen: Annotated[str, AfterValidator(repair_fen)]  # the board at the time
     live_game: Optional[bool] = False
     pgn: Optional[str] = None      # the game on the board, for «на 8-м ходу» (src/past_move.py)
 
 
-class VoiceIntentRequest(BaseModel):
+class VoiceIntentRequest(CoachRequest):
     text: str                      # the student's words (input transcription)
     session_id: Optional[str] = None
     fen: Optional[str] = None      # the board at the time
@@ -4612,7 +4617,7 @@ async def coach_game_takeback(session_id: str, board_id: str, request: Request):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-class CoachGameContinueRequest(BaseModel):
+class CoachGameContinueRequest(CoachRequest):
     ply: int = 0   # the game goes on from the position after this many plies (the move panel's «continue from here»)
     line: Optional[list[str]] = None  # …or from a side line on the board: its moves from the start (26.10)
 
@@ -4846,6 +4851,9 @@ async def coach_feedback(body: CoachFeedbackRequest, request: Request):
 ANALYSIS_CONTEXT_MAX = 12000
 
 
+_ANALYSIS_FIELDS = frozenset({"fen", "query", "conversation_id", "context_type", "context_note"})
+
+
 def _validate_analysis_body(data: Optional[dict]):
     """Validate an analysis request body against the Flask contract.
 
@@ -4857,6 +4865,10 @@ def _validate_analysis_body(data: Optional[dict]):
             status_code=400,
             content={"success": False, "error": "Missing required fields: fen, query"},
         )
+    # Read as raw JSON, so no body model logs what this Hermes does not read (src/request_skew.py).
+    unknown = [k for k in data if k not in _ANALYSIS_FIELDS] if isinstance(data, dict) else []
+    if unknown:
+        note_unknown_fields(unknown, model="the analysis request")
     fen = data["fen"]
     query = (data.get("query") or "").strip()
     conversation_id = data.get("conversation_id")
