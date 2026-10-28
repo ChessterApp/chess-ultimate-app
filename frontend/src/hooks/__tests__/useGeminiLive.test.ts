@@ -1783,6 +1783,24 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(bodiesTo('/api/coach/voice/check')[0]).toMatchObject({ text: expect.stringContaining('d3'), fen: START, session_id: 's1' });
   });
 
+  // 28.10: Hermes reads the pgn for the history of a loaded game; without it a true recap came back INVENTED_HISTORY
+  // and the coach "corrected" itself aloud. In a live game Hermes reads the game from the session instead.
+  it("outside a game the coach's sentence goes to the check with the game on the board (pgn)", async () => {
+    const PGN = '1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5';
+    await connectWith({ getGame: () => null, getFen: () => START, getPgn: () => PGN, getSessionId: () => 's1' });
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: {
+      text: 'Партия шла так: 1. e4 e5 2. Кf3 Кc6 3. Сc4 Сc5. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(1));
+    expect(bodiesTo('/api/coach/voice/check')[0]).toMatchObject({ fen: START, pgn: PGN, session_id: 's1' });
+  });
+
+  it('in a live game the check reads the game from the session, not a pgn from the page', async () => {
+    await connectWith({ getGame: () => game(), getFen: () => START, getPgn: () => '1. e4', getSessionId: () => 's1' });
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: { text: 'Хорошо. Я пойду конём на d3. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(1));
+    expect(bodiesTo('/api/coach/voice/check')[0].pgn).toBeUndefined();
+  });
+
   it('stopping the voice saves what was said so far (open utterances close)', async () => {
     const onTranscript = vi.fn();
     const { result } = await connectWith({ onTranscript });

@@ -3,6 +3,7 @@ import { requireCoachAccess } from '@/lib/coach-access';
 import { Behavior, EndSensitivity, GoogleGenAI, Modality } from '@google/genai';
 
 import { resolveUserTier, type SubscriptionTier } from '@/lib/subscription-tier';
+import { resolveLocale } from '@/i18n/detect';
 
 // Region pin is load-bearing: Gemini mint calls are geo-blocked outside iad1.
 export const runtime = 'nodejs';
@@ -88,6 +89,12 @@ function readCookie(request: Request, name: string): string | undefined {
     if (key === name) return decodeURIComponent(rest.join('='));
   }
   return undefined;
+}
+
+// The interface's own rule (i18n/detect.ts): a valid NEXT_LOCALE cookie, else Accept-Language, else ru.
+// The cookie-or-'ru' rule gave a Kazakh browser that never used the switcher a Russian coach (28.10).
+function uiLocale(request: Request): string {
+  return resolveLocale(readCookie(request, 'NEXT_LOCALE'), request.headers.get('accept-language'));
 }
 
 function languageDirective(locale: string): string {
@@ -508,7 +515,7 @@ export async function POST(request: Request) {
   // The voice pipeline prototype (2026-10-25): a token for the transcription-only Live model —
   // no prompt, no tools, no answers; the words go to the text coach and come back as TTS.
   if (body.mode === 'stt') {
-    const sttLocale = body.locale && typeof body.locale === 'string' ? body.locale : readCookie(request, 'NEXT_LOCALE') || 'ru';
+    const sttLocale = body.locale && typeof body.locale === 'string' ? body.locale : uiLocale(request);
     const sttModel = process.env.COACH_STT_MODEL || 'gemini-3.5-transcribe-live';
     const transcription = transcriptionConfig(sttLocale);
     const now = Date.now();
@@ -533,14 +540,13 @@ export async function POST(request: Request) {
   }
 
   const fen = body.fen && typeof body.fen === 'string' ? body.fen : undefined;
-  // Same source as the text proxy (/api/coach/chat): an explicit body value
-  // wins, otherwise the UI locale cookie. Without this the language directive
-  // in Hermes' build_voice_prompt() was never reached and the voice coach was
-  // left to guess the language from an English-only prompt.
+  // An explicit body value wins, otherwise the UI locale (cookie → Accept-Language). Without this
+  // the language directive in Hermes' build_voice_prompt() was never reached and the voice coach
+  // was left to guess the language from an English-only prompt.
   const locale =
     body.locale && typeof body.locale === 'string'
       ? body.locale
-      : readCookie(request, 'NEXT_LOCALE') || 'ru';
+      : uiLocale(request);
   const sessionId =
     body.session_id && typeof body.session_id === 'string'
       ? body.session_id

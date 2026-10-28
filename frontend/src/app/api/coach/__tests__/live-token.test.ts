@@ -794,11 +794,53 @@ describe('POST /api/coach/live-token', () => {
     global.fetch = fetchMock as any;
 
     const { POST } = await import('../live-token/route');
-    const response = await POST(withCookie({ fen: 'somefen' }, 'NEXT_LOCALE=kk; other=1'));
+    const response = await POST(withCookie({ fen: 'somefen' }, 'NEXT_LOCALE=kz; other=1'));
     expect(response.status).toBe(200);
 
     const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
-    expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).locale).toBe('kk');
+    expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).locale).toBe('kz');
+  });
+
+  // 28.10: the UI resolves its language cookie → Accept-Language (i18n/detect.ts resolveLocale); the proxy took the
+  // cookie or 'ru', so a Kazakh browser that never touched the switcher saw a Kazakh page and got a Russian coach.
+  const withHeaders = (body: unknown, headers: Record<string, string>) =>
+    new Request('http://localhost:3000/api/coach/live-token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it('without a cookie the locale comes from Accept-Language, as the interface resolves it', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) {
+        return { ok: true, status: 200, json: async () => ({ system_prompt: 'P', profile_context: '' }) };
+      }
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    });
+    global.fetch = fetchMock as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(withHeaders({ fen: 'somefen' }, { 'accept-language': 'kk-KZ,kk;q=0.9,en;q=0.8' }));
+    expect(response.status).toBe(200);
+    const promptCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/coach/voice/prompt'))!;
+    expect(JSON.parse(((promptCall as unknown[])[1] as RequestInit).body as string).locale).toBe('kz');
+    expect((await response.json()).transcription.languageCodes[0]).toBe('kk-KZ');
+  });
+
+  it('an invalid cookie is ignored like the interface does, and stt follows the same rule', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'stt-token' });
+    global.fetch = vi.fn() as any;
+
+    const { POST } = await import('../live-token/route');
+    const response = await POST(withHeaders({ mode: 'stt' }, { cookie: 'NEXT_LOCALE=xx', 'accept-language': 'kk' }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).transcription.languageCodes[0]).toBe('kk-KZ');
   });
 
   it('forwards the session id to the Hermes voice prompt so its language holds', async () => {

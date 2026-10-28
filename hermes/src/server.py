@@ -4242,9 +4242,11 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
                 from src.tools.game_play import last_game_board
 
                 finished = last_game_board(session) is not None
-                puzzle = board.kind == "puzzle"
-                fen = fen or board.fen
-                pgn = pgn or board.pgn
+                # A session with no board (made by /messages or /v1/chat) answered 500 here (28.10).
+                if board is not None:
+                    puzzle = board.kind == "puzzle"
+                    fen = fen or board.fen
+                    pgn = pgn or board.pgn
         return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
                            puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.puzzle_queue))
 
