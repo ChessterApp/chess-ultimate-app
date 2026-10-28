@@ -272,6 +272,16 @@ from src.tool_bridge import router as tool_bridge_router
 app.include_router(tool_bridge_router)
 
 
+from src.session_persistence import SessionLoadError  # noqa: E402
+
+
+@app.exception_handler(SessionLoadError)
+async def _session_not_loaded(request: Request, exc: SessionLoadError):
+    """A session that could not be restored from Supabase is not a session without a game (28.10):
+    the request fails with 503 and the next one retries, instead of answering in "no game" mode."""
+    return JSONResponse(status_code=503, content={"detail": "The coach session could not be loaded; try again."})
+
+
 # ── Request ID middleware ──────────────────────────────────────────────
 
 
@@ -4190,6 +4200,8 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                     if live.pgn:
                         ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK
+            except SessionLoadError:
+                raise  # the game is unknown, not absent: 503, never a check without it (28.10)
             except Exception:  # noqa: BLE001 — the check still runs without the game
                 pass
         # Squares the transcription writes in words («слона на цэ четыре», «пешке на е два») are squares to

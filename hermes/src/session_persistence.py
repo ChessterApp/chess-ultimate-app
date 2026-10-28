@@ -5,9 +5,11 @@ Supabase in the background so message appends stay off the critical path, and
 reads lazy-load a session + its messages on cache miss (this is what makes a
 Hermes restart survivable).
 
-Every Supabase interaction is wrapped so a failure — missing env vars, network
+Every Supabase write is wrapped so a failure — missing env vars, network
 error, or missing tables — degrades to pure in-memory operation and can NEVER
-propagate into a chat/voice turn. Follows the httpx REST pattern used in
+propagate into a chat/voice turn. The three reads that restore one session
+raise :class:`SessionLoadError` instead (28.10): a failed read is not an empty
+session, and SessionStore must not cache it as one. Follows the httpx REST pattern used in
 ``user_profile.py`` and ``platform_linking.py``.
 """
 
@@ -29,6 +31,19 @@ def _sb():
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 10
+
+
+class SessionLoadError(RuntimeError):
+    """A read that restores a session failed (timeout, Supabase down) — not "no such session".
+
+    28.10: these reads used to return None/[] at DEBUG, so a session restored without its
+    boards was cached as one with no game, and every endpoint silently ran in "no game" mode
+    until the next restart.
+    """
+
+    def __init__(self, session_id: str, what: str):
+        super().__init__(f"could not load {what} of coach session {session_id}")
+        self.session_id = session_id
 
 
 def _is_missing_column_error(exc: Exception) -> bool:
@@ -57,8 +72,8 @@ def _is_missing_column_error(exc: Exception) -> bool:
 class SessionPersistence:
     """Best-effort Supabase persistence for coach sessions.
 
-    All public methods swallow every exception. Writes run in daemon threads;
-    reads block (only on cache miss) but still degrade to ``None``/``[]``.
+    Writes swallow every exception and run in daemon threads. Reads block (only
+    on cache miss); the reads of one session raise SessionLoadError on failure.
     """
 
     def __init__(self, url: str = None, key: str = None):
@@ -356,7 +371,7 @@ class SessionPersistence:
             logger.debug("Failed to update session %s fields", session_id, exc_info=True)
 
     def load_boards(self, session_id: str) -> list[dict]:
-        """Fetch coach_boards rows for a session, oldest first. [] on failure."""
+        """Fetch coach_boards rows for a session, oldest first. Raises SessionLoadError on failure."""
         if not self.enabled:
             return []
         try:
@@ -368,9 +383,9 @@ class SessionPersistence:
             )
             resp.raise_for_status()
             return resp.json() or []
-        except Exception:
-            logger.debug("Failed to load coach boards for %s", session_id, exc_info=True)
-            return []
+        except Exception as exc:
+            logger.warning("Failed to load coach boards of session %s: %s", session_id, exc)
+            raise SessionLoadError(session_id, "the boards") from exc
 
     def delete_session(self, session_id: str) -> None:
         if not self.enabled:
@@ -394,7 +409,7 @@ class SessionPersistence:
     # ------------------------------------------------------------------- reads
 
     def load_session(self, session_id: str) -> dict | None:
-        """Fetch a single coach_sessions row. Returns None on miss/failure."""
+        """Fetch a single coach_sessions row: None when there is none, SessionLoadError on failure."""
         if not self.enabled:
             return None
         try:
@@ -407,9 +422,9 @@ class SessionPersistence:
             resp.raise_for_status()
             rows = resp.json()
             return rows[0] if rows else None
-        except Exception:
-            logger.debug("Failed to load coach session %s", session_id, exc_info=True)
-            return None
+        except Exception as exc:
+            logger.warning("Failed to load coach session %s: %s", session_id, exc)
+            raise SessionLoadError(session_id, "the row") from exc
 
     def load_user_sessions(self, user_id: str) -> list[dict]:
         """Fetch all coach_sessions rows for a user. Returns [] on failure."""
@@ -425,11 +440,11 @@ class SessionPersistence:
             resp.raise_for_status()
             return resp.json() or []
         except Exception:
-            logger.debug("Failed to load coach sessions for %s", user_id, exc_info=True)
+            logger.warning("Failed to load the coach sessions of user %s", user_id, exc_info=True)
             return []
 
     def load_messages(self, session_id: str) -> list[dict]:
-        """Fetch coach_messages for a session, ordered oldest-first."""
+        """Fetch coach_messages for a session, oldest first. Raises SessionLoadError on failure."""
         if not self.enabled:
             return []
         try:
@@ -445,8 +460,6 @@ class SessionPersistence:
             )
             resp.raise_for_status()
             return resp.json() or []
-        except Exception:
-            logger.debug(
-                "Failed to load coach messages for session %s", session_id, exc_info=True
-            )
-            return []
+        except Exception as exc:
+            logger.warning("Failed to load coach messages of session %s: %s", session_id, exc)
+            raise SessionLoadError(session_id, "the messages") from exc
