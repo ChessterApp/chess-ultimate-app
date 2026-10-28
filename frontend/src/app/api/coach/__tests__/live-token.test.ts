@@ -917,6 +917,81 @@ describe('POST /api/coach/live-token', () => {
     expect(systemInstructionFromMint()).toContain('The interface language is Russian');
   });
 
+  // 28.10: the fallback prompt was only a console.warn — a voice on it went unseen.
+  it.each([
+    ['network', () => { throw new Error('hermes down'); }],
+    ['http_503', () => ({ ok: false, status: 503, json: async () => ({}) })],
+    ['empty', () => ({ ok: true, status: 200, json: async () => ({}) })],
+  ])('a voice started on the fallback prompt says so in the response (%s)', async (reason, prompt) => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) return (prompt as () => unknown)();
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    }) as any;
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect(response.status).toBe(200);
+    expect((await response.json()).promptFallback).toBe(reason);
+    warn.mockRestore();
+  });
+
+  it('a voice on the Hermes prompt carries no fallback mark', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) return { ok: true, status: 200, json: async () => ({ system_prompt: 'HERMES PROMPT' }) };
+      return { ok: true, json: async () => ({ tools: [], messages: [] }) };
+    }) as any;
+    const { POST } = await import('../live-token/route');
+    const response = await POST(makeRequest({}));
+    expect((await response.json()).promptFallback).toBeUndefined();
+  });
+
+  it('the fallback prompt begins in the language the session already speaks, when the recap shows it', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const messages = [
+      { role: 'user', content: 'Привет' },
+      { role: 'assistant', content: 'Сәлем! Қалай көмектесейін?' },
+      { role: 'user', content: 'Мен қалай ойнауым керек? e4' },
+      { role: 'assistant', content: 'Орталықты ал.' },
+    ];
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) throw new Error('hermes down');
+      if (String(url).includes('/messages')) return { ok: true, json: async () => ({ messages }) };
+      return { ok: true, json: async () => ({ tools: [] }) };
+    }) as any;
+    const { POST } = await import('../live-token/route');
+    await POST(withCookie({ session_id: 's1' }, 'NEXT_LOCALE=ru'));
+    const prompt = systemInstructionFromMint();
+    expect(prompt.startsWith('CRITICAL LANGUAGE RULE')).toBe(true);
+    expect(prompt).toContain('The interface language is Russian');
+    expect(prompt).toContain('This conversation so far is in Kazakh');
+    warn.mockRestore();
+  });
+
+  it('no session language is claimed when the recap has none', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_123' });
+    process.env.GEMINI_API_KEY = 'AQ.test-key';
+    createMock.mockResolvedValue({ name: 'ephemeral-token-xyz' });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    global.fetch = vi.fn(async (url: string) => {
+      if (String(url).includes('/api/coach/voice/prompt')) throw new Error('hermes down');
+      if (String(url).includes('/messages')) return { ok: true, json: async () => ({ messages: [{ role: 'user', content: 'e4' }] }) };
+      return { ok: true, json: async () => ({ tools: [] }) };
+    }) as any;
+    const { POST } = await import('../live-token/route');
+    await POST(withCookie({ session_id: 's1' }, 'NEXT_LOCALE=en'));
+    expect(systemInstructionFromMint()).not.toContain('This conversation so far');
+    warn.mockRestore();
+  });
+
   // ── Voice minutes quota enforcement (Task 3) ────────────────────────────────
 
   const mockFetchWithQuota = (quota: Record<string, unknown> | { throw: true }) => {

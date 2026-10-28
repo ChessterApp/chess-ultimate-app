@@ -1105,7 +1105,7 @@ describe('useGeminiLive', () => {
   // Capture every /api/coach/metrics beacon while serving token + tool responses.
   function metricsCapturingFetch(
     metrics: any[],
-    opts?: { tool?: (url: string, o: any) => any; remainingSeconds?: number | null },
+    opts?: { tool?: (url: string, o: any) => any; remainingSeconds?: number | null; promptFallback?: string },
   ) {
     return vi.fn(async (url: string, o: any) => {
       const u = String(url);
@@ -1116,6 +1116,7 @@ describe('useGeminiLive', () => {
             token: 'auth_tokens/abc',
             model: 'gemini-3.1-flash-live-preview',
             remainingSeconds: opts?.remainingSeconds,
+            promptFallback: opts?.promptFallback,
           }),
         };
       }
@@ -1325,6 +1326,26 @@ describe('useGeminiLive', () => {
     });
     expect(trackMock.mock.calls.filter((c) => c[0] === 'voice_session_started')).toHaveLength(1);
     nowSpy.mockRestore();
+  });
+
+  it('a session started on the fallback prompt (Hermes voice/prompt unavailable) says so on its connect beacon (28.10)', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics, { promptFallback: 'http_503' }));
+    const { result } = renderHook(() => useGeminiLive());
+    await act(async () => {
+      await result.current.connect();
+    });
+    expect(metrics.find((m) => m.event === 'connect')).toMatchObject({ error_code: 'prompt_fallback_http_503' });
+  });
+
+  it('a session on the Hermes prompt carries no fallback mark', async () => {
+    const metrics: any[] = [];
+    vi.stubGlobal('fetch', metricsCapturingFetch(metrics));
+    const { result } = renderHook(() => useGeminiLive());
+    await act(async () => {
+      await result.current.connect();
+    });
+    expect(metrics.find((m) => m.event === 'connect')?.error_code).toBeUndefined();
   });
 
   it('reconnect after an unexpected drop emits a reconnect (not connect) beacon', async () => {
@@ -1666,6 +1687,120 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
       expect(noteCall()[0].turnComplete).toBe(false);
       audio();  // the post-tool answer is heard
       expect(createdSources.length).toBeGreaterThan(0);
+    });
+
+    // 28.10: the Live socket dropped and resumed while the engine was still thinking over the student's move.
+    describe('the connection drops and resumes while the move is on its way', () => {
+      const original = g.session;
+      const resumed = { sendRealtimeInput: vi.fn(), sendClientContent: vi.fn(), sendToolResponse: vi.fn(), close: vi.fn() };
+      beforeEach(() => {
+        Object.values(resumed).forEach((f) => f.mockReset());
+      });
+      afterEach(() => {
+        g.session = original;
+      });
+      const dropAndResume = async () => {
+        act(() => g.connectArgs.value.callbacks.onmessage({ sessionResumptionUpdate: { resumable: true, newHandle: 'H1' } }));
+        g.session = resumed as any;  // the resumed connection is another socket
+        await act(async () => {
+          g.connectCalls[0].callbacks.onclose();
+          await new Promise((r) => setTimeout(r, 0));
+        });
+        expect(g.connectCalls.length).toBe(2);
+        expect(g.connectCalls[1].config.sessionResumption).toEqual({ handle: 'H1' });
+      };
+      const resumedNote = () => resumed.sendClientContent.mock.calls.find((c: any[]) => c[0].turns[0].parts[0].text.startsWith("[Game] The student's move e4"));
+
+      it('the board still shows the played move, and the resumed coach is told the engine reply and answers', async () => {
+        const onToolResult = vi.fn();
+        await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1', onToolResult });
+        say('e2-e4');
+        await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+        await dropAndResume();
+        gate.release();
+        await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('make_game_move', expect.objectContaining({ board_actions: [{ type: 'game', game: AFTER_GAME }] })));
+        await waitFor(() => expect(resumedNote()).toBeTruthy());
+        expect(resumedNote()[0].turnComplete).toBe(true);
+      });
+
+      it('the hold stays armed across the resume: the resumed coach is not heard before the engine reply', async () => {
+        await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+        say('e2-e4');
+        await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+        await dropAndResume();
+        const before = createdSources.length;
+        audio();  // «Мой ответ — конь на f6», from the resumed socket
+        expect(createdSources.length).toBe(before);
+        gate.release();
+        await waitFor(() => expect(resumedNote()).toBeTruthy());
+        expect(createdSources.length).toBe(before);  // never heard
+      });
+
+      it('the engine reply that comes while the resumed socket is still opening is told once it is open', async () => {
+        await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+        say('e2-e4');
+        await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+        let openToken!: () => void;
+        const tokenGate = new Promise<void>((r) => { openToken = r; });
+        const inner = globalThis.fetch as any;
+        vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+          if (url === '/api/coach/live-token') await tokenGate;  // the resume's token is slow
+          return inner(url, init);
+        }));
+        act(() => g.connectArgs.value.callbacks.onmessage({ sessionResumptionUpdate: { resumable: true, newHandle: 'H1' } }));
+        g.session = resumed as any;
+        await act(async () => {
+          g.connectCalls[0].callbacks.onclose();
+          await new Promise((r) => setTimeout(r, 0));
+        });
+        gate.release();  // the engine answers in the gap
+        await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+        expect(resumedNote()).toBeFalsy();
+        openToken();
+        await waitFor(() => expect(resumedNote()).toBeTruthy());
+        expect(resumedNote()[0].turnComplete).toBe(true);
+      });
+
+      it('a new conversation (not a resume) is not told the old move note; the board still shows it', async () => {
+        const onToolResult = vi.fn();
+        const { result } = await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1', onToolResult });
+        say('e2-e4');
+        await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+        act(() => result.current.disconnect());
+        g.session = resumed as any;
+        await act(async () => {
+          await result.current.connect();
+        });
+        gate.release();
+        await waitFor(() => expect(onToolResult).toHaveBeenCalledWith('make_game_move', expect.anything()));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(resumedNote()).toBeFalsy();
+      });
+    });
+
+    it('a question asked while the move is on its way: the dropped answer is asked for again after the move', async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      say('e2-e4');
+      audio();
+      msg({ turnComplete: true });
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+      msg({ inputTranscription: { text: 'а какой план у чёрных?', finished: true } });
+      audio();  // the coach answers the question: held with the move, then dropped by its settle
+      msg({ outputTranscription: { text: 'План чёрных — ' } });
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turnComplete).toBe(true);
+      expect(noteCall()[0].turns[0].parts[0].text).toMatch(/also asked: «а какой план у чёрных\?» — answer it after the move/);
+    });
+
+    it('no question asked meanwhile: the note carries no such line', async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      say('e2-e4');
+      audio();
+      msg({ turnComplete: true });
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turns[0].parts[0].text).not.toMatch(/also asked/);
     });
   });
 
