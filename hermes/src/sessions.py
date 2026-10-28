@@ -21,6 +21,10 @@ from src.session_persistence import SessionLoadError, SessionPersistence
 logger = logging.getLogger(__name__)
 
 
+# How far a client's own time stamp may be from the server's and still be used (a wrong device clock, 28.10).
+CLIENT_TS_SKEW_S = 600.0
+
+
 def _stored_time(*values) -> Optional[float]:
     """The first of *values* that reads as a time (epoch seconds or an ISO string from Supabase), else None.
     A session reloaded after a restart got the load time on every message (seam audit 28.10): the session
@@ -244,7 +248,9 @@ class Session(BaseModel):
         message = SessionMessage(role=role, content=content, source=source)
         # The utterance time the client stamped (voice) — the same time the reloaded row will carry.
         when = _stored_time((extra or {}).get("client_ts"))
-        if when is not None:
+        # A device with a wrong clock must not move the session in the list: the client's stamp only within
+        # CLIENT_TS_SKEW_S of the server's own time (review 28.10).
+        if when is not None and abs(when - message.timestamp) <= CLIENT_TS_SKEW_S:
             message.timestamp = when
         self.messages.append(message)
         if self._persistence is not None:
@@ -367,7 +373,9 @@ class SessionStore:
                 source=m.get("source", "text") or "text",
             )
             # Its real time: the client's utterance stamp, else the row's own (28.10).
-            when = _stored_time(m.get("client_ts"), m.get("created_at"))
+            stamped = _stored_time(m.get("client_ts"))
+            written = _stored_time(m.get("created_at"))
+            when = stamped if stamped is not None and (written is None or abs(stamped - written) <= CLIENT_TS_SKEW_S) else written
             if when is not None:
                 message.timestamp = when
             session.messages.append(message)

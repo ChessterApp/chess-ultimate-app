@@ -77,10 +77,13 @@ const rows: Row[] = [
   { name: 'voice/idea (live game)', route: 'voice/idea', method: 'POST', client: 'hooks/useGeminiLive.ts:1775-1782',
     body: { text: 'а если Кc6?', fen: FEN, live_game: true }, hermes: 'POST /api/coach/voice/idea', hermesUrl: /\/api\/coach\/voice\/idea$/,
     hermesOnly: { pgn: 'in a live game the idea is a «what if» on the current position, no past move to find' } },
-  { name: 'voice/check', route: 'voice/check', method: 'POST', client: 'hooks/useGeminiLive.ts:1342-1351',
+  { name: 'voice/check (not in a game)', route: 'voice/check', method: 'POST', client: 'hooks/useGeminiLive.ts:1342-1356',
+    body: { text: 'Партия шла так: 1. e4 e5', fen: FEN, pgn: PGN, question: 'как шла партия?', session_id: 's1' },
+    hermes: 'POST /api/coach/voice/check', hermesUrl: /\/api\/coach\/voice\/check$/ },
+  { name: 'voice/check (live game)', route: 'voice/check', method: 'POST', client: 'hooks/useGeminiLive.ts:1342-1356',
     body: { text: 'Мой ответ — конь на f6', fen: FEN, question: 'что ты играешь?', session_id: 's1' },
     hermes: 'POST /api/coach/voice/check', hermesUrl: /\/api\/coach\/voice\/check$/,
-    hermesOnly: { pgn: 'KNOWN GAP (28.10, separate finding): the page never sends pgn, so outside a live game Hermes cannot check the game history the coach retells' } },
+    hermesOnly: { pgn: 'in a live game Hermes reads the game from the session (28.10)' } },
   { name: 'voice/intent', route: 'voice/intent', method: 'POST', client: 'hooks/useGeminiLive.ts:1586-1595',
     body: { text: 'разбери мою партию', session_id: 's1', fen: FEN, pgn: PGN }, hermes: 'POST /api/coach/voice/intent', hermesUrl: /\/api\/coach\/voice\/intent$/ },
   { name: 'voice/tts', route: 'voice/tts', method: 'POST', client: 'hooks/usePipelineVoice.ts:236-240',
@@ -138,10 +141,7 @@ const rows: Row[] = [
  * pins the exact drop; when the fix lands it turns red: delete the entry so the row is a plain check.
  */
 const KNOWN_DROPS: Record<string, { dropped: string[]; note: string }> = {
-  'voice/idea (not in a game)': {
-    dropped: ['pgn'],
-    note: 'proxy forwards { text, fen, live_game } only since 12.10 (68f72fd0); fixed on fix/seam-voice-2026-10-28',
-  },
+  // none: voice/idea's pgn (lost since 12.10) is forwarded since 28.10
 };
 
 /** Site route + method pairs with a body that are not rows, and why. */

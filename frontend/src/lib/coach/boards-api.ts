@@ -137,12 +137,22 @@ export const SESSION_NOT_FOUND = 'session_not_found' as const;
  * route, a 5xx, a network error — is still `null`, so callers can forget a
  * dead session id without forgetting a live one on a hiccup.
  */
+/** Waits before asking again when Hermes answers 503 «session could not be loaded» (a passing Supabase blip, 28.10). */
+export const SESSION_RETRY_DELAYS_MS = [800, 2000];
+
 async function callOrSessionNotFound<T>(path: string): Promise<T | typeof SESSION_NOT_FOUND | null> {
   try {
-    const res = await fetch(path, {
+    let res = await fetch(path, {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
     });
+    // Hermes no longer caches a half-loaded session (it would run without its game): it says 503 and the page asks
+    // again, instead of showing no restored game until a reload (review 28.10).
+    for (const wait of SESSION_RETRY_DELAYS_MS) {
+      if (res.status !== 503) break;
+      await new Promise((r) => setTimeout(r, wait));
+      res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, credentials: 'include' });
+    }
     if (!res.ok) {
       if (await handleRestrictedResponse(res)) return null;
       if (res.status === 404) {

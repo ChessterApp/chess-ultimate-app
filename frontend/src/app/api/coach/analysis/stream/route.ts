@@ -103,8 +103,10 @@ export async function POST(request: NextRequest) {
     } catch {
       // not JSON: keep the status line
     }
+    // Hermes' 404 is «conversation not found»: sent as 410, because the mobile app reads a 404 from this route as
+    // «route not deployed» and silently retries on the old Flask one (review 28.10).
     return new Response(JSON.stringify(payload), {
-      status: hermesResponse.status,
+      status: hermesResponse.status === 404 ? 410 : hermesResponse.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }

@@ -142,7 +142,8 @@
   "fields": [
    "args",
    "session_id",
-   "utterance"
+   "utterance",
+   "locale"
   ]
  },
  "POST /api/coach/voice/check": {

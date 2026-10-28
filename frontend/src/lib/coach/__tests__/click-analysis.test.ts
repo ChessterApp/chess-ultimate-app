@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  packAnalysisRequest,
   ANALYSIS_CONTEXT_MAX,
   ANALYSIS_QUERY_MAX,
   arrowsFromBoardActions,
@@ -112,5 +113,19 @@ describe('readAnalysisReply (28.10: raw [[arrows]] in the text, invented model)'
     expect(samePosition(FEN, FEN.replace(' 0 1', ' 3 7'))).toBe(true);
     expect(samePosition(FEN, FEN.replace(' b ', ' w '))).toBe(false);
     expect(samePosition(FEN, null)).toBe(false);
+  });
+});
+
+describe('packAnalysisRequest (review 28.10: no silent loss while an older Hermes drops context_note)', () => {
+  const FEN = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+  it('a request that fits the query cap carries its grounding inside the query, as before', () => {
+    const r = packAnalysisRequest(FEN, 'Analyze e4.', '<analysis_context>\nengine: e5 (+0.3)\n</analysis_context>');
+    expect(r.context_note).toBeUndefined();
+    expect(r.query).toContain('engine: e5 (+0.3)');
+  });
+  it('only a request over the cap moves the grounding to context_note', () => {
+    const r = packAnalysisRequest(FEN, 'Analyze e4.', `<analysis_context>\n${'x'.repeat(2500)}\n</analysis_context>`);
+    expect(r.query).toBe('Analyze e4.');
+    expect(r.context_note?.length).toBeGreaterThan(2000);
   });
 });

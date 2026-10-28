@@ -77,6 +77,17 @@ export function buildAnalysisContextNote(g: AnalysisGrounding): string | undefin
   return open + body + close;
 }
 
+/**
+ * The grounding goes inside the query when the whole fits Hermes' query cap — as before 28.10, so an older Hermes
+ * (which drops context_note without a word) still gets the engine lines; only a request over the cap, which an older
+ * Hermes rejected anyway, carries it in context_note (review 28.10: no silent loss during the rollout).
+ */
+export function packAnalysisRequest(fen: string, query: string, note: string | undefined): AnalysisRequest {
+  if (!note) return { fen, query };
+  const inline = `${query}\n\n${note}`;
+  return inline.length <= ANALYSIS_QUERY_MAX ? { fen, query: inline } : { fen, query, context_note: note };
+}
+
 /** Append the student's note, cut so the query stays under Hermes' cap. */
 function withCustomQuery(base: string, closing: string, customQuery?: string): string {
   const note = customQuery?.trim();
@@ -255,8 +266,7 @@ Start the response with "Chesster Annotation:"
 
   const closing = type === 'annotation' ? '</chess_annotation_request>' : '</chess_analysis_request>';
   const query = withCustomQuery(base, closing, input.customQuery);
-  const context_note = buildAnalysisContextNote(input.grounding);
-  return context_note ? { fen, query, context_note } : { fen, query };
+  return packAnalysisRequest(fen, query, buildAnalysisContextNote(input.grounding));
 }
 
 /** «Разобрать ход» from the legal-moves list: the position after the move. */
@@ -279,8 +289,7 @@ Please follow this structure in your analysis:
 Be concise but thorough, and use clear chess language.
 
 Analyze this move from different points of view.`;
-  const context_note = buildAnalysisContextNote(grounding);
-  return context_note ? { fen: futureFen, query, context_note } : { fen: futureFen, query };
+  return packAnalysisRequest(futureFen, query, buildAnalysisContextNote(grounding));
 }
 
 /** The arrows of Hermes' board_actions (each draw_arrows carries all so far). */

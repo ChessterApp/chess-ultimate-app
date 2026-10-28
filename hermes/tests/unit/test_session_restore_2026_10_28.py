@@ -205,3 +205,17 @@ def test_voice_check_and_voice_tools_do_not_run_without_the_game_they_could_not_
     r = client.post("/api/coach/tool/analyze_position", headers=H, json={"args": {"fen": fen}, "session_id": sid})
     assert r.status_code == 503
     assert sb.writes == []
+
+
+def test_a_wrong_device_clock_does_not_move_a_message_in_time():
+    """Review 28.10: client_ts from a device whose clock is off by hours is ignored; a close one is kept."""
+    import time as _time
+
+    from src.sessions import Session
+
+    s = Session(id="clock-1", user_id="u-clock")
+    now = _time.time()
+    s.add_message("user", "e4", source="voice", extra={"client_ts": now - 3 * 3600})
+    s.add_message("user", "e5", source="voice", extra={"client_ts": now - 5})
+    assert abs(s.messages[0].timestamp - now) < 60
+    assert abs(s.messages[1].timestamp - (now - 5)) < 1

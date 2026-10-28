@@ -157,8 +157,11 @@ def test_sessions_list_orders_reloaded_sessions_by_real_activity():
 def test_appended_message_takes_the_client_time():
     store = SessionStore(persistence=_Rows({"id": "x", "user_id": "u"}, []))
     session = store.create(user_id="seam-user")
-    session.add_message("user", "spoken", source="voice", extra={"client_ts": "2026-10-28T08:00:00.000Z"})
-    assert session.messages[0].timestamp == pytest.approx(_epoch("2026-10-28T08:00:00Z"), abs=0.01)
+    from datetime import datetime, timedelta, timezone
+
+    said = (datetime.now(timezone.utc) - timedelta(seconds=40)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    session.add_message("user", "spoken", source="voice", extra={"client_ts": said})
+    assert session.messages[0].timestamp == pytest.approx(_epoch(said.replace(".000", "")), abs=0.01)
 
 
 @pytest.mark.unit
