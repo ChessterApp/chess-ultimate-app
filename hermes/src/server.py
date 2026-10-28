@@ -4840,11 +4840,17 @@ async def coach_feedback(body: CoachFeedbackRequest, request: Request):
 # injection — no parallel LLM path.
 
 
+# The page's grounding for a click-analysis (master stats, ChessDB candidates,
+# engine lines) travels apart from ``query``: glued onto it, it passed the
+# 2000-character query cap and every click got 400 (2026-10-28).
+ANALYSIS_CONTEXT_MAX = 12000
+
+
 def _validate_analysis_body(data: Optional[dict]):
     """Validate an analysis request body against the Flask contract.
 
-    Returns (fen, query, conversation_id, context_type) on success, or a
-    JSONResponse (400) to return directly on failure.
+    Returns (fen, query, conversation_id, context_type, context_note) on
+    success, or a JSONResponse (400) to return directly on failure.
     """
     if not data or "fen" not in data or "query" not in data:
         return JSONResponse(
@@ -4866,7 +4872,22 @@ def _validate_analysis_body(data: Optional[dict]):
             status_code=400,
             content={"success": False, "error": "Query too long (max 2000 characters)"},
         )
-    return fen, query, conversation_id, context_type
+    context_note = data.get("context_note")
+    if context_note is not None and not isinstance(context_note, str):
+        return JSONResponse(
+            status_code=400,
+            content={"success": False, "error": "context_note must be a string"},
+        )
+    context_note = (context_note or "").strip() or None
+    if context_note and len(context_note) > ANALYSIS_CONTEXT_MAX:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": f"Context too long (max {ANALYSIS_CONTEXT_MAX} characters)",
+            },
+        )
+    return fen, query, conversation_id, context_type, context_note
 
 
 def _check_analysis_rate_limit(request: Request, user_id: str):
@@ -4912,11 +4933,12 @@ def _resolve_analysis_session(user_id: str, conversation_id: Optional[str]):
     return session_store.create(user_id=user_id)
 
 
-def _prepare_analysis_turn(session, fen: str, query: str):
+def _prepare_analysis_turn(session, fen: str, query: str, context_note: Optional[str] = None):
     """Set the board, record the user message, and build the agent inputs.
 
     Returns (agent, augmented_message). The system prompt is built with the FEN
-    so the <board_analysis> tactical context is auto-injected.
+    so the <board_analysis> tactical context is auto-injected. ``context_note``
+    reaches the model for this turn only — history keeps the request itself.
     """
     if fen:
         try:
@@ -4937,14 +4959,15 @@ def _prepare_analysis_turn(session, fen: str, query: str):
     # Prepend recent conversation history (excluding the just-added user message)
     # so multi-turn analysis threads keep context — mirrors coach_chat.
     history_messages = session.messages[:-1]
+    current = f"{context_note}\n\n{query}" if context_note else query
     if history_messages:
         recent = history_messages[-20:]
         history_text = "\n".join(f"[{m.role}]: {m.content}" for m in recent)
         augmented = (
-            f"Previous conversation:\n{history_text}\n\nCurrent message:\n{query}"
+            f"Previous conversation:\n{history_text}\n\nCurrent message:\n{current}"
         )
     else:
-        augmented = query
+        augmented = current
 
     agent = _create_agent(
         model=model, system_prompt=system_prompt, session_id=session.id,
@@ -4998,7 +5021,7 @@ async def coach_analysis(request: Request):
     validated = _validate_analysis_body(data)
     if isinstance(validated, JSONResponse):
         return validated
-    fen, query, conversation_id, _context_type = validated
+    fen, query, conversation_id, _context_type, context_note = validated
 
     limited = _check_analysis_rate_limit(request, user_id)
     if isinstance(limited, JSONResponse):
@@ -5009,7 +5032,9 @@ async def coach_analysis(request: Request):
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
+    agent, augmented = await asyncio.to_thread(
+        _prepare_analysis_turn, session, fen, query, context_note
+    )
 
     loop = asyncio.get_event_loop()
     try:
@@ -5038,6 +5063,10 @@ async def coach_analysis(request: Request):
         )
         response_text = "I wasn't able to generate a response. Please try again."
 
+    # The same marks the stream turns into board_actions; here they reached
+    # the /position, /game, /puzzle click-analysis text raw (2026-10-28).
+    response_text, board_actions = strip_markup(response_text, fen)
+
     # Record real token usage for this turn (fire-and-forget; never blocks/raises)
     _record_turn_usage(
         agent, user_id, session.id, getattr(agent, "model", "unknown"),
@@ -5050,6 +5079,7 @@ async def coach_analysis(request: Request):
     return {
         "success": True,
         "response": response_text,
+        "board_actions": board_actions,
         "conversation_id": session.id,
         "tokens_used": tokens_used,
         "usage": {
@@ -5078,7 +5108,7 @@ async def coach_analysis_stream(request: Request):
     validated = _validate_analysis_body(data)
     if isinstance(validated, JSONResponse):
         return validated
-    fen, query, conversation_id, _context_type = validated
+    fen, query, conversation_id, _context_type, context_note = validated
 
     limited = _check_analysis_rate_limit(request, user_id)
     if isinstance(limited, JSONResponse):
@@ -5088,7 +5118,9 @@ async def coach_analysis_stream(request: Request):
     if isinstance(session, JSONResponse):
         return session
 
-    agent, augmented = await asyncio.to_thread(_prepare_analysis_turn, session, fen, query)
+    agent, augmented = await asyncio.to_thread(
+        _prepare_analysis_turn, session, fen, query, context_note
+    )
 
     async def event_stream():
         streamed_any = False
