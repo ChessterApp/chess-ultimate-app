@@ -1389,12 +1389,17 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
   const AFTER_GAME = game({ fen: AFTER, student: { san: 'e4', uci: 'e2e4', verdict: 'ok', cp_loss: 0, eval_after: 0.3, best: null }, engine: { san: 'd5', uci: 'd7d5' } });
 
   let toolReply: (body: any) => any = () => ({});
+  let engineReply: (body: any) => any = () => ({});
+  let intentReply: (body: any) => any = () => ({});
+  afterEach(() => { engineReply = () => ({}); intentReply = () => ({}); });
   async function connectWith(opts: Record<string, unknown>) {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
       if (url === '/api/coach/live-token') {
         return { ok: true, json: async () => ({ token: 'auth_tokens/abc', model: 'gemini-3.1-flash-live-preview', expiresAt: '2026-01-01T00:00:00.000Z' }) };
       }
       if (url === '/api/coach/tool') return { ok: true, json: async () => toolReply(JSON.parse(init.body)) };
+      if (url === '/api/coach/voice/engine-note') return { ok: true, json: async () => engineReply(JSON.parse(init.body)) };
+      if (url === '/api/coach/voice/intent') return { ok: true, json: async () => intentReply(JSON.parse(init.body)) };
       return { ok: true, json: async () => ({}) };
     }));
     const hook = renderHook(() => useGeminiLive(opts as any));
@@ -1444,6 +1449,245 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(sent().at(-1)).toMatch(/^\[Game\].*the engine answered d5/);
     // Hermes answers with the evaluation and the threat for the game, no best move (as the text coach gets).
     expect(bodiesTo('/api/coach/voice/engine-note').at(-1)).toMatchObject({ fen: AFTER, session_id: 's1' });
+  });
+
+  // Alexander 27.10: the engine's best answer reached the voice coach and it announced it as its own move.
+  const AFTER_E4 = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1';
+  it("the student's hand move before the engine's reply is not told: no engine line with the best answer", async () => {
+    engineReply = () => ({ fen: AFTER_E4, note: '[Engine] … Black to move. Best: e5', kind: undefined });
+    const { result } = await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+    g.session.sendClientContent.mockClear();
+    (globalThis.fetch as any).mockClear();
+    act(() => result.current.sendBoardUpdate(AFTER_E4));  // the piece moved on the board, the reply still on its way
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent()).toHaveLength(0);
+    expect(bodiesTo('/api/coach/voice/engine-note')).toHaveLength(0);
+  });
+
+  it('a plain engine line answered for the game position is dropped (the game moved on, or an older Hermes)', async () => {
+    engineReply = (b) => ({ fen: b.fen, note: '[Engine] … Best: Nf6 (line Nf6 d3)' });
+    const { result } = await connectWith({ getGame: () => AFTER_GAME, getFen: () => START, getSessionId: () => 's1' });
+    act(() => result.current.sendBoardUpdate(AFTER));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/engine-note').length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(sent().some((t) => t.includes('Best: Nf6'))).toBe(false);
+  });
+
+  it("the game's own facts still reach the coach", async () => {
+    engineReply = (b) => ({ fen: b.fen, kind: 'game', note: '[Game] Engine facts for the game (no best move for the student): equal.' });
+    const { result } = await connectWith({ getGame: () => AFTER_GAME, getFen: () => START, getSessionId: () => 's1' });
+    act(() => result.current.sendBoardUpdate(AFTER));
+    await waitFor(() => expect(sent().some((t) => t.startsWith('[Game] Engine facts'))).toBe(true));
+  });
+
+  it('a finished game at its final position keeps the engine line (after a game the best move is fine)', async () => {
+    engineReply = (b) => ({ fen: b.fen, note: '[Engine] … Best: Nf3' });
+    const finished = { ...AFTER_GAME, status: 'finished', result: '1-0' };
+    await connectWith({ getGame: () => finished, getFen: () => AFTER, getSessionId: () => 's1' });
+    await waitFor(() => expect(sent().some((t) => t.includes('Best: Nf3'))).toBe(true));
+  });
+
+  it('another board shown during the game (a master-game tab) is told as itself, with its engine line', async () => {
+    engineReply = (b) => ({ fen: b.fen, note: '[Engine] … Best: e4' });
+    await connectWith({ getGame: () => AFTER_GAME, getFen: () => START, getSessionId: () => 's1', getBoardIsGame: () => false });
+    await waitFor(() => expect(sent().some((t) => t.includes('Best: e4'))).toBe(true));
+  });
+
+  describe("a move said in the game: the coach's words wait for the engine's real reply (Alexander 27.10)", () => {
+    const MOVE_RESULT = { result: { ok: true, student_move: 'e4', engine_reply: 'd5' }, board_actions: [{ type: 'game', game: AFTER_GAME }] };
+    const msg = (serverContent: any) => act(() => g.connectArgs.value.callbacks.onmessage({ serverContent }));
+    const audio = () => msg({ modelTurn: { parts: [{ inlineData: { data: AUDIO_B64, mimeType: 'audio/pcm;rate=24000' } }] } });
+    const noteCall = () => g.session.sendClientContent.mock.calls.find((c: any[]) => c[0].turns[0].parts[0].text.startsWith("[Game] The student's move e4"));
+    let gate: { release: () => void; promise: Promise<void> };
+    beforeEach(() => {
+      let release!: () => void;
+      gate = { release: () => release(), promise: new Promise<void>((r) => { release = r; }) };
+      toolReply = async (b) => {
+        if (b.name !== 'make_game_move') return {};
+        await gate.promise;  // the engine thinks until the test lets it answer
+        return MOVE_RESULT;
+      };
+    });
+
+    it('the held turn already over: dropped, never heard, and the coach answers from the [Game] line at once', async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('e2-e4');
+      audio();  // «Мой ответ — конь на f6», before the engine moved
+      msg({ outputTranscription: { text: 'Мой ответ — конь на f6. ' } });
+      msg({ turnComplete: true });
+      expect(createdSources.length).toBe(before);
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turnComplete).toBe(true);
+      audio();  // the answer with the real reply is heard
+      expect(createdSources.length).toBe(before + 1);
+      // the dropped words are never corrected aloud
+      await new Promise((r) => setTimeout(r, 0));
+      msg({ turnComplete: true });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(sent().some((t) => t.includes('конь на f6') && !t.startsWith("[Game]"))).toBe(false);
+    });
+
+    it('the held turn still streaming: the [Game] line cuts it, its rest is never heard, the answer follows', async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('e2-e4');
+      audio();
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turnComplete).toBe(true);  // cuts the turn at once, no wait for its paced end
+      audio();  // the rest of the old turn, before the cut lands
+      expect(createdSources.length).toBe(before);
+      msg({ interrupted: true });
+      audio();  // the answer with the real reply
+      expect(createdSources.length).toBe(before + 1);
+    });
+
+    it('the held words are not shown in the chat when they are dropped', async () => {
+      const onTranscript = vi.fn();
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1', onTranscript });
+      say('e2-e4');
+      audio();
+      msg({ outputTranscription: { text: 'Мой ответ — конь на f6. ' } });
+      msg({ turnComplete: true });
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(onTranscript.mock.calls.some(([t]: any[]) => t.role === 'model' && String(t.text).includes('f6'))).toBe(false);
+    });
+
+    it('a second utterance in the silence does not let the held words out while the move is on its way', async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('e2-e4');
+      audio();
+      msg({ turnComplete: true });
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+      msg({ inputTranscription: { text: 'ну что?', finished: true } });
+      await new Promise((r) => setTimeout(r, 700));  // its own lookup is done
+      expect(createdSources.length).toBe(before);
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turnComplete).toBe(true);
+    });
+
+    it('a bare pawn move («е4») holds the coach too, as Hermes plays it', async () => {
+      intentReply = () => ({ kind: 'move', san: 'e4' });
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('е4');
+      audio();
+      expect(createdSources.length).toBe(before);
+      msg({ turnComplete: true });
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turnComplete).toBe(true);
+    });
+
+    it('words added while the coach is held are a new utterance: the move is not sent twice', async () => {
+      intentReply = () => ({ kind: 'move', san: 'e4' });
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      say('e2-e4');
+      audio();
+      msg({ outputTranscription: { text: 'Секунду, ' } });
+      say(' давай');
+      await new Promise((r) => setTimeout(r, 700));
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'make_game_move')).toHaveLength(1);
+    });
+
+    it('with no Hermes intent, «ну что?» in the wait is not sent as a move and does not let the held words out', async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('e2-e4');
+      audio();
+      msg({ turnComplete: true });
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+      msg({ inputTranscription: { text: 'ну что?', finished: true } });
+      await new Promise((r) => setTimeout(r, 700));
+      expect(bodiesTo('/api/coach/tool').filter((b: any) => b.name === 'make_game_move')).toHaveLength(1);
+      expect(createdSources.length).toBe(before);
+      gate.release();
+      await waitFor(() => expect(noteCall()).toBeTruthy());
+      expect(noteCall()[0].turnComplete).toBe(true);
+    });
+
+    it('«верни ход e4» holds the coach too, and the takeback result settles it: the held claim is never heard', async () => {
+      intentReply = () => ({ kind: 'game_command', command: 'takeback' });
+      toolReply = async (b) => {
+        if (b.name !== 'game_action') return {};
+        await gate.promise;
+        return { result: { action: 'takeback', done: true }, board_actions: [{ type: 'game', game: game() }] };
+      };
+      await connectWith({ getGame: () => AFTER_GAME, getFen: () => AFTER, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('верни ход e4');
+      audio();  // «Хорошо, мой ответ — конь на f6.»
+      msg({ turnComplete: true });
+      gate.release();
+      const takeback = () => g.session.sendClientContent.mock.calls.find((c: any[]) => c[0].turns[0].parts[0].text.includes('take back'));
+      await waitFor(() => expect(takeback()).toBeTruthy());
+      expect(takeback()[0].turnComplete).toBe(true);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(createdSources.length).toBe(before);
+    });
+
+    it('a refused move: the held words are dropped and the coach says the refusal', async () => {
+      toolReply = async (b) => {
+        if (b.name !== 'make_game_move') return {};
+        await gate.promise;
+        return { result: { error: 'illegal move' } };
+      };
+      intentReply = () => ({ kind: 'move', san: 'e4' });  // Hermes read a move: the strict path
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      const before = createdSources.length;
+      say('e2-e4');
+      audio();
+      msg({ turnComplete: true });
+      gate.release();
+      await waitFor(() => expect(g.session.sendClientContent.mock.calls.some((c: any[]) => /^\[Game\].*NOT/i.test(c[0].turns[0].parts[0].text) || /refus|not played|could not/i.test(c[0].turns[0].parts[0].text))).toBe(true));
+      const refusal = g.session.sendClientContent.mock.calls.at(-1);
+      expect(refusal[0].turnComplete).toBe(true);
+      expect(createdSources.length).toBe(before);
+    });
+
+    it("the model's own make_game_move waiting on the site: one answer, from its tool response", async () => {
+      await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+      say('e2-e4');
+      audio();  // «секунду»
+      await waitFor(() => expect(bodiesTo('/api/coach/tool').some((b: any) => b.name === 'make_game_move')).toBe(true));
+      await act(async () => {
+        g.connectArgs.value.callbacks.onmessage({ toolCall: { functionCalls: [{ id: 'c1', name: 'make_game_move', args: { move: 'e4' } }] } });
+        await new Promise((r) => setTimeout(r, 0));
+      });
+      gate.release();
+      await waitFor(() => expect(g.session.sendToolResponse).toHaveBeenCalled());
+      expect(noteCall()[0].turnComplete).toBe(false);
+      audio();  // the post-tool answer is heard
+      expect(createdSources.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("in a game the coach naming its own move is checked even past the per-turn limit", async () => {
+    await connectWith({ getGame: () => game(), getFen: () => START, getSessionId: () => 's1' });
+    act(() => g.connectArgs.value.callbacks.onmessage({ serverContent: { outputTranscription: {
+      text: 'Конь f3 хорош. Слон c4 тоже неплох. Мой ответ — конь на f6. ' } } }));
+    await waitFor(() => expect(bodiesTo('/api/coach/voice/check')).toHaveLength(3));
+    expect(bodiesTo('/api/coach/voice/check')[2].text).toContain('Мой ответ');
+  });
+
+  it('a new conversation during the game is told the game again, without announcing a move', async () => {
+    const { result } = await connectWith({ getGame: () => AFTER_GAME, getFen: () => AFTER, getSessionId: () => 's1' });
+    expect(sent().some((t) => t.startsWith('[Game] A game against the student'))).toBe(true);
+    act(() => result.current.disconnect());
+    g.session.sendClientContent.mockClear();
+    await act(async () => {
+      await result.current.connect();
+    });
+    const told = g.session.sendClientContent.mock.calls.find((c: any[]) => c[0].turns[0].parts[0].text.startsWith('[Game] A game against the student'));
+    expect(told).toBeTruthy();
+    expect(told[0].turnComplete).toBe(false);
   });
 
   it('a move said in the game is not looked up as an idea', async () => {

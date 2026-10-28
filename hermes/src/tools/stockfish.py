@@ -371,12 +371,40 @@ def _bounded_int(value, default: int, low: int, high: int) -> int:
         return default
 
 
+def _live_game_turn(fen: str, kwargs: dict) -> str | None:
+    """See game_mode.game_turn: the session's shown game, its live position or one move on."""
+    sid = kwargs.get("session_id")
+    if not sid:
+        return None
+    try:
+        from src.game_mode import game_turn
+        from src.sessions import session_store
+
+        return game_turn(session_store.get(sid, kwargs.get("user_id")), fen)
+    except Exception:  # noqa: BLE001 — the guard never breaks the analysis
+        return None
+
+
 def _handle_analyze_position(args: dict, **kwargs) -> str:
     result = analyze_cached(
         fen=args.get("fen", ""),
         depth=_bounded_int(args.get("depth"), DEFAULT_DEPTH, 1, MAX_DEPTH),
         multipv=_bounded_int(args.get("multipv"), DEFAULT_MULTIPV, 1, MAX_MULTIPV),
     )
+    # In a game the engine plays the coach's moves at the game's strength, not Stockfish's best: a line from here
+    # handed the coach a reply to announce as its own while the engine played another (Alexander 27.10). The live
+    # position keeps only the student's candidate moves; the position after the student's move keeps no move at all.
+    turn = _live_game_turn(args.get("fen", ""), kwargs) if isinstance(result, dict) and result.get("lines") else None
+    if turn:
+        result = dict(result)
+        if turn == "live":
+            result["lines"] = [{**ln, "pv": ((ln.get("pv") or "").split() or [""])[0]} for ln in result["lines"]]
+        else:
+            result["lines"] = [{k: v for k, v in ln.items() if k != "pv"} for ln in result["lines"][:1]]
+            result.pop("best_move", None)
+        from src.game_mode import GAME_TOOL_NOTE
+
+        result["game_note"] = GAME_TOOL_NOTE
     return json.dumps(result, indent=2)
 
 

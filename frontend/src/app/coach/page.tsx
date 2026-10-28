@@ -1160,6 +1160,7 @@ export default function CoachPage() {
       game={game}
       viewPly={viewPly}
       viewLine={viewLine}
+      boardIsGame={!momentFen && !(activeGameId && activeGame)}
       composerHidden={gameLive && !playChatOpen}
       onAssistantReply={handleAssistantReply}
       // Phones: the sheet hosts the chat — its peek, the game's actions or the puzzle's steps.

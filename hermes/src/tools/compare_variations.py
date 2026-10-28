@@ -88,6 +88,20 @@ def _handle_compare_variations(args: dict, **kwargs) -> str:
         num_lines=_bounded_int(args.get("num_lines"), DEFAULT_NUM_LINES, 1, 10),
         depth=_bounded_int(args.get("depth"), DEFAULT_DEPTH, 1, MAX_DEPTH),
     )
+    # In a game: the student's candidates only at the live position, no moves after the student's move — a line
+    # names a reply the engine (at the game's strength) may not play, and the coach announced one (27.10).
+    from src.tools.stockfish import _live_game_turn
+
+    turn = _live_game_turn(args.get("fen", ""), kwargs) if isinstance(result, dict) and result.get("variations") else None
+    if turn:
+        from src.game_mode import GAME_TOOL_NOTE
+
+        result = dict(result)
+        if turn == "live":
+            result["variations"] = [{**v, "moves": ((v.get("moves") or "").split() or [""])[0]} for v in result["variations"]]
+        else:
+            result["variations"] = [{k: x for k, x in v.items() if k != "moves"} for v in result["variations"][:1]]
+        result["game_note"] = GAME_TOOL_NOTE
     return json.dumps(result, indent=2)
 
 

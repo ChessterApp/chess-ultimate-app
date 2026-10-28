@@ -4097,6 +4097,18 @@ def _voice_board_note(fen: str, session_id: Optional[str], user_id: str) -> Opti
     session = session_store.get(session_id, user_id) if session_id else None
     board_rec = session.get_board(session.active_board_id) if session and session.active_board_id else None
     game = live_game_board(session) if session else None
+    if game is not None:
+        from src.game_mode import shown_game
+
+        game = shown_game(session)  # another board shown (a master game, a puzzle): not the game's position
+    if game is not None and game.fen.split()[0] != fen.split()[0]:
+        from src.game_mode import belongs_to_game
+
+        # Another position of the game itself (a past ply, a side line, the student's move before the engine's
+        # reply, or a request that the game has overtaken): no engine line — it names the best move, and the
+        # voice coach told it as its own move (Alexander 27.10). The game's [Game] lines tell those positions.
+        if belongs_to_game(game.game_state or {}, fen):
+            return {"fen": fen, "note": None, "kind": "game"}
     if game is not None and game.fen.split()[0] == fen.split()[0]:
         from src.hypothetical import live_game_note
 

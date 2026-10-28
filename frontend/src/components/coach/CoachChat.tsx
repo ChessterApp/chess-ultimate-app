@@ -86,6 +86,8 @@ interface CoachChatProps {
   viewPly?: number | null;
   /** A side line of the game on the board (taken back, kept in the notation): its moves from the start (26.10). */
   viewLine?: string[] | null;
+  /** The board the chat talks about is the study board (no master-game tab or moment on it): a game there is the one shown (28.10). */
+  boardIsGame?: boolean;
   /** Hide the composer (a game's action bar stands in for it); voice controls stay while voice is on. */
   composerHidden?: boolean;
   /** A finished assistant answer or remark — the play strip quotes it in the coach's bubble. */
@@ -202,6 +204,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     game = null,
     viewPly = null,
     viewLine = null,
+    boardIsGame = true,
     composerHidden = false,
     onAssistantReply,
     view = 'thread',
@@ -438,6 +441,8 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
   viewPlyRef.current = viewPly;
   const viewLineRef = useRef<string[] | null | undefined>(viewLine);
   viewLineRef.current = viewLine;
+  const boardIsGameRef = useRef(boardIsGame);
+  boardIsGameRef.current = boardIsGame;
   const commentAbortRef = useRef<AbortController | null>(null);
   // The pipeline's timings pill is a developer's tool: ?voiceDebug=1 (kept in the browser) shows it (audit 26.10).
   const [voiceDebug] = useState(() => {
@@ -467,6 +472,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
     getSessionId,
     getViewPly: () => viewPlyRef.current ?? null,
     getViewLine: () => viewLineRef.current ?? null,
+    getBoardIsGame: () => boardIsGameRef.current,
     onTranscript: handleTranscript,
     onToolResult: handleVoiceToolResult,
     onQuotaExhausted: handleVoiceQuotaExhausted,

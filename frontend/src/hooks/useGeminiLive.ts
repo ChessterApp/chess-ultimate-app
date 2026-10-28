@@ -19,7 +19,7 @@ import {
   gameStartNote,
   mayAskForAGame,
   mayCommandTheGame,
-  mentionsAGame, factsNote, unclearMoveNote, browsingNote } from '@/lib/coach/voice-game';
+  mentionsAGame, factsNote, unclearMoveNote, browsingNote, ownGamePosition } from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -103,6 +103,15 @@ export const VOICE_IDEA_HOLD_MS = Number(process.env.NEXT_PUBLIC_VOICE_IDEA_HOLD
 // A bad verdict already in, the coach not having said it: its first sentence is held until it shows
 // whether it does (the [Idea] line often comes before the first word and is answered past anyway —
 // voice bench 2026-10-08: 5 of 8 answers still let 0.3–1.2 s of it be heard).
+// In a game, the coach's words after a move the student said wait for the engine's real reply, at most this long
+// (Alexander 27.10: «Мой ответ — конь на f6» spoken before the engine had played a6). 0 — off.
+export const VOICE_GAME_MOVE_HOLD_MS = Number(process.env.NEXT_PUBLIC_VOICE_GAME_MOVE_HOLD_MS ?? 5000) || 0;
+/** In a game, words that may be a move — a piece, a move pattern, or a bare square («е4», «хожу д4», «exd5»). A false
+ * arm costs only the intent's round trip: the hold is let go when nothing is played (review 28.10). */
+export function mayBeAGameMove(text: string): boolean {
+  return IDEA_MOVE_RE.test(text)
+    || (/(?:^|[^0-9A-Za-zА-Яа-яЁё])[a-hабвсдефгх][1-8](?![0-9])/i.test(text) && text.trim().split(/\s+/).length <= 6);
+}
 export const VOICE_VERDICT_HOLD_MS = VOICE_IDEA_HOLD_MS > 0 ? Math.max(VOICE_IDEA_HOLD_MS, 1500) : 0;
 
 /**
@@ -215,6 +224,9 @@ export const SPEECH_SENTENCE_END_RE = /[.!?…](?:\s|$)/;
 // Only sentences with chess content are worth a round trip.
 export const SPEECH_CHECKABLE_RE = /[a-h][1-8]|\d|кон[ьяю]|слон|лад[ьё]|ферз|корол|пешк|knight|bishop|rook|queen|king|pawn/i;
 export const SPEECH_CHECK_MAX_PER_TURN = 2;
+// In a game, the coach naming its own move is always checked, past the limit (Alexander 27.10: the note read aloud
+// used both checks up, and «Мой ответ — конь на f6» was never checked).
+export const COACH_MOVE_CLAIM_RE = /мой\s+(?:ход|ответ)|(?:^|[\s,.—-])я\s+(?:хожу|пойду|сыграю|играю|отвечу|отвечаю|забираю|заберу|беру|возьму|бью|побью|ставлю|двигаю)|(?:^|[\s,.—-])(?:отвечу|отвечаю|забираю|заберу|возьму|сыграю|пойду)\s|my\s+(?:move|reply|answer)|\bI(?:'ll|\s+will)?\s+(?:play|take|capture|answer|reply)/i;
 
 /** The note that makes the coach correct a sentence that was wrong on the board. */
 export function correctionNote(sentences: { text: string; issues: string[] }[]): string | null {
@@ -412,6 +424,8 @@ export interface UseGeminiLiveOptions {
   getViewPly?: () => number | null | undefined;
   /** A side line of the game on the board (taken back, kept in the notation): its moves from the start (26.10). */
   getViewLine?: () => string[] | null | undefined;
+  /** False while a master-game tab or a moment is on the board instead of the study board with the game (28.10). */
+  getBoardIsGame?: () => boolean | undefined;
   onTranscript?: (t: {
     role: 'user' | 'model';
     text: string;
@@ -632,6 +646,26 @@ export default function useGeminiLive(
   // The game position the voice coach was last told about (by a tool result or a [Game] line):
   // the board change it causes is not reported a second time.
   const gameToldFenRef = useRef<string | null>(null);
+  // A move said in the game is being played: the coach's audio is held until its [Game] line (28.10).
+  const gameMoveHoldRef = useRef(false);
+  // What the coach said before the engine's reply came is never heard: dropped until its turn ends (28.10).
+  const discardTurnRef = useRef(false);
+  // The coach's words while a move said in the game is held: shown and checked only once they are heard (28.10).
+  const heldTextRef = useRef<{ text: string; final: boolean }[]>([]);
+  // Audio came while the hold was armed (it may have been let go by the hold's time limit and heard).
+  const audioSinceHoldRef = useRef(false);
+  // The coach's words, shown and checked (set each render below; the hold replays held words through it).
+  const processModelTextRef = useRef<(text: string, final: boolean, check?: boolean) => void>(() => {});
+  // Settles the hold when the move's [Game] line (or its refusal) is ready: true when the coach must answer now.
+  const settleGameHoldRef = useRef<(tool: string) => boolean>(() => false);
+  // The model's turn is streaming (audio or words since its last turnComplete / interruption).
+  const modelTurnOpenRef = useRef(false);
+  // Tools the model called that are waiting on the site's own call for the same words (see sitePendingRef).
+  const modelWaitsForSiteRef = useRef<Set<string>>(new Set());
+  // Bumped when words already said are dropped: their pending checks are not read back to the coach (28.10).
+  const speechGenRef = useRef(0);
+  // make_game_move calls of the site still on their way (sitePendingRef keeps only the latest one per name).
+  const movesInFlightRef = useRef<Set<{ gen: number }>>(new Set());
   const gameToldPlyRef = useRef<number | undefined>(undefined);
   // What the board shows besides the live game, for the game tools (view_ply / view_line).
   const browsingArgs = useCallback((): Record<string, unknown> => {
@@ -643,6 +677,7 @@ export default function useGeminiLive(
     };
   }, []);
   const gameLive = () => optionsRef.current.getGame?.()?.status === 'playing';
+  const moveInFlight = () => [...movesInFlightRef.current].some((m) => m.gen === connGenRef.current);
 
 
   const statusRef = useRef<LiveStatus>('idle');
@@ -915,6 +950,13 @@ export default function useGeminiLive(
     engineNoteAbortRef.current?.abort();
     engineNoteAbortRef.current = null;
     boardFenRef.current = null;
+    // A held or discarded turn does not outlive its connection (review 28.10).
+    discardTurnRef.current = false;
+    gameMoveHoldRef.current = false;
+    audioSinceHoldRef.current = false;
+    heldTextRef.current = [];
+    modelTurnOpenRef.current = false;
+    ideaGateRef.current?.drop();
     const node = workletNodeRef.current;
     if (node) {
       try {
@@ -1108,10 +1150,13 @@ export default function useGeminiLive(
             // …or is making it right now: wait for it rather than call Hermes a second time.
             const pending = sitePendingRef.current.get(fc.name);
             if (pending) {
+              modelWaitsForSiteRef.current.add(fc.name);
               try {
                 await pending;
               } catch {
                 /* the site's call failed: the model's own call goes ahead */
+              } finally {
+                modelWaitsForSiteRef.current.delete(fc.name);
               }
               siteResult = siteResultsRef.current.get(fc.name);
             }
@@ -1287,8 +1332,12 @@ export default function useGeminiLive(
     // In a game a short announcement is a claim too: «Я пойду d3.» is checked against the engine's moves (audit 26.10).
     const liveGame = optionsRef.current.getGame?.()?.status === 'playing';
     if (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4)) return;
-    if (speechChecksRef.current >= SPEECH_CHECK_MAX_PER_TURN) return;
-    speechChecksRef.current += 1;
+    const ownMove = liveGame && COACH_MOVE_CLAIM_RE.test(sentence);
+    const generation = speechGenRef.current;
+    if (!ownMove) {
+      if (speechChecksRef.current >= SPEECH_CHECK_MAX_PER_TURN) return;
+      speechChecksRef.current += 1;
+    }
     try {
       const res = await fetch('/api/coach/voice/check', {
         method: 'POST',
@@ -1305,6 +1354,7 @@ export default function useGeminiLive(
       if (!res.ok) return;
       const data = (await res.json().catch(() => null)) as { issues?: string[] } | null;
       if (sessionRef.current !== session) return;
+      if (generation !== speechGenRef.current) return;  // words dropped meanwhile: never heard, never corrected
       if (Array.isArray(data?.issues) && data.issues.length) {
         wrongSentencesRef.current.push({ text: sentence, issues: data.issues });
       }
@@ -1312,6 +1362,74 @@ export default function useGeminiLive(
       /* unavailable (an older Hermes answers 404) — the coach is simply not corrected */
     }
   }, []);
+
+  // The coach's words: shown in the chat, and each finished sentence checked on the board (a held word replays here
+  // once heard; with check false a word already heard is shown, not checked — its answer follows; 28.10).
+  processModelTextRef.current = (text: string, final: boolean, check = true) => {
+    closeUtterance('user');
+    openUtterancesRef.current.model = !final;
+    optionsRef.current.onTranscript?.({
+      role: 'model',
+      text: text,
+      final,
+      turnId: turnIdRef.current ?? undefined,
+    });
+    // Each finished sentence of the coach goes to the board check.
+    modelSentenceRef.current += text;
+    modelTurnTextRef.current += text;
+    if (ideaGate().waiting && ideaVerdictRef.current && !verdictNote(ideaVerdictRef.current, modelTurnTextRef.current)) {
+      ideaGate().release();  // the coach is saying the point: what it held plays
+    }
+    const session = sessionRef.current;
+    let m: RegExpExecArray | null;
+    while (session && (m = SPEECH_SENTENCE_END_RE.exec(modelSentenceRef.current))) {
+      const sentence = modelSentenceRef.current.slice(0, m.index + 1);
+      modelSentenceRef.current = modelSentenceRef.current.slice(m.index + m[0].length);
+      if (check) speechCheckPendingRef.current.push(checkSpokenSentence(sentence, session));
+      // A sentence done and the point of the student's idea still unsaid, though the
+      // [Idea] line is in: said now, not after a whole answer past it (voice bench
+      // 2026-10-07: 5 of 9 answers ignored a line that came before them).
+      const early = verdictNote(ideaVerdictRef.current, modelTurnTextRef.current);
+      if (early) {
+        ideaVerdictRef.current = null;
+        ideaGate().drop();  // a sentence past the point, never heard
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: early }] }], turnComplete: true });
+      } else if (ideaGate().waiting && ideaVerdictRef.current) {
+        ideaGate().release();  // the first sentence said the point
+      }
+    }
+  };
+
+  settleGameHoldRef.current = (tool: string) => {
+    gameMoveHoldRef.current = false;
+    const heldAudio = ideaGate().holding;
+    // the held words were heard only if their audio was let go by the hold's time limit; a coach still speaking
+    // (that, or an earlier answer) is cut either way
+    const heardHeld = audioSinceHoldRef.current && !heldAudio;
+    const heard = heardHeld || statusRef.current === 'speaking';
+    audioSinceHoldRef.current = false;
+    const held = heldTextRef.current;
+    heldTextRef.current = [];
+    if (!heldAudio && !heard) {
+      // nothing said yet: the coach answers from the line in its own turn
+      ideaGate().release();
+      held.forEach((item) => processModelTextRef.current(item.text, item.final));
+      return false;
+    }
+    // Said before the engine's reply was known (Alexander 27.10: «Мой ответ — конь на f6», the engine played a6):
+    // what was held is never heard nor shown; what was heard stays in the chat unchecked; the coach answers again.
+    ideaGate().drop();
+    if (heardHeld) held.forEach((item) => processModelTextRef.current(item.text, item.final, false));
+    if (statusRef.current === 'speaking') flushPlayback();
+    speechGenRef.current += 1;
+    wrongSentencesRef.current = [];
+    speechCheckPendingRef.current = [];
+    // The model's own call of this tool waits on the site's: its tool response drives the one answer.
+    if (modelWaitsForSiteRef.current.has(tool)) return false;
+    // A turn still streaming is cut by the line (turnComplete true): its rest is never heard (review 28.10).
+    if (modelTurnOpenRef.current) discardTurnRef.current = true;
+    return true;
+  };
 
   // What the site fetched for the current utterance, by tool name: when the
   // model then calls the same tool itself (it often decides to at the same
@@ -1359,7 +1477,9 @@ export default function useGeminiLive(
         /* UI callback errors must not break the session */
       }
       if (GAME_TOOLS.has(name) && sessionRef.current === session) {
-        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameRefusedNote(name, reason) }] }], turnComplete: false });
+        // A refused move while its words were held: what the coach said before is not heard, and it says the refusal.
+        const answerNow = gameMoveHoldRef.current ? settleGameHoldRef.current(name) : false;
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameRefusedNote(name, reason) }] }], turnComplete: answerNow });
       }
       return false;
     };
@@ -1392,7 +1512,10 @@ export default function useGeminiLive(
         } catch {
           /* UI callback errors must not break the session */
         }
-        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+        // A move said in the game: the coach's words held until now are settled, and it answers from this line.
+        // «верни ход e4», «я хотел не e4, а d4» arm the hold too: any game result settles it (review 28.10).
+        const answerNow = GAME_TOOLS.has(name) && gameMoveHoldRef.current ? settleGameHoldRef.current(name) : false;
+        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: answerNow });
         return true;
       } catch (err) {
         /* unavailable (an older Hermes) — the coach can still call the tool itself */
@@ -1401,9 +1524,13 @@ export default function useGeminiLive(
     })();
     // While it runs, a model call for the same tool waits for this result (see sitePendingRef).
     sitePendingRef.current.set(name, work);
+    // counted for this connection only: a move of a closed one does not hold the next (review 28.10)
+    const inFlight = { gen: connGenRef.current };
+    if (name === 'make_game_move') movesInFlightRef.current.add(inFlight);
     try {
       return await work;
     } finally {
+      movesInFlightRef.current.delete(inFlight);
       if (sitePendingRef.current.get(name) === work) sitePendingRef.current.delete(name);
     }
   }, [ensureTurnId, reportMetric, sessionIdForCall]);
@@ -1584,7 +1711,9 @@ export default function useGeminiLive(
         conceptDoneRef.current = true;
         return;
       }
-      if (text.trim().split(/\s+/).length <= 6 && (await siteToolCall('make_game_move', { said: text, ...browsingArgs() }, session, gameMoveNote))) {
+      // Not while a move said before is still being played: «ну что?» in the wait is not a move (review 28.10).
+      if (!moveInFlight() && text.trim().split(/\s+/).length <= 6
+        && (await siteToolCall('make_game_move', { said: text, ...browsingArgs() }, session, gameMoveNote))) {
         conceptDoneRef.current = true;
       }
       return;  // the board is the game's: no example goes up
@@ -1637,7 +1766,7 @@ export default function useGeminiLive(
     if (!session || (!force && !IDEA_MOVE_RE.test(text)) || ideaSentRef.current === text) return;
     const fen = optionsRef.current.getFen?.();
     if (!fen) {
-      ideaGate().release();
+      if (!gameMoveHoldRef.current) ideaGate().release();
       return;
     }
     ideaSentRef.current = text;
@@ -1648,7 +1777,10 @@ export default function useGeminiLive(
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         // The game on the board: «на 8-м ходу» is judged at that move, as the text coach does.
-        body: JSON.stringify({ text, fen, pgn: optionsRef.current.getPgn?.() || undefined }),
+        // In a game the line is a «what if», never the engine's move: Hermes words it so (28.10).
+        body: JSON.stringify(gameLive()
+          ? { text, fen, live_game: true }
+          : { text, fen, pgn: optionsRef.current.getPgn?.() || undefined }),
       });
       if (!res.ok) return;
       const data = (await res.json().catch(() => null)) as
@@ -1669,7 +1801,7 @@ export default function useGeminiLive(
       // it stops and says it, instead of finishing an answer built on a guess and adding the
       // point at the end (production voice, 2026-10-07: «b3 возможен…», then «b3 — ошибка»).
       const early = modelTurnTextRef.current.trim() ? verdictNote(ideaVerdictRef.current, modelTurnTextRef.current) : null;
-      if (early) {
+      if (early && !gameMoveHoldRef.current) {  // a move said meanwhile holds the gate: its [Game] line settles it
         ideaVerdictRef.current = null;
         // What the coach has said so far (held, not yet heard) answers past the point: it is not played.
         ideaGate().drop();
@@ -1679,7 +1811,7 @@ export default function useGeminiLive(
     } catch {
       /* unavailable (an older Hermes answers 404) — the coach answers without the line */
     } finally {
-      if (!dropped) {
+      if (!dropped && !gameMoveHoldRef.current) {
         if (ideaVerdictRef.current && verdictNote(ideaVerdictRef.current, modelTurnTextRef.current)) {
           ideaGate().watch(VOICE_VERDICT_HOLD_MS);  // its first sentence shows whether it says the point
         } else {
@@ -1757,7 +1889,23 @@ export default function useGeminiLive(
         userClosedByCoachRef.current = false;
         const utterance = userUtteranceRef.current;
         if (conceptTimerRef.current) clearTimeout(conceptTimerRef.current);
-        conceptTimerRef.current = setTimeout(() => void lookUpConcept(utterance), CONCEPT_LOOKUP_DELAY_MS);
+        conceptTimerRef.current = setTimeout(() => {
+          void lookUpConcept(utterance).finally(() => {
+            // Not a move after all, or nothing played: what was held plays as it was — unless a move said before is
+            // still being played (a second «ну что?» in the silence must not let the held words out; review 28.10).
+            if (!gameMoveHoldRef.current || moveInFlight()) return;
+            gameMoveHoldRef.current = false;
+            audioSinceHoldRef.current = false;
+            ideaGate().release();
+            const held = heldTextRef.current;
+            heldTextRef.current = [];
+            held.forEach((item) => processModelTextRef.current(item.text, item.final));
+          });
+        }, CONCEPT_LOOKUP_DELAY_MS);
+        if (gameLive() && VOICE_GAME_MOVE_HOLD_MS > 0 && mayBeAGameMove(utterance)) {
+          ideaGate().watch(VOICE_GAME_MOVE_HOLD_MS);
+          gameMoveHoldRef.current = true;
+        }
         if (IDEA_MOVE_RE.test(utterance) && !gameLive()) {  // in a game a move said is a move played
           ideaGate().expect();
           if (ideaTimerRef.current) clearTimeout(ideaTimerRef.current);
@@ -1771,44 +1919,33 @@ export default function useGeminiLive(
           turnId: ensureTurnId(),
         });
       }
+      if (sc.modelTurn?.parts?.length || sc.outputTranscription?.text) modelTurnOpenRef.current = true;
       if (sc.outputTranscription?.text) {
-        closeUtterance('user');
-        const final = !!sc.outputTranscription.finished;
-        openUtterancesRef.current.model = !final;
-        optionsRef.current.onTranscript?.({
-          role: 'model',
-          text: sc.outputTranscription.text,
-          final,
-          turnId: turnIdRef.current ?? undefined,
-        });
-        // Each finished sentence of the coach goes to the board check.
-        modelSentenceRef.current += sc.outputTranscription.text;
-        modelTurnTextRef.current += sc.outputTranscription.text;
-        if (ideaGate().waiting && ideaVerdictRef.current && !verdictNote(ideaVerdictRef.current, modelTurnTextRef.current)) {
-          ideaGate().release();  // the coach is saying the point: what it held plays
-        }
-        const session = sessionRef.current;
-        let m: RegExpExecArray | null;
-        while (session && (m = SPEECH_SENTENCE_END_RE.exec(modelSentenceRef.current))) {
-          const sentence = modelSentenceRef.current.slice(0, m.index + 1);
-          modelSentenceRef.current = modelSentenceRef.current.slice(m.index + m[0].length);
-          speechCheckPendingRef.current.push(checkSpokenSentence(sentence, session));
-          // A sentence done and the point of the student's idea still unsaid, though the
-          // [Idea] line is in: said now, not after a whole answer past it (voice bench
-          // 2026-10-07: 5 of 9 answers ignored a line that came before them).
-          const early = verdictNote(ideaVerdictRef.current, modelTurnTextRef.current);
-          if (early) {
-            ideaVerdictRef.current = null;
-            ideaGate().drop();  // a sentence past the point, never heard
-            session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: early }] }], turnComplete: true });
-          } else if (ideaGate().waiting && ideaVerdictRef.current) {
-            ideaGate().release();  // the first sentence said the point
-          }
+        const item = { text: sc.outputTranscription.text, final: !!sc.outputTranscription.finished };
+        if (discardTurnRef.current) {
+          /* words of a turn that is never heard (said before the engine's reply): not shown, not checked */
+        } else if (gameMoveHoldRef.current) {
+          closeUtterance('user');  // the coach's turn has begun: the student's next words are a new utterance
+          heldTextRef.current.push(item);  // shown and checked once heard
+        } else {
+          processModelTextRef.current(item.text, item.final);
         }
       }
 
+      const turnOver = () => {
+        discardTurnRef.current = false;
+        modelTurnOpenRef.current = false;
+      };
       if (sc.interrupted) {
+        turnOver();
+        if (gameMoveHoldRef.current && audioSinceHoldRef.current && !ideaGate().holding) {
+          // words the hold's time limit let out were heard: they stay in the chat, unchecked
+          heldTextRef.current.forEach((item) => processModelTextRef.current(item.text, item.final, false));
+        }
         ideaGate().drop();
+        heldTextRef.current = [];
+        // A move of the game still on its way: the coach's next words wait for it too (review 28.10).
+        if (gameMoveHoldRef.current) ideaGate().watch(VOICE_GAME_MOVE_HOLD_MS);
         flushPlayback();
         closeUtterance('model');
         modelSentenceRef.current = '';
@@ -1816,6 +1953,7 @@ export default function useGeminiLive(
         speechChecksRef.current = 0;
       }
       if (sc.turnComplete) {
+        turnOver();
         closeUtterance('user');
         closeUtterance('model');
         // The turn is over: whatever was wrong is read back, and the coach
@@ -1848,6 +1986,8 @@ export default function useGeminiLive(
         for (const part of parts) {
           const inline = part.inlineData;
           if (inline?.data && inline.mimeType?.includes('audio/pcm')) {
+            if (discardTurnRef.current) continue;  // said before the engine's reply: never heard
+            if (gameMoveHoldRef.current) audioSinceHoldRef.current = true;
             ideaGate().audio(inline.data);
           }
         }
@@ -1992,10 +2132,11 @@ export default function useGeminiLive(
     // The board shows the game against the coach: its moves go in as a [Game] line, and no engine
     // line — that would hand the voice coach the best move to tell (the text coach hints too).
     const game = optionsRef.current.getGame?.();
-    const inGame = !!game && game.fen.split(' ')[0] === fen.split(' ')[0];
+    const boardIsGame = optionsRef.current.getBoardIsGame?.() !== false;
+    const inGame = !!game && boardIsGame && game.fen.split(' ')[0] === fen.split(' ')[0];
     const viewPly = optionsRef.current.getViewPly?.();
     const viewLine = optionsRef.current.getViewLine?.();
-    if (game && game.status === 'playing' && !inGame && (typeof viewPly === 'number' || (viewLine && viewLine.length))) {
+    if (game && game.status === 'playing' && boardIsGame && !inGame && (typeof viewPly === 'number' || viewLine != null)) {
       // Browsing the game's record or a side line: told as such, with no engine line for that position (audit 26.10).
       try {
         session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: browsingNote(game, typeof viewPly === 'number' ? viewPly : null, viewLine ?? null, fen) }] }], turnComplete: false });
@@ -2005,6 +2146,9 @@ export default function useGeminiLive(
       gameToldFenRef.current = null;  // the way back to the live position is told again
       return;
     }
+    // Another position of the game itself (the student's hand move before the engine's reply, a ply of the record):
+    // the [Game] lines tell the game, and an engine line would name the best move (Alexander 27.10).
+    if (game && game.status === 'playing' && boardIsGame && !inGame && ownGamePosition(game, fen)) return;
     if (inGame) {
       if (gameToldFenRef.current === game.fen) return;  // the tool result already said it
       gameToldFenRef.current = game.fen;
@@ -2012,7 +2156,8 @@ export default function useGeminiLive(
       gameToldPlyRef.current = game.ply;
       // A move made by hand (no tool told it): the engine's reply is spoken now, in a turn of its own — with
       // turnComplete false the model only took the line in and said nothing (audit 26.10).
-      const speakNow = !!game.engine && statusRef.current !== 'speaking';
+      // A fresh connection is only told the game (previousPly unknown): no move of it is announced then (28.10).
+      const speakNow = !!game.engine && previousPly !== undefined && statusRef.current !== 'speaking';
       try {
         session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameNote(game, previousPly) }] }], turnComplete: speakNow });
       } catch {
@@ -2046,6 +2191,9 @@ export default function useGeminiLive(
         // Drop a note for a position the board has already left.
         if (typeof note !== 'string' || !note || boardFenRef.current !== fen) return;
         if (sessionRef.current !== session) return;
+        // The game's position answered with a plain engine line (the game moved on meanwhile, or an older Hermes):
+        // it names the best move, and the coach told it as its own (Alexander 27.10) — dropped, the [Game] lines say it.
+        if (inGame && game?.status === 'playing' && data?.kind !== 'game') return;
         // 3.1 Live called analyze_position for a position it had this line for
         // (+1.5 s before the first word on «what should I play»); the line says
         // so itself now, where the model reads it.
@@ -2222,6 +2370,11 @@ export default function useGeminiLive(
       // Anchor the initial position client-side so the coach is never blind to it,
       // regardless of whether the token's system instruction carried the FEN.
       if (fen) {
+        // A new conversation (not a resumed one) knows nothing of the game yet: it is told again (28.10).
+        if (!resumeHandle) {
+          gameToldFenRef.current = null;
+          gameToldPlyRef.current = undefined;
+        }
         sendPosition(session, fen);
       }
 

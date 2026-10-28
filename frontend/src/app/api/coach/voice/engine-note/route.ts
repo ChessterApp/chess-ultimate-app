@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { fen?: unknown };
+  let body: { fen?: unknown; session_id?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -47,7 +47,13 @@ export async function POST(request: NextRequest) {
         'X-User-Id': userId,
         'x-subscription-tier': tier,
       },
-      body: JSON.stringify({ fen: body.fen }),
+      // The session, so Hermes sees a game on the board and gives its facts with no best move: dropped here,
+      // every game position got the plain engine line, and the voice coach announced its best move as its own
+      // (Alexander 27.10: «Мой ответ — конь на f6» while the engine played a6).
+      body: JSON.stringify({
+        fen: body.fen,
+        session_id: typeof body.session_id === 'string' && body.session_id ? body.session_id.slice(0, 100) : undefined,
+      }),
       signal: AbortSignal.timeout(ENGINE_NOTE_TIMEOUT_MS),
     });
     const data = await res.json().catch(() => ({}));
