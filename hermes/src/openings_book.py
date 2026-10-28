@@ -28,6 +28,15 @@ _CANDIDATE_DIRS = [
     str(Path(__file__).resolve().parents[2] / "backend" / "data" / "openings"),
 ]
 
+def _readable_dir(directory: str) -> bool:
+    """A directory that exists and can be read. /root/... exists but is closed on a CI runner: is_dir() raises
+    PermissionError there instead of answering (28.10), and the book then never loaded."""
+    try:
+        return Path(directory).is_dir() and os.access(directory, os.R_OK | os.X_OK)
+    except OSError:
+        return False
+
+
 # Russian (and a few Kazakh) names → English book names. Values are matched as
 # substrings of the TSV name, so "Сицилианская" finds every Sicilian line and
 # the family's shortest line is reported as the main line.
@@ -489,7 +498,7 @@ def _load_dir(directory: str) -> list[tuple[str, str, str]]:
 @lru_cache(maxsize=1)
 def get_book() -> OpeningBook:
     for directory in _CANDIDATE_DIRS:
-        if directory and Path(directory).is_dir():
+        if directory and _readable_dir(directory):
             entries = _load_dir(directory)
             if entries:
                 logger.info("opening book: %d lines from %s", len(entries), directory)

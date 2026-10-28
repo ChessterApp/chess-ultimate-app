@@ -83,3 +83,18 @@ class TestExtractor:
             self._contract(tmp_path, """
                 app.include_router(r, prefix="/api")
             """)
+
+
+def test_a_closed_data_directory_is_treated_as_absent(tmp_path, monkeypatch):
+    """28.10, CI: /root exists but is closed on the runner; is_dir()/is_file() raised PermissionError there."""
+    from pathlib import Path
+
+    from src import openings_book, puzzle_db
+
+    def closed(self, *a, **k):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "is_dir", closed)
+    monkeypatch.setattr(Path, "is_file", closed)
+    assert openings_book._readable_dir("/root/chess-app/backend/data/openings") is False
+    assert puzzle_db.db_available("/root/hermes-chess/data/puzzles.db") is False
