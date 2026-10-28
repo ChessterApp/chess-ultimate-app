@@ -38,7 +38,10 @@ export function gameNote(view: GameStateView, previousPly?: number): string {
     const v = view.student.verdict && view.student.verdict !== 'ok' ? ` (${view.student.verdict})` : '';
     parts.push(`the student played ${view.student.san}${v}`);
   }
-  if (view.engine) parts.push(`the engine answered ${view.engine.san} — say it aloud in words`);
+  if (view.engine) {
+    const words = view.engine.words;
+    parts.push(`the engine answered ${view.engine.san}${words ? ` (${words})` : ''} — say it aloud in words, naming exactly that piece`);
+  }
   const moves = parts.length ? `${parts.join('; ')}. ` : '';
   const end = view.status === 'playing'
     ? `Now it is ${sideToMove(view)}.`
@@ -84,11 +87,13 @@ export function gameStartNote(result: { ok?: boolean; note?: string; student_col
 
 /** The line after the site played the move the student said (make_game_move with `said`). */
 export function gameMoveNote(
-  result: { ok?: boolean; student_move?: string; verdict?: string; engine_reply?: string | null; game_over?: boolean; result?: string } | null,
+  result: { ok?: boolean; student_move?: string; verdict?: string; engine_reply?: string | null; engine_reply_words?: string | null; game_over?: boolean; result?: string } | null,
 ): string | null {
   if (!result?.ok || !result.student_move) return null;
   const verdict = result.verdict && result.verdict !== 'ok' ? ` (${result.verdict})` : '';
-  const reply = result.engine_reply ? `; the engine answered ${result.engine_reply} — say it aloud in words` : '';
+  // the piece and squares in words: from a bare «c6» the coach said «мой конь на c6» (prod Live run 28.10)
+  const told = result.engine_reply && result.engine_reply_words ? `${result.engine_reply} (${result.engine_reply_words})` : result.engine_reply;
+  const reply = told ? `; the engine answered ${told} — say it aloud in words, naming exactly that piece` : '';
   const over = result.game_over ? ` The game is over: ${result.result ?? ''} — say the result.` : '';
   return (
     `[Game] The student's move ${result.student_move}${verdict} was played on the board (the system played it)` +

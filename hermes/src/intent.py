@@ -70,7 +70,7 @@ def _looks_like_a_move(text: str) -> bool:
 
 def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = None,
                 live_game: bool = False, finished_game: bool = False, puzzle_on_board: bool = False,
-                puzzle_queue: bool = False) -> dict:
+                puzzle_queue: bool = False, just_played: Optional[tuple[str, str]] = None) -> dict:
     """{"kind": …, …} — what *text* asks for, in the order a coach would hear it:
 
     game_command (resign / takeback / draw / restart), game_request (color, elo), move (san) or idea (in a
@@ -114,6 +114,16 @@ def read_intent(text: str, *, fen: Optional[str] = None, pgn: Optional[str] = No
                 return {"kind": "idea", "moves": [m["san"] for m in named]} if named else {"kind": "none"}
             if len(t.split()) <= 8:
                 san = one_move(t, board)
+                if not san and just_played:
+                    # The model's own make_game_move played these words a moment before this reading (prod Live run
+                    # 28.10: «конь f3» was then read on the new position, came out «unclear», and the coach was told
+                    # NOTHING was played while it had been): the same move, so the game answers «already played».
+                    try:
+                        before = chess.Board(just_played[0])
+                        if one_move(t, before) == just_played[1]:
+                            return {"kind": "move", "san": just_played[1]}
+                    except ValueError:
+                        pass
                 if not san and _looks_like_a_move(t):
                     # «с шесть», «конь за шесть» that no reading turns into a legal move: say so, do not pretend
                     # (Alexander's phone, 25.10 — the model answered «отличный ход» to nothing).

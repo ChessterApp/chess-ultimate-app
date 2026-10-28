@@ -136,11 +136,13 @@ def _already_played_reply(board_rec, text: str, parse) -> str:
     board = game_mode._replay(state.get("moves") or [])
     view = game_mode._payload(board_rec, state, board, student=student, engine=engine)
     reply = (engine or {}).get("san")
+    words = (engine or {}).get("words") or (game_mode.ply_words(state, len(state.get("moves") or [])) if reply else None)
     return _reply(view, {
         "ok": True, "already_played": True, "student_move": student.get("san"), "verdict": student.get("verdict"),
-        "engine_reply": reply,
+        "engine_reply": reply, "engine_reply_words": words,
         "note": "This move was already played a moment ago; nothing changed now. "
-                + (f"Tell the student the engine's reply {reply}." if reply
+                + (f"Tell the student the engine's reply {reply} ({words})." if reply and words
+                   else f"Tell the student the engine's reply {reply}." if reply
                    else "Wait for the engine's reply." if view.get("status") == "playing"
                    else "The game is over: say the result."),
     })
@@ -290,19 +292,23 @@ def _handle_make_game_move(args: dict, **kwargs) -> str:
         return _refused(f"The move could not be played: {exc}")
     student = view.get("student") or {}
     engine = (view.get("engine") or {}).get("san")
+    # the piece and squares in words: from a bare «c6» the voice coach said «мой конь на c6» (prod Live run 28.10)
+    words = (view.get("engine") or {}).get("words")
+    told = f"{engine} ({words})" if engine and words else engine
     summary = {
         "ok": True,
         "student_move": student.get("san"),
         "verdict": student.get("verdict"),
         "engine_reply": engine,
-        "note": (f"Tell the student the engine's reply {engine}." if engine
+        "engine_reply_words": words,
+        "note": (f"Tell the student the engine's reply {told}." if engine
                  else "The game is over: say the result." if view.get("status") != "playing" else ""),
     }
     if view.get("already_played"):
         # The same move came twice (the site's call and the model's for one «e4»): the first one played it.
         summary["already_played"] = True
         summary["note"] = (f"This move was already played a moment ago; nothing changed now. "
-                           + (f"Tell the student the engine's reply {engine}." if engine
+                           + (f"Tell the student the engine's reply {told}." if engine
                               else "Wait for the engine's reply." if view.get("status") == "playing"
                               else "The game is over: say the result."))
     if student.get("verdict") in ("mistake", "blunder") and student.get("best"):
