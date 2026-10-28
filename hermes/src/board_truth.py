@@ -55,6 +55,99 @@ def board_now_note(fen: Optional[str]) -> str:
             "message are about the board before it: they say nothing about this position.")
 
 
+# A position the model sets from memory (stand voice run 28.10: to «show» the Légal trap it put up a made-up start
+# position with a black pawn on e4 — the engine then analysed nonsense) — an opening-sized army (this many pieces or
+# more) goes up only if a verified source of the session had that position; sparse set-ups (an ending the student
+# describes) stay the model's to set.
+INVENTED_MIN_PIECES = 20
+INVENTED_NOTE = (
+    "This position is not from any verified source of this conversation (an opening line, a lesson, a puzzle, the "
+    "game, the student's board): nothing was put up. Never set an opening position from memory — show a line by its "
+    "moves (board_control load_pgn, the moves are checked) or ask lookup_opening for the book line.")
+_FEN_IN_TEXT = None
+
+
+def _key(board: chess.Board) -> str:
+    return board.board_fen() + (" w" if board.turn else " b")
+
+
+def _keys_of(value, out: set) -> None:
+    """Every position a tool result names: FENs, and the positions along any PGN line in it."""
+    global _FEN_IN_TEXT
+    if _FEN_IN_TEXT is None:
+        import re
+
+        _FEN_IN_TEXT = re.compile(r"(?:[pnbrqkPNBRQK1-8]{1,8}/){7}[pnbrqkPNBRQK1-8]{1,8} [wb]")
+    if isinstance(value, dict):
+        for k, v in value.items():
+            if k in ("pgn", "line", "book_line", "game_pgn") and isinstance(v, str) and v.strip():
+                try:
+                    game = chess.pgn.read_game(io.StringIO(v))
+                    board = game.board() if game is not None else None
+                    if board is not None:
+                        out.add(_key(board))
+                        for move in game.mainline_moves():
+                            board.push(move)
+                            out.add(_key(board))
+                except Exception:  # noqa: BLE001
+                    pass
+            else:
+                _keys_of(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _keys_of(v, out)
+    elif isinstance(value, str):
+        for m in _FEN_IN_TEXT.finditer(value):
+            try:
+                out.add(_key(chess.Board(m.group(0) + " - - 0 1")))
+            except ValueError:
+                pass
+
+
+def remember_positions(result, kwargs: Optional[dict]) -> None:
+    """The positions a tool result brought, kept on the session as verified (see INVENTED_NOTE)."""
+    if not isinstance(result, str) or not ("/" in result or '"pgn"' in result or '"line"' in result):
+        return  # nothing positional in it (a FEN has slashes; a line comes as moves)
+    try:
+        obj = json.loads(result)
+    except ValueError:
+        return
+    from src.sessions import _tool_session
+
+    session = _tool_session(kwargs)
+    if session is None:
+        return
+    keys = getattr(session, "_verified_positions", None)
+    if keys is not None and len(keys) < 5000:
+        _keys_of(obj, keys)
+
+
+def _invented(fen: Optional[str], kwargs: Optional[dict]) -> bool:
+    """A set_fen of the model's own: an invalid position, or an opening-sized one no verified source had."""
+    try:
+        board = chess.Board(fen)
+    except (ValueError, TypeError):
+        return True
+    if not board.is_valid():
+        return True
+    if len(board.piece_map()) < INVENTED_MIN_PIECES:
+        return False
+    key = _key(board)
+    if key == _key(chess.Board()):
+        return False
+    from src.sessions import _tool_session
+
+    session = _tool_session(kwargs)
+    if session is None:
+        return False  # no session to know its sources: the old behaviour
+    known = set(getattr(session, "_verified_positions", None) or ())
+    for rec in getattr(session, "boards", None) or []:
+        _keys_of({"pgn": rec.pgn or "", "fen": rec.fen or ""}, known)
+    # a FEN the student sent is theirs to have on the board
+    _keys_of(str((kwargs or {}).get("student_message") or "") + " " + str((kwargs or {}).get("utterance") or ""), known)
+    return key not in known
+
+
 def board_truth(result, kwargs: Optional[dict]):
     """The tool's result as the model must read it (see the module docstring)."""
     if not isinstance(result, str) or not any(f'"{kind}"' in result for kind in POSITION_ACTIONS):
@@ -90,6 +183,8 @@ def board_truth(result, kwargs: Optional[dict]):
         obj["board_hint"] = note
         return json.dumps(obj, ensure_ascii=False)
 
+    if single and obj.get("type") == "set_fen" and _invented(obj.get("fen"), kwargs):
+        return json.dumps({"shown": False, "board_hint": INVENTED_NOTE}, ensure_ascii=False)
     if single:
         obj = {"board_actions": [obj]}
     obj["board_now"] = board_now_note(position_after(moving[-1]))

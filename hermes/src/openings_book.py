@@ -134,6 +134,17 @@ _NAMED = [
     (r"дракон|dragon", "Sicilian Defense: Dragon Variation"),
     (r"лондонск|london\s+system", "Queen's Pawn Game: London System"),
     (r"двух\s+коней|two\s+knights", "Italian Game: Two Knights Defense"),
+    # named lines the coach used wrongly (stand theory run 28.10: «вариант Атака Панова» for the Advance Variation)
+    (r"(?:атак\w*|вариант\w*)\s+панова|панов[\s-]+ботвинник|panov(?:[\s-]+botvinnik)?\s+attack", "Caro-Kann Defense: Panov Attack"),
+    (r"каро[\s-]*канн\w*[^.!?]{0,40}?(?:продвижени|продвинут)|(?:продвижени|продвинут)\w*[^.!?]{0,40}?каро[\s-]*канн"
+     r"|caro[\s-]*kann[^.!?]{0,30}?advance|advance\s+variation\s+of\s+the\s+caro", "Caro-Kann Defense: Advance Variation"),
+    (r"французск\w*[^.!?]{0,40}?(?:продвижени|продвинут)|(?:продвижени|продвинут)\w*[^.!?]{0,40}?французск"
+     r"|french[^.!?]{0,30}?advance|advance\s+variation\s+of\s+the\s+french", "French Defense: Advance Variation"),
+    (r"винавер|winawer", "French Defense: Winawer Variation"),
+    (r"шевенинген|scheveningen", "Sicilian Defense: Scheveningen Variation"),
+    (r"тайманов|taimanov", "Sicilian Defense: Taimanov Variation"),
+    (r"рихтер[\s-]*раузер|richter[\s-]*rauzer", "Sicilian Defense: Richter-Rauzer Variation"),
+    (r"закрыт\w*\s+(?:вариант\w*\s+)?сицилианск|closed\s+sicilian", "Sicilian Defense: Closed"),
 ]
 
 # Families by name. Adjectives are matched in the feminine/neuter forms the

@@ -1174,6 +1174,81 @@ def _san_issues_all(text: str, ctx: CheckContext) -> list[str]:
     return issues
 
 
+_IDENTITY = re.compile(r"(?<![а-яa-z])(?:это|перед\s+нами|у\s+нас|называется|называют|сыгран\w*|разыгр\w*|получил\w*|this\s+is"
+                       r"|it'?s\s+(?:the|a)|is\s+called|we\s+have|бұл)(?![а-яa-z])", re.IGNORECASE)
+_NAME_HEDGE = re.compile(r"(?<![а-яa-z])(?:не|нет|похож\w*|напомина\w*|отлич\w*|если|бы|вместо|переход\w*|перешл\w*|перейд\w*|станет"
+                         r"|начинал\w*|могл\w*|может|бывает|как\s+в|could|would|transpos\w*|unlike|like|not|instead|if)(?![а-яa-z])",
+                         re.IGNORECASE)
+
+
+_ON_THE_BOARD = re.compile(r"на\s+доске|эт(?:а|ой|у)\s+позици|в\s+этой\s+позиции|(?<![а-яa-z])(?:здесь|тут)(?![а-яa-z])"
+                           r"|this\s+position|on\s+the\s+board|(?<![a-z])here(?![a-z])", re.IGNORECASE)
+_ASKS_BOARD_NAME = re.compile(r"как\s+называ|что\s+(?:это\s+)?за\s+(?:дебют|защит|вариант|систем)|какой\s+(?:это\s+)?(?:дебют|вариант)"
+                              r"|какая\s+(?:это\s+)?(?:защита|система)|what\s+(?:opening|defen[cs]e|variation)|which\s+opening"
+                              r"|қандай\s+дебют", re.IGNORECASE)
+
+
+def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str]:
+    """«Это защита Каро-Канн, вариант Атака Панова» on the Advance Variation (stand theory run 28.10), «Это дебют
+    четырёх коней» after 1.e3 e5 2.Nc3 (stand text game): the opening the answer says is on the board must be the
+    ECO book's opening of the board — by the game's moves, or by the position."""
+    if ctx is None or not _IDENTITY.search(text):
+        return []
+    from src.openings_book import _FAMILIES_RE, _NAMED_RE, _split_moves, get_book, named_openings
+
+    # About the board only: a game, the board named in the sentence, or the student asking the board's opening — «это
+    # называется жареная печень» may be the line explained in words while the student's own position stays.
+    in_game = bool(getattr(ctx, "game_moves", None))
+    q = (ctx.question_raw or ctx.question or "")
+    asks_board = bool(_ASKS_BOARD_NAME.search(q)) and not named_openings(q)
+    if not (in_game or asks_board or _ON_THE_BOARD.search(text)):
+        return []
+    if re.search(r"(?<![0-9])1\s?\.\s?(?:[KQRBNКФЛС]?[a-h]?x?[a-h][1-8]|O-O)", text):
+        return []  # a line written from move 1 is judged by its own moves (_opening_issues)
+
+    lowered = text.lower().replace("ё", "е").replace("’", "'")
+    found = []
+    for rx, name in _NAMED_RE + _FAMILIES_RE:
+        m = rx.search(lowered)
+        if m and not any(name == n for n, _ in found):
+            found.append((name, m.start()))
+    if not found:
+        return []
+    book = get_book()
+    truth = None
+    moves = getattr(ctx, "game_moves", None)
+    if moves:
+        truth = book.identify(list(moves))
+        truth = (truth["eco"], truth["name"], truth.get("book_line") or "") if truth else None
+    if truth is None and ctx.current is not None:
+        hit = book.by_position(ctx.current.fen())
+        truth = (hit["eco"], hit["name"], hit.get("line") or hit.get("book_line") or "") if hit else None
+    if truth is None:
+        return []
+    eco, real, real_line = truth
+    real_moves = _split_moves(real_line) if real_line else ()
+    out = []
+    for name, at in found:
+        if _NAME_HEDGE.search(lowered[max(0, at - 40):at]):
+            continue  # «не путай с атакой Панова», «похоже на венскую», «если бы … Винавер»
+        if real == name or real.startswith(name.split(":")[0] if ":" not in name else name):
+            continue  # the family of the real line, or the real line itself
+        variation = name.split(":", 1)[-1].strip().lower()
+        if variation in real.lower() or real.split(":", 1)[-1].strip().lower() in lowered:
+            continue  # «Accelerated London System» names the real line, «London System» is part of it
+        entry = book.exact(name) or next(iter(book.by_name(name)), None)
+        if entry is None:
+            continue
+        line = _split_moves(entry[2])
+        played = tuple(moves or ()) or real_moves
+        if played and (tuple(played[:len(line)]) == line or tuple(line[:len(played)]) == tuple(played)):
+            continue  # the named line is on the way to, or the way from, the board's
+        if ":" not in name and real.split(":")[0] == name:
+            continue
+        out.append(f"the opening on the board is the {real} ({eco}) by the ECO book, not the {name}")
+    return out
+
+
 def _opening_issues(text: str) -> list[str]:
     """Moves from 1. next to an opening name must be that opening's line."""
     from src.openings_book import get_book, named_openings, _split_moves
@@ -2118,11 +2193,13 @@ def _instrument_issues(text: str, original: str, ctx: CheckContext) -> list[str]
 _OBJECT_FIRST = re.compile(
     _B2 + rf"(?:(?:the\s+|your\s+|my\s+|his\s+|her\s+|их\s+|тво[йяею]\w*\s+|ваш\w*\s+|мо[йяею]\w*\s+)?"
     rf"(?:(?P<obj_piece>{_PIECE_ANY})\s+(?:на\s+|on\s+)?(?P<obj>{SQ})|(?P<obj2>{SQ})[- ](?:pawn|knight|bishop|rook|queen|king))|(?P<it>it|её|ее|его))(?![0-9])"
-    r"(?:'s|'re)?\s+(?:сейчас\s+|уже\s+|is\s+|are\s+|was\s+|were\s+|gets\s+|now\s+|still\s+)*"
+    # «её тоже бьёт эта же пешка f3», «e5 пока держат только пешка d7 и конь g8» (stand text games 28.10)
+    r"(?:'s|'re)?\s+(?:сейчас\s+|уже\s+|пока\s+|тоже\s+|также\s+|ещ[её]\s+|по-прежнему\s+|всё\s+ещ[её]\s+|is\s+|are\s+|"
+    r"was\s+|were\s+|gets\s+|now\s+|still\s+|also\s+)*"
     r"(?P<verb>атакуют|атакует|бьют|бь[её]т|держат|держит|защищают|защищает|прикрывают|прикрывает|"
     r"attacked|hit|defended|protected|covered|guarded|pinned|threatened)\s+"
     r"(?:сразу\s+|только\s+|only\s+|just\s+)?(?:(?:две|три|two|three)\s+)?(?:ч[её]рн\w+\s+|бел\w+\s+|black\s+|white\s+)?(?:фигур\w*\s*[—–-]?\s*|pieces?\s*[—–:-]?\s*)?"
-    r"(?:by\s+)?(?P<subjects>(?:(?:the\s+|your\s+|my\s+|a\s+)?(?:(?:конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)\s+(?:на\s+|on\s+|from\s+|с\s+)?[a-h][1-8]|[a-h][1-8][- ](?:pawn|knight|bishop|rook|queen|king))"
+    r"(?:by\s+)?(?P<subjects>(?:(?:the\s+|your\s+|my\s+|a\s+|(?:эт|т)(?:а|от|о)\s+же\s+|тво[йя]\s+|мо[йя]\s+)?(?:(?:конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)\s+(?:на\s+|on\s+|from\s+|с\s+)?[a-h][1-8]|[a-h][1-8][- ](?:pawn|knight|bishop|rook|queen|king))"
     r"(?:\s*(?:,|и|and|или|or)\s*)?)+)", re.IGNORECASE)
 _SUBJECT = re.compile(rf"(?:(?P<piece>конь|слон|ладья|ферзь|король|пешка|knight|bishop|rook|queen|king|pawn)\s+(?:на\s+|on\s+|from\s+|с\s+)?(?P<a>{SQ})"
                       rf"|(?P<a2>{SQ})[- ](?P<piece2>pawn|knight|bishop|rook|queen|king))", re.IGNORECASE)
@@ -2180,6 +2257,9 @@ def _object_first_issues(text: str, original: str, ctx: CheckContext) -> list[st
                 continue
         ctx._object = obj
         target = chess.parse_square(obj)
+        if re.match(r"держ|hold", m["verb"], re.IGNORECASE) and any(
+                (pc := b.piece_at(target)) is not None and pc.piece_type == chess.KING for b in ctx.boards):
+            continue  # «короля a8 держат пешка b6 и король c8»: a king held is a king hemmed in, not a square attacked
         for sm in _SUBJECT.finditer(m["subjects"]):
             word = (sm["piece"] or sm["piece2"]).lower()
             ptype = _piece_type(word) or _INSTRUMENT_TYPE.get(word[:3])
@@ -2826,6 +2906,30 @@ _NUMBERED_CLAIM = re.compile(
     re.IGNORECASE)
 
 
+# «Принято, твой ход d4» for the engine's 2.d4 (stand voice run 28.10): a move called the student's must be theirs.
+_YOUR_MOVE = re.compile(
+    r"(?<![\w-])(?:тво[йя]|ваш)\s+(?:последн\w+\s+|предыдущ\w+\s+)?ход(?:\s+был)?\s*[—–:-]?\s*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?"
+    r"(?P<san>[KQRBN][a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][1-8](?:=[QRBN])?|O-O-O|O-O)"
+    r"(?=[\s.,!?;:)—–-]|$)", re.IGNORECASE)
+
+
+def _students_move_issues(text: str, ctx: "CheckContext") -> list[str]:
+    moves = getattr(ctx, "game_moves", None)
+    if not moves or ctx.student_color is None:
+        return []
+    first = 0 if ctx.student_color == chess.WHITE else 1
+    student = [m.rstrip("+#") for i, m in enumerate(moves) if i % 2 == first]
+    engine = [m.rstrip("+#") for i, m in enumerate(moves) if i % 2 != first]
+    out = []
+    for m in _YOUR_MOVE.finditer(text):
+        san = m.group("san")
+        if san in engine[-2:] and (not student or san != student[-1]):
+            out.append(f"{san} was the engine's (your) move, not the student's"
+                       + (f" — the student's last move was {student[-1]}" if student else "")
+                       + ": never give the student a move the engine made")
+    return out
+
+
 def _move_number_issues(text: str, played: list, student_color) -> list[str]:
     """The number the coach gives its own move must be the move's number in the game (a game from the start)."""
     if student_color is None:
@@ -2850,7 +2954,7 @@ def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
     played = ctx.game_engine_moves
     if played is None:
         return []
-    out = _move_number_issues(text, played, ctx.student_color)
+    out = _move_number_issues(text, played, ctx.student_color) + _students_move_issues(text, ctx)
     text = _MOVE_NUMBER.sub("", text)
     norm = {m.rstrip("+#") for m in played}
     for m in _COACH_MOVE.finditer(text):
@@ -3016,7 +3120,8 @@ def check_sentence(sentence: str, ctx: Optional[CheckContext] = None) -> list[st
     from src.answer_check_rules import rules_issues
 
     issues = (_move_issues(lowered) + _attack_issues(lowered, text, ctx) + san_issues
-              + _opening_issues(text) + _fact_issues(lowered, text, ctx) + _plan_move_issues(lowered, text, ctx)
+              + _opening_issues(text) + _opening_identity_issues(text, ctx) + _fact_issues(lowered, text, ctx)
+              + _plan_move_issues(lowered, text, ctx)
               + rules_issues(lowered, ctx) + _coach_move_issues(text, ctx))
     if not san_issues:
         issues += _announced_move_issues(text, ctx)

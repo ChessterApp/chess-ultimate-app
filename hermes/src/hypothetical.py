@@ -68,6 +68,107 @@ def _san_line(board: chess.Board, pv: str, plies: int = 4) -> list[str]:
     return out
 
 
+_PIECE_NAMES = {chess.PAWN: ("a pawn", "pawns"), chess.KNIGHT: ("a knight", "knights"), chess.BISHOP: ("a bishop", "bishops"),
+                chess.ROOK: ("a rook", "rooks"), chess.QUEEN: ("the queen", "queens")}
+
+
+def _numbered(board: chess.Board, sans: list[str]) -> str:
+    """«6...Nxd5 7.Bxd8 Bb4+» — *sans* from *board*, with the move numbers of that position."""
+    out, num, white = [], board.fullmove_number, board.turn == chess.WHITE
+    for i, san in enumerate(sans):
+        if white:
+            out.append(f"{num}.{san}")
+        else:
+            out.append(f"{num}...{san}" if i == 0 else san)
+            num += 1
+        white = not white
+    return " ".join(out)
+
+
+def _losses(start: chess.Board, end: chess.Board) -> dict:
+    """{color: {piece type: how many it lost}} from *start* to *end* (kings and promotions aside)."""
+    out = {}
+    for color in (chess.WHITE, chess.BLACK):
+        out[color] = {t: max(0, len(start.pieces(t, color)) - len(end.pieces(t, color))) for t in _PIECE_NAMES}
+    return out
+
+
+def _listed(counts: dict) -> str:
+    parts = []
+    for t in (chess.QUEEN, chess.ROOK, chess.BISHOP, chess.KNIGHT, chess.PAWN):
+        n = counts.get(t, 0)
+        if n == 1:
+            parts.append(_PIECE_NAMES[t][0])
+        elif n > 1:
+            parts.append(f"{n} {_PIECE_NAMES[t][1]}")
+    return " and ".join(parts)
+
+
+def _was_capture(board: chess.Board, move: chess.Move, reply_sans: list[str]) -> bool:
+    """The line's last move takes something that can be taken back at once — a recapture the engine did not show
+    («…Kxd8» ends an exchange; «…Nxd5» with a piece still hitting d5 does not)."""
+    b = board.copy(stack=False)
+    b.push(move)
+    last = move
+    for san in reply_sans:
+        try:
+            last = b.parse_san(san)
+        except ValueError:
+            break
+        b.push(last)
+    if not b.move_stack:
+        return False
+    before = b.copy(stack=True)
+    before.pop()
+    return before.is_capture(last) and b.is_attacked_by(b.turn, last.to_square)
+
+
+def line_outcome(board: chess.Board, move: chess.Move, reply_sans: list[str], before: Optional[float] = None,
+                 after: Optional[float] = None) -> Optional[str]:
+    """Where the student's move and the engine's line lead, in words: «at the end of the line White has given a
+    knight for a pawn». The coach got «Nxd5 (line Nxd5 Bxd8 Bb4+ Qd2)» cut after four plies and told the Elephant
+    trap as «конь f6 бьёт d5, и ты отдаёшь коня» with the queen trick missing (stand run 28.10)."""
+    end = board.copy(stack=False)
+    mover = end.turn
+    end.push(move)
+    for san in reply_sans:
+        try:
+            end.push_san(san)
+        except ValueError:
+            break
+    lost = _losses(board, end)
+    side = "White" if mover == chess.WHITE else "Black"
+    if not end.is_checkmate():
+        # The line stops in the middle of the fight (a check or a capture last — the Blackburne line ended on 5.Bxf7+), or
+        # the count says one thing and the engine another (a sacrifice for an attack): no count — the evaluation.
+        unsettled = end.is_check() or _was_capture(board, move, reply_sans)
+        gained = sum(VALUES[t] * (lost[not mover][t] - lost[mover][t]) for t in _PIECE_NAMES)
+        sign = 1 if mover == chess.WHITE else -1
+        moved = (after - before) * sign if before is not None and after is not None and abs(after) < MATE_PAWNS - 0.5 else None
+        if unsettled or (moved is not None and abs(gained - moved) > 2.0 and (gained > 0) != (moved > 0)):
+            return (f"The line is not settled after these moves (exchanges or an attack go on): judge it by the evaluation, "
+                    f"not by counting material — {side} is " + ("better" if (after or 0) * sign > 0.3 else
+                                                                "worse" if (after or 0) * sign < -0.3 else "about equal")
+                    + " at the end.")
+    for t in _PIECE_NAMES:  # an exchange cancels out: only the difference is the outcome
+        both = min(lost[chess.WHITE][t], lost[chess.BLACK][t])
+        lost[chess.WHITE][t] -= both
+        lost[chess.BLACK][t] -= both
+    mine, theirs = _listed(lost[mover]), _listed(lost[not mover])
+    if end.is_checkmate():
+        result = f"{'checkmate for ' + side if end.turn != mover else side + ' is checkmated'}"
+    elif mine and theirs:
+        result = f"{side} has given {mine} for {theirs}"
+    elif mine:
+        result = f"{side} has lost {mine} for nothing"
+    elif theirs:
+        result = f"{side} has won {theirs}"
+    else:
+        result = "the material is level again"
+    tail = [f for f in static_facts(end) if "trapped" in f or "TRAPPED" in f][:1]
+    return f"At the end of this line {result}" + (f"; {tail[0]}" if tail else "") + "."
+
+
 def _piece(board: chess.Board, sq: int) -> str:
     p = board.piece_at(sq)
     return f"the {'white' if p.color else 'black'} {chess.piece_name(p.piece_type)} on {chess.square_name(sq)}"
@@ -196,7 +297,7 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
             line = (res.get("lines") or [None])[0] if "error" not in res else None
             if line:
                 after_pawns = _white_pawns(line, after.turn)
-                reply_line = _san_line(after, line.get("pv", ""), 4)
+                reply_line = _san_line(after, line.get("pv", ""), 10)
                 reply = reply_line[0] if reply_line else None
         except Exception:  # noqa: BLE001
             logger.debug("hypothetical: analysis after %s failed", san, exc_info=True)
@@ -209,10 +310,13 @@ def hypothetical_notes(fen: str, moves: list[dict], movetime_ms: int = 300,
             parts.append(f"Evaluation after it: {_fmt(after_pawns)} (before the move: {_fmt(before)}) — {verdict}.")
         why = None
         if reply:
-            parts.append(f"The opponent's best reply: {reply}" + (f" (line {' '.join(reply_line)})" if len(reply_line) > 1 else "") + ".")
+            parts.append(f"The opponent's best reply: {reply}" + (f" (line {_numbered(after, reply_line)})" if len(reply_line) > 1 else "") + ".")
             why = _reply_point(after, reply)
             if why:
                 parts.append(why)
+            outcome = line_outcome(board, move, reply_line, before, after_pawns) if len(reply_line) > 1 else None
+            if outcome:
+                parts.append(outcome + " Explain the idea with this line; never invent another continuation.")
         hanging = [f for f in static_facts(after) if "not defended" in f or "cheaper" in f][:2]
         parts.append("Facts after the move: " + "; ".join(facts + hanging) + ".")
         if reveal_best and best_san and best_san[0] != san and loss is not None and loss >= INACCURACY:
