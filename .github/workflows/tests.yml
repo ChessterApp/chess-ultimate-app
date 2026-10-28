@@ -1,0 +1,101 @@
+name: tests
+
+# Unit tests of the site and of Hermes on every push and PR (28.10): the lost
+# coach session went unnoticed because nothing ran the suites automatically.
+# No secrets: every test here runs offline against mocks.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # package.json has no "engines" and the repo pins no Node for Vercel;
+      # 22 is Vercel's default line and satisfies next (>=20.9) and jsdom
+      # (^20.19 || ^22.13 || >=24). Change together with the Vercel setting.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+
+      - name: Unit tests
+        run: npx vitest run
+
+  hermes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: hermes
+    env:
+      # Pinned engine: several unit tests assert engine verdicts; the version
+      # matches the local stand (Stockfish 19). Ubuntu's apt package is older.
+      # On PATH too: test_setup.py looks it up with shutil.which.
+      STOCKFISH_VERSION: sf_19
+      STOCKFISH_SHA256: 9defc0d4e55d49c65a6d042f3e571a39fcea499ade6dbe741b53b8c65e03611f
+      STOCKFISH_PATH: /usr/local/bin/stockfish
+    steps:
+      - uses: actions/checkout@v4
+
+      # src uses PEP 701 f-strings (3.12+); the local venv is 3.12.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: hermes/requirements-ci.txt
+
+      - name: Install Stockfish
+        run: |
+          curl -sSfL -o /tmp/sf.tar.gz \
+            "https://github.com/official-stockfish/Stockfish/releases/download/${STOCKFISH_VERSION}/stockfish-linux-x86-64-universal.tar.gz"
+          echo "${STOCKFISH_SHA256}  /tmp/sf.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/sf.tar.gz -C /tmp
+          sudo install -m 755 /tmp/stockfish/stockfish-linux-x86-64-universal "$STOCKFISH_PATH"
+          echo quit | "$STOCKFISH_PATH" | head -1
+
+      - name: Install Python deps
+        run: pip install -r requirements-ci.txt
+
+      # Deselected, each needs something CI does not have:
+      # - test_setup.py::test_twic_db_exists checks the production server's TWIC
+      #   database path (/root/chess-app/backend/data/twic/chess_games.db).
+      # - test_boards.py::...test_chat_applies_coach_actions_to_the_board: its
+      #   mocked answer is English in a Russian chat, so the answer check sends it
+      #   to the live LLM rewrite; without a working OpenRouter key the sentence
+      #   is dropped and no "delta" frame comes out.
+      # - test_speed_2026_09_30.py::test_agents_go_through_the_shared_transport
+      #   builds a real agent, which hermes-agent refuses without an LLM provider
+      #   configured ("No LLM provider configured").
+      - name: Unit tests
+        run: >-
+          python -m pytest -q -p no:cacheprovider tests/unit
+          --deselect tests/unit/test_setup.py::test_twic_db_exists
+          --deselect tests/unit/test_boards.py::TestBoardRoutes::test_chat_applies_coach_actions_to_the_board
+          --deselect tests/unit/test_speed_2026_09_30.py::test_agents_go_through_the_shared_transport
+
+      # The committed request contract the site's seam test reads must match
+      # the pydantic models in hermes/src.
+      - name: Contract is fresh
+        working-directory: .
+        run: python hermes/scripts/hermes_contract.py --check
