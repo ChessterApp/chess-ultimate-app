@@ -70,7 +70,7 @@ import { EvalBar } from "./EvalBar";
 import BoardEditor from "@/components/editor/BoardEditor";
 import { useSoundEffects } from "@/hooks/useSoundEffects";
 import { useHaptic } from "@/hooks/useHaptic";
-import { samePosition, type CoachArrowsOnBoard } from "@/lib/coach/click-analysis";
+import { coachArrowsFor, type CoachArrowsOnBoard } from "@/lib/coach/click-analysis";
 
 interface AiChessboardPanelProps {
   fen: string;
@@ -567,10 +567,9 @@ export default function AiChessboardPanel({
   const customArrows = useMemo((): Array<{ from: Key; to: Key; brush: string }> => {
     // The coach's own arrows (its «see the arrow» answers, 28.10): only on the
     // position the answer was about, and regardless of the engine-arrow switch.
-    const coach: Array<{ from: Key; to: Key; brush: string }> =
-      coachArrows && samePosition(coachArrows.fen, fen)
-        ? coachArrows.arrows.map((a) => ({ from: a.from as Key, to: a.to as Key, brush: a.brush }))
-        : [];
+    const coach: Array<{ from: Key; to: Key; brush: string }> = coachArrowsFor(coachArrows, fen).map(
+      (a) => ({ from: a.from as Key, to: a.to as Key, brush: a.brush }),
+    );
     if (!showArrows) {
       return coach;
     }

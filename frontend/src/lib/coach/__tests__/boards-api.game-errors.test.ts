@@ -53,4 +53,16 @@ describe('coachApi game actions — the failure reason', () => {
     respond(502, { error: 'fetch failed' });
     expect((await rejection(coachApi.startGame('s1', { color: 'white', elo: 1200 }))).code).toBe('unreachable');
   });
+
+  it("gameMove: Hermes's illegal-move refusal is illegal_move, its text kept for the console", async () => {
+    respond(400, { error: 'Hermes error: 400', detail: { detail: 'e9 is not a legal move here.' } });
+    const err = await rejection(coachApi.gameMove('s1', 'g1', 'e9'));
+    expect(err.code).toBe('illegal_move');
+    expect(err.message).toBe('e9 is not a legal move here.');
+  });
+
+  it("the proxy's own 401 is unauthorized", async () => {
+    respond(401, { error: 'Unauthorized' });
+    expect((await rejection(coachApi.gameResign('s1', 'g1'))).code).toBe('unauthorized');
+  });
 });

@@ -312,10 +312,44 @@ export function arrowsFromBoardActions(actions: unknown): CoachArrow[] {
   return arrows;
 }
 
-/** The coach's arrows and the position they belong to. */
+/** The coach's arrows and the positions they are drawn on. */
 export interface CoachArrowsOnBoard {
+  /** The position the board showed when the student asked: the arrows go there. */
   fen: string;
+  /** The position the answer is about, if another one (the move's position): drawn there too. */
+  about?: string;
   arrows: CoachArrow[];
+}
+
+/**
+ * Where an answer's arrows go. They were kept only under the request's FEN, which for «Analyze move» is the position
+ * after the move and for the review clicks the one before it — positions the board was not showing, so the arrows the
+ * coach promised never appeared (review 28.10). The board the student asked from is what they look at.
+ */
+export function placeCoachArrows(
+  arrows: CoachArrow[],
+  boardFen: string | null | undefined,
+  requestFen: string,
+): CoachArrowsOnBoard | null {
+  if (!arrows.length) return null;
+  if (!boardFen || samePosition(boardFen, requestFen)) return { fen: requestFen, arrows };
+  // Shown on the board's position only when it is one move from the analysed one (the move being analysed: before
+  // or after it). Any other position — an «Annotate with AI» on a far move, the game report looping over key moves —
+  // keeps them on their own position, drawn when the board gets there (review 28.10).
+  if (!oneMoveApart(boardFen, requestFen)) return { fen: requestFen, arrows };
+  return { fen: boardFen, about: requestFen, arrows };
+}
+
+function oneMoveApart(a: string, b: string): boolean {
+  const reaches = (from: string, to: string) => {
+    try {
+      const target = to.split(' ')[0];
+      return new Chess(from).moves({ verbose: true }).some((m) => m.after.split(' ')[0] === target);
+    } catch {
+      return false;
+    }
+  };
+  return reaches(a, b) || reaches(b, a);
 }
 
 export interface AnalysisReply {
@@ -360,4 +394,10 @@ export function samePosition(a: string | null | undefined, b: string | null | un
   const [pa, sa] = a.trim().split(/\s+/);
   const [pb, sb] = b.trim().split(/\s+/);
   return pa === pb && (sa ?? 'w') === (sb ?? 'w');
+}
+
+/** The coach's arrows the board draws while it shows `boardFen` (none on another position). */
+export function coachArrowsFor(coach: CoachArrowsOnBoard | null | undefined, boardFen: string | null | undefined): CoachArrow[] {
+  if (!coach) return [];
+  return samePosition(coach.fen, boardFen) || samePosition(coach.about, boardFen) ? coach.arrows : [];
 }

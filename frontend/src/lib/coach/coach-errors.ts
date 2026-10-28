@@ -13,6 +13,9 @@ export type CoachErrorCode =
   | 'not_your_move'
   | 'unreachable'
   | 'server'
+  | 'unauthorized'
+  | 'illegal_move'
+  | 'unreadable_move'
   | 'rejected';
 
 export interface CoachErrorFrame {
@@ -24,8 +27,27 @@ export interface CoachErrorFrame {
 
 const CODES: ReadonlySet<string> = new Set<CoachErrorCode>([
   'rate_limited', 'engine_unavailable', 'not_found', 'game_over', 'nothing_to_take_back', 'not_your_move',
-  'unreachable', 'server', 'rejected',
+  'unreachable', 'server', 'unauthorized', 'illegal_move', 'unreadable_move', 'rejected',
 ]);
+
+/**
+ * Hermes's GameError refusals (hermes/src/game_mode.py) by their English text, with the move they name: they reached
+ * the ru/kz student as «Ход не принят: e9 is not a legal move here.» (site review 28.10).
+ */
+const REFUSALS: ReadonlyArray<{ re: RegExp; code: 'illegal_move' | 'unreadable_move' }> = [
+  { re: /^(.+?) is not a legal move here\.?$/i, code: 'illegal_move' },
+  { re: /^Cannot read the move ['"]?(.*?)['"]?\.?$/i, code: 'unreadable_move' },
+  { re: /^Empty move\.?$/i, code: 'unreadable_move' },
+];
+
+function refusalOf(text: string | undefined): { code: 'illegal_move' | 'unreadable_move'; move: string } | null {
+  const t = (text ?? '').trim();
+  for (const r of REFUSALS) {
+    const m = r.re.exec(t);
+    if (m) return { code: r.code, move: (m[1] ?? '').trim() };
+  }
+  return null;
+}
 
 export function isCoachErrorCode(value: unknown): value is CoachErrorCode {
   return typeof value === 'string' && CODES.has(value);
@@ -58,26 +80,38 @@ export function classifyHermesError(
   const { text, retryAfter } = unwrap(body);
   const message = text || `Hermes error: ${status}`;
   if (status === 429) return { code: 'rate_limited', message, ...(retryAfter !== undefined ? { retryAfter } : {}) };
+  // The proxies' own «Unauthorized»: the Clerk session is gone (it reached the student as that word, 28.10).
+  if (status === 401) return { code: 'unauthorized', message };
   if (/engine is unavailable/i.test(text) || status === 503) return { code: 'engine_unavailable', message };
-  if (/not found|not a game/i.test(text)) return { code: 'not_found', message };
+  // A 404 is «not found» whatever its body says: a non-JSON Hermes body came through as «Hermes error: 404».
+  if (/not found|not a game/i.test(text) || status === 404) return { code: 'not_found', message };
   if (/game is over/i.test(text)) return { code: 'game_over', message };
   if (/nothing to take back/i.test(text)) return { code: 'nothing_to_take_back', message };
   if (/not your move/i.test(text)) return { code: 'not_your_move', message };
+  const refusal = refusalOf(text);
+  if (refusal) return { code: refusal.code, message };
   // 0: no answer at all; 502/504: the proxy or the gateway could not reach Hermes
   if (status === 0 || status === 502 || status === 504) return { code: 'unreachable', message };
   if (status >= 400 && status < 500 && text) return { code: 'rejected', message };
   return { code: 'server', message };
 }
 
-/** The SSE error frame for a non-ok Hermes response (server side, in a proxy). */
-export async function hermesErrorFrame(res: Response): Promise<CoachErrorFrame> {
+/** A non-ok response read once: its JSON body if it has one, classified. */
+export async function classifyResponse(
+  res: Pick<Response, 'status'> & { json?: () => Promise<unknown> },
+): Promise<{ code: CoachErrorCode; message: string; retryAfter?: number }> {
   let body: unknown = null;
   try {
-    body = await res.json();
+    body = typeof res.json === 'function' ? await res.json() : null;
   } catch {
     body = null;
   }
-  const c = classifyHermesError(res.status, body);
+  return classifyHermesError(res.status, body);
+}
+
+/** The SSE error frame for a non-ok Hermes response (server side, in a proxy). */
+export async function hermesErrorFrame(res: Response): Promise<CoachErrorFrame> {
+  const c = await classifyResponse(res);
   return {
     error: c.message,
     error_code: c.code,
@@ -93,7 +127,7 @@ export function unreachableFrame(err: unknown): CoachErrorFrame {
 
 type Translate = (key: string, values?: Record<string, string | number>) => string;
 
-const KEYS: Record<Exclude<CoachErrorCode, 'rate_limited' | 'rejected'>, string> = {
+const KEYS: Record<Exclude<CoachErrorCode, 'rate_limited' | 'rejected' | 'illegal_move' | 'unreadable_move'>, string> = {
   engine_unavailable: 'errorEngineUnavailable',
   not_found: 'errorNotFound',
   game_over: 'errorGameOver',
@@ -101,6 +135,7 @@ const KEYS: Record<Exclude<CoachErrorCode, 'rate_limited' | 'rejected'>, string>
   not_your_move: 'errorNotYourMove',
   unreachable: 'errorCoachUnreachable',
   server: 'errorServer',
+  unauthorized: 'errorUnauthorized',
 };
 
 /** The student-facing text for a coach failure, in the `coach` namespace's language. */
@@ -109,12 +144,21 @@ export function coachErrorText(
   code: CoachErrorCode,
   opts: { retryAfter?: number; detail?: string } = {},
 ): string {
+  // Hermes's and the proxies' texts are English: the student gets their own language, the original stays here.
+  if (opts.detail) console.warn('[coach] failure shown in the student language, original:', opts.detail);
   if (code === 'rate_limited') {
     const seconds = typeof opts.retryAfter === 'number' && opts.retryAfter > 0 ? Math.ceil(opts.retryAfter) : null;
     return seconds ? t('errorRateLimited', { seconds }) : t('errorRateLimitedNoTime');
   }
-  // A refusal Hermes worded itself («e9 is not a legal move here.») is shown as it is, as the move error was.
-  if (code === 'rejected') return opts.detail || t('errorServer');
+  if (code === 'illegal_move' || code === 'unreadable_move' || code === 'rejected') {
+    const refusal = refusalOf(opts.detail);
+    if (refusal?.code === 'illegal_move' && refusal.move) return t('errorIllegalMove', { move: refusal.move });
+    if (refusal?.code === 'unreadable_move') {
+      return refusal.move ? t('errorUnreadableMove', { move: refusal.move }) : t('errorEmptyMove');
+    }
+    // Any other refusal (the proxies' «Missing fen», a side line that does not replay…) was English too.
+    return opts.detail || code !== 'rejected' ? t('errorRejected') : t('errorServer');
+  }
   return t(KEYS[code]);
 }
 
