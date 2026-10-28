@@ -129,3 +129,15 @@ describe('ownGamePosition', () => {
     expect(browsingNote({ ply: 3 } as any, null, [], LIVE)).toContain('SIDE LINE');
   });
 });
+
+// Prod Live run 28.10: from a bare «c6» the coach said «мой конь на c6»; the reply comes with its piece in words.
+describe('the engine reply in words', () => {
+  it('the move note names the piece', () => {
+    const note = gameMoveNote({ ok: true, student_move: 'e4', engine_reply: 'c6', engine_reply_words: 'pawn from c7 to c6' });
+    expect(note).toContain('c6 (pawn from c7 to c6)');
+    expect(note).toContain('naming exactly that piece');
+  });
+  it('without words (an older Hermes) the note is as before', () => {
+    expect(gameMoveNote({ ok: true, student_move: 'e4', engine_reply: 'c6' })).toContain('the engine answered c6 — say it aloud');
+  });
+});

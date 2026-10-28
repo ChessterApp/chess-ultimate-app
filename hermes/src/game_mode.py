@@ -338,16 +338,54 @@ def _absorb_variations(state: dict) -> None:
                 variations.append({"at_ply": ply + 1, "moves": rest, "at": v.get("at")})
 
 
+_PIECE_WORDS = {chess.PAWN: "pawn", chess.KNIGHT: "knight", chess.BISHOP: "bishop", chess.ROOK: "rook",
+                chess.QUEEN: "queen", chess.KING: "king"}
+
+
+def move_words(board: chess.Board, move: chess.Move) -> str:
+    """*move* (legal on *board*, before it is played) in plain words: «pawn from c7 to c6», «knight from g8 to f6,
+    takes the pawn on e4», «castles kingside». The voice coach said «мой конь на c6» for the engine's c6 (a pawn):
+    from the bare SAN it guessed the piece (prod Live run 28.10)."""
+    if board.is_castling(move):
+        return "castles " + ("kingside" if chess.square_file(move.to_square) > chess.square_file(move.from_square) else "queenside")
+    piece = board.piece_at(move.from_square)
+    words = f"{_PIECE_WORDS.get(piece.piece_type, 'piece') if piece else 'piece'} from {chess.square_name(move.from_square)} " \
+            f"to {chess.square_name(move.to_square)}"
+    if board.is_capture(move):
+        taken = chess.PAWN if board.is_en_passant(move) else (board.piece_at(move.to_square).piece_type
+                                                              if board.piece_at(move.to_square) else None)
+        words += f", takes the {_PIECE_WORDS.get(taken, 'piece')}" + (" en passant" if board.is_en_passant(move) else
+                                                                     f" on {chess.square_name(move.to_square)}")
+    if move.promotion:
+        words += f", promotes to a {_PIECE_WORDS.get(move.promotion, 'queen')}"
+    if board.gives_check(move):
+        words += ", check"
+    return words
+
+
+def ply_words(state: dict, ply: int) -> Optional[str]:
+    """The words for the game's move number *ply* (1-based), or None."""
+    moves = state.get("moves") or []
+    if not 1 <= ply <= len(moves):
+        return None
+    board = _replay(moves[: ply - 1])
+    try:
+        return move_words(board, board.parse_san(moves[ply - 1]))
+    except ValueError:
+        return None
+
+
 def _push_engine_move(state: dict, board: chess.Board) -> dict:
     uci = _engine_move(board.fen(), state["engine_elo"])
     move = chess.Move.from_uci(uci)
     if move not in board.legal_moves:
         raise RuntimeError(f"engine proposed an illegal move {uci}")
     san = board.san(move)
+    words = move_words(board, move)
     board.push(move)
     state["moves"].append(san)
     _absorb_variations(state)
-    return {"san": san, "uci": uci}
+    return {"san": san, "uci": uci, "words": words}
 
 
 def _parse_student_move(board: chess.Board, move_str: str) -> chess.Move:

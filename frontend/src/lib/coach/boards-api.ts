@@ -74,7 +74,7 @@ export interface GameStateView {
     best: string | null;
   } | null;
   /** The engine's reply, if the game went on. */
-  engine: { san: string; uci: string } | null;
+  engine: { san: string; uci: string; words?: string } | null;
   comment_wanted: boolean;
 }
 

@@ -82,7 +82,7 @@ class TestGameFlow:
         engine.replies = ["e4"]
         s = _session()
         board, p = start_game(s, "black", 800, "every")
-        assert p["engine"] == {"san": "e4", "uci": "e2e4"} and p["moves"] == ["e4"]
+        assert p["engine"] == {"san": "e4", "uci": "e2e4", "words": "pawn from e2 to e4"} and p["moves"] == ["e4"]
         assert p["student_to_move"] is True and board.orientation == "black"
         assert board.pgn.endswith("1. e4 *") and board.ply == 1
         assert engine.calls[0] == ("move", chess.STARTING_FEN, 800)

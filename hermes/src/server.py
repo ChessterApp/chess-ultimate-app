@@ -4236,6 +4236,19 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
     return {"issues": issues}
 
 
+def _student_just_played(game) -> Optional[tuple[str, str]]:
+    """(the position before it, the SAN) of the student's last move in a live game, or None."""
+    from src import game_mode
+
+    state = game.game_state or {}
+    moves = state.get("moves") or []
+    student_white = (state.get("student_color") or "white") == "white"
+    for ply in (len(moves), len(moves) - 1):  # the engine may or may not have answered yet
+        if ply >= 1 and ((ply % 2 == 1) == student_white):
+            return game_mode.position_at(state, ply - 1).fen(), moves[ply - 1]
+    return None
+
+
 @app.post("/api/coach/voice/intent")
 async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
     """What the student's words ask for (src/intent.py), for the voice coach's browser — which kept its own
@@ -4248,6 +4261,7 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
 
     def _read() -> dict:
         fen, pgn, live, finished, puzzle = body.fen, body.pgn, False, False, False
+        just_played = None
         session = session_store.get(body.session_id, user_id) if body.session_id else None
         if session is not None:
             board = session.get_board(session.active_board_id) if session.active_board_id else None
@@ -4255,6 +4269,7 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
             live = game is not None
             if live:
                 fen = game.fen
+                just_played = _student_just_played(game)
             elif board is not None:
                 finished = board.kind == "game" and bool(board.game_state)
             if not live and not finished:
@@ -4268,7 +4283,8 @@ async def coach_voice_intent(body: VoiceIntentRequest, request: Request):
                     fen = fen or board.fen
                     pgn = pgn or board.pgn
         return read_intent(body.text[:600], fen=fen, pgn=pgn, live_game=live, finished_game=finished,
-                           puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.puzzle_queue))
+                           puzzle_on_board=puzzle, puzzle_queue=bool(session is not None and session.puzzle_queue),
+                           just_played=just_played)
 
     return await asyncio.to_thread(_read)
 
