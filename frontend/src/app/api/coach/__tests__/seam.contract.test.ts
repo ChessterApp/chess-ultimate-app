@@ -17,6 +17,8 @@
  * row or is listed below with the reason it is not.
  *
  * Changing a proxy, the page's body or a Hermes model: update the row (and regenerate the JSON).
+ * The voice hook and the chat page are also run as they are, through these routes (no copied bodies):
+ * hooks/__tests__/useGeminiLive.routes.test.ts, components/coach/__tests__/CoachChat.routes.test.tsx.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
