@@ -213,6 +213,8 @@ describe('Coach API Routes', () => {
       expect(JSON.parse(opts.body)).toEqual({
         args: { action_type: 'set_fen' },
         session_id: 'sess-1',
+        // the interface language for the tools that word lessons/topics (28.10); no cookie, no header → ru
+        locale: 'ru',
       });
     });
 

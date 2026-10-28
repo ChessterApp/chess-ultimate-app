@@ -50,6 +50,8 @@ import {
   sheetReducer,
 } from '@/lib/coach/sheet-detent';
 import { sanMoves } from '@/lib/coach/move-strip';
+import { gameViewFromBoard } from '@/lib/coach/game-restore';
+import { coachErrorText } from '@/lib/coach/coach-errors';
 import type { Key } from 'chessground/types';
 import { Chess } from 'chess.js';
 
@@ -99,34 +101,6 @@ function openedGameFromBoard(b: BoardRecord, labels: { you: string; coach: strin
     fens: parsed.fens,
     startingFen: parsed.startingFen,
     source: typeof src.kind === 'string' ? src.kind : 'twic',
-  };
-}
-
-/** A live game restored from its board record (no last move / verdict known). */
-function gameViewFromBoard(b: BoardRecord): GameStateView | null {
-  const gs = (b.game_state ?? null) as Record<string, unknown> | null;
-  if (b.kind !== 'game' || !gs || gs.status !== 'playing') return null;
-  const moves = Array.isArray(gs.moves) ? (gs.moves as string[]) : [];
-  const studentColor = gs.student_color === 'black' ? 'black' : 'white';
-  const whiteToMove = moves.length % 2 === 0;
-  return {
-    board_id: b.id,
-    student_color: studentColor,
-    engine_elo: typeof gs.engine_elo === 'number' ? gs.engine_elo : 1500,
-    comment_mode: (gs.comment_mode as GameStateView['comment_mode']) ?? 'mistakes',
-    status: 'playing',
-    result: null,
-    termination: null,
-    winner: null,
-    fen: b.fen,
-    pgn: b.pgn,
-    ply: moves.length,
-    moves,
-    student_to_move: whiteToMove === (studentColor === 'white'),
-    in_check: false,
-    student: null,
-    engine: null,
-    comment_wanted: false,
   };
 }
 
@@ -614,6 +588,19 @@ export default function CoachPage() {
     [],
   );
 
+  // Why a game action failed, in the student's language; null while the page is leaving for the upgrade path.
+  // Start / resign / takeback lost Hermes's reason («Не удалось начать партию: start») — seam audit 28.10.
+  const gameFailureReason = useCallback(
+    (err: unknown): string | null => {
+      if (err instanceof CoachApiError) {
+        if (err.message === 'MEMBERSHIP_RESTRICTED') return null;
+        return coachErrorText(t, err.code, { retryAfter: err.retryAfter, detail: err.message });
+      }
+      return err instanceof Error && err.message === 'session' ? coachErrorText(t, 'server') : coachErrorText(t, 'unreachable');
+    },
+    [t],
+  );
+
   const handleStartGame = useCallback(
     async (options: GameStartOptions) => {
       setGameThinking(true);
@@ -626,7 +613,6 @@ export default function CoachPage() {
           handleSessionCreated(sid);
         }
         const view = await coachApi.startGame(sid, options);
-        if (!view) throw new Error('start');
         setLastGameOptions(options);
         setGameDialogOpen(false);
         setCoachLine(null);
@@ -636,13 +622,13 @@ export default function CoachPage() {
         applyGameView(view);
         chatRef.current?.announceGame(view);  // the engine's first move when the student plays Black
       } catch (err: unknown) {
-        const reason = err instanceof Error ? err.message : 'unknown';
-        setGameError(t('gameStartFailed', { reason }));
+        const reason = gameFailureReason(err);
+        if (reason !== null) setGameError(t('gameStartFailed', { reason }));
       } finally {
         setGameThinking(false);
       }
     },
-    [sessionId, handleSessionCreated, board, applyGameView, t],
+    [sessionId, handleSessionCreated, board, applyGameView, t, gameFailureReason],
   );
 
   const submitGameMove = useCallback(
@@ -659,13 +645,13 @@ export default function CoachPage() {
         const turnId = chatRef.current?.announceGame(view, true);
         if (view.comment_wanted || chatRef.current?.voicePipelineOn()) requestGameComment(sessionId, view, turnId);
       } catch (err: unknown) {
-        const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
-        setGameError(t('gameMoveFailed', { reason }));
+        const reason = gameFailureReason(err);
+        if (reason !== null) setGameError(t('gameMoveFailed', { reason }));
       } finally {
         setGameThinking(false);
       }
     },
-    [sessionId, applyGameView, requestGameComment, t],
+    [sessionId, applyGameView, requestGameComment, t, gameFailureReason],
   );
 
   // A move on the study board: the game's move while a game is on, otherwise
@@ -686,9 +672,14 @@ export default function CoachPage() {
 
   const handleGameTakeback = useCallback(async () => {
     if (!sessionId || !game) return;
-    const view = await coachApi.gameTakeback(sessionId, game.board_id);
-    if (view) applyGameView(view);
-  }, [sessionId, game, applyGameView]);
+    try {
+      applyGameView(await coachApi.gameTakeback(sessionId, game.board_id));
+    } catch (err: unknown) {
+      // A refused takeback was silent: the board just did not change (seam audit 28.10).
+      const reason = gameFailureReason(err);
+      if (reason !== null) setGameError(t('gameTakebackFailed', { reason }));
+    }
+  }, [sessionId, game, applyGameView, t, gameFailureReason]);
   const backToMainLineRef = useRef<() => void>(() => {});
 
   // A side line on the board: the main line up to its ply, then its moves — the game itself untouched.
@@ -727,21 +718,26 @@ export default function CoachPage() {
       applyGameView(view);
       chatRef.current?.announceGame(view, true);  // the engine's move from the new point, if it moved
     } catch (err: unknown) {
-      const reason = err instanceof CoachApiError ? err.message : err instanceof Error ? err.message : 'unknown';
-      setGameError(t('gameMoveFailed', { reason }));
+      const reason = gameFailureReason(err);
+      if (reason !== null) setGameError(t('gameMoveFailed', { reason }));
     } finally {
       setGameThinking(false);
     }
-  }, [sessionId, applyGameView, t]);
+  }, [sessionId, applyGameView, t, gameFailureReason]);
 
   const handleGameResign = useCallback(async () => {
     if (!sessionId || !game) return;
-    const view = await coachApi.gameResign(sessionId, game.board_id);
-    if (view) {
-      applyGameView(view);
-      requestGameComment(sessionId, view);
+    let view: GameStateView;
+    try {
+      view = await coachApi.gameResign(sessionId, game.board_id);
+    } catch (err: unknown) {
+      const reason = gameFailureReason(err);
+      if (reason !== null) setGameError(t('gameResignFailed', { reason }));
+      return;
     }
-  }, [sessionId, game, applyGameView, requestGameComment]);
+    applyGameView(view);
+    requestGameComment(sessionId, view);
+  }, [sessionId, game, applyGameView, requestGameComment, t, gameFailureReason]);
 
   const handleGameClose = useCallback(() => {
     stopAnimation();

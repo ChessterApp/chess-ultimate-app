@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { requireCoachAccess } from '@/lib/coach-access';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
+import { requestLocale } from '@/i18n/detect';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -51,6 +52,9 @@ export async function POST(request: NextRequest) {
           session_id: body.session_id,
           // The student's last words: Hermes decides the board lock from them (src/board_lock.py).
           utterance: typeof body.utterance === 'string' ? body.utterance.slice(0, 600) : undefined,
+          // The interface language: Hermes hands it to the tools that word lessons and topics (get_puzzle,
+          // get_topic…), which fell back to Russian for voice calls (seam audit 28.10).
+          locale: requestLocale(request),
         }),
         signal: AbortSignal.timeout(TOOL_TIMEOUT_MS),
       },

@@ -790,6 +790,9 @@ def _puzzle_prestep(session, active_board, message: str, user_id: Optional[str],
     args = {"theme": intent.get("theme")} if intent.get("theme") else {}
     if re.search(r"(?<![\w-])(?:любую|случайную|any|random)(?![\w-])", message, re.IGNORECASE):
         args["any"] = True
+    if locale:
+        # The lesson/course names and hints in the student's interface language (seam audit 28.10: dropped here).
+        args["locale"] = locale
     raw = _handle_get_puzzle(args, session_id=session.id, user_id=user_id, student_message=message)
     try:
         result = json.loads(raw)

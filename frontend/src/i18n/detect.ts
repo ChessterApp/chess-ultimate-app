@@ -38,3 +38,15 @@ export function resolveLocale(
   if (isLocale(cookieValue)) return cookieValue;
   return localeFromAcceptLanguage(acceptLanguage);
 }
+
+/**
+ * The locale of an incoming request, resolved as the page resolves it (i18n/request.ts). The coach proxies
+ * took the cookie or 'ru', so a Kazakh browser that never used the switcher got Russian replies under a
+ * Kazakh interface (seam audit 28.10).
+ */
+export function requestLocale(request: {
+  cookies?: { get(name: string): { value: string } | undefined };
+  headers?: { get(name: string): string | null };
+}): Locale {
+  return resolveLocale(request.cookies?.get('NEXT_LOCALE')?.value, request.headers?.get('accept-language'));
+}

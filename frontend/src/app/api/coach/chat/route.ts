@@ -5,6 +5,8 @@ import { captureServer } from '@/lib/analytics/server';
 import { ANALYTICS_EVENTS } from '@/lib/analytics/events';
 
 import { resolveUserTier } from '@/lib/subscription-tier';
+import { requestLocale } from '@/i18n/detect';
+import { hermesErrorFrame, unreachableFrame } from '@/lib/coach/coach-errors';
 
 const HERMES_URL = process.env.HERMES_URL || 'http://localhost:8642';
 
@@ -57,7 +59,8 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const locale = request.cookies.get('NEXT_LOCALE')?.value || 'ru';
+  // Cookie → Accept-Language, as the page picks its language (28.10: the cookie alone gave 'ru' to Kazakh browsers).
+  const locale = requestLocale(request);
   const tier = await resolveUserTier(userId);
 
   // Tracking plan §4 B — counts the message, never its content. Runs after the
@@ -110,8 +113,9 @@ export async function POST(request: NextRequest) {
         });
 
         if (!hermesResponse.ok) {
-          sendEvent({ error: `Hermes error: ${hermesResponse.status}` });
-          controller.close();
+          // Hermes's reason with a code the chat shows in the student's language — a 429 used to reach the
+          // bubble as «Hermes error: 429», with no «wait N s» (seam audit 28.10).
+          sendEvent({ ...(await hermesErrorFrame(hermesResponse)) });
           return;
         }
 
@@ -168,8 +172,7 @@ export async function POST(request: NextRequest) {
           sendEvent({ done: true, session_id: data.session_id });
         }
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        sendEvent({ error: message });
+        sendEvent({ ...unreachableFrame(err) });
       } finally {
         controller.close();
       }

@@ -18,6 +18,26 @@ from src.boards import Board, board_from_row, new_board
 from src.session_persistence import SessionPersistence
 
 
+def _stored_time(*values) -> Optional[float]:
+    """The first of *values* that reads as a time (epoch seconds or an ISO string from Supabase), else None.
+    A session reloaded after a restart got the load time on every message (seam audit 28.10): the session
+    list then showed one time for all and lost its «latest activity» order."""
+    from datetime import datetime, timezone
+
+    for value in values:
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+        if isinstance(value, str) and value.strip():
+            try:
+                stamp = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=timezone.utc)
+            return stamp.timestamp()
+    return None
+
+
 class SessionMessage(BaseModel):
     role: str
     content: str
@@ -218,9 +238,12 @@ class Session(BaseModel):
         are only passed by the instrumented text chat path — other callers are
         unchanged.
         """
-        self.messages.append(
-            SessionMessage(role=role, content=content, source=source)
-        )
+        message = SessionMessage(role=role, content=content, source=source)
+        # The utterance time the client stamped (voice) — the same time the reloaded row will carry.
+        when = _stored_time((extra or {}).get("client_ts"))
+        if when is not None:
+            message.timestamp = when
+        self.messages.append(message)
         if self._persistence is not None:
             self._persistence.persist_message(
                 self.id, role, content, source, extra=extra, evt=evt
@@ -298,6 +321,9 @@ class SessionStore:
             board_state=row.get("board_state") or chess.STARTING_FEN,
             active_board_id=row.get("active_board_id"),
         )
+        created = _stored_time(row.get("created_at"))
+        if created is not None:
+            session.created_at = created
         # Boards and messages depend on the session id only: two roundtrips at
         # once instead of one after the other (250–500 ms each from production).
         from concurrent.futures import ThreadPoolExecutor
@@ -317,13 +343,16 @@ class SessionStore:
             session.board_state = active.fen
         for m in message_rows:
             # Append directly to avoid re-persisting loaded messages.
-            session.messages.append(
-                SessionMessage(
-                    role=m["role"],
-                    content=m["content"],
-                    source=m.get("source", "text") or "text",
-                )
+            message = SessionMessage(
+                role=m["role"],
+                content=m["content"],
+                source=m.get("source", "text") or "text",
             )
+            # Its real time: the client's utterance stamp, else the row's own (28.10).
+            when = _stored_time(m.get("client_ts"), m.get("created_at"))
+            if when is not None:
+                message.timestamp = when
+            session.messages.append(message)
         session._persistence = self._persistence
         self._sessions[session.id] = session
         return session

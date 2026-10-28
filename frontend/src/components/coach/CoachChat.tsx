@@ -18,6 +18,7 @@ import { movePhrase, type PipelineLocale } from '@/lib/coach/voice-pipeline';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
+import { classifyHermesError, coachErrorText, frameErrorText } from '@/lib/coach/coach-errors';
 import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
 import Composer from './Composer';
 import type { AttachKind } from './AttachSheet';
@@ -891,7 +892,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
             }
 
             if (data.error) {
-              const note = `\n\n*${t('errorLabel')}: ${data.error}*`;
+              const note = `\n\n*${t('errorLabel')}: ${frameErrorText(t, data)}*`;
               fullContent += note;
               setMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + note } : m))
@@ -944,8 +945,13 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           body: JSON.stringify(body),
           signal: commentController.signal,
         });
+        if (!response.ok) {
+          // The proxy answered with a status, not a stream: worded, not «HTTP 500» (seam audit 28.10).
+          patch(`*${t('errorLabel')}: ${coachErrorText(t, classifyHermesError(response.status, null).code)}*`);
+          return;
+        }
         const reader = response.body?.getReader();
-        if (!response.ok || !reader) throw new Error(`HTTP ${response.status}`);
+        if (!reader) throw new Error(`HTTP ${response.status}`);
         const decoder = new TextDecoder();
         let buffer = '';
         while (true) {
@@ -964,7 +970,7 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
               }
               if (pipelineRef.current.isActive) pipelineRef.current.feedFrame(data, turnId);  // the comment is read aloud (26.10)
               if (data.error) {
-                content += `${content ? '\n\n' : ''}*${t('errorLabel')}: ${data.error}*`;
+                content += `${content ? '\n\n' : ''}*${t('errorLabel')}: ${frameErrorText(t, data)}*`;
                 patch(content);
               }
             } catch {
