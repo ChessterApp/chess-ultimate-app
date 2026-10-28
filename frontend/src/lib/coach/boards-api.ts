@@ -7,6 +7,7 @@
  */
 
 import { handleRestrictedResponse } from '@/lib/access-fetch';
+import { classifyHermesError, type CoachErrorCode } from './coach-errors';
 
 export type BoardKind = 'study' | 'puzzle' | 'game' | 'master_game';
 
@@ -79,28 +80,41 @@ export interface GameStateView {
 
 export class CoachApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** What the failure means for the student (shown through coachErrorText, 28.10). */
+  code: CoachErrorCode;
+  retryAfter?: number;
+  constructor(status: number, message: string, code?: CoachErrorCode, retryAfter?: number) {
     super(message);
     this.status = status;
+    this.code = code ?? classifyHermesError(status, { detail: message }).code;
+    this.retryAfter = retryAfter;
   }
 }
 
 /** Like `call`, but a non-2xx answer throws with Hermes' `detail` (game moves need the reason). */
 async function callWithError<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-    credentials: 'include',
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+      credentials: 'include',
+    });
+  } catch (err: unknown) {
+    // No answer at all (offline, aborted): still a CoachApiError, so the page words it (28.10).
+    throw new CoachApiError(0, err instanceof Error ? err.message : 'network error', 'unreachable');
+  }
   if (!res.ok) {
     // A frozen/expired member hitting a gated coach API is redirected to upgrade.
     if (await handleRestrictedResponse(res)) {
-      throw new CoachApiError(res.status, 'MEMBERSHIP_RESTRICTED');
+      throw new CoachApiError(res.status, 'MEMBERSHIP_RESTRICTED', 'server');
     }
     let message = `HTTP ${res.status}`;
+    let data: unknown = null;
     try {
-      const data = (await res.json()) as { detail?: unknown; error?: unknown };
-      const d = data.detail ?? data.error;
+      data = await res.json();
+      const body = data as { detail?: unknown; error?: unknown };
+      const d = body.detail ?? body.error;
       if (typeof d === 'string') message = d;
       else if (d && typeof d === 'object' && typeof (d as { detail?: unknown }).detail === 'string') {
         message = (d as { detail: string }).detail;
@@ -108,7 +122,8 @@ async function callWithError<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // keep the status text
     }
-    throw new CoachApiError(res.status, message);
+    const c = classifyHermesError(res.status, data);
+    throw new CoachApiError(res.status, message, c.code, c.retryAfter);
   }
   return (await res.json()) as T;
 }
@@ -228,8 +243,10 @@ export const coachApi = {
     ),
 
   // ── Game against the coach ──────────────────────────────────────────────
+  // Every game action throws CoachApiError with Hermes's reason: start / resign / takeback answered null and the
+  // page showed «start» or nothing at all (seam audit 28.10).
   startGame: (sessionId: string, body: { color: 'white' | 'black' | 'random'; elo: number; comment_mode?: GameCommentMode }) =>
-    call<GameStateView>(`/api/coach/sessions/${encodeURIComponent(sessionId)}/game`, {
+    callWithError<GameStateView>(`/api/coach/sessions/${encodeURIComponent(sessionId)}/game`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -241,13 +258,13 @@ export const coachApi = {
     ),
 
   gameResign: (sessionId: string, boardId: string) =>
-    call<GameStateView>(
+    callWithError<GameStateView>(
       `/api/coach/sessions/${encodeURIComponent(sessionId)}/game/${encodeURIComponent(boardId)}/resign`,
       { method: 'POST' },
     ),
 
   gameTakeback: (sessionId: string, boardId: string) =>
-    call<GameStateView>(
+    callWithError<GameStateView>(
       `/api/coach/sessions/${encodeURIComponent(sessionId)}/game/${encodeURIComponent(boardId)}/takeback`,
       { method: 'POST' },
     ),

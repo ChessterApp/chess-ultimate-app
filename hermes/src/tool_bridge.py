@@ -295,6 +295,24 @@ class ToolDispatchRequest(BaseModel):
     # The student's last words (voice): the board lock is decided from them, as the text coach's
     # turn decides it from the message (src/board_lock.py).
     utterance: Optional[str] = None
+    # The site's interface language (the proxy resolves it as the page does): the tools below read
+    # args["locale"] for their lesson/topic texts and fell back to Russian (seam audit 28.10).
+    locale: Optional[str] = None
+
+
+# Tools whose handler reads args["locale"] (src/tools: puzzles, knowledge_topics, learning_path,
+# training_recommender). Only these get it: the others never see an argument they do not declare.
+_LOCALE_TOOLS = frozenset({
+    "get_puzzle", "get_topic", "list_topics", "get_lesson", "get_learning_path", "training_recommender",
+})
+_SITE_LOCALES = frozenset({"ru", "en", "kz"})
+
+
+def _with_locale(name: str, args: dict, locale: Optional[str]) -> dict:
+    """*args* with the interface *locale* for a tool that reads it; the model's own choice stays."""
+    if name not in _LOCALE_TOOLS or locale not in _SITE_LOCALES or args.get("locale"):
+        return args
+    return {**args, "locale": locale}
 
 
 # The board lock a voice tool call runs under. Calls of one model turn come in parallel: the lock
@@ -382,7 +400,7 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     # per-session tool-call count can be reconstructed for cost estimation.
     record_voice_event(user_id, body.session_id, tool_name=name)
 
-    args = _override_identity_args(name, body.args or {}, user_id)
+    args = _with_locale(name, _override_identity_args(name, body.args or {}, user_id), body.locale)
 
     # registry.dispatch is synchronous and can block for seconds (e.g. a
     # Stockfish analysis at depth 18). Run it off the event loop so slow tools
