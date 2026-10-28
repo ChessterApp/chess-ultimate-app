@@ -214,7 +214,7 @@ def _handle_start_game(args: dict, **kwargs) -> str:
                 "engine_first_move_words": game_mode.ply_words(state, 1) if engine else None,
                 "note": "The game is already on (it was started a moment ago for this very request). "
                         + (f"{_opened_with(state, engine)}: tell the student, naming exactly that piece, then wait "
-                           "for their move." if engine else "The student moves first: ask for their move."),
+                           "for their move." if engine else "The student moves first: ask for their move.") + " " + game_mode.NO_MOVE_TIP,
             })
         # A new game asked for while one is on («хочу сыграть партию с самым сильным ботом 2500», voice
         # 2026-10-15: the answer was «A game is already on» and the model improvised «давай перезапустим»): the
@@ -233,7 +233,8 @@ def _handle_start_game(args: dict, **kwargs) -> str:
             "engine_first_move_words": game_mode.ply_words(new_state, 1) if engine else None,
             "note": "The previous game was still on: it is counted as resigned and a new game has started. "
                     + (f"{_opened_with(new_state, engine)}: tell the student, naming exactly that piece, then wait "
-                       "for their move." if engine else "The student moves first: say the new game is on and ask for their move."),
+                       "for their move." if engine else "The student moves first: say the new game is on and ask for their move.")
+                    + " " + game_mode.NO_MOVE_TIP,
         })
     try:
         _, view = game_mode.start_game(session, color, _strength(elo), "quiet")
@@ -250,7 +251,8 @@ def _handle_start_game(args: dict, **kwargs) -> str:
         "engine_first_move": engine,
         "engine_first_move_words": game_mode.ply_words(new_state, 1) if engine else None,
         "note": (f"The game is on. {_opened_with(new_state, engine)}: tell the student, naming exactly that piece, "
-                 "then wait for their move." if engine else "The game is on and the student moves first: ask for their move."),
+                 "then wait for their move." if engine else "The game is on and the student moves first: ask for their move.")
+                + " " + game_mode.NO_MOVE_TIP,
     })
 
 
@@ -637,7 +639,7 @@ def game_command_step(session, board_rec, command: str, words: str = "", wish: O
                 + f"The student plays {view['student_color']} again, the engine about {view['engine_elo']} Elo. "
                 + (f"{_opened_with({'moves': view.get('moves') or []}, engine)}: say this move aloud in words, naming "
                    "exactly that piece and square. " if engine else "The student moves first. ")
-                + "Tell them it is on and whose move it is."
+                + "Tell them it is on and whose move it is. " + game_mode.NO_MOVE_TIP
             )}
     except game_mode.GameError as exc:
         return {"view": None, "block": f"## The game could not do that: {exc}\nSay so plainly in one sentence."}

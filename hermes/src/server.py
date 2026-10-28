@@ -699,10 +699,11 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
         block = (
             "## The game has started on the board (the system started it)\n"
             f"The student asked to play: the game is on — the student plays {view['student_color']}, the engine "
-            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {engine}: say this move aloud in words (piece and "
-                                                   f"square), then that it is their move. " if engine else "The student moves first. ")
+            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {game_mode.told_ply(view, 1) or engine}: say this "
+                                                   "move in words, naming exactly that piece and square, then that it is "
+                                                   "their move. " if engine else "The student moves first. ")
             + "Tell them it is on and whose move it is. Never play or invent a move of yours: every move of the "
-            "student goes through make_game_move, and the engine makes yours."
+            "student goes through make_game_move, and the engine makes yours. " + game_mode.NO_MOVE_TIP
         )
         return {"view": view, "block": block}
     if live.id != active_board.id or not live.game_state:

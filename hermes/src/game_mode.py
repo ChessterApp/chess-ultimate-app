@@ -40,6 +40,9 @@ _BOARD_LOCKS_GUARD = threading.Lock()
 # A second start of the same game within this time (the site's and the model's calls for one request) is
 # the same game, not a restart.
 SAME_START_WINDOW_S = 20.0
+# Said with every game start: the coach suggested the first move unasked — «жду е2-е4» (the best move of the
+# position, voice) and «начни с e5» after 1.Nf3, which hangs a pawn (text) — prod runs 28.10.
+NO_MOVE_TIP = "Do not suggest which move to play — the student chooses their moves (no move names)."
 
 
 def board_lock(board_rec) -> threading.Lock:
