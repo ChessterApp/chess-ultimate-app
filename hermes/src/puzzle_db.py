@@ -142,7 +142,10 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
 
 def db_available(db_path: Optional[str] = None) -> bool:
     path = Path(db_path or PUZZLES_DB_PATH)
-    return path.is_file() and path.stat().st_size > 0
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:  # a path under a closed directory (/root on a CI runner): no database here (28.10)
+        return False
 
 
 def present_puzzle(row: dict) -> dict:
