@@ -28,17 +28,27 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Pinned, as in tests.yml: the gate scores committed answers against the engine, so the score moves with the
+      # engine version. The apt package followed the runner image and the gate failed 28.10 with no code change
+      # (0.8284 in CI, the same commits 0.8198 on Stockfish 19 locally; the last green run was 21.10).
       - name: Install Stockfish
+        env:
+          STOCKFISH_VERSION: sf_19
+          STOCKFISH_SHA256: 9defc0d4e55d49c65a6d042f3e571a39fcea499ade6dbe741b53b8c65e03611f
         run: |
-          sudo apt-get update
-          sudo apt-get install -y stockfish
-          # apt installs the engine at /usr/games/stockfish (the path the tools use).
-          test -x /usr/games/stockfish
+          curl -sSfL -o /tmp/sf.tar.gz \
+            "https://github.com/official-stockfish/Stockfish/releases/download/${STOCKFISH_VERSION}/stockfish-linux-x86-64-universal.tar.gz"
+          echo "${STOCKFISH_SHA256}  /tmp/sf.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/sf.tar.gz -C /tmp
+          sudo install -m 755 /tmp/stockfish/stockfish-linux-x86-64-universal /usr/local/bin/stockfish
+          echo quit | /usr/local/bin/stockfish | head -1
 
       - name: Install Python deps
         run: pip install "chess>=1.10"
 
       - name: Run engine-correctness regression gate
+        env:
+          STOCKFISH_PATH: /usr/local/bin/stockfish
         run: python scripts/ci_eval_gate.py --dataset eval/datasets/golden_v1.jsonl --baseline eval/baselines/golden_v1.baseline.json
 
       - name: Upload eval report

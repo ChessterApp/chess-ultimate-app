@@ -2,8 +2,9 @@
   "dataset": "eval/datasets/golden_v1.jsonl",
   "depth": 12,
   "n_cases": 58,
-  "mean_correctness": 0.8629,
+  "mean_correctness": 0.8198,
   "illegal_move_rate": 0.0769,
   "tolerance": 0.02,
-  "note": "Engine-grounded baseline for golden_v1, re-scored from the committed assistant_text at depth 12. The CI gate fails if mean_correctness drops below (baseline - tolerance) or illegal_move_rate rises above (baseline + tolerance). Re-baseline deliberately when a prompt change legitimately shifts scores."
+  "note": "Engine-grounded baseline for golden_v1, re-scored from the committed assistant_text at depth 12. The CI gate fails if mean_correctness drops below (baseline - tolerance) or illegal_move_rate rises above (baseline + tolerance). Re-baseline deliberately when a prompt change legitimately shifts scores. Re-baselined 28.10 on the pinned Stockfish 19: the old 0.8629 came from the runner's apt Stockfish, whose version drifted with the image; the committed answers and the scoring code are unchanged (the same 0.8198 at the last green commit 1bccb54e).",
+  "engine": "Stockfish 19 (sf_19, pinned in hermes-eval.yml)"
 }
