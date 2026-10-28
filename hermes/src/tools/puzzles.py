@@ -369,9 +369,12 @@ def get_puzzle(
 
 def _handle_get_puzzle(args: dict, **kwargs) -> str:
     from src.identity import resolve_user_id
+    from src.session_persistence import SessionLoadError
 
     try:
         user_id = resolve_user_id(args, kwargs)
+    except SessionLoadError:
+        raise  # see src/tools/__init__.py: a clear error, not a puzzle outside the session (28.10)
     except Exception:  # noqa: BLE001
         user_id = None
     # The session remembers every puzzle it has put up: «ещё задачу» moves on to the next task even when
@@ -384,6 +387,8 @@ def _handle_get_puzzle(args: dict, **kwargs) -> str:
         session = session_for(kwargs)
         if session is not None:
             exclude |= session.puzzles_shown
+    except SessionLoadError:
+        raise
     except Exception:  # noqa: BLE001 — without a session the model's own list is all there is
         session = None
     words = str(kwargs.get("student_message") or kwargs.get("utterance") or "")

@@ -447,6 +447,8 @@ def _tool_session(kwargs: Optional[dict]):
         return None
     try:
         return session_store.get(str(session_id))
+    except SessionLoadError:
+        raise  # the game is unknown, not absent: never "no session" (28.10)
     except Exception:  # noqa: BLE001
         return None
 

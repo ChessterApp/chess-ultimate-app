@@ -33,10 +33,14 @@ def resolve_user_id(args: dict, kwargs: dict) -> str:
     """
     session_id = kwargs.get("session_id") if kwargs else None
     if session_id:
+        from src.session_persistence import SessionLoadError
+
         try:
             from src.sessions import session_store
 
             session = session_store.get(str(session_id))
+        except SessionLoadError:
+            raise  # the tool fails clearly instead of running on a guessed id (28.10)
         except Exception:  # pragma: no cover - persistence hiccup; fall through
             logger.exception("identity: session lookup failed for %s", session_id)
             session = None
