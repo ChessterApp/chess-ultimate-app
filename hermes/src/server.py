@@ -693,6 +693,24 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
     if live is None:
         req = game_request(message)
         if not req:
+            # A move written with no game on, right after one (stand run 28.10: «d4» after a resignation — the coach
+            # answered «соперник ответил 3...exd4» for a game that did not exist): said so, nothing is played.
+            from src.tools.game_play import last_game_board
+
+            last = last_game_board(session)
+            if last is not None and active_board is not None and active_board.id == last.id and last.game_state:
+                final = game_mode._replay(last.game_state.get("moves") or [])
+                if bare_move(message, final) or move_attempt(message):
+                    state = last.game_state
+                    return {"view": None, "block": (
+                        "## No game is on — nothing was played\n"
+                        f"The last game is over ({state.get('result') or 'finished'}"
+                        + (f", {state.get('termination')}" if state.get("termination") else "")
+                        + f"; record: {game_mode._moves_text(state.get('moves') or []) or 'no moves'}). The student wrote "
+                        f"«{message.strip()}» as a move, but there is no game to play it in: the board did not change and "
+                        "the engine made no move. Say so plainly and offer a new game («давай ещё раз»); never answer "
+                        "with a move of yours or as if a game went on."
+                    )}
             return None
         _, view = game_mode.start_game(session, req["color"], _strength(req["elo"]), "quiet")
         engine = (view.get("engine") or {}).get("san")
