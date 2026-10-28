@@ -146,6 +146,7 @@ export default function PGNUploaderPage() {
     requestAnalysis,
     legalMoves,
     handleFutureMoveLegalClick,
+    coachArrows,
   } = useChesster(fen);
 
   const { gameReviewTheme, analyzeGameTheme } = useGameTheme();
@@ -854,6 +855,7 @@ export default function PGNUploaderPage() {
           <Box sx={{ flex: "0 0 auto", width: { xs: "100%", lg: "auto" }, display: "flex", justifyContent: "center" }}>
             <Stack spacing={3} alignItems="center">
               <AiChessboardPanel
+                coachArrows={coachArrows}
                 game={game}
                 fen={fen}
                 moveSquares={moveSquares}
