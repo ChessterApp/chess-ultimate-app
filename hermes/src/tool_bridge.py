@@ -29,6 +29,7 @@ from src.board_protocol import GAME_ACTION, ActionType, GAME_VIEW_ACTION
 from src.cost_monitor import record_voice_event
 from src.event_logger import log_event
 from src.middleware.rate_limiter import enforce_rate_limit, voice_tool_rate_limiter
+from src.session_persistence import SessionLoadError
 from src.sessions import session_store
 from src.tool_selector import select_tool_subset
 
@@ -395,6 +396,8 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
     if body.session_id:
         try:
             session = await asyncio.to_thread(session_store.get, body.session_id, user_id)
+        except SessionLoadError:
+            raise  # the game is unknown, not absent: 503, never the tool in "no game" mode (28.10)
         except Exception:  # noqa: BLE001 — the tool still runs, without the session
             session = None
     started = time.monotonic()

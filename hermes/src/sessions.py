@@ -7,6 +7,7 @@ Supabase and cache misses lazy-load from it so conversations survive a Hermes
 restart. With no backend configured everything runs pure in-memory as before.
 """
 
+import logging
 import time
 import uuid
 from typing import Optional
@@ -15,7 +16,9 @@ import chess
 from pydantic import BaseModel, Field, PrivateAttr
 
 from src.boards import Board, board_from_row, new_board
-from src.session_persistence import SessionPersistence
+from src.session_persistence import SessionLoadError, SessionPersistence
+
+logger = logging.getLogger(__name__)
 
 
 class SessionMessage(BaseModel):
@@ -275,7 +278,9 @@ class SessionStore:
         """Get a session by ID, optionally scoped to a user.
 
         On cache miss, lazy-loads the session + its messages from the
-        persistence backend (survives restarts).
+        persistence backend (survives restarts). Raises SessionLoadError when a
+        read failed: the caller answers 503 instead of running without the game
+        (28.10), and the next access tries again.
         """
         session = self._sessions.get(session_id)
         if session is None:
@@ -287,7 +292,20 @@ class SessionStore:
         return session
 
     def _load(self, session_id: str) -> Optional[Session]:
-        """Reconstruct a session from the persistence backend, or None."""
+        """Reconstruct a session from the persistence backend, or None when it has none.
+
+        A failed read raises SessionLoadError and caches nothing: a session cached
+        without its boards ran every endpoint in "no game" mode until the next
+        restart (28.10).
+        """
+        try:
+            return self._load_whole(session_id)
+        except SessionLoadError:
+            logger.warning("coach session %s not restored (Supabase read failed); retried on next access",
+                           session_id)
+            raise
+
+    def _load_whole(self, session_id: str) -> Optional[Session]:
         row = self._persistence.load_session(session_id)
         if row is None:
             return None
@@ -340,8 +358,15 @@ class SessionStore:
             from concurrent.futures import ThreadPoolExecutor
 
             with ThreadPoolExecutor(max_workers=min(8, len(missing)), thread_name_prefix="session-list") as pool:
-                list(pool.map(self._load, missing))
+                list(pool.map(self._load_for_list, missing))
         return [s for s in self._sessions.values() if s.user_id == user_id]
+
+    def _load_for_list(self, session_id: str) -> Optional[Session]:
+        # One session that failed to load is left out of this listing (and not cached), not the whole list.
+        try:
+            return self._load(session_id)
+        except SessionLoadError:
+            return None
 
     def delete(self, session_id: str, user_id: str = None) -> bool:
         """Delete a session. Returns True if deleted, False if not found."""
