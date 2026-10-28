@@ -18,7 +18,7 @@ import { movePhrase, type PipelineLocale } from '@/lib/coach/voice-pipeline';
 import type { CoachMessage, BoardAction, GameResult } from '@/types/coach';
 import { coachApi, type GameStateView } from '@/lib/coach/boards-api';
 import { handleRestrictedResponse } from '@/lib/access-fetch';
-import { classifyHermesError, coachErrorText, frameErrorText } from '@/lib/coach/coach-errors';
+import { classifyResponse, coachErrorText, frameErrorText } from '@/lib/coach/coach-errors';
 import { fitTextarea, isNearBottom, shouldSendOnEnter } from './chat-dom';
 import Composer from './Composer';
 import type { AttachKind } from './AttachSheet';
@@ -836,7 +836,11 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
 
       if (!response.ok) {
         if (await handleRestrictedResponse(response)) return;
-        throw new Error(`HTTP ${response.status}`);
+        // The proxy's own refusal («Unauthorized») reached the bubble as «HTTP 401» (site review 28.10).
+        const c = await classifyResponse(response);
+        const note = `*${t('errorLabel')}: ${coachErrorText(t, c.code, { retryAfter: c.retryAfter, detail: c.message })}*`;
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, content: note } : m)));
+        return;
       }
 
       const reader = response.body?.getReader();
@@ -946,8 +950,15 @@ const CoachChat = forwardRef<CoachChatHandle, CoachChatProps>(function CoachChat
           signal: commentController.signal,
         });
         if (!response.ok) {
+          // A frozen membership goes to the upgrade path, as the chat does — not «У тренера что-то пошло не так»
+          // (site review 28.10).
+          if (await handleRestrictedResponse(response)) {
+            setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+            return;
+          }
           // The proxy answered with a status, not a stream: worded, not «HTTP 500» (seam audit 28.10).
-          patch(`*${t('errorLabel')}: ${coachErrorText(t, classifyHermesError(response.status, null).code)}*`);
+          const c = await classifyResponse(response);
+          patch(`*${t('errorLabel')}: ${coachErrorText(t, c.code, { retryAfter: c.retryAfter, detail: c.message })}*`);
           return;
         }
         const reader = response.body?.getReader();
