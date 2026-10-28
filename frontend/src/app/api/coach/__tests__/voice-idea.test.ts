@@ -58,6 +58,25 @@ describe('POST /api/coach/voice/idea', () => {
     expect(JSON.parse(opts.body)).toEqual({ text: 'а что если поставить ладью на g1?', fen: FEN, live_game: true });
   });
 
+  // 28.10: the proxy dropped the pgn the hook sends outside a game, so «на 8-м ходу…» was judged on the final position.
+  it('forwards the game on the board (pgn) outside a live game, bounded in length', async () => {
+    (auth as any).mockResolvedValue({ userId: 'user_1' });
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ note: null, moves: [], fens: [] }) }));
+    global.fetch = fetchMock as any;
+    const pgn = '1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d4 exd4 6. cxd4 Bb4+ 7. Nc3 Nxe4 8. O-O Nxc3';
+
+    const { POST } = await import('../voice/idea/route');
+    await POST(makeRequest({ text: 'а что если бы на 8-м ходу я сыграл Bxf7+?', fen: FEN, pgn }) as any);
+    const sent = JSON.parse((fetchMock.mock.calls[0] as any[])[1].body);
+    expect(sent).toEqual({ text: 'а что если бы на 8-м ходу я сыграл Bxf7+?', fen: FEN, live_game: false, pgn });
+
+    await POST(makeRequest({ text: 'а если Rg1?', fen: FEN, pgn: 'x'.repeat(50000) }) as any);
+    expect(JSON.parse((fetchMock.mock.calls[1] as any[])[1].body).pgn).toHaveLength(20000);
+
+    await POST(makeRequest({ text: 'а если Rg1?', fen: FEN, pgn: 42 }) as any);
+    expect(JSON.parse((fetchMock.mock.calls[2] as any[])[1].body).pgn).toBeUndefined();
+  });
+
   it('answers 502 when Hermes is unreachable', async () => {
     (auth as any).mockResolvedValue({ userId: 'user_1' });
     global.fetch = vi.fn(async () => {

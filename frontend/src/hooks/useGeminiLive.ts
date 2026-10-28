@@ -1347,6 +1347,8 @@ export default function useGeminiLive(
           text: sentence,
           fen: optionsRef.current.getFen?.(),
           question: userUtteranceRef.current || undefined,
+          // A loaded game's moves: without them a true recap read as invented history and was corrected aloud (28.10).
+          pgn: liveGame ? undefined : optionsRef.current.getPgn?.() || undefined,
           // In a game the coach's moves must be the engine's: Hermes reads the game from the session (25.10).
           session_id: optionsRef.current.getSessionId?.() ?? undefined,
         }),
