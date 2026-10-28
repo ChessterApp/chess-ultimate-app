@@ -2821,8 +2821,43 @@ def _in_a_line(text: str, at: int) -> bool:
     return bool(_LINE_BEFORE.search(re.split(r"[.!?]", text[:at])[-1].lower().replace("ё", "е")))
 
 
-def _last_move_issues(text: str, last: str) -> list[str]:
+# …and castling said in words (28.10): «Я рокируюсь», «Мой ход — длинная рокировка», "I castle kingside".
+_SIDE_RU = r"(?:(?P<{0}>коротк\w*|длинн\w*)\s+)?"
+_SIDE_EN = r"(?:\s+(?P<{0}>kingside|queenside|short|long))?"
+_MY_CASTLING = re.compile(
+    r"(?<![\w-])(?:"
+    r"я\s+(?:тоже\s+|сразу\s+|просто\s+|сейчас\s+|теперь\s+)?(?:рокируюсь|делаю\s+" + _SIDE_RU.format("s1") + r"рокировку)"
+    r"(?:\s+(?:в|на)\s+(?P<s5>длинн\w*|коротк\w*|ферзев\w*|королев\w*)\s+(?:сторон|фланг)\w*)?"
+    r"|мой\s+(?:ход|ответ)\s*(?:[—–:]|-\s|это\s|будет\s)\s*" + _SIDE_RU.format("s2") + r"рокировка"
+    r"|i\s+(?:now\s+)?castle(?![a-z])" + _SIDE_EN.format("s3")
+    + r"|my\s+(?:move|reply|answer)\s+(?:is\s+|:\s*)(?:to\s+)?castl\w*" + _SIDE_EN.format("s4")
+    + r")(?![а-яa-z])",
+    re.IGNORECASE)
+# Not the move just made: later, usually, if, in such openings, a wish (the clause around the claim).
+_NOT_NOW = re.compile(r"(?<![а-яa-z])(?:скоро|потом|позже|позднее|затем|дальше|следом|следующ\w*|обычно|всегда|часто|никогда|"
+                      r"рано|бы|если|когда|как\s+правило|схем\w*|дебют\w*|партиях|таких|later|soon|next|then|usually|"
+                      r"always|often|never|early|would|could|should|if|when|unless|most|games|openings?|systems?|such)(?![а-яa-z])",
+                      re.IGNORECASE)
+
+
+def _castling_issues(text: str, last: str) -> list[str]:
     out = []
+    for m in _MY_CASTLING.finditer(text):
+        if _in_a_line(text, m.start()):
+            continue
+        before = re.split(r"[.!?;,]", text[:m.start()])[-1]
+        after = re.match(r"[^.!?;]*[.!?;]?", text[m.end():]).group(0)
+        if _NOT_NOW.search(before + " " + after) or after.rstrip().endswith("?"):
+            continue
+        side = next((g for g in m.group("s1", "s2", "s3", "s4", "s5") if g), "").lower()
+        want = ("O-O-O",) if side.startswith(("длин", "ферз", "queen", "long")) else ("O-O",) if side else ("O-O", "O-O-O")
+        if last not in want:
+            out.append(want[0] if side else "castling")
+    return out
+
+
+def _last_move_issues(text: str, last: str) -> list[str]:
+    out = _castling_issues(text, last)
     for m in _MY_REPLY.finditer(text):
         if _in_a_line(text, m.start()):
             continue
@@ -2852,6 +2887,10 @@ def _same_move(named: str, played: str) -> bool:
     named, played = named.rstrip("+#"), played.rstrip("+#")
     if named == played:
         return True
+    if played in ("O-O", "O-O-O"):
+        # the king's own step of a castling: «король на g8, рокировка» when the engine played O-O (28.10)
+        squares = ("g1", "g8") if played == "O-O" else ("c1", "c8")
+        return named.lstrip("K") in squares and named[:1] in ("K", "g", "c")
     to_n, to_p = re.findall(r"[a-h][1-8]", named), re.findall(r"[a-h][1-8]", played)
     if not to_n or not to_p or to_n[-1] != to_p[-1]:
         return False

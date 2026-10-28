@@ -19,7 +19,7 @@ import {
   gameStartNote,
   mayAskForAGame,
   mayCommandTheGame,
-  mentionsAGame, factsNote, unclearMoveNote, browsingNote, ownGamePosition } from '@/lib/coach/voice-game';
+  mentionsAGame, factsNote, unclearMoveNote, browsingNote, ownGamePosition, askedMeanwhileLine } from '@/lib/coach/voice-game';
 
 /**
  * useGeminiLive — browser-side Gemini Live voice client for the AI Chess Coach (Phase 2).
@@ -656,16 +656,26 @@ export default function useGeminiLive(
   const audioSinceHoldRef = useRef(false);
   // The coach's words, shown and checked (set each render below; the hold replays held words through it).
   const processModelTextRef = useRef<(text: string, final: boolean, check?: boolean) => void>(() => {});
-  // Settles the hold when the move's [Game] line (or its refusal) is ready: true when the coach must answer now.
-  const settleGameHoldRef = useRef<(tool: string) => boolean>(() => false);
+  // Settles the hold when the move's [Game] line (or its refusal) is ready: `now` when the coach must answer now,
+  // `dropped` when words it had already started were thrown away (28.10).
+  const settleGameHoldRef = useRef<(tool: string) => { now: boolean; dropped: boolean }>(() => ({ now: false, dropped: false }));
   // The model's turn is streaming (audio or words since its last turnComplete / interruption).
   const modelTurnOpenRef = useRef(false);
   // Tools the model called that are waiting on the site's own call for the same words (see sitePendingRef).
   const modelWaitsForSiteRef = useRef<Set<string>>(new Set());
   // Bumped when words already said are dropped: their pending checks are not read back to the coach (28.10).
   const speechGenRef = useRef(0);
+  // One per conversation: a fresh open bumps it, a resume after a drop keeps it — a move's result still belongs
+  // to the resumed talk (28.10: the drop used to lose the engine's reply for the coach).
+  const conversationRef = useRef(0);
+  // A move's [Game] note that came while the resumed socket was still opening: sent once it is open (28.10).
+  const pendingGameNoteRef = useRef<{ conv: number; text: string } | null>(null);
+  // What the student asked while their move was on its way: the coach's answer to it is dropped with the held
+  // words, so the move's note asks for it again (28.10). The flag marks the current utterance as one of them.
+  const askedDuringMoveRef = useRef<string[]>([]);
+  const utteranceDuringMoveRef = useRef(false);
   // make_game_move calls of the site still on their way (sitePendingRef keeps only the latest one per name).
-  const movesInFlightRef = useRef<Set<{ gen: number }>>(new Set());
+  const movesInFlightRef = useRef<Set<{ conv: number }>>(new Set());
   const gameToldPlyRef = useRef<number | undefined>(undefined);
   // What the board shows besides the live game, for the game tools (view_ply / view_line).
   const browsingArgs = useCallback((): Record<string, unknown> => {
@@ -677,7 +687,7 @@ export default function useGeminiLive(
     };
   }, []);
   const gameLive = () => optionsRef.current.getGame?.()?.status === 'playing';
-  const moveInFlight = () => [...movesInFlightRef.current].some((m) => m.gen === connGenRef.current);
+  const moveInFlight = () => [...movesInFlightRef.current].some((m) => m.conv === conversationRef.current);
 
 
   const statusRef = useRef<LiveStatus>('idle');
@@ -926,8 +936,11 @@ export default function useGeminiLive(
   // mic stream and both AudioContexts are left alive (and the worklet module
   // stays loaded) so a reconnect can reuse them without a fresh user gesture —
   // re-acquiring them off-gesture would fail on mobile Safari.
-  const cleanup = useCallback((opts?: { keepMedia?: boolean }) => {
+  const cleanup = useCallback((opts?: { keepMedia?: boolean; resuming?: boolean }) => {
     const keepMedia = opts?.keepMedia ?? false;
+    // A resume continues the talk: a move still on its way keeps the coach held on the new socket (28.10).
+    const keepHold = !!opts?.resuming && gameMoveHoldRef.current
+      && [...movesInFlightRef.current].some((m) => m.conv === conversationRef.current);
     // Invalidate the active connection so its late close/error callbacks no-op.
     connGenRef.current += 1;
     // Stop the metering/countdown timer; a reconnect restarts it in openConnection.
@@ -950,13 +963,14 @@ export default function useGeminiLive(
     engineNoteAbortRef.current?.abort();
     engineNoteAbortRef.current = null;
     boardFenRef.current = null;
-    // A held or discarded turn does not outlive its connection (review 28.10).
+    // A held or discarded turn does not outlive its connection (review 28.10); the hold itself does on a resume.
     discardTurnRef.current = false;
-    gameMoveHoldRef.current = false;
+    gameMoveHoldRef.current = keepHold;
     audioSinceHoldRef.current = false;
     heldTextRef.current = [];
     modelTurnOpenRef.current = false;
     ideaGateRef.current?.drop();
+    if (keepHold) ideaGateRef.current?.watch(VOICE_GAME_MOVE_HOLD_MS);
     const node = workletNodeRef.current;
     if (node) {
       try {
@@ -1416,7 +1430,7 @@ export default function useGeminiLive(
       // nothing said yet: the coach answers from the line in its own turn
       ideaGate().release();
       held.forEach((item) => processModelTextRef.current(item.text, item.final));
-      return false;
+      return { now: false, dropped: false };
     }
     // Said before the engine's reply was known (Alexander 27.10: «Мой ответ — конь на f6», the engine played a6):
     // what was held is never heard nor shown; what was heard stays in the chat unchecked; the coach answers again.
@@ -1427,10 +1441,10 @@ export default function useGeminiLive(
     wrongSentencesRef.current = [];
     speechCheckPendingRef.current = [];
     // The model's own call of this tool waits on the site's: its tool response drives the one answer.
-    if (modelWaitsForSiteRef.current.has(tool)) return false;
+    if (modelWaitsForSiteRef.current.has(tool)) return { now: false, dropped: true };
     // A turn still streaming is cut by the line (turnComplete true): its rest is never heard (review 28.10).
     if (modelTurnOpenRef.current) discardTurnRef.current = true;
-    return true;
+    return { now: true, dropped: true };
   };
 
   // What the site fetched for the current utterance, by tool name: when the
@@ -1468,6 +1482,31 @@ export default function useGeminiLive(
   ): Promise<boolean> => {
     const started = performance.now();
     const turnId = ensureTurnId();
+    const conv = conversationRef.current;
+    // Where a game tool's note goes: this socket, or the one that resumed the same talk after a drop (28.10).
+    const noteTarget = () => {
+      const current = sessionRef.current;
+      return current && conversationRef.current === conv ? current : null;
+    };
+    // Settles a held move and sends its note: a resumed coach lost its turn with the old socket, so it answers now;
+    // a question asked meanwhile, whose answer was dropped with the held words, is asked for again (28.10).
+    const tellTheGame = (note: string) => {
+      const settled = gameMoveHoldRef.current ? settleGameHoldRef.current(name) : { now: false, dropped: false };
+      const asked = askedDuringMoveRef.current.filter(Boolean);
+      askedDuringMoveRef.current = [];
+      const text = settled.dropped && asked.length ? `${note} ${askedMeanwhileLine(asked)}` : note;
+      const target = noteTarget();
+      if (!target) {
+        // the resumed socket is still opening: it gets the note once open
+        if (conversationRef.current === conv) pendingGameNoteRef.current = { conv, text };
+        return;
+      }
+      try {
+        target.sendClientContent({ turns: [{ role: 'user', parts: [{ text }] }], turnComplete: target !== session || settled.now });
+      } catch {
+        /* session may be closing */
+      }
+    };
     // What went wrong goes to the beacon; when the words surely asked for it (`strict`, Hermes read them), also
     // to the page and — for the game — to the model, so a refusal never becomes a move «played» by talking.
     const failed = (code: string, reason: string) => {
@@ -1478,11 +1517,8 @@ export default function useGeminiLive(
       } catch {
         /* UI callback errors must not break the session */
       }
-      if (GAME_TOOLS.has(name) && sessionRef.current === session) {
-        // A refused move while its words were held: what the coach said before is not heard, and it says the refusal.
-        const answerNow = gameMoveHoldRef.current ? settleGameHoldRef.current(name) : false;
-        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: gameRefusedNote(name, reason) }] }], turnComplete: answerNow });
-      }
+      // A refused move while its words were held: what the coach said before is not heard, and it says the refusal.
+      if (GAME_TOOLS.has(name) && conversationRef.current === conv) tellTheGame(gameRefusedNote(name, reason));
       return false;
     };
     const work = (async (): Promise<boolean> => {
@@ -1504,20 +1540,30 @@ export default function useGeminiLive(
         if (!data?.result || error) return failed(error ? 'refused' : 'empty', String(error || 'no result'));
         const note = makeNote(data.result as never);
         if (!note) return failed('no_note', 'nothing to tell');
-        if (sessionRef.current !== session) return false;
-        reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
-        siteResultsRef.current.set(name, data);
-        const game = gameFromActions(data.board_actions);
-        if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+        const sameTalk = conversationRef.current === conv;
+        // The game changed on the server whatever happened to the socket: the board shows the real game (28.10).
+        // Any other result is for the talk that asked for it.
+        if (sessionRef.current !== session && !GAME_TOOLS.has(name)) return false;
+        if (sameTalk) {
+          reportMetric({ event: 'tool', tool_name: name, turn_id: turnId, tool_ms: Math.round(performance.now() - started), ok: true });
+          siteResultsRef.current.set(name, data);
+          const game = gameFromActions(data.board_actions);
+          if (game) gameToldFenRef.current = game.fen;  // the note below says it: no [Game] line for it
+        }
         try {
           optionsRef.current.onToolResult?.(name, data);
         } catch {
           /* UI callback errors must not break the session */
         }
+        // A new conversation learns the game from the board update instead.
+        if (!sameTalk) return false;
+        if (!GAME_TOOLS.has(name)) {
+          session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: false });
+          return true;
+        }
         // A move said in the game: the coach's words held until now are settled, and it answers from this line.
         // «верни ход e4», «я хотел не e4, а d4» arm the hold too: any game result settles it (review 28.10).
-        const answerNow = GAME_TOOLS.has(name) && gameMoveHoldRef.current ? settleGameHoldRef.current(name) : false;
-        session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: note }] }], turnComplete: answerNow });
+        tellTheGame(note);
         return true;
       } catch (err) {
         /* unavailable (an older Hermes) — the coach can still call the tool itself */
@@ -1526,13 +1572,16 @@ export default function useGeminiLive(
     })();
     // While it runs, a model call for the same tool waits for this result (see sitePendingRef).
     sitePendingRef.current.set(name, work);
-    // counted for this connection only: a move of a closed one does not hold the next (review 28.10)
-    const inFlight = { gen: connGenRef.current };
+    // counted for this conversation only: a move of a closed one does not hold the next (review 28.10);
+    // a resumed one is the same conversation (28.10)
+    const inFlight = { conv };
     if (name === 'make_game_move') movesInFlightRef.current.add(inFlight);
     try {
       return await work;
     } finally {
       movesInFlightRef.current.delete(inFlight);
+      // a question asked meanwhile is not carried to a later move's note
+      if (name === 'make_game_move' && !moveInFlight()) askedDuringMoveRef.current = [];
       if (sitePendingRef.current.get(name) === work) sitePendingRef.current.delete(name);
     }
   }, [ensureTurnId, reportMetric, sessionIdForCall]);
@@ -1883,10 +1932,14 @@ export default function useGeminiLive(
           ideaVerdictRef.current = null;
           modelTurnTextRef.current = '';
           siteResultsRef.current.clear();
+          utteranceDuringMoveRef.current = moveInFlight();
+          if (utteranceDuringMoveRef.current) askedDuringMoveRef.current.push('');
         }
         const chunk = sc.inputTranscription.text;
         userUtteranceRef.current +=
           (glue && userUtteranceRef.current && !/\s$/.test(userUtteranceRef.current) && !/^[\s,.!?]/.test(chunk) ? ' ' : '') + chunk;
+        const asked = askedDuringMoveRef.current;
+        if (utteranceDuringMoveRef.current && asked.length) asked[asked.length - 1] = userUtteranceRef.current.trim();
         userChunkAtRef.current = now;
         userClosedByCoachRef.current = false;
         const utterance = userUtteranceRef.current;
@@ -2262,6 +2315,12 @@ export default function useGeminiLive(
   // (fresh token, same conversation state) instead of starting a new one.
   const openConnection = useCallback(
     async (resumeHandle?: string) => {
+      // A fresh open is a new conversation: what is still on its way for the old one is not told to it (28.10).
+      if (!resumeHandle) {
+        conversationRef.current += 1;
+        pendingGameNoteRef.current = null;
+        askedDuringMoveRef.current = [];
+      }
       // Mic + AudioContexts first, BEFORE the token fetch and WS connect, so
       // the user-activation window is still open when getUserMedia runs.
       // Idempotent: on a reconnect this reuses the live stream/contexts.
@@ -2292,13 +2351,15 @@ export default function useGeminiLive(
         }
         throw new Error(`Live coach unavailable (${res.status})`);
       }
-      const { token, model, promptBytes, remainingSeconds: mintedRemaining, transcription } =
+      const { token, model, promptBytes, remainingSeconds: mintedRemaining, transcription, promptFallback } =
         (await res.json()) as {
           token?: string;
           model?: string;
           promptBytes?: number;
           remainingSeconds?: number | null;
           transcription?: Record<string, unknown>;
+          // Hermes gave no voice prompt and the token carries the hard-coded one: why (28.10).
+          promptFallback?: string;
         };
       const tokenMs = Math.round(performance.now() - tokenStart);
       if (!token || !model) {
@@ -2367,6 +2428,8 @@ export default function useGeminiLive(
         token_ms: tokenMs,
         connect_ms: connectMs,
         prompt_bytes: typeof promptBytes === 'number' ? promptBytes : undefined,
+        // A voice on the fallback prompt (no profile, no programme) is seen in the metrics, not only in a server log.
+        error_code: typeof promptFallback === 'string' && promptFallback ? `prompt_fallback_${promptFallback}` : undefined,
       });
 
       // Anchor the initial position client-side so the coach is never blind to it,
@@ -2378,6 +2441,16 @@ export default function useGeminiLive(
           gameToldPlyRef.current = undefined;
         }
         sendPosition(session, fen);
+      }
+      // A move's result that came while this resumed socket was opening: the coach says the engine's reply now.
+      const pendingNote = pendingGameNoteRef.current;
+      pendingGameNoteRef.current = null;
+      if (resumeHandle && pendingNote && pendingNote.conv === conversationRef.current) {
+        try {
+          session.sendClientContent({ turns: [{ role: 'user', parts: [{ text: pendingNote.text }] }], turnComplete: true });
+        } catch {
+          /* session may be closing */
+        }
       }
 
       await wireCapture(session);
@@ -2435,7 +2508,7 @@ export default function useGeminiLive(
         // Tear down the stale session + audio graph but KEEP the mic stream and
         // AudioContexts alive: reacquiring them off-gesture would fail on mobile
         // Safari. openConnection() re-resumes and re-wires them.
-        cleanup({ keepMedia: true });
+        cleanup({ keepMedia: true, resuming: true });
         setStatus('connecting');
         openConnection(handle).catch((err) => {
           if (

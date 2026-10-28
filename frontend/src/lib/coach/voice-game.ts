@@ -110,6 +110,13 @@ export function mayCommandTheGame(text: string): boolean {
 /** The game's tools: a refusal of theirs must reach the model as «nothing happened», never as a move. */
 export const GAME_TOOLS = new Set(['start_game', 'make_game_move', 'game_action']);
 
+/** What the student asked while their move was on its way: the coach's answer to it was dropped with the words it
+ * said before the engine's reply, so the move's note asks for it again (28.10). */
+export function askedMeanwhileLine(asked: string[]): string {
+  const words = asked.map((a) => `«${a.replace(/\s+/g, ' ').trim()}»`).join(', ');
+  return `The student also asked: ${words} — answer it after the move.`;
+}
+
 /** The student seems to have named a move that could not be read: nothing was played, ask them to say it plainly. */
 export function unclearMoveNote(words: string): string {
   return (
