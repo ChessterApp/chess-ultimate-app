@@ -107,7 +107,7 @@ export function gameMoveNote(
  * decides (src/game_intent.py game_command) and does it (game_action).
  */
 export function mayCommandTheGame(text: string): boolean {
-  return /сда[юёт]|верн|отмен|переход|заново|сначала|нов\S*\s+парти|ещ[её]\s+(?:раз|партию|одну)|реванш|ничь|resign|give\s+up|take\s*back|undo|new\s+game|start\s+over|again|rematch|draw|қайтар|жаңа\s+ойын|берілемін/i.test(
+  return /сда[юёт]|верн|отмен|переход|заново|сначала|по\s*нов(?:ой|ую)|снова|нов\S*\s+парти|ещ[её]\s+(?:раз|партию|одну)|реванш|ничь|resign|give\s+up|take\s*back|undo|new\s+game|start\s+over|again|rematch|draw|қайтар|жаңа\s+ойын|берілемін/i.test(
     text || '',
   );
 }

@@ -91,7 +91,7 @@ const rows: Row[] = [
   { name: 'voice/tts', route: 'voice/tts', method: 'POST', client: 'hooks/usePipelineVoice.ts:236-240',
     body: { text: 'Сейчас посмотрю.', locale: 'ru' }, hermes: 'POST /api/coach/voice/tts', hermesUrl: /\/api\/coach\/voice\/tts$/ },
   { name: 'tool', route: 'tool', method: 'POST', client: 'hooks/useGeminiLive.ts:1172-1183 (also :1488, :1554, :1616)',
-    body: { name: 'board_control', args: { action_type: 'set_fen' }, session_id: 's1', utterance: 'поставь позицию' },
+    body: { name: 'board_control', args: { action_type: 'set_fen' }, session_id: 's1', utterance: 'поставь позицию', caller: 'site' },
     hermes: 'POST /api/coach/tool/{name}', hermesUrl: /\/api\/coach\/tool\/board_control$/,
     proxyReads: { name: 'goes into the Hermes path /tool/{name}' } },
   { name: 'chat', route: 'chat', method: 'POST', client: 'components/coach/CoachChat.tsx:811-832', cookie: 'NEXT_LOCALE=ru',

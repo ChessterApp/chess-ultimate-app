@@ -1534,6 +1534,7 @@ export default function useGeminiLive(
             args,
             session_id: await sessionIdForCall(),
             utterance: userUtteranceRef.current || undefined,
+            caller: 'site',  // the page's call for the student's words, not the model's (29.10)
           }),
         });
         if (!res.ok) return failed(`http_${res.status}`, `HTTP ${res.status}`);

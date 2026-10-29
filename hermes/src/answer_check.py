@@ -1188,6 +1188,13 @@ _ASKS_BOARD_NAME = re.compile(r"как\s+называ|что\s+(?:это\s+)?з�
                               r"|қандай\s+дебют", re.IGNORECASE)
 
 
+_LINE_IN_GENERAL = re.compile(r"(?:^|[^а-яё])(?:играют|отвечают|ставят|выбирают|берут|^\W*(?:или|либо|а\s+если))(?![а-яё])")
+# any past-tense verb («защитили», «поставили», «двинули», «сделал»): the game is being told, not the line in general
+_PAST_VERB = re.compile(r"(?<![а-яё])[а-яё]{3,}(?:ил|ал|ял|ел|ул|ыл)(?:и|а|о|ся|ись|ась)?(?![а-яё])")
+_PLAYED_HERE = re.compile(r"(?<![а-яё])(?:сыграл\w*|ответил\w*|взял\w*|пош[её]л\w*|пошли|выбрал\w*|разыграл\w*|получил\w*|сложил\w*|"
+                          r"у\s+нас|у\s+тебя|у\s+меня|в\s+нашей|в\s+(?:этой\s+)?партии|на\s+доске)(?![а-яё])")
+
+
 def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str]:
     """«Это защита Каро-Канн, вариант Атака Панова» on the Advance Variation (stand theory run 28.10), «Это дебют
     четырёх коней» after 1.e3 e5 2.Nc3 (stand text game): the opening the answer says is on the board must be the
@@ -1226,6 +1233,16 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
     if truth is None:
         return []
     eco, real, real_line = truth
+    converted, _ = _to_san(text)
+    said_moves = [(x.group("san").rstrip("+#"), x.start()) for x in _MOVE.finditer(converted)]
+    # …said of the line in general before it is named («чаще всего играют e6, это называется …», «или c6, это …»), not
+    # as played here («чёрные сыграли a6») nor after the name («Это вариант Найдорфа, типичный ход a6»)
+    # — and never when the board's own name is asked or claimed («Это …», «Перед нами …», «У нас …»)
+    general = (bool(_LINE_IN_GENERAL.search(lowered)) and not _PLAYED_HERE.search(lowered) and not _PAST_VERB.search(lowered)
+               and not asks_board
+               and not re.match(r"\W*(?:это|перед\s+нами|здесь|тут)(?![а-яё])", lowered)
+               and not re.search(r"перед\s+нами|мы\s+(?:раз)?игра\w*|(?:сейчас|теперь)\s+это|это\s+и\s+есть|"
+                                 r"(?:тво|наш|мо)\w*\s+(?:позици|дебют|парти|вариант)", lowered))
     real_moves = _split_moves(real_line) if real_line else ()
     out = []
     for name, at in found:
@@ -1241,6 +1258,11 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
             continue
         line = _split_moves(entry[2])
         played = tuple(moves or ()) or real_moves
+        unplayed = set(line) - set(played)
+        if general and any(mv in unplayed and pos < at for mv, pos in said_moves):
+            # «Чаще всего чёрные играют e6 — это отказанный ферзевый гамбит» over a game of 2...dxc4 (prod Live 29.10):
+            # the move named is the line's, not the game's — the sentence describes that line
+            continue
         if played and (tuple(played[:len(line)]) == line or tuple(line[:len(played)]) == tuple(played)):
             continue  # the named line is on the way to, or the way from, the board's
         if ":" not in name and real.split(":")[0] == name:
@@ -1254,9 +1276,13 @@ def _opening_identity_issues(text: str, ctx: Optional[CheckContext]) -> list[str
 _GONE = (r"(?:вышел|вышла|пош[её]л|пошла|встал|встала|поднялся|поднялась|отош[её]л|отошла|отступил|отступила|вернулся|"
          r"вернулась|уш[её]л|ушла|двинулся|двинулась|прыгнул|прыгнула|переш[её]л|перешла)")
 _MOVED_CLAIM = re.compile(
-    rf"(?<![а-яё])(?P<piece>конь|слон|ладья|ферзь|пешка|король)\s+(?:с\s+(?P<frm>{SQ})\s+)?{_GONE}(?:\s+(?:на|в)\s+(?P<to>{SQ}))?"
-    r"[^.!?;:]{0,12}?\s*(?:\s+и\s+|\s*—\s*|,\s*)(?:сразу\s+|тоже\s+|заодно\s+|уже\s+)?"
-    r"(?P<verb>прикрыл\w*|защитил\w*|напал\w*(?:\s+на)?|атаковал\w*|атакует|бь[её]т|держит|нацелил\w*(?:\s+на)?|смотрит\s+на|давит\s+на)\s+"
+    # «конь с g8 встал на f6», and the move told the 29.10 way, «конь с g8 на f6 вышел в центр и сразу напал на d4»
+    rf"(?<![а-яё])(?P<piece>конь|слон|ладья|ферзь|пешка|король)\s+(?:с\s+(?P<frm>{SQ})\s+)?"
+    rf"(?:{_GONE}(?:\s+с\s+{SQ})?(?:\s+(?:на|в)\s+(?P<to>{SQ}))?|(?(frm)на\s+(?P<to2>{SQ})\s+{_GONE}|(?!)))"
+    # one more clause of the same piece on the way («, вышел в центр и …») — no wider: «, а ты … напал» is another subject
+    rf"(?:,\s*(?:вышел|вышла|пош[её]л|пошла|двинул\w*)(?:\s+(?:в\s+центр|вперёд|вперед|в\s+игру))?)?(?:(?!(?:конь|слон|ладья|ферзь|пешка|король)(?![а-яё])|на\s+[a-h][1-8])[^.!?;:]){{0,12}}?"
+    r"\s*(?:\s+и\s+|\s*—\s*|,\s*)(?:сразу\s+|тоже\s+|заодно\s+|уже\s+)?"
+    r"(?P<verb>прикрыл\w*|защитил\w*|подкрепил\w*|поддержал\w*|укрепил\w*|напал\w*(?:\s+на)?|атаковал\w*|атакует|бь[её]т|держит|нацелил\w*(?:\s+на)?|смотрит\s+на|давит\s+на)\s+"
     r"(?:тво\w+\s+|мо\w+\s+|сво\w+\s+|его\s+|е[её]\s+)?(?:поле\s+|пункт\s+|пешк\w+\s+|кон\w+\s+|слон\w*\s+|ладь\w+\s+|ферз\w+\s+|корол\w+\s+)?"
     rf"(?:на\s+)?(?P<target>{SQ})(?![0-9])", re.IGNORECASE)
 _BLOCK_ACTIVE = re.compile(
@@ -1276,6 +1302,24 @@ _MOVER = {"конь": chess.KNIGHT, "слон": chess.BISHOP, "ладья": ches
           "король": chess.KING}
 
 
+def _xray(board: chess.Board, a: int, t: int, battery: bool = True) -> chess.SquareSet:
+    """What the piece on *a* attacks once its own pieces between it and *t* are gone: a battery («ладья за ферзём
+    поддержала d4»), or for a look (*battery* False) any own piece but a pawn — «слон g7 смотрит на d4» through the
+    knight f6 that can step away, not «слон d6 смотрит на h2» through its own pawn e5."""
+    piece = board.piece_at(a)
+    clear = board.copy(stack=False)
+    diagonal = chess.square_file(a) != chess.square_file(t) and chess.square_rank(a) != chess.square_rank(t)
+    movers = (chess.BISHOP, chess.QUEEN) if diagonal else (chess.ROOK, chess.QUEEN)
+    for sq in chess.SquareSet(chess.between(a, t)):
+        own = clear.piece_at(sq)
+        if own is None:
+            continue
+        if piece is None or own.color != piece.color or (own.piece_type not in movers if battery else own.piece_type == chess.PAWN):
+            return chess.SquareSet()  # a pawn or a knight in the way blocks the line
+        clear.remove_piece_at(sq)
+    return clear.attacks(a)
+
+
 def _told_move_issues(text: str, original: str, ctx: Optional[CheckContext]) -> list[str]:
     if ctx is None or not ctx.boards:
         return []
@@ -1285,7 +1329,7 @@ def _told_move_issues(text: str, original: str, ctx: Optional[CheckContext]) -> 
         if _is_hypothetical(text, original, m.start(), played=played):
             continue
         ptype = _MOVER[m["piece"].lower()]
-        sq = m["to"]
+        sq = m["to"] or m["to2"]
         if not sq:  # «3...Кf6 — конь вышел и прикрыл f7»: the square of the move written before it
             converted, _ = _to_san(original[:m.start()])
             letter = {chess.KNIGHT: "N", chess.BISHOP: "B", chess.ROOK: "R", chess.QUEEN: "Q", chess.KING: "K"}.get(ptype)
@@ -1298,7 +1342,16 @@ def _told_move_issues(text: str, original: str, ctx: Optional[CheckContext]) -> 
         standing = [b for b in ctx.boards if (pc := b.piece_at(a)) is not None and pc.piece_type == ptype]
         if not standing:
             continue
-        if not any(t in b.attacks(a) for b in standing):
+        if m["verb"].lower().startswith("прикрыл") and re.search(r"корол\w*\s+(?:на\s+)?[a-h][1-8]\s*$", m.group(0).lower()):
+            continue  # «прикрыл короля e8 (от шаха)»: stood in the way of a check — not an attack on the king's square
+        supports = re.match(r"(?:подкреп|поддерж|укреп|смотрит|нацелил|давит)", m["verb"].lower())
+        if supports and not re.match(r"(?:смотрит|нацелил|давит)", m["verb"].lower()) and re.search(r"(?:кон|слон|ладь|ферз|корол)\w*\s+(?:на\s+)?[a-h][1-8]\s*$", m.group(0).lower()):
+            continue  # «поддержал слона c4 (в атаке на f7)»: joined its attack, not defends it
+        if supports and re.match(r"(?:подкреп|поддерж|укреп)", m["verb"].lower()) \
+                and re.match(r"\s*(?:в|во)\s+(?:атак|борьб|наступлени|прорыв)", text[m.end():m.end() + 20]):
+            continue  # «поддержал пешку e4 в атаке на f5»: joined the push, not defends the pawn
+        looks = bool(supports) and bool(re.match(r"(?:смотрит|нацелил|давит)", m["verb"].lower()))
+        if not any(t in b.attacks(a) or (supports and t in _xray(b, a, t, battery=not looks)) for b in standing):
             reach = "does not attack" if not _geometry_attack(ptype, a, t) else "does not reach"
             issues.append(f"a {_NAMES[ptype]} on {sq} {reach} {m['target']}")
     for rx in (_BLOCK_ACTIVE, _BLOCK_PASSIVE):
@@ -1448,12 +1501,13 @@ _GAP = r"(?:(?!(?:конь|слон|ладья|ферзь|король|пешк�
 _HANGING = re.compile(
     _B2 + rf"(?:(?P<p1>{_PIECE_ANY})\s+(?:на\s+|on\s+)?(?P<a>{SQ})(?![0-9])\s+(?:у\s+\w+\s+)?"
     rf"(?:сейчас\s+|уже\s+|просто\s+|is\s+|are\s+|now\s+|still\s+|currently\s+|completely\s+|totally\s+|совсем\s+|совершенно\s+)*{_GAP}"
-    r"(?P<v>ничем\s+не\s+защищ\w+|не\s+защищ\w+|без\s+защиты|беззащит\w+|висит|повис\w*|под\s+боем|под\s+ударом|атакован\w*|защищ[ёе]н\w*|"
+    r"(?P<v>ничем\s+не\s+защищ\w+|не\s+защищ\w+|(?:ничем|никем)\s+не\s+прикрыт(?:ый|ая|ое|ые|а|о|ы)?(?![а-яё])(?!\s*[,—–-]?\s*(?:кроме|помимо|если\s+не\s+считать|только|лишь|разве|за\s+исключени\w*|но\s|пешк\w*|от\s|со\s+сторон\w*|с\s+фланг\w*|с\s+тыла|спереди|сзади|сбоку|по\s+(?:диагонал|вертикал|горизонтал|лини)\w*))|без\s+защиты|беззащит\w+|висит|повис\w*|под\s+боем|под\s+ударом|атакован\w*|защищ[ёе]н\w*|"
     r"not\s+defended|not\s+protected|undefended|unprotected|hanging|en\s+prise|loose|under\s+attack|attacked|defended|protected|covered|guarded)"
     rf"|(?P<v2>висит|повис\w*|hangs|hanging)\s+(?:is\s+)?(?:the\s+)?(?P<p2>{_PIECE_ANY})\s+(?:на\s+|on\s+)?(?P<b>{SQ})(?![0-9])"
     rf"|(?P<v3>ничто\s+не\s+защищает|никто\s+не\s+защищает|nothing\s+(?:defends|protects|covers|guards))\s+"
     rf"(?:(?:the\s+)?(?:{_PIECE_ANY}\s+)?(?:на\s+|on\s+)?(?P<c>{SQ})(?![0-9])|(?P<pron>it|её|ее|его)(?![а-яa-z])))", re.IGNORECASE)
-_HANGING_KIND = (("ничем не защищ", "undefended"), ("не защищ", "undefended"), ("без защиты", "undefended"),
+_HANGING_KIND = (("ничем не защищ", "undefended"), ("не защищ", "undefended"), ("не прикрыт", "undefended"),
+                 ("без защиты", "undefended"),
                  ("беззащит", "undefended"), ("not defended", "undefended"), ("not protected", "undefended"),
                  ("undefended", "undefended"), ("unprotected", "undefended"), ("nothing", "undefended"),
                  ("ничто", "undefended"), ("никто", "undefended"), ("вис", "hanging"), ("повис", "hanging"),
@@ -1785,6 +1839,9 @@ def _hanging_issues(text: str, original: str, ctx: CheckContext) -> list[str]:
         kind = _hanging_kind(verb)
         if kind == "undefended" and _EXCEPT.match(text, m.end()):
             continue  # «никто не защищает, кроме ферзя», "nothing defends f2 except the king": a defender is named
+        if "прикрыт" in verb.lower() and (re.match(r"(?:корол|king)", (m["p1"] or "").lower())
+                                          or re.search(r"между|смотрит|лини[яюи]|вертикал|диагонал|горизонтал|рентген", text, re.I)):
+            continue  # «король ничем не прикрыт» is about its shelter, not about pieces next to it
         if kind == "hanging" and re.match(r"\s+(?:в\s+воздухе|in\s+the\s+air|без\s+дела)", text[m.end():]):
             continue  # «ладья висит в воздухе и ничего не делает»: idle, not en prise (replay, 2026-10-05)
         if kind != "undefended" and _NEGATION.search(text[: m.start(verb and ("v" if m["v"] else "v2" if m["v2"] else "v3"))]):
@@ -2885,6 +2942,9 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
     for end, san, move, start in sorted(candidates, key=lambda c: c[0]):
         if any(e <= start for e in written_before):
             continue
+        if ctx.student_color is not None and ctx.current.turn == ctx.student_color \
+                and _COACH_OWN_PIECE.search(text[max(0, start - 30): start] + " " + converted[max(0, start - 30): start]):
+            continue  # «моя пешка на f6 забирает твоего слона» in a game: the engine's pawn told, not advice (prod Live 29.10)
         tail = text[end: end + 90]
         cut = re.search(r"[.;!?\n]|\s(?:но|а\s+не|однако|but|however)(?![а-яa-z])", tail)
         tail = tail[: cut.start()] if cut else tail
@@ -2899,6 +2959,11 @@ def _proposed_move(sentence: str, ctx: Optional[CheckContext]) -> Optional[tuple
             continue
         return ctx.current, move, ctx.current.san(move)
     return None
+
+
+# «Моя пешка на f6…», «мой конь c6…»: in a game against the coach, the coach's own (the engine's) piece.
+_COACH_OWN_PIECE = re.compile(r"(?<![а-яё])мо(?:й|я|е|ё|и)\s+(?:пешк\w*|кон\w*|слон\w*|ладь\w*|ферз\w*|корол\w*)\s+(?:на\s+|с\s+)?$",
+                              re.IGNORECASE)
 
 
 # The move named as the answer to the task: «Первый ход — **...Rxf3!**», «Здесь решает 1...Qh1+!», "The key
@@ -3036,12 +3101,83 @@ def _move_number_issues(text: str, played: list, student_color) -> list[str]:
     return out
 
 
+# «Моя пешка на e7 забрала ферзя» when the pawn only attacked it (prod Live run 29.10: the queen was taken a move
+# later), «я забрал твоего коня»: a capture the coach says it made must be one the engine made in this game.
+_INSTR = r"(?:пешкой|кон[её]м|слоном|ладь[её]й|ферз[её]м|корол[её]м)"
+_COACH_TOOK = re.compile(
+    r"(?:(?<![а-яё])мо(?:й|я|е|ё)\s+(?P<piece>пешк\w*|кон\w*|слон\w*|ладь\w*|ферз\w*|корол\w*)(?:\s+(?:на|с)\s+[a-h][1-8])?"
+    r"|(?<![а-яё])я)\s+(?:только\s+что\s+|уже\s+|сразу\s+|просто\s+|тоже\s+)?"
+    rf"(?:забрал\w*|побил\w*|взял\w*|съел\w*|сбил\w*)\s+(?:(?P<inst>{_INSTR})\s+)?(?:тво\w+\s+|ваш\w+\s+)?"
+    # the taken piece in the accusative only («взял конём пешку»: конём is the taker)
+    r"(?P<target>пешку|пешки|коня|коней|слона|слонов|ладью|ладьи|ферзя)(?:\s+на\s+(?P<tsq>[a-h][1-8]))?"
+    rf"(?:\s+(?P<inst2>{_INSTR}))?(?![а-яё])", re.IGNORECASE)
+# Not this game's capture: a wish or a purpose («чтобы я взял»), a question, the student's words quoted, another game.
+_NOT_TOLD = re.compile(r"(?<![а-яё])(?:если|бы|чтобы|можешь|могу|может|хотел\w*|пишешь|спрашиваешь|говоришь|сказал\w*|решил\w*|"
+                       r"счита\w*|(?:по)?дума\w*|показал\w*|кажется|будто|якобы|неправда|неверно|написал\w*|имеешь\s+в\s+виду|прошл\w*|предыдущ\w*|вчера|раньше|откат\w*|отменил\w*|вернул\w*|"
+                       r"похож\w*|друг\w+\s+парти\w*|т(?:ой|ую|ом)\s+парти\w*|перв\w+\s+парти\w*|представ\w*|допуст\w*|предполож\w*|"
+                       r"вообраз\w*|по-твоему|уверен\w*|ход\s+назад|друг\w+\s+игр\w*|позапрошл\w*|тогда|в\s+тот\s+момент|на\s+тот\s+момент|"
+                       r"до\s+этого|перед\s+этим|спросил\w*|утвержда\w*|например|в\s+вариант\w*|обратно|отмен\w*|переигра\w*|вернуть|"
+                       r"говорил\w*|по\s+тво\w+\s+слов\w*|жалу\w*|возмущ\w*|переход\w*|верси\w*|стар\w+\s+парти\w*|рестарт\w*|бросил\w*|"
+                       r"сесси\w*|начали\s+(?:нов\w*|заново)|т(?:ой|ую|ом)\s+игр\w*|перв\w+\s+игр\w*|старой)(?![а-яё])",
+                       re.IGNORECASE)
+# «взял коня в связку», «взял пешку под защиту / на прицел»: a pin, a defence, a target — not a capture
+_TOOK_IDIOM = re.compile(r"(?:\s+[a-h][1-8])?\s*,?\s*(?:в|во|под|на)\s+(?:связк|защит|прицел|обстрел|заметк|наблюден|оборот|контрол|вилк|"
+                         r"тиск|клещ|атак|удар|бо[йея]|давлени|мушк|рентген|прикрыти|охран|опек|присмотр|расч[её]т)", re.IGNORECASE)
+_TOOK_TYPE = (("пешк", chess.PAWN), ("кон", chess.KNIGHT), ("слон", chess.BISHOP), ("ладь", chess.ROOK),
+              ("ферз", chess.QUEEN), ("корол", chess.KING))
+
+
+def _took_type(word: str) -> Optional[int]:
+    word = (word or "").lower()
+    return next((t for k, t in _TOOK_TYPE if word.startswith(k)), None)
+
+
+def _coach_capture_issues(text: str, ctx: CheckContext) -> list[str]:
+    moves = getattr(ctx, "game_moves", None)
+    if not moves or ctx.student_color is None or "?" in text or "«" in text or '"' in text:
+        return []
+    claims = [m for m in _COACH_TOOK.finditer(text) if not _NOT_TOLD.search(text[max(0, m.start() - 40):])
+              and not _TOOK_IDIOM.match(text, m.end())
+              and not re.search(r"(?<![а-яё])(?:в|во|под|на)\s+(?:связк|прицел|обстрел|вилк|контрол|давлени|мушк|удар|тиск|клещ|"
+                                r"прикрыти|охран|опек|присмотр|расч[её]т|рентген)",
+                                text[m.end():m.end() + 40], re.IGNORECASE)]
+    if not claims:
+        return []
+    board, taken = chess.Board(), []
+    try:
+        for san in moves:
+            move = board.parse_san(san)
+            if board.turn != ctx.student_color and board.is_capture(move):
+                squares = {chess.square_name(move.to_square)}
+                if board.is_en_passant(move):
+                    victim = chess.PAWN
+                    squares.add(chess.square_name(move.to_square + (-8 if board.turn == chess.WHITE else 8)))
+                else:
+                    victim = board.piece_type_at(move.to_square)
+                takers = {board.piece_type_at(move.from_square)} | ({move.promotion} if move.promotion else set())
+                taken.append((takers, victim, squares))
+            board.push(move)
+    except ValueError:
+        return []  # a game from another start: not judged
+    out = []
+    for m in claims:
+        piece = _took_type(m["piece"]) or _took_type(m["inst"]) or _took_type(m["inst2"])
+        target = _took_type(m["target"])
+        if target is None:
+            continue
+        if not any((piece is None or piece in takers) and t == target and (not m["tsq"] or m["tsq"] in sqs)
+                   for takers, t, sqs in taken):
+            what = f"{_NAMES[target]}" + (f" on {m['tsq']}" if m["tsq"] else "") + (f" with a {_NAMES[piece]}" if piece else "")
+            out.append(f"in this game the engine never captured a {what}: never say you took what the game did not record")
+    return out
+
+
 def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
     """In a game, a move the coach says it made must be one the engine made."""
     played = ctx.game_engine_moves
     if played is None:
         return []
-    out = _move_number_issues(text, played, ctx.student_color) + _students_move_issues(text, ctx)
+    out = _move_number_issues(text, played, ctx.student_color) + _students_move_issues(text, ctx) + _coach_capture_issues(text, ctx)
     text = _MOVE_NUMBER.sub("", text)
     norm = {m.rstrip("+#") for m in played}
     for m in _COACH_MOVE.finditer(text):
@@ -3060,9 +3196,21 @@ def _coach_move_issues(text: str, ctx: CheckContext) -> list[str]:
                        "never announce a move the game did not play")
     return out
 
+# The move itself first: «3.d3», «Bc4», «Кf6», «конь на f6», «пешка d6» — not «конь с g8…», «защита e5».
+_MOVE_FIRST = re.compile(r"\s*(?:\d{1,3}\s?(?:\.\.\.|…|\.)\s?)?(?:[KQRBNКФЛС][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x?[a-h]?[1-8]|O-O|0-0|"
+                         r"(?:конь|слон|ладья|ферзь|пешка|король|knight|bishop|rook|queen|pawn|king|the\s+\w+)\s+(?:на\s+|to\s+)?[a-h][1-8])(?![\w-])",
+                         re.IGNORECASE)
+
+
 # Two claims checked against the engine's LAST move (Alexander 27.10), on top of the rule above:
 # «Мой ответ — конь на f6» (an announcement: a dash, a colon, «это», «будет» right after «мой ответ / мой ход»)…
-_MY_REPLY = re.compile(r"(?<![\w-])(?:мой\s+(?:первый\s+|следующий\s+)?(?:ответ|ход)|my\s+(?:first\s+|next\s+)?(?:reply|move|answer))\s*(?:[—–:]|-\s|это\s|будет\s|is\s)"
+# («Мой последний ход — Bc4 от белых» when it was 3.d3: prod text game 29.10 — the last move is the game's last one.)
+# («Мой ход был Кc6» may recap an earlier move: «был» only with «последний».)
+_MY_REPLY = re.compile(r"(?<![\w-])(?:мой\s+(?:первый\s+|следующий\s+)?(?:ответ|ход)|мой\s+последний\s+(?:ответ|ход)(?:\s+был)?"
+                       r"|my\s+(?:first\s+|next\s+)?(?:reply|move|answer)|my\s+last\s+(?:reply|move|answer)(?:\s+was)?)"
+                       r"\s*(?:[—–:]|-\s|это\s|будет\s|is\s|(?<=был)\s|(?<=was)\s)"
+                       # «Мой последний ход был ответом на твоего слона b5 — a6»: the move answered is not the move made
+                       r"(?!\s*(?:ответ\w*|против|в\s+ответ|защит\w*\s+от|an?\s+answer|a\s+reply|against|не|вовсе\s+не|not)(?![а-яёa-z]))"
                         r"(?P<rest>[^.!?;,]{0,30})", re.IGNORECASE)
 # …and «Я забираю его слоном» (a capture by a named piece, no square).
 _TAKES_WITH = re.compile(r"(?<![\w-])(?:я\s+)?(?:забираю|беру|бью|съедаю)\s+(?:(?:его|е[её]|их|эт[уо]\w*|пешку|коня|слона|ладью|ферзя)\s+)?"
@@ -3143,7 +3291,11 @@ def _last_move_issues(text: str, last: str) -> list[str]:
     for m in _MY_REPLY.finditer(text):
         if _in_a_line(text, m.start()):
             continue
-        rest = m.group("rest")
+        # «e7–e5», «e5:d4» — no spaces: «d6: e5 теперь под защитой», «Nf6 — e4 под ударом» explain the move
+        rest = re.sub(r"([KQRBNКФЛС]?)[a-h][1-8][–—:]([a-h][1-8])", r"\1\2", m.group("rest"))
+        if re.search(r"последн|last", m.group(0), re.IGNORECASE) and (not _MOVE_FIRST.match(rest) or _NOT_TOLD.search(text)
+                                                                      or "?" in text or "«" in text):
+            continue  # «Мой последний ход — конь с g8 на f6», «… — защита пешки e5»: a recap, not a move named (review 29.10)
         sans, _ = _to_san(rest)
         named = [x.group("san").rstrip("+#") for x in _MOVE.finditer(sans)]
         if not named:

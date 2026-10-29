@@ -300,6 +300,9 @@ class ToolDispatchRequest(CoachRequest):
     # The site's interface language (the proxy resolves it as the page does): the tools below read
     # args["locale"] for their lesson/topic texts and fell back to Russian (seam audit 28.10).
     locale: Optional[str] = None
+    # "site" when the page made the call itself for the student's words (useGeminiLive siteToolCall), not the model:
+    # «давай заново» from both is one restart, and only the site's call does it (src/tools/game_play.py, 29.10).
+    caller: Optional[str] = None
 
 
 # Tools whose handler reads args["locale"] (src/tools: puzzles, knowledge_topics, learning_path,
@@ -323,7 +326,7 @@ _voice_locks: dict[str, int] = {}
 _voice_locks_guard = threading.Lock()
 
 
-def _dispatch_voice(name: str, args: dict, session, utterance: Optional[str]) -> str:
+def _dispatch_voice(name: str, args: dict, session, utterance: Optional[str], caller: Optional[str] = None) -> str:
     """The tool in the student's coach session, under the board lock their words call for."""
     if session is None:
         return dispatch_tool_safely(name, args)
@@ -345,7 +348,8 @@ def _dispatch_voice(name: str, args: dict, session, utterance: Optional[str]) ->
             _voice_locks[session.id] = depth + 1
             owned = True
     try:
-        return dispatch_tool_safely(name, args, session_id=session.id, student_message=utterance or "")
+        extra = {"caller": "site"} if caller == "site" else {}
+        return dispatch_tool_safely(name, args, session_id=session.id, student_message=utterance or "", **extra)
     finally:
         if owned:
             with _voice_locks_guard:
@@ -421,7 +425,7 @@ async def coach_tool_dispatch(name: str, body: ToolDispatchRequest, request: Req
         except Exception:  # noqa: BLE001 — the tool still runs, without the session
             session = None
     started = time.monotonic()
-    raw = await run_in_threadpool(_dispatch_voice, name, args, session, body.utterance)
+    raw = await run_in_threadpool(_dispatch_voice, name, args, session, body.utterance, body.caller)
     duration_ms = int((time.monotonic() - started) * 1000)
 
     # Persist the voice tool execution to coach_events (Phase 2, Task 3). This is

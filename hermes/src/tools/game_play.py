@@ -185,6 +185,30 @@ def _handle_start_game(args: dict, **kwargs) -> str:
 
         req = game_request(words)
         if req is None:
+            from src.game_intent import game_command
+
+            if game_command(words) == "restart":
+                if kwargs.get("caller") == "site":
+                    # The site's own call (its fallback when voice/intent did not answer: «сыграем по новой» after a
+                    # game): the game's «New game», with what the page's [Game] note tells (the colour, the first move).
+                    # Only the page marks its calls — the model may pass `said` alone too (review 29.10).
+                    out = json.loads(_handle_game_action({"said": words}, **kwargs))
+                    now = live_game_board(session)
+                    if out.get("ok") and now is not None:
+                        ns = now.game_state or {}
+                        engine = (ns.get("moves") or [None])[0] if ns.get("student_color") == "black" else None
+                        out.update({"student_color": ns.get("student_color"), "engine_elo": ns.get("engine_elo"),
+                                    "engine_first_move": engine,
+                                    "engine_first_move_words": game_mode.ply_words(ns, 1) if engine else None})
+                    return json.dumps(out, ensure_ascii=False)
+                # The model's call with «Нет, давай лучше заново, я чёрными»: in voice the site restarts the game for these
+                # words itself (voice/intent → game_action), so start_game does not — no second restart. Refused as «not a
+                # game request», the coach said «партия уже началась, может продолжишь за белых?» over the new game as
+                # Black (prod Live run 29.10). Where no site call comes (text, no intent), game_action does it.
+                return json.dumps({"error": "Not done by start_game: these words ask for a NEW game. If a [Game] note says the "
+                                            "new game has started, tell the student exactly what it says. Otherwise call "
+                                            "game_action with action 'restart' — it starts the new game with the colour the "
+                                            "student named. Never say the old game goes on."}, ensure_ascii=False)
             return json.dumps({"error": "The student's words do not ask for a game."})
         color, elo = req["color"], req["elo"] or elo
         asked_color, asked_elo = req["color"], req["elo"]

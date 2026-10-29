@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
   const denied = await requireCoachAccess(userId);
   if (denied) return denied;
 
-  let body: { name?: string; args?: Record<string, unknown>; session_id?: string; utterance?: string };
+  let body: { name?: string; args?: Record<string, unknown>; session_id?: string; utterance?: string; caller?: string };
   try {
     body = await request.json();
   } catch {
@@ -55,6 +55,9 @@ export async function POST(request: NextRequest) {
           // The interface language: Hermes hands it to the tools that word lessons and topics (get_puzzle,
           // get_topic…), which fell back to Russian for voice calls (seam audit 28.10).
           locale: requestLocale(request),
+          // The page's own call for the student's words (siteToolCall), not the model's: Hermes lets only it
+          // restart a game for «давай заново» (29.10).
+          caller: body.caller === 'site' ? 'site' : undefined,
         }),
         signal: AbortSignal.timeout(TOOL_TIMEOUT_MS),
       },
