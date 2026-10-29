@@ -82,6 +82,9 @@ class Session(BaseModel):
     # relied on the model passing exclude_ids, which it did not. Not serialized (an old session after a
     # restart may repeat once; the puzzle on a board is always excluded).
     _puzzles_shown: list = PrivateAttr(default_factory=list)
+    # Positions verified sources of this conversation brought (an opening line, a lesson, a puzzle, a game): the model's
+    # own set_fen of an opening-sized position goes up only if it is one of them (src/board_truth.INVENTED_NOTE).
+    _verified_positions: set = PrivateAttr(default_factory=set)
     # «Дай три задачи»: the tasks lined up after the one on the board, and the theme the student last
     # asked for — «дальше» / «ещё задачу» continue them on the server, not on the model's goodwill (21.10).
     _puzzle_queue: list = PrivateAttr(default_factory=list)

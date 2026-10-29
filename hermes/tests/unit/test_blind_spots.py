@@ -406,7 +406,12 @@ def test_every_tool_tells_the_board():
     out = json.loads(registry.dispatch("board_control", {"action_type": "set_fen", "fen": NOMATE}, session_id=session.id))
     assert out.get("shown") is False
     session.lock_board(None)
+    # a full position the model sets from memory does not go up (src/board_truth.INVENTED_NOTE, 28.10)…
     out = json.loads(registry.dispatch("board_control", {"action_type": "set_fen", "fen": NOMATE}, session_id=session.id))
+    assert out.get("shown") is False
+    # …one a source of the conversation brought (here: the student's own message) does, named for the model
+    out = json.loads(registry.dispatch("board_control", {"action_type": "set_fen", "fen": NOMATE}, session_id=session.id,
+                                       student_message=f"поставь {NOMATE}"))
     assert out["board_actions"][0]["fen"] == NOMATE and "board_now" in out
 
 

@@ -666,6 +666,23 @@ def forget_old_board_text(text: str, old_blocks: list) -> str:
     return text
 
 
+AFTER_GAME_WINDOW_S = 15 * 60
+
+
+def _after_the_game(session, active_board, last) -> bool:
+    """The student is still «after» the last game: it is on the board, or it ended a moment ago and the board shows no
+    other material (stand run 28.10: after «Сдаюсь» the page opened a fresh coach board, so «давай ещё раз, я белыми»
+    started nothing and the coach invented a game)."""
+    if last is None or active_board is None:
+        return False
+    if active_board.id == last.id:
+        return True
+    if getattr(active_board, "kind", None) not in ("study", None) or (last.game_state or {}).get("status") == "playing":
+        return False
+    ended = float((last.game_state or {}).get("finished_at") or getattr(last, "updated_at", 0) or 0)
+    return time.time() - ended < AFTER_GAME_WINDOW_S
+
+
 def _game_prestep(session, active_board, message: str, spoken: bool = False, view_ply: Optional[int] = None,
                   view_line: Optional[list] = None) -> Optional[dict]:
     """A game asked for, or the student's move written on its own in the game on the board
@@ -684,7 +701,7 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
         from src.tools.game_play import POST_GAME_COMMANDS, last_game_board
 
         last = last_game_board(session)
-        on_board = last is not None and active_board is not None and active_board.id == last.id
+        on_board = _after_the_game(session, active_board, last)
         named = bool(re.search(r"парти|игр|реванш|сыгра|game|rematch", message, re.IGNORECASE))
         if last is not None and command == "restart" and (on_board or named):
             return game_command_step(session, last, "restart", message)
@@ -693,16 +710,35 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
     if live is None:
         req = game_request(message)
         if not req:
+            # A move written with no game on, right after one (stand run 28.10: «d4» after a resignation — the coach
+            # answered «соперник ответил 3...exd4» for a game that did not exist): said so, nothing is played.
+            from src.tools.game_play import last_game_board
+
+            last = last_game_board(session)
+            if last is not None and last.game_state and _after_the_game(session, active_board, last):
+                final = game_mode._replay(last.game_state.get("moves") or [])
+                if bare_move(message, final) or move_attempt(message):
+                    state = last.game_state
+                    return {"view": None, "block": (
+                        "## No game is on — nothing was played\n"
+                        f"The last game is over ({state.get('result') or 'finished'}"
+                        + (f", {state.get('termination')}" if state.get("termination") else "")
+                        + f"; record: {game_mode._moves_text(state.get('moves') or []) or 'no moves'}). The student wrote "
+                        f"«{message.strip()}» as a move, but there is no game to play it in: the board did not change and "
+                        "the engine made no move. Say so plainly and offer a new game («давай ещё раз»); never answer "
+                        "with a move of yours or as if a game went on."
+                    )}
             return None
         _, view = game_mode.start_game(session, req["color"], _strength(req["elo"]), "quiet")
         engine = (view.get("engine") or {}).get("san")
         block = (
             "## The game has started on the board (the system started it)\n"
             f"The student asked to play: the game is on — the student plays {view['student_color']}, the engine "
-            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {engine}: say this move aloud in words (piece and "
-                                                   f"square), then that it is their move. " if engine else "The student moves first. ")
+            f"about {view['engine_elo']} Elo. " + (f"The engine opened with {game_mode.told_ply(view, 1) or engine}: say this "
+                                                   "move in words, naming exactly that piece and square, then that it is "
+                                                   "their move. " if engine else "The student moves first. ")
             + "Tell them it is on and whose move it is. Never play or invent a move of yours: every move of the "
-            "student goes through make_game_move, and the engine makes yours."
+            "student goes through make_game_move, and the engine makes yours. " + game_mode.NO_MOVE_TIP
         )
         return {"view": view, "block": block}
     if live.id != active_board.id or not live.game_state:
@@ -761,7 +797,13 @@ def _game_prestep(session, active_board, message: str, spoken: bool = False, vie
     view = game_mode.play_move(session, live, san)
     student = view.get("student") or {}
     engine = (view.get("engine") or {}).get("san")
-    facts = f"{student.get('san')} ({student.get('verdict')})" + (f"; the engine answered {engine}" if engine else "")
+    # numbered and in words: a bare «e4» came back as «4.e4» for 3.e4 and «dxc6 берёт пешку» for the knight (28.10)
+    n = len(view.get("moves") or [])
+    student_told = game_mode.told_ply(view, n - 1 if engine else n) or student.get("san")
+    engine_told = game_mode.told_ply(view, n) if engine else None
+    facts = f"{student_told}, verdict {student.get('verdict')}" + (
+        f"; the engine answered {engine_told or engine} — name exactly that piece, and if you give a move number, "
+        "this one" if engine else "")
     if student.get("verdict") in ("mistake", "blunder") and student.get("best"):
         facts += f" (a better move was {student['best']})"
     end = (f" The game is over: {view.get('result')} ({view.get('termination')})." if view.get("status") != "playing"
@@ -2530,6 +2572,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
         # not shown (src/answer_check._coach_move_issues; stand, 2026-10-12).
         if active_board.kind == "game" and active_board.game_state:
             check_ctx.game_engine_moves = _engine_moves(active_board.game_state)
+            check_ctx.game_moves = list(active_board.game_state.get("moves") or [])
         gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_gate = SentenceGate(check_ctx, enabled=bool(config.COACH_ANSWER_CHECK))
         fix_markup = MarkupFilter(session.board_state)
@@ -2649,6 +2692,7 @@ async def coach_chat(body: CoachChatRequest, request: Request):
                     for action in actions:
                         if isinstance(action, dict) and action.get("type") == GAME_ACTION and action.get("game"):
                             check_ctx.game_engine_moves = _engine_moves(action["game"])  # a move played mid-answer
+                            check_ctx.game_moves = list(action["game"].get("moves") or [])
                         if isinstance(action, dict) and action.get("type") in POSITION_ACTIONS:
                             new_fen = position_after(action)
                             if (new_fen or "").split(" ")[0] != (board_moved["from"] or "").split(" ")[0]:
@@ -4205,6 +4249,7 @@ async def coach_voice_check(body: VoiceCheckRequest, request: Request):
                 live = live_game_board(game_session) if game_session is not None else None
                 if live is not None and live.game_state:
                     ctx.game_engine_moves = _engine_moves(live.game_state)
+                    ctx.game_moves = list(live.game_state.get("moves") or [])
                     if live.pgn:
                         ctx.add_line(live.pgn)  # the game's history: «пешка h6 взяла слона» was true a move ago (26.10)
                     ctx.student_color = chess.WHITE if live.game_state.get("student_color") == "white" else chess.BLACK

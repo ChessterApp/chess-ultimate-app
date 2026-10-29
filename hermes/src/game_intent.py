@@ -174,6 +174,10 @@ _ORDINAL_RX = (r"\d{1,3}\s*-?\s*(?:го|й|му|ому|ого|ый|th|st|nd|rd)?
                r"|девят\w*|десят\w*|одиннадцат\w*|двенадцат\w*|тринадцат\w*|четырнадцат\w*|пятнадцат\w*|двадцат\w*"
                r"|first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth")
 
+# A colour or a strength said after a game command: «, я белыми», «— за чёрных», «, посложнее», ", as white".
+_WISH_TAIL = (r"(?:\s*[,—–-]?\s*(?:(?:а|я|мне|теперь|только|но|ну)\s+){0,3}(?:(?:буду\s+)?(?:играть\s+|играю\s+)?(?:за\s+)?"
+              r"(?:бел\w*|ч[её]рн\w*)|(?:по)?(?:сложнее|легче|сильнее|слабее|проще)|(?:as\s+)?(?:white|black)|harder|easier))?")
+
 _LONG_COMMANDS = (
     # «ты ошибся», «это не мой ход», «верни как было»: the system misread the student's move, or moved wrong —
     # the last move is undone and the student is asked what they meant (item 5 of the list).
@@ -239,7 +243,10 @@ _COMMANDS = (
         r"|перезапус\w*|рестарт|restart(?:\s+the\s+game)?|по[\s-]новой|(?:сыгра\w*|давай|играем)\s+снова|играем\s+заново"
         r"|начн\w*\s+нов\w+\s+игр\w*|^заново\s*[!.]?$"
         r"|(?:давай|начн\w*|начать|сыгра\w*|хочу)\s+(?:лучше\s+|ещ[её]\s+)?нов\w+\s+парти\w*|^нов\w+\s+парти\w*\s*[.!]?$"
-        r"|сыгра\w*\s+(?:ещ[её]\s+)?(?:раз|одну|партию)|ещ[её]\s+(?:одну|партию)|^(?:давай\s+)?(?:сыграем\s+)?ещ[её]\s+раз\s*[!.]?$|реванш"
+        r"|сыгра\w*\s+(?:ещ[её]\s+)?(?:раз|одну|партию)|ещ[её]\s+(?:одну|партию)|реванш"
+        # «давай ещё раз», «сыграем ещё» — with a wish after it too: «давай ещё раз, я белыми», «ещё раз, посложнее»
+        # (stand run 28.10: the wish broke the command, no game started, and the coach invented one)
+        r"|^(?:давай\s+)?(?:сыграем\s+)?ещ[её](?:\s+раз)?" + _WISH_TAIL + r"\s*[!.]?$|^сыгра\w*\s+ещ[её]" + _WISH_TAIL + r"\s*[!.]?$"
         r"|new\s+game|start\s+(?:over|again|a\s+new\s+game)|play\s+again|rematch"
         r"|жаңа\s+ойын|қайта\s+бастай\w*)", re.IGNORECASE)),
     # «играй сильнее», «сделай посложнее», «поставь уровень 2500», «полегче» — the engine's strength changed for the

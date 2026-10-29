@@ -40,6 +40,9 @@ _BOARD_LOCKS_GUARD = threading.Lock()
 # A second start of the same game within this time (the site's and the model's calls for one request) is
 # the same game, not a restart.
 SAME_START_WINDOW_S = 20.0
+# Said with every game start: the coach suggested the first move unasked — «жду е2-е4» (the best move of the
+# position, voice) and «начни с e5» after 1.Nf3, which hangs a pawn (text) — prod runs 28.10.
+NO_MOVE_TIP = "Do not suggest which move to play — the student chooses their moves (no move names)."
 
 
 def board_lock(board_rec) -> threading.Lock:
@@ -373,6 +376,17 @@ def ply_words(state: dict, ply: int) -> Optional[str]:
         return move_words(board, board.parse_san(moves[ply - 1]))
     except ValueError:
         return None
+
+
+def told_ply(state: dict, ply: int) -> Optional[str]:
+    """«3.e4 (pawn from e2 to e4)»: the game's move number *ply* with its number and in words, as the coach tells it.
+    The text coach got a bare «e4» and numbered it itself — «4.e4» for 3.e4 — and called «dxc6» «берёт твою пешку»
+    when it took the knight (prod run 28.10)."""
+    moves = state.get("moves") or []
+    if not 1 <= ply <= len(moves):
+        return None
+    words = ply_words(state, ply)
+    return numbered_from([moves[ply - 1]], ply - 1) + (f" ({words})" if words else "")
 
 
 def _push_engine_move(state: dict, board: chess.Board) -> dict:

@@ -128,20 +128,26 @@ def _session_not_loaded(exc) -> str:
 def _tell_the_board() -> None:
     """Every tool sees its coach session, and what it put on the board is what the model hears
     (src/board_truth.py)."""
-    from src.board_truth import board_truth
+    from src.board_truth import board_truth, remember_positions
 
     for name in get_registered_tools():
         entry = registry.get_entry(name)
         if entry is None or getattr(entry.handler, "_tells_board", False):
             continue
 
-        def handler(args, _inner=entry.handler, **kwargs):
+        def handler(args, _inner=entry.handler, _name=name, **kwargs):
             if not kwargs.get("session_id"):
                 turn = _turn_sessions.get(kwargs.get("task_id") or "")
                 if turn:
                     kwargs = {**kwargs, **turn}
             try:
-                return board_truth(_inner(args, **kwargs), kwargs)
+                out = _inner(args, **kwargs)
+                if _name != "board_control":  # what the model sets itself is no source (src/board_truth.INVENTED_NOTE)
+                    try:
+                        remember_positions(out, kwargs)
+                    except Exception:  # noqa: BLE001 — the memory is a guard's help, never the tool's failure
+                        pass
+                return board_truth(out, kwargs)
             except SessionLoadError as exc:
                 return _session_not_loaded(exc)
 

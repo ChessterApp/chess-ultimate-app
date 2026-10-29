@@ -1453,6 +1453,22 @@ describe('useGeminiLive: what the text coach has, by voice', () => {
     expect(sent().some((t) => t.startsWith('[Game]'))).toBe(false);
   });
 
+  // Prod Live run 28.10: the model started the game by its tool, the student played 1.e4 by hand, the engine
+  // answered c5 — and the coach said nothing (the tool result told the position but not its ply).
+  it('the first hand move after a game the model started is announced in a turn of its own', async () => {
+    let current: any = null;
+    toolReply = (b) => (b.name === 'start_game' ? { result: { ok: true }, board_actions: [{ type: 'game', game: game() }] } : {});
+    const { result } = await connectWith({ getGame: () => current, getFen: () => START, getSessionId: () => 's1' });
+    await call('start_game', { color: 'white' });
+    current = game();  // the page applied it
+    g.session.sendClientContent.mockClear();
+    current = AFTER_GAME;  // 1.e4 by hand, the engine answered d5
+    act(() => result.current.sendBoardUpdate(AFTER));
+    const told = g.session.sendClientContent.mock.calls.find((c: any[]) => c[0].turns[0].parts[0].text.startsWith('[Game]'));
+    expect(told?.[0].turns[0].parts[0].text).toMatch(/the engine answered d5/);
+    expect(told?.[0].turnComplete).toBe(true);
+  });
+
   it("the student's words go with every tool call: Hermes locks the board from them", async () => {
     toolReply = () => ({ result: { ok: true } });
     await connectWith({ getFen: () => START });

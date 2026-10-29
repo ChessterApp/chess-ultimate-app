@@ -116,7 +116,7 @@ def test_the_correction_replaces_the_move_on_the_board(engine):
     assert reply["ok"] and reply["action"] == "correct" and reply["done"], reply
     state = live_game_board(session).game_state
     assert state["moves"][0] == "c3" and len(state["moves"]) == 2, state["moves"]   # c3 and the engine's reply
-    assert "c3 is played instead" in reply["note"] and "undone" in reply["note"]
+    assert "1.c3 (pawn from c2 to c3) is played instead" in reply["note"] and "undone" in reply["note"]
 
 
 def test_a_correction_nobody_can_read_changes_nothing(engine):
