@@ -306,3 +306,198 @@ def app_():
     from src.server import app
 
     return app
+
+
+# ── review of 30.10: what the first version cut wrongly or let through ────────────────────────────────────────
+
+# A loaded game the student steps through: the board is after 6.O-O (ply 11), the PGN is the whole game.
+REVIEW_PGN = "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d4 exd4 6. O-O Nxe4 7. cxd4 d5 8. dxc5 dxc4 9. Qxd8+ Kxd8"
+# The prod 'attacked' board with h7-h6 in: the knight g5 hangs too (h6 and Qd8 hit it).
+G5_HANGS = "r1bqkb1r/ppp2pp1/7p/n3p1N1/2B5/8/PPPP1PPP/RNBQK2R w KQkq - 0 7"
+# White's b4 pawn hangs to Bf8 besides the bishop c4; Black's e5 and a5 hang as well.
+B4_HANGS = "r1bqkb1r/ppp2ppp/5n2/n3p3/1PB5/5N2/P1PP1PPP/RNBQK2R w KQkq - 0 6"
+
+
+def _moves_game(moves, student, question=""):
+    board = chess.Board()
+    for san in moves:
+        board.push_san(san)
+    ctx = CheckContext.from_fens([board.fen()], [], question=question, student_color=student)
+    ctx.game_moves = list(moves)
+    first = 0 if student == chess.WHITE else 1
+    ctx.game_engine_moves = [m for i, m in enumerate(moves) if i % 2 != first]
+    return ctx
+
+
+def _review_at(ply, question="Разбери эту позицию"):
+    board = chess.Board()
+    for san in [x for x in REVIEW_PGN.replace(".", " ").split() if not x.isdigit()][:ply]:
+        board.push_san(san)
+    return CheckContext.from_fens([board.fen()], [REVIEW_PGN], question=question, student_color=chess.WHITE)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "В этой позиции чёрные сыграли 6...Nxe4 — это и была ошибка.",
+    "В этой позиции чёрные сыграли Nxe4 — забрали пешку.",
+    "В этой партии ты потом сыграл 7.cxd4, и чёрные ответили 7...d5.",
+    "В этой партии после размена ферзей на d8 чёрный король остался в центре.",
+])
+def test_moves_later_in_the_loaded_game_were_played_in_it(sentence):
+    assert not [i for i in check_sentence(sentence, _review_at(11)) if "played" in i or "no capture" in i], sentence
+
+
+@pytest.mark.unit
+def test_a_wrong_move_later_in_the_loaded_game_is_read_against_the_game():
+    issues = check_sentence("В этой партии ты сыграл 7.Re1.", _review_at(11))
+    assert any("White played cxd4 here, not Re1" in i and "the game: 1.e4" in i and "9.Qxd8+ Kxd8" in i
+               for i in issues), issues
+    issues = check_sentence("В этой партии после размена на f7 чёрный король остался в центре.", _review_at(11))
+    assert any("no capture was made on f7 in this game" in i and "9.Qxd8+ 9...Kxd8 (on d8)" in i for i in issues), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Твой слон c4 под ударом только у коня a5.",                       # attacked only BY the knight
+    "Твой слон на c4 атакован сейчас только конём, поэтому его легко увести.",
+    "Конь g5 под ударом только ферзя d8 и защищён ферзём d1.",
+    "The bishop on c4 is attacked only by the knight on a5.",
+    "Только что твой слон оказался под ударом.",                       # «только что» = just now
+    "Лишь только конь прыгнул на a5, слон c4 оказался под ударом.",
+])
+def test_only_about_the_attackers_or_just_now_is_not_an_exhaustive_claim(sentence):
+    ctx = _moves_game("e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5 d5 exd5 Na5".split(), chess.WHITE, "как дела?")
+    assert not [i for i in check_sentence(sentence, ctx) if "under attack on the board" in i], sentence
+
+
+@pytest.mark.unit
+def test_a_pawn_is_not_a_figura():
+    ctx = _moves_game("e4 e5 Nf3 Nf6".split(), chess.WHITE, "Что у меня под ударом?")
+    for sentence in ("Ни одна фигура у тебя сейчас не под ударом.", "Ни одной фигуры у тебя не под ударом."):
+        assert not [i for i in check_sentence(sentence, ctx) if "under attack on the board" in i], sentence
+    issues = check_sentence("У тебя сейчас ничего не висит.",
+                            _moves_game("e4 e5 Nf3 Nf6".split(), chess.WHITE, "Что у меня под ударом?"))
+    assert any("the white pawn e4" in i for i in issues), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence,missed", [
+    ("Под ударом у тебя только слон c4 — его атакуют чёрные.", "the white pawn d5"),      # the attackers' colour
+    ("Под ударом у тебя только слон c4, на него напал конь чёрных.", "the white pawn d5"),
+])
+def test_the_attackers_colour_does_not_pick_the_side(sentence, missed):
+    issues = check_sentence(sentence, CheckContext.from_fens([ATTACKED], question="Что у меня сейчас под ударом?",
+                                                             student_color=chess.WHITE))
+    assert any(missed in i and i.startswith("it is not the only one — White") for i in issues), issues
+
+
+@pytest.mark.unit
+def test_the_attackers_colour_does_not_pick_the_side_in_a_game():
+    ctx = CheckContext.from_fens([B4_HANGS], question="Что у меня под ударом?", student_color=chess.WHITE)
+    issues = check_sentence("Под ударом у тебя только слон c4 — его атакуют чёрные.", ctx)
+    assert issues and all("White has more" in i and "the white pawn b4" in i for i in issues), issues
+
+
+@pytest.mark.unit
+def test_an_attacker_named_does_not_hide_a_hanging_piece_of_its_type():
+    for sentence in ("Под ударом только слон c4: его атакует конь a5.",
+                     "Под ударом только слон c4, который атакует чёрный конь."):
+        issues = check_sentence(sentence, _study(G5_HANGS, "Что у меня сейчас под ударом?"))
+        assert any("the white knight g5" in i for i in issues), (sentence, issues)
+    ctx = _study(G5_HANGS, "Что у меня сейчас под ударом?")
+    assert check_sentence("Под ударом у тебя слон c4 — его атакует конь a5.", ctx) == []
+    assert any("the white knight g5" in i for i in check_sentence("Больше ничего не висит.", ctx))
+    # the knight named as attacked does exclude it
+    ctx = _study(G5_HANGS, "Что у меня сейчас под ударом?")
+    assert check_sentence("Под ударом слон c4, конь g5 и пешка d5.", ctx) == []
+    assert not [i for i in check_sentence("Больше ничего не висит.", ctx) if "under attack" in i]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Белым стоит увести своего слона на h4, пока ты не сыграл h6.",     # «своего» = White's (the subject's)
+    "Белые должны сейчас отвести своего слона на f4.",
+])
+def test_the_reflexive_possessive_follows_the_subject(sentence):
+    ctx = _moves_game("d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7 e3 O-O Nf3 Nbd7".split(), chess.BLACK, "какой у белых план?")
+    assert not [i for i in check_sentence(sentence, ctx) if "cannot go to" in i], sentence
+
+
+@pytest.mark.unit
+def test_the_reflexive_possessive_with_no_subject_is_the_students():
+    issues = check_sentence("Тебе нужно увести своего ферзя на b6.", _game())
+    assert any("black queen on d8 cannot go to b6" in i for i in issues), issues
+    issues = check_sentence("Сейчас уведи своего ферзя на c7.", _game())
+    assert any("black queen on d8 cannot go to c7" in i for i in issues), issues
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence", [
+    "Белые с темпом атакуют ферзя, так что уведи ферзя на d6.",        # «белые» attack: not the queen's owner
+    "Белые напали конём на ферзя, поэтому сейчас надо увести ферзя на a5.",
+    "Конь белых бьёт по ферзю — уведи ферзя на a5.",
+    "Коня с c6 стоит увести на d7 через b8 — это классический манёвр Брейера.",  # a route of several moves
+])
+def test_the_attacking_side_is_not_the_owner_and_a_route_is_a_plan(sentence):
+    if "Брейера" in sentence:
+        ctx = _moves_game("e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 d6 c3 O-O h3".split(), chess.BLACK, "какой план?")
+    else:
+        ctx = _moves_game("e4 d5 exd5 Qxd5 Nc3".split(), chess.BLACK, "Что мне делать?")
+    assert not [i for i in check_sentence(sentence, ctx) if "cannot go to" in i and "advise only" in i], sentence
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("sentence,wrong", [
+    ("В этой партии ты сыграл 3.Кf3.", "White played Nc3 here, not Nf3"),
+    ("Здесь ты пошёл 3.Кf3, а надо было d4.", "White played Nc3 here, not Nf3"),
+    ("Здесь ты ответил 3...Фd6.", "Black played Qa5 here, not Qd6"),
+    ("В этой партии соперник сыграл 3...Фd6.", "Black played Qa5 here, not Qd6"),
+])
+def test_you_played_is_read_by_the_numbering_outside_a_live_game(sentence, wrong):
+    board = chess.Board()
+    for san in "e4 d5 exd5 Qxd5 Nc3 Qa5 d4 Nf6".split():
+        board.push_san(san)
+    ctx = CheckContext.from_fens([board.fen()], ["1. e4 d5 2. exd5 Qxd5 3. Nc3 Qa5 4. d4 Nf6"], question="Разбери мою партию")
+    assert any(wrong in i for i in check_sentence(sentence, ctx)), sentence
+    ctx = CheckContext.from_fens([board.fen()], ["1. e4 d5 2. exd5 Qxd5 3. Nc3 Qa5 4. d4 Nf6"], question="Разбери мою партию")
+    assert check_sentence("Здесь ты сыграл 3.Кc3, а соперник ответил 3...Фa5.", ctx) == []
+
+
+@pytest.mark.unit
+def test_you_played_is_not_read_against_the_book():
+    # No record of the student's own game: the book's line through the board is not it (another order is possible).
+    ctx = _study(NAJDORF, "Как называется этот дебют?")
+    assert not [i for i in check_sentence("Здесь ты сыграл 2.Кc3.", ctx) if "played" in i]
+
+
+@pytest.mark.unit
+def test_the_book_index_is_never_built_on_the_event_loop(monkeypatch):
+    import asyncio
+    import threading
+
+    import src.answer_check_facts as facts
+
+    built = threading.Event()
+    monkeypatch.setattr(facts, "_BOOK_THROUGH", None)
+    monkeypatch.setattr(facts, "_build_book_index", lambda: built.set() or {})
+
+    async def turn():
+        return check_sentence(PROD_NAJDORF, _study(NAJDORF, "Какие главные теоретические продолжения за белых здесь?"))
+
+    assert not [i for i in asyncio.run(turn()) if "has not been played" in i]  # not built yet: not judged
+    assert built.wait(5)  # built in the background meanwhile
+
+
+@pytest.mark.unit
+def test_the_voice_check_reads_nothing_else_with_the_sentences_before_it():
+    client = TestClient(app_())
+    user = {"X-User-Id": "voice-facts-user"}
+    body = {"text": "Больше ничего не висит.", "fen": ATTACKED, "question": "Что у меня сейчас под ударом?"}
+    resp = client.post("/api/coach/voice/check", headers=user,
+                       json={**body, "previous": "Под ударом у тебя слон на c4: его атакует конь a5."})
+    assert resp.status_code == 200
+    assert any("nothing else is in danger" in i and "the white pawn d5" in i for i in resp.json()["issues"])
+    resp = client.post("/api/coach/voice/check", headers=user,
+                       json={**body, "previous": "Под ударом у тебя слон на c4 и пешка d5."})
+    assert resp.json()["issues"] == []
+    assert client.post("/api/coach/voice/check", headers=user, json=body).json()["issues"] == []  # older sites

@@ -223,6 +223,9 @@ export function solutionNote(result: { ok?: boolean; line?: string; note?: strin
 export const SPEECH_SENTENCE_END_RE = /[.!?…](?:\s|$)/;
 // Only sentences with chess content are worth a round trip.
 export const SPEECH_CHECKABLE_RE = /[a-h][1-8]|\d|кон[ьяю]|слон|лад[ьё]|ферз|корол|пешк|knight|bishop|rook|queen|king|pawn/i;
+// «Больше ничего не висит», «остальное защищено»: a claim about the whole board with no piece named — Hermes reads it
+// against the coach's earlier sentences of the answer (sent as `previous`), as the text coach does (30.10).
+export const SPEECH_EXHAUSTIVE_RE = /(?:больше|кроме)[^.!?]{0,40}(?:ничего|никто|ни\s+одн)|(?:ничего|ни\s+одн\S*\s+\S+)\s+(?:\S+\s+){0,2}не\s+(?:висит|под\s+ударом|атакован)|остальн\S*\s+(?:\S+\s+){0,3}(?:защищ|прикрыт|в\s+безопасности|не\s+(?:висит|висят|под\s+ударом))|nothing\s+(?:else\s+)?(?:is\s+)?(?:hanging|under\s+attack|attacked)|(?:everything|all)\s+else\s+is\s+(?:safe|defended|protected)/i;
 export const SPEECH_CHECK_MAX_PER_TURN = 2;
 // In a game, the coach naming its own move is always checked, past the limit (Alexander 27.10: the note read aloud
 // used both checks up, and «Мой ответ — конь на f6» was never checked).
@@ -1343,11 +1346,14 @@ export default function useGeminiLive(
   const wrongSentencesRef = useRef<{ text: string; issues: string[] }[]>([]);
   const speechChecksRef = useRef(0);
   const speechCheckPendingRef = useRef<Promise<void>[]>([]);
+  // The coach's finished sentences of this answer so far: what «больше ничего не висит» excludes (30.10).
+  const spokenBeforeRef = useRef('');
 
-  const checkSpokenSentence = useCallback(async (sentence: string, session: NonNullable<typeof sessionRef.current>) => {
+  const checkSpokenSentence = useCallback(async (sentence: string, session: NonNullable<typeof sessionRef.current>, previous = '') => {
     // In a game a short announcement is a claim too: «Я пойду d3.» is checked against the engine's moves (audit 26.10).
     const liveGame = optionsRef.current.getGame?.()?.status === 'playing';
-    if (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4)) return;
+    const exhaustive = SPEECH_EXHAUSTIVE_RE.test(sentence) && previous.trim() !== '';
+    if (!exhaustive && (!SPEECH_CHECKABLE_RE.test(sentence) || (!liveGame && sentence.trim().split(/\s+/).length < 4))) return;
     const ownMove = liveGame && COACH_MOVE_CLAIM_RE.test(sentence);
     const generation = speechGenRef.current;
     if (!ownMove) {
@@ -1367,6 +1373,8 @@ export default function useGeminiLive(
           pgn: liveGame ? undefined : optionsRef.current.getPgn?.() || undefined,
           // In a game the coach's moves must be the engine's: Hermes reads the game from the session (25.10).
           session_id: optionsRef.current.getSessionId?.() ?? undefined,
+          // What was said before it: «больше ничего не висит» excludes what that named (30.10).
+          previous: exhaustive ? previous.slice(-1500) : undefined,
         }),
       });
       if (!res.ok) return;
@@ -1403,7 +1411,8 @@ export default function useGeminiLive(
     while (session && (m = SPEECH_SENTENCE_END_RE.exec(modelSentenceRef.current))) {
       const sentence = modelSentenceRef.current.slice(0, m.index + 1);
       modelSentenceRef.current = modelSentenceRef.current.slice(m.index + m[0].length);
-      if (check) speechCheckPendingRef.current.push(checkSpokenSentence(sentence, session));
+      if (check) speechCheckPendingRef.current.push(checkSpokenSentence(sentence, session, spokenBeforeRef.current));
+      spokenBeforeRef.current += `${sentence} `;
       // A sentence done and the point of the student's idea still unsaid, though the
       // [Idea] line is in: said now, not after a whole answer past it (voice bench
       // 2026-10-07: 5 of 9 answers ignored a line that came before them).
@@ -2009,6 +2018,7 @@ export default function useGeminiLive(
         modelSentenceRef.current = '';
         wrongSentencesRef.current = [];
         speechChecksRef.current = 0;
+        spokenBeforeRef.current = '';
       }
       if (sc.turnComplete) {
         turnOver();
@@ -2021,6 +2031,7 @@ export default function useGeminiLive(
         speechCheckPendingRef.current = [];
         modelSentenceRef.current = '';
         speechChecksRef.current = 0;
+        spokenBeforeRef.current = '';
         void Promise.all(pending).then(() => {
           const wrong = wrongSentencesRef.current;
           wrongSentencesRef.current = [];

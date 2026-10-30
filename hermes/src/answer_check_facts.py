@@ -14,14 +14,18 @@ Four classes the answer check (src/answer_check.py) did not read, each caught on
 
 What was played is known from the record that leads to the board: the game, a line the turn has (the board's PGN,
 the question's moves), or else the ECO book's lines through the position — only when their length is the
-position's own move count. With no record nothing is judged. Plans, conditions, questions, quotes, denials and
-other games are never read as claims about this board: a right sentence cut is worse than a wrong one let through.
+position's own move count. A record that goes on past the board (a loaded game stepped back) was played too: its
+later moves and captures are the game's, not the future. With no record nothing is judged. Plans, conditions,
+questions, quotes, denials and other games are never read as claims about this board: a right sentence cut is
+worse than a wrong one let through.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import threading
 from typing import Optional
 
 import chess
@@ -65,31 +69,59 @@ def _quoted(text: str, at: int) -> bool:
 # ── the record: how the game on the board went ────────────────────────────────────────────────────────────────
 
 _BOOK_THROUGH: Optional[dict] = None
+_BOOK_LOCK = threading.Lock()
 
 
-def _book_index() -> dict:
+def _build_book_index() -> dict:
     """Position (placement, side, castling, en passant) → every ECO book line through it, as (entry, plies)."""
     global _BOOK_THROUGH
-    if _BOOK_THROUGH is None:
-        from src.openings_book import _position_key, _split_moves, get_book
+    with _BOOK_LOCK:
+        if _BOOK_THROUGH is None:
+            from src.openings_book import _position_key, _split_moves, get_book
 
-        index: dict = {}
-        for i, entry in enumerate(get_book().entries):
-            board = chess.Board()
-            try:
-                for n, san in enumerate(_split_moves(entry[2]), 1):
-                    board.push_san(san)
-                    index.setdefault(_position_key(board), []).append((i, n))
-            except ValueError:
-                continue
-        _BOOK_THROUGH = index
+            index: dict = {}
+            for i, entry in enumerate(get_book().entries):
+                board = chess.Board()
+                try:
+                    for n, san in enumerate(_split_moves(entry[2]), 1):
+                        board.push_san(san)
+                        index.setdefault(_position_key(board), []).append((i, n))
+                except ValueError:
+                    continue
+            _BOOK_THROUGH = index
     return _BOOK_THROUGH
 
 
-def histories(ctx) -> list[tuple[list, bool]]:
-    """The known ways the game reached the board: [(steps, complete)], each step (board before, move, SAN);
-    *complete* when the record starts at the initial position (no moves before it are unknown). Empty when the
-    board's history is not known — then nothing about it is judged."""
+def warm_book_index() -> None:
+    """Built at startup (src/server._warm_up): 0.9–1.5 s that the first «здесь белые пошли …» after a restart spent
+    on the event loop, in the text gate (review 30.10)."""
+    try:
+        _build_book_index()
+    except Exception:  # noqa: BLE001 — the book is a bonus on top of the record
+        logger.debug("book index build failed", exc_info=True)
+
+
+def _book_index() -> Optional[dict]:
+    """The index. On the event loop (the text gate) it is never waited for: until it is built — in the background —
+    a board with no record of its own is not judged; a worker thread (POST voice/check) or a script builds it."""
+    if _BOOK_THROUGH is None:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return _build_book_index()  # not the event loop's thread: waiting here blocks nobody
+        if not _BOOK_LOCK.locked():
+            threading.Thread(target=warm_book_index, name="facts-book-index", daemon=True).start()
+        return None
+    return _BOOK_THROUGH
+
+
+def histories(ctx, book: bool = True) -> list[tuple[list, bool, list]]:
+    """The known ways the game reached the board: [(steps, complete, after)], each step (board before, move, SAN);
+    *complete* when the record starts at the initial position (no moves before it are unknown); *after* the moves
+    the same record goes on with past the board — a loaded game the student steps through, a review PGN: they
+    were played in this game too, only later (review 30.10: «В этой позиции чёрные сыграли 6...Nxe4» on the board
+    after 6.O-O of a game that went 6...Nxe4). With *book* False, only the turn's own records (not the ECO book's
+    lines through the board). Empty when the board's history is not known — then nothing about it is judged."""
     cur = getattr(ctx, "current", None)
     if cur is None:
         return []
@@ -114,29 +146,42 @@ def histories(ctx) -> list[tuple[list, bool]]:
             and board.fullmove_number == 1
         steps: list = []
         found = complete and _key(board) == target
-        for san in sans:
-            if found:
-                break
+        rest = list(sans)
+        while rest and not found:
+            san = rest.pop(0)
             try:
                 move = board.parse_san(san)
             except ValueError:
+                rest = []
                 break
             steps.append((board.copy(stack=False), move, board.san(move)))
             board.push(move)
             found = _key(board) == target
-        if found:
-            sig = (start.fen(), tuple(s[2] for s in steps))
-            if sig not in seen:
-                seen.add(sig)
-                out.append((steps, complete))
-    if out:
+        if not found:
+            continue
+        after: list = []
+        for san in rest:
+            try:
+                move = board.parse_san(san)
+            except ValueError:
+                break
+            after.append((board.copy(stack=False), move, board.san(move)))
+            board.push(move)
+        sig = (start.fen(), tuple(x[2] for x in steps + after))
+        if sig not in seen:
+            seen.add(sig)
+            out.append((steps, complete, after))
+    if out or not book:
         return out
     # No game and no line reaches the board: the book's lines through it, when they are the position's own length
     # (a FEN's move counter agrees with them) — the Najdorf after 5...a6, the Scandinavian after 2...Qxd5.
     try:
         from src.openings_book import _position_key, _split_moves, get_book
 
-        hits = _book_index().get(_position_key(cur)) or []
+        index = _book_index()
+        if index is None:
+            return []
+        hits = index.get(_position_key(cur)) or []
         entries = get_book().entries
     except Exception:  # noqa: BLE001 — the book is a bonus on top of the record
         logger.debug("book history lookup failed", exc_info=True)
@@ -154,7 +199,7 @@ def histories(ctx) -> list[tuple[list, bool]]:
             move = board.parse_san(san)
             steps.append((board.copy(stack=False), move, board.san(move)))
             board.push(move)
-        out.append((steps, True))
+        out.append((steps, True, []))
     return out
 
 
@@ -163,7 +208,7 @@ def _unrelated_boards(ctx, found: list) -> list:
     tool's position («Белые только что сыграли Qxf7#» about the mate a tool just showed), another board. A claim
     about the board's own game cannot be told apart from one about these."""
     related = {_key(ctx.current)}
-    for steps, _ in found:
+    for steps, _, _ in found:
         related.update(_key(b) for b, _, _ in steps)
     for start, sans in list(getattr(ctx, "line_records", None) or []) + (
             [(chess.Board(), list(ctx.game_moves))] if getattr(ctx, "game_moves", None) else []):
@@ -271,6 +316,7 @@ def played_move_issues(lowered: str, original: str, ctx) -> list[str]:
     found = histories(ctx)
     if not found:
         return []
+    own = None  # the turn's own records, without the book: read once, when a «ты сыграл» needs them
     out = []
     conv_low = converted.lower().replace("ё", "е")  # the offsets of *converted* («Кр» became «K»)
     for m in hits:
@@ -278,21 +324,30 @@ def played_move_issues(lowered: str, original: str, ctx) -> list[str]:
                 or m["san"] in ctx.quoted or _NEGATION.search(conv_low[max(0, m.start("verb") - 24):m.start("verb")]):
             continue
         side = m["side"].lower()
-        color = chess.WHITE if side.startswith(("бел", "white")) else chess.BLACK if side.startswith(("чер", "чёр", "black")) else None
-        if color is None:
-            if ctx.student_color is None:
-                continue
-            color = ctx.student_color if not side.startswith(("сопер", "против", "your op")) else not ctx.student_color
         dots = m["dots"]
-        if dots:
-            want = chess.WHITE if dots == "." else chess.BLACK
-            if want != color:
-                continue  # «белые пошли 6...Nf6»: the numbering does not fit the side — not this claim
+        color = chess.WHITE if side.startswith(("бел", "white")) else chess.BLACK if side.startswith(("чер", "чёр", "black")) else None
+        records = found
+        if color is None:
+            if ctx.student_color is not None:
+                color = ctx.student_color if not side.startswith(("сопер", "против", "your op")) else not ctx.student_color
+            elif dots:
+                # «ты сыграл 3.Кf3» with no game on: the numbering names the side (review 30.10 — a review of the
+                # student's own game is where «ты сыграл» is said most)
+                color = chess.WHITE if dots == "." else chess.BLACK
+            # The student's or the opponent's move is told from their own game: a book line through the board is
+            # not it (the student may have come by another order).
+            own = histories(ctx, book=False) if own is None else own
+            records = own
+            if not records:
+                continue
+        if dots and color is not None and (chess.WHITE if dots == "." else chess.BLACK) != color:
+            continue  # «белые пошли 6...Nf6»: the numbering does not fit the side — not this claim
         san = m["san"]
-        if any(_last_move_fits(b, san, color) for b in _unrelated_boards(ctx, found)):
+        colors = [color] if color is not None else [chess.WHITE, chess.BLACK]
+        if any(_last_move_fits(b, san, c) for b in _unrelated_boards(ctx, records) for c in colors):
             continue  # it may be told of another position of the turn
         verdicts = []
-        for steps, complete in found:
+        for steps, complete, after in records:
             if m["num"]:
                 ply = (int(m["num"]) - 1) * 2 + (0 if color == chess.WHITE else 1)
                 first = _ply(steps[0][0]) if steps else _ply(ctx.current)
@@ -300,21 +355,30 @@ def played_move_issues(lowered: str, original: str, ctx) -> list[str]:
                     verdicts.append(None)  # before the record begins: not known
                     continue
                 if ply >= first + len(steps):
-                    verdicts.append(("future", steps))
+                    k = ply - first - len(steps)
+                    if k < len(after):  # later in the same game: played, only after the board
+                        before, move, real = after[k]
+                        verdicts.append(None if _same(before, san, move) else ("other", steps + after, before, real))
+                    elif after:
+                        verdicts.append(None)  # past the end of a game that goes on past the board: not judged
+                    else:
+                        verdicts.append(("future", steps))
                     continue
                 before, move, real = steps[ply - first]
-                verdicts.append(None if _same(before, san, move) else ("other", steps, before, real))
+                verdicts.append(None if _same(before, san, move) else ("other", steps + after, before, real))
             else:
-                mine = [(b, mv) for b, mv, _ in steps if b.turn == color]
+                mine = [(b, mv) for b, mv, _ in steps + after if b.turn in colors]
                 if any(_same(b, san, mv) for b, mv in mine) or not complete:
                     verdicts.append(None)
                 else:
-                    verdicts.append(("never", steps))
+                    verdicts.append(("never", steps + after))
         if not verdicts or any(v is None for v in verdicts):
             continue
         kind, steps = verdicts[0][0], verdicts[0][1]
         record = _record_text(steps)
-        side_name = "White" if color == chess.WHITE else "Black"
+        whole = bool(records[0][2])  # the record goes on past the board: it is told as the game's
+        where = f"the game: {record}" if whole else f"the moves that led to the board: {record}"
+        side_name = {chess.WHITE: "White", chess.BLACK: "Black", None: "Neither side"}[color]
         label = (m["num"] + m["dots"] if m["num"] else "") + san
         if kind == "future":
             to_move = "White" if ctx.current.turn == chess.WHITE else "Black"
@@ -323,11 +387,10 @@ def played_move_issues(lowered: str, original: str, ctx) -> list[str]:
                        "possible continuation, never what was played here")
         elif kind == "other":
             before, real = verdicts[0][2], verdicts[0][3]
-            out.append(f"at {_label(before, real)} {side_name} played {real} here, not {san} "
-                       f"(the moves that led to the board: {record})")
+            out.append(f"at {_label(before, real)} {side_name} played {real} here, not {san} ({where})")
         else:
-            out.append(f"{side_name} did not play {san} in the moves that led to this board ({record}): "
-                       "never tell a move as played that the record does not have")
+            out.append(f"{side_name} did not play {san} in {'this game' if whole else 'the moves that led to this board'} "
+                       f"({record}): never tell a move as played that the record does not have")
     return out
 
 
@@ -362,13 +425,13 @@ def exchange_history_issues(lowered: str, original: str, ctx) -> list[str]:
             or not _about_this_game(lowered, ctx, question_counts=True):
         return []
     found = histories(ctx)
-    if not found or not all(complete for _, complete in found):
+    if not found or not all(complete for _, complete, _ in found):
         return []  # a record that begins mid-game may miss the capture
     if _unrelated_boards(ctx, found) and not _ABOUT_BOARD.search(lowered):
         return []  # another position of the turn may be the one told
     captured: dict = {}
-    for steps, _ in found:
-        for before, move, san in steps:
+    for steps, _, after in found:
+        for before, move, san in steps + after:  # a capture later in the same game was made in it (review 30.10)
             if before.is_capture(move) and _label(before, san) not in captured.get(move.to_square, []):
                 captured.setdefault(move.to_square, []).append(_label(before, san))
     # A capture written in the sentence itself («после размена на d5 (2.exd5 Qxd5)»): its own line, read there.
@@ -386,9 +449,10 @@ def exchange_history_issues(lowered: str, original: str, ctx) -> list[str]:
             continue  # a condition, or moves written before it: a line, not this game
         if sq in written or chess.parse_square(sq) in captured:
             continue
-        steps = found[0][0]
+        steps, _, after = found[0]
         caps = ", ".join(f"{' '.join(v)} (on {chess.square_name(k)})" for k, v in captured.items())
-        out.append(f"no capture was made on {sq} in the moves that led to this board ({_record_text(steps)}): "
+        where = "in this game" if after else "in the moves that led to this board"
+        out.append(f"no capture was made on {sq} {where} ({_record_text(steps + after)}): "
                    + (f"the captures were {caps}" if caps else "no piece has been captured yet")
                    + " — tell the exchanges of this game as its record has them")
     return out
@@ -448,21 +512,59 @@ _IMPERATIVE = re.compile(rf"(?:{_RETREAT_IMP}|{_PLACE_IMP})$", re.IGNORECASE)
 _RETREAT = re.compile(rf"(?:{_RETREAT_IMP}|{_RETREAT_INF})$", re.IGNORECASE)
 
 
-def _owner(poss: str, ctx) -> Optional[bool]:
-    """The colour a possessive names, or None when either side may be meant."""
+_FIRST_PERSON = re.compile(r"(?:уведу|отведу|уберу|спрячу|отступлю|отойду|уйду|поставлю|выведу)$", re.IGNORECASE)
+# Whose advice it is: the side the advice is given to — «чёрным надо», «белые должны», «мне стоит» — read in the
+# last part of the clause before it, so the side doing the attacking («Белые с темпом атакуют ферзя, так что уведи
+# ферзя на d6», review 30.10) is not taken for the owner of the piece.
+_SUBCLAUSE = re.compile(r"[,—–:()]|" + _B + r"(?:так\s+что|поэтому|потому\s+что|иначе|и|а|но|so|and|but)" + _E,
+                        re.IGNORECASE)
+_ADDRESSEE = re.compile(_B + r"(?P<who>белым|ч[её]рным|мне|тебе|вам|белые|ч[её]рные|white|black)" + _E
+                        + r"(?P<rest>(?:\s+[^\s,.;:!?]+){0,2})", re.IGNORECASE)
+_MODAL = re.compile(_B + r"(?:должн\w*|могут|может|обязан\w*|стоит|надо|нужно|следует|пора|лучше|придется|придётся|"
+                    r"should|must|need|needs|can|could|have\s+to|has\s+to|ought)" + _E, re.IGNORECASE)
+
+
+def _addressee(clause: str, ctx) -> Optional[bool]:
+    """The colour the advice in the end of *clause* is given to, or None when it is not named there."""
+    part = _SUBCLAUSE.split(clause)[-1]
+    student = getattr(ctx, "student_color", None)
+    for x in reversed(list(_ADDRESSEE.finditer(part))):
+        who = x["who"].lower().replace("ё", "е")
+        if who in ("белым", "черным"):
+            return chess.WHITE if who == "белым" else chess.BLACK
+        if who in ("тебе", "вам"):
+            return student
+        if who == "мне":
+            return None if student is None else not student
+        if _MODAL.search(x["rest"] or ""):  # «белые должны», "White should": the subject of the advice
+            return chess.WHITE if who.startswith(("бел", "white")) else chess.BLACK
+    return None
+
+
+def _owner(poss: str, verb: str, clause: str, ctx) -> Optional[bool]:
+    """The colour whose piece the advice moves, or None when either side may be meant."""
     p = (poss or "").lower().replace("ё", "е")
     if p.startswith(("бел", "white")):
         return chess.WHITE
     if p.startswith(("черн", "black")):
         return chess.BLACK
     student = getattr(ctx, "student_color", None)
-    if student is None:
-        return None
-    if p.startswith(("тво", "ваш", "сво", "your")):
+    if p.startswith(("сво", "his", "her")):
+        # «своего» points back at the subject, not at the student: «Белым стоит увести своего слона на h4» with the
+        # student Black is White's bishop g5 (review 30.10); «уведу своего» — the coach's; «уведи своего» — yours
+        named = _addressee(clause, ctx)
+        if named is not None:
+            return named
+        if student is None:
+            return None
+        if _FIRST_PERSON.match(verb or ""):
+            return not student
+        return student if _IMPERATIVE.match(verb or "") and not _FIRST_PERSON.match(verb or "") else None
+    if p.startswith(("тво", "ваш", "your")):
         return student
     if p.startswith(("мо", "my")):
-        return not student
-    return None
+        return None if student is None else not student
+    return _addressee(clause, ctx)
 
 
 def _candidate_boards(ctx) -> list:
@@ -562,11 +664,10 @@ def advice_move_issues(lowered: str, original: str, ctx) -> list[str]:
                     or _is_hypothetical(lowered, original, m.start(), played=_just_played(ctx)) \
                     or _DENIED_AFTER.search(lowered[m.end():m.end() + 40].split(",")[0]):
                 continue
+            if re.match(r"\s*(?:через|via|through|by\s+way\s+of)" + _E, lowered[m.end():], re.IGNORECASE):
+                continue  # «увести на d7 через b8»: a manoeuvre of several moves (review 30.10, Breyer's Nb8-d7)
             targets = [m["t1"]] + re.findall(SQ, m["more"] or "")
-            owner = _owner(m["poss"], ctx)
-            if owner is None:  # «чёрным надо увести ферзя», «белые должны отвести слона»
-                side = re.findall(_B + r"(бел(?:ым|ые|ых)|ч[её]рн(?:ым|ые|ых)|white|black)" + _E, clause[-60:])
-                owner = (chess.WHITE if side[-1].startswith(("бел", "white")) else chess.BLACK) if side else None
+            owner = _owner(m["poss"], verb, clause, ctx)
             bad, primary = [], None
             for t in dict.fromkeys(targets):
                 to = chess.parse_square(t)
@@ -626,52 +727,80 @@ _UNDER = (r"(?:под\s+(?:ударом|боем|атакой)|в\s+опасно
 _HOLDS = r"(?:защищ[её]н\w*|прикрыт\w*|в\s+безопасности|defended|protected|covered|safe)"
 _SIDE_WORDS = (r"(?:у\s+(?:тебя|вас|меня|нас|белых|ч[её]рных|соперника|противника|него|них)|сейчас|здесь|тут|теперь|"
                r"is|are|now|right\s+now)")
+# «только что» (just now) and «лишь только» (as soon as) are times, not limits (review 30.10: «Только что твой слон
+# оказался под ударом» read as «only the bishop»).
+_ONLY_WORD = r"(?:только(?!\s+что)|лишь(?!\s+только)|only|just(?!\s+now))"
 _ONLY = [
     # «под ударом у тебя только слон c4», «hanging is only the bishop»
-    re.compile(_UNDER + rf"\s+(?:{_SIDE_WORDS}\s+){{0,3}}(?P<only>только|лишь|only|just)\s+(?P<what>[^.,;:!?—–()]{{1,40}})",
+    re.compile(_UNDER + rf"\s+(?:{_SIDE_WORDS}\s+){{0,3}}(?P<only>{_ONLY_WORD})\s+(?P<what>[^.,;:!?—–()]{{1,40}})",
                re.IGNORECASE),
     # «только слон c4 под ударом», "only the bishop is hanging"
-    re.compile(rf"(?<![а-яa-z])(?P<only>только|лишь|only)\s+(?P<what>[^.,;:!?—–()]{{1,40}}?)\s+(?:{_SIDE_WORDS}\s+){{0,2}}"
+    re.compile(rf"(?<![а-яa-z])(?<!лишь\s)(?P<only>{_ONLY_WORD})\s+(?P<what>[^.,;:!?—–()]{{1,40}}?)\s+(?:{_SIDE_WORDS}\s+){{0,2}}"
                + _UNDER, re.IGNORECASE),
     # «единственная фигура под ударом — слон c4», "the only piece hanging is the bishop on c4"
     re.compile(r"(?P<only>единственн\w+|the\s+only)\s+(?:(?:фигур\w*|пешк\w*|piece|thing|target)\s+)?(?:(?:котор\w+|что|that|which)\s+)?"
                rf"(?:{_SIDE_WORDS}\s+){{0,2}}" + _UNDER + r"\s*(?:[—–:-]|это|is|,)?\s*(?P<what>[^.,;!?()]{1,40})", re.IGNORECASE),
 ]
+# After «только» an attacker, not the attacked: «под ударом только у коня a5», «атакован только конём», «под ударом
+# только ферзя d8», "attacked only by the knight" — the attackers of one piece, not the list of what is attacked
+# (review 30.10).
+_PIECE_STEM = r"(?:ферз|ладь|слон|кон|корол|пешк|фигур)"
+_ATTACKER_FORM = re.compile(
+    r"\s*(?:у|by|from|со\s+стороны|одн(?:ой|им|ого)|(?:[а-яё]+(?:ого|его|ым|им)\s+)?"
+    r"(?:ферз[её]м|ферзя|ладь[её]й|ладьи|слоном|слона|кон[её]м|коня|корол[её]м|короля|пешкой|пешки|фигурой|фигуры|"
+    r"пешками|фигурами|слонами|конями|ладьями|ферзями))" + _E, re.IGNORECASE)
 _ELSE = [
     # «больше ничего не висит», «кроме него у тебя ничего не под ударом», "nothing else is hanging"
-    re.compile(r"(?<![а-яa-z])(?:больше|кроме\s+[^,.;!?]{1,30}?)\s*,?\s*(?:у\s+\S+\s+)?(?:ничего|никто|ни\s+одна\s+(?:фигура|пешка))\s+"
+    re.compile(r"(?<![а-яa-z])(?:больше|кроме\s+[^,.;!?]{1,30}?)\s*,?\s*(?:у\s+\S+\s+)?(?:ничего|никто|ни\s+одна\s+(?P<scope>фигура|пешка))\s+"
                r"(?:у\s+\S+\s+)?(?:сейчас\s+|здесь\s+|тут\s+)?не\s+" + _UNDER, re.IGNORECASE),
     re.compile(r"(?<![a-z])nothing\s+else\s+(?:of\s+\w+\s+)?(?:is\s+)?" + _UNDER, re.IGNORECASE),
     # «остальное защищено», «все остальные фигуры в безопасности», "everything else is protected"
     re.compile(r"(?<![а-яa-z])(?:все\s+остальн\w+|вс[её]\s+остальное|остальн\w+|все\s+прочие|прочие|everything\s+else|"
-               r"(?:all\s+)?the\s+rest)\s+(?:(?:тво\w+|мо\w+|бел\w+|ч[её]рн\w+|фигур\w*|пешк\w*|сейчас|здесь|тут|is|are|"
+               r"(?:all\s+)?the\s+rest)\s+(?:(?:тво\w+|мо\w+|бел\w+|ч[её]рн\w+|(?P<scope>фигур\w*|пешк\w*)|сейчас|здесь|тут|is|are|"
                rf"pieces)\s+){{0,3}}(?:надежно\s+|над[её]жно\s+|хорошо\s+|прочно\s+|well\s+)?(?P<holds>{_HOLDS})"
                r"|(?<![а-яa-z])(?:все\s+остальн\w+|вс[её]\s+остальное|остальн\w+)\s+(?:\S+\s+){0,2}?не\s+" + _UNDER,
                re.IGNORECASE),
 ]
 _NOTHING = [
     # «у тебя ничего не висит», «ни одна фигура не под ударом», "nothing is hanging"
-    re.compile(r"(?<![а-яa-z])(?:ничего|ни\s+одна\s+(?:фигура|пешка)|ни\s+одной\s+фигуры)\s+(?:у\s+\S+\s+)?"
+    re.compile(r"(?<![а-яa-z])(?:ничего|ни\s+одна\s+(?P<scope>фигура|пешка)|ни\s+одной\s+(?P<scope2>фигуры|пешки))\s+(?:у\s+\S+\s+)?"
                r"(?:сейчас\s+|здесь\s+|тут\s+|пока\s+)?не\s+" + _UNDER + r"(?P<qual>\s+без\s+защиты)?", re.IGNORECASE),
-    re.compile(r"(?<![a-z])(?:nothing|no\s+(?:piece|pawn)s?)\s+(?:of\s+\w+\s+)?(?:is\s+|are\s+)?" + _UNDER, re.IGNORECASE),
+    re.compile(r"(?<![a-z])(?:nothing|no\s+(?P<scope>piece|pawn)s?)\s+(?:of\s+\w+\s+)?(?:is\s+|are\s+)?" + _UNDER, re.IGNORECASE),
 ]
+# A part of the sentence that names who attacks: «— его атакуют чёрные», «, на него напал конь a5», «бьют конь f6 и
+# ферзь d8». Its colour and pieces are the attackers', not the side asked about nor the pieces told as attacked
+# (review 30.10: «Под ударом у тебя только слон c4 — его атакуют чёрные» checked Black's pieces; «…его атакует конь
+# a5» hid White's hanging knight g5).
+_PARTS = re.compile(r"[,;:—–()]|\s(?:а|но|and|but|while)\s")
+_ACTIVE_ATTACK = re.compile(_B + r"(?:атаку(?:ет|ют)|атаковал\w*|напал\w*|напада\w*|бь[её]т|бьют|угрожа\w+|нацел\w+|"
+                            r"держит\s+под\s+ударом|attacks|attacking|hits|threatens)" + _E, re.IGNORECASE)
+
+
+def _without_attackers(text: str) -> str:
+    return " , ".join(part for part in _PARTS.split(text) if not _ACTIVE_ATTACK.search(part))
 
 
 def _side_of(sentence: str, ctx) -> Optional[bool]:
-    s = sentence.lower().replace("ё", "е")
+    """The side whose pieces the claim is about: whose they are («у тебя», «твой», «у чёрных») before a bare colour
+    word, and never the colour of the attacker."""
+    s = _without_attackers(sentence.lower().replace("ё", "е"))
     student = getattr(ctx, "student_color", None)
     if student is None and ctx.current is not None:
         student = ctx.current.turn  # a study board: the student plays the side to move
+    if re.search(_B + r"(?:у\s+тебя|у\s+вас|тво\w+|ваш\w+|your|you)" + _E, s):
+        return student
+    if re.search(_B + r"у\s+белых" + _E, s):
+        return chess.WHITE
+    if re.search(_B + r"у\s+черных" + _E, s):
+        return chess.BLACK
+    if re.search(_B + r"(?:у\s+меня|мо(?:й|я|е|и|их|им)|my|mine)" + _E, s) and getattr(ctx, "student_color", None) is not None:
+        return not ctx.student_color
     if re.search(_B + r"(?:белых|белые|белым|white)" + _E, s):
         return chess.WHITE
     if re.search(_B + r"(?:черных|черные|черным|black)" + _E, s):
         return chess.BLACK
     if re.search(_B + r"(?:соперник\w*|противник\w*|opponent)" + _E, s):
         return None if student is None else not student
-    if re.search(_B + r"(?:у\s+тебя|у\s+вас|тво\w+|ваш\w+|your|you)" + _E, s):
-        return student
-    if re.search(_B + r"(?:у\s+меня|мо(?:й|я|е|и|их|им)|my|mine)" + _E, s) and getattr(ctx, "student_color", None) is not None:
-        return not ctx.student_color
     return None
 
 
@@ -683,6 +812,36 @@ def _named(text: str) -> tuple[set, set]:
         if t is not None and (len(w) > 3 or w in ("конь", "коня", "king")):
             types.add(t)
     return squares, types
+
+
+def _told_attacked(text: str) -> tuple[set, set]:
+    """What the sentence names as attacked: every square (a square holding an attacker excludes nothing), and the
+    piece types named without a square outside the attackers' part — not «конём», «у коня», "by the knight"."""
+    squares, _ = _named(text)
+    types = set()
+    rest = _without_attackers(text.lower().replace("ё", "е"))
+    for m in re.finditer(r"(?<![а-яa-z])(?P<pre>(?:у|by(?:\s+(?:the|a|an|your|my))?)\s+)?(?P<w>[а-яa-z]+)", rest):
+        w, t = m["w"], _ptype(m["w"])
+        if t is None or not (len(w) > 3 or w in ("конь", "коня", "king")) or m["pre"]:
+            continue
+        if re.search(r"(?:ом|[её]м|ой|[её]й|ью|ами|ями)$", w) and not w.startswith("king"):
+            continue  # instrumental: the attacker («атакован конём»)
+        if re.match(rf"\s+(?:на\s+|on\s+)?{SQ}(?![0-9])", rest[m.end():]):
+            continue  # «конь a5»: its square names it
+        types.add(t)
+    return squares, types
+
+
+def _names_attackers(lowered: str, m) -> bool:
+    """«только» limits who attacks, not what is attacked: «под ударом только у коня a5», «атакован только конём»,
+    «Твой слон c4 под ударом только …» (the attacked piece already named before the verb)."""
+    if _ATTACKER_FORM.match(m["what"] or ""):
+        return True
+    head = re.split(r"[.;!?,—–:]", lowered[:m.start()])[-1]
+    if m.re is _ONLY[0]:
+        sq, types = _named(head)
+        return bool(sq or types)
+    return False
 
 
 def _exposed_text(board: chess.Board, items: list) -> str:
@@ -714,6 +873,8 @@ def exhaustive_attack_issues(lowered: str, original: str, ctx, state: dict) -> l
         for m in rx.finditer(lowered):
             if re.search(r"(?:не|not)\s*$", lowered[:m.start("only")]):
                 continue  # «под ударом не только слон» says the opposite
+            if _names_attackers(lowered, m):
+                continue
             claims.append((m, "only", m["what"]))
     for rx in _ELSE:
         for m in rx.finditer(lowered):
@@ -730,7 +891,7 @@ def exhaustive_attack_issues(lowered: str, original: str, ctx, state: dict) -> l
         if _is_hypothetical(lowered, original, m.start(), played=_just_played(ctx)) or _quoted(lowered, m.start()) \
                 or _STUDENT_IDEA.search(lowered[:m.start()]):
             continue
-        named_sq, named_types = _named(lowered)
+        named_sq, named_types = _told_attacked(lowered)
         side = _side_of(lowered, ctx)
         if kind == "only":
             what_sq, what_types = _named(what)
@@ -755,6 +916,12 @@ def exhaustive_attack_issues(lowered: str, original: str, ctx, state: dict) -> l
         items = [it for it in exposed_pieces(board, side) if (exchange_gain(board, it[0]) or 0) > 0]
         if kind.endswith("_hold"):
             items = [it for it in items if it[1] == "hanging"]  # «защищено»: a piece with a defender is defended
+        # «ни одна фигура не под ударом»: a фигура is not a pawn (review 30.10 — only the e4 pawn was attacked)
+        scope = (m.groupdict().get("scope") or m.groupdict().get("scope2") or "").lower()
+        if scope.startswith(("фигур", "piece")):
+            items = [it for it in items if board.piece_type_at(it[0]) != chess.PAWN]
+        elif scope.startswith(("пешк", "pawn")):
+            items = [it for it in items if board.piece_type_at(it[0]) == chess.PAWN]
         items = [it for it in items if it[0] not in named_sq and board.piece_type_at(it[0]) not in named_types]
         if not items:
             continue
@@ -764,6 +931,24 @@ def exhaustive_attack_issues(lowered: str, original: str, ctx, state: dict) -> l
                  "none_hold": "it is not true that nothing is left undefended"}[kind]
         out.append(f"{claim} — {who} has more under attack on the board: {_exposed_text(board, items)}")
     return list(dict.fromkeys(out))
+
+
+def seed_facts_state(ctx, said_before: str) -> None:
+    """What the coach said before this sentence in the same answer — for a check that sees one sentence at a time
+    (POST voice/check): «Больше ничего не висит» after «Под ударом у тебя слон c4» excludes what that one named
+    (review 30.10: the voice coach's «больше ничего» was never read)."""
+    if ctx is None or not (said_before or "").strip():
+        return
+    state = ctx.__dict__.setdefault("_facts_state", {"n": 0, "squares": set(), "types": set(), "side": None})
+    lowered = said_before.lower()[-1500:]
+    squares, types = _told_attacked(lowered)
+    state["n"] += 1
+    state["squares"] |= squares
+    state["types"] |= types
+    if ctx.current is not None:
+        side = _side_of(lowered, ctx)
+        if side is not None:
+            state["side"] = side
 
 
 # ── one entry for src/answer_check.check_sentence ─────────────────────────────────────────────────────────────────
@@ -784,7 +969,7 @@ def record_fact_issues(lowered: str, original: str, ctx) -> list[str]:
     except Exception:  # noqa: BLE001
         logger.debug("exhaustive_attack_issues failed", exc_info=True)
     if lowered.strip():
-        squares, types = _named(lowered)
+        squares, types = _told_attacked(lowered)
         state["n"] += 1
         state["squares"] |= squares
         state["types"] |= types
